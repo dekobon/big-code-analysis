@@ -4,729 +4,601 @@ Hard-won principles from debugging real bugs in this workspace. Each
 entry is grounded in specific issues and pull requests and is written to
 be re-applicable to future work — not a postmortem of one incident.
 
+**Each entry leads with `**Lesson:**` — the instruction.** What follows
+is the mechanism that makes the failure invisible, then the evidence. If
+you arrived here from a `(lesson #N)` comment in the source, the first
+paragraph is what you came for.
+
+**Standing obligations live in rules, not here.** A lesson is evidence
+that a bug class is real; a rule is what you follow without re-reading
+the evidence. Three rule files carry the checklists these lessons
+produced, and entries below point at them rather than restating them:
+
+- [`.claude/rules/grammar-dispatch.md`](../../.claude/rules/grammar-dispatch.md)
+  — per-language `match node.kind_id()` arms, aliased variants, child
+  addressing, cross-predicate parity.
+- [`.claude/rules/testing.md`](../../.claude/rules/testing.md) —
+  test-via-revert, perturbation, coverage-vs-protection, harness
+  normalisation, assertion shapes that are wrong by construction.
+- [`.claude/rules/formatting.md`](../../.claude/rules/formatting.md) —
+  rustfmt's silent bail on in-pattern comments.
+
+Project policy lives in [`AGENTS.md`](../../AGENTS.md). Where a lesson's
+takeaway became policy, the entry keeps its evidence and points there;
+the policy is not duplicated, because the copy nothing enforces is the
+one that drifts.
+
 New entries cite issue and PR numbers, not commit hashes: this
 repository rebase-merges, so a hash written alongside the change it
 describes is rewritten when the PR lands. Older entries still carry
 hashes and are left as they are.
 
 New entries are appended at the end with the next sequential number.
-Other skills under `.claude/skills/` may reference lessons by number;
-treat renumbering as a breaking change.
+Roughly sixty files — including production source, the cross-language
+parity tests, `AGENTS.md`, `CONTRIBUTING.md`, the book, and the
+`Makefile` — reference lessons by number. **Renumbering is a breaking
+change.** When two entries merge, the text survives under the lower
+number and the higher number stays as a redirect.
+
+## Index
+
+| # | Lesson |
+|---|--------|
+| [1](#1-trait-implementations-are-not-metric-implementations) | A no-op `implement_metric_trait!` arm emits zero with no signal |
+| [2](#2-tree-sitter-aliases-one-rule-across-many-kind_ids--match-every-variant) | Tree-sitter aliases one rule across many kind_ids |
+| [3](#3-per-language-modules-mirror-each-other--fix-the-bug-in-every-sibling) | Per-language modules mirror each other — fix every sibling |
+| [4](#4-halstead-n1n2-and---ops-come-from-different-stores--keep-them-in-sync) | Halstead `n1`/`n2` and `--ops` come from different stores |
+| [5](#5-library-code-must-not-panic-on-reachable-error-paths) | Library code must not panic on reachable error paths |
+| [6](#6-snapshot-tests-pin-behaviour-not-correctness) | Snapshot tests pin behaviour, not correctness |
+| [7](#7-test-infrastructure-deserves-the-rigor-of-production-code) | Test infrastructure deserves the rigor of production code |
+| [8](#8-integration-snapshot-drift-hides-in-the-submodule-not-the-parent) | Integration snapshot drift hides in the submodule |
+| [9](#9-the-grammars-root-may-not-be-unit--push-a-synthetic-wrapper) | The grammar's root may not be `Unit` |
+| [10](#10-same-language-construct-different-ast-shape--detection-must-be-grammar-aware) | Same construct, different AST shape across grammars |
+| [11](#11-the-same-metric-across-languages-must-agree-on-the-same-logical-construct) | The same metric must agree across languages |
+| [12](#12-tree-sitter-nodechildrencursor-resets-the-cursor-to-self) | `Node::children(cursor)` resets the cursor to `self` |
+| [13](#13-tokiotaskspawn_blocking-is-uncancellable) | `tokio::task::spawn_blocking` is uncancellable |
+| [14](#14-forked-language-enums-collapse-via-shared-identifiers) | Forked language enums collapse via shared identifiers |
+| [15](#15-workspace-excluded-crates-drift-outside-every-workspace-scoped-gate) | Workspace-excluded crates drift outside every gate |
+| [16](#16-shellchecks-default-severity-is-style-not-warning) | shellcheck's default severity is `style`, not `warning` |
+| [17](#17-merged-into-lesson-15) | *merged into 15* |
+| [18](#18-cargo-clippy---fix-is-one-lint-at-a-time) | `cargo clippy --fix` is one lint at a time |
+| [19](#19-metric-dispatch-enumerates-kinds--missing-arms-score-valid-constructs-as-zero) | Missing dispatch arms score valid constructs as zero |
+| [20](#20-pathbufjoinabsolute-silently-replaces-the-base) | `PathBuf::join(absolute)` silently replaces the base |
+| [21](#21-hidden-rule-alias-nodes-extend-their-byte-range-to-the-shared-delimiter) | Alias nodes extend their byte range past the delimiter |
+| [22](#22-text-keyed-semantic-markers-force-trait-signatures-to-carry-source-bytes) | Text-keyed markers force `&[u8]` into trait signatures |
+| [23](#23-compensation-constants-in-parity-tests-blind-the-test-to-its-own-purpose) | Compensation constants blind a parity test |
+| [24](#24-a-cross-cutting-traversal-feature-must-reach-finalize-and-span-derived-metrics) | Cross-cutting traversal features miss non-accumulated metrics |
+| [25](#25-crate-root-pub-use-module-silently-leaks-every-newly-pub-sub-module-item) | Crate-root `pub use module::*` leaks the API surface |
+| [26](#26-feature-gating-a-generic-dispatcher-forces-the-return-type-to-widen-to-result) | Feature-gating a generic dispatcher widens it to `Result` |
+| [27](#27-share-a-private-walker-across-deprecation-shims-to-keep-them-thin) | Share a private walker across deprecation shims |
+| [28](#28-hand-rolled-serialize-with-conditional-fields-must-pre-count-for-cbor) | Hand-rolled `Serialize` must pre-count for CBOR |
+| [29](#29-compile-test-api-doc-samples-by-linking-against-a-scratch-crate-not-mdbook-test) | Compile-test doc samples against a scratch crate |
+| [30](#30-user-facing-comment-markers-should-match-the-codebases-internal-vocabulary) | User-facing markers match internal vocabulary |
+| [31](#31-shared-structural-fixes-need-a-structural-assertion-in-every-per-metric-test) | Shared structural fixes need a structural assertion each |
+| [32](#32-source-grep-regression-tests-are-theater) | Source-grep regression tests are theater |
+| [33](#33-test-via-revert-proves-coverage-one-slot-at-a-time) | Test-via-revert proves coverage one slot at a time |
+| [34](#34-tree-sitter-hidden-rule-variants-exist-in-the-enum-but-never-surface) | Hidden-rule variants exist in the enum but never surface |
+| [35](#35-two-predicates-classifying-the-same-node-must-agree) | Two predicates classifying the same node must agree |
+| [36](#36-serde_jsonto_value-re-sorts-json-object-keys-via-btreemap) | `serde_json::to_value` re-sorts object keys |
+| [37](#37-cpython-oserrorerrno-msg-filename-dispatches-to-the-right-subclass) | CPython `OSError` arity picks the subclass |
+| [38](#38-co-pinned-runtime--build-time-companion-crates-must-share-an-exact-patch) | Co-pinned runtime + build-time crates need exact pins |
+| [39](#39-non_exhaustive-enum-wildcards-are-required-not-tripwires) | `#[non_exhaustive]` wildcards are required, not tripwires |
+| [40](#40-cfgunix----inside-a-test-body-silently-passes-on-other-targets) | `#[cfg]` inside a test body passes vacuously off-target |
+| [41](#41-clone-based-hasheq-tests-dont-pin-the-dedup-contract) | Clone-based hash/eq tests pin only the derive |
+| [42](#42-unreachable-at-a-pyo3-ffi-boundary-surfaces-as-panicexception) | `unreachable!()` at a PyO3 boundary bypasses `except` |
+| [43](#43-to_string_lossy-on-a-path-field-promoted-into-hash--partialeq-keys-silently-collapses-dedup) | Lossy rendering in a `Hash` key collapses dedup |
+| [44](#44-rusts--debug-format-escapes-non-printables-as-un-which-pythons-parser-rejects) | Rust `{:?}` escapes break Python's `eval(repr(x))` |
+| [45](#45-xml-attribute-value-normalization-collapses-raw-tab--lf--cr) | XML attribute normalization collapses TAB/LF/CR |
+| [46](#46-a-pasted-bom-literal-is-three-latin-1-codepoints-not-ufeff) | A pasted BOM literal is three Latin-1 codepoints |
+| [47](#47-bound-the-thread-stack-to-make-stack-overflow-tests-deterministic) | Bound the stack to make overflow tests deterministic |
+| [48](#48-hand-written-enum-lists-need-a-match-based-companion-to-enforce-exhaustiveness) | Hand-written enum lists need a match-based companion |
+| [49](#49-unused-macro_rules-captures-are-documentation-lies) | Unused `macro_rules!` captures are documentation lies |
+| [50](#50-independent-dispatch-paths-counting-the-same-event-mask-each-others-bugs) | Independent paths summing one field mask each other |
+| [51](#51-hand-rolled-match-arms-drift-from-their-enum-list-without-an-integration-coverage-guard) | Hand-rolled dispatch arms need a non-tautological test |
+| [52](#52-pre-order-traversal-evaluates-parents-before-children) | Pre-order visits parents first — child-arm resets are late |
+| [53](#53-positional-nodechildidx-breaks-when-the-grammar-permits-an-optional-preamble-slot) | Positional `node.child(idx)` breaks on optional preambles |
+| [54](#54-a-no-op-regen-must-be-proven-by-an-actual-regen--diff) | A "no-op regen" must be proven by regen + diff |
+| [55](#55-a-complexity-score-can-be-a-metric-artifact) | A complexity score can be a metric artifact |
+| [56](#56-a-similarity-hash-must-exclude-the-dimension-it-claims-to-be-insensitive-to) | A similarity hash must exclude what it tolerates |
+| [57](#57-a-structural-ast-shape-is-not-a-semantic-identity-check) | Structural shape is not a semantic identity check |
+| [58](#58-a-wrapper-node--keyword-leaf-is-one-operator-not-two) | A wrapper node + keyword leaf is one operator |
+| [59](#59-a-rule-re-implemented-in-every-module-is-a-recurring-regression-class--give-it-one-home) | A rule re-implemented everywhere needs one home |
+| [60](#60-fails-on-the-branch-is-not-fails-on-main) | "Fails on the branch" is not "fails on `main`" |
+| [61](#61-the-label-child-node-kind-is-grammar-specific) | The label-child node kind is grammar-specific |
+| [62](#62-recovering-a-poisoned-mutex-needs-clear_poison-not-just-into_inner) | A poisoned `Mutex` needs `clear_poison()` |
+| [63](#63-opening-a-funcspace-for-a-method-nested-node-double-counts-the-ancestors-wmc) | A method-nested FuncSpace double-counts the class's WMC |
+| [64](#64-a-defaultfallback-arm-exclusion-is-per-construct) | A default-arm exclusion is per-construct |
+| [65](#65-removing-a-node-kind-from-is_func--is_func_space-zeroes-its-childless-variant) | Removing a dispatch kind zeroes its childless variant |
+| [66](#66-a-control-flow-construct-with-no-dedicated-grammar-kind-escapes-every-kind-based-dispatcher) | Control flow with no dedicated kind escapes dispatchers |
+| [67](#67-compute-it-once-is-the-wrong-altitude-when-the-consumers-dont-share-the-transforms-parameters) | "Compute it once" fails on heterogeneous parameters |
+| [68](#68-a-branch-that-looks-unreachable-may-need-a-non-obvious-grammar-shape) | An unreachable-looking branch may need an odd grammar shape |
+| [69](#69-a-line-prefix-parser-must-disambiguate-structural-markers-from-body-content) | A line-prefix parser must disambiguate by parser state |
+| [70](#70-a-string-keyed-metadata-lookup-shared-across-tables-resolves-collisions-to-the-wrong-context) | A string-keyed lookup silently inherits the wrong metadata |
+| [71](#71-invalid-input-that-collapses-into-the-not-provided-branch-fails-as-success) | Invalid input collapsing into "not provided" exits 0 |
+| [72](#72-a-breaking-change-must-sweep-the-encodings-of-the-old-contract-not-just-its-name) | Sweep the encodings of the old contract, not its name |
+| [73](#73-a-filter-that-silently-matches-nothing-is-load-bearing) | A filter that matches nothing is load-bearing |
+| [74](#74-a-language-that-owns-no-file-extension-has-no-snapshot-coverage) | A language owning no extension has no snapshot coverage |
+| [75](#75-a-metric-assertion-that-passes-under-the-wrong-grammar-verifies-nothing) | An assertion passing under the wrong grammar verifies nothing |
+| [76](#76-merged-into-lesson-24) | *merged into 24* |
+| [77](#77-issue-references-in-a--doc-comment-leak-into---help-and-the-man-pages) | Issue references in `///` leak into `--help` and `man/` |
+| [78](#78-merged-into-lesson-59) | *merged into 59* |
+| [79](#79-key-the-derived-digest-not-the-pre-image) | Key the derived digest, not the pre-image |
+| [80](#80-an-assertion-that-only-runs-at-release-time-rots-silently) | A release-only assertion rots silently |
+| [81](#81-de-recursing-a-traversal-does-not-de-recurse-the-type-it-walks) | De-recursing walks does not de-recurse the type |
+| [82](#82-when-several-predicates-need-an-ancestor-propagate-the-chain-not-a-flag-per-predicate) | Propagate the ancestor chain, not a flag per predicate |
+| [83](#83-a-categorical-proxy-for-a-positional-property-is-wrong-in-both-directions) | A categorical proxy for a positional property fails both ways |
+| [84](#84-a-factual-claim-in-prose-is-untested-code) | A factual claim in prose is untested code |
+| [85](#85-coverage-measures-execution-not-discrimination) | Coverage measures execution, not discrimination |
+| [86](#86-a-test-helper-that-normalizes-the-value-under-test-blinds-every-caller-at-once) | A helper normalising the observation blinds every caller |
+| [87](#87-an-assertion-can-be-correct-and-still-be-about-the-wrong-rows) | An assertion can be about the wrong rows |
 
 ---
 
 ## 1. Trait implementations are not metric implementations
 
-Routing a new language through `implement_metric_trait!(...)` (the
-default no-op macro in `src/macros.rs`) satisfies the type system but
-silently emits zero for every input. There is no compile-time signal,
-no runtime warning, and the test suite passes because zero is a valid
-metric value, not a sentinel for "unimplemented." Default impls exist
-for genuinely-inapplicable cases (`PreprocCode`, `CcommentCode`, or
-`wmc`/`npa`/`npm` for languages without classes), so the no-op path
-must stay; it just cannot be the default for every newly-added
-language.
+**Lesson:** When adding a language, audit which metrics genuinely do not
+apply (`wmc`/`npa`/`npm` for non-class languages, `nargs` for languages
+without formal parameters) and which were merely deferred. A new entry
+in `implement_metric_trait!(Cognitive, ...)` — or any of the seven
+metric-trait no-op blocks — must be a deliberate decision carrying a
+one-line justification, not a leftover from scaffolding. Add a positive
+test that exercises non-trivial control flow and asserts a **non-zero**
+value before declaring the language done.
+
+Routing a language through the default no-op macro in `src/macros.rs`
+satisfies the type system and silently emits zero for every input.
+There is no compile-time signal, no runtime warning, and the suite
+passes because zero is a valid metric value, not a sentinel for
+"unimplemented". Genuine no-ops must stay (`PreprocCode`,
+`CcommentCode`, `wmc`/`npa`/`npm` for classless languages) — they just
+cannot be the default for a newly-added language.
 
 **Bash Cognitive / Exit / ABC silently zero for every script** (#71,
-`d2be869`). `BashCode` was wired through the no-op macro for
-Cognitive, NEXITS, and ABC. Every Bash file in every report read `0`
-on those columns regardless of how complex the script was; downstream
-aggregations and Maintainability Index ranked Bash as artificially
-clean. The fix required real implementations, follow-up refactors,
-and a breaking signature change to `Exit::compute` (it now takes
-`code: &[u8]` because Bash parses `return` and `exit` as ordinary
-`Bash::Command` nodes that must be discriminated by source text, not
-by node kind).
+`d2be869`). Every Bash file in every report read `0` on those columns
+regardless of script complexity, and Maintainability Index ranked Bash
+as artificially clean. The fix needed real implementations plus a
+breaking signature change to `Exit::compute` (now `code: &[u8]`, because
+Bash parses `return` and `exit` as ordinary `Bash::Command` nodes
+discriminated by source text, not node kind).
 
-**Lesson:** When adding a language, audit which metrics genuinely do
-not apply (`wmc`/`npa`/`npm` for non-class languages, `nargs` for
-languages without formal parameters) and which were merely deferred.
-A new entry in `implement_metric_trait!(Cognitive, ...)` or any of the
-seven metric-trait no-op blocks must be a deliberate decision with a
-one-line justification, not a leftover from scaffolding. Add a
-positive test that exercises non-trivial control flow and asserts a
-non-zero metric value before declaring the language done.
-
-**Audit (#188):** the full default-impl matrix is now documented at
-each `implement_metric_trait!` invocation site in `src/macros.rs`
-callers (`src/metrics/abc.rs`, `cognitive.rs`, `npa.rs`, `npm.rs`,
-`wmc.rs`, `mi.rs`, `loc.rs`, `cyclomatic.rs`, `exit.rs`,
-`halstead.rs`). Each (language, metric) pair is classified as either
-a *real default* (the language has no construct the metric measures
-— a comment captures the reason) or a *placeholder* (the language
-HAS the construct but no impl exists — a comment references the
-follow-up issue, and a smoke test under `mod tests` pins the current
-0 value so the assertion fires when the real impl lands). Mi turned
-out to be a non-issue: its `[Trait]` arm inherits the trait's
-default `compute` method, which works for every language (see
-issue #207). Note the bracketed-trait arm (`[Tokens]`, `[Nom]`, `[NArgs]`,
-`[Mi]`) is *not* a no-op; only the named-trait arms (`Abc`,
-`Cognitive`, `Halstead`, …) emit silent-zero bodies.
+**Audit (#188).** The full default-impl matrix is now documented at each
+`implement_metric_trait!` invocation site. Every (language, metric) pair
+is classified as a *real default* (a comment gives the reason) or a
+*placeholder* (a comment cites the follow-up issue and a smoke test pins
+the current 0 so the assertion fires when the real impl lands). Note the
+bracketed-trait arms (`[Tokens]`, `[Nom]`, `[NArgs]`, `[Mi]`) are *not*
+no-ops — they inherit a working trait default; only the named-trait arms
+(`Abc`, `Cognitive`, `Halstead`, …) emit silent-zero bodies (#207).
 
 ---
 
 ## 2. Tree-sitter aliases one rule across many kind_ids — match every variant
 
-When the same grammar rule (`primitive_type`, `identifier`,
-`member_expression`, `heredoc_body`) appears in different positions
-in a tree-sitter grammar, the generator emits N distinct kind_ids
-all mapping to the same `node.kind()` string. The unsuffixed variant
-(`PrimitiveType`) and the suffixed variants (`PrimitiveType2`,
-`PrimitiveType3`, …) are different `u16`s. Code that matches only
-the unsuffixed variant in `getter.rs` / `checker.rs` silently drops
-the rest — it compiles, runs, and returns wrong numbers. The
-asymmetry is invisible until a snapshot test happens to exercise the
-specific keyword that maps to the aliased ID, or until a downstream
-metric (Halstead `n1`, primitive-type detection) goes inexplicably
-low.
+**Lesson:** Follow
+[`grammar-dispatch.md` §1](../../.claude/rules/grammar-dispatch.md) —
+after any grammar bump, regenerate the enum *first* (both manifests in
+lockstep), then confirm every numeric-suffix variant of every matched
+rule is listed or excluded with a comment. Named-node stability is not
+evidence the ids held. When a rule has many aliases, prefer one
+`node.kind()` string comparison over enumerating seventeen variants.
 
-**Rust `PrimitiveType2`-`PrimitiveType17` not matched in `is_primitive`
-or Halstead** (#40, `274eb74`). The Rust grammar has 17 numeric
-variants for `primitive_type` (one per primitive keyword position).
-Only id 32 was matched; ids 33-48 fell through to `Unknown`.
+When one grammar rule appears in several positions, the generator emits
+N distinct kind_ids all mapping to the same `node.kind()` string.
+`PrimitiveType` and `PrimitiveType2` are different `u16`s. Code matching
+only the unsuffixed variant compiles, runs, and returns wrong numbers —
+invisible until a snapshot happens to exercise the aliased keyword or a
+downstream metric goes inexplicably low.
 
-**Java primitive types missing from Halstead operators** (#36,
-`4e55756`). 6 of 9 (`byte`, `short`, `long`, `char`, `double`,
-`boolean`) were unclassified.
+Seven instances, one bug class: Rust `PrimitiveType2`–`PrimitiveType17`
+unmatched in `is_primitive` and Halstead (#40, `274eb74`); 6 of 9 Java
+primitive types missing from Halstead operators (#36, `4e55756`);
+JS-family `MemberExpression3`/`4` and `Identifier2` (#50, `c744809`); Go
+`BlankIdentifier` and aliased `Identifier2`/`3` (#49, `e884abc`); Bash
+`HeredocBody2` — where the *implemented* `HeredocBody` was the id that
+never surfaces (#44, `e487a25`); C# `InvocationExpression` /
+`ParenthesizedExpression` / `PrefixUnaryExpression` / `VariableDeclaration`
+across four files (#94, `f042659`); and JS/TS/TSX `String2` plus a TSX
+`String3` for JSX attribute strings that the issue description itself
+missed (#119, `fbf047d`). C# is notable because it shipped *after* this
+lesson was written — the class applies as much to a fresh language as to
+a grammar bump. The reach extends past `getter.rs` / `checker.rs` to
+`alterator.rs`, `spaces.rs`, and every file under `src/metrics/`.
 
-**JS-family aliased operand variants** (#50, `c744809`).
-`MemberExpression3`, `MemberExpression4`, and `Identifier2` were
-unclassified across JavaScript, Mozjs, TypeScript, and TSX.
+**Ruby needs the named clause, not the keyword token** (#190,
+`c42edf2`). tree-sitter-ruby emits *two* kinds per control-flow
+boundary: a keyword token (`Else2`, `Elsif2`, `When2`) and a named
+clause (`Else`, `Elsif`, `When`), plus an implicit `Then` clause around
+every `if` body even with no `then` in source. Counting both
+double-counts; counting only the keyword misses implicit-`then` bodies.
+The Ruby `Abc` impl matches the named clause — a template for any
+grammar with this paired shape.
 
-**Go `BlankIdentifier` and aliased `Identifier2`/`Identifier3`** (#49,
-`e884abc`).
-
-**Bash `HeredocBody2` not matched in `is_string`** (#44, `e487a25`).
-The grammar exposes four body-related symbols; only `HeredocBody2`
-(id 218) actually surfaces in real parse trees, so the others are
-intentionally omitted — but the originally-implemented `HeredocBody`
-(id 153) was the *unused* one.
-
-**C# aliased `InvocationExpression` / `ParenthesizedExpression` /
-`PrefixUnaryExpression` / `VariableDeclaration` / `VariableDeclarator`
-not matched** (#94, `f042659`). The C# tree-sitter grammar emits 2-3
-numbered variants for each of those rules; the initial language-support
-commit matched only the unsuffixed variant in `checker.rs`,
-`metrics/abc.rs`, `metrics/cognitive.rs`, and `metrics/npa.rs`. Method
-invocations and attribute walks were silently undercounted; cognitive
-`!` detection and ABC parenthesised-condition descent were dropped
-outright. Notable because C#
-shipped *after* this lesson was already documented — the bug class
-applies just as much to a fresh language addition as it does to a
-grammar bump.
-
-**JS/TS/TSX `String2` (and TSX `String3`) not matched in alterator**
-(#119, `fbf047d`). The `MozjsCode` alterator correctly flattened both
-`String | String2`, but the three forked JS-family alterators matched
-only `String`. TSX had a third alias (`String3`) for JSX attribute
-strings that even the issue description missed — discovered only by
-enumerating all variants mapping to `"string"` in the language enum.
-The bug class extends beyond `getter.rs` / `checker.rs` to any match
-on a grammar rule: `alterator.rs`, `metrics/*.rs`, and `spaces.rs`
-are equally susceptible.
-
-**Ruby paired keyword-token and named-clause variants** (#190,
-`c42edf2`). tree-sitter-ruby emits *two* node kinds for each
-control-flow boundary: a keyword token (`Else2`, `Elsif2`, `When2`,
-`Rescue2`, `Then2`) plus a named clause (`Else`, `Elsif`, `When`,
-`Rescue`). The grammar also emits an implicit `Then` named clause
-around every `if`/`elsif` body even when the source has no explicit
-`then` keyword. Counting both the keyword token AND the named clause
-double-counts the structure once via the keyword and once via the
-clause; counting only the keyword token misses bodies that use the
-implicit `then`. The Ruby Abc impl in `src/metrics/abc.rs` matches
-the named clause node in each pair (the 200-range IDs), avoiding
-both pitfalls — a useful template for any future grammar that
-exposes the same paired shape.
-
-**A grammar bump can renumber anonymous-token IDs while every named
-node and the variant *set* stay stable** (#519, `ada17475`).
-tree-sitter-groovy v0.2.2 wired up a `;` statement terminator,
-inserting a new anonymous token at kind_id 2. That moved `SEMI` from
-13 to 2 and pushed the block of anonymous tokens that had occupied
-ids 2–12 — `Shebang`, `COMMA`, `COLON`, `LBRACE`, `RBRACE`, `If`,
-`LPAREN`, `RPAREN`, `Else`, `While`, `For` — each up by one (to
-3–13). Crucially, only ids 2–13 reshuffled: the *named* nodes (ids
-151+: `method_declaration`, `closure`, `block`), the operator tokens
-(`QMARKCOLON = 100`, `AMPAMP = 122`, `PIPEPIPE = 123`), and the
-variant *set* were all untouched, so the aliasing sweep above finds
-nothing wrong. But the **stale** `language_groovy.rs` still claimed
-`Else = 10`, while the live grammar now uses 10 = `)` and 11 = `else`.
-Cognitive's Groovy impl dispatches on the `else` *keyword token* (the
-grammar inlines it rather than emitting an `else_clause` node), so
-against the bumped grammar the stale enum fired the `Else` arm on
-every `)` and missed every real `else`.
-
-This was **not** silent. Four existing Groovy cognitive tests go red
-under the stale-enum-against-new-grammar combination (e.g.
-`groovy_cognitive_nested_else_if` inflates 5.0 → 10.0,
-`groovy_cognitive_if_inside_else_block_is_not_else_if` 4.0 → 6.0) —
-`cargo test` catches the shift loudly the moment a fixture exercises
-a renumbered token. The danger is not that the drift hides from the
-suite; it is that the *named*-node IDs look stable, which tempts you
-to skip the regeneration step and assume a behaviour change is your
-own bug. (The first hint here was a `bca dump` showing `{;:2}` where
-the enum said `Shebang = 2`, which is what prompted the regeneration
-before the bad enum was ever committed.) Named-node stability is *not*
-evidence the IDs held: inserting one terminal renumbers the whole
-anonymous block after it.
-
-**Lesson:** After bumping any tree-sitter grammar pin, regenerate the
-enum *first* — bump both manifests in lockstep (root `Cargo.toml` and
-`enums/Cargo.toml`; the excluded `enums` crate cannot inherit the
-workspace pin) and run `cargo run --manifest-path ./enums/Cargo.toml
--- -lrust -o ./src/languages`. Then `rg 'Lang::([A-Za-z]+)\b'
-src/getter.rs src/checker.rs src/alterator.rs src/spaces.rs
-src/metrics/` against the regenerated `language_<lang>.rs` and confirm
-every numeric-suffix variant of every matched rule is either
-explicitly listed or excluded with a comment. The test suite is a
-strong net — it caught the `else` shift above — but its coverage of
-anonymous tokens is uneven, so a renumbered token that no fixture
-exercises can still slip through; treat regeneration as a reflex, not
-a fallback, and spot-check a known anonymous token with `bca dump` to
-confirm its live id matches the enum. Mutation tests (or simple
-positive tests covering each token form) pin coverage and catch the
-next aliased variant the moment it appears. When in doubt, prefer
-matching by `node.kind()` string (one comparison) over enumerating
-17 enum variants — pay the small runtime cost for forward
-compatibility.
+**A grammar bump renumbers anonymous tokens while every named node holds
+still** (#519, `ada17475`). tree-sitter-groovy v0.2.2 added a `;`
+terminator at kind_id 2, pushing `Shebang`, `COMMA`, `If`, `LPAREN`,
+`RPAREN`, `Else`, `While`, `For` each up by one. Named nodes (151+),
+operator tokens, and the variant *set* were untouched, so the alias
+sweep above finds nothing — but the stale enum claimed `Else = 10` while
+the live grammar used 10 = `)`. Cognitive's Groovy impl dispatches on
+the `else` keyword token, so it fired on every `)` and missed every real
+`else`. This was **not** silent — four cognitive tests went red — and
+that is the trap: stable named-node ids tempt you to skip regeneration
+and blame your own change. The first hint was `bca dump` showing `{;:2}`
+where the enum said `Shebang = 2`.
 
 ---
 
 ## 3. Per-language modules mirror each other — fix the bug in every sibling
 
-The four JavaScript-family modules (`language_javascript.rs`,
-`language_mozjs.rs`, `language_typescript.rs`, `language_tsx.rs`)
-are deliberately structural twins — Mozjs was the original and the
-others were forked from it. A defect in the original almost always
-exists in 2-4 of the siblings. AGENTS.md captures this principle in
-the abstract; the concrete recurrence pattern is worth its own
-entry. The same applies to any future fork (e.g., a TypeScript
-variant or a JSX dialect).
+**Lesson:** Before claiming a fix in one module is complete, grep the
+siblings for the same identifier and apply the same change. Land them in
+**one commit** so the diff makes the symmetry visible; splitting across
+PRs hides it. `AGENTS.md` carries this as policy; the recurrence record
+below is why it is worth a mechanical check rather than good intentions.
 
-**JS/TS/TSX `get_func_space_name` returns wrong enum** (#37,
-`64c80b8`). All three modules referenced `Mozjs::*` in their
-`get_func_space_name` match because each was copy-pasted from
-Mozjs and the imports were never updated. Anonymous functions in
-JS, TypeScript, and TSX silently rendered as `<anonymous>` in the
-wrong language's namespace. One-line fix per module — three files
-modified, one bug class.
+```bash
+rg '<symbol_or_match_arm>' \
+  src/languages/language_{javascript,mozjs,typescript,tsx}.rs \
+  src/{getter,checker}.rs
+```
 
-**`is_else_if` checked `IfStatement` instead of `ElseClause`** (#38,
-`6fd6f79`). The parent of an `IfStatement` inside `else if` is an
-`ElseClause`, not another `IfStatement`. Two of the four siblings
-(JavaScript and TSX) had the wrong check while Mozjs and TypeScript
-already had it right — a reminder that "fork-of-Mozjs" is the
-common case but not universal: always grep all four, do not assume
-the bug is everywhere or nowhere.
+The four JS-family modules are deliberate structural twins — Mozjs was
+the original and the rest were forked from it — so a defect in one
+usually exists in two to four. The same holds for any fork
+(Java/Kotlin, C/C++/Mozcpp) and for the **per-metric** axis.
 
-**Modern operators `=>`, `...`, `?.` missing from all 4 JS-family
-Halstead classifications** (#42, `b0e27f2`). Same omission, four
-modules.
+Five same-omission-four-modules instances: `get_func_space_name`
+returning the wrong enum because imports were never updated after the
+copy-paste, so anonymous functions rendered in Mozjs's namespace (#37,
+`64c80b8`); modern operators `=>`, `...`, `?.` missing from all four
+Halstead classifications (#42, `b0e27f2`); `typeof` / `instanceof` /
+`void` misclassified as operands (#45, `18f6c48`); and `Do` not counted
+as an operator (#35, `68db037`).
 
-**`typeof` / `instanceof` / `void` misclassified as operands** (#45,
-`18f6c48`). Same misclassification, four modules.
+**"Fork of Mozjs" is the common case, not a universal** (#38,
+`6fd6f79`). `is_else_if` checked `IfStatement` instead of `ElseClause`
+in JavaScript and TSX while Mozjs and TypeScript were already correct.
+Grep all four; do not assume the bug is everywhere or nowhere.
 
-**`Do` keyword not counted as Halstead operator** (#35,
-`68db037`). Same omission, four modules.
-
-**`_min` sentinel guard propagated unevenly across the per-metric
-sibling axis** (#227, `e347260`). The lesson scope is per-language
-siblings, but the same fix-one-miss-the-others failure mode applies
-to per-metric siblings. `src/metrics/tokens.rs:115-127` documented
-and applied a `usize::MAX → 0.0` sentinel collapse in `tokens_min()`;
-`src/metrics/loc.rs` did the same at three sites for `sloc_min` /
-`ploc_min` / `cloc_min`. The remaining six metric files
-(`cognitive.rs`, `cyclomatic.rs`, `nom.rs`, `nargs.rs`, `exit.rs`,
-`abc.rs`) left their `_min` accessors leaking the raw `usize::MAX`
-(1.8446744e19) or `f64::MAX` (1.7976931e308) sentinel straight into
-JSON for any space that never observed a value. The tokens.rs guard
-predated and explicitly anticipated the propagation in its doc
-comment, but it had never landed. The fix added all six guards plus
-per-metric `<metric>_empty_file_min_is_zero` regression tests in one
-commit.
-
-**Lesson:** Before claiming any fix in a JS-family module is
-complete, grep the other three for the same identifier and apply
-the same change. The check is mechanical: `rg
-'<symbol_or_match_arm>' src/languages/language_{javascript,mozjs,typescript,tsx}.rs
-src/{getter,checker}.rs`. Land all sibling fixes in one commit so
-the diff makes the pattern visible to reviewers — splitting them
-across PRs hides the symmetry. The same discipline applies to any
-future trio (e.g., Java/Kotlin, C/C++/Mozcpp) and to the per-metric
-axis: a defensive guard added to one file under `src/metrics/`
-(sentinel collapses, interpolation child-kind guards, FIXME locks)
-must be propagated across the metric family with the same `rg`
-checklist.
+**The per-metric axis fails the same way** (#227, `e347260`).
+`tokens.rs` documented and applied a `usize::MAX → 0.0` sentinel
+collapse in `tokens_min()`, and `loc.rs` did the same at three sites —
+while `cognitive.rs`, `cyclomatic.rs`, `nom.rs`, `nargs.rs`, `exit.rs`,
+and `abc.rs` leaked the raw sentinel (1.8446744e19) straight into JSON
+for any space that never observed a value. The `tokens.rs` guard
+explicitly *anticipated* the propagation in its doc comment; it had
+never landed. A defensive guard added to one file under `src/metrics/`
+must be propagated across the family with the same `rg` checklist.
 
 ---
 
 ## 4. Halstead `n1`/`n2` and `--ops` come from different stores — keep them in sync
 
-`HalsteadMaps::operators` is an `IntKeyHashMap<u16, u64>` keyed by
-`node.kind_id()`. The `--ops` output is built from a parallel
-text-keyed structure plus the `primitive_types` `HashSet<String>`.
-Three independent failure modes have produced visibly disagreeing
-counts between Halstead `n1` (`self.operators.len()`) and the
-`--ops` operator list:
-
-**Many tokens collapse to one kind_id** (#31, `2b1083b`). For
-grammars that map several keywords to one kind_id
-(`Cpp::PrimitiveType` covers `int`/`float`/`double`/`char`/`void`/
-`unsigned`; `Rust::PrimitiveType` covers `i32`/`u8`/`f64`/`bool`/
-`usize`; `Typescript::PredefinedType` covers `string`/`number`/
-`boolean`), N textually-distinct operators collapse to one HashMap
-entry. `n1` undercounts by `N - 1` while `--ops` correctly lists
-all N. The fix stored primitive-type operators by source text.
-
-**Parent scopes accumulate without recomputing** (#32, `b12d899`).
-The finalize pass merged children into parents but did not
-recompute parent ops afterward, double-counting at every nesting
-level.
-
-**Same kind_id added to both operator and operand maps** (`2248bcc`).
-TypeScript `String2` (the `string` type keyword) was classified as
-an operator (correct) and also as an operand (wrong) — a
-single-token double-insertion, not a kind_id collision, but the
-visible symptom is the same: `--ops` and the metric counts
-disagree.
-
 **Lesson:** Treat `len(dedupe(ops.operators)) == n1` and
-`len(dedupe(ops.operands)) == n2` as a load-bearing invariant.
-Whenever you change Halstead classification, add a `kind_id` to
-`is_primitive`, or touch the finalize / parent-merge logic, add a
-regression test that runs both `metrics()` and
-`operands_and_operators()` on the same input and asserts the
-invariant. When auditing a new language, also check that no
-kind_id is classified as *both* operator and operand — the
-`HalsteadType` enum should be exhaustive, but the routing in
-`getter.rs` is not, and a copy-paste can land the same kind_id in
+`len(dedupe(ops.operands)) == n2` as a load-bearing invariant. Whenever
+you change Halstead classification, add a `kind_id` to `is_primitive`,
+or touch finalize / parent-merge, add a regression test that runs both
+`metrics()` and `operands_and_operators()` on the same input and asserts
+it. When auditing a new language, also check no kind_id is classified as
+*both* operator and operand — `HalsteadType` is exhaustive but the
+routing in `getter.rs` is not, and a copy-paste can land one kind_id in
 two arms.
+
+`HalsteadMaps::operators` is an `IntKeyHashMap<u16, u64>` keyed by
+`kind_id`; `--ops` is built from a parallel text-keyed structure plus the
+`primitive_types` `HashSet<String>`. Three independent failure modes
+have produced visibly disagreeing counts:
+
+**Many tokens collapse to one kind_id** (#31, `2b1083b`).
+`Cpp::PrimitiveType` covers `int`/`float`/`double`/`char`/`void`;
+`Rust::PrimitiveType` covers `i32`/`u8`/`f64`/`bool`;
+`Typescript::PredefinedType` covers `string`/`number`/`boolean`. N
+textually-distinct operators collapse to one map entry, so `n1`
+undercounts by `N - 1` while `--ops` correctly lists all N. The fix
+stores primitive-type operators by source text.
+
+**Parent scopes accumulate without recomputing** (#32, `b12d899`). The
+finalize pass merged children into parents but never recomputed parent
+ops, double-counting at every nesting level.
+
+**One kind_id in both maps** (`2248bcc`). TypeScript `String2` — the
+`string` type keyword — was classified as an operator (correct) *and* an
+operand (wrong). Not a collision, but the visible symptom is identical.
 
 ---
 
 ## 5. Library code must not panic on reachable error paths
 
-`big-code-analysis` is a published crate; its callers (the CLI, the
-web service, and any third-party user) treat panics as crashes they
-cannot recover from. AGENTS.md already bans `unwrap` / `expect` /
-`panic!` / `assert!` in non-test code, but the rule is easy to
-read as a style preference. The substance is that Rust makes these
-ergonomic enough to slip past review on paths that turn out to be
-reachable — sort comparators on user data, `unreachable!()` arms in
-match expressions, lock acquisition in long-running services.
+**Lesson:** Before writing `unwrap` / `expect` / `panic!` / `assert!` /
+`unreachable!()` outside `#[cfg(test)]`, ask: can this branch be
+triggered by source the user supplies, a metric value the parser
+produces (NaN, infinity, zero), a grammar node the next tree-sitter
+version emits, or concurrent state in the web service? If yes, propagate
+via `Result`/`Option` or pick a total-order primitive (`f64::total_cmp`
+over `partial_cmp`). If no, put the invariant that makes it unreachable
+in the `expect` message itself. Tests exercising a panic path must call
+the function **directly** with the panicking input — wrapper-level tests
+almost always have an upstream filter that masks the bug.
 
-**`partial_cmp().unwrap()` reached by NaN metric values**
-(`011c556a`). Two sort functions in the markdown report
-(`sort_by_metric_desc`, `sort_by_metric_asc`) used
-`partial_cmp(...).unwrap()` on `f64` metric fields. A higher-level
-test (`nan_safe_sort_does_not_panic`) asserted the report didn't
-panic, but a `> 0.0` guard upstream filtered NaN before it reached
-the sort, so the test passed for the wrong reason. The audit-tests
-skill flagged this; the fix added direct unit tests that pass NaN
-into the sort functions and replaced `unwrap` with `f64::total_cmp`.
+`AGENTS.md` bans these outright; the substance is that Rust makes them
+ergonomic enough to slip past review on paths that turn out reachable.
+Callers of this published crate treat a panic as an unrecoverable crash.
 
-**`unreachable!()` arms become reachable on grammar bumps.** When
-tree-sitter bumps emit new aliased kind_ids (see lesson 2), match
-expressions in `getter.rs` / `checker.rs` that fall through to an
-`Unknown` arm are safe; `unreachable!()` would crash. The same
-applies to `MetricsFormat` matches in the CLI when a new format
-variant is added in one place and forgotten in another.
+**`partial_cmp().unwrap()` reached by NaN metric values** (`011c556a`).
+Two markdown-report sort comparators used it on `f64` metric fields. A
+higher-level `nan_safe_sort_does_not_panic` test asserted the report did
+not panic — but a `> 0.0` guard upstream filtered NaN before the sort
+ever saw it, so it passed for the wrong reason.
 
-**Lesson:** Treat `unwrap` / `expect` / `panic!` / `assert!` /
-`unreachable!()` outside `#[cfg(test)]` as a code smell that needs a
-one-line justification — preferably the invariant that makes it
-provably unreachable, in the `expect` message itself. Before using
-one, ask: "can this branch be triggered by source the user supplies,
-a metric value the parser produces (NaN, infinity, zero), a grammar
-node the next tree-sitter version emits, or concurrent state in the
-web service?" If yes, propagate via `Result` or `Option`, or pick a
-total-order primitive (`f64::total_cmp` over `partial_cmp`). Tests
-that exercise the panic path must call the function under test
-directly with the panicking input — wrapper-level tests almost
-always have an upstream filter that masks the bug.
+**`unreachable!()` arms become reachable on grammar bumps.** When a bump
+emits new aliased kind_ids (lesson 2), match expressions falling through
+to an `Unknown` arm are safe; `unreachable!()` crashes. The same applies
+to `MetricsFormat` matches in the CLI when a variant is added in one
+place and forgotten in another.
+
+Two boundaries refine this: **lesson 42** (at a PyO3 FFI boundary even
+an unreachable-today panic breaks a never-raise contract, because PyO3
+surfaces it as `PanicException` outside the `Exception` hierarchy) and
+**lesson 62** (degrading on a poisoned `Mutex` in one place still lets
+every other acquirer re-panic).
 
 ---
 
 ## 6. Snapshot tests pin behaviour, not correctness
 
-`insta` snapshot tests record whatever the code emits at the moment
-they were written. If the code is wrong, the snapshot freezes the
-wrong value, and `cargo insta test --accept` after a metric or
-grammar change rubber-stamps the new wrong value with no human
-verification. This file already documents bug classes (lessons 2
-and 4) where the metric was wrong for years and the test suite
-agreed with it.
+**Lesson:** When writing or accepting a snapshot, ask: "if the code were
+wrong in a plausible way, would this snapshot still pass?" If yes,
+derive at least one assertion from an external source — the metric
+specification, a hand-computed value, or a reference implementation in
+another language module — never from the current code's output. Keep at
+least one hand-derived test per metric per language as an external
+anchor; snapshots are scaffolding around it, not a substitute.
 
-**JS-family Halstead snapshots agreed with operators that were
-silently misclassified.** Issues #35, #42, #45, and #50 each
-involved an operator that was wrong in 2-4 JS-family modules. The
-snapshot tests passed because they pinned the buggy `n1` / `n2`
-values, not values derived from the Halstead specification. The
-bugs survived until someone audited the operator list against
-language documentation, not against the snapshots.
+`AGENTS.md` carries the enforceable form of this ("Anchor every
+`insta::assert_json_snapshot!` call", with the three acceptable anchor
+shapes), and `utils/check-snapshot-anchors.py` gates it against
+`.snapshot-anchor-baseline.txt`. What follows is why that gate exists.
 
-**Tree-sitter grammar bumps cause hundreds of snapshots to shift.**
-AGENTS.md documents this: after a grammar version bump, `cargo
-insta test --accept` is the right tool, but only after verifying
-the diff pattern is "metric-value-only with no structural
-changes." Accepting blindly converts any newly-introduced metric
-bug into a frozen snapshot.
+`insta` records whatever the code emits when the test is written. If the
+code is wrong, the snapshot freezes the wrong value, and
+`cargo insta test --accept` rubber-stamps it with no human verification.
 
-**Human-readable derivation comments drift while the snapshot stays
-correct** (#143, `2799547`). The Tcl `tcl_logical_operators` cyclomatic
-test (a `proc f` with one `if {$x > 0 && $y > 0 || $z > 0}`) carried a
-`// &&=1 and ||=1 inside expr; sum=3` comment, but the accepted snapshot
-value was 5 — the comment counted `&&` and `||` but forgot the outer
-`if`. The snapshot was right; only the human-readable spec drifted, and
-the mismatch was invisible until the bare snapshot was converted to
-Layer 2 (`assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0)`
-immediately above the snapshot call). The discipline of forcing a
-positive `assert_eq!` into the diff catches this entire class of drift:
-the comment can silently desync from reality, but a literal value in
-source cannot.
+**JS-family Halstead snapshots agreed with misclassified operators.**
+Issues #35, #42, #45, and #50 each involved an operator wrong in two to
+four modules. Every snapshot passed, because each pinned the buggy `n1`
+/ `n2` rather than values derived from the Halstead specification. The
+bugs survived until someone audited the operator list against language
+documentation.
 
-**Lesson:** When writing or accepting a snapshot, ask: "if the code
-were wrong in a plausible way, would this snapshot still pass?" If
-yes, derive at least one assertion from an external source — the
-metric specification, a hand-computed value on a small fixture, or
-the reference implementation in another language module — not from
-the current code's output. For grammar bumps, run `cargo insta test
---accept` per file only after spot-checking that the diff is metric
-values shifting in a direction consistent with the grammar change,
-not structural changes that hide a regression. Keep at least one
-hand-derived test per metric per language as an external anchor;
-snapshots are scaffolding around it, not a substitute.
+**The human-readable derivation drifts while the snapshot stays right**
+(#143, `2799547`). The Tcl `tcl_logical_operators` test carried a
+`// &&=1 and ||=1 inside expr; sum=3` comment against an accepted value
+of 5 — the comment forgot the outer `if`. The snapshot was correct; only
+the prose had drifted, and the mismatch was invisible until the bare
+snapshot gained an `assert_eq!(…, 5.0)` immediately above it. A comment
+can silently desync from reality; a literal value in source cannot.
+
+For grammar bumps, run `cargo insta test --accept` per file only after
+spot-checking that the diff is metric values shifting in a direction
+consistent with the grammar change, not structural changes hiding a
+regression.
 
 ---
 
 ## 7. Test infrastructure deserves the rigor of production code
 
-The `audit-tests` skill exists because tests in this codebase have
-historically passed for reasons unrelated to what they claimed to
-verify. A green suite means nothing if assertions are weak,
-helpers shadow real tests, or the input never reaches the code
-under test. This is distinct from lesson 6: lesson 6 is about the
-*provenance* of the asserted value; this lesson is about the
-*structure* of the test itself.
+**Lesson:** Every test asserts a specific value or a specific failure,
+never `is_ok()` or "the section rendered". When fixing a bug, write the
+test against the function whose contract is wrong, not against a wrapper
+that may filter the bug-triggering input.
+[`testing.md`](../../.claude/rules/testing.md) carries the mechanical
+form: the harness-normalisation map, the assertion shapes that are wrong
+by construction, and the perturbation procedure that proves a test can
+fail.
+
+This is distinct from lesson 6: there the *provenance of the asserted
+value* is wrong; here the *structure of the test* is.
 
 **Wrapper-level tests masked by upstream filters** (`011c556a`).
-`nan_safe_sort_does_not_panic` called `generate_report` end-to-end
-with NaN inputs; a `> 0.0` filter removed NaN before the sort ever
-saw it, so the test passed regardless of whether the sort was
-NaN-safe. The fix added unit tests that call the sort functions
-directly. General pattern: tests that exercise behavior through a
-high-level entry point can pass for the wrong reason whenever any
-intermediate stage filters, normalizes, or short-circuits the
-input. Always pair end-to-end tests with direct unit tests on the
-function whose contract is being verified.
+`nan_safe_sort_does_not_panic` drove `generate_report` end-to-end with
+NaN inputs; a `> 0.0` filter removed NaN before the sort saw it. Any
+test exercising behaviour through a high-level entry point can pass for
+the wrong reason whenever an intermediate stage filters, normalizes, or
+short-circuits the input.
 
-**A normalizing shared helper made an entire input class untestable**
-(#1051, `aaddda98`). `Loc` discounts the extra row a Rust `DocComment`
-spans when its scanner consumes the trailing newline; at EOF there is
-none to consume, so the unconditional `end - 1` underflowed —
-panicking in debug, and in release wrapping to `usize::MAX` and
-surfacing far away as a hash-table capacity overflow while inserting
-comment rows. The unit LOC tests route through `check_metrics` →
-`test_support::check_func_space`, which does `trim_end().trim_matches('\n')`
-and then `push(b'\n')`: it strips trailing newlines and appends one.
-The integration snapshot suites (`tests/serde_test.rs` and siblings)
-bypass that helper entirely — but reach the same wall, because
-`read_file_with_eol` → `normalize_line_endings` ends with an
-unconditional `data.push(b'\n')`. "A node ending at EOF" is therefore
-unreachable from *either* harness, so the suite had no path to the bug
-— and a regression test written the ordinary way would have passed
-against the unfixed code. The fix added a `loc_verbatim` helper calling
-`analyze(Source::new(..))` with no normalization, carrying a doc
-comment explaining why it must not be "simplified" back to
-`check_metrics`. Sharper than the NaN case above: there the filter sat
-in one test's call path; here two independent chokepoints normalize the
-input class out of reach of the whole suite.
+**Two chokepoints put an entire input class out of reach of the whole
+suite** (#1051, `aaddda98`). `Loc` discounts the extra row a Rust
+`DocComment` spans when its scanner consumes the trailing newline; at
+EOF there is none, so the unconditional `end - 1` underflowed —
+panicking in debug, wrapping to `usize::MAX` in release and surfacing
+far away as a hash-table capacity overflow. But `check_func_space`
+trims trailing newlines and appends one, and the integration suites
+reach `normalize_line_endings`, which also ends with an unconditional
+`data.push(b'\n')`. "A node ending at EOF" was unreachable from
+*either* harness, so a regression test written the ordinary way would
+have passed against the unfixed code. The fix added a verbatim helper
+calling `analyze(Source::new(..))` — landed as `loc_verbatim`, since
+unified into `metrics_verbatim` / `space_verbatim` — carrying a doc
+comment on why it must not be "simplified" back to `check_metrics`.
+Sharper than the NaN case: there one test's call path
+had a filter; here two independent chokepoints normalized the input
+class away from the entire suite.
 
-**Section-presence tests with no value assertions** (`df84dd27`).
-`wmc_section_present_with_class_summaries`,
-`nexits_section_present`, and `abc_section_present` originally
-asserted only that a markdown header rendered. A bug emitting wrong
-WMC values, wrong NEXITS counts, or zero ABC magnitudes would have
-preserved the header and passed the test. The strengthened tests
-now assert exact metric values for each section.
+**Presence without value** (`df84dd27`).
+`wmc_section_present_with_class_summaries`, `nexits_section_present`,
+and `abc_section_present` asserted only that a markdown header
+rendered. Wrong WMC values, wrong NEXITS counts, or zero ABC magnitudes
+would all have preserved the header.
 
-**Strip-prefix test that asserted nothing observable**
-(`011c556a`). `markdown_strip_prefix_accepted` originally asserted
-only that the function returned without error; it never checked the
-output's path strings. Mutation testing confirmed a no-op
-implementation passed. The fix renamed it to
-`markdown_strip_prefix_removes_path_prefix` and added two checks:
-the stripped path must appear, and the full path must not.
-
-**Section-absence assertions that pin the bug** (#681, `296e304a`).
-A fully-suppressed hotspot table previously rendered only its
-omission note with no `###` / `<h3>` heading. Several tests across
-the Markdown and HTML renderers asserted
-`!report.contains("### Functions With Many Parameters …")` — they
-passed *because* the heading was missing, encoding the buggy output
-as the contract. The fix (emit the heading, note as the body) turned
-all five red. The trap is the reflex to "update the test to match"
-when a fix breaks a passing assertion — here that would re-assert the
-bug. The correct move flips each to a positive assertion: the heading
-and its `id` anchor are present, the suppressed row is absent, and the
-note is the section body. A bare `!contains(<structural marker>)` is
-strictly weaker than the positive form and silently inverts into a
-bug-lock the moment the absence it asserts *is* the symptom — the
-mirror image of the section-presence-with-no-value case above.
-
-**Lesson:** Hold tests to the same standard as production: every
-test asserts a specific value or specific failure, never just
-`is_ok()` or "the section rendered." When fixing a bug, write the
-test against the function whose contract is wrong, not against a
-wrapper that may filter the bug-triggering input. Run mutation
-testing or audit-tests on hot regions periodically — if a no-op
-implementation could pass, the test does not test what it claims.
+**Absence assertions that pin the bug** (#681, `296e304a`). A
+fully-suppressed hotspot table rendered its omission note with no
+heading, and five tests asserted
+`!report.contains("### Functions With Many Parameters …")` — passing
+*because* the heading was missing, encoding the buggy output as the
+contract. Fixing the bug turned all five red, and the reflex to "update
+the test to match" would have re-asserted it.
 
 ---
 
 ## 8. Integration snapshot drift hides in the submodule, not the parent
 
-The integration test corpus lives in the `big-code-analysis-output`
-submodule (`tests/repositories/big-code-analysis-output/`). When a
-behaviour-changing fix lands in the parent — a cognitive under-count
-correction, a Halstead operator reclassification, an alterator-rule
-change — the integration runs (`deepspeech_test`, `pdf_js_test`,
-`serde_test`) generate `.snap.new` files **inside the submodule's
-working tree**. The parent's `cargo test` exits non-zero until those
-accepts are committed and pushed in the submodule, and the submodule
-pointer in the parent is bumped to record the new SHA. Skipping any
-of those three steps leaves the fix half-landed: a future fresh
-clone hits an unfetchable submodule SHA or stale snapshots that
-block CI.
+**Lesson:** `AGENTS.md` carries the four-step submodule discipline as
+policy — clean `cargo test` from a fresh tree, accepts committed *inside*
+the submodule, those commits pushed to its remote, and the parent
+recording the new SHA in the **same commit** as the fix. The incident
+below is why step four is not a follow-up and why re-running integration
+tests after any rebase is not paranoia.
 
-**`ed8adb6` lost 4 of its 69 cognitive snapshot accepts.** The
-sibling boolean-sequence fix (`fix(cognitive): correct sibling
-boolean-sequence detection`) was committed on parent `main`
-together with a submodule pointer bump to `4c2a17c2`, which
-contained all 69 accepts. Later, `dekobon/big-code-analysis-output`
-was force-pushed onto a chain that rebased away the cognitive
-accepts and kept only Halstead-NaN/Inf accepts (current submodule
-HEAD `8bb237d`). The parent pointer still referenced `4c2a17c2`,
-which no longer existed on the remote — submodule fetch failed
-outright on a fresh clone. After repointing to `8bb237d`, four
-snapshots that had been correctly accepted in `4c2a17c2` were
+**`ed8adb6` lost 4 of its 69 cognitive snapshot accepts.** The sibling
+boolean-sequence fix landed on parent `main` with a submodule pointer
+bump to `4c2a17c2`, which contained all 69 accepts. Later,
+`dekobon/big-code-analysis-output` was force-pushed onto a chain that
+rebased away the cognitive accepts and kept only the Halstead NaN/Inf
+ones (`8bb237d`). The parent still referenced `4c2a17c2`, which no
+longer existed on the remote — submodule fetch failed outright on a
+fresh clone. After repointing, four correctly-accepted snapshots were
 missing: `farcreate.cc`, `farcompilestrings.cc`, `viewer.js`, and
-`build.rs`. The fix itself was not broken; the snapshots that proved
-it were stranded by submodule history rewrites.
-
-**Lesson:** A metric, AST-traversal, or alterator-rule fix is not
-done until (1) `cargo test --workspace --all-features` exits clean
-from a fresh working tree, (2) any `.snap.new` files generated under
-`tests/repositories/big-code-analysis-output/` have been reviewed
-and committed inside the submodule, (3) those submodule commits
-have been pushed to its remote, and (4) the parent records the new
-submodule SHA in the same commit as the parent-side fix — never as
-a follow-up. Treat the submodule pointer bump as part of the fix.
-After any rebase, force-push, or long-running batch fix, re-run
-integration tests before declaring done; the submodule history
-is force-pushed often enough that previously accepted snapshots
-cannot be assumed to survive.
+`build.rs`. The fix itself was never broken; the snapshots proving it
+were stranded by history rewrites.
 
 ---
 
 ## 9. The grammar's root may not be `Unit` — push a synthetic wrapper
 
-Tree-sitter grammars normally return a `translation_unit` /
-`source_file` / `program` node at the root, and the metric collector
-treats that node's span as the file-level `FuncSpace`. When the input
-contains constructs the grammar cannot fully parse, the parser can
-instead return an `ERROR` root or promote an inner declaration
-(struct, function, namespace) to the root position. Code that adopts
-the root node's span as the file's `FuncSpace` then reports the span
-of that inner declaration as the file's LOC, while child traversal
-still aggregates `ploc` from the entire file — producing impossible
-values that violate `blank = sloc − ploc − only_comment_lines ≥ 0`.
+**Lesson:** Never trust the root node's `kind()` to be the language's
+canonical translation-unit kind. When adding or auditing a language,
+verify the file-level `FuncSpace` is anchored to the parser's **full
+input range** and carries the language's `Unit` kind, not the kind of
+whatever the parser happened to return. Assert `blank ≥ 0` for every
+fixture in the corpus — the invariant is cheap and catches this whole
+class plus arithmetic errors in the LOC computation itself.
+
+Grammars normally return `translation_unit` / `source_file` / `program`
+at the root. When input contains constructs the grammar cannot parse,
+the parser can return an `ERROR` root or promote an inner declaration
+instead. Code adopting the root's span as the file's `FuncSpace` then
+reports that inner declaration's span as the file's LOC while child
+traversal still aggregates `ploc` from the whole file, violating
+`blank = sloc − ploc − only_comment_lines ≥ 0`.
 
 **`tree-sitter-mozcpp` promotes inner declarations on partially
-unparseable C/C++** (#80, `dc09eb3`). Four DeepSpeech files exhibited
-nonsense LOC: `model.hh` (KenLM) reported `kind=namespace, sloc=1,
-ploc=55, blank=−109`, and both Cython-generated `pywrapfst.cc` files
-reported a `struct` or `function` root with `blank` in the tens of
-thousands negative — those bad values had been frozen into snapshots
-long enough to read as background noise in every DeepSpeech run.
-`getopt_win.h` (`kind=struct, sloc=1, ploc=351, blank=−489`) had been
-quietly *excluded* from the snapshot test for the same root cause; the
-fix re-includes it. The fix pushes a synthetic `Unit` space at the bottom
-of the state stack whenever the grammar's root kind is not `Unit`,
-anchored to the parser's full input range; the misidentified
-declaration becomes a subspace, and top-level metrics restore their
-invariants.
-
-**Lesson:** Never trust the root node's `kind()` to be the language's
-canonical translation-unit kind. Treat "real-world C/C++/whatever
-sometimes won't parse cleanly, and tree-sitter has its own ideas about
-what to promote when that happens" as a load-bearing assumption. When
-adding a new language or auditing an existing one, verify that the
-file-level `FuncSpace` is anchored to the parser's full input range
-and has the language's `Unit` kind, not the kind of whatever the
-parser happened to return. Add a regression test that asserts
-`blank ≥ 0` for every fixture in the corpus — the invariant is cheap
-to check and catches this entire class of bug, plus arithmetic errors
-in the LOC computation itself.
+unparseable C/C++** (#80, `dc09eb3`). Four DeepSpeech files reported
+nonsense: `model.hh` gave `kind=namespace, sloc=1, ploc=55, blank=−109`,
+and both Cython-generated `pywrapfst.cc` files gave a `struct` or
+`function` root with `blank` in the tens of thousands negative — frozen
+into snapshots long enough to read as background noise.
+`getopt_win.h` had been quietly *excluded* from the snapshot test for
+the same root cause; the fix re-includes it. The fix pushes a synthetic
+`Unit` space at the bottom of the state stack whenever the root kind is
+not `Unit`, anchored to the parser's full input range.
 
 ---
 
 ## 10. Same language construct, different AST shape — detection must be grammar-aware
 
-A single language construct — `else if`, ternary expression, lambda,
-string literal — can have fundamentally different AST representations
-across tree-sitter grammars. Code that works for one grammar family
-(e.g., detecting `else if` by checking whether the parent is an
-`ElseClause`) silently fails for another family that models the same
-construct differently (e.g., `else` as a keyword sibling with no
-wrapping clause node). Unlike the aliased-variant problem (lesson 2),
-where the grammar generates multiple kind_ids for the same rule, this
-is a structural divergence: the node relationships themselves differ.
+**Lesson:** Before implementing a semantic check that depends on AST
+*structure* rather than node kind, examine the grammar's
+`node-types.json` or parse a representative snippet to confirm how the
+construct is actually represented. The per-family table is in
+[`grammar-dispatch.md` §4](../../.claude/rules/grammar-dispatch.md).
+Treat a stub returning a constant as a to-do, not a finished
+implementation, and add a test that would fail if it were a no-op — an
+`else if` chain must score lower than the same chain with independent
+`if` blocks.
 
-**Java and C# `is_else_if` always returned `false`** (#115,
-`013bff9`). The C++/JS-family grammars wrap `else if` in an
-`ElseClause` parent node, so `is_else_if` checks
-`parent().kind_id() == ElseClause`. Java and C# grammars emit `else`
-as a bare keyword token preceding a nested `if_statement` — no
-wrapping node. The initial implementations returned `false`
-unconditionally, causing every `else if` to receive a nesting
-increment instead of a flat +1. Cognitive complexity was
-systematically inflated; the error grew linearly with chain length
-and exponentially with nesting depth (each false nesting
-increment inflated the penalty for all nested constructs inside
-the chain). The fix adopted Kotlin's strategy:
-check `previous_sibling().kind_id() == Else`. A post-fix audit of
-all 16 `is_else_if` implementations catalogued four distinct detection
-strategies across the supported languages:
+Unlike the aliased-variant problem (lesson 2), where one rule generates
+several kind_ids, this is *structural divergence*: the node
+relationships themselves differ between grammars.
 
-| Grammar model | Languages | Check |
-| --- | --- | --- |
-| `else_clause` wrapper | C++, Mozjs, JS, TS, TSX, Rust | `parent()` |
-| `Else` keyword sibling | Java, C#, Kotlin | `prev_sibling()` |
-| Nested `if_statement` | Go | `parent()` |
-| Dedicated clause node | Python, Perl, Lua, Bash, Tcl, PHP | kind match |
-
-**Lesson:** When implementing a semantic check that depends on AST
-structure (not just node kind), do not assume all grammars use the same
-structural model. Before writing the implementation, examine the
-grammar's `node-types.json` or parse a representative snippet to
-confirm how the construct is actually represented. When a stub
-`is_else_if`-style function returns a constant, treat it as a
-to-do item, not a finished implementation — add a test that would fail
-if the function were a no-op (e.g., an `else if` chain that must
-produce a lower cognitive score than the same chain with independent
-`if` blocks). After fixing one grammar family, audit all others for
-the same stub pattern.
+**Java and C# `is_else_if` always returned `false`** (#115, `013bff9`).
+The C++/JS-family grammars wrap `else if` in an `ElseClause`, so
+`is_else_if` checks the parent. Java and C# emit `else` as a bare
+keyword token preceding a nested `if_statement` — no wrapping node — and
+both implementations returned `false` unconditionally. Every `else if`
+received a nesting increment instead of a flat +1, so cognitive
+complexity was systematically inflated: the error grew linearly with
+chain length and exponentially with nesting depth, because each false
+increment inflated the penalty for everything nested inside. The fix
+adopted Kotlin's strategy (`previous_sibling().kind_id() == Else`), and
+the post-fix audit of the 16 implementations then in the tree produced
+the first strategy table. That table is now maintained in
+[`grammar-dispatch.md` §4](../../.claude/rules/grammar-dispatch.md) with
+the command to re-derive it — the #115 version went stale within a few
+language additions, which is lesson 84 in miniature.
 
 ---
 
 ## 11. The same metric across languages must agree on the same logical construct
 
-Each language's metric implementation under `src/metrics/` is written
-against that language's grammar, not against a shared specification. When
-two grammars represent the same logical construct differently (a
-`switch`/`match` with a fallback arm; a `case…esac` that wraps its arms in
-a parent node), the per-language `Cyclomatic` / `Cognitive` / `Halstead`
-impl can quietly diverge — each language's snapshot tests still pass,
-because every snapshot was written against that language's own (wrong)
-output. The drift is invisible until someone compares CCN sums across
-languages on equivalent code. Lesson 6 covers per-language snapshot
-provenance; this lesson covers *cross-language* metric agreement, which
-even an externally-anchored single-language test cannot catch.
-
-**Rust counts wildcard `_ =>` while C-family does not count `default:`**
-(#106, `a54b073`). `impl Cyclomatic for RustCode` matched `MatchArm |
-MatchArm2` for every arm of a `match`, including the wildcard `_ =>`. The
-equivalent `default:` clause in C / C++ / C# / Java / JS / TS / TSX / Mozjs
-/ PHP is intentionally not counted (those impls match the `Case` node,
-which the wildcard arm does not produce). Two-branch
-`match { 1 => …, _ => … }` reported standard CCN +2 in Rust, while the
-equivalent `switch { case 1: …; default: … }` reported +1 in C. The
-recently-added modified-CCN variant (`16cd610`) collapsed all arms to one
-container decision, which papered over the asymmetry but left standard
-CCN divergent.
-
-**Bash double-counts `case…esac` container plus arms** (#107, `e668f14`).
-`impl Cyclomatic for BashCode` matched `Bash::CaseStatement` *and*
-`Bash::CaseItem | Bash::CaseItem2`, incrementing once for the wrapper
-node and once per arm. C / Java / C# / JavaScript / TypeScript count
-only arms — the `switch` / `case` / `match` container is silent. A Bash
-function with a 3-arm `case` reported standard CCN 6 against an
-equivalent C `switch`'s 5. Same paper-over via `16cd610`'s modified
-variant; same residual asymmetry in standard CCN.
-
-**Halstead `is_child(Interpolation)` guard missed across seven
-languages, with an eighth tracked** (#180 Bash, #183 C#, #184 PHP
-each fixed reactively after their respective language-addition
-PRs; Elixir and Ruby shipped with the guard wired correctly during
-initial language addition, leaving no issue trail; #191 Python +
-Kotlin in `7a8ccac`; #199 Perl filed but not yet fixed). The
-logical contract is that an interpolated string literal contributes
-*only* its inner expressions as Halstead operands — the wrapping
-literal itself should not count, because its inner identifiers are
-walked separately. Each language's `Getter::get_op_type`
-implementation classifies its own `String` / `StringLiteral` /
-`string_double_quoted` node independently against its own grammar's
-interpolation child-kind, so the guard has been added reactively in
-each language as the bug surfaces. After #191 the only known-
-affected language without the guard is Perl (#199 tracks it). The
-pattern across languages is identical:
-`if node.is_child(<Lang>::Interpolation as u16) { Unknown } else
-{ Operand }`. The shared contract is invisible at the type level —
-each impl matches a different `Lang::Interpolation` variant — but
-the failure mode is uniform: `u_operands` inflates by one for every
-interpolated literal.
-
-**Cross-language parity tests caught real divergences during fixture
-wiring** (#211 Bash, `28aafd6`; #212 Python, `d8ed3b5`; #228 exit,
-`6de7d58`). `e2fbd2b` wired the four parity tests this lesson
-prescribes (`cyclomatic_if_elseif_else_chain`,
-`two_arm_switch_with_wildcard`, `early_exit_in_while_loop`,
-`three_parameter_function`). Two real divergences surfaced *during
-fixture authoring* — before any user reported them. Bash 2-arm
-`case … esac` with bare `*)` reported `cyclomatic_max == 3` against
-`2` for every other switch-bearing language (the wildcard arm
-contributed when it shouldn't — the C-family analogue of `default:`).
-Python's `match`/`case` reported `cyclomatic_max == 1` and
-`cognitive_max == 0` (the entire construct was a dispatch hole,
-lesson-19 class). Both were filed and fixed within the week. A
-subsequent parity audit on early-return / throw fixtures surfaced
-that Python, the JS family, Java, and C++ missed `throw`/`raise` as
-exits — fixed in #228, aligning with the existing C# / Kotlin / PHP
-/ Elixir behaviour. The prescription "one
-fixture file per language under a shared parity test" produced
-these findings on day one of the test landing, not as latent debt
-years later.
-
 **Lesson:** When adding or touching a metric implementation, write the
 fixture in *every* affected language and assert the metrics agree on
-logically equivalent code (modulo documented exceptions). One fixture
-file per language under a shared test such as
-`cyclomatic_cross_language_parity` is enough; the test fails the moment a
-language drifts. Per-language snapshot tests pin behaviour against that
-language's own history — they cannot detect that two languages disagree
-about the same construct. Whenever a "modified" or "alternative"
-metric variant is introduced to mask a per-language quirk, audit the
-standard variant as well: the variant probably exists because the
-standard variant is wrong, and the standard one is what most consumers
-read.
+logically equivalent code, modulo documented exceptions. One fixture per
+language under a shared test — `cyclomatic_cross_language_parity` and
+its siblings — is enough; it fails the moment a language drifts.
+Per-language snapshots pin behaviour against that language's own
+history and cannot detect that two languages disagree. Whenever a
+"modified" or "alternative" metric variant is introduced to mask a
+per-language quirk, audit the **standard** variant too: the variant
+probably exists because the standard one is wrong, and the standard one
+is what most consumers read.
+
+Each implementation under `src/metrics/` is written against its own
+grammar, not a shared specification. Every language's snapshots still
+pass, because each was written against that language's own wrong output.
+Lesson 6 covers per-language provenance; this covers cross-language
+agreement, which even an externally-anchored single-language test cannot
+catch.
+
+**Rust counts wildcard `_ =>`; the C family does not count `default:`**
+(#106, `a54b073`). `impl Cyclomatic for RustCode` matched every match
+arm including the wildcard, while the equivalent `default:` in nine
+C-family languages is intentionally uncounted. Two-branch
+`match { 1 => …, _ => … }` reported CCN +2 where the equivalent `switch`
+reported +1.
+
+**Bash double-counts `case…esac`** (#107, `e668f14`). It matched
+`CaseStatement` *and* `CaseItem`, incrementing for the wrapper and once
+per arm, where every other language counts only arms. A 3-arm `case`
+reported CCN 6 against C's 5. In both cases the modified-CCN variant
+(`16cd610`) papered over the asymmetry and left standard CCN divergent.
+
+**Parity tests found real divergences during fixture authoring** (#211
+Bash `28aafd6`; #212 Python `d8ed3b5`; #228 exit `6de7d58`). `e2fbd2b`
+wired the four parity tests this lesson prescribes. Bash's bare `*)`
+contributed a decision no other language counted; Python's `match`/`case`
+was an entire dispatch hole (`cyclomatic_max == 1`, `cognitive_max == 0`
+— lesson 19 class); and a later sweep found Python, the JS family, Java,
+and C++ all missed `throw`/`raise` as exits. Findings on day one of the
+test landing, not latent debt years later.
+
+**The rule extends across metrics, not just languages** (#451
+`30a435ae`; #456 `7021f209`; #469 `51725a9f`; #473 `43c1086b`). Where
+ABC and cyclomatic must agree on the same construct, reuse cyclomatic's
+already-correct gate rather than re-deriving the predicate, and pin
+`abc.conditions == cyclomatic() - 1` per space (not `cyclomatic_sum()`,
+which carries a per-space base of 1). Excluding the switch `default`
+arm from ABC took seven languages sharing one `Default` token, plus PHP
+separately through two distinct kinds. See lesson 64 for the trap in
+propagating such an exclusion.
 
 ---
 
 ## 12. tree-sitter `Node::children(cursor)` resets the cursor to `self`
 
-`tree_sitter::Node::children(cursor)` calls `cursor.reset(self)` before
-iterating, so the `TreeCursor` argument's prior position is silently
-discarded. Code that constructs a cursor from one node and passes it to
-another node's `children()` call iterates the second node's children, not
-the first's. The compiler accepts this — `TreeCursor` has no compile-time
-binding to a specific node — and the function quietly does the wrong
-thing. Lesson 2 covers a related tree-sitter surprise (aliased `kind_id`s);
-this lesson covers cursor scoping, a distinct gotcha class.
+**Lesson:** The cursor passed to a tree-sitter iteration method does not
+determine its scope — the node the method is called on does. Whenever a
+helper takes a `TreeCursor` and calls `node.children(cursor)` on a node
+that isn't the cursor's root, the argument is dead weight. Call
+iteration methods directly on the node you want to traverse
+(`parent.children(&mut parent.walk())`), and use the parameter only when
+you genuinely need to share an allocated cursor across siblings.
+
+`Node::children(cursor)` calls `cursor.reset(self)` before iterating, so
+the argument's prior position is silently discarded. The compiler
+accepts it — `TreeCursor` has no compile-time binding to a node.
 
 **`Node::has_sibling` was structurally identical to `Node::is_child`**
-(#127, `7a0d4ac`). The implementation was
+(#127, `7a0d4ac`):
 
 ```rust
 self.0.parent().is_some_and(|parent| {
@@ -735,3614 +607,2323 @@ self.0.parent().is_some_and(|parent| {
 })
 ```
 
-The intent was "walk the parent's children," but `self.0.children(...)`
-resets the cursor to `self.0` and iterates `self.0`'s children. The
-single call site `check_if_arrow_func!` in `src/checker.rs:48` invoked
-`has_sibling(PropertyIdentifier)` to detect `{ foo: x => x }`-style
-shorthand-method arrow functions; because `PropertyIdentifier` is never
-a child of `ArrowFunction`, the check returned `false` unconditionally.
-The bug was masked because `count_specific_ancestors` caught the common
-case via a different traversal — the dead branch only mattered for inputs
-where the ancestor walk exited early. The fix calls `parent.children(...)`
-directly, dropping the misleading cursor argument entirely.
-
-**Lesson:** The cursor passed to a tree-sitter iteration method does not
-determine its scope — the node the method is called on does. Whenever a
-helper takes a `TreeCursor` argument and calls `node.children(cursor)`
-or `node.named_children(cursor)` on a node that isn't `cursor`'s root,
-the cursor argument is dead weight. Prefer calling iteration methods
-directly on the node you want to traverse (`parent.children(&mut
-parent.walk())`) and use the parameter only when you genuinely need to
-share an allocated cursor across siblings. When reviewing helpers like
-`has_sibling`, write a unit test that distinguishes "iterates self's
-children" from "iterates parent's children" with a fixture where the
-two would disagree — without that test, the bug is invisible.
+The single call site, `check_if_arrow_func!`, invoked
+`has_sibling(PropertyIdentifier)` to detect `{ foo: x => x }` shorthand
+arrow functions; since `PropertyIdentifier` is never a child of
+`ArrowFunction`, it returned `false` unconditionally. The bug was masked
+because `count_specific_ancestors` caught the common case by a different
+traversal — the dead branch only mattered when the ancestor walk exited
+early. Write a unit test that distinguishes "iterates self's children"
+from "iterates parent's children" with a fixture where the two disagree;
+without it the bug is invisible.
 
 ---
 
 ## 13. `tokio::task::spawn_blocking` is uncancellable
 
-`tokio::time::timeout(deadline, spawn_blocking_handle).await` resolves
-when the deadline fires, but the underlying blocking task continues
-running on Tokio's blocking thread pool until its closure returns.
-Dropping the `JoinHandle` (or any future wrapping it) does **not**
-cancel the task — the Tokio docs state this explicitly, and `actix-web`'s
-`web::block` inherits the behavior. A request handler that pairs a
-semaphore (to bound concurrency) with `tokio::time::timeout` (to bound
-latency) bounds neither the blocking pool nor the actual CPU time spent
-on a single request: timed-out tasks release the permit but keep their
-thread-pool slot, and a sustained rate of pathological input fills the
-512-thread default pool, after which all `spawn_blocking` callers queue
-indefinitely.
+**Lesson:** `tokio::time::timeout` cancels the *await* of the join
+handle and nothing else. Anywhere `spawn_blocking` (or
+`actix_web::web::block`) runs against user-controlled input with a
+non-trivial worst case, one of three must hold: the work checks for
+cancellation periodically and exits early; the server tracks orphaned
+tasks and rejects new work once the count crosses a threshold; or the
+input is size-bounded so the worst case is a small multiple of the
+timeout. **A semaphore alone is not sufficient.** When adding a blocking
+endpoint, test that submitting above `blocking_pool_size / timeout_secs`
+per second makes the server reject rather than queue.
 
-**Pathological source code DoS in `big-code-analysis-web`** (#110,
-`94c8141`). `run_parse` in
-`big-code-analysis-web/src/web/server.rs` acquired a semaphore permit,
-called `web::block(parse_fn)`, and wrapped the join handle in
-`tokio::time::timeout`. When the timeout fired, the handler returned a
-504 to the client and dropped the permit, but the parse closure kept
-running. A modest sustained rate of inputs that exceed the timeout
-(e.g., ~18 req/s at a 30s deadline) saturates the 512-thread default
-blocking pool; after that, every new request — including healthy
-ones — queues until an orphaned task happens to finish. Permit limits
-on concurrent requests do nothing because the bottleneck is the
-thread pool, not the permit count. The fix added an orphan-task
-counter that 503s new requests once the threshold (configurable via
-`BCA_MAX_ORPHANED_TASKS`) is exceeded, giving the pool time to drain.
+Dropping the `JoinHandle` does not cancel the task — the Tokio docs say
+so explicitly, and `actix-web`'s `web::block` inherits it. Pairing a
+semaphore with a timeout bounds neither the blocking pool nor the CPU
+time of one request: timed-out tasks release the permit but keep their
+thread-pool slot.
 
-**Lesson:** `tokio::time::timeout` does not cancel `spawn_blocking`
-work — it cancels the *await* of the join handle and nothing else.
-Anywhere `spawn_blocking` (or `actix_web::web::block`) runs against
-user-controlled input with a non-trivial worst-case runtime, three
-things must hold: (1) the work itself must check for cancellation
-periodically and exit early, OR (2) the server must explicitly track
-orphaned tasks and reject new work once the orphan count or a
-proxy-for-orphans (active threads minus active permits) crosses a
-threshold, OR (3) the input must be size-bounded such that the
-worst-case runtime is a small multiple of the timeout. A semaphore
-alone is not sufficient. When adding a new blocking endpoint, write a
-test that submits requests at a rate slightly above
-`blocking_pool_size / timeout_seconds` per second and asserts the
-server rejects rather than queues. The `tokio::time::timeout` +
-`spawn_blocking` combination *looks* defensive in code review precisely
-because each piece is correct in isolation; the gap is at the seam.
+**Pathological-source DoS in `big-code-analysis-web`** (#110,
+`94c8141`). `run_parse` acquired a permit, called `web::block`, and
+wrapped the handle in a timeout. On expiry the handler returned 504 and
+dropped the permit while the parse kept running. About 18 req/s at a 30s
+deadline saturates the 512-thread default pool, after which every new
+request — including healthy ones — queues until an orphan finishes.
+Permit limits do nothing, because the bottleneck is the pool. The fix
+added an orphan counter that 503s once `BCA_MAX_ORPHANED_TASKS` is
+exceeded. The combination *looks* defensive in review precisely because
+each piece is correct in isolation; the gap is at the seam.
 
 ---
 
 ## 14. Forked language enums collapse via shared identifiers
 
-(Slug / lookup helpers grow dead arms when an enum's identity method
-collapses two variants to the same key.)
+**Lesson:** Whenever a helper branches on the output of a domain enum's
+identity method (`get_name()`, `to_str()`), test it **through the enum**,
+not through literal strings — a literal test exercises a path production
+cannot reach. Before adding a per-variant arm, check whether the identity
+method collapses two variants to the same value; if so, the arm is dead.
+When the helper feeds a downstream artifact (a CSS rule, a JSON key),
+add a test walking every slug the helper can emit and asserting the
+artifact exists. And when the enum implements `Display` + `FromStr`, pin
+injectivity with one test iterating **every** variant and asserting
+`from_str(to_string(v)) == Ok(v)` — a spot-check misses exactly the
+variant you forgot.
 
-When two `LANG` variants represent dialects of the same language (TSX
-forked from TypeScript, JavaScript and Mozjs sharing the JS family), an
-identity-extracting method like `LANG::get_name()` typically collapses
-the dialect to a canonical name — `LANG::Tsx::get_name()` returns
-`"typescript"`, not `"tsx"`. Any helper that branches per-variant on
-that canonical name has unreachable arms for every variant whose name
-collapses, and any unit test that drives the helper with a literal
-string (`palette_slug("tsx")`) exercises the dead arm without ever
-crossing the production call path through the enum. The pattern is
-distinct from lesson 3 (sibling modules mirror each other) and lesson 7
-(wrapper-level tests masked by upstream filters): here the *enum's own
-identity-collapse* makes the branch unreachable from production while
-the test happily simulates a code path that does not exist.
+When two variants are dialects of one language, an identity method
+typically collapses them: `LANG::Tsx::get_name()` returned
+`"typescript"`. Any helper branching on that canonical name has
+unreachable arms, while a unit test driving it with a literal string
+happily simulates a path that does not exist.
 
-**`lang-tsx` palette arm dead in HTML aggregate report** (#139,
-`0a9eca1`). `language_palette_slug` matched on `LANG::get_name()` with
-explicit arms for `"javascript"`, `"typescript"`, `"tsx"`,
-`"mozjs"`, etc., and the embedded stylesheet shipped CSS rules for
-`.lang-tsx` (light + dark mode). The unit test
-`language_palette_slug_known_and_fallback` asserted on the helper
-directly with literal inputs (`"tsx"`, `"java"`, …), so it agreed
-that `"tsx"` mapped to the `lang-tsx` slug. Production code, however,
-called `language_palette_slug(lang.get_name())`, and
-`LANG::Tsx::get_name() == "typescript"` collapses TSX to the
-TypeScript palette before reaching the slug helper. The `lang-tsx`
-arm and its CSS rules were unreachable. The fix dropped the dead arm,
-replaced the per-variant `match` with a const
-`LANGUAGE_PALETTE: &[(&str, &str)]` table that an enforcement test
-introspects to assert every slug has both a light and dark CSS rule,
-and added a `tsx_section_uses_typescript_palette` test that drives
-the helper through `LANG::Tsx -> get_name() -> palette` end-to-end.
+**`lang-tsx` palette arm dead in the HTML report** (#139, `0a9eca1`).
+`language_palette_slug` had explicit arms for `"tsx"` and the stylesheet
+shipped `.lang-tsx` rules for light and dark mode.
+`language_palette_slug_known_and_fallback` asserted on the helper with
+literal inputs and agreed. But production called
+`language_palette_slug(lang.get_name())`, and TSX collapses to
+TypeScript before reaching the helper. The fix dropped the dead arm,
+replaced the `match` with a `LANGUAGE_PALETTE` table an enforcement test
+introspects for light+dark rules, and added an end-to-end test through
+`LANG::Tsx`.
 
-**`bca.analyze_source(code, "javascript")` rejected the canonical
-CLI display name** (#265 batch, `182974b`). The first cut of the
-PyO3 bindings published the lowercased Rust variant name
-(`"mozjs"`) as the language identifier on
-`bca.analyze_source(code, language)`, while
-`bca metrics --output-format json` showed `"language":
-"javascript"` (via `LANG::Mozjs::get_name() == "javascript"`).
-Users reading the CLI output and feeding that string back to the
-bindings hit `UnsupportedLanguageError("javascript")`. The
-inverse of the TSX case above: there, production matched on a
-name the enum can never emit; here, the *binding's public API*
-exposed a name the canonical identity method can never emit. Same
-enum-identity-collapse root, opposite-direction symptom — the fix
-routes `parse_language_name` through `lang_to_name`, the same
-helper the rest of the binding already uses for the inverse
-lookup.
+**The same root, opposite direction** (#265 batch, `182974b`). The first
+PyO3 bindings published the lowercased Rust variant name (`"mozjs"`)
+while the CLI showed `"javascript"`. Users feeding the CLI's own output
+back to the bindings hit `UnsupportedLanguageError("javascript")`. There
+production matched a name the enum cannot emit; here the public API
+exposed a name the identity method cannot emit.
 
-**`LANG::Typescript` was unreachable via `FromStr` — the parse-side
-inverse, and the collapse root finally eliminated** (#540, `57e056d9`).
-The `mk_langs!` table gave both `Tsx` and `Typescript` the display
-string `"typescript"`, so `Display` / `name()` collapsed them *and*
-`FromStr("typescript")` resolved to whichever was declared first
-(`Tsx`) — leaving `LANG::Typescript` impossible to parse and impossible
-to round-trip (`from_str(Typescript.to_string())` returned `Tsx`). The
+**The collapse root, finally eliminated** (#540, `57e056d9`). `mk_langs!`
+gave both `Tsx` and `Typescript` the string `"typescript"`, so
+`FromStr("typescript")` resolved to whichever was declared first —
+leaving `LANG::Typescript` impossible to parse or round-trip. The
 existing test `aliased_typescript_name_resolves_to_first_declared_variant`
-*documented* the collapse as expected behaviour, cementing the bug. The
-2.0 fix removed the collapse at its source: every variant now has a
-distinct canonical slug (`Tsx` → `"tsx"`, `Typescript` →
-`"typescript"`; the pretty `"c/c++"` / `"c#"` forms dropped), which
-also let the Python `lang_to_name` override from the #265 example above
-be deleted. The per-variant round-trip assertions were replaced by one
-that iterates **every** variant —
-`assert_eq!(LANG::from_str(&l.to_string()), Ok(l))` — proving round-trip
-fidelity and injectivity together (a slug collision makes `from_str`
-resolve to the first-declared sibling, failing `Ok(l)` for the
-later one), plus a `no_variant_slug_contains_punctuation` guard against
-reintroducing an unparseable display form.
-
-**Lesson:** Whenever a helper branches on the output of a domain
-enum's identity method (`get_name()`, `to_str()`, `as_canonical()`),
-test it through the enum, not through literal strings — the literal
-test exercises a code path that production cannot reach. Before
-adding a per-variant arm, grep the enum implementation for cases
-where the identity method collapses two variants to the same value
-(`rg 'fn get_name' src/languages/`); if the variant you are about to
-match collapses to another variant's name, the arm is dead. When the
-helper is paired with a downstream artifact (a CSS rule, a JSON key,
-a config-file lookup), add a test that walks every slug the helper
-can emit and asserts the artifact exists for it — without that test,
-the dead arm and its dangling artifact survive review indefinitely.
-And when the enum implements `Display` + `FromStr`, pin injectivity with
-a single test that iterates every variant and asserts
-`from_str(to_string(v)) == Ok(v)`: two variants sharing a display string
-make the later-declared one unreachable via parsing, and a round-trip
-test that only spot-checks the variants you remembered will miss exactly
-the one you forgot.
+*documented* the collapse as expected, cementing the bug. The 2.0 fix
+gave every variant a distinct slug, which also let the Python override
+above be deleted, and replaced the per-variant assertions with one
+iterating every variant — proving round-trip fidelity and injectivity
+together — plus a `no_variant_slug_contains_punctuation` guard.
 
 ---
 
 ## 15. Workspace-excluded crates drift outside every workspace-scoped gate
 
-The root `Cargo.toml` carries `[workspace].exclude = [..., "enums",
-...]` because the `enums/` codegen crate ships a non-published binary
-used only by `recreate-grammars.sh` — including it in the workspace
-would run pedantic clippy and per-PR tests against code that never
-ships. The carve-out is intentional, but it has a foot-gun: every
-gate that follows the workspace boundary (`cargo check --workspace`,
-`cargo clippy --workspace --all-targets`, `cargo test --workspace`,
-the per-PR `lint` / `test` CI jobs, `make pre-commit`'s cargo trio,
-`.pre-commit-config.yaml`'s clippy/test hooks) silently skips it.
-Lints on `enums/src/*.rs` drift undetected until someone runs the
-manual `cargo check -p enums --manifest-path enums/Cargo.toml`.
+**Lesson:** Any crate in `[workspace].exclude` needs an explicit
+lint/check target that does **not** go through `--workspace`. That gate
+must be (a) invoked from every place the workspace gates are — the local
+`make` aggregate, the pre-commit hooks, and CI; (b) carrying the same
+`RUSTFLAGS="-D warnings"` posture so local and CI behave alike; and (c)
+ideally backed by a sabotage test in CI, so if the recipe ever stops
+failing on warnings, that test fires. Add the gate the moment you add
+the exclusion.
 
-**`unused_imports` in `enums/src/lib.rs` sat for the entire fork**
-(#162, fix 157d20f). The line `pub use crate::macros::*;` could not
-re-export the `macro_rules!` definitions in `macros.rs` (macros use
-a separate name namespace and none carried `#[macro_export]`), so
-rustc warned on every build of the codegen binary. The warning was
-invisible to every CI / pre-commit / Make gate because all of them
-went through `--workspace`. Only a manual one-shot check found it.
+**And sweep the crate's *output*, not just its source.** An excluded
+crate that emits code into the workspace — `enums/templates/rust.rs`
+generates every `src/languages/language_*.rs` — is protected from the
+workspace gate while its emitted code is not. Grep `enums/templates/`
+and `generate-grammars/` for any pattern a cleanup pass removes.
 
-The fix (#164, fix d6c96e5) added a dedicated `enums-check` Make
-target that runs `RUSTFLAGS="-D warnings" cargo check
---manifest-path enums/Cargo.toml --all-targets --locked`, wired into
-`make pre-commit` / `make ci`'s parallel DAG, the `make lint`
-aggregate, the GitHub Actions `lint` job (twice, once via `make
-lint` and once explicitly, mirroring the `snapshot-anchors`
-defensive pattern), and the `.pre-commit-config.yaml` hook set. The
-CI job also injects a known unused-variable warning, asserts
-`enums-check` exits non-zero, and restores the file — so the gate's
-*effectiveness* is pinned, not just its existence.
+The exclusion is intentional: the `enums/` codegen binary ships nowhere,
+so running pedantic clippy and per-PR tests against it is waste. The
+foot-gun is that *every* gate following the workspace boundary silently
+skips it — `cargo check/clippy/test --workspace`, the per-PR `lint` and
+`test` CI jobs, `make pre-commit`'s cargo trio, and the pre-commit
+clippy/test hooks.
 
-**Lesson:** Any crate listed in `[workspace].exclude` needs an
-explicit lint/check target that does NOT go through `--workspace`,
-otherwise its lint surface drifts silently. The dedicated gate must
-(a) be invoked from every place the workspace-scoped gates are
-(local `make` aggregate, pre-commit hooks, CI), (b) carry the same
-`RUSTFLAGS="-D warnings"` posture as the workspace gates so the
-behaviour matches between local and CI runs, and (c) ideally be
-backed by a sabotage-style "gate-effectiveness" test in CI — if the
-recipe ever stops failing on warnings, that test fires. Workspace
-exclusion is the right tool for binary-only sibling crates; pair it
-with a dedicated gate the moment you add it.
+**`unused_imports` in `enums/src/lib.rs` sat for the entire fork** (#162,
+fix `157d20f`). `pub use crate::macros::*;` could not re-export
+`macro_rules!` definitions — macros use a separate namespace and none
+carried `#[macro_export]` — so rustc warned on every build of the codegen
+binary, invisible to every gate. Only a manual one-shot check found it.
+The fix (#164, `d6c96e5`) added an `enums-check` target running
+`RUSTFLAGS="-D warnings" cargo check --manifest-path enums/Cargo.toml
+--all-targets --locked`, wired into `make pre-commit` / `make ci` / `make
+lint`, the CI `lint` job twice, and the pre-commit hook set. The CI job
+also injects a known warning, asserts the gate exits non-zero, and
+restores the file — pinning the gate's *effectiveness*, not just its
+existence.
+
+**A cleanup buys exactly one regeneration cycle if it skips the
+template** (#158 batch 1, `a59a0e9`; formerly lesson 17). Rewriting ~254
+`#[inline(always)]` attributes to `#[inline]` across the language modules
+touched three attribute strings that live in `enums/templates/rust.rs`
+(`impl From<u16>`, `impl PartialEq<u16>`). Left alone, the next
+`recreate-grammars.sh` run would have re-emitted them and silently
+undone the cleanup. The template owns the long-term posture; the
+generated artifact is downstream of it.
+
+Lesson 51 covers the complementary gap: an excluded crate also needs a
+per-crate **test** recipe, because `--workspace` never exercises its
+runtime dispatch either.
 
 ---
 
 ## 16. shellcheck's default severity is `style`, not `warning`
 
-`shellcheck` ships with `--severity style` as its default — looser
-than its formal `[warning]` tier. That means `make shellcheck`
-fails on `SC2006` (legacy backticks → `$(…)`) and similar
-style-only findings, not just on the SC2086 / SC2164 family that
-people typically associate with "shell lint warnings". An issue
-body that enumerates findings by ticket number (e.g., "SC2164,
-SC1083, SC2086") will miss style-tier hits and under-promise the
-scope of the cleanup.
+**Lesson:** Re-run `shellcheck` against the actual file set *before*
+trusting an issue body's category list — the body may have been authored
+at a non-default severity or simply missed style-tier findings. As an
+issue author, paste the raw output rather than a hand-curated list. As a
+fix agent, run the tool at default severity on each target file and
+reconcile; divergent extras are in scope and belong in the same commit,
+or `make shellcheck` will not exit clean afterwards.
 
-**Issue #165 enumerated SC2164 / SC1083 / SC2086 only**, but the
-actual `make shellcheck` failures included SC2006 backticks in
-`generate-grammars/generate-mozcpp.sh` and `…/generate-mozjs.sh`.
-The fix landed all four categories in one commit (`532a6d0`); the
-SC2006 conversions were correct and mechanical, but they could
-just as easily have been missed by a fix-agent that took the issue
-body's enumeration as authoritative.
+`shellcheck` defaults to `--severity style`, looser than its formal
+`[warning]` tier, so `make shellcheck` fails on `SC2006` (legacy
+backticks) and similar style-only findings — not just the SC2086 /
+SC2164 family people associate with shell lint.
 
-**Lesson:** When triaging or fixing shell lint debt, re-run
-`shellcheck` against the actual file set *before* trusting an issue
-body's category list. The body may have been authored against a
-non-default severity, or simply have missed style-tier findings. As
-an issue-author convention, prefer pasting the raw `shellcheck`
-output rather than a hand-curated category list. As a fix-agent
-convention, run the tool on each target file at default severity
-and reconcile against the issue body — if categories diverge, the
-extras are also in scope and should land in the same commit so
-`make shellcheck` actually exits clean afterward.
+**Issue #165 enumerated SC2164 / SC1083 / SC2086 only**, but the actual
+failures included SC2006 backticks in `generate-grammars/generate-mozcpp.sh`
+and `generate-mozjs.sh`. The fix landed all four categories in one commit
+(`532a6d0`); the conversions were mechanical, but a fix agent treating
+the issue body as authoritative would have missed them.
 
 ---
 
-## 17. Workspace-excluded codegen templates re-introduce cleaned-up patterns
+## 17. *Merged into lesson 15*
 
-The `enums/` crate is `[workspace].exclude`d (lesson 15), but it
-*emits* code into the workspace via `enums/templates/rust.rs` — the
-output lands in the per-language `src/languages/language_*.rs`
-files. A lint cleanup that rewrites the emitted output without
-also rewriting the template is silent until the next
-`recreate-grammars.sh` run, at which point every fix is reverted
-in a single regenerate.
-
-**Issue #158 batch 1 (`a59a0e9`)** rewrote ~254 `#[inline(always)]`
-attributes to `#[inline]` across all language modules. Three of
-those attribute strings live in `enums/templates/rust.rs`
-(`impl From<u16>`, `impl PartialEq<u16>`, etc.) and would have been
-re-emitted as `#[inline(always)]` on the next grammar bump,
-silently undoing the workspace cleanup. The fix included
-`enums/templates/rust.rs` in the rewrite even though it is in an
-excluded crate, because the *output* of that template is what the
-workspace clippy gate scans.
-
-**Lesson:** When a cleanup pass touches code under `src/languages/`,
-`src/`, or any other workspace-scanned directory, also grep
-`enums/templates/`, `generate-grammars/`, and any other codegen
-input for the pattern you are removing. Workspace exclusion
-protects the *template crate* from the workspace gate, not the
-*emitted code*. Generated artifacts are downstream of their
-template; the template owns the long-term posture. A clippy
-cleanup that ignores the template buys exactly one regeneration
-cycle before the lint debt comes back.
+The workspace-excluded `enums/` crate emits code into the workspace via
+`enums/templates/rust.rs`, so a lint cleanup that rewrites the emitted
+output without the template is undone by the next regeneration. Kept as
+a sub-example of **[lesson 15](#15-workspace-excluded-crates-drift-outside-every-workspace-scoped-gate)**;
+this number is retained because existing citations reference it.
 
 ---
 
-## 18. `cargo clippy --fix` is one lint at a time; cross-lint regressions hide between passes
+## 18. `cargo clippy --fix` is one lint at a time
 
-`cargo clippy --fix -- -A clippy::all -W clippy::implicit_clone`
-runs the borrow checker once, applies the suggested rewrite for
-the warned lint, and exits. It does not re-run the full default
-clippy lint set against the rewritten code. That means an
-auto-applied fix can satisfy the targeted lint while introducing
-a *different* lint that the project's `-D warnings` gate cares
+**Lesson:** After every `cargo clippy --fix` pass — especially with
+`-W <single lint>` scoping the rewrite — re-run the full project gate in
+**both** `--all-features` and default-features flavours before
+committing. `cargo clippy --workspace --all-targets -- -D warnings` is
+the load-bearing verification. Treat `--fix` as a proposal generator,
+not a verification.
+
+`--fix` runs the borrow checker once, applies the suggestion for the
+warned lint, and exits. It never re-runs the full default lint set
+against the rewritten code, so an auto-applied fix can satisfy its
+target while introducing a different lint the `-D warnings` gate cares
 about.
 
-**Issue #158 batch 1 (`a59a0e9`)** ran `cargo clippy --fix -W
-clippy::implicit_clone` over a `path_min.drain(..).map(|p|
-p.to_path_buf()).collect()` site in `guess_file`. The auto-fix
-rewrote `.to_path_buf()` → `.clone()`, satisfying
-`implicit_clone`. On the next workspace clippy run, however,
-`clippy::map_clone` (a default-feature lint) fired on the same
-line because `.map(|p| p.clone())` is now redundant with
-`.cloned()`. The `--all-features` gate (which was the only one
-re-run after the auto-fix pass) didn't surface this because
-`map_clone` is default-feature scoped on the version of clippy in
-use. The default-features `-D warnings` run on the next CI tick
-would have failed the build.
-
-**Lesson:** After every `cargo clippy --fix` pass — especially
-when the `-W <single lint>` flag is used to scope the rewrite —
-re-run the full project lint gate in both `--all-features` and
-default-features flavours before committing. `cargo clippy
---workspace --all-targets -- -D warnings` is the load-bearing
-verification, not the targeted lint check that `--fix` itself
-does. Treat `--fix` as a *proposal generator*, not a
-verification.
+**#158 batch 1 (`a59a0e9`)** ran `--fix -W clippy::implicit_clone` over
+`path_min.drain(..).map(|p| p.to_path_buf()).collect()` in `guess_file`.
+The rewrite to `.clone()` satisfied `implicit_clone` and made
+`clippy::map_clone` fire on the same line, because `.map(|p| p.clone())`
+is redundant with `.cloned()`. The `--all-features` gate — the only one
+re-run — missed it, since `map_clone` was default-feature scoped on that
+clippy version. The next default-features CI tick would have failed the
+build.
 
 ---
 
 ## 19. Metric dispatch enumerates kinds — missing arms score valid constructs as zero
 
-A per-language metric impl (`impl Cognitive for CppCode`, `impl Cyclomatic
-for JavaCode`, …) is built around a `match node.kind_id()` that lists the
-kinds which contribute to the metric. The list is *coverage*, not
-*compilation*: a grammar can emit a valid construct under a node kind the
-match arm forgot, and the metric silently emits zero for it. This is
-related to lesson 1 (whole-metric no-op silently returns zero), lesson 2
-(aliased kind_ids inside one logical rule), and lesson 11 (cross-language
-disagreement). The new failure mode: an *already-implemented* metric has
-a populated dispatch table that simply doesn't enumerate every node kind
-the grammar emits for the construct the metric is supposed to count.
+**Lesson:** Treat a metric impl's arm list as a coverage claim, not a
+complete spec. After touching or auditing one, grep
+`src/languages/language_<lang>.rs` for every kind whose name suggests the
+construct (`rg 'For[A-Z]'` for loops, `rg 'Conditional|Ternary'` for
+`?:`) and confirm each is matched or excluded with a comment. **When
+fixing one language's omission, build the audit table for the other
+~20** — a survey table in the fix issue catches sibling bugs in the same
+pass. Anchor each known-wrong-but-unfixed case in a regression test with
+an inline `FIXME(#NNN)`, so the bug stays visible in CI and the eventual
+fix flips a literal value rather than re-deriving the right one.
 
-**C/C++ ternary `?:` was not counted for cognitive** (#172, `b2ae93f`).
-`impl Cognitive for CppCode` enumerated `ForStatement | WhileStatement |
-DoStatement | SwitchStatement | CatchClause` in its nesting arm but
-omitted `ConditionalExpression`, while every JS-family impl already
-included `TernaryExpression`. Every C / C++ source file in the corpus
-scored `0` cognitive for ternaries — the DeepSpeech submodule absorbed
-363 snapshots' worth of upward metric shift when the fix landed.
+Related to lesson 1 (a whole-metric no-op returns zero) and lesson 2
+(aliased kind_ids within one rule). The distinct failure here: an
+*already-implemented* metric has a populated dispatch table that simply
+does not enumerate every kind the grammar emits for the construct.
 
-**C++ range-based `for (auto x : v)` was not counted for cognitive**
-(#173, `7eef01a`). The same dispatch arm matched only `ForStatement`
-and missed `ForRangeLoop` — the distinct C++11 grammar kind. Classic
-loops scored `+1 (+nesting)`; range-based loops scored `0`. The fix
-moved 99 DeepSpeech snapshots.
+**C/C++ ternary `?:` uncounted for cognitive** (#172, `b2ae93f`). The
+nesting arm listed `ForStatement | WhileStatement | DoStatement |
+SwitchStatement | CatchClause` and omitted `ConditionalExpression`,
+while every JS-family impl already had `TernaryExpression`. Every C/C++
+file in the corpus scored 0 for ternaries; the fix moved 363 DeepSpeech
+snapshots.
 
-**Java enhanced-for `for (T x : c)` was not counted for cognitive**
-(#178, `96b73d6`). `JavaCode::compute` matched `ForStatement` but
-missed `EnhancedForStatement`. Discovered via the cross-language audit
-table built off the C++ fix in #173 — without that systematic sweep,
-the bug would have stayed invisible. The same audit confirmed the
-JS-family `for...of` was fine (grammar folds both `for...in` and
-`for...of` into one `for_in_statement` kind), and locked four
-dedicated regression tests (`javascript_for_of_loop`, `mozjs_for_of_loop`,
-`typescript_for_of_loop`, `tsx_for_of_loop`) in so a future grammar
-split would fail loudly.
+**C++ range-based `for` uncounted** (#173, `7eef01a`). The same arm
+matched only `ForStatement`, missing `ForRangeLoop`. Classic loops
+scored `+1 (+nesting)`; range-based scored 0. 99 snapshots moved.
 
-**Locked-in tests with `FIXME` comments made the bugs visible in CI**
-(#167, `4b41187`; issue links added in `e8b9a4e`). Three of the new
-C/C++ cognitive tests (`c_ternary`, `c_range_based_for`, `c_recursion`)
-deliberately asserted the current-wrong values with an inline FIXME;
-once the fix issues were filed, a follow-up retargeted each FIXME at
-its tracking issue (`FIXME(#172)`, `FIXME(#173)`). The fix commits
-(`b2ae93f`, `7eef01a`) flipped a literal expected value rather than
-re-deriving from scratch, and each test failed loudly the moment its
-dispatch arm was changed. The "assert wrong, flip on fix" anchor is a
-useful idiom whenever a bug is identified before its fix is scheduled
-— it keeps the gap visible in the test suite instead of in a stale
-tracker, and the issue-link upgrade is cheap to apply later once the
-tracking number exists.
+**Java enhanced-for uncounted** (#178, `96b73d6`). Discovered via the
+cross-language audit table built off #173 — without that sweep it would
+have stayed invisible. The same audit confirmed JS `for...of` was fine
+(the grammar folds `for...in` and `for...of` into one kind) and locked
+four regression tests so a future grammar split fails loudly.
 
-**Wave 3 audits closed the dispatch gaps the C/C++ table identified
-across eight sibling languages** (#212, `d8ed3b5`; #224,
-`baf98d8`; #225, `ea75e35`; #226, `7fce6f7`). The audit table built when
-fixing Java #178 proved its value over the following week: Python
-`match`/`case` (PEP 634, 3.10+) contributed 0 decision points to
-both cyclomatic and cognitive — the dispatch predated Python's
-structural pattern matching and was never updated (#212). Cognitive
-ternary `?:` was missing from Java, C#, and PHP — the same C++
-pattern from #172 applied to three more languages (#224).
-Cyclomatic short-circuit `??` (nullish coalescing) was missing from
-JavaScript / TypeScript / TSX / Mozjs — C# and PHP already had it
-(#226). Cognitive labeled `break`/`continue` was missing from
-Java; all forms of `goto` (`label` / `case` / `default`) were
-missing from C# (#225). Each fix followed the audit-table
-workflow: identify the omission, build the per-language coverage
-table, add a regression test, apply sibling fixes in one commit.
+**The audit table paid off across eight more languages within a week**
+(#212 `d8ed3b5`; #224 `baf98d8`; #225 `ea75e35`; #226 `7fce6f7`).
+Python `match`/`case` contributed 0 to both cyclomatic and cognitive —
+the dispatch predated PEP 634 and was never updated. Cognitive ternary
+was missing from Java, C#, and PHP; cyclomatic `??` from all four
+JS-family languages; cognitive labeled `break`/`continue` from Java, and
+every form of `goto` from C#.
 
-**Lesson:** When a metric impl uses a `match` on node kinds, treat the
-arm list as a coverage claim, not a complete spec. After touching or
-auditing one, grep `src/languages/language_<lang>.rs` for every kind
-whose name suggests the construct (`rg 'For[A-Z]' src/languages/`
-for loops, `rg 'Conditional|Ternary' …` for `?:`, …) and confirm
-each is either explicitly matched or explicitly excluded with a
-comment. When fixing one language's omission, build the audit table
-for the other ~15 — a survey table in the fix issue, like the one
-in #178, catches sibling bugs in the same pass. Anchor each
-known-wrong-but-unfixed case in a regression test with an inline
-`FIXME(#NNN)` so the bug stays visible in CI and the eventual fix
-flips a literal value rather than re-deriving the right one.
+**The FIXME anchor made three bugs visible in CI before their fixes were
+scheduled** (#167, `4b41187`; links added in `e8b9a4e`). `c_ternary`,
+`c_range_based_for`, and `c_recursion` deliberately asserted the
+current-wrong values with inline FIXMEs later retargeted at `FIXME(#172)`
+/ `FIXME(#173)`. Each failed loudly the moment its dispatch arm changed.
 
 ---
 
-## 20. `PathBuf::join(absolute)` silently replaces the base — iterate `Path::components()`
+## 20. `PathBuf::join(absolute)` silently replaces the base
 
-`PathBuf::join(arg)` silently *replaces* the receiver when `arg` is
-absolute: `PathBuf::from("/tmp").join("/etc/passwd")` returns
-`/etc/passwd`, not `/tmp/etc/passwd`. The behaviour is documented but
-easy to miss when writing a "normalize then place under base"
-routine. A normalizer that strips Unix-style `/` or `./` prefixes
-is not enough, because Windows paths carry a `Prefix` component
-(`D:\`) the same normalizer leaves intact, after which `join`
-happily treats the path as absolute and drops the user-supplied
-base. The bug is invisible on Unix and only surfaces against
-Windows test inputs.
+**Lesson:** When normalizing a path for "place this under a base",
+iterate `Path::components()` and discriminate by the `Component` enum
+(`Prefix`, `RootDir`, `CurDir`, `ParentDir`, `Normal`) rather than
+stripping prefix bytes. `Component` is cross-platform — it surfaces the
+Windows `Prefix` variant explicitly, so one code path handles
+`/tmp/a/b`, `./a/b`, and `D:\a\b`. Whenever a normalized path is about
+to reach `PathBuf::join`, assert (or design so) it cannot be absolute on
+**any** platform.
+
+`PathBuf::from("/tmp").join("/etc/passwd")` returns `/etc/passwd`. The
+behaviour is documented and easy to miss: a normalizer stripping Unix
+`/` or `./` prefixes leaves the Windows `Prefix` component (`D:\`)
+intact, after which `join` treats the path as absolute and drops the
+base. Invisible on Unix.
 
 **`bca metrics -o tmpdir` wrote files to the drive root on Windows**
-(`4113bc6`). `handle_path` in `big-code-analysis-cli/src/formats.rs`
-stripped Unix-style `/` and `./` prefixes before
-`output_path.join(cleaned)`. On Windows, an input like
-`D:\a\src\foo.rs` left `cleaned` starting with `D:\`, `join` dropped
-the user-supplied `output_path`, and the output landed under
-`D:\a\src\…` instead of `<output_path>/a/src/…`. Three Windows
-smoke tests (`metrics_writes_per_file_json_to_output_dir`,
-`metrics_pretty_emits_indented_json`,
-`ops_writes_per_file_json_to_output_dir`) caught it; Unix CI was
-clean. The fix walks `Path::components()` and skips `Prefix`,
-`RootDir`, and `CurDir`, replaces `ParentDir` with `.` so the
-output stays contained under the requested base, and preserves the
-UTF-8 fallback warning for `Normal` components.
-
-**Lesson:** When normalizing a path for "place this somewhere under a
-base," iterate `Path::components()` and discriminate by the
-`Component` enum (`Prefix`, `RootDir`, `CurDir`, `ParentDir`,
-`Normal`) rather than stripping prefix bytes. `Component` is
-cross-platform — it surfaces the Windows `Prefix` variant
-explicitly, so the same code handles `/tmp/a/b`, `./a/b`, and
-`D:\a\b` correctly. Whenever a path is the result of normalization
-and is about to be passed to `PathBuf::join`, assert (or design so
-it cannot occur) that the input is not absolute on any platform —
-`join` silently throws away the base if it is. Windows-only test
-coverage is load-bearing here: a fix verified only on Unix can
-ship a regression that wipes out user output on Windows.
+(`4113bc6`). `handle_path` stripped Unix-style prefixes before
+`output_path.join(cleaned)`. Input `D:\a\src\foo.rs` left `cleaned`
+starting with `D:\`, so output landed under `D:\a\src\…` instead of the
+requested base. Three Windows smoke tests caught it; Unix CI was clean.
+Windows-only coverage is load-bearing here — a fix verified only on Unix
+can ship a regression that wipes out user output.
 
 ---
 
 ## 21. Hidden-rule alias nodes extend their byte range to the shared delimiter
 
-A visible tree-sitter node's `kind()` describes the grammar rule it
-came from, but its `start_byte()` / `end_byte()` describe *which
-bytes the rule actually consumed*. When a grammar uses a hidden rule
-to consume a sigil or delimiter together with a sibling identifier
-(common shapes in tree-sitter grammars include `seq('$', $._foo)`,
-`seq('#{', $._expr, '}')`, alias inlining), the resulting visible
-node can span the delimiter even though its kind name suggests
-otherwise. `node.utf8_text(src)` then returns text like `"$name"`
-when the kind is `identifier`, making `$name` and bare `name`
-distinct entries in any text-keyed store (Halstead operands keyed
-by source bytes, primitive-type tables, etc.) even though they look
-identical at the kind level. The asymmetry is invisible until a
-test pins integer counts and the actual byte range disagrees with
-the visible token.
+**Lesson:** Never assume a node's source text matches its visible token
+name. Before pinning Halstead operand counts — or any text-keyed metric
+— on an interpolation-bearing snippet, dump the AST with byte ranges and
+confirm what each visible node actually spans. `node.utf8_text(src)` is
+the source of truth; kind names like `identifier` describe the *rule*,
+not the bytes. When a count comes out one higher than expected, check
+whether the AST is splitting an identifier the way you assumed before
+touching production code.
 
-**Kotlin short-form string templates double-count interpolated
-identifiers in tests, not in production** (#191, `7a8ccac`). The Wave
-3 fix added the `is_child(Interpolation)` guard correctly, but the
-initial expected counts assumed `name` inside `$name` would share an
-operand bucket with the parameter `name` outside the string. Empirically,
-tree-sitter-kotlin-ng emits a visible `identifier` node whose source
-byte range starts at the `$` — making `$name` a distinct operand from
-`name`. The Wave-3 investigation attributed this to a `seq('$',
-$._identifier)`-style hidden-rule alias in the grammar; whatever the
-exact rule, the observable behaviour (consult `node.utf8_text(src)`
-on a representative parse to confirm before relying on a count) is
-what the test must be derived against. The expected counts were
-re-derived against the actual byte range (u_operands = 4, not 3)
-with an explanatory comment so a future reader can reconcile the
-result. The production fix was already correct; the lesson is about
-how the *test* was wrong because the byte-range assumption was wrong.
+A visible node's `kind()` names the rule it came from; its
+`start_byte()` / `end_byte()` describe which bytes the rule consumed.
+When a grammar uses a hidden rule to consume a sigil together with an
+identifier (`seq('$', $._foo)`, `seq('#{', $._expr, '}')`, alias
+inlining), the visible node can span the delimiter. `utf8_text` then
+returns `"$name"` for a node of kind `identifier`, making `$name` and
+`name` distinct entries in any text-keyed store.
 
-**Lesson:** Never assume a node's source text matches its visible
-token name. Before pinning Halstead operand counts (or any text-
-keyed metric) on an interpolation-bearing snippet, dump the AST
-with byte ranges and confirm what each visible node *actually*
-spans. `node.utf8_text(src)` is the source of truth — visible kind
-names like `identifier` describe the rule, not the bytes. The same
-hazard applies to any hidden-rule alias: `template_substitution`
-wrappers, heredoc body splices, language-specific `$#` / `@_` /
-`${` constructs, Perl sigil variables. When the test breaks because
-the count is one higher than expected, the first thing to check is
-not the production code but whether the AST is splitting an
-identifier the way you assumed.
+**Kotlin short-form string templates** (#191, `7a8ccac`). The production
+`is_child(Interpolation)` guard was correct; the *test's* expected counts
+assumed `name` inside `$name` shared an operand bucket with the
+parameter `name` outside the string. tree-sitter-kotlin-ng emits a
+visible `identifier` whose byte range starts at the `$`, so
+`u_operands` is 4, not 3. The same hazard applies to
+`template_substitution` wrappers, heredoc body splices, and Perl sigil
+variables.
 
 ---
 
 ## 22. Text-keyed semantic markers force trait signatures to carry source bytes
 
-When a language encodes semantic state (visibility, branch type,
-attribute kind) in *bare identifier text* rather than a distinct
-token kind, no `kind_id`-based dispatch can classify it. The
-metric impl needs to read the source bytes to disambiguate
-`private` from any other `Identifier`. If the per-metric trait
-signature does not already accept `&[u8]`, the addition propagates:
-the supertrait, every existing per-language impl (explicit and
-macro-generated), the call site in `spaces.rs`, and any downstream
-signature checks. This has now happened twice for two distinct
-metric traits, and the underlying need — text-keyed dispatch — is
-common enough across grammars that more recurrences are likely.
+**Lesson:** When implementing a metric for a new language, ask first:
+does this language encode any branch/visibility/attribute semantic in
+**bare identifier text** rather than a distinct token kind? If yes, the
+trait needs `&[u8]` at `compute` — plan the widening as part of the
+impl, not a follow-up refactor. Standardise on
+`<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats)` for any new
+metric trait; impls that do not need the bytes discard them with `_`.
+The marginal cost is zero — the slice is already on hand at the call
+site — and it avoids widening retroactively across every existing impl
+plus the macro-generated defaults.
 
-**`Cyclomatic::compute` widened for Elixir keyword Calls** (#179,
-see CHANGELOG `### Changed`). Elixir's `if` / `unless` / `for` /
-`while` / `with` / `case` / `cond` / `try` constructs surface as
-`Call` nodes with untyped targets — there is no distinct
-`IfStatement` kind. Distinguishing branch-contributing Calls from
-regular method invocations required reading the call target's
-text, which forced `Cyclomatic::compute` to widen from
-`(node, stats)` to `<'a>(node, code: &'a [u8], stats)`.
-`Exit::compute` was already that shape.
+No `kind_id`-based dispatch can classify semantics carried in identifier
+text. The addition propagates: the supertrait, every per-language impl
+(explicit and macro-generated), the call site in `spaces.rs`, and any
+downstream signature checks.
+
+**`Cyclomatic::compute` widened for Elixir keyword `Call`s** (#179).
+Elixir's `if` / `unless` / `for` / `case` / `cond` surface as `Call`
+nodes with untyped targets — there is no `IfStatement` kind — so
+distinguishing branch-contributing calls from ordinary invocations
+required reading the target's text. `Exit::compute` was already that
+shape.
 
 **`Npa::compute` and `Npm::compute` widened for Ruby visibility
-markers** (#190, `c42edf2`). Ruby's `private` / `public` /
-`protected` parse as bare `Identifier` nodes whose semantic
-meaning is text-only — they share a kind with every other
-identifier in the program. Classifying them required reading the
-source bytes, which forced both `Npa::compute` and `Npm::compute`
-to widen to the same `<'a>(node, code: &'a [u8], stats)` shape as
-`Cyclomatic` and `Exit`. Every per-language impl — the explicit
-ones in `src/metrics/npa.rs` and `src/metrics/npm.rs` plus the
-macro-generated defaults emitted by `implement_metric_trait!` —
-and the two call sites in `src/spaces.rs` were updated in the same
-commit. The `Checker` supertrait is `pub(crate)`, so the change is
-invisible to downstream crates, but the convergence is now load-
-bearing for any future metric whose impl needs source bytes.
-
-**Lesson:** When implementing a metric for a new language, the
-first question is: does this language encode any
-branch/visibility/attribute semantic in **bare identifier text**
-rather than a distinct token kind? If yes, the metric trait will
-need `&[u8]` at the `compute` signature — plan the widening as
-part of the impl, not as a follow-up refactor. Standardise on the
-four-argument `<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut
-Stats)` shape for any new metric trait; per-language impls that do
-not need the bytes discard them with `_`. The marginal cost is
-zero (the source slice is already on hand at the call site); the
-savings are not having to widen the signature retroactively across
-every existing impl plus the macro-generated defaults. Two
-incarnations are now documented (Elixir keyword Calls for
-`Cyclomatic`, Ruby visibility markers for `Npa`/`Npm`); the
-catalogue will grow as more languages get real impls.
+markers** (#190, `c42edf2`). Ruby's `private` / `public` / `protected`
+parse as bare `Identifier`s sharing a kind with every other identifier.
+Every per-language impl and both call sites in `spaces.rs` were updated
+in one commit. The `Checker` supertrait is `pub(crate)`, so this is
+invisible downstream — but the convergence is now load-bearing for any
+future metric needing source bytes.
 
 ---
 
 ## 23. Compensation constants in parity tests blind the test to its own purpose
 
-A cross-language or cross-metric parity test exists to detect when one
-language (or metric impl) drifts from the others on equivalent code.
-When that test catches a real divergence and the divergence cannot be
-fixed in the same change, two options preserve the test's signal:
-leave the test failing (`#[ignore]` with the tracking issue) or lock
-it in against the wrong literal value with a `FIXME(#NNN)` comment
-per lesson 19. The third option — adding a per-target offset constant
-that "compensates" for the bug so the test passes — destroys the
-test's ability to detect that bug class. The compensation reads like
-a workaround in the diff but functions as a permanent blindfold; the
-test cannot fire on the bug it was designed to catch, and any future
-regression that shifts the same input by `±OFFSET` becomes invisible
-too.
-
-**`PYTHON_ELSE_BUG_OFFSET` hid a Python `if/else` over-count from the
-parity test designed to catch it** (#229, `a239cf6`). `e2fbd2b` wired
-the four cross-language cyclomatic / cognitive / exit / nargs parity
-tests prescribed by lesson 11. `if_else_if_else_chain_parity`
-detected that Python over-counted plain `if/else` by 1 — root cause:
-`Node::has_ancestors(typ, typs)` in `src/node.rs` did not actually
-verify both predicates against the expected ancestor chain. It
-returned `true` whenever the immediate parent matched the second
-predicate, regardless of whether the first predicate matched, so the
-Python `Else` arm of cyclomatic fired for every `else_clause`, not
-just loop-`else`. Instead of `#[ignore]`-ing the failure or
-FIXME-locking the wrong literal, the test author introduced
-`const PYTHON_ELSE_BUG_OFFSET: f64 = 1.0` and added it to Python's
-expected sum, accompanied by an 8-line comment explaining the bug.
-The OFFSET made the test pass for every Python case — including any
-future regression that would shift Python's count in a different
-direction. #229 fixed `has_ancestors` (renamed to
-`parent_grandparent_match`, strictly checks both predicates),
-updated the sole call site to include `TryStatement` in the
-grandparent set, and removed the OFFSET in the same commit.
-
-**Lesson:** When a parity test catches a real bug you cannot fix in
-the same change, choose visibility over passability. `#[ignore]`
-with the issue number, FIXME-lock the wrong literal per lesson 19,
-or assert the buggy value with a comment that gets flipped when the
-fix lands — all preserve the test's ability to detect *future*
-drift on the same input. A per-target offset constant looks
-defensive but actually neutralises the test: any future regression
-that shifts the same metric by `±OFFSET` becomes invisible, and the
-explanatory comment is no substitute for a failing test (reviewers
-skim comments; CI cannot). The rule generalises beyond parity tests
-— anywhere a calibration constant exists to compensate for a known
+**Lesson:** When a parity test catches a real bug you cannot fix in the
+same change, choose visibility over passability: `#[ignore]` with the
+issue number, or FIXME-lock the wrong literal per lesson 19. Both
+preserve the test's ability to detect *future* drift on the same input.
+A per-target offset constant looks defensive but neutralises the test —
+any future regression shifting the same metric by `±OFFSET` becomes
+invisible, and an explanatory comment is no substitute for a failing
+test, because reviewers skim comments and CI cannot. The rule
+generalises: anywhere a calibration constant compensates for a known
 asymmetry, that test cannot catch bugs in the asymmetric path.
+
+**`PYTHON_ELSE_BUG_OFFSET` hid the Python over-count from the parity
+test designed to catch it** (#229, `a239cf6`). `if_else_if_else_chain_parity`
+detected that Python over-counted plain `if/else` by 1. Root cause:
+`Node::has_ancestors(typ, typs)` returned `true` whenever the immediate
+parent matched the *second* predicate, regardless of the first, so
+Python's `Else` cyclomatic arm fired for every `else_clause` rather than
+only loop-`else`. Instead of ignoring or FIXME-locking, the author added
+`const PYTHON_ELSE_BUG_OFFSET: f64 = 1.0` with an 8-line explanatory
+comment. That made the test pass for **every** Python case, including
+any future regression shifting the count in a different direction. #229
+fixed `has_ancestors` (renamed `parent_grandparent_match`, strictly
+checking both predicates), updated the sole call site, and removed the
+offset in the same commit.
 
 ---
 
-## 24. Per-metric gating must cover the finalize helpers, not just per-node compute
+## 24. A cross-cutting traversal feature must reach finalize and span-derived metrics
 
-When introducing a "compute subset of metrics" optimisation, the
-obvious place to gate is the per-node `compute()` calls in the AST
-walker — but that is not where the danger lives. Some `Stats::default()`
-values are intentionally non-zero (e.g., `Cyclomatic` defaults to
-`1.0` for the McCabe baseline so every linear function reports a
-floor of 1). The finalize helpers (`compute_minmax`, `compute_sum`,
-`compute_averages`, and the derived-metric finishers) sum or average
-those defaults into the headline value. If finalize is left
-unconditional, the headline `cyclomatic_sum` reports a non-zero
-result for every function even though no `compute()` ever fired —
-and the test that verifies "this metric was skipped" by asserting
-`> 0` on selected metrics will still pass, because the default
-baseline looks indistinguishable from a real computation. The signal
-"this metric was actually skipped" can only be carried by an
-`assert_eq!(_, 0.0)` against an unselected metric whose `Stats`
-default is non-zero.
+**Lesson:** "Skip / gate / prune metric X" must reach **every** place X
+is read, aggregated, or derived — not just the per-node `compute` call.
+Audit each metric against the new feature by how it is *produced*:
+node-accumulated metrics honour a walk-level `continue`, but span
+subtractions and `finalize` roll-ups never see it, and anything derived
+from a stale field inherits the error. Either route every metric through
+the node-accumulated path, or give each non-accumulated metric an
+explicit hook the feature calls.
 
-**`MetricsOptions::with_only` skipped per-node compute but ran
-finalize for every metric** (#257, `1169231`, `d758f89`, `d5f9ff2`). The
-first cut of `with_only(&[Metric::Loc])` correctly gated each
-`T::X::compute(node, code, ...)` call inside `compute_per_node` but
-left `compute_minmax`/`compute_sum`/`compute_averages` /
-`compute_halstead_mi_and_wmc` unconditional. The resulting
-`FuncSpace.metrics.cyclomatic.cyclomatic_sum` reported the McCabe
-baseline (`1.0` × number of functions) even with Cyclomatic
-deselected. `loc_only_skips_other_metrics` caught it by asserting
-`pruned.metrics.cyclomatic.cyclomatic_sum() == 0.0` (strict zero,
-not `<`); without that anchor the bug would have shipped. The fix
-threaded `selected: MetricSet` through every finalize helper and
-gated them at the same granularity as `compute_per_node`.
-`mi_auto_pulls_dependencies` / `wmc_auto_pulls_dependencies` were
-strengthened in `d5f9ff2` to anchor on the dependency *values*
-(`loc.ploc() > 0`, `cyclomatic_sum() > 0`) for the same reason —
-asserting only `mi.is_finite()` would have passed against the
-`inputs_are_empty` short-circuit returning `0.0` from default-zero
-inputs.
+Then test it. Audit the **default** of every `Stats` type first: any
+non-zero default (Cyclomatic's `1.0` McCabe baseline is the canonical
+one) propagates through finalize and looks indistinguishable from a real
+computation. Write at least one test asserting `== 0.0` on an
+*unselected* metric whose default is non-zero; a `> 0` anchor on the
+selected metric is necessary but not sufficient.
 
-**Lesson:** "Skip computing metric X" must gate every place X is
-read or aggregated, not just the per-node compute call. Audit the
-default value of every `Stats` type before adding gating: any
-non-zero default (Cyclomatic's `1.0` baseline is the canonical one,
-but new metrics may add others) will silently propagate through
-finalize. Write at least one test per gating point that asserts
-`== 0.0` (or the metric's default) on an unselected metric whose
-default is non-zero; an `> 0` anchor on the *selected* metric is
-necessary but not sufficient.
+**`MetricsOptions::with_only` gated compute but ran finalize for every
+metric** (#257, `1169231`, `d758f89`, `d5f9ff2`). The first cut of
+`with_only(&[Metric::Loc])` correctly gated each `T::X::compute` call
+but left `compute_minmax` / `compute_sum` / `compute_averages` /
+`compute_halstead_mi_and_wmc` unconditional, so `cyclomatic_sum`
+reported the McCabe baseline (`1.0` × function count) with Cyclomatic
+deselected. `loc_only_skips_other_metrics` caught it only because it
+asserted strict `== 0.0`. The fix threaded `selected: MetricSet` through
+every finalize helper. `mi_auto_pulls_dependencies` was strengthened for
+the same reason — asserting only `mi.is_finite()` would have passed
+against the `inputs_are_empty` short-circuit returning `0.0`.
+
+**`exclude_tests` pruning left unit-level `loc.sloc` at the full-file
+extent** (#722, `1f52b742`; formerly lesson 76). `Checker::should_skip_subtree`
+— a `continue` in the walk loop — correctly dropped `ploc`/`cloc`/`lloc`
+and the node-counted metrics for a pruned `#[cfg(test)]` subtree. But
+`sloc` for the file space is a pure span subtraction over the root node,
+so skipping children never moved it: a file reported `sloc 11757` beside
+`ploc 2451`, `blank` inflated by the elided rows, and `mi.*`'s
+`16.2·ln(SLOC)` term never benefited. The fix records each pruned
+subtree's row span on its enclosing space and subtracts it in `sloc()` —
+and had to move the `finalize` call *ahead* of the prune `continue`, so
+`state_stack.last_mut()` is the pruned node's true enclosing space
+rather than a sibling's still-open one.
 
 ---
 
 ## 25. Crate-root `pub use module::*` silently leaks every newly-`pub` sub-module item
 
-A glob `pub use submodule::*` line at the crate root makes every
-`pub` item in that submodule part of the published API surface,
-whether the author intended it or not. Reviewers cannot see what
-the line exports without enumerating every `pub` item in the file;
-internal helpers added for the CLI, types meant for testing, and
+**Lesson:** Replace crate-root globs with explicit
+`pub use module::{X, Y, Z};` before stabilising anything that depends on
+the API surface (a `prelude`, a `cargo-public-api` baseline, a
+`STABILITY.md`). Internal callers reaching previously-leaked items have
+to be re-routed via `pub(crate) use` or fully-qualified paths — surface
+that drift in the same change, not as a chase later. Do not add a new
+`pub use module::*` to `lib.rs` once it has been curated.
+
+A glob makes every `pub` item in the submodule part of the published
+API, whether intended or not. Reviewers cannot see what the line exports
+without enumerating the file: internal CLI helpers, test-only types, and
 trait methods bumped to `pub` for one call site all become
-SemVer-relevant. The leak is invisible until someone removes the
-glob and watches the curated list grow.
+SemVer-relevant. The leak is invisible until someone removes the glob and
+watches the curated list grow.
 
-**Wave 10 of the library-DX batch exposed 17 `pub use module::*`
-lines hiding accidentally-public items** (#255, `bab3da9`).
-`src/lib.rs` carried `pub use alterator::*; pub use node::*;
-pub use metrics::*; ...` for every sub-module — 17 globs in a row
-(the issue body cited 16 against an older snapshot of the file).
-Replacing them with curated lists revealed several items that the
-crate's own internals had been reaching at `crate::X` paths,
-working only because the glob made them `pub` at the root. Tightening required adding `pub(crate) use crate::abc::*;`,
-`pub(crate) use crate::cognitive::*;`, etc. for the in-crate consumers (`metrics_inner`, `Search`, `check_func_space`,
-the per-metric `Cognitive`/`Cyclomatic`/... type tags) so the
-internal call sites kept compiling — those types had been
-public-by-accident, and nothing other than the glob made it look
-deliberate.
-
-**Lesson:** A pre-1.0 library that uses crate-root glob re-exports
-has a latent public-API surface no reviewer can fully see. Replace
-globs with explicit `pub use module::{X, Y, Z};` before stabilising
-anything that depends on the surface (a `prelude` module, a
-`cargo-public-api` baseline, a `STABILITY.md`). The unavoidable
-side-effect is that internal callers reaching previously-leaked
-items have to be re-routed via `pub(crate) use ...` or
-fully-qualified paths — surface that drift as part of the same
-change, not as a chase later. Don't add new `pub use module::*` to
-`lib.rs` once it has been curated.
+**Seventeen globs in `src/lib.rs` hid accidentally-public items** (#255,
+`bab3da9`). Replacing them revealed several items the crate's own
+internals reached at `crate::X` paths, working only because the glob made
+them `pub` at the root. Tightening required adding `pub(crate) use`
+lines for `metrics_inner`, `Search`, `check_func_space`, and the
+per-metric type tags — all public-by-accident, with nothing but the glob
+making it look deliberate.
 
 ---
 
 ## 26. Feature-gating a generic dispatcher forces the return type to widen to `Result`
 
-When per-language Cargo features remove some `LANG` variants from
-the build, the dispatch macro (`mk_action!`, `mk_lang!`, etc.) must
-still match every variant of the always-defined enum — disabled
-variants need a `#[cfg(not(feature = ...))]` arm that returns
-*something*. The previous signature `fn action<T>(...) -> T::Res`
-is uninhabitable at the disabled-feature site: there is no way to
-construct an arbitrary `T::Res` value when the per-language type
-that defines `T::Res` is itself cfg'd out. The only escape hatch
-that preserves the always-defined-enum design is to widen the
-return to `Result<T::Res, MetricsError>`, with the disabled arm
-returning `Err(MetricsError::LanguageDisabled(lang))`. Once that
-widening lands, every caller of the generic dispatcher rises to
-match — including non-generic shims like
-`LANG::get_tree_sitter_language` that share the macro template.
+**Lesson:** A generic dispatch signature returning an associated type
+cannot be feature-gated without widening the return to a `Result` (or
+another error-carrying shape). Plan the widening into the same change as
+the feature flag — splitting into separate PRs costs an unbuildable
+intermediate state. Always-pinned downstream callers can carry the
+invariant with a single `const FEATURES_PINNED: &str` plus
+`.expect(FEATURES_PINNED)` at every call site; defining the invariant
+once is more honest than scattering identical panic literals.
 
-**Per-language features required widening `action::<T>` and
-`LANG::get_tree_sitter_language` to `Result`** (#252, `b923919`).
-Adding `#[features]` for each grammar crate kept
-`LANG` always-defined (per the issue's stability rationale) but
-introduced `#[cfg(feature)]` / `#[cfg(not(feature))]` paired arms
-across `mk_action!` and `mk_lang!`. The `not` arms had no way to
-return a `T::Res`, so `action::<T>` widened to `Result<T::Res,
-MetricsError>` and `LANG::get_tree_sitter_language` likewise.
-This rippled into the CLI and web crates, where every
-`action::<_>(...)` call site became `action::<_>(...).expect(FEATURES_PINNED)`
-because both crates pin `features = ["all-languages"]` and the
-disabled arm is provably unreachable for them. The breaking
-changes were called out in `CHANGELOG.md` and `STABILITY.md`.
+When per-language features remove `LANG` variants from the build, the
+dispatch macro must still match every variant of the always-defined
+enum, so disabled variants need a `#[cfg(not(feature))]` arm returning
+*something*. `fn action<T>(...) -> T::Res` is uninhabitable there: there
+is no way to construct an arbitrary `T::Res` when the type defining it
+is cfg'd out.
 
-**Lesson:** Generic dispatch signatures that return an associated
-type cannot be feature-gated without widening the return to a
-`Result` (or some other error-carrying shape). Plan the widening
-into the same change as the feature flag — split into separate PRs
-only at the cost of an unbuildable intermediate state. Always-pinned
-downstream callers (the CLI / web crates here) can carry the
-invariant with a single `const FEATURES_PINNED: &str = "..."` plus
-`.expect(FEATURES_PINNED)` at every call site; defining the
-invariant once is more honest than scattering identical literal
-panic messages.
+**Per-language features widened `action::<T>` and
+`LANG::get_tree_sitter_language`** (#252, `b923919`). Keeping `LANG`
+always-defined introduced paired `#[cfg]` arms across `mk_action!` and
+`mk_lang!`; the `not` arms had no `T::Res` to return, so both signatures
+widened to `Result<_, MetricsError>`. This rippled into the CLI and web
+crates, where every call site became `.expect(FEATURES_PINNED)` because
+both pin `features = ["all-languages"]` and the disabled arm is provably
+unreachable. Recorded in `CHANGELOG.md` and `STABILITY.md`.
 
 ---
 
 ## 27. Share a private walker across deprecation shims to keep them thin
 
-When introducing a new public API alongside a deprecated one (a
-common pattern when widening a contract — adding a builder,
-swapping `Option` for `Result`, replacing positional args with a
-struct), the temptation is to fork the implementation: leave the
-old one alone, write a fresh one for the new API. That doubles the
-walker code, doubles the place future bug fixes have to land, and
-guarantees the deprecation cycle ships two slightly-different
-implementations that drift apart. The honest move is to extract a
-single private function (visibility `pub(crate)` if multiple
-modules call it, otherwise file-local) that takes the union of
-both APIs' inputs as ordinary parameters, then make both public
-entry points thin shims around it. The deprecated entry point
-becomes a `#[deprecated]` one-liner that constructs the new
-parameters from its old ones; the new entry point is the same
-shape. Future fixes touch the shared core, not either shim.
+**Lesson:** Any deprecation cycle where the old and new APIs share most
+of the work should land a **single private worker with the union shape**,
+fronted by two thin public shims. Avoid "leave the old code alone, fork
+a copy": it ships two implementations, doubles the surface where future
+fixes must land, and lets the deprecated-on-paper path silently drift.
+The same applies when adding a `from_X` constructor next to `new` —
+extract the common construction body rather than copying it.
 
-**`Source` and `analyze` introduction kept the old walker thin via
-`metrics_inner`** (#254, `41d5005`, `8b460fb`). Wave 7 of the
-library-DX batch landed `Source<'a>` and
-`analyze(source, options) -> Result<FuncSpace, MetricsError>`
-alongside the deprecated `metrics` / `metrics_with_options` /
-`get_function_spaces*` entry points. Rather than fork the walker,
-the agent extracted
-`pub(crate) fn metrics_inner(name: Option<String>, ...) ->
-Result<FuncSpace, MetricsError>` to carry the actual tree walk.
-The deprecated shims build
-`name = Some(path.to_string_lossy().into_owned())` and call
-`metrics_inner`; `analyze` destructures `Source` and calls the
-same. `8b460fb` followed up by dropping a redundant
-`diagnostic_path` parameter once the path/name relationship was
-consolidated through `metrics_inner` — the diagnostic string is now
-derived from `name.as_deref().unwrap_or("<input>")`, eliminating
-one parameter and the matched `path.display().to_string()` /
-`path.to_string_lossy().into_owned()` double allocation at every
-shim.
-
-**Lesson:** Any deprecation cycle where the old and new APIs share
-most of the work should land a single private worker with the union
-shape, fronted by two public shims. Avoid the "leave the old code
-alone, fork a copy" pattern — it ships two implementations, doubles
-the surface where future fixes must land, and lets the
-deprecated-on-paper path silently drift. The same advice applies
-when adding a `from_X` constructor next to `new`: extract the
-common construction body, don't copy it.
+**`Source` and `analyze` kept the old walker thin via `metrics_inner`**
+(#254, `41d5005`, `8b460fb`). Landing `Source<'a>` and
+`analyze(source, options) -> Result<FuncSpace, MetricsError>` alongside
+the deprecated `metrics` / `metrics_with_options` / `get_function_spaces*`
+entry points used `pub(crate) fn metrics_inner(name: Option<String>, …)`
+to carry the actual walk; the deprecated shims build
+`name = Some(path.to_string_lossy().into_owned())` and call it, and
+`analyze` destructures `Source` and calls the same. The follow-up
+dropped a redundant `diagnostic_path` parameter once the path/name
+relationship was consolidated — the diagnostic string now derives from
+`name.as_deref().unwrap_or("<input>")`, eliminating one parameter and a
+double allocation at every shim.
 
 ---
 
 ## 28. Hand-rolled `Serialize` with conditional fields must pre-count for CBOR
 
-`serde`-derived `Serialize` for a struct emits a fixed field count
-known at compile time, so output formats that prefix the field
-count (CBOR, MessagePack, BSON in object mode) Just Work. The
-moment a field becomes conditional based on runtime state — and the
-conditional state lives outside the field itself, so
-`#[serde(skip_serializing_if = "...")]` cannot be a free function
-of the field — `derive(Serialize)` no longer suffices. A hand-rolled
-impl is the only escape. The trap: `SerializeStruct::serialize_struct(name, len)` writes the `len` to the
-underlying format *before* the first field, and CBOR / MessagePack
-reject the payload at `st.end()` if the actually-emitted field
-count diverges. JSON quietly tolerates the mismatch (it doesn't
-write a length prefix), so test runs that only exercise JSON pass
-even with a buggy count. Every conditional `serialize_field` arm in
-the body must be paired with a matching boolean in the `len`
-tally — and the two must stay in sync forever.
+**Lesson:** A hand-rolled `Serialize` emitting a conditional field set
+must compute its field count from the **same predicates** it uses in the
+body; the two halves cannot drift. If the format mix includes CBOR /
+MessagePack / any length-prefixed binary encoding, only those formats
+catch a tally bug — never trust a JSON-only test pass. A local macro
+pairing the predicate with the field name in one place is the cheapest
+defence; the alternative is a comment asking future authors to keep the
+tally in sync, which everyone ignores.
 
-**`CodeMetrics::serialize` had to track the field count across 13
-conditional emit arms** (#257, `1169231`, simplified by `66a0d8c`).
-Per-metric gating made every emitted field in `CodeMetrics`
-conditional on `self.selected: MetricSet`. The hand-rolled
-`Serialize` impl pre-computes the field count and only then calls
-`serializer.serialize_struct("CodeMetrics", field_count)`:
+`serialize_struct(name, len)` writes `len` before the first field, and
+CBOR / MessagePack reject the payload at `st.end()` if the emitted count
+diverges. JSON writes no length prefix and tolerates the mismatch
+silently.
+
+**`CodeMetrics::serialize` tracks the count across 13 conditional arms**
+(#257, `1169231`, simplified by `66a0d8c`):
 
 ```rust
-let field_count = always_on
-    .iter()
-    .filter(|m| sel.contains(**m))
-    .count()
+let field_count = always_on.iter().filter(|m| sel.contains(**m)).count()
     + usize::from(emit_wmc)
     + usize::from(emit_npm)
     + usize::from(emit_npa);
 ```
 
-The body's 13 `if sel.contains(...) { st.serialize_field(...)? }`
-arms had to match this tally 1:1. The simplify-rust pass
-(`66a0d8c`) collapsed those arms into a local `emit_if!` macro
-(`emit_if!(sel.contains(Metric::X), "name", &self.field);`), which
-made the 1:1 correspondence visually obvious in code review but
-did not change the underlying invariant. The integration-snapshot
-suites (parent repo `tests/snapshots/` and the
-`big-code-analysis-output` submodule) are JSON-based
-`insta::assert_json_snapshot!` and would NOT catch a tally bug;
-only an actual CBOR consumer (e.g. `bca metrics -O cbor` round-
-tripping a non-trivial fixture) does. There is no end-to-end CBOR
-test in the workspace today — flagged for the next round of test
-hardening.
-
-**Lesson:** Hand-rolled `Serialize` impls that emit a conditional
-field set must compute their field count from the *same* predicates
-they use in the body. The two halves cannot drift. If the format
-mix includes CBOR / MessagePack / any length-prefixed binary
-encoding, only those formats catch the bug; never trust a JSON-only
-test pass. A local macro that pairs the predicate with the field
-name in one place is the cheapest defence against future drift —
-the alternative is a comment block warning future authors to keep
-the tally in sync, which everyone ignores.
+The simplify pass collapsed the arms into a local `emit_if!` macro,
+making the 1:1 correspondence visually obvious without changing the
+invariant. The integration snapshot suites are JSON-based and would
+**not** catch a tally bug; only an actual CBOR consumer does, and there
+was no end-to-end CBOR test in the workspace at the time.
 
 ---
 
 ## 29. Compile-test API doc samples by linking against a scratch crate, not `mdbook test`
 
-API documentation written in Markdown (book chapters, README
-recipes, hand-rolled `# Examples` sections) drifts as soon as the
-public API changes. `mdbook test` runs each fenced ```rust block as
-a doctest, but only against the book's *own* `Cargo.toml`
-dependency list — it does not resolve `use crate_under_test::...`
-against the local checkout. That means typos like `LANG::JavaScript`
-vs `LANG::Javascript` (the variant is `Javascript`), wrong argument
-counts after a function-signature change, and silently-renamed
-re-exports all sail through `mdbook build` and `mdbook test` until
-a reader copies the sample, hits `cargo check`, and reports back. A
-scratch crate that depends on the library via `path = "../"` and a
-`cargo check` against its `src/lib.rs` (one module per book page,
-each containing the page's code samples) catches every such typo
-in seconds.
+**Lesson:** Treat API doc samples as production code under `cargo
+check`. Use a scratch crate (or a `tests/` integration file with
+`#[allow(dead_code)]`) that depends on the library via `path = "../"` and
+compiles every sample against the local checkout. Run it before
+committing book chapters and whenever a diff touches
+`big-code-analysis-book/src/`. The cost is one scratch file; the
+avoidance is reader-facing API typos.
 
-**The "Using as a Library" book chapter caught `LANG::JavaScript`
-(correct: `Javascript`) before publish** (#259, `8ee83ea`). Wave 4
-of the library-DX batch
-added eight new book pages under `library/`, each carrying several
-fenced Rust code samples that drive `get_function_spaces` /
-`analyze` against the current public API. Writing the samples by
-hand against rustdoc surfaced one real typo (`LANG::JavaScript`
-where the actual variant is `Javascript`) and one outdated method
-name. The agent wrote the samples into a scratch crate that
-depended on `big-code-analysis 0.0.25` via `path = "../"`, ran
-`cargo check`, fixed the typo, then copied the verified samples
-back into the book pages. `mdbook test` alone would have shipped
-the typo.
+`mdbook test` runs each fenced ```rust block as a doctest, but only
+against the book's own `Cargo.toml` dependency list — it does not
+resolve `use crate_under_test::…` against the local checkout. Typos,
+wrong argument counts after a signature change, and silently-renamed
+re-exports all sail through `mdbook build` and `mdbook test` until a
+reader copies the sample and reports back.
 
-**Lesson:** Treat API doc samples as production code under
-`cargo check`. The cheapest way is a scratch crate (or a `tests/`
-integration file with `#[allow(dead_code)]`) that compiles every
-sample against the local checkout — not `mdbook test`, which lacks
-the crate's full public API in scope. Run this gate before
-committing book chapters and as part of `make pre-commit` when the
-diff touches `big-code-analysis-book/src/`. The cost is one scratch
-file; the avoidance is reader-facing-API typos.
+**The "Using as a Library" chapter caught `LANG::JavaScript` before
+publish** (#259, `8ee83ea`). Eight new pages carried samples driving
+`get_function_spaces` / `analyze`. Writing them against rustdoc surfaced
+one real typo — the variant is `Javascript` — and one outdated method
+name. The samples were compiled in a scratch crate depending on the
+library by path, fixed, then copied back. `mdbook test` alone would have
+shipped the typo.
 
 ---
 
 ## 30. User-facing comment markers should match the codebase's internal vocabulary
 
-In-source suppression markers originally used `bca: allow` /
-`bca: allow-file`, mirroring Rust's `#[allow(clippy::…)]` attribute.
-Hard-renamed to `bca: suppress` / `bca: suppress-file` in #263 before
-the markers shipped widely. The verb `allow` reads correctly inside
-`#[allow]` only because it sits in a closed four-level lint
-vocabulary (`allow`/`warn`/`deny`/`forbid`) inside attribute syntax.
-Stripped of both — dropped into a free-text comment in a codebase
-with no `warn`/`deny`/`forbid` siblings — the verb is a bare English
-imperative that reads as "this code is permitted to be complex"
-rather than "suppress the violation report." The marker also has to
-read well in Python, JavaScript, C++, Java, Kotlin — where the
-ecosystem lint-suppression vocabulary is `disable` (ESLint, pylint,
-shellcheck), `ignore` (mypy, pyright, staticcheck), or `suppress`
-(cppcheck, Java `@SuppressWarnings`, SpotBugs, Detekt). `allow` as
-an embedded-comment verb is essentially unique to Rust attributes.
+**Lesson:** When choosing a verb for a marker that lives inside source
+comments across many languages, pick the verb **the codebase's own
+internal vocabulary already uses**. That alignment removes the cognitive
+bridge between the comment a user writes and the module a reviewer
+reads. Industry precedent comes second; internal consistency comes first,
+because it is what future contributors keep tripping on. Cross-check
+against at least three suppression vocabularies outside the host
+language (`#noqa`, `eslint-disable`, `@SuppressWarnings`,
+`cppcheck-suppress`, `# type: ignore`) — if your verb is the outlier
+across that set *and* against your internal model, redesign.
 
-**Lesson:** When choosing a verb for a user-facing marker that lives
-inside source comments across many languages, pick the verb that
-*the rest of the codebase's own internal vocabulary already uses*
-(here: `src/suppression.rs`, `SuppressionPolicy`,
-`FuncSpace::suppressed`, `--no-suppress` — all "suppress"). That
-alignment eliminates the cognitive bridge between the comment a user
-writes and the module a reviewer reads. Industry precedent comes
-second; internal naming consistency comes first because it's the
-thing future contributors will keep tripping on. Cross-check with at
-least three lint-suppression tools from outside the host language
-(`#noqa`, `eslint-disable`, `@SuppressWarnings`, `cppcheck-suppress`,
-`# type: ignore`) before committing — if your verb is the outlier
-across that set and against your own internal model, redesign.
+Suppression markers originally used `bca: allow`, mirroring Rust's
+`#[allow]`. Hard-renamed to `bca: suppress` in #263 before they shipped
+widely. `allow` reads correctly inside `#[allow]` only because it sits
+in a closed four-level vocabulary (`allow`/`warn`/`deny`/`forbid`) inside
+attribute syntax. Stripped of both — a free-text comment in a codebase
+with no `warn`/`deny`/`forbid` siblings — it reads as "this code is
+permitted to be complex" rather than "suppress the violation report".
+Everything internal already said suppress: `src/suppression.rs`,
+`SuppressionPolicy`, `FuncSpace::suppressed`, `--no-suppress`. And
+`allow` as an embedded-comment verb is essentially unique to Rust
+attributes; the rest of the ecosystem uses `disable`, `ignore`, or
+`suppress`.
 
 ---
 
 ## 31. Shared structural fixes need a structural assertion in every per-metric test
 
-When one fix changes both a shared classification predicate (e.g.,
-`is_func_space` recognising a new node kind) *and* the body-walker
-counts each metric derives from it, the per-metric tests must each
-guard *both* halves of the change. A body-walker assertion alone is
-not enough: counts can fire from a fallback scope (a synthetic Unit
-wrapper, a `SpaceKind::Class` default, a zero) and pass vacuously
-even after the structural arm is reverted. Three sibling per-metric
-tests can each look complete while collectively guarding nothing
-about the shared structural change. Related to lessons #7 (test
-infrastructure rigor) and #23 (compensation constants that blind a
-test to its own purpose); this lesson addresses the distinct
-*coverage decomposition* problem that arises when one structural
-fix is spread across several per-metric tests.
+**Lesson:** When one fix has both a **structural** arm (a predicate that
+opens a FuncSpace) and per-metric **body-walker** arms (the counts
+inside it), every per-metric test must assert *both* halves: that the
+FuncSpace opens with the expected `SpaceKind` and name, and that the
+metric sum matches. Use `check_func_space` (or
+`test_support::assert_child_space_kind`) at the top of each test,
+followed by the `check_metrics` value assertion. Coverage that *looks*
+complete because three metrics each have a regression test can be split
+three ways and guard nothing about the structural change.
 
-**Java/Groovy annotation-type recognition** (#280, #307, ba2a8e3,
-d637a98). The #280 fix wired `AnnotationTypeDeclaration` into
-`JavaCode::is_func_space` and `GroovyCode::is_func_space` so `Npa`,
-`Npm`, and `Wmc` would walk annotation-type bodies and produce
-non-zero counts. Three per-metric regression tests were added —
-one each for Npa, Npm, Wmc. An `audit-tests` pass later revealed
-only the Wmc test caught a revert of the `is_func_space` arm: it
-asserted `interface_wmc_sum() == 0`, vacuously true when no
-Interface FuncSpace opens. Npa and Npm both passed even with
-`AnnotationTypeDeclaration` removed, because their counts (`2.0`)
-came from the file-level Unit scope. ba2a8e3 tightened Wmc first;
-\#307 (d637a98) then tightened both Npm and Npa with
-`check_func_space` assertions that the annotation type opens a
-`SpaceKind::Interface` FuncSpace named `Marker`, and factored the
-six structural assertion sites across the three metrics into a
-shared `test_support::assert_child_space_kind` helper.
+A body-walker assertion alone is not enough: counts can fire from a
+fallback scope — a synthetic Unit wrapper, a `SpaceKind::Class` default,
+a zero — and pass vacuously even after the structural arm is reverted.
 
-**Plain `interface I {...}` declarations share the bug** (#311).
-The same pattern exists for ordinary Java/Groovy interface
-declarations: tests in `npm.rs` and `npa.rs` assert non-zero
-`interface_*_sum` without a structural check, so a revert of the
-`InterfaceDeclaration` arm in `is_func_space` would also pass them
-vacuously. Filed as #311 after the wave-2 audit on the #307 fix.
+**Java/Groovy annotation-type recognition** (#280, #307, `ba2a8e3`,
+`d637a98`). The #280 fix wired `AnnotationTypeDeclaration` into
+`is_func_space` for both languages so `Npa`, `Npm`, and `Wmc` would walk
+annotation-type bodies. Three per-metric regression tests were added. An
+`audit-tests` pass later found only the Wmc test caught a revert — and
+only because it asserted `interface_wmc_sum() == 0`, vacuously true when
+no Interface FuncSpace opens. Npa and Npm both passed with
+`AnnotationTypeDeclaration` removed, because their counts came from the
+file-level Unit scope. #307 tightened both with `check_func_space`
+assertions and factored the six structural assertion sites into a shared
+helper.
 
-**Lesson:** When a single fix has both a structural arm (a predicate
-or dispatch table that opens a FuncSpace) and per-metric body-walker
-arms (the metric counts inside it), every per-metric test must
-assert *both* halves: the structural side (FuncSpace opens with the
-expected `SpaceKind` and name) and the body-walker side (the metric
-sum matches the expected value). Use `check_func_space` (or the
-`test_support::assert_child_space_kind` helper) at the top of each test;
-follow with the existing `check_metrics` value assertion. Coverage
-that *looks* complete because three metrics each have a regression
-test can in reality be split — three vacuous tests guard nothing
-about the structural change.
+**Plain `interface I {…}` shares the bug** (#311). Tests in `npm.rs` and
+`npa.rs` assert non-zero `interface_*_sum` with no structural check, so
+reverting the `InterfaceDeclaration` arm would pass them vacuously too.
 
 ---
 
 ## 32. Source-grep regression tests are theater
 
-A test that reads its own source files via `include_str!` or
-`fs::read_to_string` and string-matches their contents to assert a
-"structural contract" provides no real protection. The grep is
-brittle to cosmetic edits (comment wording, rustfmt reflow, `impl`
-header rename) and easily satisfied vacuously by adding the
+**Lesson:** Never string-match the codebase's own source in a test. The
+rule and its three ranked alternatives are in
+[`testing.md`](../../.claude/rules/testing.md) — construct a parseable
+input and assert the parse-tree consequence; failing that, document the
+contract at every production call site; failing that, design a
+compile-time check (an exhaustive `match`, a `const`-evaluated
+assertion).
+
+The grep is brittle to cosmetic edits — comment wording, rustfmt reflow,
+an `impl` header rename — and satisfied vacuously by adding the
 identifier in an unrelated comment. If the contract is "predicate X
-explicitly names variant Y," the production `matches!()` pattern
-already *is* the contract — the grep test asserts the same thing the
-reader can see, just less reliably. Related to lesson #2
-(tree-sitter aliases must be matched on every variant — the
-contract this anti-pattern most often tries to protect) and lesson
-\#6 (snapshot tests pin behaviour, not correctness — both are
-"test asserts the wrong thing" failure modes); the distinct
-property of source-grep is that the *test mechanism itself* is
-indirect, not the value it captures.
+names variant Y", the production `matches!()` pattern already *is* the
+contract; the grep asserts the same thing a reader can see, less
+reliably.
 
-**`FunctionDefinition4` source-grep test** (#285, #302, fe5bf6a).
-The original #285 fix wired
-`Cpp::FunctionDefinition4` into four predicates
-(`is_func_space`, `is_func`, `get_func_space_name`,
-`get_space_kind`). Because the pinned tree-sitter-mozcpp does not
-emit the FD4 kind_id on any input the author could construct, a
-parse-and-assert regression test was impossible. The fix added a
-test that read `src/checker.rs` and `src/getter.rs` from disk and
-counted `FunctionDefinition4` occurrences inside each `impl` block.
-That test passed code review and shipped, but #302's investigation
-showed it was both fragile (a rustfmt pass that joined two `impl`
-lines would break the block-extraction helper) and vacuous
-(adding `// FunctionDefinition4` to one impl block would satisfy
-the count without wiring the variant). The remediation deleted
-the test entirely and added contract comments at the four
-production sites citing #285 and listing the sister sites; the
-`matches!()` patterns themselves are the structural protection.
-
-**Lesson:** If your test reaches for `include_str!`,
-`fs::read_to_string`, or any string-matching against the codebase's
-own source, the test is almost certainly broken or about to be.
-Three viable alternatives in priority order: (a) construct an input
-the grammar can actually parse and assert the parse-tree consequence
-(the gold standard — write the regression at the AST level the
-production code reads); (b) if that's impossible because the kind_id
-is grammar-unreachable, document the contract as a comment at every
-production call site and rely on code review of the `matches!()`
-pattern; (c) if neither works because the contract is large or
-cross-file, design a compile-time check (exhaustive `match` over the
-enum, a `const`-evaluated assertion, a `pub(crate) fn` whose call
-sites are themselves the contract). Source-grep — the anti-pattern
-this lesson is against — adds the visual appearance of protection
-while providing none; the only such test ever written in this
-codebase (the #285 FD4 regression) was identified as vacuous and
-removed within months of merging.
+**The `FunctionDefinition4` source-grep test** (#285, #302, `fe5bf6a`).
+Because the pinned tree-sitter-mozcpp emits no input producing that
+kind_id, a parse-and-assert test was impossible, so the fix read
+`src/checker.rs` and `src/getter.rs` from disk and counted occurrences
+inside each `impl` block. It passed code review and shipped. #302 showed
+it was both fragile — a rustfmt pass joining two `impl` lines breaks the
+block extraction — and vacuous: adding `// FunctionDefinition4` to one
+block satisfies the count without wiring the variant. The remediation
+deleted the test and added contract comments at the four production
+sites citing #285 and listing the sister sites. The only such test ever
+written here was identified as vacuous and removed within months.
 
 ---
 
 ## 33. Test-via-revert proves coverage one slot at a time
 
-When a refactor consolidates N near-identical sites behind a macro
-or shared helper that takes per-site *delta slots* (operator/operand
-extras, per-language variant lists, decision-kind extras), a single
-test-via-revert proof — "I dropped one thing from one site and the
-test failed" — protects only that one thing at that one site. The
-remaining N×slots arguments are still ungated. The test-via-revert
-discipline must be applied to *each* slot type and, for multi-slot
-sites, to *each* slot's distinct contents. Otherwise the test reads
-as a four-way parity guard but is actually a one-way regression
-guard for a single operator token. Related to lesson #23
-(compensation constants blinding a parity test) and lesson #31
-(per-metric coverage decomposition); the distinct property of this
-lesson is the *delta-slot* granularity — a macro's parameter list
-is itself a partition the test must cover slot-by-slot.
+**Lesson:** When proving a parity or coverage test catches drift, visit
+**every delta slot** the refactor introduced, not just one. For macros
+with bracketed extras lists (`op_extras: [...]`, `operand_extras: [...]`,
+`[$($variant),+]`), each list is its own slot and each list's *contents*
+must be revert-proved. For multi-variant languages in one macro
+invocation, each variant is its own slot. Route assertions through a
+helper taking the language path and variant name as strings (via
+`stringify!`) so a failure identifies *which* of the N×slots is broken,
+and so future work that adds a slot fails loudly if the helper is not
+extended.
 
-**JS-family `get_op_type` parity test only revert-proved the
-operator token** (#299, 45d907f, 06f6a68). 45d907f introduced
-`js_family_get_op_type_parity_optional_chain_member_299` asserting
-four-way parity (`u_operators`, `operators`, `u_operands`,
-`operands`) for `function f(a){return a?.b?.c;}`. Its comment
-claimed "dropping a common variant from any one language's macro
-invocation must fail this test." A follow-up `audit-tests` pass
-perturbed every slot and found this true only for the operator-
-token slot (`OptionalChain` in JS/MozJS, `QMARKDOT` in TS/TSX). Dropping any entry from the per-language `operand_extras`
-lists (`Identifier2`, `String2`, `NestedIdentifier`,
-`MemberExpression4`, or TS's `PredefinedType`) left the test
-silently passing — the `a?.b?.c` fixture never produced those
-node kinds. 06f6a68 rewrote the comment to scope the claim
-honestly; one of the operand-extras gaps it could have caught —
-TS classifying `String2` differently in `Checker::is_string`
-versus `Getter::get_op_type` — was independently surfaced during
-the same review and filed as #313.
+A single test-via-revert proof — "I dropped one thing from one site and
+the test failed" — protects that one thing at that one site. The
+remaining N×slots stay ungated, and the test reads as a four-way parity
+guard while being a one-way regression guard for a single token.
 
-**`impl_simple_is_string!` positive test only revert-proved one
-variant per language** (#301, 7192d56, 5829560). The initial
-`simple_is_string_macro_recognises_each_language` test exercised
-one canonical string literal per consolidated language. Test-via-
-revert with `Rust::StringLiteral` proved the macro arm was
-reached, but Csharp (4 variants), Php (7), Ruby (11), Perl (7),
-Bash (5), Groovy (3) were each defended by a single literal —
-dropping `Csharp::VerbatimStringLiteral`, `Ruby::Subshell`,
-`Php::Heredoc`, or `Cpp::ConcatenatedString` from any macro
-invocation left the test passing. 5829560 hardened the test
-to one assertion per variant per language (via the
-`assert_variant_is_string` helper with `stringify!`-derived
-labels); the resulting failure messages name both language and
-variant on drift. The reusable pattern is in
-`src/checker.rs`'s test module.
+**JS-family `get_op_type` parity only revert-proved the operator token**
+(#299, `45d907f`, `06f6a68`). The test asserted four-way parity on
+`function f(a){return a?.b?.c;}` and its comment claimed "dropping a
+common variant from any one language's macro invocation must fail this
+test." An `audit-tests` pass perturbed every slot and found that true
+only for the operator-token slot. Dropping any entry from the
+per-language `operand_extras` lists — `Identifier2`, `String2`,
+`NestedIdentifier`, `MemberExpression4`, TS's `PredefinedType` — left the
+test passing, because the `a?.b?.c` fixture never produces those kinds.
+One of the gaps it could have caught (TS classifying `String2`
+differently in `is_string` versus `get_op_type`) was surfaced
+independently and filed as #313.
 
-**Lesson:** When proving a parity or coverage test catches drift,
-the test-via-revert discipline must visit every *delta slot* the
-refactor introduced, not just one. For macros with bracketed
-extras lists (`op_extras: [...]`, `operand_extras: [...]`,
-`[$($variant),+]`), each list is its own slot and each list's
-contents must be revert-proved. For multi-variant languages
-inside a single macro invocation, each variant is its own slot.
-A useful remediation pattern: route assertions through a helper
-that takes the language path and variant name as strings (via
-`stringify!`) so a failed assertion identifies *which* of the
-N×slots arguments is broken — and so future grammar/refactor
-work that adds a slot fails loudly if the helper is not extended
-to cover it.
+**`impl_simple_is_string!` only revert-proved one variant per language**
+(#301, `7192d56`, `5829560`). The initial test exercised one canonical
+string literal per language. Test-via-revert with `Rust::StringLiteral`
+proved the macro arm was reached, but Csharp (4 variants), Php (7), Ruby
+(11), Perl (7), Bash (5), and Groovy (3) were each defended by a single
+literal — dropping `Csharp::VerbatimStringLiteral`, `Ruby::Subshell`, or
+`Php::Heredoc` left the test passing. The hardened form asserts one
+variant per language via an `assert_variant_is_string` helper with
+`stringify!`-derived labels, so failures name both language and variant.
 
 ---
 
 ## 34. Tree-sitter hidden-rule variants exist in the enum but never surface
 
-Tree-sitter language grammars expose every node-kind name through
-the generated enum (`Java::*`, `Groovy::*`, `Php::*`, etc.), but
-rule names beginning with an underscore (`_string_literal`,
-`_multiline_string_literal`, `_string`) are *hidden* — the parser
-flattens them away in real ASTs and never emits a node carrying
-that kind_id. A defensive arm in `is_string` / `get_op_type` / etc.
-listing a hidden-rule variant is dead code today and a
-correctness promise *if* a future grammar revision ever promotes
-the rule to a concrete node. Without an "asserted-absent"
-drift-marker test pinning the hidden status, that promotion goes
-undetected: the parser starts emitting the variant, the predicate
-either silently misses it (if the arm was forgotten) or silently
-catches it (if listed defensively) — either way, the codebase
-loses visibility into what changed.
+**Lesson:** Before listing a "looks like an alias" variant in a
+classification predicate, check the grammar's `kind_for_id` mapping (or
+grep the `Lang::Variant => "name"` arm in
+`src/languages/language_<lang>.rs`). If the name starts with `_` the rule
+is hidden: the variant exists in the enum and never appears in a real
+AST. Either omit the defensive arm, or — preferred — keep it **and** add
+a drift-marker assertion
+(`!ast_has_kind_id(&parser, Lang::HiddenVariant as u16)`) whose message
+names the hidden rule and demands replacement on drift. A hidden-rule
+variant without a drift marker is an invisible promise: it looks like
+coverage and protects nothing observable today.
+
+The parser flattens hidden rules away, so a defensive arm listing one is
+dead code today and a correctness promise *if* a future grammar revision
+promotes the rule. Without the asserted-absent test, that promotion goes
+undetected: the parser starts emitting the variant and the predicate
+either silently misses it or silently catches it — either way the
+codebase loses visibility into what changed.
 
 **Java/Groovy/Php `is_string` consolidation made the heuristic
-explicit** (#301, 7192d56, 5829560). Per-variant positive coverage for the
-new `impl_simple_is_string!` macro required exercising every
-variant in every invocation. Three variants would not appear in
-any constructible source: `Java::MultilineStringLiteral` (Java
-text blocks parse as regular `StringLiteral`),
-`Groovy::StringLiteral2` (Groovy triple-quoted strings parse as
-regular `StringLiteral`), and `Php::String3` (the `_string` hidden
-supertype never surfaces). The `kind_for_id` mapping confirmed
-the heuristic: each maps to a name beginning with `_`. The
-remediation pattern was a paired assertion: the macro arm stays
-(future-proof against grammar promotion) and a sibling test
-asserts `!ast_has_kind_id(&parser, Lang::HiddenVariant as u16)`
-with a message naming both the variant and the hidden-rule it
-maps to, so a future parser that starts emitting the variant
-trips the assertion-absent loudly and the maintainer is forced
-to replace it with a positive assertion.
-
-**Lesson:** Before listing a "looks like an alias" variant in a
-classification predicate, check the grammar's `kind_for_id`
-mapping for that variant (or grep `src/languages/language_<lang>.rs`
-for the `Lang::Variant => "name"` arm). If the name starts with
-`_`, the rule is hidden: the variant exists in the enum but does
-not appear in real ASTs. Either omit the defensive arm (and rely
-on the underlying concrete variant), or — preferred — keep the
-arm *and* add a drift-marker assertion (`!ast_has_kind_id`) with a
-message that explains the hidden status and demands replacement
-on drift. Hidden-rule variants without a drift-marker test are
-invisible promises: they pretend to be coverage but protect
-nothing observable today.
+explicit** (#301, `7192d56`, `5829560`). Per-variant coverage for the new
+`impl_simple_is_string!` macro required exercising every variant in
+every invocation, and three would not appear in any constructible
+source: `Java::MultilineStringLiteral` (text blocks parse as regular
+`StringLiteral`), `Groovy::StringLiteral2` (triple-quoted strings do
+the same), and `Php::String3` (the `_string` hidden supertype). Each
+maps to a name beginning with `_`, confirming the heuristic. The
+remediation keeps the arm and pins the absence.
 
 ---
 
-## 35. Two predicates classifying the same node must agree, or Halstead drifts silently
+## 35. Two predicates classifying the same node must agree
 
-For every supported language, `Checker::is_string`,
-`Getter::get_op_type`, `Checker::is_call`, `Checker::is_func_space`,
-and the per-metric body walkers all classify the same AST nodes
-through parallel `matches!()` predicates. When two predicates that
-should agree on a node's classification disagree, the metric
-output silently drifts: `find string` / `count string` reports a
-node that Halstead classifies as `Unknown`, or vice versa. The
-disagreement is invisible from either predicate read in isolation
-— it surfaces only by walking the cross-product of (node kind, set
-of predicates that classify it). Refactoring one predicate
-without parity-walking the others ships the drift. Related to
-lesson #2 (tree-sitter aliases must be matched on every variant
-of *one* predicate) and lesson #19 (missing arms in a dispatch
-table score valid constructs as zero); the distinct property of
-this lesson is *cross-predicate parity* — both predicates may be
-internally consistent and still disagree on the same node.
+**Lesson:** When refactoring or extending a per-language classification
+predicate, walk the *other* predicates that classify the same nodes. The
+minimum cross-walk is in
+[`grammar-dispatch.md` §7](../../.claude/rules/grammar-dispatch.md). The
+reusable diagnostic is a parsed fixture asserting **both** predicates
+agree: parse a source containing the node, locate every occurrence by
+kind_id, and assert each predicate's verdict per occurrence.
+
+`Checker::is_string`, `Getter::get_op_type`, `Checker::is_call`,
+`Checker::is_func_space`, and the per-metric body walkers all classify
+the same nodes through parallel `matches!()`. When two that should agree
+disagree, output drifts silently — `find string` reports a node Halstead
+calls `Unknown`, or the reverse. Neither predicate looks wrong read in
+isolation; the disagreement surfaces only by walking the cross-product
+of (node kind, predicates that classify it).
 
 **TypeScript `String2` agrees with `is_string`, disagrees with
-`get_op_type`** (#313, surfaced during #299 review). The
-`impl_js_family_is_string!(Typescript)` macro matches `String`,
-`String2`, and `TemplateString`, so a `String2` node — the `string`
-type-keyword alias — is counted by `find string` and contributes
-to Halstead string-operand totals via `is_string`. But the TS
-`impl_js_family_get_op_type!` invocation's `operand_extras` list
-omits `String2`, so the same node is classified as `HalsteadType::
-Unknown` by the Halstead walker and does not contribute to
-`operator/operand` totals at all. JS, MozJS, and TSX all include
-`String2` in `operand_extras`; only TS does not. The drift
-predates #299 — the four pre-refactor impls had the same
-asymmetry — but the macro consolidation made the parity table
-legible enough for a reviewer walking each invocation to spot it.
-
-**Lesson:** When refactoring or extending a per-language
-classification predicate, walk the *other* predicates that
-classify the same nodes for parity. The minimum cross-walk is:
-`Checker::is_string` ↔ `Getter::get_op_type` operand classification
-of string-bearing kinds; `Checker::is_call` ↔ `Getter::get_op_type`
-operator classification of call kinds; `is_func_space` ↔ each
-metric's body-walker (already covered by lesson #31 for the
-structural-arm half). The reusable diagnostic test is a parsed
-fixture asserting *both* predicates agree: parse a source that
-contains the node in question, locate every occurrence by kind_id,
-and assert each predicate returns the expected verdict for each
-occurrence. Disagreement that ships becomes a Halstead drift bug
-that takes a cross-file review to spot — far cheaper to catch at
-predicate-edit time with a parity walk than at user-report time
-from a metric mismatch.
+`get_op_type`** (#313, surfaced during #299 review).
+`impl_js_family_is_string!(Typescript)` matches `String`, `String2`, and
+`TemplateString`, so a `String2` node — the `string` type-keyword alias
+— is counted by `find string` and contributes to Halstead string-operand
+totals. But the TS `impl_js_family_get_op_type!` invocation's
+`operand_extras` omits `String2`, so the same node is `HalsteadType::
+Unknown` to the Halstead walker. JS, MozJS, and TSX all include it; only
+TS does not. The drift predates #299 — the four pre-refactor impls had
+the same asymmetry — but the macro consolidation made the parity table
+legible enough for a reviewer to spot it.
 
 ---
 
 ## 36. `serde_json::to_value` re-sorts JSON object keys via `BTreeMap`
 
-`serde_json::Value::Object` is backed by `BTreeMap<String, Value>`
-unless the `preserve_order` Cargo feature is enabled — which the
-workspace does not enable. Any round trip that goes
-`Serialize → to_value → ... → re-emit` silently alphabetises the
-keys, regardless of the original `Serialize` impl's declaration
-order. Code that bridges serde-Rust output into another
-insertion-ordered runtime (CPython's `dict`, Lua's `pairs`, an
-ordered-map-backed JS object) loses the field order at the
-`to_value` boundary; the loss is invisible unless a reader
-compares the original struct's field order against the output
-bytes.
+**Lesson:** When crossing a serde → insertion-ordered-runtime boundary,
+route through `serde_json::to_string` and re-parse on the other side,
+not through `to_value`. The `preserve_order` feature is an alternative
+but applies workspace-wide and may interact with downstream crates
+expecting the default sort. The diagnostic test **cannot** compare
+structurally-equivalent containers: it must compare the emitted key
+order against a hand-pinned sequence whose source order is deliberately
+non-alphabetical, or compare raw JSON bytes positionally.
 
-**`bca.analyze()` field order silently re-sorted alphabetically
-through `to_value`** (#265 batch, `6574aff`). The first cut of
-the PyO3 bindings serialised `FuncSpace` via
-`serde_json::to_value` and then walked the `Value` tree to build
-a Python `dict`. The output came out
-`{"end_line", "kind", "metrics", "name", "spaces", "start_line"}`
-— alphabetical — instead of the `Serialize` impl's
-`{"name", "start_line", "end_line", "kind", "spaces", "metrics"}`
-declaration order, which the `bca` CLI emits via `to_string`.
-Byte-for-byte parity with the CLI was the bindings' stated
-contract; the trap was invisible because `dict ==` is
-order-insensitive in Python, every test that compared dicts to
-dicts passed. The fix routes the bindings through
-`serde_json::to_string(&space)` followed by CPython's
-`json.loads`, which builds the `dict` in input order (CPython
-3.7+ guarantees insertion-order iteration). A
-`nested_structure_preserves_funcspace_field_order` Rust test now
-pins the contract by serialising a local struct whose declaration
-order differs from alphabetical and walking the resulting `dict`
-keys verbatim.
+`Value::Object` is backed by `BTreeMap` unless `preserve_order` is
+enabled, which this workspace does not. Any `Serialize → to_value →
+re-emit` round trip alphabetises the keys regardless of the `Serialize`
+impl's declaration order.
 
-**Lesson:** When crossing a serde→insertion-ordered-runtime
-boundary, route through `serde_json::to_string` and re-parse on
-the other side, not through `to_value`. The `preserve_order`
-feature is an alternative but applies workspace-wide and may
-interact with downstream crates expecting the default sort. The
-diagnostic test that catches this regression *cannot* compare
-structurally-equivalent containers — it must compare the emitted
-key order against a hand-pinned sequence whose source order is
-deliberately non-alphabetical (or it must compare raw JSON bytes
-position-by-position). A test that asserts equality of two dicts
-walks right past the bug.
+**`bca.analyze()` field order silently re-sorted** (#265 batch,
+`6574aff`). The first PyO3 cut serialised `FuncSpace` via `to_value` and
+walked the tree to build a Python `dict`, producing
+`{"end_line", "kind", "metrics", "name", "spaces", "start_line"}` instead
+of the declaration order the CLI emits. Byte-for-byte parity with the
+CLI was the bindings' stated contract, and the trap was invisible
+because `dict ==` is order-insensitive in Python, so every test
+comparing dicts passed. The fix routes through
+`serde_json::to_string(&space)` plus CPython's `json.loads`, which builds
+the dict in input order.
 
 ---
 
-## 37. CPython `OSError(errno, msg, filename)` dispatches to the right subclass; the 1-arg form collapses to bare `OSError`
+## 37. CPython `OSError(errno, msg, filename)` dispatches to the right subclass
 
-CPython's `OSError` constructor is overloaded by arity: passing
-`OSError(errno, message, filename)` dispatches to the matching
-subclass (`FileNotFoundError` for `ENOENT`, `PermissionError` for
-`EACCES`, `IsADirectoryError` for `EISDIR`, …) and populates
-`err.errno` / `err.filename` so idiomatic Python handling —
-`except FileNotFoundError as e: log(e.filename)` — works. Passing
-`OSError(message)` (1-arg) loses the dispatch entirely: every
-I/O failure surfaces as bare `OSError` with `errno is None`, no
-subclass match, no `filename` field. The 1-arg form is the
-natural shape when bridging Rust's `std::io::Error::to_string()`
-into Python and is the easy default that everyone reaches for
-first.
+**Lesson:** Every PyO3 binding surfacing a Rust `std::io::Error` must
+build the Python exception with the 3-tuple `(errno, msg, filename)`
+form — `errno` from `io::Error::raw_os_error()`, `filename` from the
+path that triggered the failure. This requires capturing the `Path` at
+the failure site, not just the `io::Error`; a blanket `From<io::Error>`
+impl drops it. Verify with a round-trip test inspecting `err.errno` and
+`err.filename`, not just the exception class — a test catching `OSError`
+passes against the buggy code.
 
-**`bca.analyze(missing_path)` raised bare `OSError`, not
-`FileNotFoundError`** (#265 batch, `f91fac0`). The PyO3 bindings'
-`AnalysisError::Io { source }` arm originally mapped to
-`PyOSError::new_err(source.to_string())` — string-only. Python
-callers writing `except FileNotFoundError as e: e.filename` never
-matched the subclass and never saw the path. The fix carries the
-originating `PathBuf` through `AnalysisError::Io { source, path }`
-and constructs the PyError as
-`PyOSError::new_err((source.raw_os_error(), source.to_string(),
-path.display().to_string()))`. A regression test pins the
-contract:
-`pytest.raises(FileNotFoundError) as exc_info;
-exc_info.value.errno == errno.ENOENT; exc_info.value.filename ==
-str(missing)`.
+The constructor is overloaded by arity. `OSError(errno, message,
+filename)` dispatches to the matching subclass (`FileNotFoundError` for
+`ENOENT`, `PermissionError` for `EACCES`) and populates `err.errno` /
+`err.filename`. `OSError(message)` loses the dispatch entirely: every
+I/O failure surfaces as bare `OSError` with `errno is None`. The 1-arg
+form is the natural shape when bridging `io::Error::to_string()` and the
+default everyone reaches for first.
 
-**Lesson:** Every PyO3 binding that surfaces a Rust
-`std::io::Error` must build the Python exception with the 3-tuple
-`(errno, msg, filename)` form — `errno` from
-`io::Error::raw_os_error()`, `filename` from the path that
-triggered the failure. This requires capturing the `Path` at the
-failure site, not just the `io::Error` (a blanket
-`From<io::Error>` impl would drop it). The 1-arg
-`PyOSError::new_err(message)` form is wrong by default for I/O
-bridges; reserve it for non-I/O `OSError` usage where no path or
-errno applies. Verify via a `FileNotFoundError` round-trip test
-that inspects `err.errno` and `err.filename`, not just the
-exception class — a test that catches `OSError` would pass
-against the buggy code.
+**`bca.analyze(missing_path)` raised bare `OSError`** (#265 batch,
+`f91fac0`). Python callers writing `except FileNotFoundError as e:
+e.filename` never matched the subclass and never saw the path. The fix
+carries the originating `PathBuf` through `AnalysisError::Io { source,
+path }` and constructs `PyOSError::new_err((source.raw_os_error(),
+source.to_string(), path.display().to_string()))`.
 
 ---
 
-## 38. Co-pinned runtime + build-time companion crates must share an exact patch, not a caret range
+## 38. Co-pinned runtime + build-time companion crates must share an exact patch
 
-When a crate ecosystem splits its FFI contract across two crates
-— one for the runtime ABI, one for the build-time link-args /
-codegen — Cargo's default caret semver can resolve the two to
-different patches even though they implement two halves of the
-same contract. Once the drift happens, a build-time symbol or
-link flag emitted under the older patch can disagree with what
-the runtime crate of the newer patch expects on the search path,
-and the symptom is a mysterious link error at test time, not a
-compile error in either crate. The cheap defence is to catch
-the drift at the pin, before any observed failure — once it
-surfaces, bisecting two interlocked patches is far more
-expensive than spelling `= "X.Y.Z"` at both sites up front.
+**Lesson:** Identify co-pinned crate pairs spanning the runtime /
+build-time FFI boundary in any dependency family you adopt (pyo3 /
+pyo3-build-config, sqlx / sqlx-macros, opentelemetry /
+opentelemetry-otlp). Use exact pins (`= "X.Y.Z"`) on **every** crate in
+the pair, not the caret default, and put a one-line comment at each pin
+naming the partner and the contract they share. The diagnostic for "did
+this happen?" is `cargo tree -d`. A `cargo update` PR bumping one
+without the other should fail review immediately.
 
-**`pyo3 = "0.28"` paired with `pyo3-build-config = "0.28"` was
-pinned preventatively before the drift could surface** (#265
-batch, `50c7fca`). The `big-code-analysis-py` build script called
-`pyo3_build_config::add_libpython_rpath_link_args()` to bake the
-libpython rpath into binaries that embed Python (i.e.
-`cargo test` with `pyo3/auto-initialize`). The rpath link-args
-contract is part of pyo3's build-time API; whether it emits
-`-Wl,-rpath,…` or `-Wl,-rpath-link,…`, and where the path comes
-from (interpreter probe vs. `PYO3_PYTHON` env var), depend on the
-pyo3-build-config patch. Both deps were originally spelled
-`"0.28"` (caret `^0.28.0`), so cargo was free to resolve them
-independently to e.g. `pyo3 0.28.3` + `pyo3-build-config
-0.28.1`. At the time of the fix both crates happened to be
-resolving to `0.28.3` — `cargo tree -d` was clean, no link
-failure had been triaged — but the next `cargo update` could
-have moved one without the other. The pin to `= "0.28.3"`
-forecloses the drift: a future patch bump (`pyo3 → 0.28.4`) now
-requires a deliberate paired edit of `pyo3-build-config`, and
-the comment at each pin names the partner crate so the lockstep
-survives the next contributor.
+Cargo's default caret can resolve two crates implementing halves of one
+contract to different patches. A build-time symbol or link flag emitted
+under the older patch can then disagree with what the runtime crate of
+the newer patch expects, and the symptom is a mysterious link error at
+test time, not a compile error in either crate.
 
-**Lesson:** Identify co-pinned crate pairs that span the
-runtime / build-time FFI boundary in any dependency family you
-adopt (pyo3 / pyo3-build-config, sqlx / sqlx-macros,
-opentelemetry / opentelemetry-otlp). Use exact pins (`=
-"X.Y.Z"`) on every crate
-in the pair, not the caret default, and put a one-line comment at
-each pin naming the partner crate and the contract they share.
-The diagnostic for "did this happen?" is `cargo tree -d` (look
-for the same crate at two versions) or
-`cargo metadata | jq '.packages[] | select(.name |
-startswith("pyo3"))'`. A `cargo update` PR that bumps one crate
-without the other should fail review immediately — the lockstep
-is more important than chasing the latest patch.
+**`pyo3` / `pyo3-build-config` were pinned preventatively, before the
+drift could surface** (#265 batch, `50c7fca`). The build script calls
+`pyo3_build_config::add_libpython_rpath_link_args()`; whether it emits
+`-Wl,-rpath` or `-Wl,-rpath-link`, and where the path comes from, depend
+on the build-config patch. Both were spelled `"0.28"`, so cargo was free
+to resolve them independently. At fix time both happened to resolve to
+`0.28.3` and `cargo tree -d` was clean — but the next `cargo update`
+could have moved one. Pinning to `= "0.28.3"` forecloses it: a future
+bump now requires a deliberate paired edit. Catching the drift at the
+pin is far cheaper than bisecting two interlocked patches after a link
+failure.
 
 ---
 
 ## 39. `#[non_exhaustive]` enum wildcards are required, not tripwires
 
-When an upstream crate marks an enum `#[non_exhaustive]`,
-downstream `match` expressions outside that crate must include a
-wildcard arm — the compiler refuses to compile an exhaustive
-match without one. The wildcard is a *legal requirement*, not a
-hook for future audits. Comments that describe the wildcard as a
-"tripwire" that will fire when a new variant lands are wrong
-twice over: the compiler accepts new variants silently (they hit
-the wildcard), and the variant's downstream classification
-defaults to whatever the wildcard maps to — usually the most
-generic bucket. A reviewer relying on the tripwire framing will
-not audit the match on `cargo update`; the regression slips in
-unmapped.
+**Lesson:** A "tripwire" is an **exhaustive** match on a closed enum,
+where adding a variant produces a compile error at the match site.
+`#[non_exhaustive]` forecloses that mechanism by definition. For a real
+audit signal when an upstream variant is added, the options are: opt
+into `cargo deny` / `cargo semver-checks` rules that flag it; add
+explicit named arms for every variant you have audited and document the
+unmapped default *honestly*; or generate the match from the upstream
+enum via a build script that fails when the set changes. Do **not**
+describe a wildcard arm as a tripwire.
 
-**`From<MetricsError> for AnalysisError` claimed its wildcard was
-a tripwire** (#265 batch, `e8ec96b` / corrected in `8d7ef17`).
-The bindings' mapping from upstream `MetricsError` to the
-Python-side `AnalysisError` included a catch-all
-`_ => Self::Parse(err)` arm with a comment claiming that
-"a `cargo update` that introduces a new variant should be paired
-with an explicit arm above so the Python-side taxonomy stays
-intentional rather than defaulting." The framing was load-bearing:
-it implied a reviewer would notice. But `MetricsError` is
-`#[non_exhaustive]`, so the wildcard is *required* outside the
-defining crate; a new upstream variant compiles fine, lands in
-`Self::Parse`, and the Python exception class silently changes to
-`ParseError` until someone manually audits the From impl. The
-fix corrected the comment to acknowledge the wildcard's
-non-exhaustive requirement and called out that the only real
-tripwire would be removing the wildcard — which doesn't compile.
+Downstream matches on a `#[non_exhaustive]` enum must include a wildcard
+— the compiler refuses otherwise. It is a legal requirement, not a hook
+for future audits: new variants compile silently into the wildcard, and
+their downstream classification defaults to whatever it maps to, usually
+the most generic bucket. A reviewer relying on the tripwire framing will
+not audit the match on `cargo update`.
 
-**Lesson:** A "tripwire" is an *exhaustive* match on a closed
-enum, where adding a variant produces a compile error at the
-match site. `#[non_exhaustive]` forecloses that mechanism by
-definition. If you need a real audit signal when an upstream
-variant is added, the only options are: (1) opt into `cargo deny`
-/ `cargo semver-checks` rules that flag the variant addition; (2)
-add explicit named arms for every variant you've audited and
-document the default for unmapped ones honestly (not as a
-tripwire); or (3) generate the match from the upstream enum's
-variants via a build script that fails when the set changes. Do
-*not* describe a wildcard arm as a tripwire — the comment will
-mislead the next reader, and the next `cargo update` will land an
-unmapped variant unaudited.
+**`From<MetricsError> for AnalysisError` claimed its wildcard was a
+tripwire** (#265 batch, `e8ec96b`, corrected in `8d7ef17`). The comment
+claimed a `cargo update` introducing a new variant "should be paired
+with an explicit arm above." The framing was load-bearing — it implied a
+reviewer would notice — but `MetricsError` is `#[non_exhaustive]`, so a
+new variant lands in `Self::Parse` and the Python exception class
+silently becomes `ParseError` until someone manually audits the impl.
+The fix corrected the comment and noted the only real tripwire would be
+removing the wildcard, which does not compile.
 
 ---
 
-## 40. `#[cfg(unix)] { ... }` inside a test body silently passes on other targets
+## 40. `#[cfg(unix)] { … }` inside a test body silently passes on other targets
 
-A `#[cfg(unix)]` attribute placed on an inner block inside a
-`#[test]` function compiles to an empty body on non-Unix
-targets — and an empty `#[test]` function is a passing test.
-The harness sees one more green check on Windows / WASI / any
-non-target, but the test exercises zero assertions. The
-pattern is one character away from the platform-correct form
-(`#[cfg(unix)]` on the `fn` itself, so the test is hidden
-cleanly instead of vacuously passing), and it is easy to
-write because it reads like "guard the platform-specific
-setup" rather than "skip this test off-platform".
+**Lesson:** Gate the entire `fn`, never an inner block — the rule and its
+inverse trap are in
+[`testing.md`](../../.claude/rules/testing.md). An inner-block `#[cfg]`
+compiles to an empty body off-target, and an empty `#[test]` is a
+*passing* test: the harness reports green with zero assertions run. The
+function-level form hides the test instead.
 
 **`from_internal_preserves_byte_uniqueness_for_distinct_non_utf8_paths`**
-(`big-code-analysis-py/src/batch.rs`; caught in a session draft
-prepared for commit `515e840`, never reached `main`). The
-audit-tests pass on the `analyze_batch` work caught the draft
-test wrapping its entire body in `#[cfg(unix)] { … }`. On
-Linux it correctly exercised the byte-uniqueness contract for
-non-UTF-8 paths; on Windows it would have compiled to an
-empty function — `cargo test` on Windows would report it as
-passing, with zero coverage of the dedup invariant. The
-committed form hoisted `#[cfg(unix)]` onto the `fn`
-(matching the existing pattern at
-`analyze_path_rejects_non_utf8_path_by_default` in the same
-crate) so the test is emitted only on Unix. A `git show
-515e840` of the test therefore shows the corrected shape,
-not the bug — the lesson here is the *pattern*, not a
-historical regression.
+(`big-code-analysis-py/src/batch.rs`; caught in a draft prepared for
+`515e840`, never reached `main`). The audit-tests pass on the
+`analyze_batch` work caught the draft wrapping its entire body in
+`#[cfg(unix)] { … }`. On Linux it exercised the byte-uniqueness contract
+for non-UTF-8 paths; on Windows it would have compiled to an empty
+function reported as passing, with zero coverage of the dedup invariant.
 
-**The dual failure mode: a fixture that bakes in one platform's
-spelling fails *spuriously* off-target.** `test_conftest_helpers.py`
-(`big-code-analysis-py/tests/`, #920 follow-up) fabricated
-`debug/bca` and `release/bca` to exercise the CLI-locator helper,
-but `_locate_workspace_binary` appends the platform executable
-suffix (`.exe` on Windows). On `windows-latest` the locator looked
-for `bca.exe`, matched nothing, returned `None`, and two assertions
-failed — while Linux and macOS were green because the suffix is
-empty there. The bug was invisible to every non-Windows runner and
-to the local `make pre-commit`; only the Windows CI leg caught it.
-The fix names the fixtures `bca{EXE}` (with `EXE = ".exe" if
-os.name == "nt" else ""`), mirroring the locator's own suffix
-rather than hardcoding one OS's form.
-
-**Lesson:** When a test needs platform-gated *fixtures*
-(e.g. `OsStrExt::from_bytes` on Unix, `OsStringExt::from_wide`
-on Windows), gate the entire `fn` — not the inner block. An
-inner-block `#[cfg]` produces a vacuously-passing test
-off-target; the function-level form hides the test off-target
-so the harness does not report bogus coverage. Audit any
-`#[cfg(target_os = …)]` / `#[cfg(unix)]` / `#[cfg(windows)]`
-attribute inside a `#[test]` body — the only correct
-placement is on the function attribute stack, alongside
-`#[test]` itself. The inverse trap is fabricating a
-platform-shaped *input* — an executable name, a path
-separator, a line ending — in one OS's form: it passes
-everywhere except the platform it silently mis-models, and
-only that platform's CI leg fails. Mirror the production
-code's platform logic in the fixture instead of hardcoding a
-single OS's spelling.
+**The dual failure mode: a fixture baking in one platform's spelling
+fails *spuriously* off-target** (#920 follow-up).
+`test_conftest_helpers.py` fabricated `debug/bca` and `release/bca` to
+exercise the CLI-locator helper, but `_locate_workspace_binary` appends
+the platform executable suffix. On `windows-latest` the locator looked
+for `bca.exe`, matched nothing, and two assertions failed — while Linux
+and macOS were green because the suffix is empty there. Invisible to
+every non-Windows runner and to local `make pre-commit`.
 
 ---
 
-## 41. Clone-based hash/eq tests don't pin the dedup contract — construct two independent instances
+## 41. Clone-based hash/eq tests don't pin the dedup contract
 
-A test that builds one instance, clones it, and asserts the
-clone hashes / compares equal to the original verifies the
-`Clone` derive, not the production constructor's invariants.
-`Clone` produces a byte-identical struct by definition, so
-the test holds regardless of what the constructor does —
-including under regressions that mix per-call state (a static
-counter, a UUID, a timestamp) into one of the fields. Two
-*independently-constructed* equal-by-value instances are the
-only shape that pins the dedup contract production code
-relies on: that the constructor produces deterministic
-output, and that equal-by-input means equal-by-hash.
+**Lesson:** Any test pinning a hash/equality contract for a value type —
+especially one used as a set, dict, or dedup key — must construct both
+compared instances through the **production constructor twice**, not
+once-plus-clone. The clone path tests only the derive; the two-call path
+tests the constructor's determinism. Apply this anywhere
+`#[derive(Hash, PartialEq, Eq)]` or PyO3's `#[pyclass(eq, hash)]` reaches
+a consumer calling `.contains()` or collecting into a `HashSet`.
+
+`Clone` produces a byte-identical struct by definition, so a clone-based
+test holds regardless of what the constructor does — including under
+regressions that mix per-call state (a static counter, a UUID, a
+timestamp) into a field.
 
 **`equal_errors_hash_equal` on `PyAnalysisError`**
-(`big-code-analysis-py/src/batch.rs`; introduced in `96fe3ab`
-(`feat(bindings-py): analyze_batch + AnalysisError`),
-corrected in `515e840`). The audit-tests pass found the test
-using `let a = …; let b = a.clone();` for the `Hash` / `Eq`
-contract that `set(results)` deduplication promises in
-Python. Verified via test-via-revert: perturbing
-`new_internal` to interleave a `static AtomicU64` counter
-into the `error` field left the clone-based test passing
-(counter never advanced because the clone bypasses the
-constructor) while the strengthened two-`new_internal` form
-correctly failed (each call advanced the counter, the second
-instance's `error` differed from the first). The fix
-constructs two instances via `PyAnalysisError::new_internal`
-and asserts they collide in a `HashSet`.
-
-**Lesson:** Any test that pins a hash/equality contract for
-a value type — especially one used as a set / dict / dedup
-key — must construct the two compared instances through the
-production constructor *twice*, not once-plus-clone. The
-clone path tests only the derive; the two-call path tests
-the constructor's determinism. Apply the discipline anywhere
-`#[derive(Hash, PartialEq, Eq)]` (or PyO3's
-`#[pyclass(eq, hash)]`) reaches a downstream consumer that
-calls `.contains()`, `.iter().collect::<HashSet<_>>()`, or
-any other equality-keyed lookup. Related to lesson #33
-(test-via-revert): use the revert technique to verify the
-test exercises the constructor path, not merely the language
-semantics of `Clone`.
+(`big-code-analysis-py/src/batch.rs`; introduced in `96fe3ab`, corrected
+in `515e840`). The audit-tests pass found `let a = …; let b = a.clone();`
+pinning the `Hash` / `Eq` contract that `set(results)` dedup promises in
+Python. Verified by revert: perturbing `new_internal` to interleave a
+`static AtomicU64` into the `error` field left the clone-based test
+passing — the counter never advances, because the clone bypasses the
+constructor — while the two-call form correctly failed.
 
 ---
 
-## 42. `unreachable!()` at a PyO3 FFI boundary surfaces as `PanicException`, bypassing `except Exception`
+## 42. `unreachable!()` at a PyO3 FFI boundary surfaces as `PanicException`
 
-Rust's `unreachable!()` macro panics at runtime when reached.
-PyO3 catches that panic at the FFI boundary and re-raises it
-as `pyo3.PanicException`, which extends `BaseException`
-directly — *not* `Exception`. A Python caller's idiomatic
-`except Exception:` block (or any of its narrower forms like
-`except (TypeError, ValueError):`) does not catch it. Any
-function whose docstring promises "never raises on per-file
-errors" or any equivalent never-raise contract is silently
-broken by an `unreachable!()` arm the moment a future change
-makes that arm reachable: the panic aborts the call, every
-accumulated result is discarded, and the caller sees an
-uncatchable exception. The Rust idiom that reads as
+**Lesson:** Refines lesson 5 with a PyO3 corollary: at any FFI boundary
+documenting a never-raise contract, even an *unreachable-today* panic
+violates it, because PyO3 re-raises it as `pyo3.PanicException` —
+extending `BaseException` directly, outside the `Exception` hierarchy
+Python callers' handlers cover. Replace `unreachable!()` / `panic!()` /
+`assert!()` on those boundaries with a defensive structured-error
+fallback: a synthetic error in the result slot, or an explicit `Err`
+branch. The fallback should name the broken invariant in its message so
+telemetry surfaces it, but it must not abort the call. Apply to every
+`#[pyfunction]` / `#[pymethods]` documenting partial-success semantics.
+
+`except Exception:` — and every narrower form — does not catch it. The
+panic aborts the call, every accumulated result is discarded, and the
+caller sees an uncatchable exception. The Rust idiom that reads as
 "defensive" is, at the FFI boundary, the inverse.
 
-**`analyze_batch`'s `Ok(None)` arm**
-(`big-code-analysis-py/src/batch.rs`; the original `96fe3ab`
-shipped with a defensive `PyAnalysisError` fallback, then a
-review-remediation pass in `e670f8b`
-(`fix(bindings-py): address code-review findings for
-analyze_batch`) regressed it to `unreachable!()`, and
-`515e840` restored a defensive fallback). The single-file
-`analyze_path` bridge returns `Ok(None)` only when
-`skip_generated=true` and the file matches the
-`is_generated` predicate; `analyze_batch` hard-codes
-`skip_generated=false` and therefore treats `Ok(None)` as
-unreachable. The `e670f8b` shape was
-`unreachable!("bridge layer returned Ok(None) despite skip_generated=false …")`
-with a comment claiming it would "fail loudly in
-development" — exactly the failure mode this lesson warns
-against. A follow-up /review pass flagged it: the contract
-`analyze_batch` documents (`never raises on per-file errors`)
-demands a structured `AnalysisError` in the result slot, not
-a `PanicException`. The fix replaced the panic with a
-synthetic `PyAnalysisError` (`error_kind="IoError"`, message
-naming the invariant break and telling the operator to audit
-`analyze_path` for new skip surfaces) so the never-raise
-contract survives any future `analyze_path` refactor that
-adds a second skip surface (gitignore filter, size cap,
-etc.).
-
-**Lesson:** Refines lesson #5 (no panic on reachable error
-paths) with a PyO3-specific corollary: at any FFI boundary
-that documents a never-raise contract, even
-*unreachable-today* panics violate the contract because PyO3
-surfaces them as `PanicException` — outside the `Exception`
-hierarchy Python callers' handlers cover. Replace
-`unreachable!()` / `panic!()` / `assert!()` on those
-boundaries with a defensive structured-error fallback (a
-synthetic error in the result slot, an explicit `Err(…)`
-branch with a loud message). The fallback should name the
-broken invariant in its message so telemetry surfaces it for
-triage, but it must not abort the call. Apply this
-discipline to every PyO3 `#[pyfunction]` / `#[pymethods]`
-that documents partial-success semantics —
-`analyze_batch`-style sweeps, bulk APIs, anything where the
-contract is "process N items, never short-circuit on a single
-failure".
+**`analyze_batch`'s `Ok(None)` arm** (`big-code-analysis-py/src/batch.rs`).
+The original `96fe3ab` shipped a defensive `PyAnalysisError` fallback; a
+review-remediation pass in `e670f8b` regressed it to `unreachable!()`
+with a comment claiming it would "fail loudly in development" — exactly
+the failure mode this lesson warns against — and `515e840` restored the
+fallback. The single-file bridge returns `Ok(None)` only when
+`skip_generated=true`, and `analyze_batch` hard-codes `false`, so the arm
+is unreachable *today*. But the documented contract is "never raises on
+per-file errors", which demands a structured `AnalysisError` in the
+result slot. The restored fallback names the invariant break and tells
+the operator to audit `analyze_path` for new skip surfaces, so the
+contract survives any future refactor adding a second one (a gitignore
+filter, a size cap).
 
 ---
 
 ## 43. `to_string_lossy()` on a path field promoted into `Hash` / `PartialEq` keys silently collapses dedup
 
-AGENTS.md already forbids `to_string_lossy()` on "identifier
-paths" (map keys, JSON output, error correlation). The
-non-obvious second-order hazard: a struct field that
-participates in a derived `Hash` / `PartialEq` is *de facto*
-an identifier the moment a downstream consumer puts the
-struct in a `HashSet` or `dict` key — even when the field's
-docstring calls it "diagnostic" or "user-facing text".
-`to_string_lossy()` substitutes U+FFFD for every invalid
-byte, collapsing every distinct non-UTF-8 path with the same
-length-and-position pattern onto one rendered string. Two
-genuinely-distinct failures then `__eq__`-compare equal,
-hash to the same bucket, and silently de-duplicate in the
-`set(results)` pattern the API was specifically designed to
-support.
+**Lesson:** Audit every struct field participating in
+`#[derive(Hash, PartialEq, Eq)]` or `#[pyclass(eq, hash)]` for lossy
+rendering. If a string field can be built from non-UTF-8 bytes via
+`to_string_lossy()`, `from_utf8_lossy()`, or any other lossy projection,
+distinct inputs collapse to equal hashes — even when the field is
+documented "for display only". Three fixes, in preference order: render
+via a byte-preserving projection (`format!("{:?}", path)`, whose `OsStr`
+Debug uses `\xNN` escapes); exclude the lossy field from the derive; or
+carry the raw bytes in a separate field that participates in the hash.
+Default to the first — it preserves the visual cue and is the smallest
+change.
 
-**`PyAnalysisError.path` collapsing distinct non-UTF-8 paths
-under `set` dedup**
-(`big-code-analysis-py/src/batch.rs`; introduced in `96fe3ab`,
-corrected in `515e840`). The original `from_internal` used
-`path.to_str().map_or_else(|| path.to_string_lossy().into_owned(), str::to_owned)`
-for the `path` field; the docstring described the lossy
-fallback as "diagnostic only". But `#[pyclass(eq, hash)]`
-promoted `path` into the equality / hash key, and the
-documented `set(results)` dedup pattern keyed on
-`(path, error, error_kind)`. Two distinct non-UTF-8 paths
-(e.g. `b"/a\xff"` and `b"/a\xfe"`) both rendered to `/a` +
-U+FFFD; their `PyAnalysisError` instances compared equal
-under `__eq__`, hashed identically, and silently merged in
-`set(results)` — exactly the contract `__hash__`/`__eq__`
-was advertised to serve. Verified via the
-`from_internal_preserves_byte_uniqueness_for_distinct_non_utf8_paths`
-Rust unit test added in the same commit, which constructs
-two `PyAnalysisError` instances from byte-distinct non-UTF-8
-paths and asserts both `path` strings *and* `PartialEq`
-differ. The fix routes the non-UTF-8 fallback through Rust's
-`Debug` formatting on `Path` / `OsStr` (`\xNN` hex escapes
-for invalid bytes — casing matches Rust's default Debug
-output: uppercase hex, so `b"\xff"` renders as `"\xFF"`),
-which is byte-preserving and surrounded with double
-quotes — a visible cue that the path was not valid UTF-8.
+`AGENTS.md` already forbids `to_string_lossy()` on identifier paths. The
+non-obvious second-order hazard: a field participating in a derived
+`Hash` **is** an identifier the moment a consumer puts the struct in a
+`HashSet` or dict key, whatever its docstring says.
 
-**Lesson:** Audit every struct field that participates in
-`#[derive(Hash, PartialEq, Eq)]` or PyO3's
-`#[pyclass(eq, hash)]` for lossy rendering. If a string
-field can be constructed from non-UTF-8 bytes via
-`to_string_lossy()`, `from_utf8_lossy()`,
-`escape_default()`, or any other lossy projection, distinct
-inputs can collapse to equal hashes — even when the field is
-documented as "for display only". The available fixes: (1)
-render via a byte-preserving projection like
-`format!("{:?}", path)` (Rust's `OsStr` Debug uses `\xNN`
-hex escapes); (2) exclude the lossy field from the derive
-(custom impl); or (3) carry the raw bytes in a separate
-field that participates in the hash. Default to (1) — it
-preserves the visual cue and is the smallest change.
+**`PyAnalysisError.path` collapsed distinct non-UTF-8 paths under `set`
+dedup** (`big-code-analysis-py/src/batch.rs`; `96fe3ab`, corrected in
+`515e840`). The docstring described the lossy fallback as "diagnostic
+only", but `#[pyclass(eq, hash)]` promoted `path` into the key and the
+documented `set(results)` pattern dedups on `(path, error, error_kind)`.
+Two distinct paths (`b"/a\xff"` and `b"/a\xfe"`) both rendered to `/a` +
+U+FFFD, compared equal, hashed identically, and silently merged —
+exactly the contract `__hash__` was advertised to serve.
 
 ---
 
 ## 44. Rust's `{:?}` Debug format escapes non-printables as `\u{N}`, which Python's parser rejects
 
-A PyO3 `__repr__` implemented as
-`format!("Cls(field={:?})", self.field)` looks correct,
-passes every test with ASCII fixtures, and silently breaks
-`eval(repr(x))` round-trip on any input containing a
-non-printable character. Rust's `Debug` for `str` escapes
-characters outside the printable-ASCII range as `\u{N}` —
-curly braces, hex codepoint. Python's source parser does not
-accept that syntax: it expects `\xNN`, `\uNNNN`, or
-`\UNNNNNNNN` (no braces). A single control character
-(`\x01`), a multi-byte Unicode codepoint outside the BMP, or
-even some characters Rust's `escape_debug` considers
-non-printable produces a `repr` that `eval` rejects with
-`SyntaxError: 'unicodeescape' codec can't decode bytes`. The
-repr's documented "debuggable" property — copy it into a
-REPL to reconstruct the value — silently fails when the
-input is exactly the kind of weird data a debugger is most
-useful for.
+**Lesson:** Any hand-written `__repr__` / `__str__` on a `#[pyclass]`
+handling string fields must delegate the per-field escape to Python's
+own `repr()`, not Rust's `{:?}`. Test the round-trip explicitly with
+non-printable, non-ASCII, and non-BMP inputs — a single control
+character is enough to expose the failure. The cost is one
+`py.import("builtins")` and a `repr_fn.call1((&field,))?.extract()?` per
+field; the gain is the `eval(repr(x))` contract the docstring almost
+always promises.
 
-**`PyAnalysisError.__repr__` breaking on control-char paths**
-(`big-code-analysis-py/src/batch.rs`; introduced in `96fe3ab`,
-corrected in `515e840`). The original `__repr__` used
-`format!("AnalysisError(path={:?}, error={:?}, error_kind={:?})", self.path, self.error, self.error_kind)`
-with a docstring promising that `eval(repr(x))` would
-reconstruct an equivalent object. The /review pass and a
-follow-up Python test
-(`test_analysis_error_repr_round_trips_through_eval_for_non_ascii`)
-caught the regression:
-`bca.AnalysisError("/tmp/\x01中.py", "boom ሴ", "IoError")`
-produced `path="/tmp/\u{1}中.py"` under `{:?}`, and `eval`
-raised `SyntaxError` on the `\u{1}` token. The fix routes
-each field through Python's own `repr()` builtin —
-`py.import("builtins").getattr("repr").call1((&self.path,))?.extract::<String>()?` —
-so the output uses `\xNN` / `\uNNNN` / `\UNNNNNNNN` escapes
-the parser accepts.
+Rust's `Debug` for `str` escapes outside printable ASCII as `\u{N}` —
+curly braces, variable width. Python's source parser accepts `\xNN`,
+`\uNNNN`, and `\UNNNNNNNN`, none with braces. So a repr looks correct,
+passes every ASCII-fixture test, and breaks `eval(repr(x))` on exactly
+the weird data a debugger is most useful for.
 
-**Lesson:** Any hand-written `__repr__` / `__str__` on a
-`#[pyclass]` that handles string fields must delegate the
-per-field escape to Python's `repr()`, not Rust's `{:?}`.
-Rust's `Debug` escape vocabulary and Python's source-parser
-escape vocabulary disagree on non-printable codepoints —
-`Debug` emits `\u{N}` (braces, variable-width), Python
-accepts `\uNNNN` / `\UNNNNNNNN` (no braces, fixed-width)
-and `\xNN`. The mismatch only shows up for inputs containing
-control characters or characters Rust's `escape_debug` flags
-non-printable; ASCII-only test fixtures never reach the
-broken path. Test the round-trip explicitly with
-non-printable / non-ASCII / non-BMP inputs — a fixture with
-a single control character is enough to expose the failure
-mode. The implementation cost is one `py.import("builtins")`
-and three `repr_fn.call1((&field,))?.extract()?` per
-`__repr__` call; the correctness gain restores the
-`eval(repr(x))` contract the docstring almost always
-promises.
+**`PyAnalysisError.__repr__` broke on control-char paths**
+(`big-code-analysis-py/src/batch.rs`; `96fe3ab`, corrected in
+`515e840`). The docstring promised `eval(repr(x))` would reconstruct an
+equivalent object. A follow-up Python test caught it:
+`bca.AnalysisError("/tmp/\x01中.py", "boom ሴ", "IoError")` produced
+`path="/tmp/\u{1}中.py"` under `{:?}`, and `eval` raised `SyntaxError` on
+the `\u{1}` token.
 
 ---
 
-## 45. XML attribute-value normalization collapses raw TAB / LF / CR — emit numeric character references
+## 45. XML attribute-value normalization collapses raw TAB / LF / CR
 
-XML 1.0 §3.3.3 ("Attribute-Value Normalization") mandates that
-any whitespace character inside an attribute value other than
-the result of a character reference is normalized to a single
-space (`U+0020`) by a conforming parser on read. The bytes
-survive on disk, but every conforming consumer (Jenkins,
-SonarQube, GitLab CI, libxml2-based tooling) sees the value
-with `\t` / `\n` / `\r` collapsed to spaces — irrecoverable
-data loss the emitter cannot detect through byte inspection.
-Numeric character references (`&#x9;` / `&#xA;` / `&#xD;`) are
-the spec-blessed escape: they survive normalization because
-the value the parser publishes is the post-replacement scalar
-(0x09 / 0x0A / 0x0D), not the bytes they came from.
+**Lesson:** Any XML writer using attribute values for data — paths,
+messages, identifiers carrying user text — must escape TAB / LF / CR as
+numeric character references (`&#x9;` / `&#xA;` / `&#xD;`), not literal
+bytes. The conforming-parser behaviour is silent — no error, no warning,
+just normalization on read — so the only way to validate is to re-parse
+with a real parser and compare scalar-for-scalar. Cite §3.3.3 in the
+escape function's comment so the next contributor does not revert it on
+aesthetic grounds.
 
-**`XmlAttr::fmt` emitted literal TAB / LF / CR inside
-Checkstyle attribute values** (#340, `1dfe7a1`). The source
-comment justified the literal pass-through with "CI consumers
-are friendlier when newlines stay literal — keep them as-is",
-actively misstating the XML spec. The bug was latent because
-no production code path fed a path with embedded `\n` / `\t`
-into an attribute value today — POSIX permits them in
-filenames, and a future multi-line message template would
-silently lose its whitespace structure on every consumer. The
-fix replaces the three literal arms with `&#x9;` / `&#xA;` /
-`&#xD;` writes, and the regression test re-parses the emitted
-XML with `quick_xml::reader::Reader` to confirm the
-round-tripped attribute value byte-equals the original —
-emitter-side byte inspection alone could not have caught the
-bug.
+XML 1.0 §3.3.3 mandates that any whitespace inside an attribute value
+other than the result of a character reference is normalized to a single
+space on read. The bytes survive on disk, but every conforming consumer
+— Jenkins, SonarQube, GitLab CI, libxml2-based tooling — sees them
+collapsed. Numeric character references survive because the value the
+parser publishes is the post-replacement scalar.
 
-**Lesson:** Any new XML writer that uses attribute values for
-data (paths, messages, identifiers carrying user-supplied
-text) must escape TAB / LF / CR as numeric character
-references, not as literal bytes. The conforming-parser
-behavior is silent — no error, no warning, just normalization
-on read — so the only way to validate the round-trip is to
-re-parse with a real parser and compare scalar-for-scalar.
-Cite §3.3.3 in the escape function's comment so the next
-contributor doesn't revert it on aesthetic grounds.
+**`XmlAttr::fmt` emitted literal TAB / LF / CR inside Checkstyle
+attribute values** (#340, `1dfe7a1`). The source comment justified the
+pass-through with "CI consumers are friendlier when newlines stay
+literal", actively misstating the spec. Latent, because no production
+path fed a path with embedded `\n` into an attribute value — POSIX
+permits them in filenames, and a future multi-line message template
+would have silently lost its structure on every consumer. The regression
+test re-parses the emitted XML with `quick_xml` and confirms the
+round-tripped value byte-equals the original; emitter-side byte
+inspection could not have caught it.
 
 ---
 
-## 46. Source-literal `"ï»¿"` is three Latin-1 codepoints, not the UTF-8 BOM
+## 46. A pasted BOM literal is three Latin-1 codepoints, not U+FEFF
 
-The string `"ï»¿"` in Rust source is three Unicode codepoints
-(U+00EF U+00BB U+00BF) — the three bytes of the UTF-8 BOM
-(`EF BB BF`) reinterpreted as individual Latin-1 chars. The
-*canonical* UTF-8 BOM that any UTF-8 decoder produces is a
-single codepoint, U+FEFF, three UTF-8 bytes long. The two
-strings have disjoint `chars()` iterators and `==` returns
-`false` between them. The mojibake form arises when content
-with a UTF-8 BOM is copy-pasted into source via a
-Latin-1-aware editor (or a terminal that mis-decodes the
-input) — the visible "ï»¿" glyphs match the BOM bytes
-one-for-one, but the underlying codepoints are wrong.
-Production code that compares against the mojibake literal
-silently misses the canonical form a UTF-8 parser actually
-produces, and vice versa.
+**Lesson:** Any non-ASCII source literal that exists to match a runtime
+value should be written with `\u{...}` escapes, not rendered glyphs. The
+compiler accepts both; only runtime comparison reveals the divergence.
+The mojibake-vs-canonical class recurs whenever you copy-paste BOM,
+zero-width, right-to-left, or Asian-range text from an editor that
+mis-decodes the input. Defensive accept-both is safer than
+canonical-only when the source of truth is well understood.
 
-**`sanitize_identifier`'s BOM check matched only the mojibake
-form** (#345, `fed31a4`). `enums/src/common.rs`'s `if name ==
-"ï»¿"` was intended to map the UTF-8 BOM token from a
-tree-sitter grammar to a stable `"BOM"` identifier. The
-literal was the three-codepoint mojibake form; tree-sitter
-exposes node kinds as valid UTF-8 strings, so a future grammar
-that surfaced a BOM token would return the single-codepoint
-U+FEFF form and the branch would silently miss. The
-fall-through path landed in the generic character loop where
-U+FEFF is not in the punctuation match, hit the `_ =>
-continue` catch-all, produced an empty identifier, and
-triggered the `Anon{i}` fallback — generating an `Anon<N>`
-enum variant instead of the stable `BOM` identifier the code
-claimed to emit. Reachable but latent: no grammar in scope
-hits this path today. The fix matches both forms explicitly
-with `\u{FEFF}` / `\u{00EF}\u{00BB}\u{00BF}` Unicode escapes,
-removing the source-encoding dependence.
+`"ï»¿"` is three codepoints (U+00EF U+00BB U+00BF) — the UTF-8 BOM's
+three bytes reinterpreted as Latin-1 chars. The canonical BOM any UTF-8
+decoder produces is one codepoint, U+FEFF. Their `chars()` iterators are
+disjoint and `==` returns `false`.
 
-**Lesson:** Any non-ASCII source literal that exists to match
-a runtime value should be written with `\u{...}` escapes, not
-as the rendered glyphs. The Rust compiler accepts both forms;
-only runtime comparison reveals the divergence. The
-mojibake-vs-canonical class of bug recurs any time you
-copy-paste BOM / zero-width / right-to-left / Asian-range text
-from an editor that mis-decodes the input. Defensive
-accept-both is safer than canonical-only when the production
-source-of-truth (here, tree-sitter's UTF-8 decoder) is
-well-understood; explicit `\u{...}` escapes make the intent
-reviewable.
+**`sanitize_identifier`'s BOM check matched only the mojibake form**
+(#345, `fed31a4`). `enums/src/common.rs` had `if name == "ï»¿"`, intended
+to map a BOM token to a stable `"BOM"` identifier. tree-sitter exposes
+node kinds as valid UTF-8, so a grammar surfacing a BOM token returns
+U+FEFF and the branch misses. The fall-through landed in the generic
+character loop, where U+FEFF hits the `_ => continue` catch-all, produced
+an empty identifier, and triggered the `Anon{i}` fallback — generating an
+`Anon<N>` variant instead of the `BOM` identifier the code claimed to
+emit. Reachable but latent. The fix matches both forms explicitly with
+`\u{FEFF}` / `\u{00EF}\u{00BB}\u{00BF}`.
 
 ---
 
-## 47. Bound the thread stack to make stack-overflow tests deterministic across platforms
+## 47. Bound the thread stack to make stack-overflow tests deterministic
 
-A regression test for an iterative-walk refactor that builds
-a fixed-depth synthetic tree and runs the walker without
-overflowing the stack is only meaningful if the equivalent
-recursive form would overflow the same stack. Libtest spawns
-each test on a thread whose stack size is governed by Rust's
-spawn defaults (historically 2 MiB, but overridable via
-`RUST_MIN_STACK` and not stable across Rust versions or build
-profiles). A recursion frame for a small walker (`&FuncSpace`,
-an `out: &mut Vec`, a few locals) is roughly 150–250 bytes;
-in release builds with inlining and tail-call collapsing,
-10_000 frames may fit comfortably in 2 MiB and the test passes
-against the very bug it claims to catch. Spawning the test
-body on a thread with a deliberately tiny stack
-(`std::thread::Builder::new().stack_size(256 * 1024)`) makes
-the failure mode deterministic: any recursive descent at DEPTH
-overflows the budget regardless of platform or optimization;
-the iterative form's working memory is independent of
-recursion depth and succeeds. The Drop side needs the same
-care — `FuncSpace` contains `Vec<FuncSpace>` so dropping the
-chained tree walks one frame per level and overflows the same
-tight stack at function exit. `std::mem::forget` on the
-test-local tree sidesteps the Drop-side overflow; the OS
-reclaims memory at process exit, which is fine for a test.
+**Lesson:** Spawn the walker on a thread with `stack_size` explicitly
+bounded — never libtest's default. The bound must be tight enough that
+any plausible recursive descent at the chosen DEPTH overflows it under
+every realistic optimization, and loose enough that the iterative form's
+working memory fits. Prefer letting the tree drop normally over
+`mem::forget`, so teardown is exercised rather than stepped around.
+
+Libtest's per-test stack size follows Rust's spawn defaults —
+historically 2 MiB, overridable via `RUST_MIN_STACK`, not stable across
+versions or build profiles. A recursion frame for a small walker is
+roughly 150–250 bytes, so in release builds 10,000 frames may fit
+comfortably and the test passes against the very bug it claims to catch.
+A deliberately tiny stack (`stack_size(256 * 1024)`) makes the failure
+deterministic.
 
 **`deeply_nested_spaces_do_not_overflow_stack` initially used
-DEPTH=10_000 on libtest's default stack** (#338's regression
-test, hardened in review-fix `940a56a`). The first attempt
-pinned the iterative walk via the count-and-name assertions
-but left the bug-side failure (the reverted recursive form)
-at the mercy of platform stack defaults. A code review pass
-flagged that release-mode optimization could leave 10_000
-small frames fitting in 2 MiB; the test would then pass
-against the reintroduced bug, violating the test-via-revert
-rule in `.claude/rules/testing.md`. The fix spawned the body
-on a 256 KiB-stack worker via `std::thread::Builder` and
-bumped `DEPTH` to 50_000 so the budget is overwhelmed under
-every optimization level. A trailing `std::mem::forget(current)`
-keeps the chained-tree Drop from overflowing the same tight
-stack on test exit and masking the production-side assertion
-with a Drop-side abort.
+DEPTH=10_000 on the default stack** (#338's regression test, hardened in
+`940a56a`). Review flagged that release optimization could leave 10,000
+small frames fitting in 2 MiB, so the test would pass against the
+reintroduced bug. The fix spawned the body on a 256 KiB worker and
+bumped DEPTH to 50,000.
 
-**Lesson:** Stack-overflow regression tests must spawn the
-walker on a thread with `stack_size` explicitly bounded — not
-on libtest's default. The bound should be tight enough that
-any plausible recursive descent at the test's chosen DEPTH
-overflows it under every realistic compiler optimization, and
-loose enough that the iterative form's working memory fits.
-If the structure under test has a recursive `Drop`, route the
-root through `std::mem::forget` after the assertions or
-iteratively unwind it before returning — otherwise a
-Drop-side overflow on test exit shadows the production-side
-correctness check and the test fails for the wrong reason.
-
-**Update (#1056).** That last sentence no longer applies to
-this repository's own trees: `FuncSpace`, `Ops`, `AstNode`,
-and the two `wire` mirrors now carry hand-written iterative
-`Drop` impls, so a deep chain tears down in constant stack.
-The three `mem::forget` / flatten-before-drop workarounds
-this lesson prescribed were removed with that fix, and
-letting the tree drop normally is now the *stronger* test —
-it exercises the iterative teardown instead of stepping
-around it. The advice still stands for any recursive type
-that lacks such a `Drop`.
+**Update (#1056): the `mem::forget` half of this advice no longer applies
+here.** `FuncSpace`, `Ops`, `AstNode`, and the two `wire` mirrors now
+carry hand-written iterative `Drop` impls, so a deep chain tears down in
+constant stack. The three `mem::forget` / flatten-before-drop workarounds
+this lesson originally prescribed were removed, and letting the tree drop
+normally is now the *stronger* test. The advice still stands for any
+recursive type lacking such a `Drop`.
 
 ---
 
 ## 48. Hand-written enum lists need a match-based companion to enforce exhaustiveness
 
-A `const FOO: &[Enum] = &[Enum::A, Enum::B, ...]` looks like
-"every variant in the enum" but the Rust compiler does not
-enforce it. Adding `Enum::C` without extending the array
-compiles cleanly; only `match` expressions on `Enum` trigger
-the `non-exhaustive patterns` error. Tests that drive from the
-hand-written list — parameterized round-trip tests, dispatch
-tables, name-lookup matrices — silently lose coverage for the
-new variant until some unrelated `match` arm forces the
-contributor to remember. The fix is a private guard function
-near the array whose body matches every variant with `=> ()`:
-the match arms must be kept in lockstep with the array (and
-with any other hand-written list of variants), and the
-compiler enforces it the moment a new variant lands.
-`#[non_exhaustive]` does not weaken the guarantee — within
-the defining crate, exhaustiveness is still checked; only
-cross-crate matches require the wildcard (the
-opposite-direction concern covered by lesson #39).
+**Lesson:** Any time you maintain a hand-written list of enum variants —
+for parameterized tests, dispatch tables, name-lookup matrices, or "the
+canonical iteration order" — add a co-located match-based guard whose
+arms list every variant. The guard need not be called; the compile error
+is the guarantee, and `#[allow(dead_code)]` is the right attribute. Note
+the placement: a guard inside `#[cfg(test)]` fires only under the test
+target, so `cargo test --workspace --all-features` is what catches the
+drift and a bare `cargo build` will not. Say so in the guard's doc
+comment.
 
-**`ALL_VARIANTS` in `src/metric_set.rs::tests` was advertised
-as compile-error-on-drift but was not** (#339, hardened in
-review-fix `654f24c`). The original doc comment claimed "a
-newly-added variant surfaces as a compile error here". Five
-tests — `from_str_round_trips_every_variant_display_name`,
-`names_table_parses_to_every_variant`,
-`distinct_bits_per_variant`,
-`all_variants_round_trip_through_all_contains`, and
-`storage_width_covers_every_variant` — iterated over the
-list. Adding `Metric::Foo` without extending the array would
-silently lose coverage for the new variant in all five tests
-until `Display`/`FromStr`'s `match self` surfaced the omission
-through an unrelated path. The fix added a sibling
-`fn _all_variants_exhaustive_guard(m: Metric) match m {
-Metric::A | Metric::B | ... => () }` whose match arms must be
-extended in lockstep with the array; a missing arm fires
-`E0004: non-exhaustive patterns` under `cargo test` (which
-runs as part of `make pre-commit` and CI).
+`const FOO: &[Enum] = &[Enum::A, Enum::B]` looks like "every variant"
+but the compiler does not enforce it. Adding `Enum::C` without extending
+the array compiles cleanly; only `match` expressions trigger
+`non-exhaustive patterns`. `#[non_exhaustive]` does not weaken this —
+within the defining crate exhaustiveness is still checked; only
+cross-crate matches need the wildcard (lesson 39's opposite-direction
+concern).
 
-**Lesson:** Any time you maintain a hand-written list of enum
-variants — for parameterized tests, dispatch tables,
-name-lookup matrices, or "the canonical iteration order" —
-add a co-located match-based guard whose arms list every
-variant. The guard does not need to be called; the compile
-error is the guarantee. `#[allow(dead_code)]` is the right
-attribute for the function. Note the placement: a guard
-inside `#[cfg(test)]` only fires under the test target, so
-the validation gate (`cargo test --workspace --all-features`,
-which `make pre-commit` and CI run) is what catches the
-drift — a bare `cargo build` will not. Cite that placement
-in the guard's doc comment so a future reader knows the guard
-isn't compiled out of production builds for any other reason.
+**`ALL_VARIANTS` in `src/metric_set.rs::tests` was advertised as
+compile-error-on-drift and was not** (#339, hardened in `654f24c`). Five
+tests iterated the list. Adding `Metric::Foo` without extending the array
+would have silently lost coverage in all five until `Display`/`FromStr`'s
+`match self` surfaced it through an unrelated path. The fix added a
+sibling `fn _all_variants_exhaustive_guard(m: Metric)` whose arms must be
+extended in lockstep; a missing one fires `E0004`.
+
+Lesson 51 covers the runtime half: a compile-time guard proves the list
+is complete, not that each arm dispatches to the right target.
 
 ---
 
-## 49. Unused `macro_rules!` captures are documentation lies that survive every refactor
+## 49. Unused `macro_rules!` captures are documentation lies
 
-`macro_rules! foo { ( $( ($camel:ident, $name:ident) ),* ) =>
-{ ... } }` accepts a tuple per call-site entry, but if the
-expansion body never expands `$name`, the second tuple element
-is decorative. Worse, decorative is not neutral: the
-call-site `(Cpp, tree_sitter_cpp)` *looks* declarative — like
-the macro dispatches to `tree_sitter_cpp::LANGUAGE` — when in
-fact the hand-rolled body picks a completely different crate.
-The declared intent and the production code path diverge
-silently, the disagreement is invisible to `cargo build` and
-`cargo test`, and a code reader trusting the call-site syntax
-draws the wrong conclusion about what crate the variant
-resolves to. The remediation is one of two: (a) drop the
-unused capture from the macro signature and the call-site, so
-the syntax matches what the body actually uses; or (b) wire
-the capture through the body so the call-site becomes
-load-bearing and disagreement becomes a compile error.
+**Lesson:** Audit every `macro_rules!` capture against the expansion body
+during review. A capture the body never expands is a documentation lie —
+the call-site syntax says the value matters when it does not, and the
+drift is invisible to every standard gate. Two acceptable fixes: drop the
+capture, so the syntax matches the semantics; or wire it through the
+body, so the syntax becomes load-bearing and disagreement is a compile
+error. Pick the easier one. When the macro is hand-rolled because
+variants need bespoke per-arm logic, drop the capture and lean on
+[`macro-comments.md`](../../.claude/rules/macro-comments.md) to preserve
+the per-call narrative at the call site.
 
-**`enums::mk_get_language!` captured `$name` but hardcoded
-every match arm** (#344, `0b417f2`). The `mk_langs!` driver
-in `enums/src/languages.rs` listed `(Cpp, tree_sitter_cpp)`,
-`(Mozjs, tree_sitter_mozjs)`, etc. — a declarative-looking
-tuple table that pinned each variant to its backing
-grammar-crate ident. But `mk_get_language!`'s expansion was a
-21-arm hand-written `match` where `Lang::Cpp =>
-tree_sitter_mozcpp::LANGUAGE.into()` (a different crate from
-the call-site's declared `tree_sitter_cpp`). The decorative
-ident drifted silently — verified via `cargo tree`:
-`tree-sitter-cpp` was pulled in only as a transitive of
-`bca-tree-sitter-mozcpp`, never directly. Option A applied:
-the second tuple element was dropped from the macro
-signature, the call-site collapsed to a bare `Cpp`, and
-non-obvious mappings (`Cpp` → mozcpp, `Mozjs` → mozjs, the
-vendored `bca-tree-sitter-*` forks, the `LANGUAGE_TYPESCRIPT`
-/ `LANGUAGE_PHP` per-language consts) now carry per-line
-`// -> <crate>` comments anchored to each entry per
-[macro-comments.md](../../.claude/rules/macro-comments.md).
+Decorative is not neutral: a call site reading `(Cpp, tree_sitter_cpp)`
+*looks* declarative — as if the macro dispatches to that crate — when the
+hand-rolled body picks a different one entirely.
 
-**Lesson:** Audit every `macro_rules!` capture against the
-expansion body during review. A capture the body never
-expands is a documentation lie — the call-site syntax says
-the value matters when it doesn't, and the drift is invisible
-to every standard gate. Two acceptable fixes: drop the
-capture (so the syntax matches the semantics), or wire it
-through the body (so the syntax becomes load-bearing). Pick
-the easier one. The cost of dropping is one call-site sweep
-and a follow-up annotation pass to preserve the per-call
-rationale comments; the cost of wiring through is
-occasionally needing import aliases or a third tuple element
-for special-case constants (`LANGUAGE_TSX` etc.). When the
-macro is hand-rolled because variants need bespoke per-arm
-logic, drop the unused capture and lean on
-[`.claude/rules/macro-comments.md`](../../.claude/rules/macro-comments.md)
-to preserve the narrative at the call-site.
+**`enums::mk_get_language!` captured `$name` but hardcoded every match
+arm** (#344, `0b417f2`). The `mk_langs!` driver listed
+`(Cpp, tree_sitter_cpp)`, but `mk_get_language!` expanded to a 21-arm
+hand-written match where `Lang::Cpp => tree_sitter_mozcpp::LANGUAGE`.
+Verified via `cargo tree`: `tree-sitter-cpp` was pulled in only as a
+transitive of `bca-tree-sitter-mozcpp`, never directly. The fix dropped
+the second tuple element, collapsed the call site to a bare `Cpp`, and
+gave every non-obvious mapping a per-line `// -> <crate>` comment.
 
 ---
 
 ## 50. Independent dispatch paths counting the same event mask each other's bugs
 
-When a metric has two structurally-independent paths that contribute
-to the same headline count — a *token-arm* path classifying single
-AST node kinds and a *walker-arm* path descending through container
-nodes, or a *structural* arm opening a `FuncSpace` and a *body* arm
-summing inside it — both paths add into the same `Stats` field.
-Tests that exercise inputs covered by *either* path read the right
-total and pass. The dead path is invisible from the result alone;
-only an input the alternate path cannot classify exposes it. This
-is distinct from lesson #19 (a missing arm in a single dispatch
-table) and lesson #7 (an *upstream* filter masking the buggy code
-from the test input) — here the arm is present, the input reaches
-it, and the test still passes because a *parallel* path summed the
-same count by a different route.
+**Lesson:** When a metric has multiple independent paths summing into the
+same field, write at least one regression test whose input **only** the
+path under test can classify — a bare identifier for a walker arm that
+handles `!`/paren wrappers, an empty container for an arm that descends
+into children, a single-arm `switch` for a container-vs-arm counter. Then
+test-via-revert each new arm independently and confirm it fails when
+that *one* arm is dropped. When auditing an existing metric, identify
+every independent path contributing to the field and ensure each has an
+input no other path covers.
 
-**C# `csharp_walk_for_conditions` was dead code for every existing
-test** (#370, `6384590`). The `IfStatement` / `WhileStatement` /
-`DoStatement` dispatch arms in `src/metrics/abc.rs` targeted
-`csharp_inspect_child(node, 1, …)` / `csharp_inspect_child(node, 3,
-…)`, which in tree-sitter-c-sharp's grammar shape land on the
-literal `(` and `while` token children, not the condition expression
-(condition lives at child(2) for if/while, child(4) for do-while).
-Every C# ABC test (`csharp_if_single_conditions`,
-`csharp_while_and_do_while_conditions`, …) used a comparison
-operator inside its condition — `if (x > 0)`, `while (x < 10)` —
-and the comparison tokens (`GT`, `LT`, `EQEQ`, …) were counted by an
-*independent* token-arm path in the same metric. The if/while/do
-helper contributed zero on every test input. The bug existed since
-C# language support landed and survived the #369 refactor
-(monolithic compute → per-category helpers, `f8b8829`) verbatim
-because the refactor preserved dispatch shapes without altering
-input coverage. The dead arm could only be exposed by a
-bare-identifier condition (`if (x)`) or unary `!` (`if (!x)`) —
-input shapes the token-arm path cannot classify.
+Both paths add into the same `Stats` field, so any fixture covered by
+*either* reads the right total and passes. The dead path is invisible
+from the result alone. Distinct from lesson 19 (a missing arm in a single
+dispatch table) and lesson 7 (an *upstream* filter masking the code from
+the input): here the arm is present, the input reaches it, and the test
+still passes because a parallel path summed the same count.
 
-**The same masking pattern surfaced again on `BooleanLiteral` while
-reviewing the #370 fix** (#371, `efe38b7`; Groovy follow-up
-`f132990`). The new `csharp_count_condition` helper matched the leaf
-tokens `Csharp::True` / `Csharp::False` but not the
-`Csharp::BooleanLiteral` wrapper the grammar interposes when `true`
-/ `false` appear as a condition. `if (true)`, `while (false)`,
-ternary `true ? a : b`, and `!true` all scored 0 conditions — but
-only when no other condition token also fired in the same
-statement, because the existing ternary `?` / comparison-operator
-token arms covered most real test inputs. Discovered during
-`/rust-optimize` review of the #370 fix, not from a user report.
-Same root cause (dead walker arm, masked by alternate token path),
-different node-kind shape (wrapper vs. literal vs. child-index),
-all within one week of activity.
+**C# `csharp_walk_for_conditions` was dead code for every existing test**
+(#370, `6384590`). The `IfStatement` / `WhileStatement` / `DoStatement`
+arms targeted `csharp_inspect_child(node, 1, …)` and `(node, 3, …)`,
+which in tree-sitter-c-sharp land on the literal `(` and `while` token
+children — the condition lives at child(2), or child(4) for do-while.
+Every C# ABC test used a comparison operator inside its condition, and
+those tokens were counted by an *independent* token arm. The helper
+contributed zero on every input. The bug predates C# support and survived
+the #369 refactor verbatim, because the refactor preserved dispatch
+shapes without altering input coverage. Only a bare-identifier `if (x)`
+or unary `if (!x)` could expose it.
 
-**Lesson:** When a metric has multiple independent code paths
-summing into the same field, write at least one regression test
-whose input *only* the path-under-test can classify — bare
-identifiers for a walker arm that handles `!`/paren-wrappers, an
-empty container for an arm that descends into children, a
-single-arm `switch` for a container-vs.-arm counter. Test-via-revert
-each new arm independently (per lesson #33) and confirm it fails
-when that *one* arm is dropped — a passing test against an
-alternate-path-firing input proves nothing about the path you just
-wrote. When auditing or refactoring an existing metric, identify
-every independent path that contributes to the same field and
-ensure each has at least one input no other path covers; symmetric
-paths whose test fixtures all happen to exercise both will pass
-even after one path is dead-coded.
+**The same masking recurred on `BooleanLiteral` while reviewing that
+fix** (#371, `efe38b7`; Groovy follow-up `f132990`). The new
+`csharp_count_condition` matched the leaf tokens `True` / `False` but not
+the `BooleanLiteral` wrapper the grammar interposes for a condition, so
+`if (true)`, `while (false)`, and `!true` all scored 0 — but only when no
+other condition token fired in the same statement. Same root cause,
+different node shape, within one week.
 
 ---
 
 ## 51. Hand-rolled match arms drift from their enum list without an integration coverage guard
 
-A `macro_rules!` macro that hand-codes one match arm per variant
-(`mk_get_language!`, `mk_get_language_name!`) is *correspondence by
-convention* with the variant list its companion macro emits
-(`mk_langs!`). The two share no compile-time tie: a typo in one
-arm's backing crate, a missing arm for a newly-added variant, or a
-copy-paste that resolves `Cpp` to `tree_sitter_mozjs` all type-check
-fine and ship silently. The bug surfaces only at runtime, when the
-wrong dispatch result reaches a caller — and if the crate is
-workspace-excluded (lesson #15), even `cargo test --workspace` won't
-exercise it. Distinct from lesson #15 (excluded crates drift outside
-*lint* gates) and lesson #48 (hand-written enum lists need a
-*match-based* exhaustiveness companion): here the runtime *dispatch
-target* — which backing crate, which name — has no compile-time
-check against the variant list it claims to cover.
+**Lesson:** Any hand-rolled dispatch macro emitting one match arm per
+enum variant — `mk_get_language!`, `mk_action!`-style routers, manually
+typed `From<X> for Y` impls — needs a sibling integration test walking
+every variant and pinning the result to a **directly imported**
+reference. Compare against the import, not the macro under test, or the
+test is tautological. Pair the per-variant tests with a variant-count
+guard (`Lang::into_enum_iter().count() == EXPECTED_VARIANT_COUNT`) so
+adding a variant without extending the test trips it. Workspace-excluded
+crates need this wired into a per-crate recipe in `make pre-commit` /
+`make ci`, mirroring `enums-check` from lesson 15 — `--workspace` does
+not touch them.
 
-**Removing the unused capture (#49) fixed the documentation lie;
-the dispatch table still had no runtime coverage** (#344, fix
-`0b417f2`; integration coverage added in #350, `0f16162`). Lesson
-\#49 traces #344's root cause to a `mk_langs!` macro that captured
-`(Cpp, tree_sitter_cpp)` but discarded the second element in
-`mk_get_language!`'s hand-written match, which actually resolved
-`Cpp` to `tree_sitter_mozcpp`. Dropping the unused capture
-eliminated the *lie*, but it left every one of the 21 hand-written
-match arms untested: a future typo, a missing arm for a newly-added
-variant, or a copy-paste that swaps two backing crates would still
-type-check and ship silently. The enums crate is workspace-excluded
-(no `cargo test --workspace` exercises it) and previously shipped no
-`tests/` directory, so the only signal would be a runtime panic when
-the wrong dispatch result reached a caller. #350 added
-`enums/tests/dispatch.rs` with two load-bearing pieces: (1) a
-`lang_<variant>_resolves_to_<crate>` test per `Lang` variant
-comparing `get_language(&Lang::X)` to
-`tree_sitter_<crate>::LANGUAGE.into()` *directly imported* (not via
-`get_language` itself — avoiding the tautology trap), and (2) a
-`coverage_every_lang_variant_is_dispatched` guard that iterates
-`Lang::into_enum_iter()` and asserts the variant count equals an
-`EXPECTED_LANG_VARIANT_COUNT` constant. Test-via-revert: swapping
-the `Cpp` arm to `tree_sitter_mozjs::LANGUAGE` makes
-`lang_cpp_resolves_to_mozcpp` fail with `Cpp grammar mismatch`;
-adding a new `mk_langs!` variant without a per-variant test trips
-the coverage guard.
+Correspondence-by-convention has no compile-time tie: a typo in one
+arm's backing crate, a missing arm for a new variant, or a copy-paste
+resolving `Cpp` to `tree_sitter_mozjs` all type-check and ship silently.
 
-**Lesson:** Any hand-rolled dispatch macro that emits one match arm
-per enum variant — `mk_get_language!`, `mk_action!`-style routers,
-manually-typed `From<X> for Y` impls over an enum — needs a sibling
-integration test that walks every variant of the source enum and
-pins the dispatch result to a *directly-imported* reference (the
-backing crate's `LANGUAGE`, the canonical string, the expected
-behaviour). Compare against the import, not the macro under test,
-or the test is tautological. Pair the per-variant tests with a
-variant-count coverage guard
-(`Lang::into_enum_iter().count() == EXPECTED_VARIANT_COUNT`) so
-adding a new variant without extending the test trips the guard.
-Workspace-excluded codegen crates need this gate locally (a
-per-crate `cargo test` recipe wired into `make pre-commit` / `make
-ci`, mirroring `enums-check` from lesson #15) — `--workspace`
-doesn't touch them.
+**Dropping the unused capture fixed the lie; the dispatch table still had
+no coverage** (#344 fix `0b417f2`; coverage added in #350, `0f16162`).
+Lesson 49 traces #344 to `mk_langs!` capturing `(Cpp, tree_sitter_cpp)`
+while the hand-written match resolved `Cpp` to mozcpp. Dropping the
+capture eliminated the *lie* but left all 21 arms untested, in a crate
+with no `tests/` directory that `cargo test --workspace` never reaches —
+so the only signal would be a runtime panic reaching a caller. #350
+added `enums/tests/dispatch.rs` with a per-variant
+`lang_<variant>_resolves_to_<crate>` test comparing against a directly
+imported `LANGUAGE`, plus the count guard. Test-via-revert: swapping the
+`Cpp` arm to `tree_sitter_mozjs` fails `lang_cpp_resolves_to_mozcpp`.
 
 ---
 
-## 52. Pre-order traversal evaluates parents before children — child-arm state resets fire too late
+## 52. Pre-order traversal evaluates parents before children
 
-A state-machine metric that walks the AST in pre-order *cannot* use a
-child node's visit to influence the parent's already-completed
-evaluation. The model is tempting: "when we see a `!` / `not` /
-`NotOperator`, reset the running boolean sequence so the next
-combinator scores +1." But pre-order visits the `BinaryExpression`
-parent first, evaluates the combinator against the prior-sibling
-sequence, and only *then* descends into the `UnaryExpression` operand
-where the reset fires. The reset still happens, but the value it was
-supposed to alter has already been counted. The arm looks live, the
-test suite passes (because the test suite asserts the values currently
-emitted, not the values the algorithm claims to compute), and the
-intent encoded in the comment quietly diverges from runtime behaviour.
-The bug is invisible from any single language module read in isolation
-— it is visible only by tracing the *order* of node visits against the
-*order* of state mutations.
+**Lesson:** Any pre-order AST metric treats the parent's combinator as a
+**completed value** before any child is visited. Arms keyed on a child
+node that try to influence the parent's already-computed result — "the
+`!` resets the sequence", "the modifier downgrades the score" — run too
+late to do what their comment says. The reverse direction works: state
+established on the ancestor that pre-order reaches first, read by every
+descendant. Never write back from a later sibling to an earlier one.
 
-**`BoolSequence::not_operator()` was dead code at 15 call sites
-across 18 language impls** (#392, `0b30837`). Cognitive's
-`BoolSequence` state machine had a `not_operator()` method that
-called `reset()`, with the documented intent "NOT resets the sequence
-so the next boolean always scores +1." Every cognitive impl —
-`PythonCode`, `RustCode`, `CppCode`, the `js_cognitive!` macro
-(invoked once for each of Mozjs/JavaScript/TypeScript/TSX, so one
-source call site expanding to four), `JavaCode`, `GroovyCode`,
-`CSharpCode`, `PerlCode`, `KotlinCode`, `GoCode`, `TclCode`,
-`LuaCode`, `PhpCode`, `ElixirCode`, `RubyCode` — matched a unary
-node (`NotOperator`, `UnaryExpression`,
-`UnaryExpression2`, …) and called the reset. In pre-order, the
-`BinaryExpression` parent of `!a && !b && !c` was visited *first* —
-`eval_based_on_prev` ran against the empty prior sequence and the `&&`
-combinator scored its +1 — and only then did the walker descend to the
-`UnaryExpression` children where the reset fired. By the time the
-reset ran, the `&&` had already been counted, and the only thing the
-reset could affect was *future, unvisited* `BinaryExpression` nodes,
-which `eval_based_on_prev`'s span check already prevented from
-continuing the sequence. Empirically `if !a && !b && !c`, `if *a && *b
-&& *c` (the over-broad `UnaryExpression` arm also matched
-dereference / negate / bitwise-NOT), and `if a && b && c` all scored
-identically in Rust, C++, and Python. The arms were removed wholesale;
-the only behaviour change was that nested `a && !(b && c)` collapsed
-into a single boolean sequence (the inner `BinaryExpression` visited
-after its `UnaryExpression` parent — the one case where the reset
-genuinely fired before the value it should affect — now matches the
-SonarSource intent that `!` does not start a new sequence). Three
-parent-repo snapshots (`csharp_not_booleans`, `php_not_booleans`,
-`tcl_not_booleans_nested`) plus five integration snapshots in the
-`big-code-analysis-output` submodule absorbed the shift.
-
-**Comprehension nesting relied on a sibling write-back the element node
-never saw (#421, `620c5aa8`, refining #417 `0f499b41`).** When Python
-cognitive complexity learned to count comprehension `for` / `if` clauses
-(#417), those clauses are *siblings* under the comprehension node, not
-parent/child, so a `for_in_clause`'s nesting increment was written back
-onto the shared comprehension `nesting_map` slot for later sibling
-clauses to read. But a comprehension nested in another comprehension's
-*element* position (`[[y for y in x if y] for x in xs if x]`) is visited
-— pre-order — *before* the outer `for_in_clause` writes its nesting
-back, so the inner comprehension's clauses never observed the outer loop
-depth and under-counted (6, where the equivalent doubly-nested explicit
-loop+if scores 10). #417 shipped this as a documented known-limitation;
-the follow-up deleted the `propagate_comprehension_nesting` write-back
-and instead derives the depth on the comprehension node itself —
-visited first in pre-order, so every descendant inherits it regardless
-of sibling order (`comprehension_element_nesting` +
-`preceding_for_clauses`). This is the working direction of the rule
-below applied deliberately: state established on the ancestor that
-pre-order reaches first, read by all descendants — never written back
-from a later sibling to an earlier one.
-
-**A state-machine reset keyed on a delimiter the grammar never emits is
-dead the same way a too-late reset is** (#455, `f633300f`). Kotlin's ABC
-assignment counter pushed a `Const` sentinel on a `val` declaration and
-cleared the declaration stack only on an explicit `SEMI` token — but
-tree-sitter-kotlin emits *no* `SEMI`, even for an explicit semicolon, and
-newline-terminated statements carry no terminator node at all. The
-clearing arm therefore never fired: the sentinel leaked past the
-declaration and suppressed every later standalone `=`, so
-`val x = …; a = 1; b = 2` reported zero assignments instead of two, and
-the comment calling the implicit-terminator case "benign" actively
-misled. A `var` declaration accidentally masked the bug by leaving a
-permissive `Var` on the stack — which is why the existing tests passed.
-The fix abandons the running stack and classifies the `=`
-*structurally* from its parent node
-(`kotlin_eq_initializes_immutable_binding`: an `=` is a declaration
-initializer only when its parent is `property_declaration` /
-`class_parameter`), so no sentinel can leak — the same "establish the
-fact on the node that owns it, don't thread it through walker state"
-move as the comprehension-nesting fix above.
-
-**Lesson:** Any AST-walking metric written in pre-order treats the
-parent's combinator as a *completed* value before any child node has
-been visited. Arms keyed on a child node that try to influence the
-parent's already-computed result — "the `!` resets the sequence,"
-"the modifier downgrades the score," "the keyword retroactively
-changes the operator class" — are running too late to do what their
-comment says. The reverse direction (parent-visit mutates state that
-the child-visit then reads) works, but child-visit-mutates-parent-
-result does not. When proposing such an arm, write the failing test
-*first* (e.g., assert `cognitive("!a && !b && !c") >
-cognitive("a && b && c")`); if the test passes against the
-current implementation, the arm was probably already dead. If the
-test fails, the fix has to live at the token level — dispatch on the
-`AMPAMP` / `PIPEPIPE` token (visited after its `UnaryExpression`
-siblings in pre-order, not its `BinaryExpression` parent) — not at
+When proposing such an arm, **write the failing test first** (assert
+`cognitive("!a && !b && !c") > cognitive("a && b && c")`). If it passes
+against the current implementation, the arm was already dead. If it
+fails, the fix belongs at the token level — dispatch on the `AMPAMP` /
+`PIPEPIPE` token, visited *after* its `UnaryExpression` siblings — not at
 the expression level. A reset can also be dead because its *trigger*
-never occurs: a sentinel cleared on a delimiter the grammar does not
-emit (Kotlin has no `SEMI`, even for an explicit `;`) leaks forever —
-there, classify from a structural parent node instead of threading
-state through a terminator the grammar may never produce. The
-dead-code arm should not stay in the
-codebase as documentation of intent; it misleads every subsequent
-maintainer about what the algorithm actually does.
+never occurs; there, classify from a structural parent node instead of
+threading state through a terminator the grammar may never emit. Do not
+leave the dead arm in place as documentation of intent: it misleads
+every subsequent maintainer about what the algorithm does.
+
+**`BoolSequence::not_operator()` was dead at 15 call sites across 18
+language impls** (#392, `0b30837`). The documented intent was "NOT resets
+the sequence so the next boolean always scores +1." In pre-order the
+`BinaryExpression` parent of `!a && !b && !c` is visited first —
+`eval_based_on_prev` runs against the empty prior sequence and the `&&`
+scores its +1 — and only then does the walker reach the `UnaryExpression`
+children where the reset fires. By then the `&&` is counted, and the
+reset can only affect future `BinaryExpression` nodes that
+`eval_based_on_prev`'s span check already prevents from continuing.
+Empirically `!a && !b && !c`, `*a && *b && *c`, and `a && b && c` all
+scored identically. The arms were removed wholesale; the only behaviour
+change was that `a && !(b && c)` now collapses into one sequence — the
+one case where the reset genuinely fired first — matching SonarSource's
+intent.
+
+**A sibling write-back the element node never saw** (#421, `620c5aa8`,
+refining #417 `0f499b41`). Comprehension `for` / `if` clauses are
+*siblings* under the comprehension node, so a `for_in_clause`'s nesting
+increment was written back onto the shared `nesting_map` slot for later
+siblings. But a comprehension nested in another's *element* position
+(`[[y for y in x if y] for x in xs if x]`) is visited before the outer
+clause writes back, so it under-counted (6 against 10 for the equivalent
+explicit loops). #417 shipped this as a documented limitation; the
+follow-up deleted the write-back and derives depth on the comprehension
+node itself — visited first, so every descendant inherits it regardless
+of sibling order.
+
+**A reset keyed on a delimiter the grammar never emits is dead the same
+way** (#455, `f633300f`). Kotlin's ABC assignment counter pushed a
+`Const` sentinel on a `val` declaration and cleared the stack only on an
+explicit `SEMI` — but tree-sitter-kotlin emits *no* `SEMI`, even for an
+explicit semicolon. The sentinel leaked past the declaration and
+suppressed every later standalone `=`, so `val x = …; a = 1; b = 2`
+reported zero assignments; the comment calling the implicit-terminator
+case "benign" actively misled, and a permissive `Var` left by `var`
+declarations masked it in the existing tests. The fix classifies the `=`
+structurally from its parent (`property_declaration` /
+`class_parameter`), so no sentinel can leak.
 
 ---
 
 ## 53. Positional `node.child(idx)` breaks when the grammar permits an optional preamble slot
 
-Tree-sitter grammars frequently expose statement shapes whose
-*positions* differ by syntactic mode: `if (cond)` vs `if (init; cond)`,
-`if (cond)` vs `if constexpr (cond)`, `m(value)` (positional) vs
-`m(name: value)` (named-argument), `repeat … until cond` with body
-present vs body BLANK ALIAS, …. A dispatcher arm that reaches for the
-condition via `node.child(1)` works on the form the test fixture
-happened to write and silently returns the wrong child on every other
-form. The grammar exposes the role-by-name (`child_by_field_name(
-"condition")`, `child_by_field_name("value")`, …) precisely because
-the position is not load-bearing; positional lookups are valid only
-when the grammar guarantees no optional preamble can appear at the
-chosen index. Each language's grammar makes a slightly different
-choice about which slots are optional, so the bug is per-language and
-per-statement-kind, not per-walker.
-
-**Phase 2B condition-slot dispatcher had four positional-child bugs
-from one code-review pass** (#395 / #403, `57547a1`, `5db8078`). The
-unary-conditional walker was extended from Java/Groovy/C# to 11 more
-languages, and a recall-biased review pass across the new code
-surfaced four silent miscounts — three closed immediately in
-`57547a1` and the deferred Lua finding closed in `5db8078`:
-(1) PHP `Argument` wraps both `m(!$a)` (positional, one named child)
-and `m(name: !$a)` (named, three children: name, `:`, value); the
-dispatcher took `child(0)` (the *name*) and missed the value at the
-last child — `m(name: !$a)` reported zero conditions. (2) Go's
-`if x := f(); x { … }` puts the `short_var_declaration` at `child(1)`
-and the condition expression at `child(2)`; the dispatcher used
-`child(1)` unconditionally and counted the assignment instead of the
-condition. (3) C++'s `if constexpr (cond) { … }` shifts the
-`condition_clause` from `child(1)` (where it sits in the plain `if (
-cond)` form) to `child(2)`; the constexpr form returned zero. (4)
-Lua's `repeat … until cond` exposes a `condition` field on if /
-while / repeat in `tree-sitter-lua`, but the dispatcher used
-positional `child(1)` / `child(3)` — fragile to body-BLANK-ALIAS
-shifts and unnecessarily so. All four fixes followed the same shape:
-switch to `child_by_field_name("condition")` (or the equivalent
-field name) when the grammar exposes the field; iterate named
-children and pick by role when it does not (the PHP `Argument`
-case — `child_by_field_name("name")` and "last named child" together
-distinguish the two forms). The bugs survived the Phase 2B feature
-commit (`11bf750`) and a simplify-rust pass (`5153f19`) and an
-audit-tests review pass (`e896a7b`) because no pre-existing test
-exercised the optional-preamble form for any of the four languages —
-the fixture corpus had grown around the simpler shape.
-
-**Lesson:** When writing a dispatcher arm against a tree-sitter
-statement node, prefer `child_by_field_name(role)` over positional
+**Lesson:** Prefer `child_by_field_name(role)` over positional
 `node.child(idx)` for any slot whose grammar permits an optional
-preamble (init-statement, constexpr-keyword, async-modifier,
-named-argument label, BLANK ALIAS bodies). The field lookup is
-grammar-version-robust — when upstream tree-sitter re-orders or
-inserts a new optional slot, the field name carries; the positional
-index does not. If the grammar does not expose a field for the slot
-you need (some grammars expose `condition` on `if` but not on
-`while`, or vice versa), iterate `node.named_children(cursor)` and
-pick by role with an explicit comment naming the variant set you
-verified against the grammar. The minimum new-test bar for a new
-dispatcher arm is *at least one fixture exercising every optional
-preamble the grammar permits* — `if (cond)` and `if (init; cond)`,
-`if (cond)` and `if constexpr (cond)`, `m(positional)` and
-`m(named: value)` — not just the form the existing corpus already
-has. The drift surface is per-language; the fix shape is uniform
-(field-name lookup); the test discipline is per-arm.
+preamble. The full rule, including the preamble inventory and the
+fallback when no field is exposed, is in
+[`grammar-dispatch.md` §3](../../.claude/rules/grammar-dispatch.md). The
+minimum new-test bar for a dispatcher arm is **one fixture per optional
+preamble the grammar permits** — not just the form the corpus already
+has.
+
+Each language's grammar makes a different choice about which slots are
+optional, so the bug is per-language and per-statement-kind, not
+per-walker. The grammar exposes roles by name precisely because position
+is not load-bearing.
+
+**One review pass found four positional-child bugs** (#395 / #403,
+`57547a1`, `5db8078`). Extending the unary-conditional walker from three
+languages to eleven produced four silent miscounts: PHP `Argument` wraps
+both `m(!$a)` (one named child) and `m(name: !$a)` (three), and the
+dispatcher took `child(0)` — the *name* — so the named form reported zero
+conditions. Go's `if x := f(); x` puts the declaration at `child(1)` and
+the condition at `child(2)`, so the dispatcher counted the assignment.
+C++'s `if constexpr (cond)` shifts the condition clause from `child(1)`
+to `child(2)`, so the constexpr form returned zero. Lua's `repeat … until`
+exposes a `condition` field the dispatcher ignored in favour of
+positional lookups fragile to BLANK-ALIAS shifts. All four survived the
+feature commit, a simplify-rust pass, *and* an audit-tests review,
+because no pre-existing test exercised the optional-preamble form for any
+of the four languages — the fixture corpus had grown around the simpler
+shape.
 
 ---
 
-## 54. A "no-op regen" must be proven by an actual regen + diff, never asserted — and a marker is not the artifact
-
-A version marker, a baseline file, or a pin records an *intended*
-version; it is not evidence that the generated artifact was actually
-rebuilt at that version. A gate that compares one declaration against
-another (marker string vs baseline string) stays green over a stale
-artifact, because nothing in the comparison ever touches the bytes the
-artifact is built from. The same trap catches a human who eyeballs
-"what the regen changed" and commits the subset they expected instead
-of the generator's complete output. In both cases the committed
-generated file was never produced by a real run of the generator at
-the declared version — and the discrepancy is invisible until someone
-finally runs the tool and diffs.
-
-**The bundled `tree-sitter-mozjs` parser was stale at JavaScript
-0.23.1 for months while every declaration claimed 0.25.0** (#407,
-`48bc293`; root cause in #1207 / #400). The `tree-sitter-javascript`
-marker was bumped `0.23.1 → 0.25.0` in #1207 without re-running
-`generate-grammars/generate-mozjs.sh`, and #400 then pinned the
-`grammar-marker-sync` baseline at 0.25.0 on the recorded belief that
-"the 0.25.0 regen is a no-op against tree-sitter CLI 0.26.9." That
-belief was never verified by an actual regen. The real regen against
-the genuine 0.25.0 base grammar rewrites ~110k lines of `parser.c` and
-adds the `using` / `await using` explicit-resource-management
-declaration (`using_declaration`) that 0.23.1 lacked — `grammar.json`
-is ABI-independent, so this is a true base-grammar difference, not an
-ABI-14-vs-15 artifact. The
-`grammar-marker-sync` gate stayed green the entire time because it
-compares the marker in `Cargo.toml` against the baseline string, never
-against the bundled `src/parser.c`. The bump turned out metric-neutral
-for the existing corpus (no fixture uses `using`), but that was luck,
-not design — a drift-marker test (`mozjs_parses_using_declaration`)
-now pins the capability so a reversion fails loudly.
-
-**The same root cause shipped a subtler half-regen in
-`tree-sitter-mozcpp`** (#406, `c3c58930`; gap fixed in #407,
-`48bc293`). That fix advanced `parser.c` (version stamp) and
-`parser.h` (dropped a forward declaration) to the 0.26.9 form but
-left `src/tree_sitter/array.h` at the pre-0.26 layout — so the crate was
-stamped as 0.26.9 output yet a bare `tree-sitter generate` would
-re-diff `array.h` every time. The mismatch was caught only because a
-*full* regen on a sibling leaf grammar (run for #407) surfaced it: the
-runtime-header template (which is grammar-independent and therefore
-byte-identical across all forks) did not match mozcpp's committed one.
-Committing the subset of generated output you expected to change, in
-place of the tool's complete output, is the same stale-artifact bug
-wearing a smaller hat.
+## 54. A "no-op regen" must be proven by an actual regen + diff
 
 **Lesson:** Treat any "this regeneration is a no-op / metric-neutral"
-claim as a hypothesis that must be discharged by running the generator
-at the pinned version and diffing the *full* output — `grammar.json`,
-`node-types.json`, `parser.c`, and every file under
-`src/tree_sitter/` — never by asserting it from a marker, a baseline,
-or a previous contributor's note. When you bump a notification-only
-marker, run the matching `generate-grammars/generate-*.sh` in the same
-change; when you hand-apply generated output, commit exactly what the
-tool emits, not the hunks you anticipated. A drift gate that compares
-two declarations (marker vs baseline) gives false confidence unless it
-is paired with a test that exercises a construct only the *declared*
-version can parse — that test, not the gate, is what actually pins the
-artifact.
+claim as a hypothesis to discharge by running the generator at the pinned
+version and diffing the **full** output — `grammar.json`,
+`node-types.json`, `parser.c`, and every file under `src/tree_sitter/`.
+Never assert it from a marker, a baseline, or a previous contributor's
+note. When you bump a notification-only marker, run the matching
+`generate-grammars/generate-*.sh` in the same change; when you hand-apply
+generated output, commit exactly what the tool emits, not the hunks you
+anticipated. A gate comparing two *declarations* (marker vs baseline)
+gives false confidence unless paired with a test exercising a construct
+only the declared version can parse — that test, not the gate, is what
+pins the artifact.
+
+**The bundled `tree-sitter-mozjs` parser was stale at JavaScript 0.23.1
+for months while every declaration claimed 0.25.0** (#407, `48bc293`;
+root cause in #1207 / #400). The marker was bumped without re-running
+`generate-mozjs.sh`, and #400 then pinned the `grammar-marker-sync`
+baseline at 0.25.0 on the recorded belief that the regen was a no-op — a
+belief never verified. The real regen rewrites ~110k lines of `parser.c`
+and adds the `using` / `await using` declaration that 0.23.1 lacked;
+`grammar.json` is ABI-independent, so this is a true base-grammar
+difference. The gate stayed green throughout because it compares the
+`Cargo.toml` marker against a baseline string, never against the bundled
+`src/parser.c`. The bump turned out metric-neutral for the existing
+corpus — luck, not design — and `mozjs_parses_using_declaration` now
+pins the capability.
+
+**A subtler half-regen in `tree-sitter-mozcpp`** (#406, `c3c58930`; gap
+fixed in #407). That fix advanced `parser.c` and `parser.h` to the 0.26.9
+form but left `src/tree_sitter/array.h` at the pre-0.26 layout, so the
+crate was stamped as 0.26.9 output while a bare `tree-sitter generate`
+would re-diff `array.h` every time. Caught only because a *full* regen on
+a sibling grammar surfaced that the grammar-independent runtime header
+did not match. Committing the subset you expected to change, in place of
+the tool's complete output, is the same stale-artifact bug in a smaller
+hat.
 
 ---
 
-## 55. A complexity score can be a metric artifact — verify it, and clear every gated metric
+## 55. A complexity score can be a metric artifact
 
-Before splitting a function because it trips a complexity threshold,
-check what the score is actually made of. The headline number may be
-dominated by a construct that adds a control-flow edge without adding
-anything a reader must reason about — in which case the function is not
-genuinely complex, the split is partly metric-gaming, and the durable
-justification has to come from elsewhere (readability, testability,
-argument count). Attributing the score is the first step of the fix,
-not an afterthought.
+**Lesson:** `AGENTS.md` carries this as policy under "Responding to bca
+metric feedback": attribute the score before sizing the fix, then size
+every new helper against **all** gated metrics using the live `bca.toml`,
+never an issue's quoted table. The evidence below is why all three
+clauses are there.
 
-**Rust's `?` inflates both cyclomatic *and* nexits, and
-`dump_tree_helper`'s "cyclomatic 32" was mostly `?` noise (#401,
-ce36a04).** Each `?` is a `TryExpression`, which
-`src/metrics/cyclomatic.rs:398` counts as a decision point (`expr?`
-desugars to a `match` with an early-return `Err` arm — a real CFG edge)
-*and* which the Rust `impl Exit` (`src/metrics/exit.rs`) counts as an
-exit. `dump_tree_helper` measured cyclomatic 32 / nexits 20, but only
-~12 of the cyclomatic was real branching (`if`, the glyph chain, the
-child loop) — already under the 15 gate. The other ~20 points were a
-linear, easy-to-read sequence of fallible `write!` / `color` calls. The
-split was still worth doing (it killed an eight-argument signature and
-made the writers unit-testable), but the "32 → 4" headline overstates
-the maintainability win. Whether `?` should count toward cyclomatic at
-all is a separate metric-design question (#409).
+**Rust's `?` inflates cyclomatic *and* nexits** (#401, `ce36a04`). Each
+`?` is a `TryExpression`, counted as a decision point (it desugars to a
+match with an early-return `Err` arm — a real CFG edge) *and* counted as
+an exit. `dump_tree_helper` measured cyclomatic 32 / nexits 20, but only
+~12 of the cyclomatic was real branching — already under the 15 gate. The
+other ~20 points were a linear, easy-to-read sequence of fallible
+`write!` calls. The split was still worth doing (it killed an
+eight-argument signature and made the writers unit-testable), but the
+"32 → 4" headline overstates the win. Whether `?` should count toward
+cyclomatic at all is a separate metric-design question (#409).
 
-**The proposed split would have failed nexits, because `?` is an exit
-too (#401).** The issue's plan grouped the write calls into helpers of
-~6 `?` each — fine for cyclomatic, but each carried nexits 6, over the
-limit of 5 (and over the 0.95 headroom band). The fix was a `paint`
-helper that folds set-color + write into one fallible call, dropping
-each writer to ≤3 exits. A split sized only against the *headline*
-metric silently breaches a sibling metric that the same construct
-feeds.
+**The proposed split would have failed nexits** (#401). The issue's plan
+grouped the write calls into helpers of ~6 `?` each — fine for
+cyclomatic, but each carried nexits 6, over the limit of 5 and over the
+0.95 headroom band. The fix was a `paint` helper folding set-color plus
+write into one fallible call, dropping each writer to ≤3 exits.
 
-**Trust `bca-thresholds.toml`, not an issue's threshold table (#401).**
-The issue stated the `nargs` limit was 5; it is actually 7. The
-original `nargs = 8` was the real breach (fixed by bundling the
-recursion-invariant state into a struct), but a helper sized to a
-fictional limit of 5 would have been needlessly fragmented. Read the
-live config before sizing anything to it.
-
-**Lesson:** When a refactor is driven by a complexity gate, first
-attribute the score — re-derive the genuine decision count by hand and
-compare it to the measured value. If the gap is a metric artifact (Rust
-`?` toward cyclomatic *and* nexits; large string literals toward
-halstead; inline tests toward file-level sloc/effort), say so, and base
-the refactor on the qualities that actually improve. Then size every
-new helper against **all** gated metrics it could trip — cyclomatic,
-nexits, nargs, abc, halstead.effort — using the real thresholds from
-`bca-thresholds.toml`, not a number quoted in an issue. A single `?`
-moves two gauges; a split that watches only one will pass the gate it
-was aimed at and fail the one it forgot.
+**The issue's threshold table was wrong** (#401). It stated the `nargs`
+limit was 5; it is 7. The original `nargs = 8` was the real breach, but a
+helper sized to a fictional limit of 5 would have been needlessly
+fragmented.
 
 ---
 
 ## 56. A similarity hash must exclude the dimension it claims to be insensitive to
 
-When you hash a chunk of code to match it "fuzzily" — the same function
-after a cosmetic change — the digest must omit precisely the thing the
-match is meant to tolerate. A hash that still contains that dimension
-silently fails to match the exact case it was built for, and because the
-fallback path is the rare one, no common test exercises it.
-
-**The fuzzy-baseline body hash matched everything *except* a rename,
-which was its entire reason to exist (#377).** Issue #377's
-`--baseline-fuzzy-match` keeps a renamed-but-unchanged function covered
-by hashing its body instead of keying on the (now-changed) qualified
-symbol. The first implementation hashed the function's full source span
-(`start_line..=end_line`) — but the **declaration line carrying the name
-is inside that span**, so `fn classify(...)` and `fn categorize(...)`
-produced different digests and the rename still surfaced as `[new]`. The
-headline feature was a no-op for its headline use case. It only showed
-up because the integration test `fuzzy_match_covers_renamed_function`
-asserted the *with-fuzzy* run succeeded and it didn't — the unit tests
-of the hash (`body_hash_*`) all passed, because they never renamed
-anything. The fix elides whole-word occurrences of the function's own
-bare name (declaration and recursive self-calls) before hashing, so the
-two digests agree; `body_hash_elides_own_name_so_rename_matches` and
-`body_hash_elision_is_whole_word_only` pin it.
-
-**Lesson:** A near-duplicate/similarity digest is defined as much by what
-it drops as by what it keeps. Enumerate every transformation the match is
+**Lesson:** A near-duplicate digest is defined as much by what it drops
+as by what it keeps. Enumerate every transformation the match is
 supposed to survive — whitespace, the symbol's own name, ordering — and
 prove the digest is invariant under each one with a test that actually
-applies that transformation. A test that hashes two unrelated strings
-and checks they differ does not prove insensitivity; only a
+applies that transformation. A test hashing two unrelated strings and
+checking they differ does not prove insensitivity; only a
 before/after-the-edit pair does.
+
+**The fuzzy-baseline body hash matched everything *except* a rename,
+which was its entire reason to exist** (#377).
+`--baseline-fuzzy-match` keeps a renamed-but-unchanged function covered
+by hashing its body instead of keying on the now-changed qualified
+symbol. The first implementation hashed the full source span — but the
+**declaration line carrying the name is inside that span**, so
+`fn classify(…)` and `fn categorize(…)` produced different digests and
+the rename still surfaced as `[new]`. The headline feature was a no-op
+for its headline use case. Only the integration test
+`fuzzy_match_covers_renamed_function` caught it; every unit test of the
+hash passed, because none of them renamed anything. The fix elides
+whole-word occurrences of the function's own bare name before hashing.
 
 ---
 
-## 57. A structural AST shape is not a semantic identity check — read the source bytes
-
-When a metric needs to know *which* thing a node refers to — is this
-write targeting the receiver `self`, is this name the class under
-analysis — the node's structural shape is a tempting but lossy proxy.
-"An `Attribute` whose first child is an `Identifier`" *looks* like
-`self.x`, but it is equally `db.x`, `logger.x`, and every other
-`obj.attr`. The shape answers "is this an attribute access," never
-"whose attribute is it." When the source bytes are already threaded
-through the metric, the proxy is not even cheaper — it is just wrong in
-a way no shape-only test reveals.
-
-**Python NPA counted every `obj.x = …` as a class attribute (#412,
-`a06a07fa`).** `python_lhs_is_self_attribute` classified an assignment
-LHS purely by structure — an `Attribute` node with an `Identifier` first
-child — and never read the receiver text, even though `code` was in
-scope. So a `Service.__init__` wiring `self.name = "svc"` alongside
-`db.connection = None` and `logger.level = "INFO"` reported three class
-attributes instead of one; dependency-injection wiring, the most common
-shape of `__init__`, inflated NPA directly. The fix reads the receiver
-bytes and matches them against `self` / `cls` (`PYTHON_SELF_RECEIVERS`),
-borrowing from `code` so the slice doubles as the dedup key. The same
-change separated `self.f.g = 1` (writes attribute `g` on `self.f`, not a
-new attribute of the class) from `self.g = 1` — a distinction the
-structural proxy could never make.
+## 57. A structural AST shape is not a semantic identity check
 
 **Lesson:** When a metric's correctness hinges on *identity* — which
 object, which name, which symbol — and the source text is available,
-compare the bytes. Reserve structural pattern-matching for structural
-questions ("is this an attribute access," "is this a loop"). A
-shape-only proxy for an identity question passes every test whose
-fixtures happen to use the expected identity (every test writing
-`self.x`) and silently mis-handles every other receiver; if you must
-approximate, document it as an under-approximation and prove the
-boundary with a fixture using a *foreign* receiver. Do not reach for
-`to_string_lossy()` here (lesson #43) — use `code.get(start..end)` with
-explicit bounds.
+compare the bytes with `code.get(start..end)`. Reserve structural
+pattern-matching for structural questions ("is this an attribute
+access"). A shape-only proxy passes every test whose fixtures happen to
+use the expected identity and silently mis-handles every other receiver;
+if you must approximate, document it as an under-approximation and prove
+the boundary with a fixture using a *foreign* receiver. Do not reach for
+`to_string_lossy()` here (lesson 43).
+
+"An `Attribute` whose first child is an `Identifier`" *looks* like
+`self.x`, but it is equally `db.x` and `logger.x`. The shape answers "is
+this an attribute access", never "whose attribute is it" — and when the
+source bytes are already threaded through the metric, the proxy is not
+even cheaper.
+
+**Python NPA counted every `obj.x = …` as a class attribute** (#412,
+`a06a07fa`). `python_lhs_is_self_attribute` classified an assignment LHS
+purely structurally and never read the receiver, though `code` was in
+scope. A `Service.__init__` wiring `self.name` alongside `db.connection`
+and `logger.level` reported three class attributes instead of one —
+dependency-injection wiring, the most common shape of `__init__`,
+inflated NPA directly. The fix matches receiver bytes against
+`PYTHON_SELF_RECEIVERS`, borrowing from `code` so the slice doubles as
+the dedup key, and separates `self.f.g = 1` (an attribute on `self.f`)
+from `self.g = 1` — a distinction the structural proxy could never make.
 
 ---
 
-## 58. A wrapper-node + keyword leaf is one operator, not two — and compound operators must guard their leaves
+## 58. A wrapper-node + keyword leaf is one operator, not two
 
-tree-sitter routinely emits an operator as an outer expression node that
-*contains* the keyword token as a leaf: `await a()` is an
-`await`-expression node wrapping an `await` keyword token; `yield`,
-`lambda`, and others follow the same shape. Halstead keys distinct
-operators by `kind_id`, so listing **both** the wrapper and the leaf in
-the operator arm counts every occurrence twice — inflating `N1` and, via
-the two distinct kind ids, `n1`. The inverse trap is the *compound*
-operator: `not in` / `is not` parse as a single node that *wraps* the
-ordinary `not` / `in` / `is` leaves, each independently a valid operator
-elsewhere. Classifying the compound without suppressing its inner leaves
-counts `a not in b` as two operators.
+**Lesson:** Classify exactly **one** kind per operator and verify with
+`bca ops` that the occurrence count matches the source. For a compound
+operator wrapping reusable leaves, classify the compound and
+parent-guard the leaves to `Unknown` under that compound only — a
+blanket suppression drops every legitimate standalone use. See
+[`grammar-dispatch.md` §5](../../.claude/rules/grammar-dispatch.md).
 
-**Python Halstead double-counted `await` and split `not in` / `is not`
-(#413, `4adf1a24`).** The operator arm listed `Await | Await2` — the
+This is the mirror image of lesson 50: there two independent paths
+summing one field *masked* a zero; here one arm listing two aliases of
+the same token *inflates* the count. Both are invisible until you assert
+the exact operator stream.
+
+**Python Halstead double-counted `await` and split `not in` / `is not`**
+(#413, `4adf1a24`). The operator arm listed `Await | Await2` — the
 expression node *and* its keyword token — so three `await`s scored
 `n1=4, N1=8` instead of `n1=3, N1=5`, while `yield` was already correct
-(only the `Yield` node, not `Yield2`), making `await` internally
-inconsistent with its sibling. The same arm dropped `lambda`, `match`,
-`case`, and `nonlocal` entirely. The fix lists exactly one kind per
-operator (the `Await` node, the `Lambda3` keyword token) and classifies
-the compound `Notin` / `Isnot` while a guarded arm returns `Unknown`
-for `Not | In | Is` **only when their parent is `Notin` / `Isnot`** —
-so standalone `not x`, `a in b`, `a is b`, and `for x in y` keep
-counting. The guard reads `node.parent()` and falls through to
-`Operator` on `None`.
+(only `Yield`, not `Yield2`), making `await` inconsistent with its own
+sibling. The same arm dropped `lambda`, `match`, `case`, and `nonlocal`
+entirely. The fix lists one kind per operator and classifies the
+compound `Notin` / `Isnot` while a guarded arm returns `Unknown` for
+`Not | In | Is` **only when their parent is the compound** — so
+standalone `not x`, `a in b`, and `for x in y` keep counting.
 
-**The same wrapper-contains-inner double-count hit Ruby closures, in a
-different metric** (#465, `7e4328a0`). tree-sitter-ruby parses a stabby
-lambda `->(z) { … }` as a `Lambda` node that *contains* its body
-`Block`/`DoBlock`; `RubyCode::is_closure` matched `Lambda | Block | DoBlock`,
-so one lambda scored `nom.closures = 2`. The keyword forms `lambda { }` /
-`proc { }` (a `Call` carrying a `Block` argument whose parent is not a
-`Lambda`) were already correct, so only the stabby form was asymmetric. The
-fix is the same parent-guard — count `Block`/`DoBlock` only when their parent
-is not `Lambda`, which also covers the top-level no-parent case
-(`!parent().is_some_and(== Lambda)` in `7e4328a0`, clippy-modernised to
-`parent().is_none_or(|p| p.kind_id() != Lambda)` in `41e97ea3`). The trap
-generalises beyond Halstead: any node-kind predicate that lists both a
-container and a kind it can contain double-counts.
-
-**Lesson:** For any operator a grammar emits as wrapper-node + keyword
-leaf, classify exactly **one** kind and verify with `bca ops` that the
-occurrence count matches the source. This is the mirror image of
-lesson #50 — there, two independent paths summing one field *masked* a
-zero; here, one arm listing two aliases of the same token *inflates* the
-count — both invisible until you assert the exact operator stream. For a
-compound operator that wraps reusable leaves, classify the compound and
-parent-guard the leaves to `Unknown` under that compound only; a blanket
-suppression of `not` / `in` / `is` would silently drop every legitimate
-standalone use.
+**The same double-count hit Ruby closures, in a different metric** (#465,
+`7e4328a0`). tree-sitter-ruby parses a stabby lambda `->(z) { … }` as a
+`Lambda` node *containing* its body `Block`/`DoBlock`, and
+`RubyCode::is_closure` matched all three, so one lambda scored
+`nom.closures = 2`. The keyword forms `lambda { }` / `proc { }` were
+already correct, so only the stabby form was asymmetric. Same
+parent-guard fix. The trap generalises past Halstead: any predicate
+listing both a container and a kind it can contain double-counts.
 
 ---
 
-## 59. A rule re-implemented in every language module is a recurring regression class — give it one home
+## 59. A rule re-implemented in every module is a recurring regression class — give it one home
 
-When the same semantic rule is copied into each per-language
-implementation, every copy is an independent opportunity to forget it.
-The cost is not the duplication itself but the *omission by default*: a
-newly added language — or a sibling cloned from a template that predates
-the rule — ships without it and silently produces wrong output until its
-own bespoke fix lands. The regression history is the smell: when one
-issue's fix cites a chain of prior issues that fixed "the same thing" in
-other languages, the rule wants a single home.
+**Lesson:** When a rule must hold identically across modules that
+deliberately mirror each other, declare it once — a `Getter` trait
+default, a `Node` primitive, a shared predicate — and let each caller
+contribute only its own parameters. **A recurring-regression issue trail
+(one fix per language, or per surface, for "the same bug") is the trigger
+to consolidate.** A pure consolidation is verified by zero snapshot drift
+across every affected caller, including the integration snapshots.
+
+The cost is not the duplication but *omission by default*: a newly added
+language — or a sibling cloned from a template predating the rule —
+ships without it and silently produces wrong output until its own
+bespoke fix lands. The compiler gives no signal. Distinct from lessons 48
+and 51, where a hand-rolled *list* drifts from its enum; here the
+duplication is behavioral.
 
 **The Halstead string-interpolation operand skip was re-patched in nine
-sites across seven issues (#420, `0b899836`).** The rule — "a string
+sites across seven issues** (#420, `0b899836`). The rule — a string
 literal is one operand *unless* it wraps interpolation, in which case the
 wrapper yields `Unknown` because the inner expressions are walked
-separately" — was implemented independently in the JS-family macro,
-Python, C#, Kotlin, Perl, Tcl, PHP, Elixir, and Ruby `get_op_type`
-arms, with three different mechanisms, each added as its own regression
-fix: the trail `#180 → #183 → #184 → #191 → #192 → #199 → #277` is the
-same skip rediscovered per language. Any new interpolating language
-double-counted the wrapper into `N2` by omission. The fix introduces a
-`Getter::string_operand_type(node, interp_kinds)` trait default over a
+separately — was implemented independently in the JS-family macro,
+Python, C#, Kotlin, Perl, Tcl, PHP, Elixir, and Ruby, with three
+different mechanisms. The trail
+`#180 → #183 → #184 → #191 → #192 → #199 → #277` is the same skip
+rediscovered per language, and any new
+interpolating language double-counted the wrapper into `N2` by
+omission. The fix introduces
+`Getter::string_operand_type(node, interp_kinds)` over a
 `Node::wraps_any(&[u16])` primitive; each language supplies only its own
-grammar's interpolation child-kind set, so a new language gets the skip
-for free. The two bespoke Tcl/PHP multi-kind helpers were retired, their
-exact kind sets preserved (PHP's `heredoc_body` one-level descend
-included), and the per-language rationale comments kept at each call
-site per `.claude/rules/macro-comments.md`.
+interpolation child-kind set, so a new language gets the skip for free.
+The bespoke Tcl/PHP multi-kind helpers were retired with their exact
+kind sets preserved, and per-language rationale comments kept at each
+call site.
 
-**Lesson:** When a rule must hold identically across the per-language
-modules that deliberately mirror each other, a `Getter` trait default
-(or a `Node` primitive) is the place to declare it once; each language
-contributes only its grammar-specific kind set. This is distinct from
-lessons #48 / #51 (a hand-rolled *list* drifting from its enum) — here
-the duplication is *behavioral*, and the compiler gives no signal when a
-language omits it. A recurring-regression issue trail (one fix per
-language for "the same bug") is the trigger to consolidate; a pure
-refactor like this is verified by zero snapshot drift across every
-affected language, including the integration snapshots.
+**The same shape across CLI surfaces, where the minority case is where
+they first diverge** (#825, #827, #837; formerly lesson 78). Most metrics
+are higher-is-worse; the Maintainability Index family is not — a *drop*
+is the regression. Three surfaces each re-derived "did this get worse?":
+`diff-baseline`'s worsened/improved bucketing, the `baseline` `Covered`
+ratchet, and `check`'s hard-breach escalation. All three handled
+higher-is-worse correctly and all three got `mi.*` backwards, so an MI
+decrease was reported as an improvement and `--worsened-only` selected
+the wrong rows. The bugs persisted because **no test ever set
+`lower_is_worse`**, so their vacuous coverage agreed with the inverted
+code. The fix routes all three through one
+`thresholds::breaches_limit(value, limit, lower_is_worse)` keyed on the
+`metric_catalog::lower_is_worse` registry, and derives the baseline
+`Covered` arm as `!breaches_limit(…)` so the ratchet and the gate cannot
+disagree. When you add a metric or any surface that ranks or compares
+values, wire it to the shared predicate and add a test exercising a
+*lower-is-worse* metric specifically — a test covering only the majority
+case passes against inverted direction logic.
 
 ---
 
-## 60. A metric-computation change is only validated workspace-wide — downstream crates pin the numbers
+## 60. "Fails on the branch" is not "fails on `main`"
 
-When a change alters how a metric is *computed* — a merge convention, a
-divisor guard, a new counted node kind — the library's own test suite is
-not the whole story. `big-code-analysis-cli`, `big-code-analysis-web`, and
-`big-code-analysis-py` each assert concrete metric values: the web crate's
-`test_web_metrics_json` compares a full serialized metrics blob byte-for-byte,
-and the py SARIF / threshold tests pin per-metric numbers. A `cargo test -p
-big-code-analysis` run never compiles, let alone exercises, any of them, so a
-value shift the library's own (often snapshot-anchored) tests accept can leave
-a downstream crate's hardcoded expectation stale — and the regression merges
-green.
+**Lesson:** Bisect against `main` before calling a failure pre-existing.
+A downstream assertion green on `main` and red on your branch is your
+regression to fix, not a background condition to step around. And run
+`cargo test --workspace --all-features` after any change to metric
+computation or AST traversal — `AGENTS.md` requires it because the
+crates that pin concrete metric numbers are exactly the ones a
+library-scoped run skips.
 
-**The #437 LOC min/max fix went stale in the web crate, invisible to a
-lib-only review** (#437, `cbe18b21`; fix `bdc44a13`). Making `compute_minmax`
-include each container's own span legitimately raised the unit-level
-`sloc_max` / `cloc_max` / `blank_max`, which shifted `test_web_metrics_json`'s
-expected JSON. The review for that wave ran only `cargo test -p
-big-code-analysis` and merged the change clean; the failure surfaced only at
+`big-code-analysis-cli`, `-web`, and `-py` each assert concrete values:
+the web crate's `test_web_metrics_json` compares a full serialized blob
+byte-for-byte, and the py SARIF / threshold tests pin per-metric numbers.
+`cargo test -p big-code-analysis` never compiles any of them.
+
+**The #437 LOC min/max fix went stale in the web crate** (#437,
+`cbe18b21`; fix `bdc44a13`). Making `compute_minmax` include each
+container's own span legitimately raised `sloc_max` / `cloc_max` /
+`blank_max`, shifting `test_web_metrics_json`'s expected JSON. The review
+ran only `-p big-code-analysis` and merged clean; the failure surfaced at
 the full-workspace gate. A subsequent agent then dismissed it as
-"pre-existing" without checking `main` — but it passed on `main` and failed on
-the branch, which is the definition of a regression, not a pre-existing
-failure.
-
-**Lesson:** After any change to metric computation or AST traversal, validate
-with `cargo test --workspace --all-features`, never just `-p
-big-code-analysis` — the downstream crates that pin metric numbers are exactly
-the ones a library-scoped run skips. And "fails on the integration branch" is
-not "fails on `main`": bisect against `main` before calling a failure
-pre-existing. A downstream assertion that is green on `main` and red on your
-branch is your regression to fix, not a background condition to step around.
+"pre-existing" without checking `main` — but it passed on `main` and
+failed on the branch, which is the definition of a regression.
 
 ---
 
-## 61. The label-child node kind is grammar-specific — a copied kind-gate silently no-ops
+## 61. The label-child node kind is grammar-specific
 
-A predicate that gates on a child node's *kind* — for example, scoring a jump
-as an unstructured (cognitive +1) jump only when it carries a label,
-`BreakStatement | ContinueStatement if node.is_child(Identifier as u16)` —
-bakes in one grammar's kind id for that child. The *semantic* child (a jump
-label, a condition, a name) is shared across languages, but the node *kind* it
-surfaces under is per-grammar. Copying a sibling language's gate verbatim into
-another language compiles, runs, and matches nothing, because the kind id it
-names never appears under that grammar's construct. There is no compiler or
-clippy signal, and no test failure unless a fixture exercises the exact gated
-shape — an unlabeled-only test suite scores the gated branch at zero forever.
+**Lesson:** Before reusing a sibling's child-kind-gated predicate in
+another language, dump the AST for the construct in the *target* grammar
+and confirm the gating kind appears there — the semantic role transfers,
+the node kind does not. The per-family table is in
+[`grammar-dispatch.md` §4](../../.claude/rules/grammar-dispatch.md). Add
+a fixture exercising the gated branch (a labeled jump, not a plain one)
+and test-via-revert that branch alone; a suite of only unlabeled inputs
+proves nothing.
 
-**The SonarSource jump-statement fix had to use a different label kind for
-each grammar family** (#435, `e81b3f31`). Adding labeled-`break`/`continue`
+A copied gate compiles, runs, and matches nothing, because the kind it
+names never appears under that grammar's construct. No compiler signal,
+no clippy warning, and no test failure unless a fixture exercises the
+exact gated shape.
+
+**The SonarSource jump-statement fix needed a different label kind per
+grammar family** (#435, `e81b3f31`). Adding labeled-`break`/`continue`
 gating to the shared `js_cognitive!` macro required
-`is_child(StatementIdentifier as u16)`: JS-family labels surface as
-`statement_identifier`, not the `Identifier` that Java and Groovy use, nor
-Go's `LabelName` or Perl's `Label`. Copying Java's `is_child(Identifier)` into
-the JS macro would have silently scored every `outer: for (…) { break outer; }`
-at +0. The fix was verified to resolve `StatementIdentifier` correctly for all
-four enums the macro instantiates (Javascript / Typescript / Tsx / mozjs)
-before relying on it.
-
-**Lesson:** Before reusing a sibling's child-kind-gated predicate in another
-language, dump the AST for the construct in the *target* grammar and confirm
-the gating kind actually appears there — the semantic role transfers, the node
-kind does not. Add a fixture that exercises the gated branch (a labeled jump,
-not a plain one) and test-via-revert that branch alone; a suite of only
-unlabeled inputs proves nothing. This is the cousin of lesson #53 (a positional
-`child(idx)` breaking on an optional grammar slot): both are "the grammar's
-actual shape is not the shape you assumed from a sibling."
+`is_child(StatementIdentifier)`: JS-family labels surface as
+`statement_identifier`, not the `Identifier` Java and Groovy use, nor
+Go's `LabelName` or Perl's `Label`. Copying Java's gate would have
+silently scored every `outer: for (…) { break outer; }` at +0. The fix
+was verified to resolve `StatementIdentifier` for all four enums the
+macro instantiates before relying on it.
 
 ---
 
-## 62. Recovering a poisoned `Mutex` with `into_inner()` alone leaves it poisoned — `clear_poison()` is what stops the cascade
+## 62. Recovering a poisoned `Mutex` needs `clear_poison()`, not just `into_inner()`
 
-`Mutex` poisoning is sticky. When a thread panics while holding the guard, the
-lock is flagged poisoned and *stays* poisoned: every later `.lock()` returns
-`Err(PoisonError)`. The idiomatic recovery, `lock().unwrap_or_else(|e|
-e.into_inner())`, hands back the inner data for *this* acquisition but does not
-clear the flag. So if more than one site acquires the same lock — a worker pool
-plus a final aggregation read, say — recovering in one place fixes only that
-place; every other acquirer still sees `Err` and, if it does `.unwrap()` /
-`.expect()`, re-panics. The cascade you set out to stop continues one frame
-later, often in a *different crate* from the one you patched, so a green
-library-crate test hides it.
+**Lesson:** When you degrade rather than propagate on a poisoned shared
+lock, enumerate **every** site that acquires it — across crates — before
+deciding the recovery is complete. If any downstream acquirer would
+re-panic, a local `into_inner()` is a half-fix; call `clear_poison()` so
+peers see a usable lock. Anchor the regression test on the
+poison-cleared invariant (`!is_poisoned()`), not merely on the absence of
+a panic, or a bare-`into_inner()` regression slips through. Recovery is
+only justified when the guarded data tolerates a partial peer update.
 
-**Degrading `Count::call` on a poisoned `stats` mutex needed `clear_poison()`,
-not just `into_inner()`** (#445, `995c6fbb`). The library worker
-`Count::call` aggregates into a shared `Arc<Mutex<Count>>`; a panicked peer
-poisons it and the old `.lock().unwrap()` cascaded a pool-wide abort — the same
-hazard #425 fixed in `dispatch_preproc`. A bare `into_inner()` recovery would
-have let `Count::call` return `Ok(())`, but the CLI's final
-`run_command_count` reads the same lock with `into_inner().expect(...)` and
-would have re-panicked on the still-poisoned flag. The fix was
-`lock().unwrap_or_else(|poisoned| { cfg.stats.clear_poison(); poisoned.into_inner() })`;
-`clear_poison()` is the load-bearing call, and the regression test asserts
-`!stats.is_poisoned()` after the call — not just no-panic — so reverting to a
-bare `into_inner()` fails the test on that exact line.
+Poisoning is sticky: `lock().unwrap_or_else(|e| e.into_inner())` hands
+back the inner data for *this* acquisition without clearing the flag. So
+if more than one site acquires the lock, recovering in one fixes only
+that one; every other acquirer still sees `Err` and, if it unwraps,
+re-panics — often in a *different crate* from the one you patched, so a
+green library-crate test hides it.
 
-**Lesson:** When you degrade rather than propagate on a poisoned shared lock,
-enumerate *every* site that acquires that lock — across crates — before
-deciding the recovery is complete. If any downstream acquirer would re-panic,
-the local `into_inner()` is a half-fix; call `clear_poison()` so peers and
-downstream readers see a usable lock. Anchor the regression test on the
-poison-cleared invariant (`!is_poisoned()`), not merely on the absence of a
-panic, or a bare-`into_inner()` regression slips through. Recovery is only
-justified when the guarded data tolerates a partial peer update — here, two
-monotonically-incremented counters where the worst case is a slight undercount,
-never an unsafe state.
+**Degrading `Count::call` on a poisoned `stats` mutex** (#445,
+`995c6fbb`). The worker aggregates into a shared `Arc<Mutex<Count>>`; a
+panicked peer poisons it and the old `.lock().unwrap()` cascaded a
+pool-wide abort — the hazard #425 fixed in `dispatch_preproc`. A bare
+`into_inner()` would have let `Count::call` return `Ok(())`, but the
+CLI's `run_command_count` reads the same lock with
+`into_inner().expect(...)` and would have re-panicked on the still-set
+flag. Here the guarded data is two monotonically-incremented counters,
+so the worst case is a slight undercount, never an unsafe state.
 
 ---
 
 ## 63. Opening a FuncSpace for a method-nested node double-counts the ancestor's WMC
 
-WMC sums each method's cyclomatic complexity into its enclosing class, and
-a method's contribution is read as a *cumulative* `cyclomatic_sum()` over
-its whole subtree. The moment you teach the space-builder to open a new
-FuncSpace for something nested *inside* a method body — an anonymous class,
-an object literal, a local class — that nested construct's complexity is
-both still inside the method's cumulative sum *and* now counted as its own
-WMC scope. The enclosing class double-counts it. The breakage is silent and
-appears only when the new space type is introduced: the class-level WMC
-inflates by exactly the nested construct's complexity, and no per-language
-test that predates the new space exercises the combination.
+**Lesson:** Whenever you make the space-builder open a FuncSpace for a
+node that can be lexically nested inside a method, audit WMC in the same
+change. WMC's per-method contribution is a *cumulative subtree sum*, and
+a newly-opened child space does not subtract itself from that sum
+automatically, so the ancestor class silently double-counts. Fix it once
+in the shared merge — track and subtract the nested class/interface
+cyclomatic — not per language, and pin a test that a
+method-with-nested-class scores the same class WMC as the nested
+construct hoisted to top level.
 
-**Adding anonymous-class spaces exposed a latent WMC double-count** (#463,
-`49ed0b20`). Making Kotlin `object_literal` and Java anonymous-class bodies
-open their own `Class` space (mirroring the companion-object fix `efc97e3`)
-was correct in isolation, but a `Function` space's WMC contribution reads
-`cyclomatic_sum()`, which still folds in the complexity of any class nested
-in the method body — so a method containing an anonymous class counted that
-class twice, once in the method's own class WMC and once in the nested
-class's. `Wmc::merge` now carries a `nested_class_cyclomatic` field and
-subtracts it from a `Function`'s contribution
+Distinct from lesson 50 (two parallel paths summing one field) and lesson
+24 (finalize gating): here a *single* path's cumulative accessor
+over-counts because the tree shape changed under it.
+
+**Adding anonymous-class spaces exposed a latent double-count** (#463,
+`49ed0b20`). Making Kotlin `object_literal` and Java anonymous-class
+bodies open their own `Class` space was correct in isolation, but a
+`Function` space's WMC contribution reads `cyclomatic_sum()`, which
+still folds in any class nested in the method body — so a method
+containing an anonymous class counted it twice. `Wmc::merge` now carries
+`nested_class_cyclomatic` and subtracts it
 (`own_cyclomatic = other.cyclomatic - other.nested_class_cyclomatic`); a
-nested `Class` / `Interface` records only its *own* cyclomatic, never its
-own nested total (which would re-double the deeper anonymous classes). The
-recording lives in the shared `class_interface_compute`, so every OO
-language inherited the subtraction. Verified across five scenarios
-(class-in-method, no-nested-class baseline, deeply-nested anonymous,
-interface-in-method, multiple-nested) and three integration snapshots.
-
-**Lesson:** Whenever you make the space-builder open a FuncSpace for a node
-that can be lexically nested inside a method, audit WMC in the same change.
-WMC's per-method contribution is a cumulative subtree sum; a newly-opened
-child space does not subtract itself from that sum automatically, so the
-ancestor class silently double-counts the nested construct. Fix it once in
-the shared merge (track and subtract the nested class/interface cyclomatic),
-not per-language, and pin a regression test that a method-with-nested-class
-scores the same class WMC as the nested construct hoisted out to top level.
-Distinct from lesson #50 (two parallel paths summing one field) and
-lesson #24 (finalize-helper gating): here a *single* path's cumulative
-accessor over-counts because the tree shape changed under it.
+nested `Class` records only its *own* cyclomatic, never its own nested
+total, which would re-double deeper classes. The recording lives in the
+shared `class_interface_compute`, so every OO language inherited it.
 
 ---
 
-## 64. A default/fallback-arm exclusion is per-construct — verify the node pays nesting before mirroring it
+## 64. A default/fallback-arm exclusion is per-construct
 
-The `default` / `else` / `_` arm of a switch-like construct should not add
-to cognitive nesting or ABC conditions — it is the fallback, not a decision.
-But "switch-like" is a per-construct, per-grammar property, not a token you
-can blanket-suppress. The same `else` / `default` node kind is routinely
-shared between a genuinely switch-like construct (where the arm is +0) and a
-chain construct (where the arm is a real +1). Propagating a default-arm
-exclusion from one language or metric to another without checking *which*
-construct the arm belongs to — and whether that construct's own node already
-paid the nesting increment — either over-suppresses a real decision or
-leaves a real fallback counted.
+**Lesson:** The exclusion is anchored to the **construct**, not the node
+kind. Confirm the construct's own node pays the nesting/decision
+increment — so its default really is redundant — before suppressing, and
+confirm the shared node kind is not also serving a chain construct where
+the arm is a legitimate +1. See
+[`grammar-dispatch.md` §8](../../.claude/rules/grammar-dispatch.md) and
+lesson 11 for the cross-metric agreement rule.
 
 **Ruby `case`-else is +0 but `begin`/`rescue`-else is +1** (#451,
-`30a435ae`). The shared `R::Else` node appears under three Ruby constructs.
-A `case` / `case_match` parent already pays a nesting increment, so its
+`30a435ae`). The shared `R::Else` node appears under three constructs. A
+`case` / `case_match` parent already pays a nesting increment, so its
 `else` is the switch default (+0, matching Kotlin `when`-else and Java
-switch-default). But `begin` pays *no* nesting (only `R::Rescue` does), so
-`begin` / `rescue` / `else` is the no-exception branch — the analogue of
-Python `try` / `except` / `else`, which is +1. The issue's own fix plan
-proposed suppressing rescue-else too; doing so would have introduced a
-*fresh* divergence from Python. The fix gates only on
+switch-default). But `begin` pays *no* nesting — only `R::Rescue` does —
+so `begin` / `rescue` / `else` is the no-exception branch, the analogue
+of Python `try` / `except` / `else`, which is +1. **The issue's own fix
+plan proposed suppressing rescue-else too**; doing so would have
+introduced a *fresh* divergence from Python. The fix gates only on
 `parent ∈ {Case, CaseMatch}`.
-
-**ABC switch/when arms were fixed by reusing the cyclomatic gate, then
-extended across the C-family** (#456, `7021f209`; #469, `51725a9f`).
-Kotlin's ABC `when`-else over-counted and C#'s switch-*expression* arms
-under-counted to zero; both were fixed by reusing cyclomatic's existing
-`kotlin_when_entry_is_else` / `csharp_switch_expression_arm_is_bare_discard`
-gates rather than re-deriving them (#456). The statement/arrow-switch
-`default` arm then had to be excluded across Java / C# / Groovy / JS / TS /
-TSX / Mozjs in ABC (C and C++ were already correct) — the same `Default`
-token, seven languages, one fix — to bring every language's ABC condition
-count into agreement with its own cyclomatic decision count (#469). PHP
-shared the divergence through *distinct* grammar kinds —
-`DefaultStatement` (switch) and `MatchDefaultExpression` (`match`), not the
-C-family's shared `Default` token — and was completed separately (#473,
-`43c1086b`), so every language's ABC condition count now equals its
-cyclomatic decision count.
-
-**Lesson:** When a metric must skip a default/fallback arm, the exclusion is
-anchored to the *construct*, not the node kind: confirm the construct's own
-node pays the nesting/decision increment (so its default really is
-redundant) before suppressing, and confirm the shared node kind is not also
-doing duty for a chain construct where the arm is a legitimate +1. Where ABC
-and cyclomatic must agree on the same construct, reuse cyclomatic's
-already-correct gate rather than re-deriving the discard/else/default
-predicate, and pin the per-space invariant `abc.conditions == cyclomatic() -
-1` (not `cyclomatic_sum()`, which carries a per-space base of 1). This
-extends lesson #11 (the same metric must agree across languages) to the
-cross-*metric* case, and warns against the over-application a blanket
-"suppress the default everywhere" fix invites.
 
 ---
 
 ## 65. Removing a node kind from `is_func` / `is_func_space` zeroes its childless variant
 
-When a construct is counted as too many functions because its node sits in
-both `is_func` and `is_func_space` while its children are *also* functions,
-the tempting fix is to drop the construct's kind from the dispatch sets and
-let the children carry the count. But that silently regresses the
-construct's *childless* variant — the form with no qualifying children,
-which relied on its own membership to be counted at all. The over-count fix
-becomes an under-count (a zero) for the sub-case, and no test that only
-exercises the many-children form will notice.
+**Lesson:** Before removing a node kind from a function/space dispatch
+set to fix an over-count, enumerate the construct's variants and find the
+one with **no qualifying children** — it is relying on the membership you
+are about to delete. Gate the arm on child-presence rather than removing
+it, and keep `is_func`, `is_func_space`, and `get_space_kind` gated by
+the *same* predicate so the space tree stays self-consistent.
+
+This is the inverse of lesson 19 (a *missing* arm scores a valid
+construct as zero): here the arm exists and the fix is to narrow it —
+and narrowing too far re-creates that zero for the childless sub-case.
 
 **The C# expression-bodied indexer would have dropped to zero** (#464,
 `8db1a3e8`). `Csharp::IndexerDeclaration` sat in both `is_func` and
 `is_func_space` while `AccessorDeclaration` was in `is_func`, so a bodied
-indexer (`this[i] { get => …; set => …; }`) counted as three functions
-(indexer + get + set) in nom and folded an extra entry into wmc. A blanket
-removal of `IndexerDeclaration` would have fixed that — but the
-expression-bodied form (`this[i] => …;`) has *no* `AccessorDeclaration`
-child, so it would have counted zero. The fix gates the `IndexerDeclaration`
-arm on `!csharp_indexer_has_accessors(node)`: it opens a space only when
-there are no accessors to defer to, mirroring the npm reference
-(`csharp_count_member`, which uses `.max(1)`). All three sites — `is_func`,
-`is_func_space`, and `get_space_kind` — share the predicate so the space
-tree never disagrees with itself.
+indexer counted as three functions and folded an extra entry into wmc. A
+blanket removal would have fixed that — but the expression-bodied form
+(`this[i] => …;`) has no `AccessorDeclaration` child and would have
+counted zero. The fix gates on `!csharp_indexer_has_accessors(node)`,
+opening a space only when there are no accessors to defer to, mirroring
+npm's `.max(1)` reference.
 
-**The C# expression-bodied property had the same latent zero, fixed by
-generalising the same predicate** (#472, `c381c117`). `PropertyDeclaration`
-sat in none of the three dispatch sets, so a bodied property correctly
-deferred to its `get`/`set` accessor spaces — but the expression-bodied form
-(`int W => _w;`), which has no `AccessorDeclaration` child, opened no space at
-all and counted `0` while npm reported `1` via `.max(1)`. The fix renamed
-`csharp_indexer_has_accessors` → `csharp_member_has_accessors` and gated
-`IndexerDeclaration | PropertyDeclaration` on `!csharp_member_has_accessors`
-at all three sites — the identical childless-variant gate as the #464
-indexer, sharing one predicate so indexer and property stay consistent and
-agree with npm.
-
-**Lesson:** Before removing a node kind from a function/space dispatch set
-to fix an over-count, enumerate the construct's variants and find the one
-with no qualifying children — it is relying on the membership you are about
-to delete. Gate the arm on child-presence (`!has_qualifying_children`)
-rather than removing it outright, and keep `is_func`, `is_func_space`, and
-`get_space_kind` gated by the *same* predicate so the space tree stays
-self-consistent. This is the inverse of lesson #19 (a *missing* arm scores a
-valid construct as zero): here the arm exists and the fix is to *narrow* it,
-and narrowing too far re-creates #19's zero for the childless sub-case.
+**The C# expression-bodied property had the same latent zero** (#472,
+`c381c117`). `PropertyDeclaration` sat in none of the three sets, so a
+bodied property correctly deferred to its accessor spaces — but
+`int W => _w;` opened no space at all and counted 0 while npm reported 1.
+The fix generalised the predicate to `csharp_member_has_accessors` and
+gated both member kinds on it at all three sites.
 
 ---
 
-## 66. A control-flow construct with no dedicated grammar kind escapes every kind-based metric dispatcher
+## 66. A control-flow construct with no dedicated grammar kind escapes every kind-based dispatcher
 
-Metric impls dispatch on `match node.kind_id()` — they recognise control
-flow by its grammar *kind* (`If`, `While`, `SwitchStatement`, …). In
-command-dispatched languages, a construct that is semantically control flow
-may have no dedicated kind at all: it is spelled as an ordinary builtin
-command and parses as the same generic `command` node as `puts` or `set`.
-Every kind-based dispatcher skips it silently — there is no missing-enum-arm
-signal (the kind it would need does not exist), no compiler or clippy
-warning, and no test failure unless a fixture exercises the construct *and*
-asserts a score above the base.
+**Lesson:** Audit command-dispatched languages (Tcl, iRules, shell-like
+grammars) for builtins that are control flow, recognise them out-of-band
+by their leading word, and locate sub-parts by **structural position**
+rather than a fixed index so detection survives optional option/flag
+prefixes. Add a fixture scoring above the base and test-via-revert that
+the arm fires. See
+[`grammar-dispatch.md` §9](../../.claude/rules/grammar-dispatch.md).
+
+The gap is not a missing enum arm — the *kind* the dispatcher would need
+does not exist for that construct in that grammar at all. Cousin of
+lesson 61, where the semantic role transfers but the node kind does not.
 
 **Tcl `switch` contributed zero complexity** (#467, `867d9753`). The Tcl
 cognitive and cyclomatic impls dispatch on dedicated kinds
-(`If`/`Elseif`/`While`/`Foreach`/`Catch`), but Tcl's `switch` is a generic
-`command` whose first word happens to be `switch` — so a three-arm `switch`
-scored cognitive `0.0` and cyclomatic `1.0` (base only), while the
-equivalent C `switch` scored `1.0` / `3.0`. The fix detects the construct
-out-of-band by its leading word (the command's `name` field == `"switch"`)
-and counts its non-`default` arms. Crucially, the arm list is located by
-*structural position* — the sole trailing `braced_word` argument — not a
-fixed child index, because the optional `-exact` / `-glob` / `-regexp` /
-`--` options and the matched value precede it; a positional index would have
-broken on every option-form switch (the failure mode of lesson #53). The
-rarer split form (`switch $x a {b} c {d}`) was deliberately scoped out and
-documented at the call site.
-
-**Lesson:** When a metric dispatches on `kind_id`, a construct the grammar
-models as a generic command (not a dedicated kind) is invisible to it — the
-gap is not a missing enum arm (lesson #51) but a missing *kind*. Audit
-command-dispatched languages (Tcl, shell-like grammars) for builtins that
-are control flow, recognise them out-of-band by their leading word, and
-locate sub-parts by structural position rather than a fixed index so the
-detection survives optional option/flag prefixes. Add a fixture that scores
-above the base and test-via-revert that the arm fires. This is the cousin of
-lesson #61 (the semantic role transfers across grammars but the node *kind*
-does not) — here the node kind the dispatcher needs does not exist for that
-construct in that grammar at all.
+(`If`/`Elseif`/`While`/`Foreach`/`Catch`), but Tcl's `switch` is a
+generic `command` whose first word happens to be `switch` — so a
+three-arm `switch` scored cognitive `0.0` and cyclomatic `1.0` against
+the equivalent C `switch`'s `1.0` / `3.0`. The fix detects it by the
+command's `name` field and counts non-`default` arms. Crucially the arm
+list is located by structural position — the sole trailing `braced_word`
+argument — not a fixed child index, because the optional `-exact` /
+`-glob` / `--` options and the matched value precede it; a positional
+index would have broken on every option-form switch (lesson 53's failure
+mode).
 
 ---
 
 ## 67. "Compute it once" is the wrong altitude when the consumers don't share the transform's parameters
 
-Collapsing N consumers that each transform the "same" value into a single
-shared computation is only sound when those consumers share the *parameters*
-of the transform. When they do not, the unified value is correct for one
-consumer and silently wrong (or lossy) for the rest — and the "duplication"
-you set out to remove was never duplication: it was N legitimately different
-transforms that merely looked alike.
+**Lesson:** Before unifying N transforms of "the same" value, list each
+consumer's *parameters*. If they differ, "compute it once" yields a value
+that round-trips for one consumer and silently corrupts the rest — keep
+the transforms separate and share only the genuinely identical sub-step.
+**When a refactor's correctness depends on a parameter, vary that
+parameter in the tests**, not just the inputs.
 
-**The `WalkFile` output-name unification (attempted, then reverted; #497
-follow-up, preserved on branch `archive/walkfile-name-normalization`).**
-`bca` re-derived a file's canonical identity at four places — the
-`[check.exclude]` glob matcher, the baseline keyer, `--changed-only` scope
-filtering, and `bca diff` pairing — each through its own helper
-(`reanchor_seed`, `match_path_for`, `anchor_against_seeds`, and the `with_cwd`
-CWD swap). Four helpers answering "which file is this?" read as a textbook
-"compute it once at the walk seam" cleanup, so we collapsed them into a single
-canonical `name` (the path relative to the longest-common-ancestor of the
-seeds) stamped on every walked file. It compiled, passed the entire workspace
-suite and both self-scan tiers, and shipped **three silent correctness
-regressions**: single-file `bca diff --since <file>` reported every file as
-both added and removed; a subdirectory scope (`--paths src`) wrote baseline
-keys that lost the scope prefix (`src/foo.rs` → `foo.rs`), so baselines
-stopped suppressing; and `--changed-only` from a subdirectory dropped
-violations — a gate bypass. The cause: the consumers have **heterogeneous
-anchors** — exclude wants walk-root-relative, the baseline wants
-baseline-file-dir-relative, `--changed-only` resolves against the CWD, and
-`bca diff` wants tree-root-relative — and one LCA-anchored string is *lossy*:
-it drops the path segments between the analysis root and the file, so a
-consumer that resolves it against a *different* anchor can no longer recover
-the file's true location. The per-consumer re-anchoring was not redundant;
-each anchor was genuinely different. Full analysis:
+The "duplication" you set out to remove may never have been duplication:
+N legitimately different transforms that merely looked alike.
+
+**The `WalkFile` output-name unification, attempted then reverted** (#497
+follow-up, preserved on `archive/walkfile-name-normalization`). `bca`
+re-derived a file's canonical identity at four places — the
+`[check.exclude]` glob matcher, the baseline keyer, `--changed-only`
+scope filtering, and `bca diff` pairing. Four helpers answering "which
+file is this?" read as a textbook "compute it once at the walk seam"
+cleanup, so they were collapsed into a single canonical `name` relative
+to the longest common ancestor of the seeds. It compiled, passed the
+entire workspace suite and both self-scan tiers, and shipped **three
+silent correctness regressions**: single-file `bca diff --since <file>`
+reported every file as both added and removed; a subdirectory scope
+wrote baseline keys that lost the scope prefix, so baselines stopped
+suppressing; and `--changed-only` from a subdirectory dropped violations
+— a gate bypass. The consumers have **heterogeneous anchors** — exclude
+wants walk-root-relative, the baseline wants baseline-file-dir-relative,
+`--changed-only` resolves against the CWD, `bca diff` wants
+tree-root-relative — and one LCA-anchored string is *lossy*.
+
+Two corollaries made it expensive to catch. The regressions were silent —
+wrong keys and dropped violations, no crash, no failing test. And a
+*uniform* gate hid them: every CI path and the self-scan run `--paths .`
+from the repo root, the one configuration where all four anchors
+coincide, so the coupling stayed invisible until a review varied the
+invocation shape. Full analysis:
 [`output_name_normalization_design.md`](output_name_normalization_design.md).
 
-**Lesson:** Before unifying N transforms of "the same" value, list each
-consumer's *parameters* — here, the anchor each path is interpreted against.
-If they differ, "compute it once" yields a value that round-trips for one
-consumer and silently corrupts the others; keep the transforms separate and
-share only the genuinely-identical sub-step (here, the lexical path
-resolution — never the anchoring). Two corollaries made this expensive to
-catch. (1) The regressions were *silent* — wrong keys and dropped violations,
-no crash, no failing test. (2) A *uniform* gate hid them: every CI path and
-the self-scan run `--paths .` from the repo root, the one configuration where
-all four anchors coincide, so the coupling stayed invisible until a review
-*varied the invocation shape* (subdir scope, single-file diff,
-run-from-a-subdirectory). When a refactor's correctness depends on a
-parameter, vary that parameter in the tests — not just the inputs.
+---
+
+## 68. A branch that looks unreachable may need a non-obvious grammar shape
+
+**Lesson:** When a defensive mirror fix's guarded branch seems
+unreachable, do not skip the test — instrument the predicate (a
+temporary `eprintln!` at the call site) and sweep candidate grammar
+shapes empirically until one fires. **Childless and zero-width leaves are
+the usual culprits**, and they appear in positions the source text does
+not advertise: command substitutions, heredocs, interpolation wrappers.
+If after a genuine sweep nothing reaches the branch, document that
+analysis at the call site rather than shipping a vacuous test — but
+treat "unreachable" as a hypothesis to disprove, not a default.
+
+**The Bash `Loc` leaf arm omitted `check_comment_ends_on_code_line`**
+(#547, `492b86d6`). Every other `Loc` impl — Elixir most directly,
+sharing the exact `child_count() == 0` leaf-gating shape — calls the
+reclassification helper before inserting a row into `ploc.lines`; Bash
+did not, so a row carrying both a comment and code was double-credited
+and `blank` undercounted. The fix is one line, but proving it looked
+impossible: an ordinary `# comment` runs to end-of-line and routes
+through the `is_comment_after_code_line` path, never the leaf arm.
+Sweeping ~20 candidate Bash shapes with the predicate instrumented
+surfaced the trigger — `echo "$(\n  # c\n)"`, where tree-sitter-bash
+emits a **zero-width `word` leaf on the same physical row** as the
+comment inside the command substitution. With that input the test fails
+on revert and passes with the fix.
+
+This is the find-the-trigger counterpart to lesson 52, where an arm that
+*looks* live is dead because of pre-order ordering.
 
 ---
 
-## 68. A branch that looks unreachable may need a non-obvious grammar shape — sweep before skipping its test
+## 69. A line-prefix parser must disambiguate structural markers from body content
 
-A defensive cross-language fix — adding a call that every sibling language
-module already makes — is hard to prove with a fail-on-revert test when the
-obvious inputs never reach the guarded path. The tempting conclusion is
-"this branch is unreachable, so no test is warranted." That conclusion is
-often wrong: the trigger exists but lives in a non-obvious grammar shape,
-because tree-sitter anchors **childless / zero-width leaves** to positions a
-source reader would not predict. Reasoning about reachability from the
-source text alone misses these; only the parse tree reveals them. The branch
-that looks dead under every hand-written example is live under one the
-grammar produces.
+**Lesson:** Enumerate the content that can masquerade as each structural
+marker and disambiguate by **parser state** (position in the grammar),
+never by the prefix in isolation. And a regression test for a prefix
+collision is only real if its fixture actually produces the colliding
+prefix — verify by revert, because a fixture one character short passes
+against the bug and guards nothing.
 
-**The Bash `Loc` leaf arm omitted `check_comment_ends_on_code_line` (#547,
-`492b86d6`).** Every other `Loc` impl — Elixir most directly, sharing the
-exact `child_count() == 0` leaf-gating shape — calls the reclassification
-helper before inserting a row into `ploc.lines`; Bash did not, so a row
-carrying both a comment and code was double-credited to `ploc` and the
-comment-only set, undercounting `blank`. The fix is one line, but proving it
-with a test that fails on revert looked impossible: an ordinary `# comment`
-runs to end-of-line and routes through the `is_comment_after_code_line`
-path, never the leaf arm. Sweeping ~20 candidate Bash shapes with the
-predicate instrumented surfaced the reachable trigger — `echo "$(\n  # c\n)"`,
-where tree-sitter-bash emits a **zero-width `word` leaf on the same physical
-row** as the comment inside the `$(...)` command substitution. With that
-input the test fails on revert (`blank` collapses 0↔1) and passes with the
-fix.
+**The unified-diff scorer dropped deletions and corrupted paths on
+`--`/`++` content** (#580; shipped in `dc03417d`, fixed in `4f9f293e`).
+`bca vcs jit --diff` parses by line prefix: `+++`/`---` followed by a
+space are file headers, and inside a hunk `+`/`-` are body lines. Under
+git's single-char prefix, a *deleted* line whose content starts with `--`
+and a space (SQL/Lua/Haskell/Ada comments) renders as
+`--- this is a comment`, and an *added* line whose content starts with
+`++` and a space renders as `+++ foo`. The header arms were checked first and were **not** gated
+on "before the first hunk", so the deletion was silently dropped and the
+`+++` line silently rewrote the file's path — corrupting both the size
+feature and the diffusion path key, the very metrics the feature
+computes, on entirely realistic input. The fix gates the header arms on
+`!saw_hunk`, which the parser already tracked.
 
-**Lesson:** When a defensive mirror fix's guarded branch seems unreachable,
-do not skip the test — instrument the predicate (a temporary `eprintln!` at
-the call site) and sweep candidate grammar shapes empirically until one
-fires. Childless and zero-width leaves are the usual culprits, and they
-appear in positions the source text does not advertise (command
-substitutions, heredocs, interpolation wrappers). If after a genuine sweep
-no input reaches the branch, document that analysis at the call site rather
-than shipping a vacuous test — but treat "unreachable" as a hypothesis to
-disprove, not a default. This is the find-the-trigger counterpart to lesson #52
-(an arm that *looks* live is dead because of pre-order ordering) and complements
-the test-via-revert discipline in `.claude/rules/testing.md`.
-
----
-
-## 69. A line-prefix parser must disambiguate structural markers from body content that shares the prefix
-
-A parser that classifies lines by a multi-character prefix has a built-in
-ambiguity: a *content* line can legitimately begin with the same characters as
-a *structural* marker. Prefix matching alone cannot tell them apart — the
-disambiguator is the parser's position/state, not the bytes. Resolve it by
-gating marker detection on where in the grammar you are, and prove the fix with
-a fixture whose body content actually reproduces the colliding prefix.
-
-**The unified-diff scorer dropped deletions and corrupted paths on `--`/`++`
-content (#580; bug shipped in `dc03417d`, fixed in `4f9f293e`).** `bca vcs jit
---diff` parses a unified diff by line prefix: `+++`/`---` (each followed by a
-space) are file headers, and inside a hunk `+`/`-` are added/deleted body
-lines. But under git's single-char diff prefix, a *deleted* line whose content
-starts with `--` and a space (SQL/Lua/Haskell/Ada comments) renders as
-`--- this is a comment`, and an *added* line starting with `++` and a space
-renders as `+++ foo`. The header arms were checked first and were **not** gated
-on "before the first hunk," so these body lines were misrouted: the deletion was
-silently dropped (undercount) and the `+++` line silently rewrote the file's
-path and dropped the addition — corrupting both the size feature and the
-diffusion path key, the very metrics the feature computes, on entirely realistic
-input. The fix gates the `+++`/`---` arms on `!saw_hunk` (the parser already
-tracked it); once a hunk is open, those lines fall through to the `+`/`-`
-counting arms.
-
-**The first regression fixture was too weak to trigger the bug it guarded.**
-The collision needs the *three*-dash/plus marker plus a space (`---`/`+++`
-followed by a space) — which a body line produces only when its content begins
-with `--`/`++` and a space. The remediation's first fixture used content
-starting with just `--`/`++` (no following space), which, after the diff's
-leading `-`/`+`, produced only a two-dash/plus run — not the three-character
-header marker — so the test passed against the *unfixed* code and protected
-nothing. Test-via-revert (`.claude/rules/testing.md`) exposed it: the
-test had to fail against the pre-fix tree, and it didn't until the fixture was
-corrected to genuinely emit the colliding prefix.
-
-**Lesson:** When a parser keys on a line prefix, enumerate the content that can
-masquerade as each structural marker and disambiguate by parser state
-(position-in-grammar), never by the prefix in isolation. A `+`/`-` body line is
-a `+++`/`---` header only before the first hunk; encode that, do not assume it.
-And a regression test for a prefix collision is only real if its fixture
-actually produces the colliding prefix — verify by revert, because a fixture
-that's one character short passes against the bug and guards nothing. Relates to
-lesson #58 (a wrapper-node + keyword leaf is one operator — guard the leaves)
-and #57 (a structural shape is not a semantic identity — read the bytes); both
-are the AST-side of the same hazard: a token that looks structural may be
-content.
+**The first regression fixture was too weak to trigger the bug it
+guarded.** The collision needs the *three*-character marker plus a space,
+which a body line produces only when its content begins with `--`/`++`
+and a space. The remediation's first fixture used content starting with
+just `--` (no following space), producing only a two-dash run after the
+diff's leading `-` — so it passed against the *unfixed* code.
+Test-via-revert exposed it.
 
 ---
 
 ## 70. A string-keyed metadata lookup shared across tables resolves collisions to the wrong context
 
-When per-column (or per-item) metadata — tooltips, captions, formats — is
-resolved through a registry keyed by the *display string*, two tables that
-legitimately reuse the same label silently share one entry. The lookup
-returns *a* value for every key, so nothing fails: the second context
-inherits the first context's metadata, and a "every header carries a
-tooltip" coverage test passes throughout, because presence is not
-correctness. The structural fix is to attach the metadata to the spec that
-owns the column and pass it positionally, so two columns with the same
-label can carry different definitions and the spec is the single source.
-
-**The bus-factor "Files" column inherited the files-analysed tooltip**
-(#610, #611, `7a5a8947`, `391decdd`). The HTML report resolved header
-tooltips via `header_tooltip(header)`, keyed on the literal header string.
-The per-language overview's "Files" column (files analysed) and the
-bus-factor table's "Files" column (files per directory) collided on the
-key, so the bus-factor table displayed the overview's definition.
-The #610 text-only fix pass had to *defer* this item — the string-keyed
-catalogue could not represent two meanings for one label at all.
-Issue #611 resolved it structurally: a `tooltip` field on the shared `Column` /
-`VcsColumn` specs, passed positionally to the table writer
-(`write_table_with_tooltips`), which simultaneously fixed the ambiguity
-and gave the Markdown legend the same single source the HTML `title=`
-attributes use.
-
 **Lesson:** A string-keyed lookup is only safe while every consumer
 agrees on what the string means; the failure mode is silent inheritance,
 not an error. When the same label can mean different things in different
 tables, move the metadata onto each table's own spec and pass it
-positionally — and treat "the lookup returned something" as the weakest
-possible assertion in tests. Related to lesson #22 (text-keyed markers
-force signatures to carry source bytes): both are cases where keying on
-display text discards the context that gave the text its meaning.
+positionally. Treat "the lookup returned something" as the weakest
+possible assertion in tests.
+
+The lookup returns *a* value for every key, so nothing fails: the second
+context inherits the first's metadata, and an "every header carries a
+tooltip" coverage test passes throughout, because presence is not
+correctness.
+
+**The bus-factor "Files" column inherited the files-analysed tooltip**
+(#610, #611, `7a5a8947`, `391decdd`). The HTML report resolved header
+tooltips via `header_tooltip(header)`, keyed on the literal string. The
+per-language overview's "Files" column (files analysed) and the
+bus-factor table's "Files" column (files per directory) collided, so the
+bus-factor table displayed the overview's definition. The #610 text-only
+pass had to *defer* the item — the string-keyed catalogue could not
+represent two meanings for one label at all. #611 resolved it
+structurally with a `tooltip` field on the shared `Column` / `VcsColumn`
+specs, passed positionally to `write_table_with_tooltips`, which
+simultaneously fixed the ambiguity and gave the Markdown legend the same
+single source the HTML `title=` attributes use.
+
+Related to lesson 22: both are cases where keying on display text
+discards the context that gave the text its meaning.
 
 ---
 
 ## 71. Invalid input that collapses into the "not provided" branch fails as success
 
-A resolver that maps both *absent* and *unrecognized* input to the same
-`None` makes invalid input indistinguishable from no input. Downstream
-code takes the default path, produces plausible-looking (often empty)
-output, and exits 0 — the user's typo is rewarded with success. This is
-the input-boundary sibling of lesson #19 (a missing dispatch arm scores
-valid constructs as zero): there the arm is missing; here the error value
-is erased at the boundary before any arm is reached.
-
-**`--language-type klingon` was silently ignored — and the
-forced-language use case produced empty success** (#595, `ba14e9f9`).
-The CLI's `resolve_language` tried an extension-table lookup and
-returned `None` on a miss — the same `None` that meant "flag omitted,
-infer per file". An unrecognized value was therefore silently ignored:
-the walk fell back to per-extension inference as if the flag were never
-given, and in the flag's core use case — forcing a language onto files
-whose extension inference cannot resolve — those files hit the
-skip-unrecognized guard and vanished: no analysis, no error, exit 0.
-The fix resolves through the language enum's `FromStr` (names) with an
-extension fallback, and a value that matches neither is a hard `die`
-listing the valid languages — `None` is reserved for the
-genuinely-absent flag.
-
 **Lesson:** At an input boundary, a parse failure must be an error value,
 never the absent-value default. If a resolver returns `Option`, reserve
 `None` for "not provided" and propagate present-but-invalid as `Result`
-(or terminate with a message naming the bad input and the valid set).
-The smell to grep for: a `FromStr`/lookup whose `Err`/miss is mapped to
-`None`, `unwrap_or_default()`, or a filter that quietly matches nothing.
+— or terminate with a message naming the bad input **and the valid set**.
+The smell to grep for: a `FromStr` or lookup whose `Err`/miss is mapped
+to `None`, `unwrap_or_default()`, or a filter that quietly matches
+nothing.
+
+Downstream code takes the default path, produces plausible-looking
+(often empty) output, and exits 0 — the user's typo is rewarded with
+success. This is the input-boundary sibling of lesson 19: there the
+dispatch arm is missing; here the error value is erased at the boundary
+before any arm is reached.
+
+**`--language-type klingon` was silently ignored, and the forced-language
+use case produced empty success** (#595, `ba14e9f9`). `resolve_language`
+tried an extension-table lookup and returned `None` on a miss — the same
+`None` that means "flag omitted, infer per file". So the walk fell back
+to per-extension inference as if the flag were never given, and in the
+flag's *core* use case — forcing a language onto files whose extension
+cannot resolve — those files hit the skip-unrecognized guard and
+vanished: no analysis, no error, exit 0. The fix resolves through the
+enum's `FromStr` with an extension fallback, and a value matching
+neither is a hard `die` listing the valid languages.
 
 ---
 
 ## 72. A breaking change must sweep the encodings of the old contract, not just its name
 
-When a contract changes — an exit code, a flag's arity, a markup shape, a
-default — the old contract survives in places that never *name* it: test
-assertions pinning incidental values, fixtures whose extensions or
-argument shapes assumed the old behavior, substring needles matching the
-old markup, and doc examples that copy-paste the old invocation. A
-rename-sweep (grep the flag or symbol) misses every one of them; the
-sweep has to target the old contract's *shape*. One batch produced four
-independent instances:
+**Lesson:** Changing a contract obligates a workspace-wide sweep for
+everything that encodes the old one *incidentally*: the old literal
+values (`.code(2)`), the old shapes (`<h2>` without attributes,
+multi-value flag spellings, file-extension assumptions), and the doc
+pages that copy-paste the old invocation. A rename-sweep on the flag or
+symbol misses every one. **Expect the first sweep to miss instances** —
+after each fix, re-grep with a pattern derived from what you just fixed,
+not from the original symbol name.
+
+One batch produced four independent instances:
 
 **The exit-code remap left `.code(2)` pins in four test files** (#594,
 `c9f73d68`). Moving clap usage errors from exit 2 to exit 1 invalidated
 assertions in `cli_smoke.rs`, `exemptions.rs`, `include_exclude_arity.rs`,
-and `vcs_jit.rs` that had pinned clap's default 2 incidentally while
-testing something else. A library-only test run missed all of them; only
-the full workspace suite surfaced the set (cf. lesson #60).
+and `vcs_jit.rs` that had pinned clap's default incidentally while
+testing something else. Only the full workspace suite surfaced the set
+(lesson 60).
 
 **Fixtures encoded the silent-ignore contract** (#600, `1f13df11`).
 Making `check --output` infer the format from the extension broke a SARIF
-test that wrote to a `.json` path (tolerated when the extension was
-ignored, rejected once it became meaningful), and would have regressed a
-"creates parent directories on demand" test had the fix routed through a
-stricter shared validator. Distinguishing "fixture encoded the old
-contract" from "fix regressed real behavior" was the actual work.
+test writing to a `.json` path — tolerated when the extension was
+ignored, rejected once it became meaningful. Distinguishing "fixture
+encoded the old contract" from "fix regressed real behavior" was the
+actual work.
 
 **Bare-tag substring needles broke when headings gained attributes**
-(#622, `8f9b35b5`). Tests across the workspace matched `<h2>X</h2>`
-literally; adding `id=` attributes falsified every needle. The negative
-assertions were the treacherous ones: a "table omitted" caption embeds
-the same title after a `>`, so an over-broad replacement needle still
-matched — each had to become a text-plus-close (`>X</h2>`) match chosen
-per assertion.
+(#622, `8f9b35b5`). Tests matched `<h2>X</h2>` literally; adding `id=`
+falsified every needle. The *negative* assertions were treacherous: a
+"table omitted" caption embeds the same title after a `>`, so an
+over-broad replacement still matched — each had to become a
+text-plus-close (`>X</h2>`) match chosen per assertion.
 
-**A book recipe shipped hard-failing — and the first sweep under-swept**
+**A book recipe shipped hard-failing, and the first sweep under-swept**
 (#601, `c2b89e73`, `b8c060f8`). The `-I`/`-X` arity change turned the
-space-separated multi-value spelling into a usage error. The recipe page
-used that spelling twice *and* carried a prose note describing the old
-greedy behavior; the first review sweep fixed one code block and missed
-the second plus the prose, which survived until a later wave re-grepped
-for the invocation shape (`--include "a" "b"`) instead of the flag name.
-
-**Lesson:** Changing a contract obligates a workspace-wide sweep for
-everything that encodes the old one *incidentally*: grep for the old
-literal values (`.code(2)`), the old shapes (`<h2>` without attributes,
-multi-value flag spellings, old file-extension assumptions), and run the
-full workspace suite — downstream crates and doc pages pin contracts the
-narrow run never exercises. Expect the first sweep to miss instances:
-after each fix, re-grep with a pattern derived from what you just fixed,
-not from the original symbol name.
+space-separated spelling into a usage error. The recipe page used it
+twice *and* carried prose describing the old greedy behavior; the first
+review sweep fixed one code block and missed the second plus the prose,
+which survived until a later wave re-grepped for the invocation *shape*
+(`--include "a" "b"`) rather than the flag name.
 
 ---
 
-## 73. A filter that silently matches nothing is load-bearing — fixing it re-decides every consumer
+## 73. A filter that silently matches nothing is load-bearing
 
-A pattern or predicate that silently matches nothing does not just
-fail its own feature: the surrounding system equilibrates around the
-bug. Other consumers of the shared mechanism, the test suite, and
-even the project's own config come to depend on the non-matching.
-Fixing the match un-masks all of it at once, and the fallout
+**Lesson:** Before fixing a predicate or pattern that silently matched
+nothing, enumerate every consumer of the shared mechanism and ask what
+each consumer's behaviour *becomes* once the match starts working — the
+answer may be a design decision to surface, not a mechanical fix. When
+tests fail after such a fix, bisect against the pre-fix binary before
+blaming the environment, and treat "this test only passed because of the
+bug" as an expected finding.
+
+The surrounding system equilibrates around the bug. Other consumers, the
+test suite, and even the project's own config come to depend on the
+non-matching, so fixing it un-masks all of them at once and the fallout
 presents as unrelated failures far from the changed line.
 
 **The bare-relative glob fix changed explicit-file-seed semantics**
-(#726, `1a2c5f29`). `mk_globset` compiles one globset consumed by
-two sites: the directory-walk filter (matching `./`-anchored
-walk-root paths) and the explicit-file-seed filter (matching the
-seed as spelled). Stripping the leading `./` so `dir/**` finally
-worked for walks also made the repo's own `.bcaignore`
-(`./**/tests/**`) match the absolute fixture path `cli_smoke` names
-directly via `--paths` — seven tests went red with "0 files
-matched". Those tests had passed only because the bug kept
-`./`-anchored patterns from matching anything; the fix forced a
-genuine design decision the bug had been hiding (explicit file
-seeds now bypass the exclude deny-set, the ripgrep/fd convention
-that an explicitly named path overrides ignore rules).
+(#726, `1a2c5f29`). `mk_globset` compiles one globset consumed by two
+sites: the directory-walk filter (matching `./`-anchored paths) and the
+explicit-file-seed filter (matching the seed as spelled). Stripping the
+leading `./` so `dir/**` finally worked for walks also made the repo's
+own `.bcaignore` (`./**/tests/**`) match the absolute fixture path
+`cli_smoke` names via `--paths` — seven tests went red with "0 files
+matched". Those tests had passed only because the bug kept `./`-anchored
+patterns from matching anything, and the fix forced a genuine design
+decision the bug had been hiding: explicit file seeds now bypass the
+exclude deny-set, following the ripgrep/fd convention.
 
-**Two overlapping causes made the failures look environmental**
-(#726). The first failure in the fresh worktree *was* environmental
-— uninitialized submodules ("path does not exist"). After
-`git submodule update --init`, the same seven tests still failed,
-now with "0 files matched": a second, distinct cause behind the
-same test names. The misattribution was only broken by bisecting
-against the pre-fix binary: stash the fix, rebuild, re-run the
-exact failing command, restore. The clean binary analyzed the file;
-the fixed one refused — proof the fix, not the environment, changed
-behavior.
-
-**Lesson:** Before fixing a predicate or pattern that silently
-matched nothing, enumerate every consumer of the shared mechanism
-(the globset, the checker predicate, the dispatch arm) and ask what
-each consumer's behavior becomes once the match starts working —
-the answer may be a design decision to surface, not a mechanical
-fix. When tests fail after such a fix, bisect against the pre-fix
-binary before blaming the environment, and treat "this test only
-passed because of the bug" as an expected finding, not a surprise.
+**Two overlapping causes made the failures look environmental** (#726).
+The first failure in the fresh worktree *was* environmental —
+uninitialized submodules. After `git submodule update --init`, the same
+seven tests still failed, now with "0 files matched": a second, distinct
+cause behind the same test names. The misattribution broke only by
+bisecting against the pre-fix binary — stash the fix, rebuild, re-run the
+exact failing command, restore. The clean binary analyzed the file; the
+fixed one refused.
 
 ---
 
-## 74. A language that owns no file extension has no snapshot coverage — pin it with a cross-grammar parity test
-
-The integration-snapshot corpus only exercises a `LANG` variant when
-some file *routes* to it by extension. An opt-in dialect that owns
-**zero** extensions — selected only by name (`--language mozcpp`, a
-manifest, the API) — is therefore invisible to the entire submodule
-snapshot suite. Its per-language metric impls can regress and every
-gate stays green, because nothing feeds it a file. Per-language
-mirror impls (the `src/languages/` clones) make this acute: the
-extension-less variant is usually a clone of an extension-owning
-sibling, so a bug introduced while editing the family hits exactly
-the one impl no corpus covers.
-
-**The Mozcpp ABC arms were silently stripped while adding `LANG::C`,
-and `make pre-commit` passed green on the broken state** (#721; caught
-in review, fixed in `7c502af1`). `MozcppCode` is a deliberate clone of
-`CppCode` (the upstream-vs-fork split mirrors #507's JavaScript/Mozjs).
-A region-scoped bulk edit (`lines[start:start+220]` from
-`impl Abc for CCode`) overran into the **adjacent**
-`impl Abc for MozcppCode` block — the clone insertion order is `Cpp`,
-`CCode`, `Mozcpp`, so the window past the CCode block landed inside
-Mozcpp — and deleted its `AssignmentExpression2` / `NewExpression` /
-`<=>` / `try` / `catch` arms. The full gate passed on that broken
-state (the failure rode in an intermediate commit, later amended away):
-`Mozcpp` owns no extension, so no DeepSpeech file routes to it and no
-snapshot moved. Only an adversarial review that reasoned "Mozcpp and
-Cpp must agree on non-Gecko C++" caught it. The fix (`7c502af1`)
-restored the arms and added `tests/cpp_mozcpp_parity.rs`, which parses
-one C++ fixture (exercising `new` / compound-assign / `<=>` /
-`try`-`catch`) through both `LANG::Cpp` and `LANG::Mozcpp` and asserts
-identical metric sums; test-via-revert confirmed it fails when an arm
-is dropped.
+## 74. A language that owns no file extension has no snapshot coverage
 
 **Lesson:** When a `LANG` variant owns no file extension, the snapshot
-corpus cannot cover it — add a parity test that drives a shared input
-through the extension-less variant and its extension-owning sibling and
-asserts identical output. Treat any region-based bulk edit across the
-`src/languages/` mirror clones as dangerous: scope each edit to a single
-`impl` block (find the next top-level `impl `), because a clone inserted
-between two siblings makes a too-wide window silently corrupt its
-neighbour — in the one impl no corpus will catch.
+corpus cannot cover it — add a parity test driving a shared input through
+the extension-less variant and its extension-owning sibling and
+asserting identical output. And treat any region-based bulk edit across
+the `src/languages/` mirror clones as dangerous: scope each edit to a
+single `impl` block, because a clone inserted between two siblings makes
+a too-wide window silently corrupt its neighbour — in the one impl no
+corpus will catch.
+
+The integration corpus only exercises a variant when some file *routes*
+to it by extension. An opt-in dialect selected only by name
+(`--language mozcpp`, a manifest, the API) is invisible to the entire
+submodule suite; its metric impls can regress with every gate green.
+
+**The Mozcpp ABC arms were silently stripped while adding `LANG::C`, and
+`make pre-commit` passed green on the broken state** (#721; caught in
+review, fixed in `7c502af1`). `MozcppCode` is a deliberate clone of
+`CppCode` — the upstream-vs-fork split mirrors #507's JavaScript/Mozjs.
+A region-scoped bulk edit (`lines[start:start+220]` from
+`impl Abc for CCode`) overran into the **adjacent**
+`impl Abc for MozcppCode` — the clone insertion order is `Cpp`, `CCode`,
+`Mozcpp`, so the window past CCode landed inside Mozcpp — deleting its
+`AssignmentExpression2` / `NewExpression` / `<=>` / `try` / `catch` arms.
+The full gate passed on that state, because Mozcpp owns no extension, no
+DeepSpeech file routes to it, and no snapshot moved. Only an adversarial
+review reasoning "Mozcpp and Cpp must agree on non-Gecko C++" caught it.
+The fix added `tests/cpp_mozcpp_parity.rs`, verified by revert.
 
 ---
 
-## 75. A metric assertion that passes under the wrong grammar verifies nothing — pin the actual claim
+## 75. A metric assertion that passes under the wrong grammar verifies nothing
 
-A test that parses an input and asserts on derived metrics can exercise
-the right code path yet still verify nothing language-specific, because
-the *wrong* grammar produces the same numbers. tree-sitter error
-recovery is the trap: a grammar that ERROR-cascades on its input still
-builds a partial tree, and that tree often retains enough structure
-(the function node, the `return`s) for count-based metrics to match the
-clean parse exactly. The assertion then holds under both grammars and
-discriminates neither.
+**Lesson:** When a test's claim is "grammar X parses construct Y" — not
+"the metric value is N" — assert the property that actually
+distinguishes the grammars. For a clean-parse claim that is
+`!root.has_error()`, not a downstream count. Sanity-check the
+discriminating power by running the assertion against the grammar the
+test means to exclude: if it still passes, the test verifies the wrong
+thing.
+
+tree-sitter error recovery is the trap: a grammar that ERROR-cascades
+still builds a partial tree, and that tree often retains enough
+structure — the function node, the `return`s — for count-based metrics to
+match the clean parse exactly.
 
 **`c_keyword_identifiers_parse_and_returns_count` passed under the C++
 grammar it was meant to exclude** (#721, `7c502af1`). The test's whole
 purpose is the motivation for `LANG::C`: C code using C++ keywords
 (`new`, `class`, `delete`) as identifiers parses cleanly under
 `tree-sitter-c` where the C++ grammar ERROR-cascades. But it asserted
-only `functions_sum() == 1` and `nexits_sum() == 2` — and a probe showed
-`CppParser` yields the *same* `1` / `2` on that input despite the error
-cascade (it recovers a function and two `return`s anyway). The test
-would have passed even if `.c` had stayed routed to the C++ grammar,
-i.e. it did not pin the fix at all. The load-bearing assertion is
-`!parser.root().has_error()`, which only the C grammar satisfies;
-swapping in `CppParser` makes the strengthened test fail.
+only `functions_sum() == 1` and `nexits_sum() == 2`, and a probe showed
+`CppParser` yields the *same* values on that input despite the cascade —
+it recovers a function and two `return`s anyway. The test would have
+passed even if `.c` had stayed routed to the C++ grammar.
 
-**Lesson:** When a test's claim is "grammar X parses construct Y"
-(not "the metric value is N"), assert the property that actually
-distinguishes the grammars — for a clean-parse claim that is
-`!root.has_error()`, not a downstream count. Sanity-check the
-discriminating power by running the assertion against the grammar the
-test means to exclude: if it still passes, the test is verifying the
-wrong thing. (Related to lesson #33, which proves each assertion slot is
-exercised; this lesson is the complementary failure where the slot *is*
-exercised but the assertion does not depend on the behavior under test.)
+Complementary to lesson 33: there each assertion slot is proved
+exercised; here the slot *is* exercised but the assertion does not depend
+on the behaviour under test.
 
 ---
 
-## 76. Subtree pruning via `continue` only suppresses *accumulated* metrics, not span-derived ones
+## 76. *Merged into lesson 24*
 
 A traversal-level filter that skips a subtree with a bare `continue`
-in the walk loop silently elides only the metrics built up
-*node-by-node* during that walk — line sets (`ploc`/`cloc`/`lloc`),
-node counters (cyclomatic, Halstead). Any metric computed by a
-*different* mechanism — span subtraction, or a roll-up in `finalize` —
-never sees the skip and keeps its full-tree value. The result is an
-internally inconsistent metric block: some fields drop, siblings that
-should move with them do not, and anything *derived* from the stale
-field inherits the error.
-
-**`exclude_tests` pruning left unit-level `loc.sloc` at the full-file
-extent** (#722, `1f52b742`). `Checker::should_skip_subtree` (a
-`continue` gated on `MetricsOptions::exclude_tests`) correctly dropped
-`ploc`/`cloc`/`lloc` and the node-counted metrics for a pruned
-`#[cfg(test)]` subtree, but `sloc` for the file space is a pure span
-subtraction (`end_row - start_row` of the root node), so skipping
-children never moved it. A file reported `sloc 11757` next to
-`ploc 2451`; `blank` (computed as `sloc - ploc - comment_lines`)
-inflated by the elided rows; and `mi.*`'s `16.2·ln(SLOC)` term never
-benefited from the exclusion. The fix records each pruned subtree's
-inclusive row span on its enclosing space and subtracts it in
-`sloc()` — and had to move the `finalize` call *ahead* of the prune
-`continue` so `state_stack.last_mut()` is the pruned node's true
-enclosing space, not a sibling's still-open function/impl space.
-
-**Lesson:** When you add a traversal-level filter (a new language's
-`should_skip_subtree`, a "skip generated" hook) or a new metric, audit
-*every* metric against the filter, not just the ones that happen to
-accumulate during the walk. A `continue` is invisible to span-based and
-`finalize`-derived computations, and to any metric *derived* from those
-(here `blank` and `mi`). Either route every metric through the same
-node-accumulated path, or give each non-accumulated metric an explicit
-hook the filter calls (as `sloc` now gets `exclude_span`). Related to
-lesson #24 (per-metric gating must cover the finalize helpers, not just
-per-node compute) and #19 (a metric path that doesn't enumerate a
-construct scores it wrong silently) — all three are the same family:
-a cross-cutting traversal feature that some metrics opt into implicitly
-and others miss.
+suppresses only *accumulated* metrics; span-derived and
+`finalize`-derived values never see the skip. Kept as a sub-example of
+**[lesson 24](#24-a-cross-cutting-traversal-feature-must-reach-finalize-and-span-derived-metrics)**;
+this number is retained because existing citations reference it. See also
+lesson 83, which covers the other way `sloc` goes wrong.
 
 ---
 
 ## 77. Issue references in a `///` doc comment leak into `--help` and the man pages
 
-clap derives every subcommand, flag, and value-enum help string from the
-`///` doc comments on the corresponding type, and the checked-in man pages
-under `man/` are generated from those same clap definitions by `cargo
-xtask`. A `///` on a CLI type is therefore user-facing *twice*. An internal
-maintainer note left in one — an issue number, a `#NNN` cross-reference, a
-"see PR" aside — ships verbatim to end users in `bca <cmd> --help` and
-drifts the generated man pages away from the committed copies.
+**Lesson:** `AGENTS.md` carries this as an editing principle: issue and
+PR references go in `//` maintainer comments, never in a `///` doc
+comment on a clap type, and any edit to a clap help/about/value doc must
+be followed by `cargo xtask` with the regenerated `man/` pages in the
+same commit.
+
+A `///` on a CLI type is user-facing **twice**: clap derives every help
+string from it, and the checked-in man pages are generated from the same
+definitions.
 
 **A doc-accuracy fix leaked `(since #661)` into `bca metrics --help`**
-(#841). Reword­ing the `///` on the `MetricsFormat::Text` variant to
-correct a stale claim kept an issue reference in the doc text. clap surfaced
-it in `bca metrics --help` *and* `bca ops --help` (which share the format
-enum), and `man/bca-metrics.1` / `man/bca-ops.1` drifted because they are
-regenerated from the same definitions. The leak survived several waves of a
-batch fix: the two gates that catch it — the
-`help_text_carries_no_issue_references` integration test and the man-page
-drift check (`cargo xtask` + `git diff --exit-code -- man/`) — were both
-masked by an unrelated tooling mistake that suppressed the gate's real exit
-status. The fix moved the reference into the adjacent `//` maintainer
-comment and regenerated the man pages in the same commit.
-
-**Lesson:** Put issue/PR references in `//` maintainer comments, never in a
-`///` doc comment on a clap type (or any type whose docs render to a user).
-The `help_text_carries_no_issue_references` test pins this for the CLI —
-treat a failure as a real leak, not a test to relax. And because the man
-pages are generated from the same `///` text, any edit to a clap
-help/about/value doc — even a pure wording fix — must be followed by `cargo
-xtask` with the regenerated `man/` pages committed in the *same* change, or
-the man-page drift gate goes red on a clean checkout for everyone.
+(#841). Rewording the `///` on `MetricsFormat::Text` to correct a stale
+claim kept an issue reference in the doc text. clap surfaced it in `bca
+metrics --help` *and* `bca ops --help` (which share the format enum), and
+both man pages drifted. The leak survived several waves of a batch fix:
+the two gates that catch it — the
+`help_text_carries_no_issue_references` test and the man-page drift check
+— were both masked by an unrelated tooling mistake that suppressed the
+gate's real exit status.
 
 ---
 
-## 78. A metric's direction belongs in one predicate every gate and report shares
+## 78. *Merged into lesson 59*
 
-Most metrics are higher-is-worse, but a few are lower-is-worse: the
-Maintainability Index family (`mi.*`), where a *drop* is the regression.
-Whenever more than one surface independently decides "did this value get
-worse?", the implementations drift — and the lower-is-worse minority is
-exactly where they first disagree, silently, because the common
-higher-is-worse case still agrees and most tests only cover it.
-
-**`mi.*` was bucketed and classified as improved when it dropped**
-(#825, #827, #837). Three CLI surfaces each re-derived the direction
-comparison:
-`diff-baseline`'s worsened/improved bucketing (#825), the `baseline`
-`Covered` ratchet (#827), and `check`'s hard-breach escalation in
-`classify_check_outcome` (#837). All three handled higher-is-worse
-correctly and all three got `mi.*` backwards — an MI decrease (worse
-maintainability) was reported as an improvement, and `--worsened-only` /
-`--improved-only` selected the wrong rows. The bugs persisted because the
-tests never set `lower_is_worse`, so their vacuous coverage agreed with the
-inverted code. The fix routes all three through a single
-`thresholds::breaches_limit(value, limit, lower_is_worse)` predicate keyed
-on the central `metric_catalog::lower_is_worse` registry, and derives the
-baseline `Covered` arm as `!breaches_limit(…)` so the ratchet and the gate
-cannot disagree on direction.
-
-**Lesson:** Encode per-metric direction once (here
-`metric_catalog::lower_is_worse`) and make every consumer — the threshold
-gate, the baseline ratchet, diff bucketing, report ordering — call one
-shared comparison instead of re-implementing `value > limit`. When you add a
-metric, or any new surface that ranks or compares metric values, wire it to
-that predicate and add a test that exercises a *lower-is-worse* metric
-specifically: a test that only covers higher-is-worse metrics passes against
-inverted direction logic. Related to lesson #59 (a rule re-implemented in
-every place is a regression class — give it one home), here applied across
-CLI surfaces rather than language modules.
+Per-metric direction (`lower_is_worse` for the Maintainability Index
+family) belongs in one predicate every gate and report shares; three CLI
+surfaces re-derived it and all three got `mi.*` backwards. Kept as a
+sub-example of
+**[lesson 59](#59-a-rule-re-implemented-in-every-module-is-a-recurring-regression-class--give-it-one-home)**;
+this number is retained because existing citations reference it.
 
 ---
 
-## 79. Key the derived digest, not the pre-image, when a cache already stores the derived form
+## 79. Key the derived digest, not the pre-image
 
-When you add a keyed or salted transform to an identity that a
-content-addressed cache persists in *derived* (already-hashed) form, key the
-**derived** digest, not the original pre-image. A cache that kept only the
-post-transform value has discarded the pre-image, so a cache replay can only
-reproduce the new keyed output if the key folds over the value the cache
-actually retained. Keying the pre-image instead forces an ugly fork —
-invalidate or re-key the whole cache per key, or persist the plaintext
-pre-image on disk — whereas keying the stored digest makes the key a pure
-finalization-time transform that the cache neither sees nor pays for.
+**Lesson:** Before adding a key, salt, or per-run transform to an
+identity a cache materializes, ask *what does the cache actually store?*
+If it stores the derived digest, layer the new transform **outside** that
+digest so replay reconstructs the output from cached state, and keep the
+transform out of the cache's invalidation fingerprint — it is a
+finalization concern, not a walk concern. Keying the pre-image silently
+couples the cache key to the secret and forces either a re-walk on every
+key change or spilling the pre-image to disk.
 
 **Opt-in keyed author hashing had to harden published output without
-breaking the issue-#334 cache-replay invariant** (#956, `4493598a`).
+breaking the #334 cache-replay invariant** (#956, `4493598a`).
 `--emit-author-details` emits a SHA-256 of the canonical email, and the
-persistent VCS cache stores only that digest — never the plaintext email (a
+persistent VCS cache stores only that digest — never the plaintext (a
 `from_digest` identity *is* the digest). The obvious construction,
 `HMAC(key, email)`, cannot be reproduced from a cached walk: the email is
-gone, so replay would emit a different value and violate #334's
+gone, so replay would emit a different value and violate the
 bit-identical-replay contract. The shipped construction keys the *inner*
-digest — `HMAC-SHA256(key, hex(SHA-256(email)))`, the HMAC taken over the
-hex-encoded inner digest — applied at finalization over the exact value the
-cache retained. The author-hash key therefore stays out
-of the cache fingerprint (like `--emit-author-details` itself), a cached walk
+digest — `HMAC-SHA256(key, hex(SHA-256(email)))` — applied at
+finalization over the exact value the cache retained. A cached walk
 re-finalizes under any key with no re-walk, and
-`keyed_emit_survives_a_cache_round_trip` pins that a fresh identity and one
-rebuilt via `from_digest` emit the same keyed value. Security is unchanged:
-the secret key still defeats brute-force and precomputed-table attacks
-because the attacker must hold the key to compute the outer HMAC for any
-candidate — the public inner digest does not weaken it.
+`keyed_emit_survives_a_cache_round_trip` pins it. Security is unchanged:
+the attacker must hold the key to compute the outer HMAC for any
+candidate, so the public inner digest does not weaken it.
 
-**Lesson:** Before adding a key, salt, or any per-run transform to an
-identity a cache materializes, ask *what does the cache actually store?* If it
-stores the derived digest, layer the new transform **outside** that digest so
-replay reconstructs the output from cached state, and keep the transform out
-of the cache's invalidation fingerprint — it is a finalization concern, not a
-walk concern. Keying the pre-image silently couples the cache key to the
-secret and either re-walks on every key change or spills the pre-image to
-disk. Related to lesson #56 (a similarity hash must exclude the dimension it
-claims to be insensitive to): here the inner digest must *exclude* the key so
-the cache stays key-agnostic, while the outer digest *includes* it so the
-emitted value is hardened.
+Related to lesson 56: there the digest must *exclude* the dimension it
+tolerates; here the inner digest excludes the key so the cache stays
+key-agnostic while the outer includes it.
 
 ---
 
-## 80. An assertion that only runs at release time rots silently — mirror it into a per-PR test that actually discriminates
+## 80. An assertion that only runs at release time rots silently
 
-CI smoke / packaging checks that fire only on a rare trigger (a `v*` tag
-push, an opt-in PR label, a scheduled cron) are invisible to the per-PR
-`cargo test` / `pytest` suites and to any refactor that updates the real
-API. A breaking change lands, its per-PR tests stay green, and the
-rarely-run assertion silently rots until the trigger finally fires — at
-which point it blocks the very release it was meant to protect. Mirroring
-the invariant into the per-PR suite closes the gap only if the mirror
-actually *discriminates* the regression: a test that coerces both the old
-and the new representation to a common type guards nothing.
+**Lesson:** A check that runs only on a rare trigger is **not** a per-PR
+gate — treat its load-bearing assertions as untested until they are
+mirrored into the suite that runs on every PR, and extract
+embedded-in-YAML scripts so they are lintable and locally runnable
+(`make smoke`). The mirror counts only if it *discriminates*: when an
+invariant is about a value's **representation** (integer vs float, one
+error type vs another), assert the property that distinguishes them and
+prove the discriminating power with a negative control.
+
+Siting an assertion *only* on the rare trigger is legitimate but narrow.
+It holds when the per-PR environment cannot produce the measurement
+honestly — a wall clock on a shared runner — and then only if every
+mechanical part of the guard is mirrored per-PR and the rare gate fails
+fast rather than hanging. Audit such a gate for **direction of
+degradation**: apparatus that emits numbers rather than verdicts tends to
+report a truncated or empty measurement as an excellent one, so every
+partial-measurement path needs its own explicit verdict rather than a
+derived statistic.
 
 **Three `v2.0.0` smoke assertions rotted between rc1 and the stable tag**
-(#995, `6e23d46e`; hot-fixed in `c53e504b`). The wheel / release workflows
-(`python-wheels.yml`, `python-cli-wheels.yml`, `release.yml`) only run their
-build / smoke matrices on a `v*` tag or an opt-in label, and the assertions
-lived as inline shell / Python heredocs inside the workflow YAML — invisible
-to `cargo test` / `pytest`. So the #530 integer-serialization change
-(`cyclomatic.sum` now emits `3`, not `3.0`) and the #614
-`AnalysisError` → `AnalysisFailure` rename left the smokes asserting the
-pre-2.0 strings; both stayed green on every PR and only failed when the
-`v2.0.0` tag forced the matrix to run, blocking publication (recovery needed
-a force-moved tag + `gh run rerun --failed`). The fix extracts the smokes
-into checked-in, lint-gated `scripts/smoke/*` referenced by the workflows,
-mirrors the invariants into per-PR tests, and adds a path-filtered
-`smoke-dryrun.yml` that runs those scripts against a cheap dev build whenever
-the plumbing changes.
+(#995, `6e23d46e`; hot-fixed in `c53e504b`). The wheel and release
+workflows only run their matrices on a `v*` tag or an opt-in label, and
+the assertions lived as inline shell/Python heredocs inside the workflow
+YAML — invisible to `cargo test` and `pytest`. So the #530
+integer-serialization change (`cyclomatic.sum` now emits `3`, not `3.0`)
+and the #614 `AnalysisError` → `AnalysisFailure` rename left the smokes
+asserting pre-2.0 strings; both stayed green on every PR and failed only
+when the tag forced the matrix to run, blocking publication. The fix
+extracts the smokes into checked-in `scripts/smoke/*`, mirrors the
+invariants into per-PR tests, and adds a path-filtered `smoke-dryrun.yml`.
 
 **The per-PR test that should have caught #530 coerced the regression
 away** (#995). `format_smoke.rs` already round-tripped `cyclomatic.sum`
 across JSON / YAML / TOML / CBOR — but every extractor read the value via
-`as_f64()`, which yields `3.0` for both the integer `3` and the float `3.0`.
-The round-trip passed identically before and after #530, so it could never
-have flagged a `u64` → `f64` wire regression. The discriminating check is
-`serde_json::Value::is_u64()` (true for `3`, false for `3.0`), now pinned in
-`cli_metrics_json_serializes_integer_metrics_as_integers` with
-`halstead.volume` (genuinely fractional) as a negative control proving the
-assertion distinguishes integers from floats rather than passing vacuously.
+`as_f64()`, which yields `3.0` for both the integer `3` and the float
+`3.0`. The round-trip passed identically before and after, so it could
+never have flagged a `u64` → `f64` wire regression. The discriminating
+check is `serde_json::Value::is_u64()`, now pinned with
+`halstead.volume` as a negative control proving the assertion
+distinguishes integers from floats.
 
-**Moving an assertion onto a rare trigger, and what had to be true
-first** (#1068, `0eeb6fe0` / `93c23cd4`). The converse case. The
-`cognitive` and `tokens` deep-nesting tests carried wall-clock
-assertions in the per-PR suite, and those assertions produced a *false
-failure* in four environments: `windows-latest` against an absolute
-8 s budget (10.9 s), a local `make pre-commit` running clippy and
-rustdoc alongside the suite (5.6x), the same host under load (3.9x),
-and `cargo llvm-cov`, whose instrumentation skewed even a
-best-of-three ratio to 3.5x. The `coverage` job runs in CI, so the
-assertion redded the build on a measurement artefact. A shared runner
-cannot produce an honest wall clock, so mirroring harder was not
-available; #1068 moved the timing half out to a quarterly bench
-(`.github/workflows/benchmark.yml`) instead. Three things made that
-acceptable rather than a rot vector. Everything *mechanical* about
-the guard stayed per-PR as ordinary unit tests in
-`big-code-analysis-bench`: that each generated shape is affine in
-bytes, parses without error, and nests proportionally to its depth
-parameter; that each probe's metric produces a non-zero reading on
-its own shape; that the log-log fit recovers 1.0, 2.0 and 0.0 on
-synthetic data; that the argument parser gates only when `cargo
-bench` asked it to. Only the timing verdict — the one thing the
-per-PR environment cannot supply — lives on the rare trigger. Second,
-the rare gate fails fast: a probe whose single walk exceeds
-`MAX_CELL_WALK` is abandoned before its deeper cells are built, so a
-reintroduced quadratic walk (over two minutes at depth 2000 before
-the #1052 fix) is reported rather than left to run out the job
-timeout, which is the failure mode the wall-clock budgets existed for
-in the first place. Third — and this is what the first cut got wrong twice —
-measurement apparatus degrades toward a *flattering* number, not
-toward an error. `run` pushed each cell into the schedule and only
-then compared it against the budget, so the cell the budget had just
-rejected was still walked once per round; and `Report::failures`
-reported an abandoned probe by its fitted exponent, which is computed
-over the cells that finished and so printed `0.00 > 1.50` — a
-pass-shaped number for the worst regression the gate can see. Both
-were caught in review (`93c23cd4`), not by a failing test, because
-neither produced a failure to catch.
-
-**Lesson:** A check that runs only on a rare trigger is not a per-PR gate —
-treat its load-bearing assertions as *untested* until they are mirrored into
-the suite that runs on every PR, and extract embedded-in-YAML scripts so they
-are lintable and locally runnable (`make smoke`). Deliberately siting an
-assertion *only* on the rare trigger is legitimate but narrow: it holds when
-the per-PR environment cannot produce the measurement honestly (a wall clock
-on a shared runner), and then only if every mechanical part of the guard is
-mirrored per-PR and the rare gate fails fast instead of hanging. Audit such a
-gate for direction of degradation — apparatus that emits numbers rather than
-verdicts tends to report a truncated or empty measurement as an excellent
-one, so every partial-measurement path needs its own explicit verdict rather
-than a derived statistic. The mirror counts only if it discriminates the
-regression: when an invariant is about a value's
-*representation* (integer vs float, one error type vs another), assert the
-property that distinguishes them and prove the discriminating power with a
-negative control — coercing both sides to a common type guards nothing.
-Related to lesson #15 (code outside the workspace-scoped gates drifts
-silently; here it is assertions outside the per-PR-scoped gates) and to
-lesson #75 (an assertion that passes under the wrong condition verifies
-nothing; here the masking mechanism is type coercion, not grammar
-error-recovery).
+**The converse: moving an assertion onto a rare trigger, and what had to
+be true first** (#1068, `0eeb6fe0` / `93c23cd4`). The `cognitive` and
+`tokens` deep-nesting tests carried wall-clock assertions per-PR, and
+those produced a *false failure* in four environments: `windows-latest`
+against an absolute 8 s budget (10.9 s), a local `make pre-commit`
+running clippy alongside the suite (5.6x), the same host under load
+(3.9x), and `cargo llvm-cov`, whose instrumentation skewed even a
+best-of-three ratio to 3.5x. Since the `coverage` job runs in CI, the
+assertion redded the build on a measurement artefact, and a shared runner
+cannot produce an honest wall clock — so #1068 moved the timing half to a
+quarterly bench. Three things made that acceptable rather than a rot
+vector. Everything *mechanical* stayed per-PR as ordinary unit tests:
+that each generated shape is affine in bytes, parses without error, and
+nests proportionally to its depth parameter; that each probe's metric
+reads non-zero on its own shape; that the log-log fit recovers 1.0, 2.0
+and 0.0 on synthetic data. Second, the rare gate fails fast — a probe
+exceeding `MAX_CELL_WALK` is abandoned before its deeper cells are built,
+so a reintroduced quadratic walk is *reported* rather than left to run
+out the job timeout. Third — what the first cut got wrong twice — the
+apparatus degraded toward a flattering number: `run` pushed each cell
+into the schedule before comparing it against the budget, so a rejected
+cell was still walked once per round; and `Report::failures` reported an
+abandoned probe by its fitted exponent, computed over the cells that
+finished, printing `0.00 > 1.50` — a pass-shaped number for the worst
+regression the gate can see. Both were caught in review, not by a failing
+test, because neither produced a failure to catch.
 
 ---
 
 ## 81. De-recursing a traversal does not de-recurse the type it walks
 
-Converting every walk over a tree to an explicit work stack leaves three
-recursions untouched, because they are generated rather than written: the
-`From`/`map` projection that rebuilds the tree in another shape, the
-derived `Serialize`, and the compiler-generated `Drop` glue. None of them
-turns up in a traversal audit — there is no `fn walk(...)` to grep for —
-and each still costs one native stack frame per nesting level. The
-failure mode is worse than an ordinary bug: a stack overflow raises
-`SIGABRT`, not a catchable panic, so a `catch_unwind` / `spawn_blocking`
-harness that contains every other failure cannot contain this one. The
-process dies, taking every in-flight request with it.
+**Lesson:** After de-recursing the walks over a recursive type, audit the
+**type**: the projection that rebuilds it, every derived `Serialize`, and
+the `Drop` glue — and record that `Clone`, `PartialEq`, and `Debug`
+recurse for the same reason whether or not a current path reaches them.
+Exercise each stage separately on a bounded stack (lesson 47 covers how
+to bound it), because a fixture that clears one stage by 10x may clear
+the next by 0.5x. Where the recursion is inside a generated `Serialize`,
+**bound the depth and return an error** rather than assuming the
+walk-side fix reached it: the overflow is a `SIGABRT`, not a catchable
+panic, so no `catch_unwind` / `spawn_blocking` layer above it will help —
+the process dies, taking every in-flight request with it.
+
+The three recursions survive a traversal audit because they are
+generated, not written: there is no `fn walk(...)` to grep for.
 
 **#700 / #709 de-recursed every walk and left the types recursive**
 (#1056, `93547880`). The three small-stack regression tests those issues
 left behind all passed, because all three exercise the *dump* walk and
-construct their fixtures by hand. Meanwhile `bca metrics -O json` on
-1 000 nested functions — 11 KB of source — aborted the process, and the
-`/ast` endpoint aborted on 80 KB of nested parentheses. Measured abort
-depths on a default 2 MiB thread, release / debug: the recursive
-`wire::FuncSpace::from` at ~900 / ~380, the derived `Serialize` at
-3 072 / 384 for the most expensive format (TOML), and the derived `Drop`
-between 32 768 and 65 536 / between 8 192 and 16 384. Nesting depth is
-caller-controlled in every supported language, and ~380 000 nested `fn`s
+build their fixtures by hand. Meanwhile `bca metrics -O json` on 1,000
+nested functions — 11 KB of source — aborted the process, and the `/ast`
+endpoint aborted on 80 KB of nested parentheses. Measured abort depths on
+a default 2 MiB thread, release / debug: `wire::FuncSpace::from` at ~900
+/ ~380, derived `Serialize` at 3,072 / 384 for TOML, derived `Drop`
+between 32,768 and 65,536 / 8,192 and 16,384. Nesting depth is
+caller-controlled in every supported language, and ~380,000 nested `fn`s
 fit inside `bca-web`'s 4 MiB body cap.
 
-**Per-level frame cost varies by an order of magnitude, so the stage
-that overflows first is rarely the one the symptom implicates** (#1056).
-The issue was filed against `Serialize`, and its own bisection supported
-that: `bca check`, which builds and drops the identical tree without
-serializing it, survived where `bca metrics -O json` aborted. But the
-delegating `Serialize` first materialises the entire wire projection, and
-*that* conversion was the overflow — ~2.3 KB per frame in release against
-the JSON serializer's ~170 bytes. The same issue wrote `Drop` off after a
-10 000-level chain survived; a cheap frame is not an iterative one, and it
-aborts at 16 000 in a debug build. Measure each stage in isolation before
-scoping the fix.
+**The stage that overflows first is rarely the one the symptom
+implicates** (#1056). The issue was filed against `Serialize`, and its
+own bisection supported that — `bca check`, which builds and drops the
+identical tree without serializing, survived where `bca metrics -O json`
+aborted. But the delegating `Serialize` first materialises the entire
+wire projection, and *that* conversion was the overflow: ~2.3 KB per
+frame in release against the JSON serializer's ~170 bytes. The same issue
+wrote `Drop` off after a 10,000-level chain survived; a cheap frame is
+not an iterative one, and it aborts at 16,000 in a debug build.
 
 **`Serialize` is the one that cannot be fixed, only bounded** (#1056).
-`serde` offers no iterative escape: `serialize_field` must run the child's
-`Serialize` to completion before it returns, so there is nowhere to put a
-work stack. `serde_json`'s `Deserializer` already solves this on the way
+`serde` offers no iterative escape — `serialize_field` must run the
+child's `Serialize` to completion before returning, so there is nowhere
+to put a work stack. `serde_json`'s `Deserializer` solves this on the way
 *in* with a 128-level recursion limit; `Serialize` has no equivalent, so
-the crate now supplies one (`wire::MAX_SPACE_SERIALIZE_DEPTH`,
-`MAX_AST_SERIALIZE_DEPTH`) and fails with an ordinary serializer error
-instead of an abort. `Drop` *can* be fixed outright, by hoisting
-descendants into one flat work list so each node is dropped only after its
-children have been moved out of it — at the cost of an `impl Drop`, which
-forbids moving fields out of the type by value (`E0509`) and is therefore
-a source-level SemVer break. Landing that break under a minor bump needed
-an explicit, documented exception in `STABILITY.md`.
-
-**Lesson:** After de-recursing the walks over a recursive type, audit the
-*type*: the projection that rebuilds it, every derived `Serialize`, and
-the `Drop` glue — and record that `Clone`, `PartialEq`, and `Debug`
-recurse for the same reason, whether or not any current path reaches
-them. Exercise each stage separately on a bounded stack (lesson #47,
-which covers how to bound it), because a fixture that clears one stage by
-10x may clear the next by 0.5x — and prefer letting the tree drop
-normally over `mem::forget`, so teardown is covered rather than stepped
-around. Where the recursion is inside a generated `Serialize`, bound the
-depth and return an error rather than assuming the walk-side fix reached
-it: the overflow is an abort, and no panic-catching layer above it will
-help.
+the crate supplies `wire::MAX_SPACE_SERIALIZE_DEPTH` and
+`MAX_AST_SERIALIZE_DEPTH` and fails with an ordinary serializer error.
+`Drop` *can* be fixed outright, by hoisting descendants into one flat
+work list — at the cost of an `impl Drop`, which forbids moving fields
+out by value (`E0509`) and is therefore a source-level SemVer break.
+Landing it under a minor bump needed an explicit exception in
+`STABILITY.md`.
 
 ---
 
 ## 82. When several predicates need an ancestor, propagate the chain, not a flag per predicate
 
-`tree_sitter` stores no parent pointer: `Node::parent` restarts at the
-root and descends, so it costs `O(depth)`. Any predicate in a walk that
-asks a node for an ancestor is therefore `O(depth)` per node and
-quadratic over a deeply nested file, however few steps it takes. The
-standard fix is to propagate state downward, since the walker visits
-parents before children — but *what* you propagate decides how far the
-fix generalises. Propagating a derived boolean works when one predicate
-owns the state. When several unrelated predicates each want a different
-ancestor fact, a flag apiece means one downward fold to design and one
-equivalence to verify per predicate, and the cost of adding the next one
-never falls. Propagating the chain itself costs one equivalence total,
-and every predicate keeps its original logic — only the source of the
-ancestor changes.
+**Lesson:** Before propagating a flag to kill an `O(depth)` ancestor
+lookup, **count the predicates that want ancestry**. One, and a flag is
+right. Several, and propagate the chain — then verify the one
+equivalence that matters (a known chain answers exactly what climbing
+answers) node-by-node against `Node::parent`, on a fixture per grammar
+family that actually consults an ancestor. Give the chain type an
+unknown/fallback variant so unconverted callers stay correct, and pin the
+walker's own bookkeeping with a debug-only assertion: a chain type that
+trusts `chain.last()` unvalidated turns a desynchronised walker into
+wrong answers rather than a failure, and a parity test written against a
+*replica* walker cannot see the real one drift.
+
+`tree_sitter` stores no parent pointer — `Node::parent` restarts at the
+root and descends — so any predicate asking a node for an ancestor is
+`O(depth)` per node and quadratic over a deeply nested file. The standard
+fix is to propagate state downward, since the walker visits parents
+first; *what* you propagate decides how far the fix generalises.
 
 **The same root cause was fixed three times before the general form
 appeared** (#1052, #1062, #1084). #1052 (`tokens`' per-leaf ancestor
 walk, filed as a DoS vector) and #1062 (`cognitive`'s
-`get_nesting_from_map`) each propagated a derived flag, which resolved
-those two call sites and left the pattern intact everywhere else. The
-benchmark harness added in #1068 then measured three more walks as
-quadratic — `Checker::is_else_if` (16 language impls consult an
-ancestor: 9 via `impl_is_else_if_parent_clause!`, 4 via
-`impl_is_else_if_prev_sibling!`, and hand-written ones in `go.rs`,
-`python.rs`, `php.rs`), `Node::count_specific_ancestors` (reached from
-`loc` in 8 languages, plus `checker.rs`'s JS `check_if_func`,
-`checker/python.rs`, `checker/php.rs`, `cognitive/python.rs`), and
-`elixir_is_inside_quote_block` — fitting `time ~ depth^k` at 1.97, 1.95
-and 2.01, against linear controls at 0.99–1.01 in the same run that
-isolate the parent lookup as the cause.
+`get_nesting_from_map`) each propagated a derived flag, resolving those
+two call sites and leaving the pattern intact everywhere else. The
+benchmark harness from #1068 then measured three more walks as quadratic
+— `Checker::is_else_if` (16 language impls consult an ancestor),
+`Node::count_specific_ancestors` (reached from `loc` in 8 languages plus
+four checker sites), and `elixir_is_inside_quote_block` — fitting
+`time ~ depth^k` at 1.97, 1.95 and 2.01 against linear controls at
+0.99–1.01 in the same run.
 
 **A chain type with an "unknown" variant makes the blast radius a
 choice** (#1084). `Ancestors` wraps either a known slice — where the
@@ -4351,356 +2932,238 @@ before it, so a predicate applied one level up stays as cheap as one
 applied to the node — or `unknown()`, which climbs with `Node::parent`
 for callers that reached a node some other way. Call sites that cannot
 supply a chain stay correct at the old cost, so the 64-file change
-stopped where its evidence did; the climbs left behind are enumerated
-in #1088 rather than blocking the fix — `increment_function_depth`
-alone would have added 19 more call sites, 18 of them in per-language
-modules and one in the JS-family macro body. The walker maintains the chain with
+stopped where its evidence did; the remaining climbs are enumerated
+in #1088 rather than blocking the fix. The walker maintains the chain with
 `truncate(depth)` on arrival and `push(node)` after the per-node
-computes, which is correct for a LIFO pre-order because every node
-popped between a parent and its child sits at a strictly greater depth.
-
-**Lesson:** Before propagating a flag to kill an `O(depth)` ancestor
-lookup, count the predicates that want ancestry. One, and a flag is
-right. Several, and propagate the chain — then verify the one
-equivalence that matters (a known chain answers exactly what climbing
-answers) node-by-node against `Node::parent`, on a fixture per grammar
-family that actually consults an ancestor. Give the chain type an
-unknown/fallback variant so unconverted callers stay correct, and pin
-the walker's own bookkeeping with a debug-only assertion: a chain type
-that trusts `chain.last()` unvalidated turns a desynchronised walker
-into wrong answers rather than a failure, and a parity test written
-against a replica walker cannot see the real one drift. Related to
-lesson #67 (compute-it-once is the wrong altitude when consumers do not
-share the transform's parameters) — the same question, asked about
-ancestry instead of about a shared transform.
+computes, correct for a LIFO pre-order because every node popped between
+a parent and its child sits at a strictly greater depth.
 
 ---
 
 ## 83. A categorical proxy for a positional property is wrong in both directions
 
-When a computation needs a positional fact about a span — does it end
-mid-line, does it start at a boundary — it is tempting to key on a
-category that usually correlates with it: "is this the root?", "is this
-the unit?", "is this a top-level item?". The correlation holds for the
-inputs on hand, so the proxy ships. It then fails twice: for members of
-the category where the property does not hold, and for non-members where
-it does. Both failures are silent, because the value stays a plausible
-number. Worse, the two errors have opposite sign, so an aggregate over
-mixed input can look untroubled while individual entries are wrong.
+**Lesson:** Ask what property the computation actually depends on and
+read *that*, even when a category is already in hand and agrees on every
+input you have. When replacing a proxy, check **both directions** before
+sizing the fix: a one-line `debug_assert` probe in the shared path, run
+over the whole suite (`cargo test --workspace 2>&1 | rg -o "PROBE \w+"`),
+enumerates which grammars really reach a supposedly-unreachable branch.
+Treat "this per-part value exceeds the whole" as a hard invariant worth
+asserting outright.
 
-**`Sloc` keyed its row count on `is_unit` instead of on the span's end
+Both failures are silent, because the value stays a plausible number,
+and they have **opposite sign** — so an aggregate over mixed input can
+look untroubled while individual entries are wrong.
+
+**`Sloc` keyed its row count on `is_unit` instead of the span's end
 column** (#1067). The unit branch computed `end - start` and every other
 span `end - start + 1`; both are proxies for "does the end position sit
-at column 0, meaning the final row contributes no characters?". The unit
+at column 0, so the final row contributes no characters?". The unit
 branch was correct only because a trailing newline pushes tree-sitter's
-root onto a phantom extra row — so source that stops mid-line lost its
-last row, a one-line unterminated file reported `sloc == 0`,
-`mi::inputs_are_empty` short-circuited all three MI formulas to `0.0`
-for a real file, and `cloc + ploc > sloc` for input as ordinary as
+root onto a phantom extra row — so source stopping mid-line lost its last
+row, a one-line unterminated file reported `sloc == 0`,
+`mi::inputs_are_empty` short-circuited all three MI formulas to `0.0` for
+a real file, and `cloc + ploc > sloc` for input as ordinary as
 `b"fn f(){}\n/// x"`. The other direction was already in the repository
 and had never been questioned: tree-sitter-perl's `function_definition`
 swallows the newline after the closing brace of a file's last `sub`, so
-the unconditional `+ 1` credited a row that sub does not occupy. Two
-accepted snapshots recorded a per-function `sloc` **larger than the
-whole file's** — an impossible value, checked in and passing.
-tree-sitter-bash reaches the same shape for a function whose body ends
-in a compound statement.
+the unconditional `+ 1` credited a row that sub does not occupy. **Two
+accepted snapshots recorded a per-function `sloc` larger than the whole
+file's** — an impossible value, checked in and passing.
+tree-sitter-bash reaches the same shape.
 
-**The input class was unreachable from every in-tree harness, which is
-why it survived** (#1067, #1051). `check_func_space` trims trailing
-newlines and re-appends exactly one; the integration suites route
-through `read_file_with_eol`, whose `normalize_line_endings` ends with
-an unconditional `data.push(b'\n')`. A regression test written through
-either passes vacuously. Only `metrics_verbatim` / `space_verbatim`,
-which analyse byte-for-byte, can reach it — and the documented rustdoc
+The input class was unreachable from every in-tree harness, which is why
+it survived — see the normalisation map in
+[`testing.md`](../../.claude/rules/testing.md). The documented rustdoc
 example at `src/spaces.rs` was itself demonstrating the bug in the
 published docs.
-
-**Lesson:** Ask what property the computation actually depends on and
-read *that*, even when a category is already in hand and agrees on
-every input you have. When you replace a proxy, check both directions
-before sizing the fix: a one-line `debug_assert` probe inserted into
-the shared path and run over the whole suite (`cargo test --workspace
-2>&1 | rg -o "PROBE \w+"`) enumerates which grammars really reach a
-supposedly-unreachable branch, and here it turned a single-branch patch
-into a correct unified rule and found the Perl half. Treat "this
-per-part value exceeds the whole" as a hard invariant worth asserting
-outright — it was visible in checked-in snapshots for as long as the
-bug existed and nothing was looking. Related to lesson #76, which covers
-the other way `sloc` goes wrong: being span-derived, it misses
-traversal-level filters that the node-accumulated metrics honour.
 
 ---
 
 ## 84. A factual claim in prose is untested code
 
-Comments, doc comments, changelog entries, and configuration
-annotations routinely assert things about the code: this can panic,
-that option does not affect this metric, these bindings are unaffected,
-four call sites remain. No gate checks any of it. `cargo test` does not
-read prose, clippy does not evaluate it, and a reviewer's eye slides
-over a plausible sentence — especially a *rationale*, where the reader
-checks that the guard exists rather than that its stated reason is
-possible. So a false claim can sit for months, and the reader who
-believes it makes a decision on it.
-
-**Eight wrong claims in one batch, none caught by any gate**
-(#1059, #1066, #1067, #1084). `node_text`'s safety comment described a
-UTF-8 char-boundary panic that cannot occur for its `&[u8]` parameter —
-byte slicing has no such precondition — and cited hazard paths
-(incremental reparse, VCS per-function re-slice) this crate does not
-have (#1059). The fix for that issue shipped two *new* false claims of
-the same kind: that `get_func_space_name` returns `None` for a nameless
-node (it returns `Some("<anonymous>")`), and that `node_text` is
-reached only through that one default (26 call sites across 10 language
-modules, plus the default itself). `bca.toml`'s `exclude_tests` comment
-stated the option does not lower
-`loc.sloc`; measurement gave 779 with the manifest against 845 with
-`--no-config`, and #722 had made it do exactly that (#1066). A test's
-exclusion rationale claimed the no-op `Loc` grammars have every LOC
-sub-metric at 0; `sloc` is span-derived, so they drift like everything
-else (#1067). A changelog drift note said the Python bindings were
-unaffected, but `PyAst::parse` passes bytes to `Source::from_bytes`
-verbatim while only `analyze_source` calls `normalize_eol` — and
-described the per-function drift as Perl-only when Bash shares the
-shape (#1067). A benchmarking doc said four `Node::parent` climbs
-remained; the real figure was higher (#1084).
-
-**The cost is a wrong decision, not a wrong sentence** (#1066). The
-`bca.toml` comment was load-bearing: the file it annotates carries the
-`loc.sloc` cap that gates the build, and the issue's own words are that
-"anyone budgeting a file against the 800 cap from that comment will get
-it wrong."
-
-**Lesson:** Treat any sentence that states a checkable fact about the
-code as an assertion you owe evidence for, and get the evidence the
-same way you would for a test: read the parameter type, run the
-measurement both ways, enumerate the call sites with `rg`, verify the
-panic actually panics. It is cheap — each of the six above took under
-five minutes to settle — and the alternative is not "a slightly wrong
-comment" but a reader who trusts it. Be most suspicious of prose in a
-change that is *itself* fixing a wrong claim, and of counts ("four call
-sites", "13 languages"), which are correct when written and rot
-silently. When a claim is expensive to verify or cannot be pinned,
+**Lesson:** Treat any sentence stating a checkable fact about the code as
+an assertion you owe evidence for, and get it the same way you would for
+a test: read the parameter type, run the measurement both ways, enumerate
+the call sites with `rg`, verify the panic actually panics. Each of the
+eight below took under five minutes to settle. Be most suspicious of
+prose in a change that is *itself* fixing a wrong claim, and of counts
+("four call sites", "13 languages"), which are correct when written and
+rot silently. When a claim is expensive to verify or cannot be pinned,
 write what was measured and under which conditions rather than the
 generalisation it suggests.
 
+No gate checks any of it. `cargo test` does not read prose, clippy does
+not evaluate it, and a reviewer's eye slides over a plausible sentence —
+especially a *rationale*, where the reader checks that the guard exists
+rather than that its stated reason is possible.
+
+**Eight wrong claims in one batch** (#1059, #1066, #1067, #1084).
+`node_text`'s safety comment described a UTF-8 char-boundary panic that
+cannot occur for its `&[u8]` parameter — byte slicing has no such
+precondition — and cited hazard paths this crate does not have. The fix
+for that issue shipped two *new* false claims of the same kind: that
+`get_func_space_name` returns `None` for a nameless node (it returns
+`Some("<anonymous>")`), and that `node_text` is reached only through that
+one default (26 call sites across 10 language modules). `bca.toml`'s
+`exclude_tests` comment stated the option does not lower `loc.sloc`;
+measurement gave 779 with the manifest against 845 with `--no-config`,
+and #722 had made it do exactly that. A test's exclusion rationale
+claimed the no-op `Loc` grammars have every LOC sub-metric at 0 — `sloc`
+is span-derived, so they drift like everything else. A changelog note
+said the Python bindings were unaffected, but `PyAst::parse` passes bytes
+to `Source::from_bytes` verbatim while only `analyze_source` calls
+`normalize_eol`, and it described the per-function drift as Perl-only
+when Bash shares the shape. A benchmarking doc said four `Node::parent`
+climbs remained; the real figure was higher.
+
+**The cost is a wrong decision, not a wrong sentence** (#1066). The
+`bca.toml` comment was load-bearing: the file it annotates carries the
+`loc.sloc` cap that gates the build, and anyone budgeting a file against
+that cap from the comment would get it wrong.
+
 ---
 
-## 85. Coverage measures execution, not discrimination — a 100%-covered line can be wholly unguarded
+## 85. Coverage measures execution, not discrimination
 
-A coverage report answers "did any test run this line?" It does not
-answer "would any test notice if this line were wrong?" Those come
-apart whenever a line is reached by many tests that all supply the
-*same* value to the part that matters. The line is green, the
-percentage is satisfying, and substituting a wrong expression changes
-nothing observable. Coverage tooling cannot see this, because the
-distinction it would need — which inputs varied, not which lines ran —
-is not what it measures. So "that file is at 99%" is evidence about
-reachability and nearly none about protection, and it is most
-misleading exactly where it feels most reassuring: on a hot line that
-every test in the suite executes.
+**Lesson:** Never accept a coverage percentage as evidence a line is
+tested — it is evidence the line is *reached*. The full procedure, and
+the covered-count-not-percentage rule, are in
+[`testing.md`](../../.claude/rules/testing.md). The general shape is that
+**any scalar summary of a set** — coverage percent, test count, file
+count, snapshot count — can hold steady or improve while the set
+underneath it changes; compare the sets themselves whenever the
+comparison is the point.
 
 **A 100%-covered argument that no test ever varied** (#1105, PR #1128).
-`CommaIndex::splits` (`src/cfg_predicate.rs:128`) looks up each region's
+`CommaIndex::splits` (`src/cfg_predicate.rs`) looks up each region's
 splitting commas with
 `partition_point(|entry| *entry < (depth, region.start))`. Replace that
-`region.start` lower bound with `0` and the function panics on ordinary
-input such as `any(all(unix, test), all(windows, foo))`, slicing with an
+`region.start` bound with `0` and the function panics on ordinary input
+such as `any(all(unix, test), all(windows, foo))`, slicing with an
 inverted range — yet before this PR added rows covering that shape, the
-perturbation failed **no test at all**. Measured on the lib targets of
-the root, CLI, and web crates: 3,969 tests at the time, every one of
-them still green with the bound wrong. `splits` measured at **11 of 11
-regions covered**, entered 150,200 times in a single run; llvm-cov was
-not malfunctioning, it was answering the question it is asked. No test
-had two sibling `all(...)` regions at the same depth where the *earlier*
-one held a comma, so the bound was never the difference between right
-and wrong. The same perturbation now fails exactly one test
-(`cfg_predicate_classification_matches_pre_1105_walker`), which is the
-whole delta between "covered" and "guarded".
+perturbation failed **no test at all**: 3,969 tests, every one still
+green with the bound wrong. `splits` measured at 11 of 11 regions
+covered, entered 150,200 times in a single run. llvm-cov was not
+malfunctioning; it was answering the question it is asked. No test had
+two sibling `all(...)` regions at the same depth where the *earlier* one
+held a comma, so the bound was never the difference between right and
+wrong.
 
-**The file-level percentage was not even measuring one copy of the code**
-(PR #1128). Chasing the above, `cfg_predicate.rs` read 73.26% region
-coverage — apparently poor, and flatly inconsistent with the 100% on the
-function under review. Both numbers were right. The coverage data holds
-**five** instantiations of `big-code-analysis`, one per workspace crate
-that links it, and only one is ever executed: 25 function entries with a
-non-zero count against 44 at exactly zero, the latter inflating every
-denominator in the file. The same artifact made `spaces.rs` and
-`spaces/compute.rs` appear to lose coverage on this PR while their
-*covered* counts stayed byte-identical, and dragged the workspace figure
-from 86.01% to 85.99% in a change that covered 97 more regions than it
-started with. A percentage silently aggregated over copies of the code
-that never ran is not a measure of anything.
+**The file-level percentage was not measuring one copy of the code**
+(PR #1128). `cfg_predicate.rs` read 73.26% region coverage — apparently poor,
+and flatly inconsistent with the 100% on the function under review. Both
+numbers were right: the coverage data holds **five** instantiations of
+`big-code-analysis`, one per workspace crate that links it, and only one
+ever executes — 25 function entries with a non-zero count against 44 at
+exactly zero, inflating every denominator. The same artifact made
+`spaces.rs` appear to lose coverage while its *covered* count stayed
+byte-identical, and dragged the workspace figure from 86.01% to 85.99%
+in a change that covered 97 more regions than it started with.
 
-**A test *count* standing in for the test set** (#1120, PR #1128). The
-same substitution of a scalar for the property of interest, one layer up.
+**A test *count* standing in for the test set** (#1120, PR #1128).
 Switching `make test` to `cargo-nextest` had to preserve coverage, and
 two listings of the *same tree* gave 4,741 and 4,731 — which reads as ten
-tests dropped by the new runner until you notice nothing had changed but
-the listing convention: one includes `#[ignore]`d entries and the other
-omits them. Diffing the executed-test set, generated the same way on both
-sides, showed zero removed. A count is a hash of the thing you care
-about, and like any hash it collides.
+tests dropped until you notice one listing includes `#[ignore]`d entries
+and the other omits them. Diffing the executed-test set, generated the
+same way on both sides, showed zero removed.
 
 **The same shape in a different subsystem** (#1054, PR #1092). The dump
 walk's `prefix.truncate` calls each restore one nesting level's rail
-after a subtree is rendered. `cyclomatic.modified` is the only nested
-metric object, so `dump_object`'s per-field truncate is the only thing
-keeping the fields that *follow* a nested object on the right rail;
-removing it mis-indents `cyclomatic`'s trailing `sum` / `value` in every
-dump — a visible output defect, with **all 2,869 lib tests still
-passing** (the lib suite as it stood then). That gap was found the same way,
-by perturbing each of the six `truncate` lines in turn rather than by
-consulting a report; every one of them is now covered by a test that
-fails when that single line is removed.
+after a subtree renders. `cyclomatic.modified` is the only nested metric
+object, so `dump_object`'s per-field truncate is the only thing keeping
+the fields *following* a nested object on the right rail; removing it
+mis-indents `cyclomatic`'s trailing `sum` / `value` in every dump — a
+visible output defect, with all 2,869 lib tests still passing. Found by
+perturbing each of the six `truncate` lines in turn rather than by
+consulting a report.
 
-**Lesson:** Never accept a coverage percentage as evidence that a line
-is tested; it is evidence that the line is reached. To learn whether a
-line is *protected*, perturb it and watch the suite — and treat "the
-perturbation failed nothing" as a finding to act on, not a formality
-that passed. Prefer perturbing the specific sub-expression whose value
-carries the invariant (a bound, an offset, a comparison direction) over
-deleting the whole statement, which usually fails loudly for the wrong
-reason. The general shape is that any scalar summary of a set —
-coverage percent, test count, file count, snapshot count — can hold
-steady or improve while the set underneath it changes: compare the
-sets themselves whenever the comparison is the point. When the
-question is "did this change lose coverage", the comparable quantity
-is the *covered* count (`count - missed`) per file and in total, not
-the percentage, whose denominator moves for reasons that have nothing
-to do with the change; reconcile the per-file deltas against the total
-before believing either. Related to
-lesson #33, which covers per-slot revert granularity, and to
-`.claude/rules/testing.md`, which covers the perturbation technique;
-the distinct claim here is that the coverage tool actively reports a
-false all-clear on this class.
-
-**A second instance, cheaper to see: the metric a test is *named* for
-is the one it pins** (#1135, #1137). Every `Loc` implementation ends
-its match with a catch-all that inserts the row into PLOC, so a token
-the author never considered silently becomes a line of code. Tcl and
-iRules routed their row terminator through it and Perl routed the `#`
-inside its `comments` node through it, and both shipped: a realistic
-fourteen-row Tcl file reported `ploc 13` against a true `7`. The
-per-language guards that should have caught this are the `*_cloc`
-tests — and several of them, `irules_cloc` among them, assert `cloc`
-and `blank` and leave `ploc` unasserted. So the catch-all's own metric
-was precisely the one no test named, while `src/metrics/loc/tcl.rs`
-measured 95% line coverage carrying the bug. The generalising repair
-is the same shape as the one above: a sweep
-(`a_comment_row_is_never_counted_as_code`) that asserts *all four* LOC
-sub-metrics for every language and comment spelling, so no metric is
-left unpinned merely because it is not the one in the test's name. It
-found the Perl case immediately after being written for the Tcl one.
+**The metric a test is *named* for is the one it pins** (#1135, #1137).
+Every `Loc` implementation ends its match with a catch-all inserting the
+row into PLOC, so a token the author never considered silently becomes a
+line of code. Tcl and iRules routed their row terminator through it and
+Perl routed the `#` inside its `comments` node through it: a realistic
+fourteen-row Tcl file reported `ploc 13` against a true `7`. The guards
+that should have caught this are the `*_cloc` tests — and several,
+`irules_cloc` among them, assert `cloc` and `blank` and leave `ploc`
+unasserted. The catch-all's own metric was precisely the one no test
+named, while `src/metrics/loc/tcl.rs` measured 95% line coverage carrying
+the bug. The repair is a sweep
+(`a_comment_row_is_never_counted_as_code`) asserting *all four* LOC
+sub-metrics for every language and comment spelling; it found the Perl
+case immediately after being written for the Tcl one.
 
 ---
 
 ## 86. A test helper that normalizes the value under test blinds every caller at once
 
-Shared test support exists to make assertions terse, and the terseness
-usually comes from canonicalising: sort the collection, trim the
-whitespace, round the float, lowercase the key. Applied to the
-*expected* value that is fine — it lets a caller write its expectation in
-whatever order reads best. Applied to the *actual* value it silently
-stops testing a property, and stops testing it for every caller at once.
-Nothing in any individual test looks wrong; the assertion is
-still specific, still compares real data, still fails on a real
-regression in the dimensions that survive normalisation. The dimension
-that was normalised away simply stops being tested anywhere, and the
-larger the helper's caller list the more complete the blindness.
+**Lesson:** In a test helper, normalise the **expectation**, never the
+**observation** — the rule and the removal check are in
+[`testing.md`](../../.claude/rules/testing.md). Where a helper already
+normalises, remove the normalisation and count the failures: none means
+the dimension is untested, and a large number means you just recovered a
+guard across the whole caller list for free.
+
+Nothing in any individual test looks wrong. The assertion is still
+specific, still compares real data, still fails on a real regression in
+the dimensions that survive. The dimension normalised away simply stops
+being tested anywhere, and the larger the caller list the more complete
+the blindness.
 
 **`check_ops` sorted both sides, so eighteen per-language tests could not
 see a nondeterministic vocabulary** (#1091, PR #1093). The helper was
 introduced sorting `operators_str` and `operands_str` — the values
-returned by the code under test — alongside `correct_operators` and
-`correct_operands`. `Ops::operators` and `Ops::operands` were built from
-`HashMap` keys, and Rust's `RandomState` reseeds per map instance, so
-their order differed on every run and even between two parses in one
-process. The consequence reached users: `bca ops` printed byte-different
-output for an unchanged input on consecutive invocations, with the
-connector glyphs moving so that a different entry got the closing
-`` `- `` each time. Every one of the eighteen per-language callers parsed
-real source and compared real vocabularies, and not one of them could
-observe it. Note the order was *documented* as arbitrary, so the helper's
-sort was accommodating a sanctioned non-guarantee rather than hiding a
-stated contract — which is exactly why it survived: nothing was being
-violated, so nothing complained, and the property could never become a
-contract by accident. The fix sorts in production and removes only the
-actual-side sort from the helper, which turned those same eighteen
-callers into ordering regression tests for free. Reverting the production
-`sort_unstable` calls fails 20 of the 27 tests under `ops` and
-`output::dump_ops` as they stood then — the eighteen callers plus the two
-tests the fix added alongside them.
+returned by the code under test — alongside the expectations. `Ops`
+vocabularies were built from `HashMap` keys, and Rust's `RandomState`
+reseeds per map instance, so their order differed on every run and even
+between two parses in one process. The consequence reached users: `bca
+ops` printed byte-different output for an unchanged input on consecutive
+invocations, with the connector glyphs moving so a different entry got
+the closing `` `- `` each time. Every one of the eighteen callers parsed
+real source and compared real vocabularies, and not one could observe it.
 
-**Lesson:** In a test helper, normalise the expectation, never the
-observation. Before adding a `sort`, `trim`, `round`, or `to_lowercase`
-to a value that came back from the code under test, ask what property
-you are deleting and whether anything else asserts it — the answer is
-usually nothing, because the helper exists precisely so that callers do
-not restate shared properties. Where a helper already normalises, the
-cheap check is to remove the normalisation and see how many callers
-fail: none means the dimension is untested, and a large number means you
-have just recovered a guard across the whole caller list for free. This
-rhymes with lesson #23 rather than repeating it — there a
-compensation constant was added deliberately to make a known failure
-pass, here a canonicalisation was incidental and present from the
-helper's first commit. The consequences differ too: lesson #23's
-constant blinded a test to the bug it was written to catch, whereas a
-normalising helper blinds every caller to a property no test was aimed
-at — which is precisely why nobody misses it, and why the blindness
-scales with the caller list instead of stopping at one test.
+Note the order was *documented* as arbitrary, so the helper's sort
+accommodated a sanctioned non-guarantee rather than hiding a stated
+contract — which is exactly why it survived: nothing was being violated,
+so nothing complained, and the property could never become a contract by
+accident. The fix sorts in production and removes only the actual-side
+sort. Reverting the production `sort_unstable` calls fails 20 of the 27
+tests under `ops` and `output::dump_ops`.
 
 ---
 
 ## 87. An assertion can be correct and still be about the wrong rows
 
-When a test asserts over rendered output it first has to *select* what to
-assert on: filter the lines at some indent, find the entry with some
-prefix, search for a substring. The assertion then gets all the review
-attention, because that is where the claim lives. But the selector is
-what decides whether the claim is about the thing the test names, and a
-selector that matches the wrong rows — or no rows — produces a test that
-passes for reasons unrelated to its subject. Hierarchical text makes this
-sharper than it sounds: indentation-based output has rows that are
-prefixes and suffixes of each other, so an off-by-one in a column count,
-or a `contains` where a whole-line comparison was needed, lands on a real
-line and asserts something true about it.
+**Lesson:** Review the selector as carefully as the assertion, and treat
+"how many rows did this match" as part of the test — see
+[`testing.md`](../../.claude/rules/testing.md) for the assertion shapes.
+When a test's name states a property, check that the rows it selected are
+*capable of violating* that property; if they are not, the test is
+decoration regardless of how specific its assertion looks.
+
+Hierarchical text makes this sharper than it sounds: indentation-based
+output has rows that are prefixes and suffixes of each other, so an
+off-by-one in a column count, or a `contains` where a whole-line
+comparison was needed, lands on a real line and asserts something true
+about it.
 
 **A connector test that asserted about the `metrics` header instead of
 the metric groups** (#1054, PR #1092).
 `last_emitted_metric_group_uses_closing_connector` selected group lines
-with `line.starts_with("   |- ")` and `"   `- "` — three columns — while
-metric groups sit six columns in: three for the root space's own
-connector, three more for the `metrics` line's. The filter therefore
-matched exactly one line, the `metrics` header itself, and the assertion
-that the last match uses the closing `` `- `` was a true statement about
-that header. The test passed with **every metric group rendering a
-dangling `|-`**, which is the precise defect its name claims to prevent.
-The repair filters at six columns, asserts more than one group was found
-so the filter cannot silently empty, and checks every non-final group
-uses `|-` rather than only inspecting the last.
+with `line.starts_with("   |- ")` — three columns — while metric groups
+sit six columns in: three for the root space's own connector, three more
+for the `metrics` line's. The filter matched exactly one line, the
+`metrics` header itself, and the assertion that the last match uses the
+closing `` `- `` was a true statement about that header. The test passed
+with **every metric group rendering a dangling `|-`**, the precise defect
+its name claims to prevent. The repair filters at six columns, asserts
+more than one group was found so the filter cannot silently empty, and
+checks every non-final group.
 
-**Substring matching cannot work on rail-indented output** (#1054,
-PR #1092). The same fix records why `contains` is not an option here: a
-deeper rail *ends with* the shallower one, and labels like `sum` and
-`value` recur across several groups, so a substring search accepts
-exactly the mis-indentation under test. Whole-line sequence comparison is
-the only form that discriminates.
-
-**Lesson:** Review the selector as carefully as the assertion, and treat
-"how many rows did this match" as part of the test. Assert the match
-count is what you expect — `> 1` where several are required, an exact
-number where the shape is fixed — so a filter that matches nothing, or
-one row where it should match six, fails loudly instead of making the
-following assertion vacuously true. For indentation-structured output,
-prefer comparing whole lines or whole line sequences over `contains`,
-since prefix and suffix relationships between rails mean a substring
-search cannot distinguish a correct rail from a wrong one. And when a
-test's name states a property, check that the rows it selected are
-capable of violating that property; if they are not, the test is
-decoration regardless of how specific its assertion looks. Related to
-lesson #85, which covers a covered-but-unguarded line: there the value
-never varied, here the assertion never saw the rows that matter.
+**Substring matching cannot work on rail-indented output**
+(#1054, PR #1092). A deeper rail *ends with* the shallower one, and labels like
+`sum` and `value` recur across several groups, so a substring search
+accepts exactly the mis-indentation under test. Whole-line sequence
+comparison is the only form that discriminates.
 
 ---
