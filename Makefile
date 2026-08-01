@@ -602,7 +602,11 @@ self-scan-write-baseline-headroom:
 # over the default 12mo / 90d windows. Informational only — it never
 # gates (always exits 0). Path selection and the `.bcaignore` deny-set
 # come from the auto-discovered `bca.toml` manifest, exactly like
-# `make self-scan`, so the file universe matches the threshold gate.
+# `make self-scan`. The two file universes are close but not identical:
+# `.bcaignore` shapes what is *walked* and both commands honour it,
+# whereas `[check] exclude` shapes what is *gated* and only `check`
+# consults it — so the dev-tooling trees exempted there (#1146) are
+# ranked here and absent from the gate.
 # `BCA_VCS_TOP` overrides the row cap (default 40; 0 = all). This prints
 # the quick terminal table; for the styled, sortable page (published to
 # Pages by the `pages.yml` workflow, issue #573) run

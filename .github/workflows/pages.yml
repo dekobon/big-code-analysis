@@ -189,13 +189,19 @@ jobs:
       contents: read
       security-events: write
       actions: read
-    # The workspace-minus-vendored exclude list lives in `.bcaignore`
-    # at the repo root and is wired in via `exclude_from` in the
-    # auto-discovered `bca.toml` manifest, so the invocations below
-    # pick it up without an explicit `--exclude-from` flag. If you
+    # The walk deny-set — build output, vendored trees, prose, and the
+    # third-party corpora under `tests/repositories/` — lives in
+    # `.bcaignore` at the repo root and is wired in via `exclude_from`
+    # in the auto-discovered `bca.toml` manifest, so the invocations
+    # below pick it up without an explicit `--exclude-from` flag. If you
     # edit `.bcaignore`, also refresh `.bca-baseline.toml` in the same
     # commit — the baseline keys are sensitive to which files the
     # walker actually visits.
+    #
+    # The manifest's `[check] exclude` is a separate, gate-only list
+    # (#1146): the dev-tooling trees named there are walked, so they
+    # appear in the reports and hotspot tables published below, and are
+    # exempt only from the threshold gate step.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

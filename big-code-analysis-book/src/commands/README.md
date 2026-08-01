@@ -276,13 +276,52 @@ gets the same treatment as a fresh `git clone`.
 Hidden files (those whose basename starts with `.`) are filtered
 during the walk, matching the previous behavior.
 
-### Explicit paths bypass the filter
+### Explicit paths bypass the filter {#explicit-paths-bypass-the-filter}
 
-Files passed by name — via `--paths` or `--paths-from` — are always
-analyzed, even when they would be excluded by `.gitignore`. This makes
-it safe to do `bca metrics --paths-from -` from `git diff
---name-only`-style pipelines without losing files that happen to be
-covered by a wildcard ignore rule.
+Files passed by name — via `--paths`, `--paths-from`, or a trailing
+positional path — are always analyzed, even when the project's ignore
+rules cover them. This makes it safe to do `bca metrics --paths-from -`
+from `git diff --name-only`-style pipelines without losing files that
+happen to match a wildcard ignore rule.
+
+The override is deliberate, and it is the same rule `rg` and `fd`
+apply: a path you named is a direct request. It spans every deny-set
+the walk consults — `.gitignore` and friends, `-X` / `--exclude`,
+`--exclude-from`, a `.bcaignore`, and a manifest `exclude` list alike.
+`rg --glob '!x.txt' pattern x.txt` searches `x.txt` for exactly this
+reason.
+
+Two boundaries on it:
+
+- **`-I` / `--include` still applies.** The allow-list narrows *which*
+  named files are analyzed, so `bca metrics -I '*.rs' notes.md` analyzes
+  nothing. Only the deny-sets are overridden.
+- **`[check] exclude` still applies.** The gate-exemption set
+  (`--check-exclude` / `--check-exclude-from`, or `exclude` under
+  `[check]` in `bca.toml`) is not a walk filter — it drops *violations*,
+  not files — so it survives an explicit path and reports `bca: skipped
+  N violations via [check.exclude]` when it fires. One caveat while
+  [#1164](https://github.com/dekobon/big-code-analysis/issues/1164) is
+  open: for an explicitly named path those globs resolve against the
+  working directory rather than the manifest root, so run `bca` from the
+  directory holding `bca.toml` — which is what CI and the agent hooks
+  already do.
+
+That second point is the one to reach for. A walker exclude shapes what
+gets **analyzed**; a check exclude shapes what gets **gated**. Anything
+you want kept out of the threshold gate permanently — dev tooling,
+generated code you still want measured, a subtree under active
+rewrite — belongs in `[check] exclude`, because any caller that names
+paths one at a time bypasses the walker excludes by design. Per-file
+callers are not hypothetical: that is the shape the
+[agent feedback hooks](../recipes/agent-feedback.md) use on every edit.
+
+When an explicitly named path does override a walker exclude, `bca`
+says so on stderr and names the glob:
+
+```text
+bca: warning: utils/gate.py matches an exclude pattern (./utils/**) but was named explicitly; analyzing anyway
+```
 
 ### Path discovery flags
 
@@ -290,8 +329,10 @@ covered by a wildcard ignore rule.
   awareness when expanding directory seeds.
 - `--paths-from <FILE>` — read newline-separated input paths from
   `<FILE>`, or from stdin when `<FILE>` is `-`. Combined as a union
-  with any `--paths` values; `-I` / `-X` globs still apply. Blank
-  lines are skipped; `#` is treated as a path character (not a
+  with any `--paths` values. `-I` globs still apply; `-X` globs do not
+  reach an entry that names a file directly, per
+  [Explicit paths bypass the filter](#explicit-paths-bypass-the-filter).
+  Blank lines are skipped; `#` is treated as a path character (not a
   comment). To pass a file literally named `-`, write `./-`.
 - `--exclude-from <FILE>` — read newline-separated `--exclude` glob
   patterns from `<FILE>`, or from stdin when `<FILE>` is `-`.

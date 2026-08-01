@@ -98,31 +98,78 @@ pub(crate) fn write_output_or_stdout(output: Option<&Path>, verb: &str, bytes: &
 }
 
 pub(crate) fn mk_globset(elems: Vec<String>) -> Result<GlobSet, String> {
+    mk_globset_retaining(elems).map(|(set, _)| set)
+}
+
+/// [`mk_globset`] plus the subset of `elems` it actually compiled, in
+/// compile order, so a `GlobSet::matches` index names the pattern the
+/// user wrote. The skip below drops patterns, so the caller's original
+/// `Vec` is *not* index-aligned with the set — deriving the retained
+/// list anywhere but inside this loop would misattribute every pattern
+/// after the first dropped one.
+fn mk_globset_retaining(elems: Vec<String>) -> Result<(GlobSet, Vec<String>), String> {
     if elems.is_empty() {
-        return Ok(GlobSet::empty());
+        return Ok((GlobSet::empty(), Vec::new()));
     }
 
     let mut globset = GlobSetBuilder::new();
-    for e in &elems {
+    let mut retained = Vec::with_capacity(elems.len());
+    for e in elems {
         // Normalise the optional leading `./` so `dir/**` and `./dir/**`
         // compile to the same glob; the match-path side is stripped
         // symmetrically in `WalkFilters::passes` / the `[check.exclude]`
         // filter (#726). The emptiness skip runs *after* the strip so a
         // bare `./` (empty once normalised) is skipped like an empty
         // pattern instead of compiling an empty glob.
-        let pattern = walk_seed::strip_dot_slash(e);
+        let pattern = walk_seed::strip_dot_slash(&e);
         if pattern.is_empty() {
             continue;
         }
         globset
             .add(Glob::new(pattern).map_err(|err| format!("invalid glob pattern {e:?}: {err}"))?);
+        retained.push(e);
     }
-    globset
+    let set = globset
         .build()
-        .map_err(|err| format!("failed to build glob set: {err}"))
+        .map_err(|err| format!("failed to build glob set: {err}"))?;
+    Ok((set, retained))
 }
 
-/// Build an exclude [`GlobSet`] from inline `patterns` unioned with any
+/// An exclude deny-set paired with the source spelling of each pattern
+/// it was compiled from, so a match can be reported *by name* rather
+/// than as an anonymous "something excluded this".
+///
+/// The pairing comes from [`mk_globset_retaining`], which is the only
+/// place the compile-time pattern skip lives, so the two halves cannot
+/// drift out of index alignment.
+pub(crate) struct ExcludeGlobs {
+    set: GlobSet,
+    patterns: Vec<String>,
+}
+
+impl ExcludeGlobs {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.set.is_empty()
+    }
+
+    pub(crate) fn is_match(&self, path: impl AsRef<Path>) -> bool {
+        self.set.is_match(path)
+    }
+
+    /// The first configured pattern `path` matches, or `None`.
+    ///
+    /// One pattern rather than all of them: the caller reports an
+    /// override the user is expected to *act* on by moving the entry to
+    /// another surface, and naming the first offender is enough to find
+    /// the line. Enumerating every overlapping glob would lengthen the
+    /// line without changing the action.
+    pub(crate) fn first_match(&self, path: impl AsRef<Path>) -> Option<&str> {
+        let idx = *self.set.matches(path).first()?;
+        self.patterns.get(idx).map(String::as_str)
+    }
+}
+
+/// Build an [`ExcludeGlobs`] from inline `patterns` unioned with any
 /// read from the `from` file (`.gitignore`-style, `-` for stdin). Dies
 /// (exit 1) on a file-read or glob-compile error. Shared by the walker's
 /// `--exclude` / `--exclude-from` deny-set and `bca check`'s
@@ -135,11 +182,12 @@ pub(crate) fn build_exclude_globset(
     mut patterns: Vec<String>,
     from: Option<&Path>,
     flag: &str,
-) -> GlobSet {
+) -> ExcludeGlobs {
     if let Some(src) = from {
         patterns.extend(read_exclude_patterns_from(src, flag).unwrap_or_else(|e| die(e)));
     }
-    mk_globset(patterns).unwrap_or_else(|e| die(e))
+    let (set, patterns) = mk_globset_retaining(patterns).unwrap_or_else(|e| die(e));
+    ExcludeGlobs { set, patterns }
 }
 
 /// Group a resolved file list by basename into the

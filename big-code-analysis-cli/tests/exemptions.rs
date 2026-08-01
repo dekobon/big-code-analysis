@@ -42,7 +42,13 @@ fn marker_fixture() -> TempDir {
 
 fn run_json(dir: &TempDir, extra: &[&str]) -> Value {
     let assert = {
-        let mut cmd = cli();
+        // Anchor the cwd at the fixture, not the inherited repo root:
+        // manifest discovery climbs from the *cwd*, not from `--paths`,
+        // so the fixture's `.git` marker only halts discovery once the
+        // process is standing in it (#491). Left at the repo root, these
+        // runs unioned this repository's own `[check] exclude` globs
+        // into every `excludes` assertion below.
+        let mut cmd = common::cli_in(dir.path());
         cmd.args([
             "exemptions",
             "--paths",

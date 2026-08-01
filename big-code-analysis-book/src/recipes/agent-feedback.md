@@ -21,7 +21,9 @@ an agent everything it needs:
   too complex?" without parsing anything.
 - Baseline filtering, in-source suppression markers, and
   `[check.exclude]` globs, so the signal an agent sees is the same
-  ratcheted signal a human sees.
+  ratcheted signal a human sees — provided the project's exclusions
+  live under [`[check]`](#put-the-hooks-exclusions-under-check) rather
+  than in a walker deny-set.
 
 What was missing is the wiring. This page is that wiring: a
 copy-pasteable feedback loop per tool, plus the agent-facing guidance
@@ -67,6 +69,47 @@ With a `bca.toml` at the repo root (see
 the `--threshold` flags are unnecessary — a bare
 `bca check <file>` reads the committed limits, baseline, and excludes,
 so the agent loop gates on exactly what CI gates on.
+
+### Put the hook's exclusions under `[check]` {#put-the-hooks-exclusions-under-check}
+
+One thing does *not* carry over from the CI invocation, and it will
+produce false positives if you skip it. A hook names one file per run,
+and [an explicitly named path overrides every walker
+exclude](../commands/README.md#explicit-paths-bypass-the-filter) — the
+`rg` convention that a path you named is a direct request. So a file
+your project keeps out of scope with `-X`, `--exclude-from`, a
+`.bcaignore`, or a manifest `exclude` list is nonetheless analyzed the
+moment the hook passes it by name, and reported as an offender under an
+`exit 2` that frames it as a problem to address.
+
+Walker excludes shape what gets **analyzed**. Check excludes shape what
+gets **gated**. A per-file hook invocation only respects the second:
+
+```toml
+# bca.toml — survives an explicit path, so the hook sees what CI sees.
+[check]
+exclude = ["./utils/**", "./benches/**"]
+```
+
+`bca` warns on stderr whenever an explicitly named path overrides a
+walker exclude, naming the glob, so the miswiring is visible rather than
+silent:
+
+```text
+bca: warning: utils/gate.py matches an exclude pattern (./utils/**) but was named explicitly; analyzing anyway
+```
+
+Treat that line as a to-do: the entry it names wants moving to
+`[check] exclude`. This repository moved its own dev-tooling globs there
+for exactly this reason.
+
+One constraint on where the hook runs: while
+[#1164](https://github.com/dekobon/big-code-analysis/issues/1164) is
+open, a `[check] exclude` glob resolves against the *working directory*
+rather than the manifest root when the path is named explicitly. Both
+hooks below inherit the agent's working directory, which is the project
+root, so they are unaffected — but a hook that `cd`s into a subdirectory
+first would see its exemptions stop matching.
 
 ## Claude Code
 
