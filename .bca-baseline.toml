@@ -621,20 +621,6 @@ metric = "halstead.effort"
 value = 84039.86210807812
 
 [[entry]]
-path = "src/metrics/abc/c.rs"
-qualified = "CCode::compute"
-start_line = 17
-metric = "cyclomatic"
-value = 15.0
-
-[[entry]]
-path = "src/metrics/abc/cpp.rs"
-qualified = "CppCode::compute"
-start_line = 104
-metric = "cyclomatic"
-value = 15.0
-
-[[entry]]
 path = "src/metrics/abc/go.rs"
 qualified = "GoCode::compute"
 start_line = 94
@@ -654,27 +640,6 @@ qualified = "KotlinCode::compute"
 start_line = 156
 metric = "cyclomatic"
 value = 16.0
-
-[[entry]]
-path = "src/metrics/abc/mozcpp.rs"
-qualified = "MozcppCode::compute"
-start_line = 17
-metric = "cyclomatic"
-value = 15.0
-
-[[entry]]
-path = "src/metrics/abc/objc.rs"
-qualified = "ObjcCode::compute"
-start_line = 31
-metric = "cyclomatic"
-value = 16.0
-
-[[entry]]
-path = "src/metrics/abc/perl.rs"
-qualified = "PerlCode::compute"
-start_line = 199
-metric = "halstead.effort"
-value = 71163.29612014526
 
 [[entry]]
 path = "src/metrics/abc/perl.rs"

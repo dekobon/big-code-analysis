@@ -188,10 +188,14 @@ mod mozcpp_metrics {
             "abc assignments parity"
         );
         // Non-degenerate, and pins the divergent-id terminals are all
-        // counted: o->ready, arr[i], ns::enabled, run(), (bool)i = 5.
+        // counted: `o->ready` and `arr[i]` via the `&&` walker,
+        // `ns::enabled` and `run()` via the `||` walker, `(bool)i` as
+        // the ternary's condition operand (#1102), plus the ternary's
+        // own `?` token = 6. Before #1102 the `(bool)i` cast reached no
+        // walker at all and the total was 5.
         assert_eq!(
             cpp.metrics.abc.conditions_sum(),
-            5,
+            6,
             "fixture exercises all five divergent-id boolean terminals"
         );
     }
