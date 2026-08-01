@@ -176,11 +176,9 @@ pub(crate) fn compute_since_diff(
     let before_tree = tempfile::TempDir::new().map_err(io_to_diff_error)?;
     diff::materialize_tree(since_ref, before_tree.path()).unwrap_or_else(|reason| die(reason));
 
-    let before_json = tempfile::TempDir::new().map_err(io_to_diff_error)?;
     let before = crate::walk_metric_set(
         before_tree.path(),
         side_globals(globals, scope),
-        before_json.path(),
         DiffSide::Before,
     )?;
 
@@ -193,13 +191,7 @@ pub(crate) fn compute_since_diff(
     // so a subtree positional (`bca diff --since HEAD src`) selects the
     // same files on each side instead of mis-rooting the after walk.
     let after_root = diff::git_repo_root().unwrap_or_else(|reason| die(reason));
-    let after_json = tempfile::TempDir::new().map_err(io_to_diff_error)?;
-    let after = crate::walk_metric_set(
-        &after_root,
-        side_globals(globals, scope),
-        after_json.path(),
-        DiffSide::After,
-    )?;
+    let after = crate::walk_metric_set(&after_root, side_globals(globals, scope), DiffSide::After)?;
 
     Ok(crate::metric_diff::MetricDiff::from_sets(
         &before,

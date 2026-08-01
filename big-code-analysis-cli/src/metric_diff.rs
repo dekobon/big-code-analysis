@@ -91,6 +91,16 @@ pub(crate) enum DiffError {
         path: PathBuf,
         source: serde_json::Error,
     },
+    /// A `--since` walk produced a `FuncSpace` that would not serialize
+    /// to a JSON value (#1116). Unreachable in practice — the same
+    /// `Serialize` impl backs `bca metrics --format json`, and
+    /// `serde_json` renders even a non-finite float as `null` rather
+    /// than failing — but `to_value` is fallible and the project bans
+    /// `unwrap` outside tests.
+    Serialize {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
     /// A path component was not valid UTF-8, so it cannot serve as a
     /// stable pairing key. Identifier paths must round-trip losslessly
     /// (no `to_string_lossy`), so this is a hard error rather than a
@@ -115,6 +125,13 @@ impl std::fmt::Display for DiffError {
             }
             Self::Parse { path, source } => {
                 write!(f, "failed to parse JSON {}: {source}", path.display())
+            }
+            Self::Serialize { path, source } => {
+                write!(
+                    f,
+                    "failed to serialize metrics for {}: {source}",
+                    path.display()
+                )
             }
             Self::NonUtf8Path { path } => {
                 write!(f, "path is not valid UTF-8: {}", path.display())
@@ -583,6 +600,45 @@ pub(crate) fn load_dir_set(root: &Path) -> Result<MetricSet, DiffError> {
             || path_to_key(entry.strip_prefix(root).unwrap_or(&entry)),
             |name| Ok(name.to_string()),
         )?;
+        set.insert(key, extract_metrics(value));
+    }
+    Ok(set)
+}
+
+/// Build a [`MetricSet`] from the `FuncSpace` trees a `--since` walk
+/// streamed back, without a filesystem round-trip (#1116).
+///
+/// The in-memory twin of [`load_dir_set`], and deliberately keyed the
+/// same way: `serde_json::to_value` runs the identical `Serialize` impl
+/// the per-file JSON writer used, so the document this sees is the one
+/// that used to be written out and parsed back. Keys still come from the
+/// document's `name` field, falling back to the emitted path — which is
+/// what `name` is set from anyway, so the fallback only matters for a
+/// space that somehow carries none.
+///
+/// The old route wrote one JSON document per source file (each behind a
+/// `create_dir_all`), then re-walked the temp tree and re-parsed every
+/// document into a `Value`. Both sides of every `bca diff --since` paid
+/// that twice over while the trees were already in memory.
+pub(crate) fn set_from_spaces(
+    items: impl IntoIterator<Item = crate::AggregateItem>,
+) -> Result<MetricSet, DiffError> {
+    let mut set = MetricSet::new();
+    for item in items {
+        // `ops` never shares a walk with `metrics` — separate
+        // subcommands — and `--since` only ever runs the metrics action,
+        // so the `Ops` arm cannot occur here.
+        let crate::AggregateItem::Metrics(space, path) = item else {
+            continue;
+        };
+        let value = serde_json::to_value(&*space).map_err(|source| DiffError::Serialize {
+            path: path.clone(),
+            source,
+        })?;
+        let key = value
+            .get(NAME_KEY)
+            .and_then(Value::as_str)
+            .map_or_else(|| path_to_key(&path), |name| Ok(name.to_owned()))?;
         set.insert(key, extract_metrics(value));
     }
     Ok(set)

@@ -388,3 +388,100 @@ fn unreadable_inputs_error_names_the_side() {
         "rendered: {after}"
     );
 }
+
+// --- #1116: the in-memory set must equal the file round-trip --------
+
+/// `set_from_spaces` must produce exactly what `load_dir_set` produced
+/// from the same walk (#1116).
+///
+/// `bca diff --since` used to serialize every `FuncSpace` to a temp JSON
+/// tree and immediately parse it back. Dropping that round-trip is only
+/// safe if the two routes agree on *both* halves of every entry: the
+/// pairing key (the document's `name`, not the path the writer chose)
+/// and the `metrics` value (which must survive `f64` -> text -> `f64`
+/// unchanged — the workspace enables `serde_json`'s `float_roundtrip`
+/// precisely so it does).
+///
+/// The fixture is real parsed source, not a hand-built `Value`, so the
+/// comparison covers the actual `Serialize` impl and the actual float
+/// values a walk produces.
+#[test]
+fn set_from_spaces_matches_the_file_round_trip() {
+    use big_code_analysis::{Ast, LANG, MetricsOptions, Source};
+
+    // Branchy enough to give Halstead and MI irrational values, which
+    // are what a lossy float round-trip would corrupt.
+    const RUST: &str = r"
+pub fn classify(n: i32, m: i32) -> &'static str {
+    if n < 0 {
+        'neg'
+    } else if n == 0 && m > 3 {
+        'zero'
+    } else if n < m {
+        'small'
+    } else {
+        'large'
+    }
+}
+";
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let name = "./src/sample.rs";
+    let space = Ast::parse(
+        Source::new(LANG::Rust, RUST.replace('\'', "\"").as_bytes())
+            .with_name(Some(name.to_owned())),
+    )
+    .expect("fixture parses")
+    .metrics(MetricsOptions::default())
+    .expect("metrics");
+
+    // Route A: what the walk now does — straight from the in-memory tree.
+    let in_memory = set_from_spaces([crate::AggregateItem::Metrics(
+        Box::new(space.clone()),
+        PathBuf::from(name),
+    )])
+    .expect("in-memory set builds");
+
+    // Route B: what it used to do — write the per-file document, then
+    // re-walk and re-parse the directory.
+    let doc = dir.path().join("src");
+    std::fs::create_dir_all(&doc).expect("create output dir");
+    let file = doc.join("sample.rs.json");
+    serde_json::to_writer(
+        std::fs::File::create(&file).expect("create document"),
+        &space,
+    )
+    .expect("write document");
+    let round_tripped = load_dir_set(dir.path()).expect("directory set loads");
+
+    assert_eq!(
+        in_memory, round_tripped,
+        "in-memory set diverged from the JSON round-trip it replaced"
+    );
+    // Guard against the comparison passing because both sides are empty.
+    let metrics = in_memory.values().next().expect("one entry");
+    assert!(
+        metrics
+            .get("halstead")
+            .is_some_and(|h| h.get("volume").is_some()),
+        "fixture produced no halstead.volume; the equality above proves little: {metrics}"
+    );
+
+    // The key comes from the document's `name`, never from the streamed
+    // path. In a real `--since` walk the two coincide — the CWD is
+    // anchored at the side's root and the seeds are relative, so the
+    // emitted path *is* the name — which means swapping them is
+    // unobservable in the equality above. It is pinned separately here
+    // because `load_dir_set` reads `name` too, and that agreement is the
+    // entire reason the before side (a /tmp extraction) pairs with the
+    // after side (the working tree) despite different absolute roots.
+    let divergent = set_from_spaces([crate::AggregateItem::Metrics(
+        Box::new(space),
+        PathBuf::from("some/other/spelling.rs"),
+    )])
+    .expect("in-memory set builds");
+    assert_eq!(
+        divergent.keys().collect::<Vec<_>>(),
+        vec![name],
+        "the in-memory set must key on the document's `name`, not the streamed path"
+    );
+}
