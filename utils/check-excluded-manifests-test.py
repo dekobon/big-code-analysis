@@ -106,6 +106,64 @@ class MissingWorkspaceTableTest(unittest.TestCase):
             GATE.missing_workspace_table(["absent"], root)
 
 
+class UnpinnedGrammarDepsTest(unittest.TestCase):
+    def test_equals_pins_pass_in_both_spellings(self) -> None:
+        manifest = (
+            "[dependencies]\n"
+            'tree-sitter-language="=0.1.0"\n'
+            'tree-sitter-cpp = "=0.23.4"\n'
+            'tree-sitter-tcl = { package = "bca-tree-sitter-tcl", '
+            'path = "../tree-sitter-tcl", version = "=2.1.0" }\n'
+        )
+        self.assertEqual(GATE.unpinned_grammar_deps(manifest), [])
+
+    def test_caret_range_without_spaces_is_caught(self) -> None:
+        # The no-space spelling is the case that matters most: #1151's
+        # table missed four entries written exactly this way.
+        self.assertEqual(
+            GATE.unpinned_grammar_deps('tree-sitter-perl="1.1.2"\n'),
+            [("tree-sitter-perl", "1.1.2")],
+        )
+
+    def test_the_language_shim_is_exempt_from_pinning(self) -> None:
+        # `tree-sitter-language` must stay caret-ranged: `=0.1.0` makes
+        # the workspace unresolvable against `tree-sitter-irules`'
+        # `^0.1.7`, and an `=` pin on a shared shim in a *published*
+        # crate breaks downstream resolution (#1151).
+        for spelling in ('tree-sitter-language="0.1.0"', 'tree-sitter-language = "0.1.0"'):
+            with self.subTest(spelling=spelling):
+                self.assertEqual(GATE.unpinned_grammar_deps(spelling + "\n"), [])
+
+    def test_caret_range_with_spaces_is_caught(self) -> None:
+        self.assertEqual(
+            GATE.unpinned_grammar_deps('tree-sitter-cpp = "0.23.4"\n'),
+            [("tree-sitter-cpp", "0.23.4")],
+        )
+
+    def test_inline_table_without_a_pin_is_caught(self) -> None:
+        self.assertEqual(
+            GATE.unpinned_grammar_deps(
+                'tree-sitter-tcl = { path = "../x", version = "2.1.0" }\n'
+            ),
+            [("tree-sitter-tcl", "2.1.0")],
+        )
+
+    def test_non_grammar_dependencies_are_out_of_scope(self) -> None:
+        # The pinning rule is about grammars; `cc`, `clap` and `askama`
+        # deliberately float.
+        manifest = '[build-dependencies]\ncc = "^1.2"\nclap = "^4.0"\naskama = "^0.16"\n'
+        self.assertEqual(GATE.unpinned_grammar_deps(manifest), [])
+
+    def test_udeps_ignore_entry_is_not_a_dependency(self) -> None:
+        # `build = ["tree-sitter-cpp"]` under
+        # [package.metadata.cargo-udeps.ignore] names a grammar but is
+        # not a version requirement — matching it would be a false hit.
+        manifest = (
+            "[package.metadata.cargo-udeps.ignore]\nbuild = [\"tree-sitter-cpp\"]\n"
+        )
+        self.assertEqual(GATE.unpinned_grammar_deps(manifest), [])
+
+
 class RealRepositoryTest(unittest.TestCase):
     def test_clean_tree_passes(self) -> None:
         result = subprocess.run(

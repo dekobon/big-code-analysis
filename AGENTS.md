@@ -503,7 +503,18 @@ weigh them, do not drive them to zero at any cost.
 ## Tree-sitter grammars
 
 External grammar crates are version-pinned (`=0.23.5`, `=0.26.10`,
-etc.) in the root `Cargo.toml`. Treat the pinned version as fixed:
+etc.) in the root `Cargo.toml` **and in each vendored crate's own
+manifest** — `utils/check-excluded-manifests.py` enforces both, so a
+new vendored grammar cannot reintroduce a caret range (#1151).
+
+One deliberate exception: `tree-sitter-language`, the ecosystem's shared
+`LanguageFn` trait shim, is **not** a grammar and must stay caret-ranged.
+`=`-pinning it makes the workspace unresolvable (`tree-sitter-irules
+0.1.1` requires `^0.1.7`, and cargo unifies 0.1.x deps) and would break
+downstream consumers of the published `bca-tree-sitter-*` crates. The
+gate carries it in `PIN_EXEMPT_DEPS`.
+
+Treat the pinned version as fixed:
 
 - Do not loosen pins to a range without explicit user approval.
 - Bumping a grammar version is a deliberate, separate change — usually
