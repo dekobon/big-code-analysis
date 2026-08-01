@@ -35,6 +35,7 @@ mod common;
 #[cfg(unix)]
 mod unix {
     use std::fs;
+    use std::process::{Output, Stdio};
 
     use assert_cmd::Command;
     use predicates::prelude::*;
@@ -503,14 +504,14 @@ mod unix {
         subcommand: &str,
         extra: &[&str],
         source: &str,
-        stdout: std::process::Stdio,
-    ) -> std::process::Output {
+        stdout: Stdio,
+    ) -> Output {
         common::std_bca_command_in(dir.path())
             .arg(subcommand)
             .args(extra)
             .args(["--no-config", "--paths", source])
             .stdout(stdout)
-            .stderr(std::process::Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .expect("spawn bca")
             .wait_with_output()
@@ -564,13 +565,7 @@ mod unix {
         // Control: the same invocation against a writable stdout exits 0,
         // so the exit-1 above came from the write and not from a rejected
         // flag set or an unusable fixture.
-        let ok = run_with_stdout(
-            &dir,
-            subcommand,
-            extra,
-            &source,
-            std::process::Stdio::null(),
-        );
+        let ok = run_with_stdout(&dir, subcommand, extra, &source, Stdio::null());
         assert!(
             ok.status.success(),
             "`bca {subcommand}` must succeed with a writable stdout; stderr: {}",
@@ -648,8 +643,8 @@ mod unix {
 
         let mut child = common::std_bca_command_in(dir.path())
             .args(["dump", "--no-config", "--paths", &source])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .expect("spawn bca");
 

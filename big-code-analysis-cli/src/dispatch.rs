@@ -220,8 +220,7 @@ fn dispatch_dump(
     // which panics on a write error instead of returning one (#1132):
     // going through `?` routes a full disk into the walk's
     // `write_failures` tally and leaves `| head` a swallowed `BrokenPipe`.
-    let stdout = std::io::stdout();
-    let mut out = stdout.lock();
+    let mut out = std::io::stdout().lock();
     writeln!(out, "== {} ==", path.display())?;
     dump_node_with_color(
         ast.source(),
@@ -401,8 +400,7 @@ fn dispatch_find(
         // multi-file `find` output stays attributable. The stdout lock is
         // held across the banner, every match, and the trailing blank line
         // for the reason given in `dispatch_dump`.
-        let stdout = std::io::stdout();
-        let mut out = stdout.lock();
+        let mut out = std::io::stdout().lock();
         writeln!(out, "== {} ==", path.display())?;
         for node in &found {
             dump_node_with_color(
