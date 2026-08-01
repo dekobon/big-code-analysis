@@ -191,6 +191,10 @@ fn start_connector(node: &Node) -> Connector {
 /// which is inherent to the tree drawing.
 fn dump_tree_helper<'a>(state: &mut DumpState, node: &Node<'a>, depth: i32) -> std::io::Result<()> {
     let mut prefix = String::new();
+    // One cursor for the whole dump, not one per node: this visits every
+    // node in the file, and `Node::children` would build and free a
+    // `TreeCursor` at each (#1112, `Node::children_with`).
+    let mut cursor = node.cursor();
     let mut stack: Vec<Frame<'a>> = vec![Frame {
         node: *node,
         prefix_len: 0,
@@ -216,7 +220,7 @@ fn dump_tree_helper<'a>(state: &mut DumpState, node: &Node<'a>, depth: i32) -> s
         }
 
         // Leaves are roughly half the nodes and `child_count` is O(1),
-        // so check it before building a cursor for the child walk.
+        // so check it before reseating the cursor for the child walk.
         if frame.node.child_count() == 0 {
             continue;
         }
@@ -224,7 +228,7 @@ fn dump_tree_helper<'a>(state: &mut DumpState, node: &Node<'a>, depth: i32) -> s
         prefix.push_str(pref_child);
         push_children(
             &mut stack,
-            frame.node.children(),
+            frame.node.children_with(&mut cursor),
             prefix.len(),
             frame.depth - 1,
         );
@@ -481,6 +485,47 @@ mod tests {
             dump_tree_helper(&mut state, node, depth).expect("dump to in-memory sink");
         }
         sink.into_inner()
+    }
+
+    /// The renderer visits every node in the file, so it must hold one
+    /// cursor for the whole dump rather than build one per interior
+    /// node (#1112).
+    ///
+    /// This lives here, not beside the other `child_scan_cursors`
+    /// assertions in `node.rs`, because `dump_tree_helper` is private to
+    /// this module — which is exactly why the guard was missing until
+    /// the counter's accessor was widened to `pub(crate)`. Reverting
+    /// `children_with` to `children` here compiled clean and failed
+    /// nothing.
+    ///
+    /// The counter records in `Node::children`, the allocating form, so
+    /// a hoisted cursor records **zero** and a per-node one records once
+    /// per interior node. The exact zero is the discriminator; a
+    /// fraction-of-nodes bound would hold for either on a small fixture.
+    #[test]
+    fn dump_holds_one_cursor_for_the_whole_tree() {
+        let parser = CppParser::new(
+            b"int f(int a) { if (a) { return a + 1; } return 0; }\n".to_vec(),
+            &PathBuf::from("f.cpp"),
+            None,
+        );
+        let root = parser.root();
+        let nodes = root.preorder().count();
+        assert!(nodes > 20, "fixture is too small to prove much");
+
+        let before = crate::node::child_scan_cursors::observed();
+        let rendered = render_range(parser.code(), &root, -1, None, None);
+        let scans = crate::node::child_scan_cursors::observed() - before;
+
+        assert!(
+            rendered.contains("if_statement"),
+            "the fixture must actually render a tree"
+        );
+        assert_eq!(
+            scans, 0,
+            "the dump built {scans} cursors over {nodes} nodes; it holds one for \
+             the whole render (#1112)"
+        );
     }
 
     /// [`render_raw`] as text, for the (usual) UTF-8 case.

@@ -243,13 +243,19 @@ for historical reference.
   ~0.02 s. No shipped behaviour changes.
 - Traversals that enumerate every node's children reuse one
   `TreeCursor` instead of building and freeing one per node, through
-  the new internal `Node::children_with` (#1112). `Node::preorder`, the
-  suppression-marker DFS, and Python's instance-attribute scan in
-  `metrics::npa::python` were the only per-node consumers; the last was
-  92 % of the Python metric walk's child scans. Over 400 Python corpus
+  the new internal `Node::children_with` (#1112). The six per-node
+  consumers are `Node::preorder`, the suppression-marker DFS, the two
+  `Search` walks behind `bca find` and the function-space name lookup,
+  `bca dump`'s tree renderer, and Python's instance-attribute scan in
+  `metrics::npa::python` — the last being 92 % of the Python metric
+  walk's child scans. Over 400 Python corpus
   files that is 414,620 cursor allocations down to 33,328 (−92 %) and
   −2.4 % walk time. Other languages reach `children` on 3-6 % of nodes
-  (16 % for C#), where the effect is under 1 %. Metric values are
+  (16 % for C#), where the effect is under 1 %. The Python bindings'
+  mirror of that walk — `Node.walk()` and `Node.descendants_by_kind()` —
+  hoists a cursor the same way. Every one of the six is pinned by the
+  `child_scan_cursors` counter, so reverting one is a test failure
+  rather than a silent allocation per node. Metric values are
   unchanged.
 - Every file destination and terminal dump writes through an
   explicitly-flushed 64 KiB buffer, replacing the raw `File` and

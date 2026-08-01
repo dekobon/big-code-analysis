@@ -38,12 +38,16 @@
 /// drift apart.
 macro_rules! counter {
     ($name:ident) => {
-        mod $name {
+        pub(crate) mod $name {
             thread_local! {
                 static COUNT: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
             }
 
             /// Records one occurrence on this thread.
+            ///
+            /// `pub(super)` on purpose: only the module that owns the
+            /// counted path may bump it, so a counter cannot drift into
+            /// meaning "whatever any caller felt like recording".
             #[inline]
             pub(super) fn record() {
                 COUNT.with(|count| count.set(count.get() + 1));
@@ -51,8 +55,16 @@ macro_rules! counter {
 
             /// Occurrences recorded on this thread. Only this accessor
             /// is test-gated; see [`crate::observation`].
+            ///
+            /// `pub(crate)`, unlike [`record`], because the guarded path
+            /// and the test that guards it need not share a module. That
+            /// asymmetry is the point: `child_scan_cursors` counts a
+            /// cursor hoist in `node`, but `output::dump` is one of the
+            /// walks that has to hold one, and a counter only reachable
+            /// from its own module silently leaves such a caller
+            /// unguarded.
             #[cfg(test)]
-            pub(super) fn observed() -> usize {
+            pub(crate) fn observed() -> usize {
                 COUNT.with(::std::cell::Cell::get)
             }
         }

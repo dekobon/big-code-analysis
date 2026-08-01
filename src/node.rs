@@ -38,10 +38,17 @@ crate::observation::counter!(node_resolved_sibling_lookups);
 // [`Node::children_with`] yields exactly what [`Node::children`] yields
 // — it exists to reuse one cursor across a traversal instead of
 // heap-allocating and freeing one per visited node, and no assertion on
-// a metric value can tell the two apart. #1112 moved the three
-// per-node traversals that could hoist a cursor onto it; the counter is
-// what makes moving one back a test failure rather than a silent
-// allocation per node.
+// a metric value can tell the two apart. #1112 moved the per-node
+// traversals that could hoist a cursor onto it; the counter is what
+// makes moving one back a test failure rather than a silent allocation
+// per node.
+//
+// All six consumers are guarded: `preorder`, `first_occurrence` and
+// `act_on_node` here, `metrics::npa::python` and the suppression DFS
+// through a `metrics()` / `suppression_markers` call, and
+// `output::dump`'s renderer from that module's own tests. The accessor
+// is `pub(crate)` (not `pub(super)`) precisely so the last one can be
+// asserted from where it lives — see `crate::observation`.
 crate::observation::counter!(child_scan_cursors);
 
 /// A parsed source tree wrapping a [`tree_sitter::Tree`].
@@ -347,11 +354,16 @@ impl<'a> Node<'a> {
     /// on the corpus slice, a full metric walk reaches [`children`] on
     /// 3-6 % of nodes in C++, Rust, JavaScript, and Java, 16 % in C#,
     /// and 60 % in Python, where one scan — the instance-attribute walk
-    /// in `metrics::npa::python` — was 92 % of the total. Predicates
+    /// in `metrics::npa::python` — was 92 % of the total, and
+    /// [`preorder`] plus the suppression DFS are the rest. Crate-wide
+    /// there is one more per-node consumer, `output::dump`'s renderer,
+    /// which no metric walk runs and so is absent from that total.
+    /// Predicates
     /// that hold a bare `&Node` and scan one node's children keep
     /// [`children`]: threading a cursor to them would cross the
-    /// `Checker` / `Getter` trait surface to save a single allocation
-    /// per call.
+    /// `Checker` / `Getter` trait surface for one allocation per call.
+    ///
+    /// [`preorder`]: Self::preorder
     ///
     /// [`children`]: Self::children
     pub(crate) fn children_with<'c>(&self, cursor: &'c mut Cursor<'a>) -> ChildrenWith<'c, 'a> {
@@ -818,7 +830,6 @@ impl<'a> Search<'a> for Node<'a> {
     fn first_occurrence(&self, pred: fn(u16) -> bool) -> Option<Node<'a>> {
         let mut cursor = self.cursor();
         let mut stack = Vec::new();
-        let mut children = Vec::new();
 
         stack.push(*self);
 
@@ -826,18 +837,12 @@ impl<'a> Search<'a> for Node<'a> {
             if pred(node.kind_id()) {
                 return Some(node);
             }
-            cursor.reset(&node);
-            if cursor.goto_first_child() {
-                loop {
-                    children.push(cursor.node());
-                    if !cursor.goto_next_sibling() {
-                        break;
-                    }
-                }
-                for child in children.drain(..).rev() {
-                    stack.push(child);
-                }
-            }
+            // Children go on in source order and the freshly-pushed tail
+            // is reversed in place, so the LIFO `stack` yields the
+            // leftmost child first — pre-order with no staging buffer.
+            let first_child = stack.len();
+            stack.extend(node.children_with(&mut cursor));
+            stack[first_child..].reverse();
         }
 
         None
@@ -846,7 +851,6 @@ impl<'a> Search<'a> for Node<'a> {
     fn act_on_node(&self, action: &mut dyn FnMut(&Node<'a>, Ancestors<'a, '_>)) {
         let mut cursor = self.cursor();
         let mut stack = Vec::new();
-        let mut children = Vec::new();
         // Ancestor chain of the node being visited, root first. Kept by
         // the same truncate/push rule as the metric walk, so a predicate
         // the action applies can read an ancestor as a slice index
@@ -869,18 +873,15 @@ impl<'a> Search<'a> for Node<'a> {
             chain.truncate(depth);
             action(&node, Ancestors::checked(&chain, &node));
             chain.push(node);
-            cursor.reset(&node);
-            if cursor.goto_first_child() {
-                loop {
-                    children.push(cursor.node());
-                    if !cursor.goto_next_sibling() {
-                        break;
-                    }
-                }
-                for child in children.drain(..).rev() {
-                    stack.push((child, depth + 1));
-                }
-            }
+            // Source order in, tail reversed in place, so the LIFO
+            // `stack` yields the leftmost child first — pre-order with
+            // no staging buffer.
+            let first_child = stack.len();
+            stack.extend(
+                node.children_with(&mut cursor)
+                    .map(|child| (child, depth + 1)),
+            );
+            stack[first_child..].reverse();
         }
     }
 
@@ -1551,6 +1552,41 @@ mod tests {
             scans < nodes / 2,
             "the suppression scan built {scans} cursors over {nodes} nodes (#1112)"
         );
+
+        // The two `Search` walks. The counter records in `children()`,
+        // the allocating form, so a walk that hoists its cursor records
+        // nothing at all and a per-node one records once per interior
+        // node. Asserting the exact zero is what separates them; a bound
+        // like `< nodes / 2` would hold for either on a small fixture.
+        let tree = Tree::new::<MozjsCode>(
+            b"function f(a) { return { g: (b) => b + 1, h: [1, 2, 3] }; }\nf(2);\n",
+        );
+        let root = tree.get_root();
+        let nodes = root.preorder().count();
+        assert!(nodes > 30, "fixture is too small to prove much");
+
+        // A predicate nothing matches, so the walk runs to exhaustion
+        // and every node's children are scanned.
+        let before = child_scan_cursors::observed();
+        let missing = root.first_occurrence(|id| id == u16::MAX);
+        let scans = child_scan_cursors::observed() - before;
+        assert!(missing.is_none(), "the fixture has no such kind");
+        assert_eq!(
+            scans, 0,
+            "first_occurrence built {scans} cursors over {nodes} nodes; it holds \
+             one for the walk (#1112)"
+        );
+
+        let before = child_scan_cursors::observed();
+        let mut seen = 0_usize;
+        root.act_on_node(&mut |_, _| seen += 1);
+        let scans = child_scan_cursors::observed() - before;
+        assert_eq!(seen, nodes, "act_on_node must visit every node");
+        assert_eq!(
+            scans, 0,
+            "act_on_node built {scans} cursors over {nodes} nodes; it holds one \
+             for the walk (#1112)"
+        );
     }
 
     /// [`Node::parent_grandparent_match`] must answer `false` when
@@ -1619,6 +1655,43 @@ mod tests {
             .first_occurrence(|id| id != u16::MAX)
             .expect("a match-everything predicate must hit the root itself");
         assert_eq!(found.id(), root.id(), "the search starts at the root");
+    }
+
+    /// [`Search::first_occurrence`] must answer in **pre-order** — the
+    /// leftmost match, not merely some match.
+    ///
+    /// Nothing pinned this. Deleting the `stack[first_child..].reverse()`
+    /// that maintains it failed zero of the suite's lib tests, while the
+    /// same deletion in the sibling [`Search::act_on_node`] failed one,
+    /// so only half the pair was guarded.
+    /// `first_occurrence_answers_none_when_nothing_matches` cannot cover
+    /// it: its match-everything predicate hits the root before any child
+    /// is pushed, so the child order never comes into play.
+    ///
+    /// The order is load-bearing rather than incidental — the C, C++,
+    /// Objective-C and mozcpp `get_func_space_name` declarator searches
+    /// are `first_occurrence` calls, and a reversed sibling order
+    /// changes *which* declarator names a function space.
+    ///
+    /// Measured on this fixture: `"main"` as written, `"b"` with the
+    /// reversal removed.
+    #[cfg(feature = "c")]
+    #[test]
+    fn first_occurrence_answers_the_leftmost_match() {
+        const SOURCE: &[u8] = b"int main() { int a; int b; }";
+
+        let tree = Tree::new::<crate::langs::CCode>(SOURCE);
+        let identifier = tree
+            .get_root()
+            .first_occurrence(|id| id == crate::languages::language_c::C::Identifier as u16)
+            .expect("the fixture declares identifiers");
+
+        assert_eq!(
+            identifier.utf8_text(SOURCE),
+            Some("main"),
+            "first_occurrence must return the leftmost identifier in source \
+             order, not the last child pushed"
+        );
     }
 
     /// [`Node::children_with`] must yield exactly what

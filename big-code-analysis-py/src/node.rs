@@ -50,11 +50,15 @@
 //! and silently break this module's soundness. Any such future change must
 //! revisit [`detach`].
 //!
-//! `tree_sitter::Tree` and `Node` are `Send + Sync` under the pinned
-//! `=0.26.9`, so the pyclasses are sendable (no `unsendable`) and compose
-//! with `ThreadPoolExecutor` fan-out like [`PyAst`] itself.
+//! The same three invariants cover [`PyNodeWalk`]'s `TreeCursor<'static>`,
+//! which is derived from an already-erased node and lives no longer than
+//! the iterator's own keep-alive.
+//!
+//! `tree_sitter::Tree`, `Node`, and `TreeCursor` are `Send + Sync` under
+//! the pinned `=0.26.11`, so the pyclasses are sendable (no `unsendable`)
+//! and compose with `ThreadPoolExecutor` fan-out like [`PyAst`] itself.
 
-use big_code_analysis::tree_sitter::Node as TsNode;
+use big_code_analysis::tree_sitter::{Node as TsNode, TreeCursor};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict};
 
@@ -84,10 +88,20 @@ unsafe fn detach<'a>(node: TsNode<'a>) -> TsNode<'static> {
 /// temporary. Shared by the lazy [`PyNodeWalk`] and the eager
 /// [`PyNode::descendants_by_kind`], the same shape as the Rust
 /// `Node::preorder` iterator.
-fn push_children_for_preorder(stack: &mut Vec<TsNode<'static>>, node: TsNode<'static>) {
+///
+/// The cursor is the caller's rather than one built here: `TreeCursor`
+/// heap-allocates its stack and frees it on drop, so building one per
+/// visited node costs a `malloc`/`free` pair per node. This mirrors what
+/// #1112 did to the Rust `Node::preorder` via `Node::children_with`.
+/// `tree_sitter::Node::children` reseats the cursor itself, so a caller
+/// only has to hold it.
+fn push_children_for_preorder(
+    stack: &mut Vec<TsNode<'static>>,
+    cursor: &mut TreeCursor<'static>,
+    node: TsNode<'static>,
+) {
     let first_child = stack.len();
-    let mut cursor = node.walk();
-    stack.extend(node.children(&mut cursor));
+    stack.extend(node.children(cursor));
     stack[first_child..].reverse();
 }
 
@@ -401,8 +415,9 @@ impl PyNode {
     /// the lazy surface. Mirrors the Rust `Node::preorder` (#728).
     fn walk(&self, py: Python<'_>) -> PyNodeWalk {
         PyNodeWalk {
-            ast: self.ast.clone_ref(py),
+            cursor: self.node.walk(),
             stack: vec![self.node],
+            ast: self.ast.clone_ref(py),
         }
     }
 
@@ -419,13 +434,15 @@ impl PyNode {
     fn descendants_by_kind(&self, py: Python<'_>, kinds: Vec<String>) -> Vec<PyNode> {
         let mut out = Vec::new();
         let mut stack = vec![self.node];
+        // One cursor for the whole subtree, not one per visited node.
+        let mut cursor = self.node.walk();
         while let Some(node) = stack.pop() {
             // Only matches pay the `rewrap` (a keep-alive refcount bump), so
             // a selective filter does not allocate a handle per visited node.
             if kinds.iter().any(|k| k == node.kind()) {
                 out.push(self.rewrap(py, node));
             }
-            push_children_for_preorder(&mut stack, node);
+            push_children_for_preorder(&mut stack, &mut cursor, node);
         }
         out
     }
@@ -476,10 +493,26 @@ impl PyNode {
 /// `Py<PyAst>`. Each `__next__` pops the next node, pushes its children
 /// (leftmost on top), and yields the popped node — pre-order, one node at a
 /// time, so traversal never materialises the whole subtree at once.
+///
+/// The `TreeCursor` is held for the whole walk rather than built per
+/// step, for [`push_children_for_preorder`]'s reason. It is branded
+/// `'static` by the same erasure as the nodes it enumerates, and stays
+/// valid for the same reason: `ast` keeps the owning parse alive.
+///
+/// Field order is load-bearing. Rust drops fields in declaration order,
+/// so `cursor` is declared *before* the `ast` that keeps its tree alive
+/// — otherwise the keep-alive would be released first and the doc claim
+/// above would be false by construction. Today's `Drop for TreeCursor`
+/// only frees the cursor's own stack and never reads the tree, so the
+/// current order is not unsound; this makes the stated invariant hold
+/// regardless, and survives a future tree-sitter destructor that does
+/// touch it. (`Vec<TsNode>` has no drop glue, so `cursor` is the only
+/// field that raises the question.)
 #[pyclass(name = "NodeWalk", module = "big_code_analysis._native")]
 pub(crate) struct PyNodeWalk {
-    ast: Py<PyAst>,
+    cursor: TreeCursor<'static>,
     stack: Vec<TsNode<'static>>,
+    ast: Py<PyAst>,
 }
 
 #[pymethods]
@@ -490,7 +523,7 @@ impl PyNodeWalk {
 
     fn __next__(&mut self, py: Python<'_>) -> Option<PyNode> {
         let node = self.stack.pop()?;
-        push_children_for_preorder(&mut self.stack, node);
+        push_children_for_preorder(&mut self.stack, &mut self.cursor, node);
         // Each yielded node carries its own keep-alive `Py<PyAst>`: it may
         // outlive this iterator, so the per-node refcount bump is required
         // for soundness, not an optimisation to hoist out of the loop.
