@@ -3578,17 +3578,15 @@ mod tests {
     /// Cognitive cost of a boolean sequence inside a `lambda`, under
     /// each statement kind that can enclose one.
     ///
-    /// This pins the scores, not the stop set. `python_boolean_ancestor_
-    /// nesting`'s inner `count_specific_ancestors` stops its
-    /// enclosing-lambda walk at `ExpressionList | IfStatement |
-    /// ForStatement | WhileStatement`, and none of those four arms is
-    /// observable: deleting three of them (or the `ExpressionList` arm
-    /// alone) leaves this test, and the whole 3 097-test lib suite,
-    /// green (#1090). A lambda body is a single expression, so a lambda can
-    /// never be an ancestor of an `if`/`for`/`while` *statement* — there
-    /// is no outer lambda for a missing stop to over-count. Do not
-    /// "strengthen" this test by asserting on the arms; it cannot
-    /// discriminate them. Tracked in #1090.
+    /// This pins the scores, not the stop set.
+    /// `python_apply_boolean_operator`'s enclosing-lambda walk stops at
+    /// `ExpressionList | IfStatement | ForStatement | WhileStatement`,
+    /// and no fixture below discriminates any of those arms: none has a
+    /// `lambda` above the stop node, so halting there and running to the
+    /// module root give the same count. Do not "strengthen" this test by
+    /// asserting on the arms — the one arm that can differ,
+    /// `ExpressionList`, is discriminated by
+    /// `python_boolean_in_expression_list_under_lambda` (#1090).
     #[test]
     fn python_boolean_in_lambda_scores_under_each_enclosing_statement() {
         use crate::test_support::metrics_verbatim;
@@ -3631,6 +3629,51 @@ mod tests {
             cognitive_sum("f = lambda a: ((lambda x: x and x)(1), 2)\n"),
             3
         );
+    }
+
+    /// The `ExpressionList` arm of `python_apply_boolean_operator`'s
+    /// stop set — the only one of its four arms that can change a score.
+    ///
+    /// Two grammar productions can put an `expression_list` under a
+    /// `lambda`: a parenthesised `yield`, and an f-string interpolation
+    /// (`_f_expression`). Every other site tree-sitter-python spells
+    /// `expression_list` at is either a statement (`return`, `del`,
+    /// `raise`, `for … in`) or an assignment right-hand side, and a
+    /// lambda body is a single expression, so it can contain none of
+    /// them. In both fixtures the `expression_list` sits directly above
+    /// the `boolean_operator` and stops the enclosing-lambda walk before
+    /// the `lambda` is counted, leaving the +1 boolean sequence alone.
+    ///
+    /// Measured, not derived: deleting only the `ExpressionList` arm
+    /// takes both fixtures from 1 to 2, while the doubly-nested lambda
+    /// in `python_boolean_in_lambda_scores_under_each_enclosing_statement`
+    /// stays at 3 (#1090). Whether 1 or 2 is the *right* score is a
+    /// separate question — this pins current behaviour, and the
+    /// per-lambda surcharge itself is under review in #1150.
+    #[test]
+    fn python_boolean_in_expression_list_under_lambda() {
+        use crate::test_support::metrics_verbatim;
+
+        for (route, source) in [
+            ("parenthesised yield", "k = lambda q: (yield a and b, c)\n"),
+            (
+                "f-string interpolation",
+                "m = lambda q: f\"{a and b, c}\"\n",
+            ),
+        ] {
+            let metrics = metrics_verbatim(
+                crate::LANG::Python,
+                source.as_bytes(),
+                MetricsOptions::default(),
+            );
+
+            assert_eq!(
+                metrics.cognitive.cognitive_sum(),
+                1,
+                "{route}: +1 boolean sequence only — the `expression_list` \
+                 stops the enclosing-lambda walk before it reaches the `lambda`"
+            );
+        }
     }
 
     #[test]
