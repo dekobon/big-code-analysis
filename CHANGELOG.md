@@ -129,6 +129,10 @@ for historical reference.
   not, charging an inherited-conditional surcharge no sibling language
   charges; a `def` two conditionals deep now scores 2 where it scored 4.
 
+- Documented Python's per-enclosing-`lambda` surcharge on boolean
+  operators in the book's *Cognitive Complexity → Per-language
+  deviations* list (#1150). No behaviour change.
+
 - `bca ops` opens the same function spaces as `bca metrics`, through the
   same source-aware promote-and-classify predicate (#1130). The two
   walks each carried their own copy of the decision and the `ops` copy
