@@ -363,18 +363,6 @@ impl<'a> Node<'a> {
         Cursor(self.0.walk())
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn get_parent(&self, level: usize) -> Option<Node<'a>> {
-        let mut level = level;
-        let mut node = *self;
-        while level != 0 {
-            node = node.parent()?;
-            level -= 1;
-        }
-
-        Some(node)
-    }
-
     /// Counts this node's ancestors satisfying `check`, walking upward
     /// from the parent and stopping at (and excluding) the first
     /// ancestor satisfying `stop`. An ancestor that is the `if` of an
@@ -1563,6 +1551,74 @@ mod tests {
             scans < nodes / 2,
             "the suppression scan built {scans} cursors over {nodes} nodes (#1112)"
         );
+    }
+
+    /// [`Node::parent_grandparent_match`] must answer `false` when
+    /// either link is missing, rather than degrading to a
+    /// single-predicate check.
+    ///
+    /// Its doc states that invariant and Python's `Cyclomatic` `else`
+    /// arm depends on it, but nothing exercised either absent-link
+    /// return: every call in the suite runs on a node that has both a
+    /// parent and a grandparent. Both predicates answer `true` here, so
+    /// a `false` result can only come from the missing link — an
+    /// implementation that skipped the second `climb.next()` and
+    /// returned `parent_pred`'s answer would pass every other test and
+    /// fail this one.
+    ///
+    /// Checked through both `Ancestors` constructors: the chain and the
+    /// climb reach the end by different code paths (`split_last` on an
+    /// empty slice, versus `Node::parent` returning `None`).
+    #[test]
+    fn parent_grandparent_match_is_false_when_either_link_is_absent() {
+        let tree = Tree::new::<crate::langs::CCode>(b"int main() { int a; }");
+        let root = tree.get_root();
+        let child = root.children().next().expect("the file has an item");
+        let grandchild = child
+            .children()
+            .next()
+            .expect("the function definition has children");
+        let yes: fn(&Node) -> bool = |_| true;
+
+        // No parent at all: the root, reached either way.
+        assert!(!root.parent_grandparent_match(Ancestors::unknown(), yes, yes));
+        assert!(!root.parent_grandparent_match(Ancestors::known(&[]), yes, yes));
+
+        // A parent but no grandparent: a direct child of the root.
+        assert!(!child.parent_grandparent_match(Ancestors::unknown(), yes, yes));
+        assert!(!child.parent_grandparent_match(Ancestors::known(&[root]), yes, yes));
+
+        // Both links present, so the same predicates now answer `true`.
+        // Without this the assertions above would also hold for a
+        // function that always returned `false`.
+        assert!(grandchild.parent_grandparent_match(Ancestors::unknown(), yes, yes));
+        assert!(grandchild.parent_grandparent_match(Ancestors::known(&[root, child]), yes, yes));
+    }
+
+    /// [`Search::first_occurrence`] must return `None` when nothing in
+    /// the subtree matches, rather than falling back to the root or the
+    /// last node it looked at.
+    ///
+    /// Every caller in the crate — the C / C++ / Objective-C / Mozcpp
+    /// getters — uses it to find a declarator that the surrounding
+    /// grammar guarantees is there, so the whole suite only ever
+    /// exercised the hit path.
+    #[test]
+    fn first_occurrence_answers_none_when_nothing_matches() {
+        let tree = Tree::new::<crate::langs::CCode>(b"int main() { int a; }");
+        let root = tree.get_root();
+
+        // `u16::MAX` is not a grammar kind id, so nothing can match and
+        // the walk runs the whole subtree out before answering.
+        assert!(root.first_occurrence(|id| id == u16::MAX).is_none());
+        // The complementary predicate matches everything, so the `None`
+        // above is the absent match rather than a search that stopped
+        // looking. (The predicate is a `fn` pointer, so neither can
+        // capture a kind id from the fixture.)
+        let found = root
+            .first_occurrence(|id| id != u16::MAX)
+            .expect("a match-everything predicate must hit the root itself");
+        assert_eq!(found.id(), root.id(), "the search starts at the root");
     }
 
     /// [`Node::children_with`] must yield exactly what
