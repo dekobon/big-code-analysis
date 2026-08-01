@@ -102,6 +102,12 @@ tempfile = "^3.0"
 # workspace.
 [workspace.lints.rust]
 missing_docs = "warn"
+# `chain_audit` turns `Ancestors::checked` back into the exact
+# parent-identity assertion it was before #1122. Off by default because
+# that assertion costs `Node::parent`'s `O(depth)` per node on all five
+# checked walks; `make chain-audit` and the CI lane of the same name set
+# it. Declared here so `-D warnings` does not reject the `#[cfg]`.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(chain_audit)'] }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

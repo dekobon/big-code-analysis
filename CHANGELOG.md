@@ -228,6 +228,19 @@ for historical reference.
   or `--jobs 64` on a 16-core host; the lock was taken once per file,
   never per record. The change removes a global serialization point and
   four unreachable poisoned-lock branches.
+- The debug-build ancestor-chain check no longer re-derives every
+  parent, so an unoptimised metric walk is linear like the shipped one
+  (#1122). `Ancestors::checked` verified `chain.last() == node.parent()`
+  per node on all five walks that thread a chain, and `Node::parent`
+  costs `O(depth)` — which made every `cargo test` walk `O(nodes ×
+  depth)` and hit the deep-nesting regression tests hardest. The exact
+  assertion moved behind `--cfg chain_audit` (`make chain-audit`, plus a
+  `chain-audit` CI lane); a plain debug build keeps an `O(1)`
+  consequence of the same invariant, which catches a `push` moved ahead
+  of the per-node computes and a dropped `truncate` but not a chain
+  short by exactly one. The library test suite falls from ~5.0 s to
+  ~1.7 s, `cognitive_nesting_is_inherited_at_depth` from ~1.6 s to
+  ~0.02 s. No shipped behaviour changes.
 - Every file destination and terminal dump writes through an
   explicitly-flushed 64 KiB buffer, replacing the raw `File` and
   `LineWriter` handles the incremental serializers wrote through one

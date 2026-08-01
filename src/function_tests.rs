@@ -191,8 +191,9 @@ fn dump_span_ansi_layout_error_branch() {
 /// / `pair`, which #1088 moved onto the walk's ancestor chain. This is
 /// also the only lib-level exercise of that chain — `act_on_node`
 /// constructs it through `Ancestors::checked`, so a bookkeeping slip
-/// trips the debug assertion here rather than only in the web crate's
-/// endpoint tests.
+/// trips its assertion here rather than only in the web crate's
+/// endpoint tests (fully under `make chain-audit`; in a plain debug
+/// build, for the slips the `O(1)` guard sees — see #1122).
 #[test]
 fn js_function_spans_name_expressions_from_their_binding() {
     use crate::langs::JavascriptParser;

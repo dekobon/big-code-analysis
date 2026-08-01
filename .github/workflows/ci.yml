@@ -257,6 +257,35 @@ jobs:
           include_passed: false
           fail_on_failure: false
 
+  # The exact ancestor-chain assertion (#1122). `Ancestors::checked` keeps
+  # only an O(1) approximation on by default, because the exact
+  # `chain.last() == node.parent()` form costs Node::parent's O(depth) per
+  # node and makes every debug-build walk quadratic. This lane restores it
+  # so a walker whose truncate/push bookkeeping desynchronises still fails
+  # a build rather than silently feeding predicates a wrong ancestor.
+  #
+  # ubuntu-only and lib-scoped: the assertion lives in the library's walks,
+  # so the per-OS matrix and the CLI / web / integration tiers would re-pay
+  # the quadratic cost without covering anything the lib tests do not.
+  chain-audit:
+    name: chain audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          submodules: false
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable tip
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - name: cargo test --lib with --cfg chain_audit
+        env:
+          # Appends to the workflow-level `-D warnings`.
+          RUSTFLAGS: "-D warnings --cfg chain_audit"
+        run: cargo test -p big-code-analysis --lib --all-features --locked
+
   coverage:
     name: coverage
     runs-on: ubuntu-latest
@@ -887,6 +916,7 @@ jobs:
       - clippy
       - docs
       - test
+      - chain-audit
       - coverage
       - msrv
       - feature-matrix

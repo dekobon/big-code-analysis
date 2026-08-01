@@ -591,7 +591,8 @@ fn rust_attribute_run_under(parent: &Node, node: &Node, code: &[u8]) -> bool {
     // runs to the end of `parent`'s children, so the answer depends on
     // whether those end in an attribute run and is meaningless either
     // way. The walker constructs its chain through `Ancestors::checked`,
-    // which catches the mismatch in debug builds.
+    // which catches a mismatch that shows in the spans in any debug build
+    // and every mismatch under `make chain-audit` (#1122).
     let Some(run_start) = run_start else {
         return false;
     };

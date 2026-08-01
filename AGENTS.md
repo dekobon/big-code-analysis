@@ -293,6 +293,18 @@ If `pre-commit` is installed, also run `pre-commit run --all-files`. The
 project's `.pre-commit-config.yaml` runs clippy, `cargo +nightly udeps`,
 and the test suite.
 
+**The ancestor-chain audit** (`make chain-audit`) re-runs the library
+tests with `--cfg chain_audit`, which restores the exact
+`chain.last() == node.parent()` assertion in `Ancestors::checked`. The
+default build keeps only an `O(1)` approximation of it, because the
+exact form is `Node::parent`'s `O(depth)` per node and made every
+debug-build walk quadratic (#1122). The approximation misses a chain
+that is short by exactly one, so run this around any change to a walk's
+truncate/push bookkeeping — `src/spaces/compute.rs`, `src/ops.rs`,
+`src/comment_rm.rs`, `src/suppression.rs`, `Search::act_on_node`. It is
+not part of `make pre-commit`; the `chain-audit` CI job runs it per PR.
+See [Benchmarking](docs/development/benchmarking.md#chain-audit).
+
 **Mutation testing** runs out-of-band on a quarterly cron via
 `.github/workflows/mutation-test.yml` against `src/metrics/`,
 `src/checker.rs`, and `src/getter.rs`. It is intentionally not part of
