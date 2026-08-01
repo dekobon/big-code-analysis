@@ -76,6 +76,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use bstr::BString;
 use gix::ObjectId;
@@ -206,10 +207,13 @@ fn is_transient_object_miss(err: &gix::object::find::existing::with_conversion::
 ///
 /// Holds a [`gix::ThreadSafeRepository`] (so the field can be shared
 /// read-only across the CLI's worker threads — a plain
-/// [`gix::Repository`] is not `Sync`); each [`per_function`] call clones
-/// a thread-local handle. Construct once per invocation with [`open`].
+/// [`gix::Repository`] is not `Sync`). Construct once per invocation with
+/// [`open`], then open one [`BlameSession`] per worker thread with
+/// [`session`]: the session carries the thread-local handle, its object
+/// cache, the mailmap, and the resolved-commit memo, none of which
+/// survive a per-file handle.
 ///
-/// [`per_function`]: PerFunctionBlame::per_function
+/// [`session`]: PerFunctionBlame::session
 /// [`open`]: PerFunctionBlame::open
 pub struct PerFunctionBlame {
     repo: gix::ThreadSafeRepository,
@@ -308,6 +312,55 @@ impl PerFunctionBlame {
         &self.workdir
     }
 
+    /// Open a reusable [`BlameSession`] on the calling thread.
+    ///
+    /// Every cost that [`BlameSession::per_function`] would otherwise pay
+    /// per file — the thread-local repository handle, its object cache,
+    /// the parsed `.mailmap`, and the resolved-commit memo — lives on the
+    /// session instead, so a caller that blames many files in one repository
+    /// pays each once. Sessions are `!Sync` by construction (they hold a
+    /// [`gix::Repository`]); a worker pool wants one per thread, not one
+    /// shared.
+    ///
+    /// Holding a handle for a whole thread rather than a single file does
+    /// **not** widen the issue-#579 staleness window. The
+    /// `ThreadSafeRepository` — and the `gix_odb::Store` behind it — is
+    /// already fixed for the engine's lifetime, so a handle's age adds no
+    /// config or pack staleness of its own; and a handle refreshes its own
+    /// pack-index snapshot on a miss before reporting one, so the retry in
+    /// [`per_function`](Self::per_function) re-reads exactly what a fresh
+    /// handle would. `gix::Repository::reload` (a full re-open from disk)
+    /// is therefore the wrong tool inside that retry: the miss it guards
+    /// is an internal gix index-load race, not an external write we need
+    /// to observe.
+    #[must_use]
+    pub fn session(self: &Arc<Self>) -> BlameSession {
+        BlameSession {
+            engine: Arc::clone(self),
+            state: self.new_state(),
+        }
+    }
+
+    /// Build the per-thread state a blame run needs: a thread-local
+    /// repository handle carrying the object cache, the repository
+    /// mailmap, and an empty commit-metadata memo.
+    fn new_state(&self) -> SessionState {
+        let mut repo = self.repo.to_thread_local();
+        // The engine's `ThreadSafeRepository` cannot carry this: `into_sync`
+        // discards both ODB cache layers and `to_thread_local` rebuilds the
+        // handle with `object_cache: None` (gix's `setup_objects` re-applies
+        // only the pack cache unless `gitoxide.objects.cacheLimit` is set,
+        // and it defaults to 0). The cache has to be set here, on the
+        // thread-local handle, or the blame path runs without one entirely.
+        repo.object_cache_size_if_unset(super::OBJECT_CACHE_BYTES);
+        let mailmap = repo.open_mailmap();
+        SessionState {
+            repo,
+            mailmap,
+            commits: HashMap::new(),
+        }
+    }
+
     /// Blame the file at `absolute` once and return one [`Stats`] per
     /// entry in `spans`, in the same order.
     ///
@@ -316,13 +369,31 @@ impl PerFunctionBlame {
     /// recent activity), so the caller can attach a block to every
     /// function space uniformly.
     ///
+    /// This is the one-shot form: it builds and discards a
+    /// [`BlameSession`] per call. Callers blaming more than one file
+    /// should hold a session ([`session`](Self::session)) instead.
+    ///
     /// # Errors
     ///
     /// Returns [`Error::Blame`] when the path lies outside the working
     /// tree, is not valid UTF-8, or the blame itself fails (e.g. the
     /// file does not exist at the target ref).
     pub fn per_function(&self, absolute: &Path, spans: &[LineSpan]) -> Result<Vec<Stats>, Error> {
-        let repo = self.repo.to_thread_local();
+        self.blame_spans(&mut self.new_state(), absolute, spans)
+    }
+
+    /// Blame `absolute` against `state`'s repository handle and fold the
+    /// result into one [`Stats`] per span. Distinct blamed commits
+    /// resolve through `state.commits`, so a session that spans many
+    /// files resolves each commit once per *session* rather than once per
+    /// file — a `T`-worker walk still resolves a widely-touching commit
+    /// up to `T` times, once per thread's session.
+    fn blame_spans(
+        &self,
+        state: &mut SessionState,
+        absolute: &Path,
+        spans: &[LineSpan],
+    ) -> Result<Vec<Stats>, Error> {
         let relative = self.repo_relative(absolute)?;
 
         // `blame_file` takes its options by value, so clone the (cheap)
@@ -338,7 +409,11 @@ impl PerFunctionBlame {
         #[allow(clippy::result_large_err)]
         let outcome = retry_transient(
             MAX_BLAME_ATTEMPTS,
-            || repo.blame_file(relative.as_ref(), self.head, options.clone()),
+            || {
+                state
+                    .repo
+                    .blame_file(relative.as_ref(), self.head, options.clone())
+            },
             is_transient_blame_miss,
         )
         .map_err(|e| Error::Blame(e.to_string()))?;
@@ -346,13 +421,18 @@ impl PerFunctionBlame {
         // Resolve each distinct blamed commit once: timestamp, window
         // membership, participants, and message classification. A commit
         // outside the long window or authored solely by filtered bots
-        // resolves to `None` and contributes to no span.
-        let mailmap = repo.open_mailmap();
-        let resolver = ParticipantResolver::new(&mailmap, self.bots.as_ref());
-        let mut meta: HashMap<ObjectId, Option<CommitMeta>> = HashMap::new();
+        // resolves to `None` and contributes to no span. Destructured so
+        // the memo can be filled while the mailmap it is resolved against
+        // stays borrowed — two disjoint fields of the same session.
+        let SessionState {
+            repo,
+            mailmap,
+            commits: meta,
+        } = state;
+        let resolver = ParticipantResolver::new(mailmap, self.bots.as_ref());
         for entry in &outcome.entries {
             if let std::collections::hash_map::Entry::Vacant(slot) = meta.entry(entry.commit_id) {
-                slot.insert(self.resolve_commit(&repo, entry.commit_id, &resolver)?);
+                slot.insert(self.resolve_commit(repo, entry.commit_id, &resolver)?);
             }
         }
 
@@ -375,7 +455,7 @@ impl PerFunctionBlame {
 
         Ok(spans
             .iter()
-            .map(|span| self.aggregate_span(*span, &runs, &meta))
+            .map(|span| self.aggregate_span(*span, &runs, meta))
             .collect())
     }
 
@@ -509,6 +589,100 @@ impl PerFunctionBlame {
                 .follow_renames
                 .then(gix::diff::Rewrites::default),
         }
+    }
+}
+
+/// The per-thread state a run of blames reuses, held by a
+/// [`BlameSession`] (or built and discarded by the one-shot
+/// [`PerFunctionBlame::per_function`]).
+struct SessionState {
+    /// Thread-local repository handle, carrying the object cache.
+    repo: gix::Repository,
+    /// The repository's parsed `.mailmap`.
+    mailmap: gix::mailmap::Snapshot,
+    /// Metadata for every commit blamed so far, `None` for one outside
+    /// the long window or authored solely by filtered bots. This is the
+    /// entry that costs the most to rebuild: a commit touching 200 files
+    /// is decoded, mailmap-resolved, and classified once per session
+    /// instead of once per file.
+    ///
+    /// Bounded by the distinct in-window commits with surviving blamed
+    /// lines, not by repository size, at roughly 150 bytes each — a
+    /// quarter of a megabyte for this repository, single-digit megabytes
+    /// per thread at kernel scale. Held per session, so a `T`-worker walk
+    /// holds up to `T` copies.
+    commits: HashMap<ObjectId, Option<CommitMeta>>,
+}
+
+/// A [`PerFunctionBlame`] bound to one thread, holding the state a blame
+/// would otherwise rebuild per file.
+///
+/// Obtained from [`PerFunctionBlame::session`]. Not `Sync` — it holds a
+/// [`gix::Repository`] — so a worker pool wants one session per thread.
+/// The engine it was opened from is kept alive by the session and
+/// readable through [`engine`](Self::engine), so a caller memoising
+/// sessions can confirm a cached one belongs to the engine at hand.
+pub struct BlameSession {
+    engine: Arc<PerFunctionBlame>,
+    state: SessionState,
+}
+
+// A session must stay `Send` — the Python batch path moves one across
+// `Python::detach`, and a worker pool that builds sessions centrally
+// would too. `Sync` is deliberately *not* asserted: the session owns a
+// `gix::Repository`, which is not `Sync`, and one session per thread is
+// the intended shape.
+const _: fn() = || {
+    fn assert_send<T: Send>() {}
+    assert_send::<BlameSession>();
+};
+
+// Hand-written for the same reason as `PerFunctionBlame`'s: the
+// repository handle and the mailmap are large and carry nothing a reader
+// of a `Debug` config dump wants.
+impl std::fmt::Debug for BlameSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BlameSession")
+            .field("engine", &self.engine)
+            .field("commits_resolved", &self.state.commits.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl BlameSession {
+    /// The engine this session was opened from.
+    ///
+    /// Compare with [`Arc::ptr_eq`] to confirm a memoised session belongs
+    /// to the engine a caller is about to blame with.
+    #[must_use]
+    pub fn engine(&self) -> &Arc<PerFunctionBlame> {
+        &self.engine
+    }
+
+    /// How many distinct commits this session has resolved so far — the
+    /// size of the memo that makes a session worth holding.
+    ///
+    /// Grows only when a blame meets a commit the session has not seen,
+    /// so it is also how a caller sizes the session's memory (see
+    /// `SessionState::commits`) or confirms the memo is doing its job.
+    #[must_use]
+    pub fn commits_resolved(&self) -> usize {
+        self.state.commits.len()
+    }
+
+    /// Blame the file at `absolute` once and return one [`Stats`] per
+    /// entry in `spans`, in the same order — the session-backed form of
+    /// [`PerFunctionBlame::per_function`], with identical semantics.
+    ///
+    /// # Errors
+    ///
+    /// See [`PerFunctionBlame::per_function`].
+    pub fn per_function(
+        &mut self,
+        absolute: &Path,
+        spans: &[LineSpan],
+    ) -> Result<Vec<Stats>, Error> {
+        self.engine.blame_spans(&mut self.state, absolute, spans)
     }
 }
 

@@ -317,12 +317,20 @@ fn analyze(
     // a one-shot history walk of its repository; `vcs_per_function=True`
     // (#329 / #578) blames the file once and attaches a block to every
     // nested function space. The two are independent (file-level vs nested
-    // spaces), so both can be set. The expensive part of each is the
-    // history walk / blame-engine open, which touches no Python objects —
-    // so it runs off-GIL (#620), mirroring `vcs_metrics()` and the batch
-    // path. The cheap JSON-injection step (which builds Python errors)
-    // stays under the re-acquired GIL. For whole-repo ranking prefer
+    // spaces), so both can be set. For `vcs=True` the expensive part is
+    // the history walk, which touches no Python objects and so runs
+    // off-GIL (#620), mirroring `vcs_metrics()` and the batch path; the
+    // cheap JSON-injection step (which builds Python errors) stays under
+    // the re-acquired GIL. For whole-repo ranking prefer
     // `vcs_metrics()`, which walks history once.
+    //
+    // `vcs_per_function=True` does **not** get that split: only the
+    // session open is detached below, and the blame itself runs inside
+    // `inject_vcs_per_function_with_blame` with the GIL held. #1117 made
+    // the open cheaper still (it now defers the handle, mailmap, and
+    // commit memo), which widens the gap rather than closing it —
+    // splitting the injector so the blame runs off-GIL and only the JSON
+    // attach re-acquires is tracked separately.
     match result {
         None => Ok(None),
         Some(mut json) => {
@@ -334,8 +342,8 @@ fn analyze(
             }
             if vcs_per_function {
                 let root = crate::vcs::repo_root_for(&path).to_path_buf();
-                if let Some(blame) = py.detach(|| crate::vcs::open_blame_for(&root)) {
-                    json = crate::vcs::inject_vcs_per_function_with_blame(json, &path, &blame)?;
+                if let Some(mut blame) = py.detach(|| crate::vcs::open_blame_for(&root)) {
+                    json = crate::vcs::inject_vcs_per_function_with_blame(json, &path, &mut blame)?;
                 }
             }
             conversion::json_string_to_py(py, &json).map(Some)

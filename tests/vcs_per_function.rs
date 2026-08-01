@@ -335,3 +335,163 @@ fn empty_span_list_yields_no_stats() {
     let stats = per_function(&repo, opts(), "src/work.rs", &[]);
     assert!(stats.is_empty(), "no spans → no per-function stats");
 }
+
+/// A [`BlameSession`] reused across files must answer exactly what a
+/// fresh one-shot engine call answers for each of them (issue #1117).
+///
+/// The session carries a commit-metadata memo across files, so the risk
+/// the hoist introduces is cross-file contamination: a commit resolved
+/// while blaming `a.rs` is reused when `b.rs` blames the same commit, and
+/// a memo keyed or filtered wrongly would silently mis-attribute. The
+/// fixture is built so that matters — every file shares the `shared`
+/// commit, and the files differ in which *other* commits touch them, so
+/// a memo that leaked per-file state would show up as a wrong
+/// `commits_long` / `authors_long` rather than as an equal-but-wrong
+/// value on both sides.
+///
+/// The session also blames one file *twice*, out of order relative to
+/// the reference pass, so a memo that mutated on read (or an outcome
+/// cached against the wrong path) is caught too.
+#[test]
+fn session_matches_one_shot_across_files_and_repeat_blames() {
+    let repo = Repo::init();
+    // One commit touching every file: the memo entry each later blame
+    // reuses.
+    repo.write("src/a.rs", TWO_FUNCS);
+    repo.write("src/b.rs", TWO_FUNCS);
+    repo.write("src/c.rs", TWO_FUNCS);
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 200 * DAY, "shared");
+    // Then per-file edits by different authors, so the three files do
+    // not share a single answer that any implementation would produce.
+    repo.write(
+        "src/a.rs",
+        "fn first() {\n    let x = 11;\n}\nfn second() {\n    let y = 2;\n}\n",
+    );
+    repo.commit("Grace", "grace@example.com", FIXED_NOW - 5 * DAY, "edit a");
+    repo.write(
+        "src/b.rs",
+        "fn first() {\n    let x = 1;\n}\nfn second() {\n    let y = 22;\n}\n",
+    );
+    repo.commit("Alan", "alan@example.com", FIXED_NOW - 50 * DAY, "fix b");
+
+    let spans = [LineSpan::new(1, 3), LineSpan::new(4, 6)];
+    let files = ["src/a.rs", "src/b.rs", "src/c.rs"];
+
+    // Reference: one engine per call, exactly as the pre-session code ran.
+    let expected: Vec<Vec<Stats>> = files
+        .iter()
+        .map(|rel| per_function(&repo, opts(), rel, &spans))
+        .collect();
+    // The fixture is only meaningful if the three files really differ.
+    assert_ne!(
+        expected[0], expected[1],
+        "fixture is degenerate: a.rs and b.rs blame identically, so a \
+         contaminated memo could not be distinguished from a clean one"
+    );
+
+    let engine =
+        std::sync::Arc::new(PerFunctionBlame::open(repo.path(), opts()).expect("open engine"));
+    let mut session = engine.session();
+    // Reverse order, with `src/a.rs` blamed again at the end against a
+    // memo warmed by every other file.
+    for (rel, want) in files.iter().zip(&expected).rev() {
+        let got = session
+            .per_function(&repo.path().join(rel), &spans)
+            .expect("session blame");
+        assert_eq!(&got, want, "session diverged from one-shot for {rel}");
+    }
+    let again = session
+        .per_function(&repo.path().join("src/a.rs"), &spans)
+        .expect("session re-blame");
+    assert_eq!(
+        again, expected[0],
+        "re-blaming a file through a warm session changed its answer"
+    );
+
+    // A failed blame must leave the session usable: the memo is filled
+    // only on the `Ok` branch, so a mid-blame error writes nothing and
+    // the next file must still answer correctly.
+    let missing = repo.path().join("src/never-committed.rs");
+    std::fs::write(&missing, TWO_FUNCS).expect("write untracked file");
+    assert!(
+        session.per_function(&missing, &spans).is_err(),
+        "an untracked file must fail rather than blame"
+    );
+    assert_eq!(
+        session
+            .per_function(&repo.path().join("src/b.rs"), &spans)
+            .expect("blame after a failure"),
+        expected[1],
+        "a failed blame poisoned the session"
+    );
+}
+
+/// The session's commit memo must accumulate **across** files, not just
+/// within one blame (issue #1117).
+///
+/// This is the perf invariant the whole change exists for, and it is
+/// invisible to every value assertion: a memo cleared at the top of each
+/// blame returns identical `Stats`. `commits_resolved` can see it, but
+/// only against a fixture where the running union is larger than any one
+/// file's commit set — otherwise a per-call clear reports the same
+/// numbers a working memo does. So `a.rs` and `b.rs` are given
+/// **disjoint** commits: after blaming both, a memo holds 3 and a clear
+/// holds `b.rs`'s 1. Verified by inserting `meta.clear()` in
+/// `blame_spans` — this test is the only failure.
+#[test]
+fn session_memoises_commits_across_files() {
+    let repo = Repo::init();
+    // a.rs: created, then edited — two commits, neither touching b.rs.
+    repo.write("src/a.rs", TWO_FUNCS);
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 200 * DAY, "create a");
+    // b.rs: created by a commit that touches nothing else.
+    repo.write("src/b.rs", TWO_FUNCS);
+    repo.commit(
+        "Grace",
+        "grace@example.com",
+        FIXED_NOW - 100 * DAY,
+        "create b",
+    );
+    repo.write(
+        "src/a.rs",
+        "fn first() {\n    let x = 1;\n}\nfn second() {\n    let y = 22;\n}\n",
+    );
+    repo.commit("Alan", "alan@example.com", FIXED_NOW - 5 * DAY, "edit a");
+
+    let spans = [LineSpan::new(1, 3), LineSpan::new(4, 6)];
+    let engine =
+        std::sync::Arc::new(PerFunctionBlame::open(repo.path(), opts()).expect("open engine"));
+    let mut session = engine.session();
+    assert_eq!(
+        session.commits_resolved(),
+        0,
+        "a fresh session memoises nothing"
+    );
+
+    session
+        .per_function(&repo.path().join("src/a.rs"), &spans)
+        .expect("blame a");
+    assert_eq!(
+        session.commits_resolved(),
+        2,
+        "a.rs survives from its create and its edit"
+    );
+
+    session
+        .per_function(&repo.path().join("src/b.rs"), &spans)
+        .expect("blame b");
+    assert_eq!(
+        session.commits_resolved(),
+        3,
+        "b.rs's one commit must be added to a.rs's two, not replace them"
+    );
+
+    session
+        .per_function(&repo.path().join("src/a.rs"), &spans)
+        .expect("re-blame a");
+    assert_eq!(
+        session.commits_resolved(),
+        3,
+        "re-blaming a file must resolve nothing new"
+    );
+}

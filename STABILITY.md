@@ -280,7 +280,8 @@ envelope (`bca vcs`'s report, `POST /vcs`, `vcs_metrics()`, and the
 CSV projection stays flat with dotted column names.
 
 Per-function change-history attribution (#329) extends the same opt-in
-surface: `big_code_analysis::vcs::{PerFunctionBlame, LineSpan}`, the
+surface: `big_code_analysis::vcs::{PerFunctionBlame, BlameSession,
+LineSpan}`, the
 `vcs::Error::Blame` variant, the `bca metrics --vcs-per-function` flag,
 and the `CodeMetrics::vcs` field now being populated on nested function
 spaces (not only the file space). The per-function block shares
