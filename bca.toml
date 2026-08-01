@@ -47,6 +47,31 @@ exclude_tests = true
 [check]
 baseline = ".bca-baseline.toml"
 
+# Dev tooling this repo authors but does not ship. These are analysed —
+# they show up in `bca report`, and `bca metrics` measures them like any
+# other source — but they never gate. That distinction is the whole
+# reason they live here rather than in `.bcaignore` (#1146): a walker
+# exclude shapes what gets *analysed* and is overridden by an
+# explicitly-named path, so the per-file agent hooks in `.claude/hooks/`
+# and `.opencode/plugins/` bypassed it and reported offenders in files
+# `make self-scan` correctly ignores. A `[check] exclude` glob survives
+# an explicit path, which is what "never gate this" has to mean.
+#
+# The exempted code is real, and some of it is genuinely complex: the
+# `utils/` gate scripts are argument-parsing `main`s, `enums/`'s
+# `sanitize_identifier` is a character-class table, and the benchmark
+# harness's formatters are long runs of `writeln!(...)?` whose `nexits`
+# says nothing about maintainability. None of it ships to a user.
+exclude = [
+  "./.claude/**",
+  "./.opencode/**",
+  "./big-code-analysis-bench/**",
+  "./enums/**",
+  "./generate-grammars/**",
+  "./utils/**",
+  "./xtask/**",
+]
+
 # bca metric threshold configuration.
 #
 # These limits are this repository's own calibration and are expected to

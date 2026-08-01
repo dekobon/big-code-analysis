@@ -222,9 +222,21 @@ pub(crate) fn match_path_for(seed: &std::path::Path, path: &std::path::Path) -> 
 /// so have lost the per-seed association `match_path_for` relies on.
 ///
 /// A `seed` equal to `path` (a single explicit file `--paths`) does not
-/// anchor — the walk's file-seed branch matches it as spelled — so that
-/// seed is skipped and a later *directory* seed that contains the path
-/// may still anchor it. A `path` no seed contains is returned unchanged.
+/// anchor here — the walk's file-seed branch matches it as spelled — so
+/// that seed is skipped and a later *directory* seed that contains the
+/// path may still anchor it. When none does, the path falls back to
+/// [`file_seed_match_path`], the same CWD-relative form the walk's own
+/// include filter derives for a file seed; a path outside the CWD keeps
+/// its absolute form, the only stable identity for it.
+///
+/// That fallback is load-bearing (#1146). `bca check "$PWD/f.js"` — the
+/// shape both shipped per-edit agent hooks use — reaches here with the
+/// file seed as its own only seed, so before the fallback the absolute
+/// path was matched verbatim and a `./`-anchored `[check.exclude]` glob
+/// never fired. `[check] exclude` is the one exclude surface an
+/// explicitly-named path does *not* override, so it has to hold for
+/// every spelling of that path.
+///
 /// `seeds` must already be [`reanchor_seed`]-normalised (the form the
 /// walk emitted).
 pub(crate) fn anchor_against_seeds(seeds: &[PathBuf], path: &std::path::Path) -> PathBuf {
@@ -236,7 +248,7 @@ pub(crate) fn anchor_against_seeds(seeds: &[PathBuf], path: &std::path::Path) ->
             // path == seed (file seed) or not under it: try the next seed.
             _ => None,
         })
-        .unwrap_or_else(|| path.to_path_buf())
+        .unwrap_or_else(|| file_seed_match_path(path))
 }
 
 #[cfg(test)]

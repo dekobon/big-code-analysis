@@ -29,7 +29,9 @@ Input files or directories to analyze. Unioned with any positional `[PATHS]`. De
 Glob to include files. Repeat the flag to add multiple globs (`\-I \*(Aq*.rs\*(Aq \-I \*(Aq*.toml\*(Aq`); each occurrence takes exactly one value, so a positional argument that follows is never swallowed. A leading `./` is optional: `dir/**` and `./dir/**` are equivalent
 .TP
 \fB\-X\fR, \fB\-\-exclude\fR \fI<EXCLUDE>\fR
-Glob to exclude files. Repeat the flag to add multiple globs (`\-X \*(Aq*.tmp\*(Aq \-X \*(Aq*.bak\*(Aq`); each occurrence takes exactly one value, so a positional argument that follows is never swallowed. A leading `./` is optional: `dir/**` and `./dir/**` are equivalent. CLI values are *merged with* (unioned, not a replacement for) any `bca.toml` `exclude` list and any `\-\-exclude\-from` patterns, so a CLI `\-\-exclude` never silently un\-excludes a directory the project config deliberately skipped. Pass `\-\-no\-config` to ignore the manifest entirely
+Glob to exclude files. Repeat the flag to add multiple globs (`\-X \*(Aq*.tmp\*(Aq \-X \*(Aq*.bak\*(Aq`); each occurrence takes exactly one value, so a positional argument that follows is never swallowed. A leading `./` is optional: `dir/**` and `./dir/**` are equivalent. CLI values are *merged with* (unioned, not a replacement for) any `bca.toml` `exclude` list and any `\-\-exclude\-from` patterns, so a CLI `\-\-exclude` never silently un\-excludes a directory the project config deliberately skipped. Pass `\-\-no\-config` to ignore the manifest entirely.
+
+Shapes directory\-walk scope only: a file named directly on the command line overrides every exclude glob and is analyzed anyway (the ripgrep/fd convention), with a warning on stderr naming the glob it overrode. `\-I` / `\-\-include` is not overridden. To exempt something from `bca check`\*(Aqs threshold gate whichever way it is named, use `\-\-check\-exclude` / `[check] exclude` instead.
 .TP
 \fB\-l\fR, \fB\-\-language\fR \fI<LANGUAGE>\fR
 Force a language instead of inferring from extension. Accepts a canonical language name (`rust`, `python`, `cpp`, …) or a file extension (`rs`, `py`, …). An unrecognized value is a hard error
@@ -38,10 +40,12 @@ Force a language instead of inferring from extension. Accepts a canonical langua
 Disable auto\-skip of files marked as generated (e.g. `@generated`, `DO NOT EDIT`, `GENERATED CODE` near the top). By default the CLI skips such files so generated bindings do not skew metrics
 .TP
 \fB\-\-paths\-from\fR \fI<PATHS_FROM>\fR
-Read newline\-separated input paths from a file. Use `\-` to read from stdin. Combined as a union with any `\-\-paths` values; globs still apply. Blank lines are skipped; `#` is treated as a path character (not a comment). To pass a file literally named `\-`, use `./\-`
+Read newline\-separated input paths from a file. Use `\-` to read from stdin. Combined as a union with any `\-\-paths` values. `\-\-include` globs still apply; `\-\-exclude` globs do not reach an entry that names a file directly, since an explicitly\-named path overrides the deny\-set. Blank lines are skipped; `#` is treated as a path character (not a comment). To pass a file literally named `\-`, use `./\-`
 .TP
 \fB\-\-exclude\-from\fR \fI<EXCLUDE_FROM>\fR
-Read additional `\-\-exclude` glob patterns from a file (one per line, `.gitignore`\-style). Blank lines and lines whose first non\-whitespace character is `#` are skipped. Use `\-` to read from stdin; to pass a file literally named `\-`, use `./\-`. Patterns are unioned with any `\-\-exclude` values into a single deny\-set; order does not matter. Convention is a `.bcaignore` at the repo root, mirroring `.gitignore` / `.dockerignore`
+Read additional `\-\-exclude` glob patterns from a file (one per line, `.gitignore`\-style). Blank lines and lines whose first non\-whitespace character is `#` are skipped. Use `\-` to read from stdin; to pass a file literally named `\-`, use `./\-`. Patterns are unioned with any `\-\-exclude` values into a single deny\-set; order does not matter. Convention is a `.bcaignore` at the repo root, mirroring `.gitignore` / `.dockerignore`.
+
+Carries the same scope as `\-\-exclude`: these patterns shape the directory walk, and a file named directly on the command line overrides them (with a warning naming the glob). Put gate\-only exemptions in `\-\-check\-exclude\-from` / `[check] exclude`.
 .TP
 \fB\-\-no\-ignore\fR
 Disable `.gitignore` / `.ignore` / global gitignore awareness when expanding input directories. Explicit file paths are always honored regardless of this flag

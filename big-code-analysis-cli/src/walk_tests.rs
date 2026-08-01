@@ -38,10 +38,12 @@ fn walk_directory_seed_returns_sorted_paths() {
         }
     }
 
-    let empty = mk_globset(Vec::new()).expect("empty globset");
+    let empty_include = mk_globset(Vec::new()).expect("empty globset");
+    let empty_exclude = build_exclude_globset(Vec::new(), None, "--exclude-from");
     let filters = WalkFilters {
-        include: &empty,
-        exclude: &empty,
+        include: &empty_include,
+        exclude: &empty_exclude,
+        language_forced: false,
     };
     let mut errors = WalkErrors::default();
     let found = walk_directory_seed(root, true, 8, &filters, &mut errors);
