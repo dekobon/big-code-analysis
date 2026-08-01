@@ -726,10 +726,13 @@ fn parallel_walk_finds_every_file_at_every_job_count() {
             total,
             "--jobs {jobs} walked at least one file twice"
         );
+        // `Path::file_name` rather than splitting on '/': the emitted
+        // name carries the platform separator, so on Windows a manual
+        // '/' split returns the whole `C:\…\a0-impl.rs` path and every
+        // basename mismatches.
         let mut basenames: Vec<String> = found
             .iter()
-            .filter_map(|p| p.rsplit('/').next())
-            .map(str::to_owned)
+            .filter_map(|p| Path::new(p).file_name()?.to_str().map(str::to_owned))
             .collect();
         basenames.sort();
         assert_eq!(
