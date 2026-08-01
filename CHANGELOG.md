@@ -248,8 +248,9 @@ for historical reference.
   `metrics::npa::python` were the only per-node consumers; the last was
   92 % of the Python metric walk's child scans. Over 400 Python corpus
   files that is 414,620 cursor allocations down to 33,328 (−92 %) and
-  −2.4 % walk time. Other languages reach `children` on 3-6 % of nodes,
-  where the effect is under 1 %. Metric values are unchanged.
+  −2.4 % walk time. Other languages reach `children` on 3-6 % of nodes
+  (16 % for C#), where the effect is under 1 %. Metric values are
+  unchanged.
 - Every file destination and terminal dump writes through an
   explicitly-flushed 64 KiB buffer, replacing the raw `File` and
   `LineWriter` handles the incremental serializers wrote through one
