@@ -7,13 +7,22 @@
 //! every walking subcommand, whether or not the run also produced
 //! output.
 //!
-//! The second half covers the mirror image, which #1098 left open: a
+//! The second part covers the mirror image, which #1098 left open: a
 //! failure to *write* a per-file document — an unwritable
 //! `--output-dir`, a full disk — printed the same per-file error and
 //! still exited 0, so a CI script read a missing or truncated output
 //! tree as a clean run.
 //!
-//! Unix-only, because the scenario is staged with a mode-000 file.
+//! The third part (#1132) covers the emission paths that reached stdout
+//! through `println!`, which *panics* on a write error rather than
+//! returning one: `count` and `preproc` exited 101, and `dump` / `find` /
+//! `strip-comments` crashed a worker thread and reported the I/O error
+//! as `Receiver("A thread used to process a file panicked")`. Those
+//! cases also pin the `BrokenPipe` exemption from the other direction —
+//! `bca dump | head` must stay exit 0.
+//!
+//! Unix-only, because the scenarios are staged with a mode-000 file and
+//! `/dev/full`.
 //! `unreadable_fixture` probes the real capability rather than the uid,
 //! so a privileged test runner (root ignores mode bits) skips instead of
 //! failing. The suite lives in a `#[cfg(unix)]` module rather than
@@ -465,5 +474,209 @@ mod unix {
         ));
 
         restore_dir_permissions(&locked);
+    }
+
+    /// C source carrying a comment, so `strip-comments` has something to
+    /// emit — over [`TRIVIAL_C`] it produces no output at all and its
+    /// stdout is never written.
+    const COMMENTED_C: &str = "/* doc */\nint add(int a, int b) { return a + b; }\n";
+
+    /// Open `/dev/full` for writing, or `None` when the platform has no
+    /// such device (it is a Linux-ism) or its writes unexpectedly succeed.
+    ///
+    /// The mode-555 directory above cannot stage this scenario: stdout is
+    /// inherited from the parent, never opened by `bca`, so the only way
+    /// to make it unwritable is to hand the child a file descriptor that
+    /// fails every write. The capability is probed rather than inferred
+    /// from the platform, matching `unreadable_fixture`.
+    fn dev_full() -> Option<fs::File> {
+        use std::io::Write;
+
+        let mut file = fs::OpenOptions::new().write(true).open("/dev/full").ok()?;
+        file.write_all(b"probe").is_err().then_some(file)
+    }
+
+    /// Run `subcommand` over `source` with the child's stdout pointed at
+    /// `stdout`, returning its status and captured stderr.
+    fn run_with_stdout(
+        dir: &TempDir,
+        subcommand: &str,
+        extra: &[&str],
+        source: &str,
+        stdout: std::process::Stdio,
+    ) -> std::process::Output {
+        common::std_bca_command_in(dir.path())
+            .arg(subcommand)
+            .args(extra)
+            .args(["--no-config", "--paths", source])
+            .stdout(stdout)
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn bca")
+            .wait_with_output()
+            .expect("wait for bca")
+    }
+
+    /// #1132: a subcommand whose *stdout* cannot be written must exit
+    /// `EXIT_TOOL_ERROR` with the CLI's own `error:` diagnostic — never a
+    /// panic. `count` and `preproc` exited 101 (a `println!` panic on
+    /// `main`); `dump`, `find`, and `strip-comments` panicked a worker and
+    /// surfaced it as `Receiver("A thread used to process a file
+    /// panicked")`, which misreports an I/O error as a thread crash.
+    ///
+    /// The two panic-absence assertions are the load-bearing half. `dump`
+    /// already exited 1 before the fix, by way of that caught worker
+    /// panic, so an exit-code-only test passes against the bug it claims
+    /// to guard. The positive assertions (`error:` plus the OS message)
+    /// are what keep the absence checks from passing vacuously.
+    fn assert_stdout_write_failure_exits_one(subcommand: &str, extra: &[&str], body: &str) {
+        let dir = TempDir::new().expect("tempdir");
+        let source = write_fixture(&dir, "ok.c", body);
+        let Some(full) = dev_full() else {
+            eprintln!("skipping: no write-failing /dev/full on this platform");
+            return;
+        };
+
+        let failed = run_with_stdout(&dir, subcommand, extra, &source, full.into());
+        let stderr = String::from_utf8_lossy(&failed.stderr).into_owned();
+        assert_eq!(
+            failed.status.code(),
+            Some(1),
+            "`bca {subcommand}` must exit 1 on an unwritable stdout; stderr: {stderr}"
+        );
+        assert!(
+            stderr.contains("error: "),
+            "`bca {subcommand}` must emit the CLI's own diagnostic; stderr: {stderr}"
+        );
+        assert!(
+            stderr.contains("No space left on device"),
+            "the diagnostic must name the I/O failure; stderr: {stderr}"
+        );
+        assert!(
+            !stderr.contains("panicked at"),
+            "`bca {subcommand}` must not panic on an unwritable stdout; stderr: {stderr}"
+        );
+        assert!(
+            !stderr.contains("RUST_BACKTRACE"),
+            "`bca {subcommand}` must not emit a panic backtrace note; stderr: {stderr}"
+        );
+
+        // Control: the same invocation against a writable stdout exits 0,
+        // so the exit-1 above came from the write and not from a rejected
+        // flag set or an unusable fixture.
+        let ok = run_with_stdout(
+            &dir,
+            subcommand,
+            extra,
+            &source,
+            std::process::Stdio::null(),
+        );
+        assert!(
+            ok.status.success(),
+            "`bca {subcommand}` must succeed with a writable stdout; stderr: {}",
+            String::from_utf8_lossy(&ok.stderr)
+        );
+    }
+
+    #[test]
+    fn count_exits_one_when_stdout_cannot_be_written() {
+        assert_stdout_write_failure_exits_one(
+            "count",
+            &["--type", "function_definition", "--language", "c"],
+            TRIVIAL_C,
+        );
+    }
+
+    #[test]
+    fn dump_exits_one_when_stdout_cannot_be_written() {
+        assert_stdout_write_failure_exits_one("dump", &[], TRIVIAL_C);
+    }
+
+    #[test]
+    fn find_exits_one_when_stdout_cannot_be_written() {
+        assert_stdout_write_failure_exits_one(
+            "find",
+            &["--type", "function_definition", "--language", "c"],
+            TRIVIAL_C,
+        );
+    }
+
+    #[test]
+    fn strip_comments_exits_one_when_stdout_cannot_be_written() {
+        assert_stdout_write_failure_exits_one("strip-comments", &[], COMMENTED_C);
+    }
+
+    #[test]
+    fn preproc_exits_one_when_stdout_cannot_be_written() {
+        assert_stdout_write_failure_exits_one("preproc", &[], TRIVIAL_C);
+    }
+
+    /// The other half of the contract: `BrokenPipe` is not a tool error.
+    /// `bca dump | head -1` is routine, and converting the banner from
+    /// `println!` to a fallible write is exactly the change that could
+    /// turn it into an exit-1 (or, as before this fix, an exit-1 *and* a
+    /// screenful of panic text — the pre-#1132 behaviour this pins
+    /// against).
+    ///
+    /// The fixture shape is load-bearing twice over, and a simpler one
+    /// makes the test vacuous:
+    ///
+    /// - Each file must dump more than a pipe buffer (~64 KiB) so the
+    ///   child is still blocked in a write when the read end closes,
+    ///   rather than finishing into the buffer and never seeing `EPIPE`.
+    /// - There must be *several* files, because the banner is what this
+    ///   pins and the first one is written before the pipe fills. Workers
+    ///   serialise on the stdout lock, so exactly one banner precedes the
+    ///   block and every later one meets a closed pipe. Against a
+    ///   single-file fixture this test passes with the `println!` banner
+    ///   restored — measured, not assumed.
+    #[test]
+    fn dump_exits_zero_when_its_consumer_closes_the_pipe() {
+        use std::fmt::Write as _;
+        use std::io::{BufRead, BufReader};
+
+        let dir = TempDir::new().expect("tempdir");
+        let mut body = String::new();
+        for i in 0..400 {
+            writeln!(body, "int f{i}(int a, int b) {{ return a + b * {i}; }}")
+                .expect("writing to a String is infallible");
+        }
+        for name in ["one.c", "two.c", "three.c"] {
+            write_fixture(&dir, name, &body);
+        }
+        let source = dir.path().to_str().expect("utf8 dir").to_owned();
+
+        let mut child = common::std_bca_command_in(dir.path())
+            .args(["dump", "--no-config", "--paths", &source])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn bca");
+
+        // Read one line, then close the read end — the `head -1` shape.
+        let stdout = child.stdout.take().expect("piped stdout");
+        let mut reader = BufReader::new(stdout);
+        let mut first = String::new();
+        reader.read_line(&mut first).expect("read first line");
+        assert!(
+            first.starts_with("== "),
+            "the first line should be the per-file banner, got {first:?}"
+        );
+        drop(reader);
+
+        let output = child.wait_with_output().expect("wait for bca");
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        assert!(
+            output.status.success(),
+            "a closed consumer pipe is routine, not a tool error; stderr: {stderr}"
+        );
+        assert!(
+            !stderr.contains("panicked at"),
+            "a closed consumer pipe must not panic a worker; stderr: {stderr}"
+        );
+        assert!(
+            stderr.is_empty(),
+            "a closed consumer pipe must be silent; stderr: {stderr}"
+        );
     }
 }

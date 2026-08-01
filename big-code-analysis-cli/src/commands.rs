@@ -55,7 +55,7 @@ use crate::{
     SummaryFile, Tier, TierSpec, die, die_io, group_files_by_basename, legacy_hint, load_baseline,
     load_preproc_data, load_threshold_config, note, read_exclude_patterns_from, resolve_walk_files,
     run_walk, run_walk_collecting, run_walk_resolved, validate_output_path, warn, write_atomic,
-    write_output_or_stdout, write_stdout_or_die,
+    write_output_or_stdout, write_stdout_or_die, writeln_stdout_or_die,
 };
 
 mod analyze;

@@ -89,6 +89,9 @@ pub(crate) fn run_command_preproc(globals: GlobalOpts, args: PreprocArgs) {
         write_file(&output_path, serialized.as_bytes())
             .unwrap_or_else(|e| die_io("write preproc output to", &output_path, e));
     } else {
-        println!("{serialized}");
+        // Post-walk emission on `main`, so it needs the same fallible
+        // write `count`'s tally does (#1132): the `println!` this
+        // replaces exited 101 where the CLI documents 1.
+        writeln_stdout_or_die(&serialized);
     }
 }

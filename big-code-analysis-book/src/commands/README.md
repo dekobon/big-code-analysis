@@ -99,6 +99,21 @@ a broken symlink found by walking (neither is a regular file). Both warn
 explicitly named path that does not exist is a separate, pre-existing
 error (also exit `1`).
 
+### Unwritable output {#unwritable-output}
+
+The mirror image is the same rule, and it holds for every emission
+path: a run whose output could not be written exits `1`. That covers a
+per-file document under an unwritable `--output-dir`, and a full disk
+on stdout — `dump`'s banners and trees, `find`'s matches,
+`strip-comments`' rewritten source, `count`'s tally, and `preproc`'s
+JSON alike. A per-file failure is named on stderr and counted in a
+summary line; output assembled after the walk reports the operating
+system's error directly.
+
+The one exemption is a closed downstream pipe: `bca dump | head` is
+routine rather than a failure, so `BrokenPipe` is swallowed and the run
+still exits `0`.
+
 ## Flag placement and input paths
 
 Most subcommands read the input they analyze as a trailing positional

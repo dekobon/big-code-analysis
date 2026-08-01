@@ -66,5 +66,11 @@ pub(crate) fn run_command_count(
     // is back to one; `into_count` recovers the tally (degrading rather
     // than panicking if a worker poisoned the inner mutex, issue #445).
     let count = collector.into_count();
-    println!("{count}");
+    // The tally is emitted on `main` after the walk, so the per-file
+    // `write_failures` tally cannot see it and the `println!` this
+    // replaces panicked on an unwritable stdout (#1132).
+    // `writeln_stdout_or_die` gives it the same `error: …` line,
+    // `EXIT_TOOL_ERROR`, and `BrokenPipe` tolerance as every other
+    // post-walk emission.
+    writeln_stdout_or_die(&count.to_string());
 }
