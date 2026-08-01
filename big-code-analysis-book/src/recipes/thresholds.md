@@ -166,13 +166,18 @@ Ruby. Prefer re-deriving from your own repository over adopting any of those fou
 
 ### Metrics that do not apply to every language {#language-gaps}
 
-`nargs` reports 0 for every Bash, Perl, and Elixir function. For Bash that is correct: the shell has
-no formal parameter list, arguments arrive as `$1`, `$2`, and so on, and the limit is simply inert.
-For Perl and Elixir it is a gap. Both have formal parameter lists, and both are parsed but not
-counted — Perl subroutine signatures (`sub add($x, $y)`, stable since 5.20 and on by default under
-`use v5.36`) in [issue #1147](https://github.com/dekobon/big-code-analysis/issues/1147), Elixir in
-[issue #1142](https://github.com/dekobon/big-code-analysis/issues/1142). In all three cases a
-`nargs` limit passes unconditionally, which reads as "no offenders" rather than "not measured".
+`nargs` reports 0 for every Bash and Elixir function. For Bash that is correct and permanent: the
+shell has no formal parameter list, arguments arrive as `$1`, `$2`, and so on, and the limit is
+simply inert. For Elixir it is a gap — the language has formal parameter lists and they are parsed
+but not counted, tracked in
+[issue #1142](https://github.com/dekobon/big-code-analysis/issues/1142). In both cases a `nargs`
+limit passes unconditionally, which reads as "no offenders" rather than "not measured".
+
+Perl is counted, but only where the source declares a signature (`sub add($x, $y)`, stable since
+5.20 and on by default under `use v5.36`). A sub *without* a signature takes its arguments from `@_`
+and has no formal parameter list to measure, so it reads 0 — correctly. Perl's `nargs` distribution
+is therefore sparse on codebases predating `use v5.36`, and one anonymous-sub form still reads 0
+because the grammar misparses its signature.
 
 `wmc`, `npm`, and `npa` are only produced for languages with a class-like container. They are absent
 from Bash, C, Go, Lua, Perl, and Tcl output.

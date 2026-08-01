@@ -702,6 +702,26 @@ The implementation handles default arguments, variadic arguments,
 keyword-only arguments, and destructured parameters consistently per
 language.
 
+### Languages where it reads 0 {#nargs-language-gaps}
+
+A metric that silently reports 0 reads as "no offenders" rather than
+"not measured", so it is worth knowing where the count is inert:
+
+- **Bash** — correct and permanent. The shell has no formal parameter
+  list; arguments arrive as `$1`, `$2`, and so on.
+- **Elixir** — a measurement gap, not a language property, tracked in
+  [issue #1142](https://github.com/dekobon/big-code-analysis/issues/1142).
+- **Perl subs without a signature** — correct. Signatures
+  (`sub add($x, $y)`) are counted; a sub that reads its arguments from
+  `@_` declares no formal parameters to count.
+- **Perl anonymous subs** — a gap, and an upstream one: the grammar
+  parses an anonymous sub's signature inside an error node, so
+  `my $f = sub ($x) {…}` reads 0 even though it has a signature.
+
+A `nargs` limit passes unconditionally on any codebase made only of
+those, so gate it per language rather than repository-wide. See
+[Choosing thresholds](recipes/thresholds.md#language-gaps).
+
 ### How to read it
 
 A function with many arguments is hard to call correctly and even

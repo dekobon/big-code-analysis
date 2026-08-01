@@ -495,6 +495,77 @@ impl NArgs for IrulesCode {
     }
 }
 
+// tree-sitter-perl emits a subroutine signature as an unnamed
+// `function_signature` child rather than under a `parameters` field, so
+// the shared `compute_args` helper never sees it. `FunctionSignature2`
+// is the hidden `_function_signature` supertype, listed defensively per
+// the lesson-2 convention.
+//
+// A bare attribute swallows the signature — `sub f :lvalue ($z)` parses
+// as `function_attribute → function_signature` — while an attribute
+// carrying its own parens (`sub f :prototype($$) ($a, $b)`) leaves the
+// signature a direct child. Look one level into `function_attribute` so
+// both spellings count; a `:prototype($$)` argument list is a
+// `function_prototype`, a different kind, so it cannot be mistaken for a
+// signature.
+fn perl_signature<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+    fn is_signature(id: u16) -> bool {
+        matches!(
+            id.into(),
+            Perl::FunctionSignature | Perl::FunctionSignature2
+        )
+    }
+    node.children().find_map(|child| {
+        if is_signature(child.kind_id()) {
+            Some(child)
+        } else if child.kind_id() == Perl::FunctionAttribute {
+            child.first_child(is_signature)
+        } else {
+            None
+        }
+    })
+}
+
+// Count every signature child that is neither punctuation nor a comment:
+// a defaulted parameter (`$y = 5`) is a `binary_expression`, not a bare
+// `scalar_variable`, so a positive variant list would undercount it. The
+// negative filter also survives signature forms the grammar may add — at
+// the price of needing the comment exclusion, since a multi-line
+// signature documents its parameters with `comments` children sitting
+// directly under `function_signature`.
+fn compute_perl_args(node: &Node, nargs: &mut usize) {
+    let Some(signature) = perl_signature(node) else {
+        return;
+    };
+    signature.act_on_child(&mut |n| {
+        if !PerlCode::is_non_arg(n) && !PerlCode::is_comment(n) {
+            *nargs += 1;
+        }
+    });
+}
+
+impl NArgs for PerlCode {
+    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        if Self::is_func(node, ancestors) {
+            compute_perl_args(node, &mut stats.fn_nargs);
+            return;
+        }
+
+        // Every anonymous sub reads 0 today: tree-sitter-perl 1.1.2 parses
+        // its signature inside an `ERROR` node
+        // (`anonymous_function → sub → ERROR → function_signature`), so
+        // `perl_signature` finds nothing among the direct children.
+        // Deliberately not recovered — descending through `ERROR` would
+        // pin us to a parse shape upstream will change. The call stays
+        // here so a grammar fix starts counting (and fails
+        // `perl_anonymous_sub_signature_is_zero`) rather than passing
+        // silently; revisit at the next `recreate-grammars.sh` bump.
+        if Self::is_closure(node, ancestors) {
+            compute_perl_args(node, &mut stats.closure_nargs);
+        }
+    }
+}
+
 implement_metric_trait!(
     [NArgs],
     PythonCode,
@@ -506,7 +577,6 @@ implement_metric_trait!(
     PreprocCode,
     CcommentCode,
     JavaCode,
-    PerlCode,
     BashCode,
     PhpCode,
     CsharpCode,
@@ -1743,10 +1813,11 @@ mod tests {
 
     #[test]
     fn perl_single_function() {
-        // Perl args arrive via `@_` rather than as formal parameters in the
-        // `sub` signature, so nargs is always 0. To make sure the test still
-        // discriminates "function parsed" from "function silently dropped",
-        // also assert nom recognised exactly one function.
+        // This sub declares no signature, so it has no formal parameters to
+        // count and nargs is 0 — args arrive via `@_`. Signature-carrying
+        // subs are counted; see `perl_signature_function`. To make sure the
+        // test still discriminates "function parsed" from "function silently
+        // dropped", also assert nom recognised exactly one function.
         check_metrics::<PerlParser>(
             "sub greet {
                 my ($name) = @_;
@@ -1779,8 +1850,10 @@ mod tests {
 
     #[test]
     fn perl_single_closure() {
-        // Same caveat as `perl_single_function`: closures take their
-        // arguments through `@_`, so nargs stays 0. Assert via nom that the
+        // This closure declares no signature, so nargs stays 0; it takes its
+        // arguments through `@_`. A signature-carrying closure also reads 0,
+        // for an unrelated upstream-grammar reason — see
+        // `perl_anonymous_sub_signature_is_zero`. Assert via nom that the
         // anonymous function was actually identified as a closure.
         check_metrics::<PerlParser>(
             "my $f = sub {
@@ -1814,8 +1887,9 @@ mod tests {
 
     #[test]
     fn perl_multiple_functions() {
-        // Same caveat as `perl_single_function`. Assert nom counted both
-        // top-level subs so the test fails if either sub is dropped.
+        // Neither sub declares a signature, so both count 0. Assert nom
+        // counted both top-level subs so the test fails if either sub is
+        // dropped.
         check_metrics::<PerlParser>(
             "sub a { return 1; }
              sub b {
@@ -1849,8 +1923,9 @@ mod tests {
 
     #[test]
     fn perl_nested_closure() {
-        // Same caveat as `perl_single_function`. Assert nom recognised one
-        // outer sub plus one nested closure.
+        // Neither the outer sub nor the nested closure declares a signature,
+        // so both count 0. Assert nom recognised one outer sub plus one
+        // nested closure.
         check_metrics::<PerlParser>(
             "sub outer {
                 my $inner = sub { return 42; };
@@ -1860,6 +1935,294 @@ mod tests {
             |metric| {
                 assert_eq!(metric.nom.functions_sum(), 1);
                 assert_eq!(metric.nom.closures_sum(), 1);
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                {
+                  "function_args": 0,
+                  "closure_args": 0,
+                  "function_args_average": 0.0,
+                  "closure_args_average": 0.0,
+                  "total": 0,
+                  "average": 0.0,
+                  "function_args_min": 0,
+                  "function_args_max": 0,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    /// Regression for #1147: a signature sub reported 0 because the
+    /// signature is an unnamed `function_signature` child, not a
+    /// `parameters` field.
+    #[test]
+    fn perl_signature_function() {
+        check_metrics::<PerlParser>(
+            "use feature 'signatures';
+             sub add($x, $y) { return $x + $y; }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 1);
+                let s = &metric.nargs;
+                assert_eq!(s.function_args_sum(), 2);
+                assert_eq!(s.function_args_max(), 2);
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                {
+                  "function_args": 2,
+                  "closure_args": 0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
+                  "total": 2,
+                  "average": 2.0,
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    /// A defaulted parameter is a `binary_expression`, not a bare
+    /// `scalar_variable`, so counting only the variable kinds would report
+    /// 2 here instead of 3. Pins the negative filter in
+    /// `compute_perl_args` (#1147).
+    #[test]
+    fn perl_signature_defaults_and_slurpy() {
+        check_metrics::<PerlParser>(
+            "use feature 'signatures';
+             sub deflt($x, $y = 5, @rest) { return $x; }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 1);
+                let s = &metric.nargs;
+                assert_eq!(s.function_args_sum(), 3);
+                assert_eq!(s.function_args_max(), 3);
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                {
+                  "function_args": 3,
+                  "closure_args": 0,
+                  "function_args_average": 3.0,
+                  "closure_args_average": 0.0,
+                  "total": 3,
+                  "average": 3.0,
+                  "function_args_min": 0,
+                  "function_args_max": 3,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    /// A signature sub and an `@_` sub in one file: the min/max and the
+    /// average have to keep the zero-argument sub in the divisor rather
+    /// than folding it away.
+    #[test]
+    fn perl_signature_and_at_underscore_mixed() {
+        check_metrics::<PerlParser>(
+            "use feature 'signatures';
+             sub sig($x, $y, $z) { return $x; }
+             sub legacy { my ($a) = @_; return $a; }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 2);
+                let s = &metric.nargs;
+                assert_eq!(s.function_args_sum(), 3);
+                assert_eq!(s.function_args_max(), 3);
+                // 3 args over 2 functions: the zero-argument sub stays in
+                // the divisor, so a fold that dropped it would read 3.0.
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                {
+                  "function_args": 3,
+                  "closure_args": 0,
+                  "function_args_average": 1.5,
+                  "closure_args_average": 0.0,
+                  "total": 3,
+                  "average": 1.5,
+                  "function_args_min": 0,
+                  "function_args_max": 3,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    /// Perl puts subroutine attributes before the signature
+    /// (`sub NAME ATTRS SIG BLOCK`), and a bare attribute swallows the
+    /// signature into its own `function_attribute` node. Pins the
+    /// one-level descent in `perl_signature`.
+    #[test]
+    fn perl_signature_behind_attribute() {
+        check_metrics::<PerlParser>(
+            "use feature 'signatures';
+             sub attrs :lvalue ($z) { return $z; }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 1);
+                let s = &metric.nargs;
+                assert_eq!(s.function_args_sum(), 1);
+                assert_eq!(s.function_args_max(), 1);
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                {
+                  "function_args": 1,
+                  "closure_args": 0,
+                  "function_args_average": 1.0,
+                  "closure_args_average": 0.0,
+                  "total": 1,
+                  "average": 1.0,
+                  "function_args_min": 0,
+                  "function_args_max": 1,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    /// A multi-line signature documents its parameters with `comments`
+    /// children sitting directly under `function_signature`, so the
+    /// negative filter has to exclude them or a documented 3-parameter sub
+    /// reads 6 and trips the default `nargs` limit of 5.
+    #[test]
+    fn perl_signature_comments_are_not_parameters() {
+        check_metrics::<PerlParser>(
+            "use feature 'signatures';
+             sub documented(
+                 $host,    # hostname to connect to
+                 $port,    # TCP port
+                 $timeout, # seconds
+             ) { return $host; }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 1);
+                let s = &metric.nargs;
+                assert_eq!(s.function_args_sum(), 3);
+                assert_eq!(s.function_args_max(), 3);
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                {
+                  "function_args": 3,
+                  "closure_args": 0,
+                  "function_args_average": 3.0,
+                  "closure_args_average": 0.0,
+                  "total": 3,
+                  "average": 3.0,
+                  "function_args_min": 0,
+                  "function_args_max": 3,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    /// The two shapes that must stay at 0 for reasons the counting rule
+    /// depends on: an empty signature has no children but the parens, and
+    /// a prototype (`($$)`) is a `function_prototype`, a different kind
+    /// that `perl_signature` deliberately does not match.
+    #[test]
+    fn perl_empty_signature_and_prototype_are_zero() {
+        check_metrics::<PerlParser>(
+            "use feature 'signatures';
+             sub empty() { return 1; }
+             sub proto($$) { return 1; }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 2);
+                let s = &metric.nargs;
+                assert_eq!(s.function_args_sum(), 0);
+                assert_eq!(s.function_args_max(), 0);
+            },
+        );
+    }
+
+    /// Perl 5.38's `method` is a second `is_func` kind
+    /// (`function_definition_without_sub`) reaching the same helper, so it
+    /// gets its own fixture rather than riding on the `sub` tests.
+    #[test]
+    fn perl_method_signature_function() {
+        check_metrics::<PerlParser>(
+            "use v5.38;
+             class Point {
+                 method shift_by($dx, $dy) { return $dx; }
+             }",
+            "foo.pl",
+            |metric| {
+                let s = &metric.nargs;
+                assert_eq!(s.function_args_sum(), 2);
+                assert_eq!(s.function_args_max(), 2);
+            },
+        );
+    }
+
+    /// `FunctionSignature2` is the hidden `_function_signature` supertype;
+    /// `perl_signature` lists it defensively. Pin that the grammar never
+    /// emits it, so a bump that promotes the rule fails loudly instead of
+    /// changing behaviour invisibly (lesson 34).
+    #[test]
+    fn perl_hidden_function_signature_is_unreachable() {
+        let mut hidden = false;
+        let mut emitted = false;
+        crate::test_support::for_each_node_with_chain::<PerlCode>(
+            b"use feature 'signatures';\nsub add($x, $y) { return $x + $y; }\n",
+            |node, _| {
+                hidden |= node.kind_id() == Perl::FunctionSignature2 as u16;
+                emitted |= node.kind_id() == Perl::FunctionSignature as u16;
+            },
+        );
+        assert!(
+            emitted,
+            "fixture must reach a real `function_signature`, else the \
+             hidden-rule check below is vacuous"
+        );
+        assert!(
+            !hidden,
+            "grammar now emits the hidden `_function_signature`; re-check \
+             the defensive arm in `perl_signature`"
+        );
+    }
+
+    /// Upstream-grammar limitation, deliberately pinned: tree-sitter-perl
+    /// 1.1.2 parses an anonymous sub's signature inside an `ERROR` node,
+    /// so a signature-carrying closure counts 0. A grammar bump that fixes
+    /// the parse should fail this test rather than shift metrics silently.
+    #[test]
+    fn perl_anonymous_sub_signature_is_zero() {
+        check_metrics::<PerlParser>(
+            "use feature 'signatures';
+             my $mul = sub ($p, $q) { return $p * $q; };",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 0);
+                assert_eq!(metric.nom.closures_sum(), 1);
+                let s = &metric.nargs;
+                assert_eq!(s.closure_args_sum(), 0);
+                assert_eq!(s.closure_args_max(), 0);
                 insta::assert_json_snapshot!(
                     metric.nargs,
                     @r#"
