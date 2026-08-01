@@ -208,8 +208,16 @@ fn run_check_walk(
 ) -> CheckWalk {
     let (tx, rx) = std::sync::mpsc::channel();
     let files_dispatched = Arc::new(AtomicUsize::new(0));
+    // Compute only the metric families the resolved thresholds read
+    // (#1113). A gate on one metric used to pay for the whole suite —
+    // Halstead being the most expensive per node — and throw the rest
+    // away. `validate_and_build_thresholds` rejects an empty set before
+    // the walk, so this is never an empty selection, which `with_only`
+    // would read as "compute nothing".
+    let selected_metrics = Some(set.selected_metrics());
     let cfg = Config {
         threshold_set: Some(set),
+        selected_metrics,
         check_tx: Some(Mutex::new(tx)),
         files_dispatched: Some(Arc::clone(&files_dispatched)),
         suppression_policy: SuppressionPolicy::from_no_suppress(args.no_suppress),

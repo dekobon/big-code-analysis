@@ -1166,3 +1166,159 @@ fn mi_lower_is_worse_skips_unit_root() {
         "the file aggregate must not be flagged for a Function-scoped mi.*: {out:?}"
     );
 }
+
+// --- #1113: the metric family each extractor reads ------------------
+
+/// The `metric` field must agree with `threshold_metric_for_name`
+/// wherever that helper commits to an answer, so the two mappings cannot
+/// drift as new extractors land.
+///
+/// `tokens` is the one deliberate divergence and the reason the field
+/// exists at all: the helper answers a *suppression* question and
+/// returns `None` there, but `tokens` is a real threshold whose family
+/// must still be computed. Asserting it explicitly means deleting the
+/// divergence (by "simplifying" `metric` away into a call to the helper)
+/// fails here rather than silently disarming the `tokens` gate.
+#[test]
+fn extractor_metric_family_agrees_with_the_suppression_mapping() {
+    for extractor in EXTRACTORS {
+        match threshold_metric_for_name(extractor.name) {
+            Some(family) => assert_eq!(
+                extractor.metric, family,
+                "extractor `{}` declares {:?} but resolves to {family:?}",
+                extractor.name, extractor.metric,
+            ),
+            None => assert_eq!(
+                extractor.name, "tokens",
+                "extractor `{}` has no suppression mapping; only `tokens` may",
+                extractor.name,
+            ),
+        }
+    }
+    // The divergence itself: the helper declines, the registry does not.
+    let tokens = lookup_extractor("tokens").expect("tokens is a threshold");
+    assert!(threshold_metric_for_name("tokens").is_none());
+    assert_eq!(tokens.metric, Metric::Tokens);
+}
+
+/// `selected_metrics` collapses the several dotted names that share one
+/// family down to a single entry, and keeps registry order.
+#[test]
+fn selected_metrics_dedupes_families_sharing_a_name_prefix() {
+    let raw = BTreeMap::from([
+        ("halstead.volume".to_owned(), 1.0),
+        ("halstead.effort".to_owned(), 1.0),
+        ("loc.sloc".to_owned(), 1.0),
+        ("loc.ploc".to_owned(), 1.0),
+        ("cyclomatic".to_owned(), 1.0),
+    ]);
+    let set = ThresholdSet::build(&raw).expect("builds");
+
+    assert_eq!(
+        set.selected_metrics(),
+        vec![Metric::Cyclomatic, Metric::Halstead, Metric::Loc],
+        "five thresholds span exactly three families, in registry order",
+    );
+}
+
+/// Every extractor's declared `metric` must be *sufficient* to compute
+/// the accessor it reads (#1113).
+///
+/// This is the assertion that actually protects the gate. Narrowing the
+/// check walk means each threshold is evaluated against a `CodeMetrics`
+/// built with `with_only(&[that one family])`; if the declared family is
+/// wrong, or if a derived metric's dependencies are not resolved, the
+/// accessor reads a default-constructed `Stats` and silently returns
+/// zero instead of erroring. So compare the narrow computation against
+/// the full suite at every space in the tree — an exact match at each
+/// one is the only outcome that means "this family was enough".
+///
+/// The equality alone could pass vacuously if a value were zero on both
+/// sides, so each extractor must also read non-zero at *some* space.
+/// That is why the fixture is Java with a populated class: `wmc`, `npm`,
+/// `npa`, and `loc.cloc` are zero inside a method body and only become
+/// observable at the class or file space, while `cognitive`, `abc`, and
+/// the branch-driven families are zero at the file space and only
+/// observable inside the method.
+#[test]
+fn every_extractor_metric_family_suffices_to_compute_its_accessor() {
+    use big_code_analysis::{Ast, LANG, MetricsOptions, Source};
+
+    /// Class with public members, branches, arguments, comments, blank
+    /// lines and several exits, so no extractor reads zero everywhere.
+    const JAVA: &str = r#"
+// A class with public members, branches, args and several exits.
+public class Sample {
+    public int width;
+    public int height;
+
+    public String classify(int n, int m, boolean flag, String tag, int limit) {
+        if (n < 0) {
+            return "neg";
+        } else if (n == 0 && flag) {
+            return "zero";
+        }
+
+        for (int i = 0; i < m; i++) {
+            if (i > limit) {
+                return tag;
+            }
+        }
+        return "other";
+    }
+
+    public int area() {
+        return width * height;
+    }
+}
+"#;
+
+    /// Walk two structurally identical trees in lockstep, applying
+    /// `visit` to each `(full, narrow)` space pair.
+    fn zip_spaces(
+        full: &FuncSpace,
+        narrow: &FuncSpace,
+        visit: &mut impl FnMut(&FuncSpace, &FuncSpace),
+    ) {
+        visit(full, narrow);
+        assert_eq!(
+            full.spaces.len(),
+            narrow.spaces.len(),
+            "metric selection must not change the shape of the space tree",
+        );
+        for (f, n) in full.spaces.iter().zip(&narrow.spaces) {
+            zip_spaces(f, n, visit);
+        }
+    }
+
+    let ast = Ast::parse(Source::new(LANG::Java, JAVA.as_bytes())).expect("fixture parses");
+    let full = ast
+        .metrics(MetricsOptions::default())
+        .expect("full metrics");
+
+    for extractor in EXTRACTORS {
+        let narrow = ast
+            .metrics(MetricsOptions::default().with_only(&[extractor.metric]))
+            .expect("narrowed metrics");
+
+        let mut any_non_zero = false;
+        zip_spaces(&full, &narrow, &mut |f, n| {
+            let expected = (extractor.extract)(&f.metrics);
+            let actual = (extractor.extract)(&n.metrics);
+            assert_eq!(
+                actual.to_bits(),
+                expected.to_bits(),
+                "`{}` computed with only {:?} disagrees with the full suite at space {:?}",
+                extractor.name,
+                extractor.metric,
+                f.name,
+            );
+            any_non_zero |= expected != 0.0;
+        });
+        assert!(
+            any_non_zero,
+            "`{}` is zero at every space in the fixture, so the comparison above proves nothing",
+            extractor.name,
+        );
+    }
+}

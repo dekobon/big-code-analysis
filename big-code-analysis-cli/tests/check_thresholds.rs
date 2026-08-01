@@ -1889,3 +1889,149 @@ fn check_no_fail_does_not_mask_an_unreadable_input() {
         .code(1)
         .stderr(predicate::str::contains("1 input file could not be read"));
 }
+
+// --- #1113: the check walk computes only the thresholded families ----
+
+/// `tokens` is the trap in narrowing the check walk (#1113).
+///
+/// The obvious way to derive the metric selection is the library's
+/// `threshold_metric_for_name`, but that helper answers a *suppression*
+/// question and returns `None` for `tokens` — a marker may never silence
+/// it. `tokens` is nonetheless a real configurable threshold, so
+/// selecting by that mapping omits `Metric::Tokens`, leaves `m.tokens`
+/// at its zero default, and the gate silently never fires: `0 > 5` is
+/// false, so the run exits 0 with no offender at all.
+///
+/// The value is asserted as non-zero rather than pinned to an exact
+/// count, which a grammar bump legitimately moves.
+#[test]
+fn check_tokens_threshold_fires_under_narrowed_metric_selection() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+
+    cli(dir.path())
+        .args([
+            "check",
+            "--no-config",
+            "--paths",
+            &path,
+            "--threshold",
+            "tokens=5",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::is_match(r"classify: tokens = [1-9]\d* \(limit 5\)").unwrap());
+}
+
+/// Narrowing must not change a single reported value (#1113).
+///
+/// `mi.original` is the sharpest case: it selects only `Metric::Mi`, and
+/// MI is derived from Loc, Cyclomatic, and Halstead. If
+/// `MetricsOptions::with_only` failed to pull those dependencies in, MI
+/// would be computed from zeroed inputs and report a different number
+/// rather than failing outright. Comparing the narrow run against one
+/// whose extra thresholds widen the selection to four families pins that
+/// without hardcoding a bit-brittle float.
+#[test]
+fn check_mi_value_is_identical_whether_or_not_the_walk_is_narrowed() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+
+    let mi_line = |extra: &[&str]| -> String {
+        let mut args = vec![
+            "check",
+            "--no-config",
+            "--paths",
+            &path,
+            "--threshold",
+            // A limit far above any real MI score, so the lower-is-worse
+            // `mi.*` gate always reports the observed value.
+            "mi.original=200",
+        ];
+        args.extend_from_slice(extra);
+        let out = cli(dir.path())
+            .args(args)
+            .assert()
+            .code(2)
+            .get_output()
+            .stderr
+            .clone();
+        let stderr = String::from_utf8(out).expect("utf8 stderr");
+        stderr
+            .lines()
+            .find(|l| l.contains("mi.original ="))
+            .unwrap_or_else(|| panic!("no mi.original offender in:\n{stderr}"))
+            .to_owned()
+    };
+
+    // Mi alone -> selection is [Mi] plus whatever `with_only` resolves.
+    let narrow = mi_line(&[]);
+    // Mi + Tokens + Abc + Nom -> a four-family selection.
+    let wide = mi_line(&[
+        "--threshold",
+        "tokens=5",
+        "--threshold",
+        "abc=0",
+        "--threshold",
+        "nom=0",
+    ]);
+
+    assert_eq!(
+        narrow, wide,
+        "narrowing the walk to the thresholded families changed the reported MI value"
+    );
+}
+
+/// A multi-metric `[thresholds]` table must gate on every metric it
+/// names, not just the first — the union of families, deduplicated
+/// (#1113).
+#[test]
+fn check_multi_metric_config_gates_on_every_named_metric() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let config_path = dir.path().join("thresholds.toml");
+    // Five names spanning four families: the two `halstead.*` keys
+    // collapse to one `Metric::Halstead` in the selection. The dotted
+    // names are quoted — bare `halstead.volume` is a TOML *table*, which
+    // the threshold loader rejects.
+    fs::write(
+        &config_path,
+        "[thresholds]\n\
+         cyclomatic = 1\n\
+         abc = 0\n\
+         tokens = 5\n\
+         \"halstead.volume\" = 1\n\
+         \"halstead.difficulty\" = 1\n",
+    )
+    .expect("write config");
+    let config_str = config_path.to_str().expect("utf8 config path");
+
+    let out = cli(dir.path())
+        .args([
+            "check",
+            "--no-config",
+            "--paths",
+            &path,
+            "--config",
+            config_str,
+        ])
+        .assert()
+        .code(2)
+        .get_output()
+        .stderr
+        .clone();
+    let stderr = String::from_utf8(out).expect("utf8 stderr");
+
+    for metric in [
+        "cyclomatic",
+        "abc",
+        "tokens",
+        "halstead.volume",
+        "halstead.difficulty",
+    ] {
+        assert!(
+            stderr.contains(&format!("classify: {metric} = ")),
+            "no {metric} offender in:\n{stderr}"
+        );
+    }
+}
