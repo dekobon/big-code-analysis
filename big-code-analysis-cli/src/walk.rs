@@ -223,7 +223,7 @@ pub(crate) struct ResolvedFiles {
 /// the tally to every variant would make a stray `.gitignore` typo fail
 /// a build — pinned by
 /// `malformed_parent_gitignore_warns_but_still_exits_zero` in
-/// `tests/read_failures.rs`.
+/// `tests/discovery/read_failures.rs`.
 ///
 /// `Error::Loop` is not a concern here: `follow_links` is off, so the
 /// walker never runs its symlink-loop check.

@@ -377,6 +377,23 @@ serde_yaml = "^0.9"
 ciborium = "^0.2"
 toml = "^1.1"
 
+# Cargo's dev/test default is `debug = 2`, which emits full DWARF —
+# variable locations, type descriptions, the lot — for every crate in the
+# graph, and then makes the linker copy all of it into every one of the
+# workspace's test binaries. `line-tables-only` keeps exactly what a
+# panic backtrace reads (function names plus file:line) and drops the
+# rest, which is the part nothing in this repo's workflow consumes: no
+# gate, no CI job, and no `make` target runs a debugger. Measured here on
+# a full `--all-features` test build (#1124).
+#
+# `split-debuginfo` is deliberately left at its platform default. On
+# Linux, `"unpacked"` would leave the remaining line tables in the `.o`
+# files and record paths instead — but at `line-tables-only` there is
+# little left to split, and it makes a binary stop symbolizing the
+# moment its object files are cleaned.
+[profile.dev]
+debug = "line-tables-only"
+
 # Optimize dependencies in dev/test builds. The `"*"` glob excludes
 # workspace members, so the crates under `[workspace].members` stay at
 # opt-level 0 — quick to rebuild and to step through. It does cover the

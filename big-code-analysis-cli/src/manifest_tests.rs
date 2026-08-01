@@ -2,7 +2,7 @@
 //!
 //! Discovery (which reads the process working directory) and the
 //! end-to-end CLI precedence are exercised by the integration tests in
-//! `tests/manifest.rs`; these cover the pure transforms in isolation.
+//! `tests/cli_ux/manifest.rs`; these cover the pure transforms in isolation.
 
 use super::*;
 
@@ -15,7 +15,7 @@ fn manifest(raw: RawManifest) -> Manifest {
         raw,
         // These transforms never read disk text, so default the job-count
         // key to the canonical spelling; the alias-attribution path is
-        // covered by the integration tests in `tests/manifest.rs`.
+        // covered by the integration tests in `tests/cli_ux/manifest.rs`.
         jobs_key: Some("jobs"),
     }
 }

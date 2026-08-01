@@ -1,6 +1,6 @@
 //! Unit tests for the pure line-span arithmetic that buckets blame
 //! entries into function spans. The git-backed end-to-end behaviour is
-//! exercised by the integration fixture in `tests/vcs_history.rs`.
+//! exercised by the integration fixture in `tests/vcs/vcs_history.rs`.
 
 use std::cell::Cell;
 

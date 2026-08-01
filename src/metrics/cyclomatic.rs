@@ -4594,7 +4594,7 @@ f() {
     /// Without the fix, this 2-arm case reports `cyclomatic_max == 3`
     /// (1 base + 2 arms); with the fix it reports `2` (1 base + 1
     /// explicit arm), matching every other switch-bearing language
-    /// in `tests/cyclomatic_cross_language_parity.rs`.
+    /// in `tests/parity/cyclomatic_cross_language_parity.rs`.
     #[test]
     fn bash_case_bare_wildcard_excluded() {
         check_metrics::<BashParser>(

@@ -1,7 +1,7 @@
 //! Unit tests for the bus-factor aggregate. These exercise the pure DoA
 //! formula and greedy truck-factor algorithm on synthetic authorship
 //! distributions with *known* answers — no git repository involved (the
-//! end-to-end backend path is covered by `tests/vcs_bus_factor.rs`).
+//! end-to-end backend path is covered by `tests/vcs/vcs_bus_factor.rs`).
 
 use std::path::Path;
 

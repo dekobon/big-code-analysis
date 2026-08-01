@@ -470,7 +470,7 @@ fn check_rejects_per_file_format_as_output_format() {
 
 // Note: runtime rejection of `ops -O csv` is covered by
 // `ops_rejects_csv_format_at_runtime` in
-// tests/action_enforcement.rs, which spawns the binary so the
+// tests/check/action_enforcement.rs, which spawns the binary so the
 // dispatcher's die() can be observed.
 
 #[test]
@@ -1067,7 +1067,7 @@ impl std::io::Write for FlushFailingSink {
 /// error surfaces from a `write_all`), which is why the hole survived
 /// #1132 and why it is pinned here rather than end-to-end. `bca vcs`
 /// had the identical hole on a path that *could* produce one, and
-/// `tests/read_failures.rs` covers that half.
+/// `tests/discovery/read_failures.rs` covers that half.
 ///
 /// Deleting the `out.flush()` makes this the only failing test in the
 /// workspace — verified.

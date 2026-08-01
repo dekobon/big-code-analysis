@@ -4,7 +4,7 @@
 //! that grew up around `OffenderRecord` while the output-format tests
 //! were being written. Used by:
 //!
-//! - `tests/checkstyle_test.rs` (`rec`)
+//! - `tests/output_formats/checkstyle_test.rs` (`rec`)
 //!
 //! Per-`mod tests` blocks inside `src/output/*.rs` carry their own
 //! near-identical builders. Those are intentionally not shared

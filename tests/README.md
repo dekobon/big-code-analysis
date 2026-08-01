@@ -127,7 +127,7 @@ files the current `tree-sitter-*` grammar mis-parses.
 | Language | Submodule | Pinned at | Source files (post-exclude) | Snapshots | Grammar-bug excludes |
 |---|---|---|---|---|---|
 | C++ (DeepSpeech) | `mozilla/DeepSpeech` | `v0.10.0-alpha.3-137-gaa1d2853` | 869 (`*.cc`/`*.cpp`/`*.h`/`*.hh`) | 1047 | 7 files (→ [#83](https://github.com/dekobon/big-code-analysis/issues/83), tracked in [#86](https://github.com/dekobon/big-code-analysis/issues/86)) plus `tensorflow/**` and `kenlm/**` (vendored, ~8500+ files, no snapshot coverage) |
-| JavaScript (pdf.js) | `mozilla/pdf.js` | `65c4a4b3f` | 384 (`*.js`) | 384 | **118** files (→ [#84](https://github.com/dekobon/big-code-analysis/issues/84)) — `tests/pdf_js_test.rs` is 143 lines, almost entirely this exclude list |
+| JavaScript (pdf.js) | `mozilla/pdf.js` | `65c4a4b3f` | 384 (`*.js`) | 384 | **118** files (→ [#84](https://github.com/dekobon/big-code-analysis/issues/84)) — `tests/corpus/pdf_js_test.rs` is 143 lines, almost entirely this exclude list |
 | Rust (serde) | `serde-rs/serde` | `v1.0.159` | 172 (`*.rs`) | 172 | none — the only clean Pattern-A corpus |
 
 ### Pattern B: synthetic curated fixtures
@@ -245,7 +245,7 @@ under `big-code-analysis-output`.
 
 ### A new output-format test
 
-Mirror `tests/sarif_test.rs`: vendor the schema under
+Mirror `tests/output_formats/sarif_test.rs`: vendor the schema under
 `tests/fixtures/`, document provenance in `tests/fixtures/README.md`,
 and validate every emitted document via `tests/common/validators.rs`.
 Keep the validator hermetic — no network access.
