@@ -51,6 +51,10 @@
 //! survive on Windows and the workspace `missing_docs` lint stays quiet
 //! there.
 
+// Re-exported for `mod unix` below, so it carries that module's gate:
+// the workspace builds tests with `-D warnings`, and an ungated import
+// is dead on Windows.
+#[cfg(unix)]
 use crate::common;
 
 #[cfg(unix)]

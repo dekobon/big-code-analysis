@@ -1601,9 +1601,11 @@ end
 // `cognitive_only_pulls_nom_and_average_is_finite`); an *undeclared*
 // coupling between the walker's per-metric gates was not.
 mod metric_selection_parity {
-    use crate::{
-        CodeMetrics, FuncSpace, LANG, Metric, MetricSet, MetricsOptions, Source, SpaceKind, analyze,
-    };
+    use crate::{CodeMetrics, FuncSpace, LANG, Metric, MetricsOptions, Source, SpaceKind, analyze};
+    // Only the `rust`-gated parity test resolves a selection, so an
+    // ungated import is dead under `--no-default-features`.
+    #[cfg(feature = "rust")]
+    use crate::MetricSet;
     use serde_json::Value;
 
     // Deliberately non-default for all thirteen metrics at once: public
