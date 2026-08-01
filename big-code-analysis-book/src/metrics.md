@@ -324,12 +324,17 @@ Sonar ecosystem.
   SonarSource specification adds for languages that expose those
   shapes syntactically.
 - For every language with a syntactic function-definition node, a
-  nested function (a local function, lambda, or a method on a
-  local / inner class) **resets the nesting counter to zero** at
-  its boundary and adds a function-depth surcharge, so control flow
+  nested function — a local function, or a method on a local /
+  inner class — **resets the nesting counter to zero** at its
+  boundary and adds a function-depth surcharge, so control flow
   inside it is scored against the nested function's own depth rather
   than the enclosing function's nesting. Byte-equivalent constructs
   therefore score identically across languages.
+- A lambda or closure (`x -> …`, `|x| …`, `lambda x: …`, a Ruby
+  block, an Objective-C block) is not a function boundary in that
+  sense. It adds a surcharge *on top of* the enclosing nesting
+  instead of replacing it, so a decision inside a lambda written
+  inside an `if` is charged for both.
 
 ## Cyclomatic Complexity (CC) {#cyclomatic-complexity-cc}
 
