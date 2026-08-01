@@ -143,9 +143,16 @@ struct Config {
     /// run in single-file aggregate mode (`--output <FILE>`, #669). The
     /// command runner collects the records after the walk and writes one
     /// document. `None` for the directory / stdout paths, which write
-    /// per-file inline. Wrapped in `Mutex` because `mpsc::Sender` is
-    /// `Send` but not `Sync`.
-    aggregate_tx: Option<Mutex<std::sync::mpsc::Sender<AggregateItem>>>,
+    /// per-file inline.
+    ///
+    /// A `crossbeam` sender rather than `std::sync::mpsc`: it is `Sync`,
+    /// so the shared `Config` hands every worker the same sender
+    /// directly. The `mpsc` equivalent is `Send`-only and had to sit
+    /// behind a `Mutex` that each worker locked once per file — a single
+    /// point of contention across the pool that scaled *worse* with core
+    /// count, on top of a poisoned-lock branch nothing could reach
+    /// (#1119). The same reasoning covers every `*_tx` below.
+    aggregate_tx: Option<crossbeam::channel::Sender<AggregateItem>>,
     language: Option<LANG>,
     line_start: Option<usize>,
     line_end: Option<usize>,
@@ -153,8 +160,7 @@ struct Config {
     preproc: Option<Arc<PreprocResults>>,
     count_lock: Option<CountCollector>,
     /// Sender for streaming `FunctionSummary` records when running `report`.
-    /// Wrapped in `Mutex` because `mpsc::Sender` is `Send` but not `Sync`.
-    markdown_tx: Option<Mutex<std::sync::mpsc::Sender<FunctionSummary>>>,
+    markdown_tx: Option<crossbeam::channel::Sender<FunctionSummary>>,
     /// Sender for streaming each file's `(absolute path, cyclomatic sum)`
     /// when running `report --vcs`, so the change-history section can join
     /// the same hotspot score (`complexity × recent churn`) that
@@ -162,21 +168,18 @@ struct Config {
     /// path is canonicalized against the index work-tree downstream — the
     /// identical match `vcs_command::inject` uses — so the join is correct
     /// regardless of `--strip-prefix` or the walk-root spelling. `None`
-    /// for every flow other than `report --vcs`. Wrapped in `Mutex` for the
-    /// same reason as `markdown_tx`.
-    report_hotspot_tx: Option<Mutex<std::sync::mpsc::Sender<(PathBuf, f64)>>>,
+    /// for every flow other than `report --vcs`.
+    report_hotspot_tx: Option<crossbeam::channel::Sender<(PathBuf, f64)>>,
     /// Path prefix stripped from file paths in the markdown report.
     strip_prefix: String,
     /// Pre-resolved thresholds for `Action::Check`. `None` for every
     /// other action.
     threshold_set: Option<Arc<ThresholdSet>>,
     /// Sender for streaming [`Violation`] records when running `check`.
-    /// Wrapped in `Mutex` for the same reason as `markdown_tx`.
-    check_tx: Option<Mutex<std::sync::mpsc::Sender<Violation>>>,
+    check_tx: Option<crossbeam::channel::Sender<Violation>>,
     /// Sender for streaming per-file suppression-marker batches when
-    /// running `exemptions`. Wrapped in `Mutex` for the same reason as
-    /// `markdown_tx`.
-    exemptions_tx: Option<Mutex<std::sync::mpsc::Sender<exemptions::FileMarkers>>>,
+    /// running `exemptions`.
+    exemptions_tx: Option<crossbeam::channel::Sender<exemptions::FileMarkers>>,
     /// Counts how many files survived expansion and glob filtering and
     /// were actually dispatched to `act_on_file`. `Action::Check` reads
     /// this after the walk to distinguish "all clean" (counter > 0,

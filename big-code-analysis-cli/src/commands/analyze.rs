@@ -160,8 +160,8 @@ pub(crate) fn run_command_metrics(
     // channel, collected and written once after the walk.
     let (aggregate_tx, aggregate_rx) = match output_target {
         StructuredOutput::AggregateFile(_) => {
-            let (tx, rx) = std::sync::mpsc::channel();
-            (Some(Mutex::new(tx)), Some(rx))
+            let (tx, rx) = crossbeam::channel::unbounded();
+            (Some(tx), Some(rx))
         }
         _ => (None, None),
     };
@@ -295,8 +295,8 @@ pub(crate) fn run_command_ops(
     let explicit_unrecognized = Arc::new(AtomicUsize::new(0));
     let (aggregate_tx, aggregate_rx) = match output_target {
         StructuredOutput::AggregateFile(_) => {
-            let (tx, rx) = std::sync::mpsc::channel();
-            (Some(Mutex::new(tx)), Some(rx))
+            let (tx, rx) = crossbeam::channel::unbounded();
+            (Some(tx), Some(rx))
         }
         _ => (None, None),
     };

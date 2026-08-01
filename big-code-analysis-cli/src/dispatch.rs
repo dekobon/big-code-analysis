@@ -259,9 +259,7 @@ fn dispatch_metrics(
             // per-file document. The format is applied once, to the whole
             // collected set, by the command runner.
             if let Some(tx) = &cfg.aggregate_tx {
-                if let Ok(sender) = tx.lock() {
-                    let _ = sender.send(crate::AggregateItem::Metrics(Box::new(space), path));
-                }
+                let _ = tx.send(crate::AggregateItem::Metrics(Box::new(space), path));
                 return Ok(());
             }
             // Per-file directory mode (`--output-dir <DIR>`) or stdout.
@@ -303,9 +301,7 @@ fn dispatch_ops(
             // Single-file aggregate mode (`--output <FILE>`, #669): stream
             // the ops tree to the post-walk collector.
             if let Some(tx) = &cfg.aggregate_tx {
-                if let Ok(sender) = tx.lock() {
-                    let _ = sender.send(crate::AggregateItem::Ops(Box::new(ops)));
-                }
+                let _ = tx.send(crate::AggregateItem::Ops(Box::new(ops)));
                 return Ok(());
             }
             // CSV is rejected upstream in `run()` for the Ops command,
@@ -477,17 +473,8 @@ fn dispatch_report(
             &cfg.strip_prefix,
             &mut summaries,
         );
-        let Ok(sender) = tx.lock() else {
-            if cfg.warning {
-                warn(format_args!(
-                    "skipping {}: report channel lock poisoned",
-                    path.display()
-                ));
-            }
-            return Ok(());
-        };
         for s in summaries {
-            let _ = sender.send(s);
+            let _ = tx.send(s);
         }
         // `report --vcs` joins the file's hotspot score (complexity ×
         // recent churn) onto the change-history section, mirroring
@@ -495,12 +482,10 @@ fn dispatch_report(
         // by the absolute walk path so the downstream join canonicalizes
         // and matches against the index work-tree exactly like
         // `vcs_command::inject` (issue #615).
-        if let Some(ref hotspot_tx) = cfg.report_hotspot_tx
-            && let Ok(hotspot_sender) = hotspot_tx.lock()
-        {
+        if let Some(ref hotspot_tx) = cfg.report_hotspot_tx {
             #[allow(clippy::cast_precision_loss)]
             let cyclomatic_sum = space.metrics.cyclomatic.cyclomatic_sum() as f64;
-            let _ = hotspot_sender.send((path.clone(), cyclomatic_sum));
+            let _ = hotspot_tx.send((path, cyclomatic_sum));
         }
     }
     Ok(())
@@ -551,24 +536,12 @@ fn dispatch_check_file(
                 ));
             }
         }
-        if !violations.is_empty() {
-            let Ok(sender) = tx.lock() else {
-                if cfg.warning {
-                    warn(format_args!(
-                        "skipping {}: check channel lock poisoned",
-                        path.display()
-                    ));
-                }
-                return Ok(());
-            };
-            // Receiver lives until `run_check` drains `rx`, which
-            // happens only after `run_walk` joins all worker threads —
-            // so `send` cannot fail here. Use `let _` rather than
-            // `expect` to avoid panicking the worker pool on the
-            // (unreachable) drop path.
-            for v in violations {
-                let _ = sender.send(v);
-            }
+        // Receiver lives until `run_check` drains `rx`, which happens
+        // only after `run_walk` joins all worker threads — so `send`
+        // cannot fail here. Use `let _` rather than `expect` to avoid
+        // panicking the worker pool on the (unreachable) drop path.
+        for v in violations {
+            let _ = tx.send(v);
         }
     }
     Ok(())
@@ -615,20 +588,11 @@ fn dispatch_exemptions(
     if markers.is_empty() {
         return Ok(());
     }
-    let Ok(sender) = tx.lock() else {
-        if cfg.warning {
-            warn(format_args!(
-                "skipping {}: exemptions channel lock poisoned",
-                path.display()
-            ));
-        }
-        return Ok(());
-    };
     // Receiver lives until the post-walk aggregator drains `rx`, which
     // happens only after all worker threads join — so `send` cannot
     // fail. Use `let _` rather than `expect` to avoid panicking the
     // worker pool on the unreachable drop path.
-    let _ = sender.send(FileMarkers {
+    let _ = tx.send(FileMarkers {
         path: file_str.to_owned(),
         markers,
     });

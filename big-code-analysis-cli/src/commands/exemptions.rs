@@ -73,9 +73,9 @@ pub(crate) fn collect_marker_rows(
     globals: GlobalOpts,
     preproc: Option<Arc<PreprocResults>>,
 ) -> Vec<MarkerRow> {
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (tx, rx) = crossbeam::channel::unbounded();
     let cfg = Config {
-        exemptions_tx: Some(Mutex::new(tx)),
+        exemptions_tx: Some(tx),
         ..Config::new(Action::Exemptions, &globals, preproc)
     };
     run_walk(globals, cfg);
