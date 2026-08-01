@@ -492,6 +492,7 @@ dependencies = [
  "big-code-analysis",
  "ciborium",
  "clap",
+ "crossbeam",
  "csv",
  "globset",
  "ignore",

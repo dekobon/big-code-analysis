@@ -27,19 +27,19 @@ pub(crate) fn run_command_report(
         .vcs
         .then(|| crate::vcs_command::build_default_report(&globals, args.top))
         .flatten();
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (tx, rx) = crossbeam::channel::unbounded();
     // When the change-history section is present, also collect each file's
     // cyclomatic sum so its hotspot score can be joined after the walk
     // (issue #615). Only wired for `report --vcs`; a plain `report` leaves
     // the sender `None` and the hotspot column omitted downstream.
     let (hotspot_rx, report_hotspot_tx) = if vcs.is_some() {
-        let (htx, hrx) = std::sync::mpsc::channel();
-        (Some(hrx), Some(Mutex::new(htx)))
+        let (htx, hrx) = crossbeam::channel::unbounded();
+        (Some(hrx), Some(htx))
     } else {
         (None, None)
     };
     let cfg = Config {
-        markdown_tx: Some(Mutex::new(tx)),
+        markdown_tx: Some(tx),
         report_hotspot_tx,
         strip_prefix: args.strip_prefix,
         ..Config::new(Action::Report, &globals, preproc)

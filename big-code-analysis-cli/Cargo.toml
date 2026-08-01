@@ -27,6 +27,12 @@ big-code-analysis = { path = "..", version = "=2.1.0", default-features = false,
   "vcs",
 ] }
 ciborium = "^0.2"
+# The walk's result channels (#1119). `crossbeam::channel::Sender` is
+# `Sync`, so the worker pool shares one sender per channel directly;
+# `std::sync::mpsc::Sender` is `Send`-only and had to be wrapped in a
+# `Mutex` that every worker locked once per file. Same pin as the
+# library's `ConcurrentRunner`.
+crossbeam = { version = "^0.8", features = ["crossbeam-channel"] }
 # `bca vcs` writes a flat CSV ranking (issue #328); the workspace pin is
 # shared with the library's CSV writer.
 csv.workspace = true

@@ -206,7 +206,7 @@ fn run_check_walk(
     preproc: Option<Arc<PreprocResults>>,
     set: Arc<ThresholdSet>,
 ) -> CheckWalk {
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (tx, rx) = crossbeam::channel::unbounded();
     let files_dispatched = Arc::new(AtomicUsize::new(0));
     // Compute only the metric families the resolved thresholds read
     // (#1113). A gate on one metric used to pay for the whole suite —
@@ -218,7 +218,7 @@ fn run_check_walk(
     let cfg = Config {
         threshold_set: Some(set),
         selected_metrics,
-        check_tx: Some(Mutex::new(tx)),
+        check_tx: Some(tx),
         files_dispatched: Some(Arc::clone(&files_dispatched)),
         suppression_policy: SuppressionPolicy::from_no_suppress(args.no_suppress),
         report_suppressed: args.report_suppressed,
