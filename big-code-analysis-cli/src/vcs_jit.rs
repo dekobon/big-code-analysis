@@ -56,7 +56,7 @@ fn run_commit(root: &Path, args: &VcsArgs, jit: &JitArgs) {
     let report =
         score_commit(root, &jit.commit, &options).unwrap_or_else(|e| die(format_args!("{e}")));
 
-    emit(&report, jit).unwrap_or_else(|e| die(format_args!("writing jit output: {e}")));
+    crate::die_unless_broken_pipe(emit(&report, jit), "writing jit output");
 
     // CI gate: a score at or above the threshold exits 2 (the `check`
     // "metric gate" convention; exit 1 stays reserved for tool errors).
@@ -81,7 +81,7 @@ fn run_diff(source: &Path, jit: &JitArgs) {
     let diff = read_diff(source).unwrap_or_else(|e| die(format_args!("reading diff: {e}")));
     let report = score_diff(&diff).unwrap_or_else(|e| die(format_args!("{e}")));
 
-    emit(&report, jit).unwrap_or_else(|e| die(format_args!("writing jit output: {e}")));
+    crate::die_unless_broken_pipe(emit(&report, jit), "writing jit output");
 
     if let Some(threshold) = jit.fail_above
         && report.partial_risk_score >= threshold

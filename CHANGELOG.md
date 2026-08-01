@@ -26,6 +26,14 @@ for historical reference.
 
 ### Added
 
+- `big_code_analysis::vcs::BlameSession`, a per-thread handle obtained
+  from the new `PerFunctionBlame::session` (#1117). It carries the
+  thread-local repository handle, its object cache, the parsed
+  `.mailmap`, and the resolved-commit memo, so a caller blaming many
+  files in one repository pays each once instead of once per file;
+  `PerFunctionBlame::per_function` keeps its one-shot semantics by
+  building and discarding a session. Additive — see `STABILITY.md`.
+
 - `ConcurrentRunner::without_path_verification`, which skips the
   per-path `is_file()` check during dispatch (#1114). `FilesData::paths`
   is documented as a terminal file list, so the check is a safety net for
@@ -93,6 +101,66 @@ for historical reference.
   own 128-level `Deserializer` limit charges two levels per space.
 
 ### Changed
+
+- **Metric values move.** A ternary's condition and its two branch
+  operands now each count as a Fitzpatrick Rule 9 unary condition in
+  `abc.conditions`, matching what Java, Groovy, and C# already did
+  (#1102). `a ? !b : !c` scored 1 — the `?` alone — and now scores 4.
+  Affects C, C++, Mozcpp, Objective-C, JavaScript, TypeScript, TSX,
+  Mozjs, PHP, and Perl. Ruby and Python are **not** covered by this
+  pass and still score the flat `+1`, so a cross-language comparison of
+  ternary-heavy code remains uneven.
+
+- **Metric values move.** `nargs` counts formal parameters for Elixir
+  (#1142) and for Perl subroutine signatures (#1147), both of which
+  reported 0 unconditionally. Elixir's `def`/`defp`/`defmacro` are
+  `Call` nodes whose parameter list sits two `arguments` levels down, so
+  the shared `parameters`-field heuristic found nothing; Perl's
+  signature is an unnamed `function_signature` child. A `def` inside
+  `quote do … end` still contributes nothing (#310), an `@_`-style Perl
+  sub still reads 0 correctly, and Bash still reports 0 (the shell has
+  no formal parameter list). Anonymous Perl subs read 0 pending an
+  upstream grammar fix.
+
+- **Metric values move.** Python resets structural nesting at a `def`
+  boundary, so a function defined inside a conditional is scored against
+  its own depth rather than the enclosing function's (#1149). Python was
+  the only family with a syntactic function-definition node that did
+  not, charging an inherited-conditional surcharge no sibling language
+  charges; a `def` two conditionals deep now scores 2 where it scored 4.
+
+- `bca ops` opens the same function spaces as `bca metrics`, through the
+  same source-aware promote-and-classify predicate (#1130). The two
+  walks each carried their own copy of the decision and the `ops` copy
+  was byte-less, so every Elixir input came back as a bare file-level
+  space while `bca metrics` returned the full module/function tree.
+  `tests/ops_metrics_space_parity.rs` pins the agreement per language.
+  `bca functions` and `bca find --type function` still use the byte-less
+  predicate and remain blind to Elixir — tracked as `FIXME(#1162)`.
+
+- Every walking subcommand exits `1` when the traversal could not read
+  an entry — typically a directory the process cannot list (#1131). A
+  whole subtree drops out of the resolved set before any file is
+  selected, so the per-file read tally stayed zero and the run reported
+  success over a tree it had not read; `bca check` was the worst case,
+  being indistinguishable from a clean gate. `bca diff --since` reports
+  it as `UnwalkableInputs` and `bca vcs` gates its ranking the same way.
+  An ignore file still prunes such a directory before the walker
+  descends; `--exclude` does not, being a post-walk filter.
+
+- A path named directly on the command line still overrides the walker's
+  `--exclude` / `--exclude-from` / `.bcaignore` / manifest `exclude`
+  deny-set, but now says so on stderr, naming the glob it overrode
+  (#1146). Silent for a seed no language claims, so a
+  `git diff --name-only | bca … --paths-from -` pipeline does not warn
+  about lockfiles and Markdown. `[check] exclude` is unchanged: it is
+  gate scope, survives an explicit path, and is where a
+  "never gate this" entry belongs. An absolute explicit path now anchors
+  against the CWD before the `[check] exclude` globs are applied, so a
+  `./`-prefixed glob matches every spelling of the same file.
+
+- `bca strip-comments` terminates non-UTF-8 output on stdout with a
+  newline, matching the UTF-8 branch, and flushes both (#1132).
 
 - `ConcurrentRunner::new`'s `num_jobs` is now the consumer-thread count
   rather than a budget shared with a dedicated producer thread, which
@@ -419,6 +487,15 @@ for historical reference.
   interleaved paired benchmark; output is bit-identical.
 
 ### Fixed
+
+- `bca vcs`, `bca vcs commit`, and `bca vcs trend` exit `0` again when
+  their consumer closes the pipe (`bca vcs … | head`). The
+  `write_text` flush below made the resulting `EPIPE` visible, and those
+  emitters `die`d on every I/O error, so a routine pipeline became
+  `error: writing vcs output: Broken pipe` and exit `1` while `dump`,
+  `metrics`, and `ops` piped into the same consumer exited `0`. The
+  `BrokenPipe` exemption the rest of the CLI applies is now shared by
+  the `vcs` family; a genuine write failure still exits `1`.
 
 - `bca vcs`, `bca vcs commit`, and `bca vcs trend` exit `1` when their
   report cannot be written to stdout. All three emit compact JSON, and

@@ -113,7 +113,7 @@ pub(crate) fn run(mut globals: GlobalOpts, args: VcsArgs) {
         files: entries,
     };
 
-    emit(&report, &args).unwrap_or_else(|e| die(format_args!("writing vcs output: {e}")));
+    crate::die_unless_broken_pipe(emit(&report, &args), "writing vcs output");
 }
 
 /// Reject the cache controls when they accompany a `vcs` subcommand.

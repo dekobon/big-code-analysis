@@ -603,7 +603,7 @@ fn since_errors_when_the_after_side_has_an_unlistable_directory() {
         "the readable control must pair every file: {removed:?}"
     );
 
-    if !common::deny_all_access(&nested) {
+    if !common::deny_dir_listing(&nested) {
         eprintln!("skipping: this process can list a mode-000 directory");
         return;
     }

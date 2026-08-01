@@ -958,6 +958,90 @@ mod unix {
         assert_vcs_stdout_write_failure_exits_one(&["trend"]);
     }
 
+    /// Capacity of a Linux pipe, and the reason the fixture below is
+    /// 400 files rather than one. A document that fits here is accepted
+    /// whole before the reader can close, so the child never meets the
+    /// closed pipe and the assertion passes against an unfixed build.
+    const PIPE_BUFFER_BYTES: usize = 64 * 1_024;
+
+    /// A repository with enough tracked files that `bca vcs --top 0`
+    /// emits more than [`PIPE_BUFFER_BYTES`] of compact JSON.
+    fn git_repo_with_many_files() -> Option<TempDir> {
+        let dir = TempDir::new().expect("tempdir");
+        if !git(&dir, &["init", "-q", "-b", "main"])
+            || !git(&dir, &["config", "commit.gpgsign", "false"])
+        {
+            return None;
+        }
+        for i in 0..400 {
+            write_fixture(&dir, &format!("f{i:04}.c"), TRIVIAL_C);
+        }
+        if !git(&dir, &["add", "."]) {
+            return None;
+        }
+        git(&dir, &["commit", "-qm", "add sources"]).then_some(dir)
+    }
+
+    /// The pipe-close half of the #1132 contract, for the `vcs` family.
+    ///
+    /// `bca vcs … | head` is routine. `formats::write_text` had no
+    /// `BrokenPipe` exemption and `emit`'s caller `die`d on every error,
+    /// so once the flush that makes a write failure *visible* landed,
+    /// a closed consumer became `error: writing vcs output: Broken pipe`
+    /// and exit 1 — while `dump`, `metrics`, and `ops` piped into the
+    /// same consumer exit 0. The
+    /// `vcs_*_exits_one_when_stdout_cannot_be_written` tests above
+    /// cannot see this: `/dev/full` fails every write with `ENOSPC`,
+    /// which must stay fatal.
+    ///
+    /// Both runs are load-bearing. The control asserts the document
+    /// really exceeds the pipe buffer, without which the child would
+    /// complete its write into the buffer and never observe the close —
+    /// and the test would pass against the unfixed code.
+    #[test]
+    fn vcs_exits_zero_when_its_consumer_closes_the_pipe() {
+        use std::io::Read;
+
+        let Some(repo) = git_repo_with_many_files() else {
+            eprintln!("skipping: no usable git for the `bca vcs` fixture");
+            return;
+        };
+        let run = || {
+            common::std_bca_command_in(repo.path())
+                .args(["vcs", "--no-config", "--top", "0", "--format", "json"])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .expect("spawn bca")
+        };
+
+        let control = run().wait_with_output().expect("wait for bca");
+        assert!(
+            control.stdout.len() > PIPE_BUFFER_BYTES,
+            "the document must outgrow the pipe buffer for the close to \
+             be observable at all; got {} bytes",
+            control.stdout.len(),
+        );
+
+        // Read one byte, then close the read end — the `head -c1` shape.
+        let mut child = run();
+        let mut stdout = child.stdout.take().expect("piped stdout");
+        let mut first = [0u8; 1];
+        stdout.read_exact(&mut first).expect("read first byte");
+        drop(stdout);
+
+        let output = child.wait_with_output().expect("wait for bca");
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        assert!(
+            output.status.success(),
+            "a closed consumer pipe is routine, not a tool error; stderr: {stderr}"
+        );
+        assert!(
+            stderr.is_empty(),
+            "a closed consumer pipe must be silent; stderr: {stderr}"
+        );
+    }
+
     /// The other half of the contract: `BrokenPipe` is not a tool error.
     /// `bca dump | head -1` is routine, and converting the banner from
     /// `println!` to a fallible write is exactly the change that could

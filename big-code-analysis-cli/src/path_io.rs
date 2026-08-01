@@ -52,6 +52,30 @@ pub(crate) fn write_stdout_or_die(bytes: &[u8]) {
     write_stdout_parts_or_die(&[bytes]);
 }
 
+/// Apply [`write_stdout_parts_or_die`]'s policy to an emission that
+/// wrote itself: `die` with `context` on any failure other than
+/// `BrokenPipe`.
+///
+/// The `vcs` family emits through [`crate::formats::write_text`] rather
+/// than through the helpers above, and used to `die` on *every* error.
+/// Once `write_text` grew the flush that makes a write failure visible
+/// at all (#1132), that turned the routine `bca vcs … | head` into an
+/// `error: writing vcs output: Broken pipe` and an exit 1, while
+/// `dump` / `metrics` / `ops` piped into the same consumer exit 0. A
+/// closed consumer is not a tool error on one subcommand and routine on
+/// the rest.
+///
+/// Safe for the `--output <file>` half of those emitters too: a regular
+/// file cannot produce `EPIPE`, so the exemption can only fire on the
+/// stdout path it is written for.
+pub(crate) fn die_unless_broken_pipe(result: std::io::Result<()>, context: &str) {
+    if let Err(e) = result
+        && e.kind() != ErrorKind::BrokenPipe
+    {
+        die(format_args!("{context}: {e}"));
+    }
+}
+
 /// Write `text` and a trailing newline to stdout, under one lock.
 ///
 /// The `println!` that post-walk emissions (`count`'s tally, `preproc`'s

@@ -863,7 +863,7 @@ fn vcs_exits_one_when_a_directory_cannot_be_listed() {
         .success()
         .stdout(predicate::str::contains("src/nested/inner.rs"));
 
-    if !common::deny_all_access(&nested) {
+    if !common::deny_dir_listing(&nested) {
         eprintln!("skipping: this process can list a mode-000 directory");
         return;
     }

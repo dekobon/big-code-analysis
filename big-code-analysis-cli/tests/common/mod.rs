@@ -227,6 +227,26 @@ pub fn deny_all_access(path: &Path) -> bool {
     std::fs::read(path).is_err()
 }
 
+/// Strip every permission bit from the *directory* `path` so listing it
+/// fails with `EACCES`, returning whether the denial actually took
+/// effect.
+///
+/// The directory counterpart to [`deny_all_access`], and not a
+/// convenience wrapper: that function probes with `fs::read`, which
+/// fails with `EISDIR` on **every** directory regardless of its mode, so
+/// it reports the denial as effective even where it is not. A caller
+/// that used it to guard a "skip when privileged" branch (root ignores
+/// mode bits) would never take that branch and would fail instead. The
+/// probe here is `read_dir` — the operation the walk actually performs.
+#[cfg(unix)]
+#[allow(dead_code)]
+pub fn deny_dir_listing(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000)).expect("chmod 000");
+    std::fs::read_dir(path).is_err()
+}
+
 /// Write `body` to `name` under `dir` and lock it with
 /// [`deny_all_access`], returning the path — or `None` when the lock
 /// could not be made to bite.
@@ -249,9 +269,10 @@ pub fn unreadable_fixture(dir: &Path, name: &str, body: &str) -> Option<std::pat
 /// is selected. Returns the directory path, or `None` when the denial
 /// does not bite.
 ///
-/// The probe is `read_dir`, not the `read` that [`deny_all_access`]
-/// uses: reading a directory fails with `EISDIR` regardless of its mode,
-/// so `read`-probing would report the denial as effective for *every*
+/// The lock goes through [`deny_dir_listing`], whose probe is `read_dir`
+/// rather than the `read` that [`deny_all_access`] uses: reading a
+/// directory fails with `EISDIR` regardless of its mode, so
+/// `read`-probing would report the denial as effective for *every*
 /// directory, readable ones included, and the caller would stage a
 /// scenario that does not exist.
 ///
@@ -266,13 +287,10 @@ pub fn unlistable_dir(
     file: &str,
     body: &str,
 ) -> Option<std::path::PathBuf> {
-    use std::os::unix::fs::PermissionsExt;
-
     let path = dir.join(name);
     std::fs::create_dir_all(&path).expect("create fixture dir");
     std::fs::write(path.join(file), body).expect("write fixture");
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).expect("chmod 000");
-    std::fs::read_dir(&path).is_err().then_some(path)
+    deny_dir_listing(&path).then_some(path)
 }
 
 /// Give a mode-stripped fixture directory its bits back so `TempDir`'s
