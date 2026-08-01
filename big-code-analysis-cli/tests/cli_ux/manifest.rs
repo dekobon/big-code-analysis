@@ -21,7 +21,12 @@ fn cli() -> Command {
 /// `classify` has cyclomatic == 4 (three `else if`/`if` decision points
 /// plus one). Used by tests that need a guaranteed offender at a tight
 /// limit and a clean run at a loose one.
-const BRANCHY_RUST: &str = r#"
+///
+/// Deliberately *not* `common::fixtures::BRANCHY_RUST`, which is the
+/// five-branch function: the limits these tests set sit between the two
+/// (#1126). The name says four so a later dedup pass does not merge
+/// them.
+const FOUR_BRANCH_RUST: &str = r#"
 pub fn classify(n: i32) -> &'static str {
     if n < 0 { "neg" } else if n == 0 { "zero" } else if n < 10 { "small" } else { "big" }
 }
@@ -49,9 +54,9 @@ fn fixture_with(manifest: &str, source_file: &str, source: &str) -> TempDir {
     dir
 }
 
-/// Fixture repo whose only source file is the branchy [`BRANCHY_RUST`].
+/// Fixture repo whose only source file is the branchy [`FOUR_BRANCH_RUST`].
 fn fixture(manifest: &str) -> TempDir {
-    fixture_with(manifest, "branchy.rs", BRANCHY_RUST)
+    fixture_with(manifest, "branchy.rs", FOUR_BRANCH_RUST)
 }
 
 /// Like [`fixture`], but the only source file is the `?`-using
@@ -268,7 +273,7 @@ fn manifest_baseline_fuzzy_match_is_honored() {
     // Rename the function; the body is byte-identical.
     fs::write(
         dir.path().join("branchy.rs"),
-        BRANCHY_RUST.replace("fn classify", "fn categorize"),
+        FOUR_BRANCH_RUST.replace("fn classify", "fn categorize"),
     )
     .unwrap();
 

@@ -14,21 +14,16 @@ use predicates::prelude::*;
 use tempfile::TempDir;
 
 use crate::common;
+// `TRIVIAL_RUST` is non-empty so the baseline walk has something to
+// traverse, and small enough that no threshold is exceeded, so the
+// baseline file ends up empty (just the version preamble). That is
+// fine — these tests care about file existence / shape, not entry
+// count.
+use crate::common::fixtures::TRIVIAL_RUST;
 
 fn cli() -> Command {
     common::bca_command()
 }
-
-/// Trivial Rust source — non-empty so the baseline walk has something
-/// to traverse. The body is small enough that no threshold is
-/// exceeded, so the baseline file ends up empty (just the version
-/// preamble). That is fine — the test cares about file existence /
-/// shape, not entry count.
-const TRIVIAL_RUST: &str = "
-pub fn add(a: i32, b: i32) -> i32 {
-    a + b
-}
-";
 
 #[test]
 fn init_writes_canonical_files() {

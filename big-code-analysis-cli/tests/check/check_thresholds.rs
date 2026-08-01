@@ -13,41 +13,21 @@ use predicates::prelude::*;
 use tempfile::TempDir;
 
 use crate::common;
+use crate::common::fixtures;
+use crate::common::fixtures::{BRANCHY_RUST, TRIVIAL_RUST};
 
 /// Hermetic `bca` builder: anchors the process cwd at `dir` (a
 /// `tempfile::tempdir()` with no `.git` ancestor) so `bca check` cannot
 /// auto-discover the repo's own `bca.toml` / `.bca-baseline.toml` and
 /// filter or scale the inline fixtures against repo state (#491).
+///
+/// Tests here that only need one of the shared fixtures and never write
+/// into their working directory use `fixtures::cli_shared()` instead,
+/// which is the same builder anchored at the process-wide fixture dir
+/// (#1126).
 fn cli(dir: &Path) -> Command {
     common::cli_in(dir)
 }
-
-/// Rust function with cyclomatic complexity > 1: each branch contributes
-/// to the count. Used by tests that need a guaranteed violation when
-/// `cyclomatic` is given a tight limit.
-const BRANCHY_RUST: &str = r#"
-pub fn classify(n: i32) -> &'static str {
-    if n < 0 {
-        "neg"
-    } else if n == 0 {
-        "zero"
-    } else if n < 10 {
-        "small"
-    } else if n < 100 {
-        "medium"
-    } else {
-        "large"
-    }
-}
-"#;
-
-/// Rust function with cyclomatic == 1 (no branches). Threshold-clean for
-/// any reasonable cyclomatic limit.
-const TRIVIAL_RUST: &str = "
-pub fn add(a: i32, b: i32) -> i32 {
-    a + b
-}
-";
 
 fn write_fixture(dir: &TempDir, name: &str, body: &str) -> String {
     let path = dir.path().join(name);
@@ -57,11 +37,14 @@ fn write_fixture(dir: &TempDir, name: &str, body: &str) -> String {
 
 #[test]
 fn check_clean_exits_zero_with_no_offenders() {
-    let dir = TempDir::new().unwrap();
-    let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
-
-    cli(dir.path())
-        .args(["check", "--paths", &path, "--threshold", "cyclomatic=10"])
+    fixtures::cli_shared()
+        .args([
+            "check",
+            "--paths",
+            fixtures::trivial_rs(),
+            "--threshold",
+            "cyclomatic=10",
+        ])
         .assert()
         .success()
         .stderr(predicate::str::is_empty());
@@ -69,17 +52,20 @@ fn check_clean_exits_zero_with_no_offenders() {
 
 #[test]
 fn check_violation_exits_two_with_stable_stderr() {
-    let dir = TempDir::new().unwrap();
-    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
-
-    cli(dir.path())
-        .args(["check", "--paths", &path, "--threshold", "cyclomatic=1"])
+    fixtures::cli_shared()
+        .args([
+            "check",
+            "--paths",
+            fixtures::branchy_rs(),
+            "--threshold",
+            "cyclomatic=1",
+        ])
         .assert()
         .code(2)
         // The classify function exceeds cyclomatic=1; the offender line
         // must mention the file, function name, metric, and limit in the
         // documented format.
-        .stderr(predicate::str::contains(&path))
+        .stderr(predicate::str::contains(fixtures::branchy_rs()))
         .stderr(predicate::str::contains("classify"))
         .stderr(predicate::str::contains("cyclomatic"))
         .stderr(predicate::str::contains("(limit 1)"));
@@ -241,14 +227,11 @@ impl Drop for ArtifactEnvGuard {
 
 #[test]
 fn check_no_fail_keeps_exit_zero_but_still_reports() {
-    let dir = TempDir::new().unwrap();
-    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
-
-    cli(dir.path())
+    fixtures::cli_shared()
         .args([
             "check",
             "--paths",
-            &path,
+            fixtures::branchy_rs(),
             "--threshold",
             "cyclomatic=1",
             "--no-fail",
@@ -261,11 +244,14 @@ fn check_no_fail_keeps_exit_zero_but_still_reports() {
 
 #[test]
 fn check_unknown_metric_exits_one_with_clear_error() {
-    let dir = TempDir::new().unwrap();
-    let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
-
-    cli(dir.path())
-        .args(["check", "--paths", &path, "--threshold", "not_a_metric=1"])
+    fixtures::cli_shared()
+        .args([
+            "check",
+            "--paths",
+            fixtures::trivial_rs(),
+            "--threshold",
+            "not_a_metric=1",
+        ])
         .assert()
         // Exit 1 (tool error), not 2 (threshold exceeded). This is the
         // pivot that lets CI distinguish "metric regression" from
@@ -276,16 +262,13 @@ fn check_unknown_metric_exits_one_with_clear_error() {
 
 #[test]
 fn check_requires_at_least_one_threshold() {
-    let dir = TempDir::new().unwrap();
-    let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
-
-    // `cli()` already anchors the cwd at a `.git`-free tempdir, so
-    // discovery never reaches the repo's root `bca.toml` (whose
-    // `[thresholds]` table would otherwise satisfy the "at least one
-    // threshold" check). `--no-config` is an explicit belt-and-suspenders
-    // guard on top of that cwd anchor.
-    cli(dir.path())
-        .args(["check", "--no-config", "--paths", &path])
+    // `fixtures::cli_shared()` anchors the cwd at the shared `.git`-free
+    // fixture tempdir, so discovery never reaches the repo's root
+    // `bca.toml` (whose `[thresholds]` table would otherwise satisfy the
+    // "at least one threshold" check). `--no-config` is an explicit
+    // belt-and-suspenders guard on top of that cwd anchor.
+    fixtures::cli_shared()
+        .args(["check", "--no-config", "--paths", fixtures::trivial_rs()])
         .assert()
         .code(1)
         .stderr(predicate::str::contains("no thresholds configured"));
@@ -295,11 +278,14 @@ fn check_requires_at_least_one_threshold() {
 /// hint pointing at the canonical name. Regression for #381.
 #[test]
 fn check_unknown_metric_close_typo_suggests_correction() {
-    let dir = TempDir::new().unwrap();
-    let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
-
-    cli(dir.path())
-        .args(["check", "--paths", &path, "--threshold", "cyclic=15"])
+    fixtures::cli_shared()
+        .args([
+            "check",
+            "--paths",
+            fixtures::trivial_rs(),
+            "--threshold",
+            "cyclic=15",
+        ])
         .assert()
         .code(1)
         .stderr(predicate::str::contains("did you mean"))
@@ -311,11 +297,14 @@ fn check_unknown_metric_close_typo_suggests_correction() {
 /// name as one string rather than splitting on `.`.
 #[test]
 fn check_unknown_metric_dotted_typo_suggests_correction() {
-    let dir = TempDir::new().unwrap();
-    let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
-
-    cli(dir.path())
-        .args(["check", "--paths", &path, "--threshold", "halstead.efort=1"])
+    fixtures::cli_shared()
+        .args([
+            "check",
+            "--paths",
+            fixtures::trivial_rs(),
+            "--threshold",
+            "halstead.efort=1",
+        ])
         .assert()
         .code(1)
         .stderr(predicate::str::contains("did you mean"))
@@ -327,11 +316,14 @@ fn check_unknown_metric_dotted_typo_suggests_correction() {
 /// short or unrelated inputs would point users at unrelated metrics.
 #[test]
 fn check_unknown_metric_unrelated_input_omits_suggestion() {
-    let dir = TempDir::new().unwrap();
-    let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
-
-    cli(dir.path())
-        .args(["check", "--paths", &path, "--threshold", "xyznonexistent=1"])
+    fixtures::cli_shared()
+        .args([
+            "check",
+            "--paths",
+            fixtures::trivial_rs(),
+            "--threshold",
+            "xyznonexistent=1",
+        ])
         .assert()
         .code(1)
         .stderr(predicate::str::contains("unknown threshold metric"))
@@ -427,17 +419,14 @@ fn check_cli_threshold_overrides_config() {
 
 #[test]
 fn check_emits_one_line_per_metric_per_function() {
-    let dir = TempDir::new().unwrap();
-    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
-
     // Two thresholds tight enough that the same function violates both.
     // The contract is one line per (function, metric), so we expect at
     // least two lines for `classify` — one for each metric.
-    let assert = cli(dir.path())
+    let assert = fixtures::cli_shared()
         .args([
             "check",
             "--paths",
-            &path,
+            fixtures::branchy_rs(),
             "--threshold",
             "cyclomatic=1",
             "--threshold",
@@ -474,16 +463,13 @@ fn check_uses_file_sentinel_for_top_level_space() {
     // `<file>` in the function slot so file-level violations on
     // aggregating metrics like `loc.sloc` are visually distinct
     // and the path doesn't repeat.
-    let dir = TempDir::new().unwrap();
-    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
-
-    // `cli()` already anchors the cwd at a `.git`-free tempdir, so
-    // discovery never reaches the repo's root `bca.toml` (whose
-    // `baseline` key would otherwise prefix the violation line with a
-    // `[new]` tag and break the `starts_with(path)` assertion below).
-    // `--no-config` is an explicit belt-and-suspenders guard on top of
-    // that cwd anchor.
-    let assert = cli(dir.path())
+    // `fixtures::cli_shared()` anchors the cwd at the shared `.git`-free
+    // fixture tempdir, so discovery never reaches the repo's root
+    // `bca.toml` (whose `baseline` key would otherwise prefix the
+    // violation line with a `[new]` tag and break the `starts_with`
+    // assertion below). `--no-config` is an explicit belt-and-suspenders
+    // guard on top of that cwd anchor.
+    let assert = fixtures::cli_shared()
         // loc.sloc aggregates source lines at the file level, so a
         // threshold of 1 is guaranteed to fire there for any
         // non-trivial fixture.
@@ -491,7 +477,7 @@ fn check_uses_file_sentinel_for_top_level_space() {
             "check",
             "--no-config",
             "--paths",
-            &path,
+            fixtures::branchy_rs(),
             "--threshold",
             "loc.sloc=1",
         ])
@@ -511,10 +497,10 @@ fn check_uses_file_sentinel_for_top_level_space() {
     // slot is the sentinel, not the path.
     let line = file_lines[0];
     assert!(
-        line.starts_with(&path),
+        line.starts_with(fixtures::branchy_rs()),
         "file-level line must start with the path; got {line:?}",
     );
-    let path_count = line.matches(path.as_str()).count();
+    let path_count = line.matches(fixtures::branchy_rs()).count();
     assert_eq!(
         path_count, 1,
         "file path should appear once (location only), not as the function name; line was {line:?}",
@@ -862,17 +848,14 @@ pub fn outer() -> i32 {
 
 #[test]
 fn check_recognised_after_single_value_exclude() {
-    let dir = TempDir::new().unwrap();
-    let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
-
     // No separator between the single `--exclude` value and `check`.
     // Post-#601 `--exclude` binds exactly one glob, so `check` is parsed
     // as the subcommand. Pre-#601 this errored with a missing <COMMAND>.
-    cli(dir.path())
+    fixtures::cli_shared()
         .args([
             "check",
             "--paths",
-            &path,
+            fixtures::trivial_rs(),
             "--exclude",
             "./nothing/**",
             "--threshold",
@@ -884,18 +867,15 @@ fn check_recognised_after_single_value_exclude() {
 
 #[test]
 fn check_runs_with_num_jobs_separator() {
-    let dir = TempDir::new().unwrap();
-    let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
-
     // The historical argv shape with `--num-jobs` interposed between the
     // exclude value and the subcommand. The separator is redundant
     // post-#601 but must remain harmless — this is the exact shape the
     // Pages workflow uses.
-    cli(dir.path())
+    fixtures::cli_shared()
         .args([
             "check",
             "--paths",
-            &path,
+            fixtures::trivial_rs(),
             "--exclude",
             "./nothing/**",
             "--num-jobs",
@@ -919,11 +899,14 @@ pub fn pick(n: i32) -> &'static str {
 
 #[test]
 fn summary_footer_emitted_by_default() {
-    let dir = TempDir::new().unwrap();
-    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
-
-    cli(dir.path())
-        .args(["check", "--paths", &path, "--threshold", "cyclomatic=1"])
+    fixtures::cli_shared()
+        .args([
+            "check",
+            "--paths",
+            fixtures::branchy_rs(),
+            "--threshold",
+            "cyclomatic=1",
+        ])
         .assert()
         .code(2)
         .stderr(predicate::str::contains("--- summary ---"))
@@ -932,14 +915,11 @@ fn summary_footer_emitted_by_default() {
 
 #[test]
 fn summary_footer_suppressed_by_no_summary() {
-    let dir = TempDir::new().unwrap();
-    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
-
-    cli(dir.path())
+    fixtures::cli_shared()
         .args([
             "check",
             "--paths",
-            &path,
+            fixtures::branchy_rs(),
             "--threshold",
             "cyclomatic=1",
             "--no-summary",
@@ -953,11 +933,14 @@ fn summary_footer_suppressed_by_no_summary() {
 fn summary_skipped_for_clean_run() {
     // No violations → no footer. Clean stderr stays empty so CI
     // tooling that asserts on "no output ⇒ clean" keeps working.
-    let dir = TempDir::new().unwrap();
-    let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
-
-    cli(dir.path())
-        .args(["check", "--paths", &path, "--threshold", "cyclomatic=10"])
+    fixtures::cli_shared()
+        .args([
+            "check",
+            "--paths",
+            fixtures::trivial_rs(),
+            "--threshold",
+            "cyclomatic=10",
+        ])
         .assert()
         .success()
         .stderr(predicate::str::is_empty());
@@ -1068,14 +1051,11 @@ fn summary_worst_metric_uses_max_ratio() {
     //   cyclomatic = 5 vs 1  → ratio 5     (worst, max ratio)
     //   loc.sloc   = ~12 vs 11 → ratio ~1.09
     // The footer must cite cyclomatic as worst.
-    let dir = TempDir::new().unwrap();
-    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
-
-    cli(dir.path())
+    fixtures::cli_shared()
         .args([
             "check",
             "--paths",
-            &path,
+            fixtures::branchy_rs(),
             "--threshold",
             "cyclomatic=1",
             "--threshold",
@@ -1401,20 +1381,18 @@ fn check_headroom_does_not_scale_cli_threshold_override() {
 /// rather than silently appearing to take effect.
 #[test]
 fn check_soft_tier_without_config_warns_and_noops() {
-    let dir = TempDir::new().unwrap();
-    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
-
-    // `cli()` already anchors the cwd at a `.git`-free tempdir, so
-    // discovery never reaches the repo's root `bca.toml` (whose
-    // `[thresholds]` table would otherwise give the soft tier something
-    // to scale, suppressing the "no effect" note). `--no-config` is an
-    // explicit belt-and-suspenders guard on top of that cwd anchor.
-    cli(dir.path())
+    // `fixtures::cli_shared()` anchors the cwd at the shared `.git`-free
+    // fixture tempdir, so discovery never reaches the repo's root
+    // `bca.toml` (whose `[thresholds]` table would otherwise give the
+    // soft tier something to scale, suppressing the "no effect" note).
+    // `--no-config` is an explicit belt-and-suspenders guard on top of
+    // that cwd anchor.
+    fixtures::cli_shared()
         .args([
             "check",
             "--no-config",
             "--paths",
-            &path,
+            fixtures::branchy_rs(),
             "--tier=soft=0.5",
             "--threshold",
             "cyclomatic=100",
@@ -1646,15 +1624,12 @@ fn check_soft_table_scale_without_hard_base_errors() {
 /// on-only flag could not express (#683).
 #[test]
 fn github_annotations_never_suppresses_under_gha() {
-    let dir = TempDir::new().unwrap();
-    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
-
-    cli(dir.path())
+    fixtures::cli_shared()
         .env("GITHUB_ACTIONS", "true")
         .args([
             "check",
             "--paths",
-            &path,
+            fixtures::branchy_rs(),
             "--threshold",
             "cyclomatic=1",
             "--github-annotations=never",
@@ -1668,14 +1643,11 @@ fn github_annotations_never_suppresses_under_gha() {
 /// a GHA step (no `$GITHUB_ACTIONS`).
 #[test]
 fn github_annotations_always_forces_on_outside_gha() {
-    let dir = TempDir::new().unwrap();
-    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
-
-    cli(dir.path())
+    fixtures::cli_shared()
         .args([
             "check",
             "--paths",
-            &path,
+            fixtures::branchy_rs(),
             "--threshold",
             "cyclomatic=1",
             "--github-annotations=always",
@@ -1722,15 +1694,12 @@ fn summary_file_never_skips_append_under_gha() {
 /// at the canonical `--exit-codes=tiered` (#666).
 #[test]
 fn strict_exit_codes_alias_warns_but_honors() {
-    let dir = TempDir::new().unwrap();
-    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
-
-    cli(dir.path())
+    fixtures::cli_shared()
         .args([
             "check",
             "--no-config",
             "--paths",
-            &path,
+            fixtures::branchy_rs(),
             "--threshold",
             "cyclomatic=1",
             "--strict-exit-codes",
@@ -1906,15 +1875,12 @@ fn check_no_fail_does_not_mask_an_unreadable_input() {
 /// count, which a grammar bump legitimately moves.
 #[test]
 fn check_tokens_threshold_fires_under_narrowed_metric_selection() {
-    let dir = TempDir::new().unwrap();
-    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
-
-    cli(dir.path())
+    fixtures::cli_shared()
         .args([
             "check",
             "--no-config",
             "--paths",
-            &path,
+            fixtures::branchy_rs(),
             "--threshold",
             "tokens=5",
         ])
@@ -1938,22 +1904,19 @@ fn check_tokens_threshold_fires_under_narrowed_metric_selection() {
 /// `mi.original = 0`, so they still matched and the test passed.
 #[test]
 fn check_mi_value_is_identical_whether_or_not_the_walk_is_narrowed() {
-    let dir = TempDir::new().unwrap();
-    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
-
     let mi_line = |extra: &[&str]| -> String {
         let mut args = vec![
             "check",
             "--no-config",
             "--paths",
-            &path,
+            fixtures::branchy_rs(),
             "--threshold",
             // A limit far above any real MI score, so the lower-is-worse
             // `mi.*` gate always reports the observed value.
             "mi.original=200",
         ];
         args.extend_from_slice(extra);
-        let out = cli(dir.path())
+        let out = fixtures::cli_shared()
             .args(args)
             .assert()
             .code(2)

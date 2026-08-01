@@ -14,6 +14,7 @@ use predicates::prelude::*;
 use tempfile::TempDir;
 
 use crate::common;
+use crate::common::fixtures::{BRANCHY_RUST, TRIVIAL_RUST};
 
 /// Hermetic `bca` builder: anchors the process cwd at `dir` (a
 /// `tempfile::tempdir()` with no `.git` ancestor) so `bca check` cannot
@@ -22,24 +23,6 @@ use crate::common;
 fn cli(dir: &Path) -> Command {
     common::cli_in(dir)
 }
-
-/// Rust function with cyclomatic complexity > 1: each branch
-/// contributes to the count. Five branches → cyclomatic == 5.
-const BRANCHY_RUST: &str = r#"
-pub fn classify(n: i32) -> &'static str {
-    if n < 0 {
-        "neg"
-    } else if n == 0 {
-        "zero"
-    } else if n < 10 {
-        "small"
-    } else if n < 100 {
-        "medium"
-    } else {
-        "large"
-    }
-}
-"#;
 
 /// Heavier-branching variant for "regressed function" cases: seven
 /// branches, so cyclomatic > 5 even after baselining at 5.
@@ -62,12 +45,6 @@ pub fn classify(n: i32) -> &'static str {
     }
 }
 "#;
-
-const TRIVIAL_RUST: &str = "
-pub fn add(a: i32, b: i32) -> i32 {
-    a + b
-}
-";
 
 fn write_fixture(dir: &TempDir, name: &str, body: &str) -> String {
     let path = dir.path().join(name);
