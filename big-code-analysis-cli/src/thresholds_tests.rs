@@ -111,26 +111,91 @@ fn build_accepts_zero_limit() {
     ThresholdSet::build(&raw).expect("zero limit is valid");
 }
 
+/// Parse a `[thresholds]` table the way both the manifest and
+/// `--config` do, so alias/duplicate assertions exercise the real parse
+/// boundary rather than a hand-built map.
+fn split(toml_src: &str) -> Result<ParsedThresholds, String> {
+    let cfg: ThresholdConfig = toml::from_str(toml_src).expect("parses as TOML");
+    split_thresholds_table(&cfg.thresholds)
+}
+
 /// Issue #514: the bare `bca diff --metric` spelling of a `loc`
 /// sub-metric is accepted as an alias and resolves to the dotted
 /// extractor, so a name copy-pasted from a `diff` run gates correctly.
+///
+/// Issue #1165 moved the resolution from `ThresholdSet::build_tiered` to
+/// the parse boundary, which is why this asserts on the parsed key and
+/// not only on the built set: the key is what every later layer merges
+/// against.
 #[test]
-fn build_accepts_bare_loc_submetric_alias() {
-    let mut raw = BTreeMap::new();
-    raw.insert("sloc".to_string(), 100.0);
-    let set = ThresholdSet::build(&raw).expect("bare loc alias resolves");
+fn parse_canonicalises_bare_loc_submetric_alias() {
+    let parsed = split("[thresholds]\nsloc = 100\n").expect("bare loc alias resolves");
+    assert_eq!(parsed.hard.keys().collect::<Vec<_>>(), ["loc.sloc"]);
+    let set = ThresholdSet::build(&parsed.hard).expect("canonical key builds");
     let resolved: Vec<(&str, f64)> = set.iter().collect();
     assert_eq!(resolved, [("loc.sloc", 100.0)]);
 }
 
+/// The soft tier canonicalises too (#1165). Keyed by the raw spelling, a
+/// `[thresholds.soft] sloc = "0.9x"` would find no hard limit named
+/// `sloc` to scale and die with "no hard [thresholds] limit exists".
+#[test]
+fn parse_canonicalises_soft_subtable_alias() {
+    let parsed = split("[thresholds]\n\"loc.sloc\" = 100\n[thresholds.soft]\nsloc = \"0.9x\"\n")
+        .expect("bare loc alias resolves in the soft table");
+    assert_eq!(parsed.soft.get("loc.sloc"), Some(&SoftLimit::Scale(0.9)));
+    assert_eq!(
+        parsed
+            .soft
+            .get("loc.sloc")
+            .expect("soft entry")
+            .resolve("loc.sloc", parsed.hard.get("loc.sloc").copied()),
+        Ok(90.0),
+        "the canonical soft key must find the canonical hard limit to scale",
+    );
+}
+
+/// Issue #1165: a table that names one metric under two spellings is
+/// rejected. Before the fix the merge kept both and gated the same
+/// extractor twice; silently keeping whichever key sorts last would be
+/// the same surprise in a quieter form.
+///
+/// Both key orders are covered because the table is a `BTreeMap`: which
+/// spelling is *seen* second is decided by sort order, not by the order
+/// the user typed. `loc.ploc` sorts before `ploc`, but `blank` sorts
+/// before `loc.blank` — so the dotted id is the reported one in the
+/// second case, and the message has to read correctly either way.
+#[test]
+fn parse_rejects_one_metric_under_two_spellings() {
+    for (src, canonical) in [
+        ("[thresholds]\n\"loc.ploc\" = 6\nploc = 100\n", "loc.ploc"),
+        // `blank` sorts before `loc.blank`, so here the *dotted* id is
+        // the key reported — the direction whose message would otherwise
+        // read `"loc.blank": "loc.blank" is already set`, naming one key
+        // twice and the other not at all.
+        (
+            "[thresholds]\nblank = 6\n\"loc.blank\" = 100\n",
+            "loc.blank",
+        ),
+    ] {
+        let err = split(src).expect_err("two spellings of one metric");
+        assert!(err.contains("[thresholds]"), "{err}");
+        assert!(err.contains(canonical), "{err}");
+        assert!(
+            err.contains("are one metric, so set it once"),
+            "the message explains the alias relation in both directions: {err}"
+        );
+    }
+}
+
 /// Issue #514: a bare family head with no single threshold scalar is
 /// ambiguous and rejected with the concrete candidates, not silently
-/// mapped to one sub-metric.
+/// mapped to one sub-metric. Since #1165 the rejection happens at the
+/// parse boundary, attributed to the table it came from.
 #[test]
-fn build_rejects_ambiguous_family_head() {
-    let mut raw = BTreeMap::new();
-    raw.insert("halstead".to_string(), 1.0);
-    let err = ThresholdSet::build(&raw).expect_err("ambiguous head");
+fn parse_rejects_ambiguous_family_head() {
+    let err = split("[thresholds]\nhalstead = 1\n").expect_err("ambiguous head");
+    assert!(err.contains("[thresholds]"), "{err}");
     assert!(err.contains("ambiguous"), "{err}");
     assert!(err.contains("halstead.volume"), "{err}");
 }

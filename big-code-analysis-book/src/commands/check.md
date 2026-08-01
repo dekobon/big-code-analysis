@@ -158,6 +158,12 @@ run gates correctly. A bare family head with no single threshold scalar
 (`halstead`, `mi`) is ambiguous and rejected with a "did you mean" hint
 listing the concrete sub-metrics — pick one (e.g. `halstead.volume`).
 
+The two spellings name one metric, so they override each other wherever
+limits merge: a `[thresholds.lang.c] ploc = 100` replaces the global
+`"loc.ploc"`, and `--threshold ploc=100` replaces either. Within a single
+table, writing both is an error rather than a silent winner — set the
+metric once, under whichever spelling you prefer.
+
 ### Per-language limits (`[thresholds.lang.<slug>]`) {#per-language-limits}
 
 Metric distributions vary by language more than by project — the
