@@ -33,6 +33,17 @@ use parser_cache::parse_on_scratch_parser;
 // test failure rather than a silent quadratic.
 crate::observation::counter!(node_resolved_sibling_lookups);
 
+// Child scans that built their own `TreeCursor`, on this thread.
+//
+// [`Node::children_with`] yields exactly what [`Node::children`] yields
+// — it exists to reuse one cursor across a traversal instead of
+// heap-allocating and freeing one per visited node, and no assertion on
+// a metric value can tell the two apart. #1112 moved the three
+// per-node traversals that could hoist a cursor onto it; the counter is
+// what makes moving one back a test failure rather than a silent
+// allocation per node.
+crate::observation::counter!(child_scan_cursors);
+
 /// A parsed source tree wrapping a [`tree_sitter::Tree`].
 ///
 /// The "open parse seam" (see issue #251) is reached by external
@@ -306,27 +317,43 @@ impl<'a> Node<'a> {
         self.0.field_name_for_child(child_index)
     }
 
+    /// Iterator over this node's direct children.
+    ///
+    /// Builds a [`Cursor`], which heap-allocates. A loop that visits
+    /// many nodes should hoist one cursor and use [`children_with`]
+    /// instead; see its note for when the difference is worth the
+    /// plumbing.
+    ///
+    /// [`children_with`]: Self::children_with
     pub(crate) fn children(&self) -> Children<'a> {
+        child_scan_cursors::record();
         let mut cursor = self.cursor();
-        // `goto_first_child` returns false when the node has no
-        // children, in which case the iterator is empty from the
-        // outset. Termination is then driven entirely by the cursor
-        // (see `Children::next`), so the iterator stops exactly when
-        // the tree reports no further siblings — it can never pad the
-        // sequence with duplicate nodes if `child_count` and the
-        // cursor walk ever disagree.
-        let done = !cursor.goto_first_child();
-        Children {
-            cursor,
-            done,
-            // `child_count` is the authoritative length for the
-            // `ExactSizeIterator` contract; for well-formed trees it
-            // equals the cursor sibling walk, so the reported length
-            // and the emitted data agree. A childless node (`done`
-            // already set) reports `0` so the empty iterator's length
-            // matches its (lack of) data.
-            remaining: if done { 0 } else { self.child_count() },
-        }
+        let scan = ChildScan::seed(self, &mut cursor);
+        Children { cursor, scan }
+    }
+
+    /// [`children`], over a cursor the caller owns.
+    ///
+    /// `tree_sitter::TreeCursor` heap-allocates its stack when built and
+    /// frees it when dropped, so a traversal that calls [`children`]
+    /// once per visited node pays a `malloc`/`free` pair per node.
+    /// `ts_tree_cursor_reset` keeps the allocation, so a loop that can
+    /// hoist one cursor pays for it once however many nodes it visits
+    /// (#1112).
+    ///
+    /// Worth the plumbing only where a loop visits many nodes. Measured
+    /// on the corpus slice, a full metric walk reaches [`children`] on
+    /// 3-6 % of nodes in every language except Python, where one scan —
+    /// the instance-attribute walk in `metrics::npa::python` — took it
+    /// to 60 %. Predicates that hold a bare `&Node` and scan one node's
+    /// children keep [`children`]: threading a cursor to them would
+    /// cross the `Checker` / `Getter` trait surface to save a single
+    /// allocation per call.
+    ///
+    /// [`children`]: Self::children
+    pub(crate) fn children_with<'c>(&self, cursor: &'c mut Cursor<'a>) -> ChildrenWith<'c, 'a> {
+        let scan = ChildScan::seed(self, cursor);
+        ChildrenWith { cursor, scan }
     }
 
     pub(crate) fn cursor(&self) -> Cursor<'a> {
@@ -406,17 +433,23 @@ impl<'a> Node<'a> {
     /// descendants (this node first, then each child subtree left to
     /// right).
     ///
-    /// The traversal is allocation-light: it reuses one work stack and
-    /// visits each node exactly once, so a full walk is O(n) in the
-    /// subtree size. Every yielded [`Node`] carries the underlying tree
-    /// lifetime `'a`, so callers may collect or retain the handles.
+    /// The traversal is allocation-light: it reuses one work stack *and
+    /// one cursor*, and visits each node exactly once, so a full walk is
+    /// O(n) in the subtree size and allocates only the stack's growth.
+    /// Building a fresh cursor per visited node instead would cost a
+    /// `malloc`/`free` pair per node (#1112). Every yielded [`Node`]
+    /// carries the underlying tree lifetime `'a`, so callers may collect
+    /// or retain the handles.
     ///
     /// This is the Rust counterpart of the Python `Node.walk()` binding
     /// (issue #728): the binding wraps each yielded node, so Rust and
     /// Python share one traversal order.
     #[must_use]
     pub fn preorder(&self) -> Preorder<'a> {
-        Preorder { stack: vec![*self] }
+        Preorder {
+            stack: vec![*self],
+            cursor: self.cursor(),
+        }
     }
 
     /// Collects every node in this subtree (this node included) whose
@@ -608,14 +641,17 @@ impl<'tree, 'chain> Iterator for AncestorIter<'tree, 'chain> {
 /// Pre-order iterator over a node and its descendants, returned by
 /// [`Node::preorder`].
 ///
-/// Holds a single work stack of not-yet-visited nodes. Each step pops the
+/// Holds a single work stack of not-yet-visited nodes, and a single
+/// cursor to enumerate each node's children with. Each step pops the
 /// next node, pushes its children so the leftmost is visited first, and
 /// yields the popped node — so the sequence is the node, then each child
-/// subtree in order. The stack is reused across steps (children are pushed
+/// subtree in order. Both are reused across steps (children are pushed
 /// then the freshly-pushed slice is reversed in place), so the walk
-/// allocates only the stack's growth, not a fresh buffer per node.
+/// allocates only the stack's growth: no fresh buffer per node, and no
+/// fresh `TreeCursor` either (#1112).
 pub struct Preorder<'a> {
     stack: Vec<Node<'a>>,
+    cursor: Cursor<'a>,
 }
 
 impl<'a> Iterator for Preorder<'a> {
@@ -627,8 +663,11 @@ impl<'a> Iterator for Preorder<'a> {
         // appended so the leftmost child ends up on top of the stack and
         // is visited next — pre-order without a per-node temporary.
         let first_child = self.stack.len();
-        self.stack.extend(node.children());
-        self.stack[first_child..].reverse();
+        // Destructured so the stack and the cursor are borrowed as the
+        // disjoint fields they are.
+        let Self { stack, cursor } = self;
+        stack.extend(node.children_with(cursor));
+        stack[first_child..].reverse();
         Some(node)
     }
 }
@@ -655,36 +694,52 @@ impl<'a> Cursor<'a> {
     }
 }
 
-/// Iterator over a node's direct children, returned by
-/// [`Node::children`].
+/// Position of a child scan, independent of who owns the cursor driving
+/// it.
 ///
-/// Termination is driven by the cursor alone: each step yields the
-/// cursor's current node, then advances with `goto_next_sibling`,
-/// stopping the moment that returns false. This makes the cursor the
-/// single source of truth for both the emitted data and when to stop, so
-/// the sequence can never be padded with duplicates if `child_count` and
-/// the actual sibling walk disagree.
-///
-/// The `ExactSizeIterator` length is reported from `child_count` (tracked
-/// in `remaining`). For well-formed trees the cursor walk and
-/// `child_count` agree, so the advertised length matches the data.
-pub(crate) struct Children<'a> {
-    cursor: Cursor<'a>,
+/// [`Children`] and [`ChildrenWith`] differ only in that — one owns its
+/// cursor, the other borrows the caller's — and `children_with` exists
+/// to save an allocation, not to answer differently. Keeping the
+/// termination rule here rather than in each iterator is what stops the
+/// two from drifting.
+struct ChildScan {
     done: bool,
     remaining: usize,
 }
 
-impl<'a> Iterator for Children<'a> {
-    type Item = Node<'a>;
+impl ChildScan {
+    /// Seats `cursor` on `node`'s first child.
+    ///
+    /// `goto_first_child` returns false when the node has no children,
+    /// in which case the scan is exhausted from the outset. Termination
+    /// is then driven entirely by the cursor (see [`ChildScan::step`]),
+    /// so the iterator stops exactly when the tree reports no further
+    /// siblings — it can never pad the sequence with duplicate nodes if
+    /// `child_count` and the cursor walk ever disagree.
+    ///
+    /// `child_count` is the authoritative length for the
+    /// `ExactSizeIterator` contract; for well-formed trees it equals the
+    /// cursor sibling walk, so the reported length and the emitted data
+    /// agree. A childless node reports `0` so the empty iterator's
+    /// length matches its (lack of) data.
+    fn seed<'a>(node: &Node<'a>, cursor: &mut Cursor<'a>) -> Self {
+        cursor.reset(node);
+        let done = !cursor.goto_first_child();
+        Self {
+            done,
+            remaining: if done { 0 } else { node.child_count() },
+        }
+    }
 
-    fn next(&mut self) -> Option<Self::Item> {
+    /// Yields the cursor's current child and advances past it.
+    fn step<'a>(&mut self, cursor: &mut Cursor<'a>) -> Option<Node<'a>> {
         if self.done {
             return None;
         }
-        let result = self.cursor.node();
+        let result = cursor.node();
         // The cursor is the single source of truth for termination:
         // once there is no next sibling this yield is the last one.
-        self.done = !self.cursor.goto_next_sibling();
+        self.done = !cursor.goto_next_sibling();
         // Keep the advertised length consistent with termination: when
         // the cursor stops, nothing remains. For well-formed trees this
         // equals `child_count - emitted`; if the cursor walk and
@@ -704,7 +759,60 @@ impl<'a> Iterator for Children<'a> {
     }
 }
 
+/// Iterator over a node's direct children, returned by
+/// [`Node::children`]. Owns the cursor it walks with.
+///
+/// Termination is driven by the cursor alone: each step yields the
+/// cursor's current node, then advances with `goto_next_sibling`,
+/// stopping the moment that returns false. This makes the cursor the
+/// single source of truth for both the emitted data and when to stop, so
+/// the sequence can never be padded with duplicates if `child_count` and
+/// the actual sibling walk disagree.
+///
+/// The `ExactSizeIterator` length is reported from `child_count` (tracked
+/// in [`ChildScan`]). For well-formed trees the cursor walk and
+/// `child_count` agree, so the advertised length matches the data.
+pub(crate) struct Children<'a> {
+    cursor: Cursor<'a>,
+    scan: ChildScan,
+}
+
+impl<'a> Iterator for Children<'a> {
+    type Item = Node<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.scan.step(&mut self.cursor)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.scan.size_hint()
+    }
+}
+
 impl ExactSizeIterator for Children<'_> {}
+
+/// Iterator over a node's direct children, returned by
+/// [`Node::children_with`]. Borrows the caller's cursor rather than
+/// building one, which is the whole of the difference: it yields exactly
+/// what [`Children`] yields, through the same [`ChildScan`].
+pub(crate) struct ChildrenWith<'c, 'a> {
+    cursor: &'c mut Cursor<'a>,
+    scan: ChildScan,
+}
+
+impl<'a> Iterator for ChildrenWith<'_, 'a> {
+    type Item = Node<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.scan.step(self.cursor)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.scan.size_hint()
+    }
+}
+
+impl ExactSizeIterator for ChildrenWith<'_, '_> {}
 
 impl<'a> Search<'a> for Node<'a> {
     fn first_occurrence(&self, pred: fn(u16) -> bool) -> Option<Node<'a>> {
@@ -996,29 +1104,8 @@ mod tests {
                 .map(|c| (c.id(), c.kind_id()))
                 .collect();
 
-            let mut iter = wrapped.children();
-            // ExactSizeIterator length must equal the child count up
-            // front and stay exact as the iterator is consumed.
-            assert_eq!(
-                iter.len(),
-                expected.len(),
-                "children().len() disagreed with child_count at kind {}",
-                n.kind(),
-            );
-
-            let mut actual = Vec::new();
-            let mut remaining = expected.len();
-            while let Some(child) = iter.next() {
-                remaining -= 1;
-                assert_eq!(
-                    iter.len(),
-                    remaining,
-                    "size_hint drifted mid-iteration at kind {}",
-                    n.kind(),
-                );
-                actual.push((child.id(), child.kind_id()));
-            }
-            assert_eq!(iter.len(), 0, "iterator not drained to zero len");
+            let actual =
+                drain_checking_exact_size(wrapped.children(), expected.len(), "children", n.kind());
             assert_eq!(
                 actual,
                 expected,
@@ -1216,6 +1303,44 @@ mod tests {
         );
     }
 
+    /// Drains `iter`, holding it to the `ExactSizeIterator` contract at
+    /// every step, and returns the `(id, kind_id)` of each child yielded.
+    ///
+    /// `len()` must equal the node's `child_count` before the first step,
+    /// fall by exactly one per yield, and be zero at exhaustion. Both
+    /// child iterators are checked against it, so the contract is stated
+    /// once — `children_with` exists to save an allocation, and a
+    /// separate copy of this is how the two would come to disagree.
+    fn drain_checking_exact_size<'a>(
+        mut iter: impl ExactSizeIterator<Item = Node<'a>>,
+        child_count: usize,
+        what: &str,
+        kind: &str,
+    ) -> Vec<(usize, u16)> {
+        assert_eq!(
+            iter.len(),
+            child_count,
+            "{what}().len() disagreed with child_count at kind {kind}"
+        );
+        let mut remaining = child_count;
+        let mut drained = Vec::with_capacity(remaining);
+        while let Some(child) = iter.next() {
+            remaining -= 1;
+            assert_eq!(
+                iter.len(),
+                remaining,
+                "{what}() size_hint drifted mid-iteration at kind {kind}"
+            );
+            drained.push((child.id(), child.kind_id()));
+        }
+        assert_eq!(
+            iter.len(),
+            0,
+            "{what}() was not drained to zero len at kind {kind}"
+        );
+        drained
+    }
+
     /// Ancestor ids yielded by `ancestors`, nearest first.
     fn ancestor_ids(ancestors: Ancestors<'_, '_>, node: &Node<'_>) -> Vec<usize> {
         ancestors.iter(node).map(|(a, _)| a.id()).collect()
@@ -1343,6 +1468,133 @@ mod tests {
             b"const f = a => { a => { g(() => 1); }; };\nconst o = { m: function () { return 1; } };\n",
             &["arrow_function"],
         );
+    }
+
+    /// The traversals #1112 moved onto [`Node::children_with`] must scan
+    /// a whole tree on one cursor, not one per node.
+    ///
+    /// Nothing in the output says so: `children_with` yields exactly
+    /// what `children` yields, so every metric, marker, and pre-order
+    /// assertion in the suite holds just as well with a fresh
+    /// `TreeCursor` built and freed per visited node. The counter is the
+    /// only observable, which is why reverting one of these loops has to
+    /// be a test failure rather than a silent allocation per node.
+    ///
+    /// Seeding a real scan first is what makes it falsifiable: compared
+    /// against zero these assertions would also pass with `record()`
+    /// never wired up at all.
+    #[cfg(all(feature = "c", feature = "mozjs", feature = "python", feature = "rust"))]
+    #[test]
+    fn the_converted_traversals_scan_a_tree_on_one_cursor() {
+        use crate::traits::ParserTrait;
+
+        let seed_tree = Tree::new::<crate::langs::CCode>(b"int main() { int a; }");
+        let _ = seed_tree.get_root().children().count();
+        assert!(
+            child_scan_cursors::observed() > 0,
+            "the seed scan must be counted"
+        );
+
+        // `preorder` over a tree far larger than any per-call constant,
+        // so "one per node" and "one per walk" cannot be confused.
+        let tree = Tree::new::<MozjsCode>(
+            b"const o = { m: (a) => a + 1, n: function () { return [1, 2, 3]; } };\nfoo(o);\n",
+        );
+        let before = child_scan_cursors::observed();
+        let visited = tree.get_root().preorder().count();
+        assert!(visited > 40, "fixture is too small to prove much");
+        assert_eq!(
+            child_scan_cursors::observed(),
+            before,
+            "preorder built a cursor per node; it holds one for the walk (#1112)"
+        );
+
+        // The Python instance-attribute scan walks every method body of
+        // a class. Before #1112 it was 92 % of the metric walk's child
+        // scans on the Python corpus slice — one per node under the
+        // class. It is not the only scan a `metrics()` call makes, so
+        // the bound is a fraction of the node count rather than zero.
+        // Measured on this fixture: 18 scans over 81 nodes with the
+        // cursor hoisted, 91 without, so the bound separates the two
+        // with room on both sides.
+        let source = "class C:\n    def a(self):\n        self.x = 1\n        self.y = [1, 2]\n\
+                      \n    def b(self):\n        self.z, self.w = 1, 2\n        \
+                      if self.x:\n            self.v = self.y\n";
+        let ast = crate::test_support::parse_named(crate::LANG::Python, "c.py", source);
+        let nodes = ast.root_node().preorder().count();
+        let before = child_scan_cursors::observed();
+        ast.metrics(crate::MetricsOptions::default())
+            .expect("the walk must yield a top-level space");
+        let scans = child_scan_cursors::observed() - before;
+        assert!(nodes > 60, "fixture is too small to prove much");
+        assert!(
+            scans < nodes / 2,
+            "the Python metric walk built {scans} cursors over {nodes} nodes; the \
+             instance-attribute scan is meant to hold one for the subtree (#1112)"
+        );
+
+        // The suppression scan is a full-tree DFS of its own: 0 scans
+        // over this fixture's 29 nodes with the cursor hoisted, 29
+        // without.
+        let parser = crate::langs::RustParser::new(
+            b"// bca: suppress(cognitive)\nfn f() { if a { g(1, 2); } }\n".to_vec(),
+            std::path::Path::new("lib.rs"),
+            None,
+        );
+        let nodes = parser.root().preorder().count();
+        let before = child_scan_cursors::observed();
+        let markers = crate::suppression::suppression_markers(&parser);
+        let scans = child_scan_cursors::observed() - before;
+        assert_eq!(markers.len(), 1, "fixture carries one marker");
+        assert!(nodes > 20, "fixture is too small to prove much");
+        assert!(
+            scans < nodes / 2,
+            "the suppression scan built {scans} cursors over {nodes} nodes (#1112)"
+        );
+    }
+
+    /// [`Node::children_with`] must yield exactly what
+    /// [`Node::children`] yields — same nodes, same order, same
+    /// `ExactSizeIterator` length at every step — for every node of a
+    /// real tree.
+    ///
+    /// The two share `seed_child_scan` / `step_child_scan` precisely so
+    /// they cannot diverge, and this is what says the sharing is wired
+    /// up. It also covers the reuse itself: one cursor drives every
+    /// node's scan here, so a `reset` that failed to rewind would show
+    /// as the second node inheriting the first's position.
+    #[test]
+    fn children_with_yields_exactly_what_children_does() {
+        let code = b"const o = { m: (a) => a + 1, n: function () {} }; foo(); ;";
+        let tree = Tree::new::<MozjsCode>(code);
+        let root = tree.get_root();
+
+        let mut cursor = root.cursor();
+        let mut leaves = 0;
+        let mut widest = 0;
+        for node in root.preorder() {
+            let expected: Vec<_> = node.children().map(|c| (c.id(), c.kind_id())).collect();
+
+            let actual = drain_checking_exact_size(
+                node.children_with(&mut cursor),
+                expected.len(),
+                "children_with",
+                node.kind(),
+            );
+            assert_eq!(
+                actual,
+                expected,
+                "children_with diverged from children at kind {}",
+                node.kind()
+            );
+
+            leaves += usize::from(expected.is_empty());
+            widest = widest.max(expected.len());
+        }
+        // Both ends of the arity range, else the comparison could hold
+        // over nothing but one-child wrappers.
+        assert!(leaves > 0, "fixture must contain childless nodes");
+        assert!(widest > 2, "fixture must contain a multi-child node");
     }
 
     /// The `O(1)` guard [`Ancestors::checked`] keeps on by default must

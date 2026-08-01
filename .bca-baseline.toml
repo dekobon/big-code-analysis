@@ -812,7 +812,7 @@ value = 10.0
 [[entry]]
 path = "src/metrics/npa/python.rs"
 qualified = "python_self_attr_name_bytes"
-start_line = 302
+start_line = 305
 metric = "nexits"
 value = 6.0
 
@@ -833,9 +833,9 @@ value = 10.0
 [[entry]]
 path = "src/node.rs"
 qualified = "Node<'a>"
-start_line = 82
+start_line = 93
 metric = "nom"
-value = 34.0
+value = 35.0
 
 [[entry]]
 path = "src/ops.rs"
