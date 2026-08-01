@@ -1929,9 +1929,13 @@ fn check_tokens_threshold_fires_under_narrowed_metric_selection() {
 /// MI is derived from Loc, Cyclomatic, and Halstead. If
 /// `MetricsOptions::with_only` failed to pull those dependencies in, MI
 /// would be computed from zeroed inputs and report a different number
-/// rather than failing outright. Comparing the narrow run against one
-/// whose extra thresholds widen the selection to four families pins that
-/// without hardcoding a bit-brittle float.
+/// rather than failing outright.
+///
+/// The comparison run must therefore name thresholds in *those three*
+/// families, so it selects them without relying on the closure under
+/// test. An earlier version widened with `tokens`/`abc`/`nom` instead
+/// and was worthless: deleting Mi's dependency list drove both sides to
+/// `mi.original = 0`, so they still matched and the test passed.
 #[test]
 fn check_mi_value_is_identical_whether_or_not_the_walk_is_narrowed() {
     let dir = TempDir::new().unwrap();
@@ -1966,14 +1970,15 @@ fn check_mi_value_is_identical_whether_or_not_the_walk_is_narrowed() {
 
     // Mi alone -> selection is [Mi] plus whatever `with_only` resolves.
     let narrow = mi_line(&[]);
-    // Mi + Tokens + Abc + Nom -> a four-family selection.
+    // Mi + Loc + Cyclomatic + Halstead -> the same four families,
+    // but selected explicitly rather than through Mi's closure.
     let wide = mi_line(&[
         "--threshold",
-        "tokens=5",
+        "loc.sloc=1",
         "--threshold",
-        "abc=0",
+        "cyclomatic=1",
         "--threshold",
-        "nom=0",
+        "halstead.volume=1",
     ]);
 
     assert_eq!(
