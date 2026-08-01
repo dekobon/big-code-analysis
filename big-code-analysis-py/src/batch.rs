@@ -46,7 +46,7 @@ use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyTuple, PyType};
 
-use big_code_analysis::vcs::{HistoryIndex, PerFunctionBlame};
+use big_code_analysis::vcs::{BlameSession, HistoryIndex};
 
 use crate::analysis::{self, AnalysisError, AnalyzeOptions};
 use crate::conversion;
@@ -474,7 +474,7 @@ fn push_one_result(
 ///
 /// `analyze(p, vcs=True)` walks a repository's history once **per file**;
 /// the batch path instead builds one [`HistoryIndex`] (and/or one
-/// [`PerFunctionBlame`] engine) per **containing repository** and reuses it
+/// [`BlameSession`]) per **containing repository** and reuses it
 /// across every file in that repo — the amortisation win the CLI walker
 /// already gets. The cache is keyed by the discovered work-tree root
 /// (`vcs::workdir_root`), so two files in different subdirectories of one
@@ -496,7 +496,7 @@ struct VcsRepoCache {
     // "discovery/open already failed here" — cached so a whole out-of-repo
     // tree is probed at most once.
     indexes: HashMap<PathBuf, Option<HistoryIndex>>,
-    blames: HashMap<PathBuf, Option<PerFunctionBlame>>,
+    blames: HashMap<PathBuf, Option<BlameSession>>,
 }
 
 impl VcsRepoCache {
@@ -561,14 +561,17 @@ impl VcsRepoCache {
             }
         }
         if self.vcs_per_function {
-            let opened = if self.blames.contains_key(&root) {
-                self.blames.get(&root)
-            } else {
+            if !self.blames.contains_key(&root) {
                 let built = py.detach(|| vcs_bridge::open_blame_for(&root));
                 self.blames.insert(root.clone(), built);
-                self.blames.get(&root)
-            };
-            if let Some(Some(blame)) = opened {
+            }
+            // `contains_key` + `get_mut` rather than the index path's
+            // `get` + `entry().or_insert()`: the cached value is now a
+            // blame *session*, which accumulates the repository handle,
+            // mailmap, and resolved-commit memo across every file in this
+            // repo (#1117), so each blame needs it by `&mut` — and this
+            // shape keeps the hit path from cloning `root`.
+            if let Some(Some(blame)) = self.blames.get_mut(&root) {
                 json = attach_or_keep(json, |j| {
                     vcs_bridge::inject_vcs_per_function_with_blame(j, path, blame)
                 });

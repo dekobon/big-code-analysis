@@ -2,8 +2,9 @@
 //!
 //! The crate is split three ways:
 //!
-//! - [`shapes`] generates the synthetic depth-scaling inputs and pairs
-//!   each with the metric selection that exercises one hot path.
+//! - [`shapes`] generates the synthetic scaling inputs — nesting on
+//!   one axis, sibling count on the other — and pairs each with the
+//!   metric selection that exercises one hot path.
 //! - [`scaling`] measures those inputs and fits an empirical complexity
 //!   exponent, so a regression is caught as a *class* change rather
 //!   than as a wall-clock budget overrun.

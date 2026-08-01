@@ -51,10 +51,10 @@ impl fmt::Display for Stats {
 impl Stats {
     // Intentionally a no-op. MI is a derived metric: the parent space
     // recomputes it from its merged Loc / Cyclomatic / Halstead inputs
-    // (`compute_halstead_mi_and_wmc` in `spaces.rs`), so there is nothing
-    // to roll up from a child's finalized `Stats`. Combining the fields
-    // here would double-apply inputs already captured by the parent's
-    // recompute. (Same rationale as `halstead::Stats::merge`.)
+    // (`compute_halstead_and_mi` in `spaces/compute.rs`), so there is
+    // nothing to roll up from a child's finalized `Stats`. Combining
+    // the fields here would double-apply inputs already captured by the
+    // parent's recompute. (Same rationale as `halstead::Stats::merge`.)
     pub(crate) fn merge(&mut self, _other: &Stats) {}
 
     #[inline]
@@ -190,9 +190,15 @@ implement_metric_trait!(
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::test_support::check_metrics;
+    use crate::test_support::check_metrics_only_shim;
 
     use super::*;
+
+    // Mi's dependency closure adds Loc + Cyclomatic + Halstead — the
+    // three inputs its formula consumes. No assertion here reads them
+    // directly; without them MI would be computed from zero-valued
+    // defaults.
+    check_metrics_only_shim!(check_metrics, Mi);
 
     #[test]
     fn mi_empty_file() {

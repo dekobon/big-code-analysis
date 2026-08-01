@@ -87,7 +87,7 @@ fn parse_soft_ratio(ratio_str: &str) -> Result<f64, String> {
     let ratio: f64 = ratio_str
         .parse()
         .map_err(|_| format!("soft ratio must be a number; got {ratio_str:?}"))?;
-    if crate::thresholds::is_valid_scale_ratio(ratio) {
+    if crate::threshold_soft::is_valid_scale_ratio(ratio) {
         Ok(ratio)
     } else {
         Err(format!("soft ratio must be in (0, 1]; got {ratio}"))

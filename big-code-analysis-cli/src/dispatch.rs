@@ -215,9 +215,13 @@ fn dispatch_dump(
     // now renders into memory before printing, which widens that window
     // from a few instructions to a whole tree walk; `Stdout::lock` is
     // reentrant, so the nested lock the print takes is fine.
-    let stdout = std::io::stdout();
-    let _banner_guard = stdout.lock();
-    println!("== {} ==", path.display());
+    //
+    // The banner is written through the guard rather than `println!`,
+    // which panics on a write error instead of returning one (#1132):
+    // going through `?` routes a full disk into the walk's
+    // `write_failures` tally and leaves `| head` a swallowed `BrokenPipe`.
+    let mut out = std::io::stdout().lock();
+    writeln!(out, "== {} ==", path.display())?;
     dump_node_with_color(
         ast.source(),
         &ast.root_node(),
@@ -351,13 +355,32 @@ fn dispatch_strip_comments(
             write_file(&path, &new_source)?;
         } else if let Some(output) = output {
             write_file(output, &new_source)?;
-        } else if let Ok(text) = std::str::from_utf8(&new_source) {
-            println!("{text}");
         } else {
-            std::io::stdout().write_all(&new_source)?;
+            write_stripped_on_stdout(&new_source)?;
         }
     }
     Ok(())
+}
+
+/// Emit comment-stripped `source` on stdout: one lock, a trailing
+/// newline, then an explicit flush.
+///
+/// Fallible for the same reason as the `dump` banner (#1132): `println!`
+/// would panic on a full disk rather than let the walk tally the failure
+/// and exit 1. The non-UTF-8 branch used to be a bare
+/// `stdout().write_all` — no newline, no flush — so on a `LineWriter`
+/// stdout its bytes could sit in the buffer until the exit-time cleanup
+/// flush, whose error nobody reads. Both branches now share the shape
+/// the UTF-8 one had.
+fn write_stripped_on_stdout(source: &[u8]) -> std::io::Result<()> {
+    let mut out = std::io::stdout().lock();
+    if let Ok(text) = std::str::from_utf8(source) {
+        writeln!(out, "{text}")?;
+    } else {
+        out.write_all(source)?;
+        out.write_all(b"\n")?;
+    }
+    out.flush()
 }
 
 fn dispatch_functions(
@@ -393,9 +416,8 @@ fn dispatch_find(
         // multi-file `find` output stays attributable. The stdout lock is
         // held across the banner, every match, and the trailing blank line
         // for the reason given in `dispatch_dump`.
-        let stdout = std::io::stdout();
-        let _banner_guard = stdout.lock();
-        println!("== {} ==", path.display());
+        let mut out = std::io::stdout().lock();
+        writeln!(out, "== {} ==", path.display())?;
         for node in &found {
             dump_node_with_color(
                 ast.source(),
@@ -406,7 +428,7 @@ fn dispatch_find(
                 cfg.color,
             )?;
         }
-        println!();
+        writeln!(out)?;
     }
     Ok(())
 }
@@ -506,9 +528,14 @@ fn dispatch_check_file(
     // by users who opted in via `--baseline-fuzzy-match`.
     let source_for_hash = cfg.fuzzy_baseline.then(|| source.clone());
     if let Ok(space) = analyze_file(language, source, &path, pr, cfg.metrics_options())
-        && let (Some(set), Some(tx)) = (cfg.threshold_set.as_ref(), cfg.check_tx.as_ref())
+        && let (Some(thresholds), Some(tx)) = (cfg.thresholds.as_ref(), cfg.check_tx.as_ref())
         && !matches!(language, LANG::Preproc | LANG::Ccomment)
     {
+        // Select this file's gate: the `[thresholds.lang.<slug>]` set
+        // when one exists, the global set otherwise (#1141). The
+        // fallback is inside `for_language`, so a language nobody
+        // overrode takes the same code path as one that was.
+        let set = thresholds.for_language(language);
         // Pass the path through as `&Path` so non-UTF-8 bytes are
         // preserved on each emitted `Violation`. Display / offender
         // serialization decide their own lossy strategy at the output
@@ -645,7 +672,7 @@ mod tests {
             markdown_tx: None,
             report_hotspot_tx: None,
             strip_prefix: String::new(),
-            threshold_set: None,
+            thresholds: None,
             check_tx: None,
             exemptions_tx: None,
             files_dispatched: None,

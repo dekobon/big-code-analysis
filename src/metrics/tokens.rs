@@ -200,9 +200,16 @@ implement_metric_trait!(
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::test_support::{check_metrics, metrics_verbatim};
+    use crate::test_support::{check_metrics_only_shim, metrics_verbatim};
 
     use super::*;
+
+    check_metrics_only_shim!(check_metrics, Tokens);
+    // `*_tokens_distinct_from_halstead` compares `tokens_sum()` against
+    // Halstead's `N1 + N2`. Deselecting Halstead leaves that side at 0,
+    // where `tokens_sum() > 0` holds for the wrong reason — so these two
+    // ask for Halstead rather than passing vacuously.
+    check_metrics_only_shim!(check_tokens_and_halstead, Tokens, Halstead);
 
     /// `def foo(x): return x` → leaves: `def`, `foo`, `(`, `x`, `)`,
     /// `:`, `return`, `x` = 8 tokens, hand-counted.
@@ -243,17 +250,21 @@ mod tests {
     /// reuse.
     #[test]
     fn python_tokens_distinct_from_halstead() {
-        check_metrics::<PythonParser>("def foo(x): return (x + 1)", "foo.py", |metric| {
-            let halstead_total =
-                metric.halstead.total_operators() + metric.halstead.total_operands();
-            assert!(
-                metric.tokens.tokens_sum() > halstead_total,
-                "expected tokens ({}) > halstead N1+N2 ({}); punctuation \
-                 like `(`, `)`, `:` should contribute to tokens but not Halstead",
-                metric.tokens.tokens_sum(),
-                halstead_total,
-            );
-        });
+        check_tokens_and_halstead::<PythonParser>(
+            "def foo(x): return (x + 1)",
+            "foo.py",
+            |metric| {
+                let halstead_total =
+                    metric.halstead.total_operators() + metric.halstead.total_operands();
+                assert!(
+                    metric.tokens.tokens_sum() > halstead_total,
+                    "expected tokens ({}) > halstead N1+N2 ({}); punctuation \
+                     like `(`, `)`, `:` should contribute to tokens but not Halstead",
+                    metric.tokens.tokens_sum(),
+                    halstead_total,
+                );
+            },
+        );
     }
 
     /// Inner functions get attributed to their innermost scope. For
@@ -323,16 +334,20 @@ mod tests {
     /// `python_tokens_distinct_from_halstead`.
     #[test]
     fn cpp_tokens_distinct_from_halstead() {
-        check_metrics::<CppParser>("int foo(int x) { return (x + 1); }", "foo.cpp", |m| {
-            let halstead_total = m.halstead.total_operators() + m.halstead.total_operands();
-            assert!(
-                m.tokens.tokens_sum() > halstead_total,
-                "expected tokens ({}) > halstead N1+N2 ({}); punctuation like \
-                 `(`, `)`, `{{`, `}}` and `;` should contribute to tokens but not Halstead",
-                m.tokens.tokens_sum(),
-                halstead_total,
-            );
-        });
+        check_tokens_and_halstead::<CppParser>(
+            "int foo(int x) { return (x + 1); }",
+            "foo.cpp",
+            |m| {
+                let halstead_total = m.halstead.total_operators() + m.halstead.total_operands();
+                assert!(
+                    m.tokens.tokens_sum() > halstead_total,
+                    "expected tokens ({}) > halstead N1+N2 ({}); punctuation like \
+                     `(`, `)`, `{{`, `}}` and `;` should contribute to tokens but not Halstead",
+                    m.tokens.tokens_sum(),
+                    halstead_total,
+                );
+            },
+        );
     }
 
     /// A C++ struct method and a free function each open their own

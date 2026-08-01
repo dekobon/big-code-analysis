@@ -571,9 +571,17 @@ mod typescript;
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::test_support::check_metrics;
+    use crate::test_support::check_metrics_only_shim;
 
     use super::*;
+
+    check_metrics_only_shim!(check_metrics, Cyclomatic);
+    // Two tests reconcile the cyclomatic per-function divisor against
+    // `nom.total()` (#512). Cyclomatic deliberately does *not* declare
+    // Nom as a dependency — `cyclomatic_average_per_function_without_nom_512`
+    // exists to pin that the divisor comes from the space kind, not from
+    // Nom — so those two ask for Nom explicitly.
+    check_metrics_only_shim!(check_cyclomatic_and_nom, Cyclomatic, Nom);
 
     /// A `Stats::default()` that never sees an
     /// observation must not leak the `f64::MAX` sentinel for
@@ -616,7 +624,7 @@ mod tests {
     /// averages were two-thirds of these values (`6 / 4 == 1.5`).
     #[test]
     fn cyclomatic_average_is_per_function_512() {
-        check_metrics::<CsharpParser>(
+        check_cyclomatic_and_nom::<CsharpParser>(
             "class A {
                  int f(int x) { return x > 0 ? 1 : 2; }
                  int g(int x) { return x > 0 ? 1 : 2; }
@@ -688,7 +696,7 @@ mod tests {
     /// to lambda space-handling is a deliberate, visible decision.
     #[test]
     fn cyclomatic_python_lambda_divisor_excludes_spaceless_closure() {
-        check_metrics::<PythonParser>(
+        check_cyclomatic_and_nom::<PythonParser>(
             "def f(x):\n    return x if x > 0 else -x\ng = lambda y: y if y else 0\n",
             "p.py",
             |metric| {
@@ -4594,7 +4602,7 @@ f() {
     /// Without the fix, this 2-arm case reports `cyclomatic_max == 3`
     /// (1 base + 2 arms); with the fix it reports `2` (1 base + 1
     /// explicit arm), matching every other switch-bearing language
-    /// in `tests/cyclomatic_cross_language_parity.rs`.
+    /// in `tests/parity/cyclomatic_cross_language_parity.rs`.
     #[test]
     fn bash_case_bare_wildcard_excluded() {
         check_metrics::<BashParser>(

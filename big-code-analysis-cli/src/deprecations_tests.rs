@@ -1,11 +1,11 @@
 //! Unit tests for the argv-scan deprecation detector (#646). These cover
 //! the spelling-detection logic in isolation; the integration suite
-//! (`tests/deprecated_aliases.rs`) asserts the end-to-end stderr text and
+//! (`tests/cli_ux/deprecated_aliases.rs`) asserts the end-to-end stderr text and
 //! that canonical spellings stay silent.
 
 use super::{DEPRECATED_FLAG_ALIASES, is_flag_spelling, subcommand_used, top_subcommand};
 
-/// The integration suite (`tests/deprecated_aliases.rs`) asserts the
+/// The integration suite (`tests/cli_ux/deprecated_aliases.rs`) asserts the
 /// deprecation warning for every flag-alias row by name. This guard pins
 /// the table's size so adding a row without a matching warning test is a
 /// visible failure here (#832) — the silent-breakage #646 was created to
@@ -16,7 +16,7 @@ fn deprecated_flag_alias_table_size_is_pinned() {
         DEPRECATED_FLAG_ALIASES.len(),
         9,
         "DEPRECATED_FLAG_ALIASES changed size; add/remove the matching \
-         per-alias warning test in tests/deprecated_aliases.rs and update \
+         per-alias warning test in tests/cli_ux/deprecated_aliases.rs and update \
          this count",
     );
 }

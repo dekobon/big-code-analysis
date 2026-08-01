@@ -4,6 +4,22 @@
 # `.bca-baseline.toml` in sync — the baseline keys are sensitive to
 # which files the walker visits.
 #
+# This file is *walk* scope: what gets analyzed at all. It is not the
+# place to exempt something from the threshold gate — an explicitly
+# named path overrides these globs by design (the ripgrep convention;
+# see `commands/README.md`), so a per-file caller such as the agent
+# hooks in `.claude/hooks/` and `.opencode/plugins/` bypasses every
+# entry here and reports offenders in files `make self-scan` correctly
+# ignores. Gate-scope exemptions belong in `bca.toml`'s
+# `[check] exclude`, which survives an explicit path (#1146).
+#
+# So an entry earns its place here only when the files should never be
+# measured: build output, vendored or generated trees, prose, and the
+# large third-party corpora under `tests/repositories/`. Dev tooling we
+# author but do not ship — `utils/`, `xtask/`, `enums/`, the benchmark
+# harness, the editor hooks — moved to `[check] exclude` in #1146,
+# because "do not gate this" was always the actual intent.
+#
 # Patterns use the `./`-prefix convention. The walker re-anchors every
 # seed to that form (#488), so these match the same files regardless of
 # whether the root was spelled `.`, `$PWD`, or a manifest-resolved
@@ -21,20 +37,10 @@
 # test modules (#1066). It is not a sibling unit-test file, so the
 # `*_tests.rs` glob does not reach it, and none of it ships.
 ./**/test_support.rs
-./enums/**
-./.opencode/**
 ./target/**
 ./big-code-analysis-book/**
 ./docs/**
 ./packaging/**
-./utils/**
-./xtask/**
-# Dev tooling, same treatment as ./xtask/**: the benchmark harness
-# (#1068) ships nothing, and its report formatters are long runs of
-# `writeln!(...)?` whose `nexits` counts say nothing about production
-# maintainability.
-./big-code-analysis-bench/**
-./generate-grammars/**
 ./man/**
 ./abuild-keys/**
 ./**/examples/**

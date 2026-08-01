@@ -235,8 +235,16 @@ where
 {
     /// Walk `node` and update `stats` with this metric for the language
     /// implementing the trait.
-    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
-        if Self::is_func(node, ancestors) {
+    ///
+    /// Uses the source-aware [`Checker::is_func_with_code`] rather than the
+    /// byte-less `is_func`, exactly as [`crate::nom::Nom::compute`] does.
+    /// For every grammar with a syntactic function-definition node the two
+    /// are the same predicate, so no count moves; the point is that a
+    /// language whose declarations are only recognisable from the source
+    /// text — Elixir's `def` is an ordinary `Call` (#275) — does not
+    /// silently report 0 here (#1142).
+    fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        if Self::is_func_with_code(node, code, ancestors) {
             compute_args::<Self>(node, &mut stats.fn_nargs);
             return;
         }
@@ -248,7 +256,7 @@ where
 }
 
 impl NArgs for CppCode {
-    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         if Self::is_func(node, ancestors) {
             if let Some(declarator) = node.child_by_field_name("declarator") {
                 let new_node = declarator;
@@ -267,7 +275,7 @@ impl NArgs for CppCode {
 }
 
 impl NArgs for CCode {
-    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         if Self::is_func(node, ancestors) {
             if let Some(declarator) = node.child_by_field_name("declarator") {
                 let new_node = declarator;
@@ -286,7 +294,7 @@ impl NArgs for CCode {
 }
 
 impl NArgs for MozcppCode {
-    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         if Self::is_func(node, ancestors) {
             if let Some(declarator) = node.child_by_field_name("declarator") {
                 let new_node = declarator;
@@ -314,7 +322,12 @@ impl NArgs for MozcppCode {
 //   * a block `^(int x){ … }` holds its params in a `parameter_list`
 //     child rather than under a `parameters` field.
 impl NArgs for ObjcCode {
-    fn compute<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &[u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         match node.kind_id().into() {
             Objc::FunctionDefinition | Objc::FunctionDefinition2 => {
                 if let Some(declarator) = node.child_by_field_name("declarator") {
@@ -376,7 +389,7 @@ fn compute_go_args(node: &Node, nargs: &mut usize) {
 }
 
 impl NArgs for GoCode {
-    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         if Self::is_func(node, ancestors) {
             compute_go_args(node, &mut stats.fn_nargs);
             return;
@@ -418,7 +431,7 @@ fn compute_kotlin_lambda_args(node: &Node, nargs: &mut usize) {
 }
 
 impl NArgs for KotlinCode {
-    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         if Self::is_func(node, ancestors) {
             compute_kotlin_func_args(node, &mut stats.fn_nargs);
             return;
@@ -445,7 +458,7 @@ fn compute_lua_args(node: &Node, nargs: &mut usize) {
 }
 
 impl NArgs for LuaCode {
-    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         if Self::is_func(node, ancestors) {
             compute_lua_args(node, &mut stats.fn_nargs);
         } else if Self::is_closure(node, ancestors) {
@@ -465,7 +478,7 @@ fn compute_tcl_args(node: &Node, nargs: &mut usize) {
 }
 
 impl NArgs for TclCode {
-    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         if Self::is_func(node, ancestors) {
             compute_tcl_args(node, &mut stats.fn_nargs);
         }
@@ -488,9 +501,174 @@ fn compute_irules_args(node: &Node, nargs: &mut usize) {
 }
 
 impl NArgs for IrulesCode {
-    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         if Self::is_func(node, ancestors) {
             compute_irules_args(node, &mut stats.fn_nargs);
+        }
+    }
+}
+
+// tree-sitter-perl emits a subroutine signature as an unnamed
+// `function_signature` child rather than under a `parameters` field, so
+// the shared `compute_args` helper never sees it. `FunctionSignature2`
+// is the hidden `_function_signature` supertype, listed defensively per
+// the lesson-2 convention.
+//
+// A bare attribute swallows the signature — `sub f :lvalue ($z)` parses
+// as `function_attribute → function_signature` — while an attribute
+// carrying its own parens (`sub f :prototype($$) ($a, $b)`) leaves the
+// signature a direct child. Look one level into `function_attribute` so
+// both spellings count; a `:prototype($$)` argument list is a
+// `function_prototype`, a different kind, so it cannot be mistaken for a
+// signature.
+fn perl_signature<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+    fn is_signature(id: u16) -> bool {
+        matches!(
+            id.into(),
+            Perl::FunctionSignature | Perl::FunctionSignature2
+        )
+    }
+    node.children().find_map(|child| {
+        if is_signature(child.kind_id()) {
+            Some(child)
+        } else if child.kind_id() == Perl::FunctionAttribute {
+            child.first_child(is_signature)
+        } else {
+            None
+        }
+    })
+}
+
+// Count every signature child that is neither punctuation nor a comment:
+// a defaulted parameter (`$y = 5`) is a `binary_expression`, not a bare
+// `scalar_variable`, so a positive variant list would undercount it. The
+// negative filter also survives signature forms the grammar may add — at
+// the price of needing the comment exclusion, since a multi-line
+// signature documents its parameters with `comments` children sitting
+// directly under `function_signature`.
+fn compute_perl_args(node: &Node, nargs: &mut usize) {
+    let Some(signature) = perl_signature(node) else {
+        return;
+    };
+    signature.act_on_child(&mut |n| {
+        if !PerlCode::is_non_arg(n) && !PerlCode::is_comment(n) {
+            *nargs += 1;
+        }
+    });
+}
+
+impl NArgs for PerlCode {
+    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        if Self::is_func(node, ancestors) {
+            compute_perl_args(node, &mut stats.fn_nargs);
+            return;
+        }
+
+        // Every anonymous sub reads 0 today: tree-sitter-perl 1.1.2 parses
+        // its signature inside an `ERROR` node
+        // (`anonymous_function → sub → ERROR → function_signature`), so
+        // `perl_signature` finds nothing among the direct children.
+        // Deliberately not recovered — descending through `ERROR` would
+        // pin us to a parse shape upstream will change. The call stays
+        // here so a grammar fix starts counting (and fails
+        // `perl_anonymous_sub_signature_is_zero`) rather than passing
+        // silently; revisit at the next `recreate-grammars.sh` bump.
+        if Self::is_closure(node, ancestors) {
+            compute_perl_args(node, &mut stats.closure_nargs);
+        }
+    }
+}
+
+// Elixir has no function-definition node. `def bar(a, b, c)` is a `Call`
+// whose `arguments` holds a *second* `Call` carrying the real parameter
+// list, which is why the `parameters`-field heuristic in `compute_args`
+// finds nothing:
+//
+//   call (def)
+//   ├─ identifier  def            <- the `target` field
+//   ╰─ arguments                  <- NOT a field; tree-sitter-elixir
+//      ╰─ call     bar(a, b, c)      gives `call` only a `target` field,
+//         ├─ identifier bar          so both `arguments` levels have to
+//         ╰─ arguments (a, b, c)     be found by kind.
+//
+// A guarded head interposes a `when` `binary_operator` whose `left` is
+// that `Call` — without unwrapping it every guarded clause counts 0, and
+// guards are a large fraction of real Elixir. A head that is a bare
+// `identifier` (`def noargs, do: 1`) has no parameter list and counts 0.
+//
+// `def a + b` and `def -a` define the operator functions `+/2` and `-/1`.
+// Their head is the operator node itself, with the parameters as its
+// operands and no `arguments` container to walk, so the arity comes from
+// the operator's shape.
+fn elixir_declared_args(node: &Node, code: &[u8]) -> usize {
+    let Some(head) = elixir_arguments(node).and_then(|a| a.children().find(Node::is_named)) else {
+        return 0;
+    };
+    let head = elixir_unwrap_guard(&head, code);
+    match head.kind_id().into() {
+        Elixir::Call => elixir_arguments(&head).map_or(0, |p| count_elixir_args(&p)),
+        Elixir::BinaryOperator => 2,
+        Elixir::UnaryOperator => 1,
+        _ => 0,
+    }
+}
+
+fn elixir_arguments<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+    node.first_child(|id| id == Elixir::Arguments)
+}
+
+// Returns the guarded expression when `node` is a `when` guard, and
+// `node` itself otherwise. Matching `BinaryOperator` alone would also
+// unwrap an operator definition, whose operands are the parameters.
+fn elixir_unwrap_guard<'a>(node: &Node<'a>, code: &[u8]) -> Node<'a> {
+    let is_when = node.kind_id() == Elixir::BinaryOperator
+        && node
+            .child_by_field_name("operator")
+            .and_then(|op| op.utf8_text(code))
+            == Some("when");
+    if is_when {
+        node.child_by_field_name("left").unwrap_or(*node)
+    } else {
+        *node
+    }
+}
+
+fn count_elixir_args(params: &Node) -> usize {
+    let mut nargs = 0;
+    params.act_on_child(&mut |n| {
+        if !ElixirCode::is_non_arg(n) {
+            nargs += 1;
+        }
+    });
+    nargs
+}
+
+impl NArgs for ElixirCode {
+    fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        // `is_func` is byte-less and constant `false` for Elixir, because a
+        // `def` is textually indistinguishable from any other `Call`. The
+        // code-aware predicate (#275) is the only one that identifies one,
+        // and it also excludes a `def` inside `quote do … end`, which
+        // declares nothing until the macro expands (#310).
+        if Self::is_func_with_code(node, code, ancestors) {
+            stats.fn_nargs += elixir_declared_args(node, code);
+            return;
+        }
+
+        // Every clause of one `fn` must have the same arity, so the first
+        // `stab_clause` gives the closure's argument count. Summing the
+        // clauses would report `2n` for an n-clause function — do not
+        // "fix" this into a sum.
+        //
+        // A guarded clause (`fn x when is_integer(x) -> …`) aliases its
+        // `left` to a `binary_operator`, exactly as a guarded `def` head
+        // does, so it needs the same unwrap — otherwise every guarded
+        // closure counts the fixed 3 children of the guard expression.
+        if Self::is_closure(node, ancestors)
+            && let Some(clause) = node.first_child(|id| id == Elixir::StabClause)
+            && let Some(params) = clause.child_by_field_name("left")
+        {
+            stats.closure_nargs += count_elixir_args(&elixir_unwrap_guard(&params, code));
         }
     }
 }
@@ -506,11 +684,9 @@ implement_metric_trait!(
     PreprocCode,
     CcommentCode,
     JavaCode,
-    PerlCode,
     BashCode,
     PhpCode,
     CsharpCode,
-    ElixirCode,
     RubyCode
 );
 
@@ -519,7 +695,7 @@ implement_metric_trait!(
 // for a `parameters` field) misses them. Match the closure_parameters
 // child directly and count its `closure_parameter` grand-children.
 impl NArgs for GroovyCode {
-    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         use crate::languages::language_groovy::Groovy;
 
         if Self::is_func(node, ancestors) {
@@ -551,9 +727,14 @@ impl NArgs for GroovyCode {
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::test_support::check_metrics;
+    use crate::test_support::check_metrics_only_shim;
 
     use super::*;
+
+    // Nargs pulls Nom for its per-function average divisor, which is also
+    // what this module's `metric.nom.functions_sum()` /
+    // `closures_sum()` assertions read.
+    check_metrics_only_shim!(check_metrics, Nargs);
 
     /// Regression for #227: a `Stats::default()` that never sees an
     /// observation must not leak the `usize::MAX` sentinel for
@@ -1743,10 +1924,11 @@ mod tests {
 
     #[test]
     fn perl_single_function() {
-        // Perl args arrive via `@_` rather than as formal parameters in the
-        // `sub` signature, so nargs is always 0. To make sure the test still
-        // discriminates "function parsed" from "function silently dropped",
-        // also assert nom recognised exactly one function.
+        // This sub declares no signature, so it has no formal parameters to
+        // count and nargs is 0 — args arrive via `@_`. Signature-carrying
+        // subs are counted; see `perl_signature_function`. To make sure the
+        // test still discriminates "function parsed" from "function silently
+        // dropped", also assert nom recognised exactly one function.
         check_metrics::<PerlParser>(
             "sub greet {
                 my ($name) = @_;
@@ -1779,8 +1961,10 @@ mod tests {
 
     #[test]
     fn perl_single_closure() {
-        // Same caveat as `perl_single_function`: closures take their
-        // arguments through `@_`, so nargs stays 0. Assert via nom that the
+        // This closure declares no signature, so nargs stays 0; it takes its
+        // arguments through `@_`. A signature-carrying closure also reads 0,
+        // for an unrelated upstream-grammar reason — see
+        // `perl_anonymous_sub_signature_is_zero`. Assert via nom that the
         // anonymous function was actually identified as a closure.
         check_metrics::<PerlParser>(
             "my $f = sub {
@@ -1814,8 +1998,9 @@ mod tests {
 
     #[test]
     fn perl_multiple_functions() {
-        // Same caveat as `perl_single_function`. Assert nom counted both
-        // top-level subs so the test fails if either sub is dropped.
+        // Neither sub declares a signature, so both count 0. Assert nom
+        // counted both top-level subs so the test fails if either sub is
+        // dropped.
         check_metrics::<PerlParser>(
             "sub a { return 1; }
              sub b {
@@ -1849,8 +2034,9 @@ mod tests {
 
     #[test]
     fn perl_nested_closure() {
-        // Same caveat as `perl_single_function`. Assert nom recognised one
-        // outer sub plus one nested closure.
+        // Neither the outer sub nor the nested closure declares a signature,
+        // so both count 0. Assert nom recognised one outer sub plus one
+        // nested closure.
         check_metrics::<PerlParser>(
             "sub outer {
                 my $inner = sub { return 42; };
@@ -1860,6 +2046,294 @@ mod tests {
             |metric| {
                 assert_eq!(metric.nom.functions_sum(), 1);
                 assert_eq!(metric.nom.closures_sum(), 1);
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                {
+                  "function_args": 0,
+                  "closure_args": 0,
+                  "function_args_average": 0.0,
+                  "closure_args_average": 0.0,
+                  "total": 0,
+                  "average": 0.0,
+                  "function_args_min": 0,
+                  "function_args_max": 0,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    /// Regression for #1147: a signature sub reported 0 because the
+    /// signature is an unnamed `function_signature` child, not a
+    /// `parameters` field.
+    #[test]
+    fn perl_signature_function() {
+        check_metrics::<PerlParser>(
+            "use feature 'signatures';
+             sub add($x, $y) { return $x + $y; }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 1);
+                let s = &metric.nargs;
+                assert_eq!(s.function_args_sum(), 2);
+                assert_eq!(s.function_args_max(), 2);
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                {
+                  "function_args": 2,
+                  "closure_args": 0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
+                  "total": 2,
+                  "average": 2.0,
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    /// A defaulted parameter is a `binary_expression`, not a bare
+    /// `scalar_variable`, so counting only the variable kinds would report
+    /// 2 here instead of 3. Pins the negative filter in
+    /// `compute_perl_args` (#1147).
+    #[test]
+    fn perl_signature_defaults_and_slurpy() {
+        check_metrics::<PerlParser>(
+            "use feature 'signatures';
+             sub deflt($x, $y = 5, @rest) { return $x; }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 1);
+                let s = &metric.nargs;
+                assert_eq!(s.function_args_sum(), 3);
+                assert_eq!(s.function_args_max(), 3);
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                {
+                  "function_args": 3,
+                  "closure_args": 0,
+                  "function_args_average": 3.0,
+                  "closure_args_average": 0.0,
+                  "total": 3,
+                  "average": 3.0,
+                  "function_args_min": 0,
+                  "function_args_max": 3,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    /// A signature sub and an `@_` sub in one file: the min/max and the
+    /// average have to keep the zero-argument sub in the divisor rather
+    /// than folding it away.
+    #[test]
+    fn perl_signature_and_at_underscore_mixed() {
+        check_metrics::<PerlParser>(
+            "use feature 'signatures';
+             sub sig($x, $y, $z) { return $x; }
+             sub legacy { my ($a) = @_; return $a; }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 2);
+                let s = &metric.nargs;
+                assert_eq!(s.function_args_sum(), 3);
+                assert_eq!(s.function_args_max(), 3);
+                // 3 args over 2 functions: the zero-argument sub stays in
+                // the divisor, so a fold that dropped it would read 3.0.
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                {
+                  "function_args": 3,
+                  "closure_args": 0,
+                  "function_args_average": 1.5,
+                  "closure_args_average": 0.0,
+                  "total": 3,
+                  "average": 1.5,
+                  "function_args_min": 0,
+                  "function_args_max": 3,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    /// Perl puts subroutine attributes before the signature
+    /// (`sub NAME ATTRS SIG BLOCK`), and a bare attribute swallows the
+    /// signature into its own `function_attribute` node. Pins the
+    /// one-level descent in `perl_signature`.
+    #[test]
+    fn perl_signature_behind_attribute() {
+        check_metrics::<PerlParser>(
+            "use feature 'signatures';
+             sub attrs :lvalue ($z) { return $z; }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 1);
+                let s = &metric.nargs;
+                assert_eq!(s.function_args_sum(), 1);
+                assert_eq!(s.function_args_max(), 1);
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                {
+                  "function_args": 1,
+                  "closure_args": 0,
+                  "function_args_average": 1.0,
+                  "closure_args_average": 0.0,
+                  "total": 1,
+                  "average": 1.0,
+                  "function_args_min": 0,
+                  "function_args_max": 1,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    /// A multi-line signature documents its parameters with `comments`
+    /// children sitting directly under `function_signature`, so the
+    /// negative filter has to exclude them or a documented 3-parameter sub
+    /// reads 6 and trips the default `nargs` limit of 5.
+    #[test]
+    fn perl_signature_comments_are_not_parameters() {
+        check_metrics::<PerlParser>(
+            "use feature 'signatures';
+             sub documented(
+                 $host,    # hostname to connect to
+                 $port,    # TCP port
+                 $timeout, # seconds
+             ) { return $host; }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 1);
+                let s = &metric.nargs;
+                assert_eq!(s.function_args_sum(), 3);
+                assert_eq!(s.function_args_max(), 3);
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                {
+                  "function_args": 3,
+                  "closure_args": 0,
+                  "function_args_average": 3.0,
+                  "closure_args_average": 0.0,
+                  "total": 3,
+                  "average": 3.0,
+                  "function_args_min": 0,
+                  "function_args_max": 3,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    /// The two shapes that must stay at 0 for reasons the counting rule
+    /// depends on: an empty signature has no children but the parens, and
+    /// a prototype (`($$)`) is a `function_prototype`, a different kind
+    /// that `perl_signature` deliberately does not match.
+    #[test]
+    fn perl_empty_signature_and_prototype_are_zero() {
+        check_metrics::<PerlParser>(
+            "use feature 'signatures';
+             sub empty() { return 1; }
+             sub proto($$) { return 1; }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 2);
+                let s = &metric.nargs;
+                assert_eq!(s.function_args_sum(), 0);
+                assert_eq!(s.function_args_max(), 0);
+            },
+        );
+    }
+
+    /// Perl 5.38's `method` is a second `is_func` kind
+    /// (`function_definition_without_sub`) reaching the same helper, so it
+    /// gets its own fixture rather than riding on the `sub` tests.
+    #[test]
+    fn perl_method_signature_function() {
+        check_metrics::<PerlParser>(
+            "use v5.38;
+             class Point {
+                 method shift_by($dx, $dy) { return $dx; }
+             }",
+            "foo.pl",
+            |metric| {
+                let s = &metric.nargs;
+                assert_eq!(s.function_args_sum(), 2);
+                assert_eq!(s.function_args_max(), 2);
+            },
+        );
+    }
+
+    /// `FunctionSignature2` is the hidden `_function_signature` supertype;
+    /// `perl_signature` lists it defensively. Pin that the grammar never
+    /// emits it, so a bump that promotes the rule fails loudly instead of
+    /// changing behaviour invisibly (lesson 34).
+    #[test]
+    fn perl_hidden_function_signature_is_unreachable() {
+        let mut hidden = false;
+        let mut emitted = false;
+        crate::test_support::for_each_node_with_chain::<PerlCode>(
+            b"use feature 'signatures';\nsub add($x, $y) { return $x + $y; }\n",
+            |node, _| {
+                hidden |= node.kind_id() == Perl::FunctionSignature2 as u16;
+                emitted |= node.kind_id() == Perl::FunctionSignature as u16;
+            },
+        );
+        assert!(
+            emitted,
+            "fixture must reach a real `function_signature`, else the \
+             hidden-rule check below is vacuous"
+        );
+        assert!(
+            !hidden,
+            "grammar now emits the hidden `_function_signature`; re-check \
+             the defensive arm in `perl_signature`"
+        );
+    }
+
+    /// Upstream-grammar limitation, deliberately pinned: tree-sitter-perl
+    /// 1.1.2 parses an anonymous sub's signature inside an `ERROR` node,
+    /// so a signature-carrying closure counts 0. A grammar bump that fixes
+    /// the parse should fail this test rather than shift metrics silently.
+    #[test]
+    fn perl_anonymous_sub_signature_is_zero() {
+        check_metrics::<PerlParser>(
+            "use feature 'signatures';
+             my $mul = sub ($p, $q) { return $p * $q; };",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 0);
+                assert_eq!(metric.nom.closures_sum(), 1);
+                let s = &metric.nargs;
+                assert_eq!(s.closure_args_sum(), 0);
+                assert_eq!(s.closure_args_max(), 0);
                 insta::assert_json_snapshot!(
                     metric.nargs,
                     @r#"
@@ -2981,18 +3455,147 @@ proc g {x y z} { puts $x }",
         );
     }
 
+    /// Regression for #1142: the parameter list sits two `arguments`
+    /// levels down, so the `parameters`-field heuristic found nothing and
+    /// every Elixir function reported 0.
     #[test]
-    fn elixir_default_nargs_is_zero() {
-        // Documents Elixir's current default-impl behaviour. `def` calls
-        // are not recognised as functions (`is_func` returns `false`),
-        // and Elixir anonymous functions hold their parameters inside
-        // a `stab_clause` (not a parameter-list field), so the default
-        // `NArgs::compute` heuristic finds no formal parameters to
-        // count. This anchors the limitation so a future real impl
-        // that wires up `stab_clause`-based argument counting cannot
-        // silently regress to zero.
+    fn elixir_named_function_args() {
         check_metrics::<ElixirParser>(
-            "defmodule Foo do\n  def add(a, b), do: a + b\n  def use_anon do\n    add2 = fn x, y -> x + y end\n    add2.(1, 2)\n  end\nend\n",
+            "defmodule Foo do\n  def bar(a, b, c) do\n    a + b + c\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 1);
+                let s = &metric.nargs;
+                assert_eq!(s.function_args_sum(), 3);
+                assert_eq!(s.function_args_max(), 3);
+            },
+        );
+    }
+
+    /// A guard interposes a `when` `binary_operator` between the macro's
+    /// `arguments` and the head `Call`. Without unwrapping it every
+    /// guarded clause — a large fraction of real Elixir — counts 0.
+    #[test]
+    fn elixir_guarded_clause_args() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  defp baz(x) when is_integer(x), do: x\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 1);
+                let s = &metric.nargs;
+                assert_eq!(s.function_args_sum(), 1);
+                assert_eq!(s.function_args_max(), 1);
+            },
+        );
+    }
+
+    /// `def noargs, do: 1` puts a bare `identifier` where the head `Call`
+    /// would be. It has no parameter list, and the walk must stop there
+    /// rather than fall through to the enclosing `arguments` — which
+    /// holds the `do:` keyword pair and would count 1.
+    #[test]
+    fn elixir_zero_arg_function_has_no_parameter_list() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def noargs, do: 1\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 1);
+                assert_eq!(metric.nargs.function_args_sum(), 0);
+            },
+        );
+    }
+
+    /// Pattern and defaulted parameters are `map` and `binary_operator`
+    /// nodes rather than plain identifiers, so the punctuation-negative
+    /// filter is what keeps them counted.
+    #[test]
+    fn elixir_pattern_and_default_args() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(%{a: x}, b \\\\ 1), do: {x, b}\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 1);
+                let s = &metric.nargs;
+                assert_eq!(s.function_args_sum(), 2);
+                assert_eq!(s.function_args_max(), 2);
+            },
+        );
+    }
+
+    /// Every clause of one `fn` has the same arity, so a two-clause
+    /// two-argument closure is 2 — summing the clauses would report 4.
+    #[test]
+    fn elixir_multi_clause_closure_counts_one_clause() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def run do\n    fn\n      a, b -> a + b\n      a, _ -> a\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.nom.closures_sum(), 1);
+                let s = &metric.nargs;
+                assert_eq!(s.closure_args_sum(), 2);
+                assert_eq!(s.closure_args_max(), 2);
+            },
+        );
+    }
+
+    /// A guarded `fn` clause aliases its `left` to the same `when`
+    /// `binary_operator` a guarded `def` head uses, so it needs the same
+    /// unwrap. Without it the count is the guard expression's fixed three
+    /// children — 3 for any arity, which is why the four-parameter form is
+    /// the fixture here.
+    #[test]
+    fn elixir_guarded_closure_args() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def run do\n    fn a, b, c, d when is_integer(a) -> a + b + c + d end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.nom.closures_sum(), 1);
+                let s = &metric.nargs;
+                assert_eq!(s.closure_args_sum(), 4);
+                assert_eq!(s.closure_args_max(), 4);
+            },
+        );
+    }
+
+    /// `def a + b` and `def -a` define the operator functions `+/2` and
+    /// `-/1`. Their head is the operator node itself, with no `arguments`
+    /// container to walk, so the arity comes from the operator's shape.
+    #[test]
+    fn elixir_operator_definition_args() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def a + b, do: {a, b}\n  def -a, do: a\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 2);
+                let s = &metric.nargs;
+                assert_eq!(s.function_args_sum(), 3);
+                assert_eq!(s.function_args_max(), 2);
+            },
+        );
+    }
+
+    /// A `def` inside `quote do … end` is a code template, not a
+    /// declaration, and must not contribute arguments (#310). The quoted
+    /// head carries three parameters, so dropping the rule reads 3.
+    #[test]
+    fn elixir_quoted_def_contributes_no_args() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  defmacro mac do\n    quote do\n      def generated(p, q, r), do: p + q + r\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.nargs.function_args_sum(), 0);
+            },
+        );
+    }
+
+    /// Only `def` / `defp` / `defmacro` / `defmacrop` declare a function.
+    /// `defmodule` and `defdelegate` are ordinary `Call`s of the same
+    /// shape — `defdelegate log(msg), to: Logger` has a head `Call` with
+    /// one parameter, so a gate that matched any macro would read 1.
+    #[test]
+    fn elixir_non_method_macros_count_zero() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  defdelegate log(msg), to: Logger\nend\n",
             "foo.ex",
             |metric| {
                 assert_eq!(metric.nargs.function_args_sum(), 0);

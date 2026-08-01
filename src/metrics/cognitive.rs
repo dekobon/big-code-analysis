@@ -306,6 +306,33 @@ fn increment_function_depth<'a, T: PartialEq + From<u16>>(
     }
 }
 
+/// Applies the function-boundary rule at `node`, which every language
+/// with a syntactic function-definition kind shares (#696).
+///
+/// It moves two of [`Nesting`]'s three channels. Structural nesting
+/// restarts at zero, so control flow written inside this function is
+/// charged against its own depth rather than the enclosing function's;
+/// and the function-depth surcharge rises when this definition is
+/// itself lexically nested in one of `stops`. Byte-equivalent
+/// constructs therefore score the same across languages, which is the
+/// property the book's per-language deviations list states.
+///
+/// The two statements were spelled out longhand in eighteen modules
+/// before #1103. Two callers still spell them out, for opposite
+/// reasons: `elixir.rs` takes only the reset and deliberately skips the
+/// depth bump, while the `js_cognitive!` macro takes the pair *plus* a
+/// `nesting.lambda` reset no other language performs. Each says why at
+/// its own site.
+fn enter_function_boundary<'a, T: PartialEq + From<u16>>(
+    nesting: &mut Nesting,
+    node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+    stops: &[T],
+) {
+    nesting.conditional = 0;
+    increment_function_depth(&mut nesting.function_depth, node, ancestors, stops);
+}
+
 /// Charges `node`'s construct at the current nesting level and opens a
 /// new structural level for its children.
 ///
@@ -400,10 +427,16 @@ macro_rules! js_cognitive {
                     });
                 }
                 FunctionDeclaration => {
-                    // Reset lambda nesting at function for JS
+                    // The JS family takes the shared function-boundary
+                    // rule plus one extra channel: `nesting.lambda` is
+                    // reset too, which no other language does. A `function`
+                    // declaration written inside an arrow function starts a
+                    // fresh lexical scope, so it should not inherit that
+                    // arrow's lambda surcharge. That third statement is why
+                    // this arm spells the pair out rather than calling
+                    // `enter_function_boundary` (#1103).
                     nesting.conditional = 0;
                     nesting.lambda = 0;
-                    // Increase depth function nesting if needed
                     increment_function_depth(
                         &mut nesting.function_depth,
                         node,
@@ -630,9 +663,22 @@ implement_metric_trait!(Cognitive, PreprocCode, CcommentCode);
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::test_support::{check_func_space, check_metrics};
+    use crate::test_support::{
+        check_func_space_only_shim, check_metrics_only_shim, function_space,
+    };
 
     use super::*;
+
+    // Cognitive's dependency closure adds Nom, the divisor behind
+    // `cognitive_average`.
+    check_metrics_only_shim!(check_metrics, Cognitive);
+    check_func_space_only_shim!(check_func_space, Cognitive);
+    // The Python-comprehension tests (#417/#421) assert the cyclomatic
+    // count alongside the cognitive one, to show where the two metrics
+    // agree and where nesting makes them diverge. They are the only
+    // cross-metric assertions here, so they get their own shim rather
+    // than widening the module-wide selection.
+    check_metrics_only_shim!(check_cognitive_and_cyclomatic, Cognitive, Cyclomatic);
 
     /// The walker must hand `is_else_if` the node's own parent at every
     /// AST depth.
@@ -1154,7 +1200,7 @@ mod tests {
         // equivalent explicit `for`/`if` scored 3.
         // expected: for_in_clause +1 (nesting 0), if_clause +2 (1 base +
         // 1 nesting under the for) = 3 — equal to the explicit form below.
-        check_metrics::<PythonParser>(
+        check_cognitive_and_cyclomatic::<PythonParser>(
             "def f(xs):
                 return [x for x in xs if x > 0]",
             "foo.py",
@@ -1164,7 +1210,7 @@ mod tests {
                 assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
             },
         );
-        check_metrics::<PythonParser>(
+        check_cognitive_and_cyclomatic::<PythonParser>(
             "def g(xs):
                 out = []
                 for x in xs:
@@ -1186,7 +1232,7 @@ mod tests {
     fn python_comprehension_plain_no_filter() {
         // A comprehension with no `if` filter scores just the loop.
         // expected: for_in_clause +1 = 1.
-        check_metrics::<PythonParser>(
+        check_cognitive_and_cyclomatic::<PythonParser>(
             "def f(xs):
                 return [x for x in xs]",
             "foo.py",
@@ -1203,7 +1249,7 @@ mod tests {
         // Two `for` clauses are nested loops: the second nests under the
         // first, mirroring explicit nested `for` statements.
         // expected: for #1 +1 (nesting 0), for #2 +2 (1 base + 1 nesting) = 3.
-        check_metrics::<PythonParser>(
+        check_cognitive_and_cyclomatic::<PythonParser>(
             "def f(xs, ys):
                 return [a for a in xs for b in ys]",
             "foo.py",
@@ -1221,7 +1267,7 @@ mod tests {
         // Cognitive penalizes the nesting, so it exceeds cyclomatic here; the
         // two metrics legitimately diverge once filters multiply.
         // expected cognitive: for +1, if #1 +2, if #2 +2 = 5.
-        check_metrics::<PythonParser>(
+        check_cognitive_and_cyclomatic::<PythonParser>(
             "def f(xs):
                 return [x for x in xs if a if b]",
             "foo.py",
@@ -1244,7 +1290,7 @@ mod tests {
             "{x for x in xs if x > 0}",
             "(x for x in xs if x > 0)",
         ] {
-            check_metrics::<PythonParser>(
+            check_cognitive_and_cyclomatic::<PythonParser>(
                 &format!("def f(xs):\n                return {body}"),
                 "foo.py",
                 |metric| {
@@ -3578,17 +3624,15 @@ mod tests {
     /// Cognitive cost of a boolean sequence inside a `lambda`, under
     /// each statement kind that can enclose one.
     ///
-    /// This pins the scores, not the stop set. `python_boolean_ancestor_
-    /// nesting`'s inner `count_specific_ancestors` stops its
-    /// enclosing-lambda walk at `ExpressionList | IfStatement |
-    /// ForStatement | WhileStatement`, and none of those four arms is
-    /// observable: deleting three of them (or the `ExpressionList` arm
-    /// alone) leaves this test, and the whole 3 097-test lib suite,
-    /// green (#1090). A lambda body is a single expression, so a lambda can
-    /// never be an ancestor of an `if`/`for`/`while` *statement* — there
-    /// is no outer lambda for a missing stop to over-count. Do not
-    /// "strengthen" this test by asserting on the arms; it cannot
-    /// discriminate them. Tracked in #1090.
+    /// This pins the scores, not the stop set.
+    /// `python_apply_boolean_operator`'s enclosing-lambda walk stops at
+    /// `ExpressionList | IfStatement | ForStatement | WhileStatement`,
+    /// and no fixture below discriminates any of those arms: none has a
+    /// `lambda` above the stop node, so halting there and running to the
+    /// module root give the same count. Do not "strengthen" this test by
+    /// asserting on the arms — the one arm that can differ,
+    /// `ExpressionList`, is discriminated by
+    /// `python_boolean_in_expression_list_under_lambda` (#1090).
     #[test]
     fn python_boolean_in_lambda_scores_under_each_enclosing_statement() {
         use crate::test_support::metrics_verbatim;
@@ -3633,6 +3677,51 @@ mod tests {
         );
     }
 
+    /// The `ExpressionList` arm of `python_apply_boolean_operator`'s
+    /// stop set — the only one of its four arms that can change a score.
+    ///
+    /// Two grammar productions can put an `expression_list` under a
+    /// `lambda`: a parenthesised `yield`, and an f-string interpolation
+    /// (`_f_expression`). Every other site tree-sitter-python spells
+    /// `expression_list` at is either a statement (`return`, `del`,
+    /// `raise`, `for … in`) or an assignment right-hand side, and a
+    /// lambda body is a single expression, so it can contain none of
+    /// them. In both fixtures the `expression_list` sits directly above
+    /// the `boolean_operator` and stops the enclosing-lambda walk before
+    /// the `lambda` is counted, leaving the +1 boolean sequence alone.
+    ///
+    /// Measured, not derived: deleting only the `ExpressionList` arm
+    /// takes both fixtures from 1 to 2, while the doubly-nested lambda
+    /// in `python_boolean_in_lambda_scores_under_each_enclosing_statement`
+    /// stays at 3 (#1090). Whether 1 or 2 is the *right* score is a
+    /// separate question — this pins current behaviour, and the
+    /// per-lambda surcharge itself is under review in #1150.
+    #[test]
+    fn python_boolean_in_expression_list_under_lambda() {
+        use crate::test_support::metrics_verbatim;
+
+        for (route, source) in [
+            ("parenthesised yield", "k = lambda q: (yield a and b, c)\n"),
+            (
+                "f-string interpolation",
+                "m = lambda q: f\"{a and b, c}\"\n",
+            ),
+        ] {
+            let metrics = metrics_verbatim(
+                crate::LANG::Python,
+                source.as_bytes(),
+                MetricsOptions::default(),
+            );
+
+            assert_eq!(
+                metrics.cognitive.cognitive_sum(),
+                1,
+                "{route}: +1 boolean sequence only — the `expression_list` \
+                 stops the enclosing-lambda walk before it reaches the `lambda`"
+            );
+        }
+    }
+
     #[test]
     fn python_nested_functions_lambdas() {
         check_metrics::<PythonParser>(
@@ -3658,6 +3747,77 @@ mod tests {
                 }
                 "#
                 );
+            },
+        );
+    }
+
+    /// #1149: a `def` nested inside a conditional is scored against its
+    /// own depth, not the enclosing function's.
+    ///
+    /// Python was the only language with a syntactic function-definition
+    /// node that never reset `nesting.conditional` at the boundary, so
+    /// `inner` charged base(1) + inherited-conditional(1) +
+    /// function-depth(1) = 3 where every sibling charges base(1) +
+    /// function-depth(1) = 2. `python_nested_functions_lambdas` missed it
+    /// because its nested `def` sits at function top level, where
+    /// `conditional` is already 0.
+    ///
+    /// The Java companion is the byte-equivalent construct — Java has no
+    /// local function, so a method reaches the inside of an `if` only
+    /// through a class body declared there — and pins the book's
+    /// "byte-equivalent constructs therefore score identically across
+    /// languages" claim with a test rather than prose.
+    ///
+    /// Both fixtures nest the definition **two** conditionals deep, not
+    /// one. At one level the Java assertion cannot discriminate: reset +
+    /// depth-surcharge and no-reset + no-surcharge both yield 2, so
+    /// deleting both lines from `cognitive/java.rs` leaves it green. At
+    /// two levels the correct answer stays 2 while an unreset
+    /// implementation gives 4 (Python, which also bumps depth) or 3
+    /// (depth dropped as well).
+    #[test]
+    fn python_nested_def_inside_conditional_scores_like_java() {
+        fn cognitive_of(space: &FuncSpace, name: &str) -> u64 {
+            function_space(space, name).metrics.cognitive.cognitive()
+        }
+
+        check_func_space::<PythonParser, _>(
+            "def outer(a, b, c):
+                 if a:  # +1
+                     if b:  # +2 (+1 nesting)
+                         def inner(c):
+                             if c:  # +1 base, +1 function depth, +0 inherited
+                                 return 1
+                         return inner",
+            "nested.py",
+            |space| {
+                assert_eq!(cognitive_of(&space, "outer"), 3, "python outer");
+                assert_eq!(cognitive_of(&space, "inner"), 2, "python inner");
+            },
+        );
+
+        check_func_space::<JavaParser, _>(
+            "class N {
+                 int outer(boolean a, boolean b, boolean c) {
+                     if (a) {  // +1
+                         if (b) {  // +2 (+1 nesting)
+                             class I {
+                                 int inner(boolean c) {
+                                     if (c) {  // +1 base, +1 function depth
+                                         return 1;
+                                     }
+                                     return 0;
+                                 }
+                             }
+                         }
+                     }
+                     return 0;
+                 }
+             }",
+            "N.java",
+            |space| {
+                assert_eq!(cognitive_of(&space, "outer"), 3, "java outer");
+                assert_eq!(cognitive_of(&space, "inner"), 2, "java inner");
             },
         );
     }
@@ -9373,11 +9533,11 @@ end",
         // `Fn` closure) so the final `<` assertion compares the *actual*
         // values rather than restating constants.
         let chain_cog = Cell::new(-1.0);
-        crate::test_support::check_func_space::<IrulesParser, _>(chain, "chain.irule", |fs| {
+        check_func_space::<IrulesParser, _>(chain, "chain.irule", |fs| {
             chain_cog.set(fs.metrics.cognitive.cognitive_sum() as f64);
         });
         let nested_cog = Cell::new(-1.0);
-        crate::test_support::check_func_space::<IrulesParser, _>(nested, "nested.irule", |fs| {
+        check_func_space::<IrulesParser, _>(nested, "nested.irule", |fs| {
             nested_cog.set(fs.metrics.cognitive.cognitive_sum() as f64);
         });
 

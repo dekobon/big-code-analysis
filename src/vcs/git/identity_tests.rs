@@ -1,7 +1,7 @@
 //! Unit tests for trailer-block-scoped co-author detection (issue #812).
 //!
 //! End-to-end participant counting (author + co-author + bot filtering)
-//! is exercised against real commits in `tests/vcs_history.rs`; these
+//! is exercised against real commits in `tests/vcs/vcs_history.rs`; these
 //! tests pin the pure trailer-block heuristic that decides which slice of
 //! a commit message the `Co-authored-by:` scan runs over.
 

@@ -10,6 +10,7 @@
 //! file (or stdout) — a whole-repo report is one document, not the
 //! per-file directory that `metrics`/`ops` emit (issue #573).
 
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -112,7 +113,7 @@ pub(crate) fn run(mut globals: GlobalOpts, args: VcsArgs) {
         files: entries,
     };
 
-    emit(&report, &args).unwrap_or_else(|e| die(format_args!("writing vcs output: {e}")));
+    crate::die_unless_broken_pipe(emit(&report, &args), "writing vcs output");
 }
 
 /// Reject the cache controls when they accompany a `vcs` subcommand.
@@ -330,6 +331,14 @@ fn rank(
     // behave exactly as elsewhere; intersect the result with the tracked
     // set (untracked / binary files are simply absent from the index).
     let (resolved, _jobs) = crate::resolve_walk_files(globals.clone());
+    // A directory the walk could not list silently shortens the ranking,
+    // and a ranking is only as useful as its completeness — the same
+    // argument the analysing subcommands make in `enforce_complete_walk`
+    // (#1131). `vcs` reads history, never file contents, so this is the
+    // only I/O tally it has.
+    if resolved.walk_errors.count() > 0 {
+        die(crate::walk_failure_summary(resolved.walk_errors.count()));
+    }
     let selected = resolved.files;
 
     let mut covered: HashSet<PathBuf> = HashSet::new();
@@ -721,7 +730,7 @@ pub(crate) fn default_blame(globals: &GlobalOpts) -> Option<Arc<vcs::PerFunction
 pub(crate) fn inject_per_function(
     space: &mut FuncSpace,
     path: &Path,
-    blame: &vcs::PerFunctionBlame,
+    blame: &Arc<vcs::PerFunctionBlame>,
 ) {
     // Pre-order over descendants (the root is the file space). The same
     // traversal order is replayed in `assign_child_stats`, so the returned
@@ -731,7 +740,7 @@ pub(crate) fn inject_per_function(
     if spans.is_empty() {
         return;
     }
-    match blame.per_function(path, &spans) {
+    match blame_with_thread_session(blame, path, &spans) {
         Ok(stats) => {
             // `per_function` returns exactly one `Stats` per span, and
             // `assign_child_stats` replays the identical pre-order, so the
@@ -752,6 +761,49 @@ pub(crate) fn inject_per_function(
             ));
         }
     }
+}
+
+thread_local! {
+    /// The calling worker's [`vcs::BlameSession`], reused across every
+    /// file that thread blames.
+    ///
+    /// A session is `!Sync` (it owns a `gix::Repository`), so it cannot
+    /// live in the shared `Config` alongside the engine; and
+    /// `ConcurrentRunner`'s per-file callback is a plain
+    /// `Fn(PathBuf, &Config)` with no per-thread state slot to thread one
+    /// through. A thread-local is the seam that exists. It is dropped when
+    /// the worker exits, which is the end of the run.
+    static BLAME_SESSION: RefCell<Option<vcs::BlameSession>> = const { RefCell::new(None) };
+}
+
+/// Blame `path` through this thread's session, opening one (or replacing
+/// a session belonging to a different engine) on first use.
+///
+/// The engine check is not decoration: one process can build more than
+/// one `Config` — the test suite does — and a session carries its
+/// engine's repository, target ref, windows, and bot filter. Serving a
+/// second engine from the first one's session would answer with the
+/// wrong repository's history rather than fail.
+fn blame_with_thread_session(
+    blame: &Arc<vcs::PerFunctionBlame>,
+    path: &Path,
+    spans: &[vcs::LineSpan],
+) -> Result<Vec<vcs::Stats>, vcs::Error> {
+    // The borrow spans the whole blame rather than just the slot swap:
+    // the session is what the blame runs against, and moving it out and
+    // back would lose it on an unwind. `with_borrow_mut`'s panic-on-
+    // re-entry is unreachable — nothing the blame calls touches
+    // `BLAME_SESSION`, which is private to this module and read here only.
+    BLAME_SESSION.with_borrow_mut(|slot| {
+        if slot
+            .as_ref()
+            .is_none_or(|session| !Arc::ptr_eq(session.engine(), blame))
+        {
+            *slot = None;
+        }
+        slot.get_or_insert_with(|| blame.session())
+            .per_function(path, spans)
+    })
 }
 
 /// Collect the 1-based inclusive line span of every descendant space, in
@@ -1051,8 +1103,121 @@ fn outer(x: i32) -> i32 {
         // Windows, `/` on Unix); the emitted git path must always be
         // forward-slash so the JSON / CSV / table output is byte-identical
         // cross-platform. On Windows this guards the `src\work.rs`
-        // regression that failed `tests/vcs.rs` on windows-latest.
+        // regression that failed `tests/vcs/vcs_rank.rs` on windows-latest.
         let rel: PathBuf = ["src", "work.rs"].iter().collect();
         assert_eq!(path_to_string(&rel).as_deref(), Some("src/work.rs"));
+    }
+
+    /// Fixed "now" for the blame fixture below; commit times are offsets
+    /// before it, so the window arithmetic is exact.
+    const FIXED_NOW: i64 = 1_700_000_000;
+    const DAY: i64 = 86_400;
+
+    /// A throwaway repo with `src/work.rs` created 200 days before
+    /// [`FIXED_NOW`] and edited 5 days before it — two commits, one per
+    /// side of a 30-day window.
+    fn blame_fixture() -> tempfile::TempDir {
+        fn git(dir: &Path, secs: i64, args: &[&str]) {
+            let date = format!("@{secs} +0000");
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(dir)
+                .env("GIT_AUTHOR_NAME", "Ada")
+                .env("GIT_AUTHOR_EMAIL", "ada@example.com")
+                .env("GIT_AUTHOR_DATE", &date)
+                .env("GIT_COMMITTER_NAME", "Ada")
+                .env("GIT_COMMITTER_EMAIL", "ada@example.com")
+                .env("GIT_COMMITTER_DATE", &date)
+                .status()
+                .expect("run git");
+            assert!(status.success(), "git {args:?} failed");
+        }
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        git(dir.path(), FIXED_NOW, &["init", "-q", "-b", "main"]);
+        git(
+            dir.path(),
+            FIXED_NOW,
+            &["config", "commit.gpgsign", "false"],
+        );
+        // Neutralise a contributor's global `core.hooksPath` (#941):
+        // `--no-verify` skips the commit hooks, not `post-commit`.
+        let no_hooks = dir.path().join(".bca-empty-hooks");
+        std::fs::create_dir_all(&no_hooks).expect("mkdir empty hooks dir");
+        let no_hooks = no_hooks.to_str().expect("hooks path is valid UTF-8");
+        git(
+            dir.path(),
+            FIXED_NOW,
+            &["config", "core.hooksPath", no_hooks],
+        );
+        git(dir.path(), FIXED_NOW, &["config", "core.autocrlf", "false"]);
+        std::fs::create_dir(dir.path().join("src")).expect("mkdir src");
+        std::fs::write(
+            dir.path().join("src/work.rs"),
+            "fn f() {\n  let x = 1;\n}\n",
+        )
+        .expect("write");
+        git(dir.path(), FIXED_NOW - 200 * DAY, &["add", "-A"]);
+        git(
+            dir.path(),
+            FIXED_NOW - 200 * DAY,
+            &["commit", "-q", "--no-verify", "-m", "create"],
+        );
+        std::fs::write(
+            dir.path().join("src/work.rs"),
+            "fn f() {\n  let x = 2;\n}\n",
+        )
+        .expect("rewrite");
+        git(dir.path(), FIXED_NOW - 5 * DAY, &["add", "-A"]);
+        git(
+            dir.path(),
+            FIXED_NOW - 5 * DAY,
+            &["commit", "-q", "--no-verify", "-m", "edit"],
+        );
+        dir
+    }
+
+    /// The per-thread blame session must be rebuilt when the engine it is
+    /// asked to serve is not the one it was opened from (issue #1117).
+    ///
+    /// Both engines here point at the **same** work tree and differ only
+    /// in their long window, so serving the second from the first's
+    /// session returns a plausible number rather than an error — exactly
+    /// the silent failure the `Arc::ptr_eq` guard exists to prevent.
+    /// Deleting that guard makes the `narrow` assertion below report 2.
+    #[test]
+    fn thread_session_is_rebuilt_for_a_different_engine() {
+        let repo = blame_fixture();
+        let file = repo.path().join("src/work.rs");
+        let spans = [vcs::LineSpan::new(1, 3)];
+
+        let mut wide_opts = Options::default();
+        wide_opts.as_of = Some(FIXED_NOW);
+        let mut narrow_opts = wide_opts.clone();
+        // 30 days: only the second commit falls inside.
+        narrow_opts.long_window_secs = 30 * DAY;
+        narrow_opts.recent_window_secs = 30 * DAY;
+
+        let wide = Arc::new(
+            vcs::PerFunctionBlame::open(repo.path(), wide_opts).expect("open wide engine"),
+        );
+        let narrow = Arc::new(
+            vcs::PerFunctionBlame::open(repo.path(), narrow_opts).expect("open narrow engine"),
+        );
+
+        let first = blame_with_thread_session(&wide, &file, &spans).expect("wide blame");
+        assert_eq!(first[0].commits_long, 2, "365d window sees both commits");
+
+        let second = blame_with_thread_session(&narrow, &file, &spans).expect("narrow blame");
+        assert_eq!(
+            second[0].commits_long, 1,
+            "30d window must see only the recent commit — a stale session \
+             would answer with the wide engine's 2"
+        );
+
+        // Switching back must rebuild again rather than keep the narrow
+        // session, so the guard is not a one-way latch.
+        let third = blame_with_thread_session(&wide, &file, &spans).expect("wide re-blame");
+        assert_eq!(third[0].commits_long, 2, "switching back must rebuild");
     }
 }

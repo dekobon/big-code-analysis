@@ -301,10 +301,20 @@ pub(crate) fn build_index_for(root: &Path) -> Option<vcs::HistoryIndex> {
 }
 
 /// Open a default-options [`PerFunctionBlame`] engine for the repository
-/// containing `root`, for the batch `vcs_per_function=True` path (#670).
-/// Returns `None` when `root` is not inside a repository.
-pub(crate) fn open_blame_for(root: &Path) -> Option<vcs::PerFunctionBlame> {
-    vcs::PerFunctionBlame::open(root, Options::default()).ok()
+/// containing `root` and return a blame session on it, for the
+/// `vcs_per_function=True` paths (#670). Returns `None` when `root` is not
+/// inside a repository.
+///
+/// A session rather than the bare engine because the batch path blames
+/// every file in one repository through it: the repository handle, its
+/// object cache, the `.mailmap`, and the resolved-commit memo are then
+/// built once per repository instead of once per file (#1117). The
+/// single-file path opens (and drops) one session for its one blame,
+/// which costs the same as the bare engine did.
+pub(crate) fn open_blame_for(root: &Path) -> Option<vcs::BlameSession> {
+    vcs::PerFunctionBlame::open(root, Options::default())
+        .ok()
+        .map(|engine| std::sync::Arc::new(engine).session())
 }
 
 /// Inject a file-level `vcs` block using a pre-built [`HistoryIndex`].
@@ -382,7 +392,7 @@ fn attach_vcs_to_space(space: &mut Value, wire_vcs: &mut wire::Vcs) -> Result<()
 pub(crate) fn inject_vcs_per_function_with_blame(
     funcspace_json: String,
     file_path: &Path,
-    blame: &vcs::PerFunctionBlame,
+    blame: &mut vcs::BlameSession,
 ) -> Result<String, PyErr> {
     let mut doc: Value = serde_json::from_str(&funcspace_json)
         .map_err(|e| PyValueError::new_err(format!("parsing metrics JSON: {e}")))?;

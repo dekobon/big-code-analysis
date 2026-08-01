@@ -5,6 +5,7 @@
 // self-scan walker skips this file the same way it skips `./tests/`.
 
 use super::*;
+use crate::threshold_soft::is_valid_scale_ratio;
 
 /// Locks the threshold-engine extractor vocabulary against
 /// `threshold_metric_for_name` so the two stay in sync.
@@ -283,6 +284,7 @@ fn violation_display_is_stable() {
         metric: "cyclomatic",
         value: 17.0,
         limit: 15.0,
+        hard_limit: Some(15.0),
         lower_is_worse: false,
         body_hash: None,
         suppressed: false,
@@ -303,6 +305,7 @@ fn violation_display_keeps_fractional_precision() {
         metric: "halstead.volume",
         value: 12.5,
         limit: 10.0,
+        hard_limit: Some(10.0),
         lower_is_worse: false,
         body_hash: None,
         suppressed: false,
@@ -338,6 +341,7 @@ fn violation_path_preserves_non_utf8_bytes() {
         metric: "cyclomatic",
         value: 5.0,
         limit: 1.0,
+        hard_limit: Some(1.0),
         lower_is_worse: false,
         body_hash: None,
         suppressed: false,
@@ -525,6 +529,7 @@ fn tokens_threshold_never_suppressed() {
         entries: vec![ResolvedThreshold {
             extractor,
             limit: -0.5,
+            hard_limit: Some(-0.5),
             lower_is_worse: false,
             scope: metric_scope(extractor.name),
         }],
@@ -618,6 +623,7 @@ fn sample_violation() -> Violation {
         metric: "cyclomatic",
         value: 30.0,
         limit: 10.0,
+        hard_limit: Some(10.0),
         lower_is_worse: false,
         body_hash: None,
         suppressed: false,
@@ -934,6 +940,7 @@ fn mi_ratio_inverts_so_lower_value_ranks_worse() {
         metric: "mi.original",
         value: 5.0,
         limit: 50.0,
+        hard_limit: Some(50.0),
         lower_is_worse: true,
         body_hash: None,
         suppressed: false,

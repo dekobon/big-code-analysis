@@ -3,7 +3,7 @@
 //!
 //! Split from `thresholds.rs` to keep that file under the bca self-scan
 //! caps. Behaviour is exercised end-to-end via the integration tests in
-//! `tests/check_thresholds.rs` and via dedicated unit tests in
+//! `tests/check/check_thresholds.rs` and via dedicated unit tests in
 //! `thresholds_tests.rs`.
 
 /// Maximum number of "did you mean?" candidates listed in a single

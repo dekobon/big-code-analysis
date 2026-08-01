@@ -24,6 +24,9 @@ use std::path::Path;
 use assert_cmd::Command;
 
 #[allow(dead_code)]
+pub mod fixtures;
+
+#[allow(dead_code)]
 pub mod validators;
 
 /// Scrub CI-side env vars that `bca check` auto-detects from a
@@ -69,13 +72,42 @@ pub mod validators;
 /// (only `BCA_MAX_ORPHANED_TASKS`), so it has nothing to scrub.
 #[allow(dead_code)]
 pub fn scrub_ci_env(cmd: &mut Command) -> &mut Command {
-    cmd.env_remove("GITHUB_STEP_SUMMARY")
-        .env_remove("GITHUB_ACTIONS")
-        .env_remove("GITHUB_BASE_REF")
-        .env_remove("BCA_DIFF_BASE")
-        .env_remove("GITHUB_EVENT_BEFORE")
-        .env_remove("GITHUB_REPOSITORY")
-        .env_remove("GITHUB_RUN_ID")
+    for var in SCRUBBED_CI_ENV {
+        cmd.env_remove(var);
+    }
+    cmd
+}
+
+/// The variables [`scrub_ci_env`] removes. Named once so the plain
+/// `std::process::Command` builder below cannot drift from it.
+const SCRUBBED_CI_ENV: [&str; 7] = [
+    "GITHUB_STEP_SUMMARY",
+    "GITHUB_ACTIONS",
+    "GITHUB_BASE_REF",
+    "BCA_DIFF_BASE",
+    "GITHUB_EVENT_BEFORE",
+    "GITHUB_REPOSITORY",
+    "GITHUB_RUN_ID",
+];
+
+/// The same hermetic, env-scrubbed `bca` as [`cli_in`], but as a plain
+/// [`std::process::Command`] so the caller can redirect the child's
+/// stdout somewhere of its choosing.
+///
+/// `assert_cmd::Command::assert` runs the child through
+/// `std::process::Command::output`, which unconditionally replaces
+/// stdout and stderr with pipes — any redirection configured beforehand
+/// is silently discarded. Tests that must point stdout at a real file
+/// descriptor (`/dev/full`, a pipe they close early) therefore cannot go
+/// through `assert_cmd` at all.
+#[allow(dead_code)]
+pub fn std_bca_command_in(dir: &Path) -> std::process::Command {
+    let mut cmd = std::process::Command::new(assert_cmd::cargo::cargo_bin("bca"));
+    cmd.current_dir(dir);
+    for var in SCRUBBED_CI_ENV {
+        cmd.env_remove(var);
+    }
+    cmd
 }
 
 /// Build a `bca` `Command` with CI-side env vars scrubbed. The
@@ -198,6 +230,26 @@ pub fn deny_all_access(path: &Path) -> bool {
     std::fs::read(path).is_err()
 }
 
+/// Strip every permission bit from the *directory* `path` so listing it
+/// fails with `EACCES`, returning whether the denial actually took
+/// effect.
+///
+/// The directory counterpart to [`deny_all_access`], and not a
+/// convenience wrapper: that function probes with `fs::read`, which
+/// fails with `EISDIR` on **every** directory regardless of its mode, so
+/// it reports the denial as effective even where it is not. A caller
+/// that used it to guard a "skip when privileged" branch (root ignores
+/// mode bits) would never take that branch and would fail instead. The
+/// probe here is `read_dir` — the operation the walk actually performs.
+#[cfg(unix)]
+#[allow(dead_code)]
+pub fn deny_dir_listing(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000)).expect("chmod 000");
+    std::fs::read_dir(path).is_err()
+}
+
 /// Write `body` to `name` under `dir` and lock it with
 /// [`deny_all_access`], returning the path — or `None` when the lock
 /// could not be made to bite.
@@ -212,4 +264,46 @@ pub fn unreadable_fixture(dir: &Path, name: &str, body: &str) -> Option<std::pat
     let path = dir.join(name);
     std::fs::write(&path, body).expect("write fixture");
     deny_all_access(&path).then_some(path)
+}
+
+/// Create `name` under `dir` holding one source file, then strip every
+/// permission bit so the directory cannot be *listed* — the #1131
+/// scenario, where a whole subtree drops out of the walk before any file
+/// is selected. Returns the directory path, or `None` when the denial
+/// does not bite.
+///
+/// The lock goes through [`deny_dir_listing`], whose probe is `read_dir`
+/// rather than the `read` that [`deny_all_access`] uses: reading a
+/// directory fails with `EISDIR` regardless of its mode, so
+/// `read`-probing would report the denial as effective for *every*
+/// directory, readable ones included, and the caller would stage a
+/// scenario that does not exist.
+///
+/// The caller must call [`restore_dir_access`] before the enclosing
+/// `TempDir` drops, or its recursive delete fails on the locked
+/// directory.
+#[cfg(unix)]
+#[allow(dead_code)]
+pub fn unlistable_dir(
+    dir: &Path,
+    name: &str,
+    file: &str,
+    body: &str,
+) -> Option<std::path::PathBuf> {
+    let path = dir.join(name);
+    std::fs::create_dir_all(&path).expect("create fixture dir");
+    std::fs::write(path.join(file), body).expect("write fixture");
+    deny_dir_listing(&path).then_some(path)
+}
+
+/// Give a mode-stripped fixture directory its bits back so `TempDir`'s
+/// recursive delete can remove it. The counterpart to
+/// [`unlistable_dir`], and to the mode-555 output directories the
+/// write-failure tests stage.
+#[cfg(unix)]
+#[allow(dead_code)]
+pub fn restore_dir_access(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("chmod 755");
 }

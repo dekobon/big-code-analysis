@@ -65,7 +65,10 @@ impl Touched {
 /// Score the commit `spec` resolves to. See
 /// [`crate::vcs::score_commit`] for the public contract.
 pub(crate) fn score_commit(root: &Path, spec: &str, options: &Options) -> Result<JitReport, Error> {
-    let repo = super::repo::open(root)?.repo;
+    let mut repo = super::repo::open(root)?.repo;
+    // Scoring one commit re-reads the same trees and blobs across the
+    // tree diff, the per-file history walks, and the experience walk.
+    repo.object_cache_size_if_unset(super::OBJECT_CACHE_BYTES);
     let commit = super::repo::resolve_commit(&repo, spec)?;
 
     let now = options.as_of.unwrap_or_else(current_unix_seconds);

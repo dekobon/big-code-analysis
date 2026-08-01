@@ -18,8 +18,8 @@
 //!
 //! Reused across:
 //!
-//! - `tests/sarif_test.rs`
-//! - `tests/checkstyle_test.rs`
+//! - `tests/output_formats/sarif_test.rs`
+//! - `tests/output_formats/checkstyle_test.rs`
 //!
 //! The CLI crate has its own copy at
 //! `big-code-analysis-cli/tests/common/validators.rs` because Cargo
@@ -74,7 +74,7 @@ pub fn validate_sarif(json_text: &str) -> Result<(), Vec<String>> {
 
 /// Parse the vendored SARIF schema and return its top-level `$id` and
 /// `$schema` fields. Used by the schema-canary self-check test in
-/// `tests/sarif_test.rs` to detect a refresh that vendored the wrong
+/// `tests/output_formats/sarif_test.rs` to detect a refresh that vendored the wrong
 /// file.
 pub fn sarif_schema_metadata() -> (String, String) {
     let schema: serde_json::Value =

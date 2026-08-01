@@ -15,21 +15,28 @@ use super::*;
 /// over TOML — the same field names; same shape.
 ///
 /// The resolved layers (headroom scaling per #373, `[thresholds.soft]`
-/// / `--tier` per #375, the tiered exit-code style per #385) are already
-/// folded into the serialized view; future layers (baseline state per
-/// #381) will extend `EffectiveConfig` additively. This printer is the
-/// single place that needs to learn about them.
+/// / `--tier` per #375, the tiered exit-code style per #385, the
+/// per-language tables per #1141) are already folded into the serialized
+/// view; future layers (baseline state per #381) will extend
+/// `EffectiveConfig` additively. This printer is the single place that
+/// needs to learn about them.
 pub(crate) fn print_effective_config(
     globals: &GlobalOpts,
     args: &CheckArgs,
-    set: &ThresholdSet,
+    thresholds: &LanguageThresholds,
     manifest: Option<&Manifest>,
     format: PrintConfigFormat,
     tier: TierSpec,
     tiered_exit_codes: bool,
 ) {
-    let effective =
-        EffectiveConfig::from_resolved(globals, args, set, manifest, tier, tiered_exit_codes);
+    let effective = EffectiveConfig::from_resolved(
+        globals,
+        args,
+        thresholds,
+        manifest,
+        tier,
+        tiered_exit_codes,
+    );
     let serialized = match format {
         PrintConfigFormat::Toml => toml::to_string_pretty(&effective)
             .unwrap_or_else(|e| die(format_args!("serialize effective config to TOML: {e}"))),
@@ -56,8 +63,48 @@ pub(crate) fn print_effective_config(
 /// by `--config`.
 #[derive(serde::Serialize)]
 pub(crate) struct EffectiveConfig {
-    pub(crate) thresholds: BTreeMap<String, f64>,
+    pub(crate) thresholds: EffectiveThresholds,
     pub(crate) check: EffectiveCheck,
+}
+
+/// The resolved `[thresholds]` view: the global limits, plus one
+/// *fully resolved* sub-table per language carrying a
+/// `[thresholds.lang.<slug>]` override (#1141).
+///
+/// Each language table lists every limit that will apply to that
+/// language, inherited entries included — not a diff against the global
+/// table. Someone auditing a gate wants the number that fires, not a
+/// delta to compute; and the printed form stays directly consumable by
+/// `--config`, which reads the same nesting.
+pub(crate) struct EffectiveThresholds {
+    pub(crate) global: BTreeMap<String, f64>,
+    pub(crate) lang: BTreeMap<&'static str, BTreeMap<String, f64>>,
+}
+
+impl serde::Serialize for EffectiveThresholds {
+    /// Hand-written because this one TOML table holds two value shapes —
+    /// scalar limits and a nested table of tables — which a single
+    /// `BTreeMap` cannot express without an enum wrapper around every
+    /// limit. Serializing from the two typed fields keeps the shape
+    /// explicit and puts the language tables last in both TOML and JSON.
+    ///
+    /// The `toml` serializer additionally reorders values ahead of
+    /// tables on its own, so the emitted order here is for readability
+    /// and for the JSON form; do not read it as the thing that keeps the
+    /// TOML valid.
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+
+        let has_lang = !self.lang.is_empty();
+        let mut map = serializer.serialize_map(Some(self.global.len() + usize::from(has_lang)))?;
+        for (name, limit) in &self.global {
+            map.serialize_entry(name, limit)?;
+        }
+        if has_lang {
+            map.serialize_entry(crate::threshold_lang::LANG_SUBTABLE_KEY, &self.lang)?;
+        }
+        map.end()
+    }
 }
 
 #[derive(serde::Serialize)]
@@ -127,6 +174,15 @@ pub(crate) struct EffectiveCheck {
     pub(crate) baseline_fuzzy_match: bool,
 }
 
+/// One resolved set's `(metric, limit)` pairs, in the shape a
+/// serialized `[thresholds]` table takes. Shared by the global table and
+/// every per-language one so the two render identically.
+fn resolved_limits(set: &ThresholdSet) -> BTreeMap<String, f64> {
+    set.iter()
+        .map(|(name, limit)| (name.to_owned(), limit))
+        .collect()
+}
+
 impl EffectiveConfig {
     /// Project the resolved `ThresholdSet` + the original CLI args into
     /// a serializable view. Paths are rendered with [`Path::display`]
@@ -136,15 +192,18 @@ impl EffectiveConfig {
     pub(crate) fn from_resolved(
         globals: &GlobalOpts,
         args: &CheckArgs,
-        set: &ThresholdSet,
+        resolved: &LanguageThresholds,
         manifest: Option<&Manifest>,
         tier: TierSpec,
         tiered_exit_codes: bool,
     ) -> Self {
-        let thresholds: BTreeMap<String, f64> = set
-            .iter()
-            .map(|(name, limit)| (name.to_owned(), limit))
-            .collect();
+        let thresholds = EffectiveThresholds {
+            global: resolved_limits(resolved.global()),
+            lang: resolved
+                .languages()
+                .map(|(slug, set)| (slug, resolved_limits(set)))
+                .collect(),
+        };
         let check = EffectiveCheck {
             paths: globals
                 .paths

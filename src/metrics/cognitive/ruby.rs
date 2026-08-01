@@ -130,9 +130,8 @@ impl Cognitive for RubyCode {
                 compute_ruby_booleans(node, stats);
             }
             R::Method | R::SingletonMethod => {
-                nesting.conditional = 0;
-                increment_function_depth(
-                    &mut nesting.function_depth,
+                enter_function_boundary(
+                    &mut nesting,
                     node,
                     ancestors,
                     &[R::Method, R::SingletonMethod],

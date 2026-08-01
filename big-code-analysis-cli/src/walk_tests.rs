@@ -38,13 +38,21 @@ fn walk_directory_seed_returns_sorted_paths() {
         }
     }
 
-    let empty = mk_globset(Vec::new()).expect("empty globset");
+    let empty_include = mk_globset(Vec::new()).expect("empty globset");
+    let empty_exclude = build_exclude_globset(Vec::new(), None, "--exclude-from");
     let filters = WalkFilters {
-        include: &empty,
-        exclude: &empty,
+        include: &empty_include,
+        exclude: &empty_exclude,
+        language_forced: false,
     };
-    let found = walk_directory_seed(root, true, 8, &filters);
+    let mut errors = WalkErrors::default();
+    let found = walk_directory_seed(root, true, 8, &filters, &mut errors);
 
+    assert_eq!(
+        errors.count(),
+        0,
+        "a fully readable fixture tree must record no walk errors"
+    );
     assert_eq!(
         found.len(),
         created.len(),

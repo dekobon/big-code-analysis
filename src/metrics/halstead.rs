@@ -146,9 +146,9 @@ impl Stats {
     // double-counting operators/operands they share. Cross-space
     // aggregation is instead done by unioning the occurrence maps
     // (`HalsteadMaps::merge`) and re-running `finalize` on the parent
-    // (see `spaces.rs`). Summing the finalized fields here — mirroring
-    // the sibling metrics' `merge` — would silently inflate every parent
-    // space's n1/n2/N1/N2.
+    // (see `spaces/compute.rs`). Summing the finalized fields here —
+    // mirroring the sibling metrics' `merge` — would silently inflate
+    // every parent space's n1/n2/N1/N2.
     pub(crate) fn merge(&mut self, _other: &Stats) {}
 
     /// Returns `η1`, the number of distinct operators
@@ -466,9 +466,11 @@ mod tests {
     use std::collections::HashSet;
     use std::path::PathBuf;
 
-    use crate::test_support::check_metrics;
+    use crate::test_support::check_metrics_only_shim;
 
     use super::*;
+
+    check_metrics_only_shim!(check_metrics, Halstead);
 
     // Pins the lesson-4 invariant `n2 == len(dedupe(ops.operands))` by
     // running `operands_and_operators` (the text-keyed `--ops` store)

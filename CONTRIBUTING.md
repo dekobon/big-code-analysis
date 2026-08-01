@@ -41,6 +41,33 @@ The two binaries shipped with the workspace are:
 - `bca-web`, the REST API server (`big-code-analysis-web`):
   `cargo run -p big-code-analysis-web --`.
 
+### Optional: a faster linker
+
+Every test binary in this workspace statically links the tree-sitter
+runtime and all twenty-odd grammars, so linking — not compiling — is the
+tail of an incremental `cargo test` after a one-line edit. GNU `ld`,
+still the default on most Linux toolchains, is single-threaded and is
+usually the slowest part of that.
+
+This is deliberately not configured in the repository: which linker is
+installed, and which one works, varies per machine, and a committed
+`[target.*] rustflags` that names a missing linker breaks the build for
+everyone who does not have it. Install one yourself and add it to a
+**local, untracked** `.cargo/config.toml`:
+
+```toml
+# mold — https://github.com/rui314/mold (apt: mold, brew: mold)
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+```
+
+For LLVM's `lld` (`apt install lld`, or bundled with a Homebrew LLVM),
+substitute `-fuse-ld=lld`. On macOS the platform linker is already
+parallel and neither is needed. Note that `.cargo/config.toml` *is*
+tracked here — it carries the `cargo mutants` and `cargo xtask`
+aliases — so add the stanza without committing it, or put it in your
+user-level `~/.cargo/config.toml` instead.
+
 ## Local validation gate
 
 `make pre-commit` is the canonical entry point for the full validation

@@ -52,9 +52,8 @@ impl Cognitive for CCode {
             // definition missed the SonarSource B-nesting amplification
             // (#696).
             FunctionDefinition | FunctionDefinition2 => {
-                nesting.conditional = 0;
-                increment_function_depth(
-                    &mut nesting.function_depth,
+                enter_function_boundary(
+                    &mut nesting,
                     node,
                     ancestors,
                     &[FunctionDefinition, FunctionDefinition2],

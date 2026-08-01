@@ -1,0 +1,508 @@
+//! Regression tests for #488: `--exclude-from` / `.bcaignore` glob
+//! matching must be independent of how the walk root was spelled.
+//!
+//! The `.bcaignore` patterns are `./`-anchored to match the walker's
+//! emitted form. Before #488 the walker emitted each file prefixed by
+//! its raw seed, so an absolute walk root (`--paths "$PWD"` or a
+//! manifest-resolved `paths = ["."]`) produced absolute file paths
+//! that the `./`-anchored deny-set never matched — every exclude was
+//! silently defeated. The walker now re-anchors the seed, so all three
+//! forms (`--paths .`, `--paths <abs>`, and a discovered `bca.toml`
+//! `paths = ["."]`) must walk the *same* file set.
+
+use std::path::{Path, PathBuf};
+
+use assert_cmd::Command;
+use tempfile::TempDir;
+
+use crate::common;
+
+fn cli(env_dir: &Path) -> Command {
+    let mut cmd = common::bca_command();
+    // Isolate from any user-level global gitignore so the walk is
+    // deterministic across machines.
+    cmd.env("HOME", env_dir)
+        .env("XDG_CONFIG_HOME", env_dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null");
+    cmd
+}
+
+/// Build a fixture tree:
+///   src/keep.py        — kept
+///   vendor/drop.py     — excluded by `./vendor/**`
+///   tests/drop.py      — excluded by `./tests/**`
+/// plus a `./`-anchored `.bcaignore`.
+fn make_tree(dir: &Path) {
+    for (sub, name) in [
+        ("src", "keep.py"),
+        ("vendor", "drop.py"),
+        ("tests", "drop.py"),
+    ] {
+        let d = dir.join(sub);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join(name), "def f(): return 1\n").unwrap();
+    }
+    // `./`-anchored patterns: the form the project's own `.bcaignore`
+    // and the walker's `--paths .` output both use.
+    std::fs::write(dir.join(".bcaignore"), "./vendor/**\n./tests/**\n").unwrap();
+}
+
+/// Recursively collect the basenames of every emitted `*.json` metric
+/// file, sorted. This is the walked-and-not-excluded set: the offender
+/// set's underlying file set, expressed without any path-form noise.
+fn emitted_json(out: &Path) -> Vec<String> {
+    fn visit(dir: &Path, found: &mut Vec<String>) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    visit(&p, found);
+                } else if p.extension().and_then(|e| e.to_str()) == Some("json") {
+                    found.push(
+                        p.file_name()
+                            .and_then(|n| n.to_str())
+                            .expect("UTF-8 fixture name")
+                            .to_owned(),
+                    );
+                }
+            }
+        }
+    }
+    let mut found = Vec::new();
+    visit(out, &mut found);
+    found.sort();
+    found
+}
+
+/// Run `bca metrics` with the given `--paths` seed (relative to
+/// `cwd`) and return the emitted JSON basenames. `cwd` is the walk
+/// root the command runs from; `seed` is whatever is handed to
+/// `--paths`.
+fn walked_with_seed(fixture: &Path, cwd: &Path, seed: &str) -> Vec<String> {
+    let out = TempDir::new().unwrap();
+    cli(fixture)
+        .current_dir(cwd)
+        .args([
+            "metrics",
+            "--paths",
+            seed,
+            "--exclude-from",
+            // `.bcaignore` lives at the fixture root; reference it
+            // absolutely so the form under test is the *walk seed*,
+            // not the exclude-file path.
+            fixture.join(".bcaignore").to_str().unwrap(),
+            "-O",
+            "json",
+            "--output-dir",
+            out.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    emitted_json(out.path())
+}
+
+/// Run `bca metrics` letting an auto-discovered `bca.toml` supply both
+/// `paths = ["."]` and `exclude_from = ".bcaignore"` — no path or
+/// exclude flags on the command line. This resolves `paths` to an
+/// absolute root against the manifest directory, exactly the form #488
+/// fixed.
+fn walked_via_manifest(fixture: &Path) -> Vec<String> {
+    std::fs::write(
+        fixture.join("bca.toml"),
+        "paths = [\".\"]\nexclude_from = \".bcaignore\"\n",
+    )
+    .unwrap();
+    let out = TempDir::new().unwrap();
+    cli(fixture)
+        .current_dir(fixture)
+        .args([
+            "metrics",
+            "-O",
+            "json",
+            "--output-dir",
+            out.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    let names = emitted_json(out.path());
+    // Drop the manifest so it cannot leak into a sibling test.
+    std::fs::remove_file(fixture.join("bca.toml")).unwrap();
+    names
+}
+
+#[test]
+fn exclude_set_is_identical_across_path_forms() {
+    let dir = TempDir::new().unwrap();
+    // Resolve symlinks (macOS `/var` → `/private/var`) so the absolute
+    // seed strictly equals the canonical CWD the binary observes;
+    // otherwise `strip_prefix` would not match and the abs form would
+    // (correctly) keep its absolute identity, diverging from `.`.
+    let fixture = dir.path().canonicalize().unwrap();
+    make_tree(&fixture);
+
+    // Form 1: `--paths .`, run from inside the fixture.
+    let dot = walked_with_seed(&fixture, &fixture, ".");
+    // Form 2: `--paths <abs>`, run from anywhere.
+    let abs_seed: PathBuf = fixture.clone();
+    let abs = walked_with_seed(&fixture, &fixture, abs_seed.to_str().unwrap());
+    // Form 3: discovered manifest `paths = ["."]` (→ absolute root).
+    let manifest = walked_via_manifest(&fixture);
+
+    // The deny-set drops vendor/ and tests/, leaving only keep.py —
+    // the same for every path form. Pin the exact contents so a
+    // regression that re-broke absolute-root exclusion (leaking
+    // drop.py back in) turns this red, not just an equality that an
+    // empty-everywhere bug could satisfy.
+    let expected = vec!["keep.py.json".to_string()];
+    assert_eq!(dot, expected, "--paths . should exclude vendor/ and tests/");
+    assert_eq!(
+        abs, expected,
+        "--paths <abs> must exclude the same files as --paths ."
+    );
+    assert_eq!(
+        manifest, expected,
+        "manifest paths=[\".\"] must exclude the same files as --paths ."
+    );
+
+    // Byte-identical across all three forms — the #376 contract.
+    assert_eq!(dot, abs);
+    assert_eq!(dot, manifest);
+}
+
+/// Run `bca metrics` with an auto-discovered `bca.toml` (`paths =
+/// ["."]`, `exclude_from = ".bcaignore"`) from `run_from`, which may be
+/// a subdirectory below the manifest directory. The manifest is climbed
+/// to from `run_from`, so `paths = ["."]` resolves against the manifest
+/// dir — an ancestor of `run_from` — exercising the #489 case.
+fn walked_via_manifest_from(fixture: &Path, run_from: &Path) -> Vec<String> {
+    std::fs::write(
+        fixture.join("bca.toml"),
+        "paths = [\".\"]\nexclude_from = \".bcaignore\"\n",
+    )
+    .unwrap();
+    let out = TempDir::new().unwrap();
+    cli(fixture)
+        .current_dir(run_from)
+        .args([
+            "metrics",
+            "-O",
+            "json",
+            "--output-dir",
+            out.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    let names = emitted_json(out.path());
+    std::fs::remove_file(fixture.join("bca.toml")).unwrap();
+    names
+}
+
+#[test]
+fn manifest_excludes_apply_when_run_from_subdir() {
+    // #489: a manifest-driven walk invoked from a subdirectory *below*
+    // the manifest directory must still honor the `./`-anchored
+    // `.bcaignore`. `paths = ["."]` resolves to the manifest dir (an
+    // ancestor of the CWD), which #488's CWD-relative seed re-anchoring
+    // cannot collapse — pre-fix the absolute walk root leaked the
+    // vendored file straight past the deny-set. Glob matching is now
+    // anchored to the walk root, so the exclude applies regardless of
+    // which subdir launched the run.
+    let dir = TempDir::new().unwrap();
+    let fixture = dir.path().canonicalize().unwrap();
+    make_tree(&fixture);
+    let subdir = fixture.join("src");
+    assert!(subdir.is_dir(), "fixture must contain the src/ subdir");
+
+    let from_subdir = walked_via_manifest_from(&fixture, &subdir);
+    assert_eq!(
+        from_subdir,
+        vec!["keep.py.json".to_string()],
+        "running from a subdir must still exclude vendor/ and tests/ \
+         via the manifest's ./-anchored .bcaignore (#489)"
+    );
+
+    // No regression for #488's repo-root invocation nor the `--paths
+    // \"$PWD\"` form: both must still drop the vendored/test files.
+    let from_root = walked_via_manifest_from(&fixture, &fixture);
+    assert_eq!(
+        from_root,
+        vec!["keep.py.json".to_string()],
+        "repo-root manifest invocation must still exclude (no #488 regression)"
+    );
+    let pwd_seed = walked_with_seed(&fixture, &fixture, fixture.to_str().unwrap());
+    assert_eq!(
+        pwd_seed,
+        vec!["keep.py.json".to_string()],
+        "--paths \"$PWD\" must still exclude (no #488 regression)"
+    );
+}
+
+/// Run `bca metrics` via an auto-discovered `bca.toml` that supplies
+/// `paths = ["."]` plus a `./`-anchored `include` glob, from `run_from`
+/// (a subdir below the manifest dir). `paths = ["."]` resolves to the
+/// manifest dir — an ancestor of `run_from` — so the walk root stays
+/// **absolute and above the CWD**, the genuine #489 trigger that
+/// `reanchor_seed` cannot collapse. This exercises the *include* side
+/// of the walk-root-anchored match the way only an above-CWD walk root
+/// can; a same-as-CWD absolute seed would reanchor to `.` and never
+/// reach the matcher in its absolute form.
+fn walked_via_manifest_include_from(fixture: &Path, run_from: &Path, include: &str) -> Vec<String> {
+    std::fs::write(
+        fixture.join("bca.toml"),
+        format!("paths = [\".\"]\ninclude = [\"{include}\"]\n"),
+    )
+    .unwrap();
+    let out = TempDir::new().unwrap();
+    cli(fixture)
+        .current_dir(run_from)
+        .args([
+            "metrics",
+            "-O",
+            "json",
+            "--output-dir",
+            out.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    let names = emitted_json(out.path());
+    std::fs::remove_file(fixture.join("bca.toml")).unwrap();
+    names
+}
+
+#[test]
+fn include_glob_is_anchored_to_walk_root_from_subdir() {
+    // The #489 fix moved both include *and* exclude matching to the
+    // walk-root-anchored `./`-relative form. A manifest `./src/**`
+    // include, with the walk root resolved to an *ancestor* of the CWD,
+    // must keep only `src/keep.py`. Pre-fix the absolute walk root made
+    // include match against the absolute emitted path, so a `./`-anchored
+    // include matched nothing and dropped *every* file — emitting an
+    // empty set. Anchoring to the walk root restores the intended keep.
+    let dir = TempDir::new().unwrap();
+    let fixture = dir.path().canonicalize().unwrap();
+    make_tree(&fixture);
+    let subdir = fixture.join("src");
+    assert!(subdir.is_dir(), "fixture must contain the src/ subdir");
+
+    let from_subdir = walked_via_manifest_include_from(&fixture, &subdir, "./src/**");
+    assert_eq!(
+        from_subdir,
+        vec!["keep.py.json".to_string()],
+        "a ./-anchored manifest --include must keep only src/ even when the \
+         walk root resolves above the CWD (#489)"
+    );
+}
+
+/// Run `bca metrics` with an inline `--exclude <pattern>` (one per
+/// pattern) for the given `--paths` seed, returning the emitted JSON
+/// basenames. Unlike `walked_with_seed` this exercises the inline
+/// `--exclude` → `mk_globset` path, the surface #726 reported.
+fn walked_with_inline_excludes(
+    fixture: &Path,
+    cwd: &Path,
+    seed: &str,
+    excludes: &[&str],
+) -> Vec<String> {
+    let out = TempDir::new().unwrap();
+    let mut cmd = cli(fixture);
+    cmd.current_dir(cwd).args(["metrics", "--paths", seed]);
+    for pat in excludes {
+        cmd.args(["--exclude", pat]);
+    }
+    cmd.args(["-O", "json", "--output-dir", out.path().to_str().unwrap()])
+        .assert()
+        .success();
+    emitted_json(out.path())
+}
+
+#[test]
+fn bare_relative_exclude_matches_dot_prefixed_exclude() {
+    // #726: `--exclude 'vendor/**'` (bare-relative) must exclude the same
+    // files as `--exclude './vendor/**'`. Pre-fix the bare spelling never
+    // matched the `./`-prefixed walk-root form, so vendor/ and tests/ leaked
+    // straight back into the analysed set. Run both the `--paths .` and the
+    // absolute-seed form so the fix is pinned for every match-path shape.
+    let dir = TempDir::new().unwrap();
+    let fixture = dir.path().canonicalize().unwrap();
+    make_tree(&fixture);
+
+    let expected = vec!["keep.py.json".to_string()];
+
+    for seed in [".", fixture.to_str().unwrap()] {
+        let bare =
+            walked_with_inline_excludes(&fixture, &fixture, seed, &["vendor/**", "tests/**"]);
+        let dotted =
+            walked_with_inline_excludes(&fixture, &fixture, seed, &["./vendor/**", "./tests/**"]);
+        assert_eq!(
+            bare, expected,
+            "bare `vendor/**`/`tests/**` must exclude both dirs (seed {seed:?})"
+        );
+        assert_eq!(
+            dotted, expected,
+            "dotted `./vendor/**`/`./tests/**` must exclude both dirs (seed {seed:?})"
+        );
+        assert_eq!(
+            bare, dotted,
+            "bare and `./`-prefixed excludes must be identical (seed {seed:?})"
+        );
+    }
+}
+
+/// Run `bca metrics --paths . --include <pattern>` from the fixture root
+/// and return the emitted JSON basenames.
+fn walked_with_include(fixture: &Path, include: &str) -> Vec<String> {
+    let out = TempDir::new().unwrap();
+    cli(fixture)
+        .current_dir(fixture)
+        .args([
+            "metrics",
+            "--paths",
+            ".",
+            "--include",
+            include,
+            "-O",
+            "json",
+            "--output-dir",
+            out.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    emitted_json(out.path())
+}
+
+#[test]
+fn bare_relative_include_matches_dot_prefixed_include() {
+    // #726 mirror for the include surface: `--include 'src/**'` must keep
+    // the same files as `--include './src/**'`. Pre-fix the bare include
+    // matched the `./`-prefixed form nowhere and dropped every file.
+    let dir = TempDir::new().unwrap();
+    let fixture = dir.path().canonicalize().unwrap();
+    make_tree(&fixture);
+
+    let expected = vec!["keep.py.json".to_string()];
+    let bare = walked_with_include(&fixture, "src/**");
+    let dotted = walked_with_include(&fixture, "./src/**");
+    assert_eq!(
+        bare, expected,
+        "bare `src/**` include must keep only src/keep.py (#726)"
+    );
+    assert_eq!(
+        dotted, expected,
+        "dotted `./src/**` include must keep only src/keep.py"
+    );
+    assert_eq!(
+        bare, dotted,
+        "bare and `./`-prefixed includes must be identical (#726)"
+    );
+}
+
+#[test]
+fn explicit_file_seed_bypasses_exclude_but_honors_include() {
+    // #726 UX: a file named directly on the command line is a direct
+    // request and must not be dropped by a directory-walk exclude (the
+    // ripgrep/fd convention that an explicit path overrides ignore rules).
+    // The same exclude still drops the file in a *directory* walk, and an
+    // `--include` allow-list still narrows an explicitly-named file.
+    let dir = TempDir::new().unwrap();
+    let fixture = dir.path().canonicalize().unwrap();
+    make_tree(&fixture);
+    let vendored = fixture.join("vendor").join("drop.py");
+
+    // Directory walk: `--exclude vendor/** tests/**` leaves only keep.py.
+    let walked = walked_with_inline_excludes(&fixture, &fixture, ".", &["vendor/**", "tests/**"]);
+    assert_eq!(
+        walked,
+        vec!["keep.py.json".to_string()],
+        "directory walk must still honor the excludes"
+    );
+
+    // Explicit file seed under the excluded vendor/ dir, spelled
+    // *relative* so the bare `vendor/**` exclude would match it under the
+    // old `passes` gate — the exact form that test-via-revert perturbs.
+    // It must still be analyzed: the explicit request overrides the
+    // exclude deny-set.
+    let explicit =
+        walked_with_inline_excludes(&fixture, &fixture, "vendor/drop.py", &["vendor/**"]);
+    assert_eq!(
+        explicit,
+        vec!["drop.py.json".to_string()],
+        "an explicitly-named file must bypass the exclude deny-set (#726)"
+    );
+
+    // An `--include` allow-list still narrows it: include only *.rs drops
+    // the explicitly-named .py file.
+    let out = TempDir::new().unwrap();
+    cli(&fixture)
+        .current_dir(&fixture)
+        .args([
+            "metrics",
+            "--paths",
+            vendored.to_str().unwrap(),
+            "--include",
+            "*.rs",
+            "-O",
+            "json",
+            "--output-dir",
+            out.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    assert!(
+        emitted_json(out.path()).is_empty(),
+        "an explicitly-named file must still honor the --include allow-list"
+    );
+}
+
+#[test]
+fn explicit_absolute_file_seed_include_matches_cwd_relative_form() {
+    // #726 include-side anchoring: a dir-prefixed include (`vendor/**`)
+    // must accept an explicitly named *absolute* file under the CWD the
+    // same way it accepts the relative spelling — the include is matched
+    // against the seed's CWD-relative tail, not the raw absolute string.
+    let dir = TempDir::new().unwrap();
+    let fixture = dir.path().canonicalize().unwrap();
+    make_tree(&fixture);
+    let vendored = fixture.join("vendor").join("drop.py");
+
+    let out = TempDir::new().unwrap();
+    cli(&fixture)
+        .current_dir(&fixture)
+        .args([
+            "metrics",
+            "--paths",
+            vendored.to_str().unwrap(),
+            "--include",
+            "vendor/**",
+            "-O",
+            "json",
+            "--output-dir",
+            out.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    assert_eq!(
+        emitted_json(out.path()),
+        vec!["drop.py.json".to_string()],
+        "an absolute explicit file under the CWD must match a dir-prefixed \
+         include via its CWD-relative tail (#726)"
+    );
+}
+
+#[test]
+fn absolute_subdir_seed_still_excludes() {
+    // A seed that is an absolute path to a *subdirectory* of the walk
+    // root re-anchors to its relative tail, so a `./`-anchored pattern
+    // beneath it still matches. Here `./tests/**` must still drop the
+    // file when the seed is the absolute fixture root, while `src/` is
+    // kept.
+    let dir = TempDir::new().unwrap();
+    let fixture = dir.path().canonicalize().unwrap();
+    make_tree(&fixture);
+
+    let abs = walked_with_seed(&fixture, &fixture, fixture.to_str().unwrap());
+    assert_eq!(
+        abs,
+        vec!["keep.py.json".to_string()],
+        "absolute root seed must honor the ./-anchored deny-set"
+    );
+}

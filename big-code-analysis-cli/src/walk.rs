@@ -103,7 +103,13 @@ pub(crate) fn valid_languages() -> String {
 /// convention (empty globset = no-op) with the patterns it applies to.
 pub(crate) struct WalkFilters<'a> {
     include: &'a GlobSet,
-    exclude: &'a GlobSet,
+    exclude: &'a ExcludeGlobs,
+    /// Whether `--language` forces a language, which makes every named
+    /// file analyzable regardless of its extension. Only the
+    /// exclude-override warning consults it — see
+    /// [`Self::warn_exclude_overridden`] for why a filter bundle knows
+    /// about languages at all.
+    language_forced: bool,
 }
 
 impl WalkFilters<'_> {
@@ -130,6 +136,53 @@ impl WalkFilters<'_> {
         let match_path = walk_seed::strip_cur_dir(match_path);
         self.include.is_empty() || self.include.is_match(match_path)
     }
+
+    /// Report on stderr that the explicitly-named `seed` overrode the
+    /// exclude deny-set, naming the pattern it matched.
+    ///
+    /// This is the gap between [`Self::includes`] and [`Self::passes`]
+    /// made visible (#1146). The override is deliberate, but it used to
+    /// be silent, so a file the project had put out of scope came back
+    /// as a `bca check` offender for any caller that named paths one at
+    /// a time — the shape the per-edit agent hooks use. The wording sits
+    /// beside `bca check`'s `bca: skipped N violations via
+    /// [check.exclude]` so the two read as one family.
+    ///
+    /// Lives here rather than at the call site because the pattern
+    /// spelling is this type's to know, and because the message is the
+    /// only reason `expand_seed_paths` would need it.
+    ///
+    /// Silent for a seed no language claims, which is why this consults
+    /// the language table at all: the advertised `git diff --name-only |
+    /// bca metrics --paths-from -` pipeline feeds in whole changesets,
+    /// where lockfiles, Markdown, and generated assets are the majority
+    /// and produce no output either way. Warning that such a file is
+    /// being "analyzed anyway" would be both noisy and untrue.
+    ///
+    /// [`get_language_for_file`] rather than a local `extension()` +
+    /// `get_from_ext` pair, which is what this shipped as: that spelling
+    /// dropped the ASCII case-fold #1111 put *inside*
+    /// `get_language_for_file`, so `bca check SKIPME/A.RS` analyzed the
+    /// file and stayed silent about the override — the exact asymmetry
+    /// #1146 exists to remove, surviving for every mixed-case extension.
+    /// It is deliberately the extension half of `guess_language` only:
+    /// the dispatch's modeline and shebang fallbacks need the file's
+    /// bytes, and the walk has not read them here.
+    fn warn_exclude_overridden(&self, seed: &Path, match_path: &Path) {
+        if !self.language_forced && get_language_for_file(seed).is_none() {
+            return;
+        }
+        if let Some(glob) = self
+            .exclude
+            .first_match(walk_seed::strip_cur_dir(match_path))
+        {
+            eprintln!(
+                "bca: warning: {} matches an exclude pattern ({glob}) \
+                 but was named explicitly; analyzing anyway",
+                seed.display()
+            );
+        }
+    }
 }
 
 /// Resolved file set plus the subset of seeds that were *explicitly
@@ -141,9 +194,51 @@ impl WalkFilters<'_> {
 /// nonexistent-explicit-path error. A file discovered by walking a
 /// directory seed is *not* in this set, so a tree full of READMEs and
 /// configs stays silently skipped (gated behind `-w`).
+///
+/// `walk_errors` carries the #1131 tally: entries the directory walk
+/// itself could not read. It is reported separately from the worker
+/// pool's `read_failures` because the two describe different losses —
+/// a read failure names a file the walk *selected*, whereas an
+/// unlistable directory removes its whole subtree before anything can
+/// be selected, leaving nothing for a worker to fail on.
 pub(crate) struct ResolvedFiles {
     pub(crate) files: Vec<PathBuf>,
     pub(crate) explicit_files: std::collections::HashSet<PathBuf>,
+    pub(crate) walk_errors: WalkErrors,
+}
+
+/// How many walk entries the traversal could not read (#1131).
+///
+/// A newtype rather than a bare `usize` so it cannot be confused with
+/// the several other counts threaded through the same call chain (the
+/// worker pool's read/write failure tallies, the job count, the
+/// resolved file count) — and so a call site that forwards it has to
+/// name what it is forwarding.
+///
+/// **Only `ignore::Error`s carrying an underlying `io::Error` are
+/// counted.** The reachable non-I/O case is a malformed ignore file in
+/// an *ancestor* of the walk root, which `Worker::add_parents` surfaces
+/// as an `Error::Glob`; it stays a warning, because it describes how the
+/// walk was configured rather than a subtree the walk dropped. Widening
+/// the tally to every variant would make a stray `.gitignore` typo fail
+/// a build — pinned by
+/// `malformed_parent_gitignore_warns_but_still_exits_zero` in
+/// `tests/discovery/read_failures.rs`.
+///
+/// `Error::Loop` is not a concern here: `follow_links` is off, so the
+/// walker never runs its symlink-loop check.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[must_use]
+pub(crate) struct WalkErrors(usize);
+
+impl WalkErrors {
+    fn add(&mut self, count: usize) {
+        self.0 += count;
+    }
+
+    pub(crate) fn count(self) -> usize {
+        self.0
+    }
 }
 
 /// What kind of on-disk object a `--paths` seed resolves to, used to
@@ -189,6 +284,48 @@ pub(crate) fn seed_kind(seed: &Path) -> std::io::Result<SeedKind> {
     })
 }
 
+/// The resolved file set under construction, plus the dedupe index that
+/// keeps overlapping seeds (`--paths src --paths src/lib.rs`, or two
+/// seeds whose trees intersect) from contributing a file twice (#704).
+///
+/// A type rather than three locals in [`expand_seed_paths`] because the
+/// dedupe is an invariant of the *set*, not of either branch that feeds
+/// it: nothing reaches `files` without first passing `seen`. Stated once
+/// here, it cannot be half-applied by a future third feeder — the file
+/// branch and the walk branch previously restated it separately.
+#[derive(Default)]
+struct SeedSet {
+    files: Vec<PathBuf>,
+    seen: std::collections::HashSet<PathBuf>,
+    explicit_files: std::collections::HashSet<PathBuf>,
+}
+
+impl SeedSet {
+    /// Admit an explicitly-named file seed, recording it in
+    /// `explicit_files` so the per-file dispatch can tell it from a
+    /// directory-expansion product: an explicitly-named file with an
+    /// unrecognized language must warn and may exit 1 (#663), whereas a
+    /// walked one stays silently skipped.
+    ///
+    /// Returns whether the seed was newly admitted, so the caller can
+    /// scope a one-shot per-seed diagnostic to its first mention.
+    fn push_explicit(&mut self, seed: &Path) -> bool {
+        if !self.seen.insert(seed.to_path_buf()) {
+            return false;
+        }
+        self.explicit_files.insert(seed.to_path_buf());
+        self.files.push(seed.to_path_buf());
+        true
+    }
+
+    /// Admit a file discovered by expanding a directory seed.
+    fn push_walked(&mut self, path: PathBuf) {
+        if self.seen.insert(path.clone()) {
+            self.files.push(path);
+        }
+    }
+}
+
 pub(crate) fn expand_seed_paths(
     mut paths: Vec<PathBuf>,
     paths_from: Option<PathBuf>,
@@ -211,13 +348,8 @@ pub(crate) fn expand_seed_paths(
     if paths.is_empty() {
         paths.push(PathBuf::from("."));
     }
-    let mut out: Vec<PathBuf> = Vec::new();
-    // Track which emitted paths we have already pushed so overlapping
-    // seeds (`--paths src --paths src/lib.rs`, or two seeds whose trees
-    // intersect) contribute each file exactly once. Without this a file
-    // reachable from two seeds was analyzed and counted twice (#704).
-    let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
-    let mut explicit_files: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    let mut found = SeedSet::default();
+    let mut walk_errors = WalkErrors::default();
     for seed in paths.into_iter().map(walk_seed::reanchor_seed) {
         // Classify the seed *without* following a final symlink so the
         // seed-level existence/kind check is symmetric with the walk's
@@ -251,26 +383,17 @@ pub(crate) fn expand_seed_paths(
             // seed's CWD-relative form so `--include 'src/**'` treats
             // `--paths "$PWD/src/f.rs"` and `--paths src/f.rs` alike.
             let include_form = walk_seed::file_seed_match_path(&seed);
-            if filters.includes(&include_form) && seen.insert(seed.clone()) {
-                // Record the explicit seed (in its emitted form) so the
-                // per-file dispatch can distinguish it from a
-                // directory-expansion product: an explicitly-named file
-                // with an unrecognized language must warn + may exit 1
-                // (#663), whereas a walked one stays silently skipped.
-                explicit_files.insert(seed.clone());
-                out.push(seed);
+            // Gated on the admission so an overlapping seed warns once
+            // rather than per mention (#1146).
+            if filters.includes(&include_form) && found.push_explicit(&seed) {
+                filters.warn_exclude_overridden(&seed, &include_form);
             }
             continue;
         }
-        for path in walk_directory_seed(&seed, no_ignore, threads, filters) {
-            // Overlapping seeds (`--paths src --paths src/lib.rs`, or
-            // two seeds whose trees intersect) must contribute each file
-            // exactly once (#704). The dedupe lives here, with the
-            // caller that owns `seen` across every seed — the walk of a
-            // single seed cannot see the others.
-            if seen.insert(path.clone()) {
-                out.push(path);
-            }
+        // The dedupe spans every seed, so it belongs to `found` rather
+        // than to one seed's walk — a single walk cannot see the others.
+        for path in walk_directory_seed(&seed, no_ignore, threads, filters, &mut walk_errors) {
+            found.push_walked(path);
         }
     }
     // A walk that resolved zero files is almost always a mistake — an
@@ -279,12 +402,13 @@ pub(crate) fn expand_seed_paths(
     // bare `bca metrics` in an empty tree is not silently a no-op (#596).
     // Non-gate commands still exit 0; `check` layers its own hard error
     // (`no input files matched`) on top for CI safety.
-    if out.is_empty() {
+    if found.files.is_empty() {
         warn("0 files matched");
     }
     ResolvedFiles {
-        files: out,
-        explicit_files,
+        files: found.files,
+        explicit_files: found.explicit_files,
+        walk_errors,
     }
 }
 
@@ -302,12 +426,26 @@ pub(crate) fn expand_seed_paths(
 /// run (#704): a single EACCES directory deep in a large tree previously took
 /// down every file the walk had yet to reach. This mirrors the per-file
 /// tolerance the worker pool already applies to unparseable files.
+///
+/// Tolerating the entry is not the same as reporting success, though, so
+/// each I/O-backed error is also added to `errors` for the caller's
+/// exit-code guard (#1131) — an unlistable directory removes its whole
+/// subtree from the resolved set, which is invisible in the output.
 fn walk_directory_seed(
     seed: &Path,
     no_ignore: bool,
     threads: usize,
     filters: &WalkFilters<'_>,
+    errors: &mut WalkErrors,
 ) -> Vec<PathBuf> {
+    // Reporting the tally through a return value instead of `errors`
+    // costs `expand_seed_paths` more than it saves: measured, the
+    // tuple-plus-accumulate shape puts that function's halstead.effort
+    // at 50_003 against a hard limit of 50_000, trading a soft nargs
+    // tier for a hard breach. The five parameters are each
+    // independently meaningful, and no two bundle under a name worth
+    // having.
+    // bca: suppress(nargs)
     use ignore::{WalkBuilder, WalkState};
     let mut wb = WalkBuilder::new(seed);
     wb.hidden(true)
@@ -328,8 +466,13 @@ fn walk_directory_seed(
     // the per-entry hot path does not serialize the walker threads
     // against each other.
     let (tx, rx) = crossbeam::channel::unbounded();
+    // The error tally is a shared counter rather than a second channel
+    // item: a walk error yields no path, so widening `tx`'s item to an
+    // enum would make every hot-path send pay for the rare case.
+    let io_errors = AtomicUsize::new(0);
     wb.build_parallel().run(|| {
         let tx = tx.clone();
+        let io_errors = &io_errors;
         Box::new(move |entry| {
             match entry {
                 Ok(entry) => {
@@ -356,6 +499,13 @@ fn walk_directory_seed(
                         "bca: warning: skipping walk entry in {}: {e}",
                         seed.display()
                     );
+                    // Every variant warns; only an I/O-backed one is
+                    // tallied, because only that one means the walk lost
+                    // files it should have seen (#1131). See
+                    // [`WalkErrors`] for why the rest stay non-fatal.
+                    if e.io_error().is_some() {
+                        io_errors.fetch_add(1, Ordering::Relaxed);
+                    }
                 }
             }
             WalkState::Continue
@@ -364,6 +514,7 @@ fn walk_directory_seed(
     // Drop the builder's own sender so the drain below terminates; every
     // visitor clone is already gone, `run` having joined its threads.
     drop(tx);
+    errors.add(io_errors.into_inner());
 
     // A parallel walk yields entries in whatever order its threads
     // happen to finish, so without this sort the resolved file list —
@@ -395,6 +546,7 @@ pub(crate) fn resolve_walk_files(globals: GlobalOpts) -> (ResolvedFiles, usize) 
     let filters = WalkFilters {
         include: &include,
         exclude: &exclude,
+        language_forced: globals.language.is_some(),
     };
     let resolved = expand_seed_paths(
         globals.paths,

@@ -88,10 +88,10 @@ The pattern is: visit, descend, climb back up while there is no next
 sibling, repeat. Every example in this chapter is a thin wrapper around
 this walker — the code fences below are marked `ignore` because they
 assume `walk_preorder` is already in scope; the matching set of tests
-in [`tests/book_ast_traversal_examples.rs`][tests] keeps them
+in [`tests/api/book_ast_traversal_examples.rs`][tests] keeps them
 honest, so a refactor that broke an example would fail `cargo test`.
 
-[tests]: https://github.com/dekobon/big-code-analysis/blob/main/tests/book_ast_traversal_examples.rs
+[tests]: https://github.com/dekobon/big-code-analysis/blob/main/tests/api/book_ast_traversal_examples.rs
 
 [ts_cursor]: https://docs.rs/tree-sitter/*/tree_sitter/struct.TreeCursor.html
 

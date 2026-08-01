@@ -470,7 +470,7 @@ fn check_rejects_per_file_format_as_output_format() {
 
 // Note: runtime rejection of `ops -O csv` is covered by
 // `ops_rejects_csv_format_at_runtime` in
-// tests/action_enforcement.rs, which spawns the binary so the
+// tests/check/action_enforcement.rs, which spawns the binary so the
 // dispatcher's die() can be observed.
 
 #[test]
@@ -1029,6 +1029,72 @@ fn collect_lines_handles_bom_then_whitespace_then_pattern() {
         vec!["**/foo.rs"],
         "BOM-then-whitespace combinations must strip cleanly with no literal leading spaces",
     );
+}
+
+/// Accepts every write and fails only at flush, the way `Stdout`'s
+/// 1 KiB `LineWriter` behaves toward a payload containing no newline:
+/// the bytes are taken into the buffer and the fd is not touched until
+/// something flushes.
+struct FlushFailingSink {
+    written: Vec<u8>,
+}
+
+impl std::io::Write for FlushFailingSink {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.written.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::StorageFull,
+            "no space left on device",
+        ))
+    }
+}
+
+/// The flush in `write_parts_flushed`, which no byte of output can
+/// reveal.
+///
+/// `write_stdout_parts_or_die` decides the whole CLI's stdout-failure
+/// policy, and its doc promises a `die` on anything but `BrokenPipe`.
+/// That was false for a payload with no newline in it under 1 KiB:
+/// `LineWriter` buffers it, the writes all report success, and the real
+/// write happens in the exit-time cleanup flush whose error is
+/// discarded — exit 0, no output. No shipped subcommand emits such a
+/// document through this helper (they are line-oriented or
+/// pretty-printed JSON, so an interior newline spills the buffer and the
+/// error surfaces from a `write_all`), which is why the hole survived
+/// #1132 and why it is pinned here rather than end-to-end. `bca vcs`
+/// had the identical hole on a path that *could* produce one, and
+/// `tests/discovery/read_failures.rs` covers that half.
+///
+/// Deleting the `out.flush()` makes this the only failing test in the
+/// workspace — verified.
+#[test]
+fn write_parts_flushed_surfaces_an_error_only_the_flush_reports() {
+    let mut sink = FlushFailingSink {
+        written: Vec::new(),
+    };
+    let err = write_parts_flushed(&mut sink, &[b"vocabulary", b"\n"])
+        .expect_err("a sink that fails at flush must not report success");
+
+    assert_eq!(err.kind(), std::io::ErrorKind::StorageFull);
+    assert_eq!(
+        sink.written, b"vocabulary\n",
+        "every chunk is forwarded in order before the flush is attempted",
+    );
+}
+
+/// The success path: chunks concatenate in argument order, so
+/// `writeln_stdout_or_die`'s two-chunk shape emits `text` then the
+/// newline rather than the other way round.
+#[test]
+fn write_parts_flushed_concatenates_chunks_in_order() {
+    let mut sink = Vec::new();
+    write_parts_flushed(&mut sink, &[b"first", b"second", b"\n"])
+        .expect("writing to a Vec is infallible");
+    assert_eq!(sink, b"firstsecond\n");
 }
 
 #[test]

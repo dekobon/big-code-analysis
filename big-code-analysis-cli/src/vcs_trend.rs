@@ -33,7 +33,7 @@ pub(crate) fn run(root: &Path, args: &VcsArgs, trend: &TrendArgs) {
     // `args.top` (parent `--top`) keeps the riskiest files; `top_deltas`
     // trims each delta list.
     let report = wire::VcsTrend::from_trend(&result, args.top, trend.top_deltas);
-    emit(&report, trend).unwrap_or_else(|e| die(format_args!("writing vcs trend output: {e}")));
+    crate::die_unless_broken_pipe(emit(&report, trend), "writing vcs trend output");
 }
 
 /// Serialize the trend in the requested structured format to a single file

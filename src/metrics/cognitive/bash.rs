@@ -47,13 +47,7 @@ impl Cognitive for BashCode {
                 compute_booleans(node, stats, AMPAMP, PIPEPIPE);
             }
             FunctionDefinition => {
-                nesting.conditional = 0;
-                increment_function_depth(
-                    &mut nesting.function_depth,
-                    node,
-                    ancestors,
-                    &[FunctionDefinition],
-                );
+                enter_function_boundary(&mut nesting, node, ancestors, &[FunctionDefinition]);
             }
             _ => {}
         }

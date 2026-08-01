@@ -2,7 +2,7 @@
 //! vectors (no repository needed). Acceptance criterion #331: size,
 //! diffusion, and file-prior contributions are exercised here at the
 //! formula level; the end-to-end repo path is covered in
-//! `tests/vcs_jit.rs`.
+//! `tests/vcs/vcs_jit.rs`.
 
 // Exact-equality on f64 is intentional: the compared values are exact
 // literals (0.0) produced by the formula's own floor / zero terms.

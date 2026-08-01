@@ -95,9 +95,8 @@ impl Cognitive for PerlCode {
                 compute_perl_booleans(node, stats);
             }
             P::FunctionDefinition | P::FunctionDefinitionWithoutSub => {
-                nesting.conditional = 0;
-                increment_function_depth(
-                    &mut nesting.function_depth,
+                enter_function_boundary(
+                    &mut nesting,
                     node,
                     ancestors,
                     &[P::FunctionDefinition, P::FunctionDefinitionWithoutSub],

@@ -1,3 +1,15 @@
+# Standalone workspace root. The root manifest `exclude`s this crate, but
+# `exclude` denies membership without terminating cargo's upward search for a
+# workspace root. Inside a git worktree under `.claude/worktrees/` that search
+# escapes the worktree and lands on the main checkout's manifest, where this
+# path is neither a member nor excluded — breaking `cargo fmt --all` and every
+# `make pre-commit` stage that depends on it (#1145).
+#
+# Kept at the top of the file rather than the bottom: an empty table as the
+# last thing in a manifest silently adopts any bare key appended after it, so
+# a future `foo = "1"` meant for `[package]` would become `[workspace].foo`.
+[workspace]
+
 [package]
 name = "bca-tree-sitter-ccomment"
 description = "Ccomment grammar for the tree-sitter parsing library (big-code-analysis fork)"
@@ -29,6 +41,15 @@ name = "tree_sitter_ccomment"
 path = "bindings/rust/lib.rs"
 
 [dependencies]
+# `tree-sitter-language` is deliberately NOT `=`-pinned. It is the
+# ecosystem's shared `LanguageFn` trait shim, not a grammar, so
+# AGENTS.md's grammar-pinning rule does not reach it — and pinning it
+# is actively harmful twice over. Locally, `tree-sitter-irules 0.1.1`
+# requires `^0.1.7`, and cargo unifies 0.1.x deps, so `=0.1.0` makes
+# the workspace unresolvable. Downstream, this crate is published: an
+# `=` pin on a shim every grammar depends on would break resolution
+# for any consumer pairing it with a grammar wanting a newer 0.1.x.
+# Measured on #1151; the issue's table listed this row in error.
 tree-sitter-language="0.1.0"
 
 [build-dependencies]

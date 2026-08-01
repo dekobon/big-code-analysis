@@ -17,6 +17,16 @@
 // guidance text from .claude/hooks/bca-guidance.txt so the two hooks
 // never drift. Both behaviours go beyond the book's bare-`bca` +
 // inlined-string example (see the note at the bottom of this file).
+//
+// Scope note (#1146): this passes ONE named path, and a named path
+// overrides every walker exclude by design — `.bcaignore`, `--exclude`,
+// and the manifest `exclude` list all shape directory-walk scope, not
+// gate scope. Files that must never be gated therefore belong in
+// bca.toml's `[check] exclude`, which survives an explicit path. This
+// repo's dev-tooling globs live there for that reason (this file
+// included); `bca` warns on stderr, naming the glob, whenever a named
+// path overrides a walker exclude, so a miswired entry surfaces here
+// rather than silently producing false offenders.
 
 import { existsSync, readFileSync, accessSync, constants } from "node:fs"
 import { resolve, sep } from "node:path"

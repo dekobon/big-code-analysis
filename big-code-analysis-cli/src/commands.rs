@@ -42,9 +42,10 @@ use crate::markdown_report::advisory::AdvisoryThresholds;
 use crate::markdown_report::{FunctionSummary, generate_report_with_vcs};
 use crate::metric_catalog::write_metrics;
 use crate::metric_diff::DiffSide;
+use crate::threshold_lang::LanguageThresholds;
+use crate::threshold_soft::{SoftLimit, scale_threshold};
 use crate::thresholds::{
-    ParsedThresholds, SoftLimit, ThresholdSet, Violation, breaches_limit, render_violation_line,
-    scale_threshold,
+    ParsedThresholds, ThresholdSet, Violation, breaches_limit, render_violation_line,
 };
 use big_code_analysis::{FuncSpace, Ops};
 
@@ -55,7 +56,7 @@ use crate::{
     SummaryFile, Tier, TierSpec, die, die_io, group_files_by_basename, legacy_hint, load_baseline,
     load_preproc_data, load_threshold_config, note, read_exclude_patterns_from, resolve_walk_files,
     run_walk, run_walk_collecting, run_walk_resolved, validate_output_path, warn, write_atomic,
-    write_output_or_stdout, write_stdout_or_die,
+    write_output_or_stdout, write_stdout_or_die, writeln_stdout_or_die,
 };
 
 mod analyze;

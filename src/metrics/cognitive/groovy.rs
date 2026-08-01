@@ -81,9 +81,8 @@ impl Cognitive for GroovyCode {
             // nested method previously inherited the enclosing nesting and
             // missed the SonarSource B-nesting amplification (#696).
             MethodDeclaration | ConstructorDeclaration => {
-                nesting.conditional = 0;
-                increment_function_depth(
-                    &mut nesting.function_depth,
+                enter_function_boundary(
+                    &mut nesting,
                     node,
                     ancestors,
                     &[MethodDeclaration, ConstructorDeclaration],

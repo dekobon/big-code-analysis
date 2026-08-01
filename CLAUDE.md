@@ -23,6 +23,14 @@ destroys other agents' in-progress work:
 - If you see stale worktrees, leave them alone — another agent may
   be using them, or the user will clean them up manually.
 
+**Run `make py-bootstrap` once per worktree before `make pre-commit`.**
+A fresh worktree inherits no `.venv`, so `py-typecheck` reports ~33
+mypy errors (`pytest` untyped without its stubs) and `py-test` dies
+with "Couldn't find a virtualenv". Both are bootstrap artifacts, not
+regressions. The cargo stages themselves work in a worktree — that
+was #1145, fixed by the `[workspace]` tables on the six excluded
+crates.
+
 ### Tool choice
 
 - **Text search**: built-in `Grep`, or `rg` via Bash. Never `grep`.

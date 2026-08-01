@@ -14,19 +14,20 @@ use crate::node::{Node, Tree};
 use crate::spaces::metrics_inner;
 use crate::traits::LanguageInfo;
 use crate::{
-    CodeMetrics, FuncSpace, LANG, MetricsOptions, ParserTrait, Source, SpaceKind, analyze,
+    CodeMetrics, FuncSpace, LANG, Metric, MetricsOptions, ParserTrait, Source, SpaceKind, analyze,
 };
 
-/// Parses `source` as `filename` and hands the resulting root
-/// [`FuncSpace`] to `check`.
+/// Parses `source` as `filename` under `options` and hands the resulting
+/// root [`FuncSpace`] to `check`.
 ///
 /// The source is normalised the way [`crate::read_file_with_eol`] would
 /// normalise it on the way in: CRLF/CR collapse to LF, and the trailing
 /// newline is regularised to exactly one. Use [`metrics_verbatim`] when a
 /// test's input must reach the parser untouched.
-pub(crate) fn check_func_space<T: ParserTrait, F: Fn(FuncSpace)>(
+fn check_func_space_with<T: ParserTrait, F: Fn(FuncSpace)>(
     source: &str,
     filename: &str,
+    options: MetricsOptions,
     check: F,
 ) {
     let path = PathBuf::from(filename);
@@ -34,33 +35,142 @@ pub(crate) fn check_func_space<T: ParserTrait, F: Fn(FuncSpace)>(
     let mut trimmed_bytes = normalized.trim_end().trim_matches('\n').as_bytes().to_vec();
     trimmed_bytes.push(b'\n');
     let parser = T::new(trimmed_bytes, &path, None);
-    let func_space = metrics_inner(
-        &parser,
-        path.to_str().map(str::to_owned),
-        MetricsOptions::default(),
-    )
-    .expect("metrics_inner returns Some for a parsed source");
+    let func_space = metrics_inner(&parser, path.to_str().map(str::to_owned), options)
+        .expect("metrics_inner returns Some for a parsed source");
 
     check(func_space);
 }
 
+/// Parses `source` as `filename` with **every** metric selected and hands
+/// the resulting root [`FuncSpace`] to `check`.
+///
+/// Prefer [`check_func_space_only`] whenever the assertions name a known,
+/// bounded set of metrics: computing all thirteen families to inspect one
+/// is what made the unit suite pay for ~15 walks per assertion (#1127).
+/// This full-set variant remains for tests whose subject *is* the whole
+/// surface.
+pub(crate) fn check_func_space<T: ParserTrait, F: Fn(FuncSpace)>(
+    source: &str,
+    filename: &str,
+    check: F,
+) {
+    check_func_space_with::<T, F>(source, filename, MetricsOptions::default(), check);
+}
+
+/// [`check_func_space`], restricted to `metrics` and the dependencies
+/// [`MetricsOptions::with_only`] resolves for them.
+///
+/// The space *tree* is metric-independent — `is_func_space` and
+/// `get_space_kind` run regardless of the selection — so structural
+/// assertions (`assert_child_space_kind`, `child_space`, nesting) hold
+/// identically under either variant.
+pub(crate) fn check_func_space_only<T: ParserTrait, F: Fn(FuncSpace)>(
+    source: &str,
+    filename: &str,
+    metrics: &[Metric],
+    check: F,
+) {
+    check_func_space_with::<T, F>(
+        source,
+        filename,
+        MetricsOptions::default().with_only(metrics),
+        check,
+    );
+}
+
 /// Parses `source` as `filename` and hands the root space's
-/// [`CodeMetrics`] to `check`.
-pub(crate) fn check_metrics<T: ParserTrait>(source: &str, filename: &str, check: fn(CodeMetrics)) {
-    check_func_space::<T, _>(source, filename, |func_space| {
+/// [`CodeMetrics`] to `check`, computing only `metrics` and the
+/// dependencies [`MetricsOptions::with_only`] resolves for them.
+///
+/// There is deliberately no full-set counterpart: every caller is a
+/// per-metric test module asserting one family, and the removed variant
+/// is what made each of those ~2 300 assertions pay for thirteen metric
+/// walks (#1127). Reach for [`check_func_space`] if a test's subject
+/// really is the whole surface.
+///
+/// Values are identical to the full-set run for every selected metric —
+/// `metric_selection_parity` in `src/spaces_tests.rs` pins that across
+/// each metric and a multi-language fixture set, so a migrated test
+/// asserting the same numbers is asserting the same thing.
+pub(crate) fn check_metrics_only<T: ParserTrait>(
+    source: &str,
+    filename: &str,
+    metrics: &[Metric],
+    check: fn(CodeMetrics),
+) {
+    check_func_space_only::<T, _>(source, filename, metrics, |func_space| {
         check(func_space.metrics.clone());
     });
 }
 
+/// Defines a module-local `check_metrics`-shaped shim bound to a fixed
+/// metric list.
+///
+/// Every per-metric module under `src/metrics/` asserts one family
+/// across hundreds of call sites. Rather than repeat the metric list at
+/// each one, each module invokes this once at the top of its `mod tests`
+/// — in place of the `use crate::test_support::check_metrics;` it
+/// replaces, so the shim is the only `check_metrics` in scope there and
+/// there is nothing to confuse it with.
+///
+/// Emits `fn $name<T: ParserTrait>(source, filename, check)`, delegating
+/// to [`check_metrics_only`]:
+///
+/// ```ignore
+/// check_metrics_only_shim!(check_metrics, Abc);
+/// check_metrics_only_shim!(check_cognitive_and_cyclomatic, Cognitive, Cyclomatic);
+/// ```
+macro_rules! check_metrics_only_shim {
+    ($name:ident, $($metric:ident),+ $(,)?) => {
+        fn $name<T: $crate::ParserTrait>(
+            source: &str,
+            filename: &str,
+            check: fn($crate::CodeMetrics),
+        ) {
+            $crate::test_support::check_metrics_only::<T>(
+                source,
+                filename,
+                &[$($crate::Metric::$metric),+],
+                check,
+            );
+        }
+    };
+}
+
+/// [`check_metrics_only_shim`]'s `FuncSpace` counterpart: emits
+/// `fn $name<T: ParserTrait, F: Fn(FuncSpace)>(source, filename, check)`
+/// delegating to [`check_func_space_only`].
+macro_rules! check_func_space_only_shim {
+    ($name:ident, $($metric:ident),+ $(,)?) => {
+        fn $name<T: $crate::ParserTrait, F: Fn($crate::FuncSpace)>(
+            source: &str,
+            filename: &str,
+            check: F,
+        ) {
+            $crate::test_support::check_func_space_only::<T, F>(
+                source,
+                filename,
+                &[$($crate::Metric::$metric),+],
+                check,
+            );
+        }
+    };
+}
+
+pub(crate) use {check_func_space_only_shim, check_metrics_only_shim};
+
 /// Analyses `source` **byte-for-byte** and returns its metrics.
 ///
-/// Use this, not [`check_metrics`], when a test's input must reach the
-/// parser unaltered: `check_func_space` normalises CRLF and trims then
-/// re-appends a trailing newline, so a construct ending at EOF is
-/// unreachable through it and such a test passes vacuously (#1051). It
-/// also returns a value, which `check_metrics`' bare `fn` callback
-/// cannot. Restrict `options` in timing-sensitive tests so an unrelated
-/// metric's cost cannot dominate and misattribute a regression.
+/// Use this, not [`check_metrics_only`], when a test's input must reach
+/// the parser unaltered: [`check_func_space_with`] normalises CRLF and
+/// trims then re-appends a trailing newline, so a construct ending at
+/// EOF is unreachable through it and such a test passes vacuously
+/// (#1051). It also returns a value, which the `check_metrics`-shaped
+/// helpers' bare `fn` callback cannot. `options` is caller-supplied
+/// rather than fixed; prefer restricting it, as the per-metric modules
+/// do (#1127). Most existing callers still pass
+/// `MetricsOptions::default()` — that is a leftover, not a pattern to
+/// copy.
 #[track_caller]
 pub(crate) fn metrics_verbatim(lang: LANG, source: &[u8], options: MetricsOptions) -> CodeMetrics {
     // `FuncSpace` has an iterative `Drop` impl (#1056), so the field
@@ -134,6 +244,34 @@ pub(crate) fn child_space<'a>(func_space: &'a FuncSpace, name: &str) -> &'a Func
         .iter()
         .find(|s| s.name.as_deref() == Some(name))
         .unwrap_or_else(|| panic!("expected a child FuncSpace named {name:?}"))
+}
+
+/// Returns the [`SpaceKind::Function`] space named `name` anywhere in
+/// `func_space`'s subtree, panicking unless exactly one matches.
+///
+/// [`child_space`] looks only at direct children and ignores `kind`, so it
+/// cannot reach a function nested inside a class inside a function — the
+/// shape a cross-language nested-function comparison needs. Requiring a
+/// unique match keeps a fixture that later grows a second same-named
+/// function from silently asserting on whichever one the walk reached
+/// first.
+#[track_caller]
+pub(crate) fn function_space<'a>(func_space: &'a FuncSpace, name: &str) -> &'a FuncSpace {
+    let mut found: Vec<&FuncSpace> = Vec::new();
+    let mut stack = vec![func_space];
+    while let Some(space) = stack.pop() {
+        if space.kind == SpaceKind::Function && space.name.as_deref() == Some(name) {
+            found.push(space);
+        }
+        stack.extend(space.spaces.iter());
+    }
+    match found.as_slice() {
+        [space] => space,
+        other => panic!(
+            "expected exactly one function FuncSpace named {name:?}, found {}",
+            other.len()
+        ),
+    }
 }
 
 /// Visits `code`'s tree in pre-order, maintaining the ancestor chain

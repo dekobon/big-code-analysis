@@ -104,6 +104,15 @@ pub(crate) struct WalkSelectionArgs {
     /// CLI `--exclude` never silently un-excludes a directory the
     /// project config deliberately skipped. Pass `--no-config` to ignore
     /// the manifest entirely.
+    ///
+    /// Shapes directory-walk scope only: a file named directly on the
+    /// command line overrides every exclude glob and is analyzed anyway
+    /// (the ripgrep/fd convention), with a warning on stderr naming the
+    /// glob it overrode. `-I` / `--include` is not overridden. To exempt
+    /// something from `bca check`'s threshold gate whichever way it is
+    /// named, use `--check-exclude` / `[check] exclude` instead.
+    // The per-file agent hooks in the book's agent-feedback recipe are
+    // the caller this bit exists for; see #1146.
     #[clap(long, short = 'X', num_args(1), action = clap::ArgAction::Append, help_heading = "Input selection")]
     pub(crate) exclude: Vec<String>,
     /// Force a language instead of inferring from extension. Accepts a
@@ -122,10 +131,12 @@ pub(crate) struct WalkSelectionArgs {
     #[clap(long, help_heading = "Input selection")]
     pub(crate) no_skip_generated: bool,
     /// Read newline-separated input paths from a file. Use `-` to read
-    /// from stdin. Combined as a union with any `--paths` values; globs
-    /// still apply. Blank lines are skipped; `#` is treated as a path
-    /// character (not a comment). To pass a file literally named `-`,
-    /// use `./-`.
+    /// from stdin. Combined as a union with any `--paths` values.
+    /// `--include` globs still apply; `--exclude` globs do not reach an
+    /// entry that names a file directly, since an explicitly-named path
+    /// overrides the deny-set. Blank lines are skipped; `#` is treated
+    /// as a path character (not a comment). To pass a file literally
+    /// named `-`, use `./-`.
     #[clap(long = "paths-from", value_parser, help_heading = "Input selection")]
     pub(crate) paths_from: Option<PathBuf>,
     /// Read additional `--exclude` glob patterns from a file (one per
@@ -135,6 +146,11 @@ pub(crate) struct WalkSelectionArgs {
     /// Patterns are unioned with any `--exclude` values into a single
     /// deny-set; order does not matter. Convention is a `.bcaignore`
     /// at the repo root, mirroring `.gitignore` / `.dockerignore`.
+    ///
+    /// Carries the same scope as `--exclude`: these patterns shape the
+    /// directory walk, and a file named directly on the command line
+    /// overrides them (with a warning naming the glob). Put gate-only
+    /// exemptions in `--check-exclude-from` / `[check] exclude`.
     #[clap(long = "exclude-from", value_parser, help_heading = "Input selection")]
     pub(crate) exclude_from: Option<PathBuf>,
     /// Disable `.gitignore` / `.ignore` / global gitignore awareness

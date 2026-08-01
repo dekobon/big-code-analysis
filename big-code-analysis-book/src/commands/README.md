@@ -92,12 +92,60 @@ If a tree legitimately contains files you cannot open, prune them with
 `--exclude` (or `--include` a narrower set). A file removed by those
 filters is never opened, so it is never a read failure.
 
-The rule covers files the walk selected and then failed to open. Paths
-the walk never selects are outside it: a *directory* it cannot list, and
-a broken symlink found by walking (neither is a regular file). Both warn
-— `bca: warning: skipping walk entry in …` — and the run continues. An
-explicitly named path that does not exist is a separate, pre-existing
-error (also exit `1`).
+### Unlistable directories {#unlistable-directories}
+
+A directory the walk cannot *list* is the same failure one level up, and
+carries the same exit `1`. Its whole subtree drops out of the analysed
+set before any file is selected, so every count downstream — the metrics
+document, the `count` tally, a `diff --since` side, `vcs rank`'s
+ranking — is short by an amount nothing in the output reveals. `bca
+check` is the worst case: a gate that reports clean on a tree it could
+not read is indistinguishable from a gate that passed.
+
+Each unlistable entry warns on stderr as `bca: warning: skipping walk
+entry in …`, the walk continues so one bad directory does not take down
+the rest of the tree, and the run ends with a summary line and exit `1`.
+
+To exempt a directory you knowingly cannot list, name it in an ignore
+file (`.gitignore`, `.ignore`) or narrow `--paths` so the walk never
+reaches it. **`--exclude` does not work here**, though it is the right
+answer for an unreadable *file*: `--exclude` filters the paths the walk
+yielded, and a directory that could not be listed yielded none — the
+failure happened before the filter could apply.
+
+Two neighbouring cases stay non-fatal by design:
+
+- **A malformed ignore file, or a pattern in one that will not compile.**
+  The walker reports these through the same channel and they warn
+  identically, but they describe how the walk was *configured* rather
+  than files it lost. Only errors carrying an underlying I/O error are
+  counted, so a stray `.gitignore` typo cannot fail a build.
+- **A broken symlink discovered by walking.** It is dropped for not
+  being a regular file and never surfaces as an error at all — the walk
+  does not follow links, so it deliberately does not resolve symlinks
+  and has nothing to report. Treating one as fatal would make a stale
+  symlink in a vendored tree a hard CI failure.
+
+An explicitly *named* path is the exception to that last point, and a
+pre-existing one: `--paths` resolves a symlink seed once, and a seed
+that does not exist — dangling link or typo — is its own error, also
+exit `1`.
+
+### Unwritable output {#unwritable-output}
+
+The mirror image is the same rule, and it holds for every emission
+path: a run whose output could not be written exits `1`. That covers a
+per-file document under an unwritable `--output-dir`, and a full disk
+on stdout — `dump`'s banners and trees, `find`'s matches,
+`strip-comments`' rewritten source, `count`'s tally, `preproc`'s JSON,
+and the single-document reports from `vcs`, `vcs commit`, and `vcs
+trend` alike, in every format. A per-file failure is named on stderr
+and counted in a summary line; output assembled after the walk reports
+the operating system's error directly.
+
+The one exemption is a closed downstream pipe: `bca dump | head` is
+routine rather than a failure, so `BrokenPipe` is swallowed and the run
+still exits `0`.
 
 ## Flag placement and input paths
 
@@ -228,13 +276,52 @@ gets the same treatment as a fresh `git clone`.
 Hidden files (those whose basename starts with `.`) are filtered
 during the walk, matching the previous behavior.
 
-### Explicit paths bypass the filter
+### Explicit paths bypass the filter {#explicit-paths-bypass-the-filter}
 
-Files passed by name — via `--paths` or `--paths-from` — are always
-analyzed, even when they would be excluded by `.gitignore`. This makes
-it safe to do `bca metrics --paths-from -` from `git diff
---name-only`-style pipelines without losing files that happen to be
-covered by a wildcard ignore rule.
+Files passed by name — via `--paths`, `--paths-from`, or a trailing
+positional path — are always analyzed, even when the project's ignore
+rules cover them. This makes it safe to do `bca metrics --paths-from -`
+from `git diff --name-only`-style pipelines without losing files that
+happen to match a wildcard ignore rule.
+
+The override is deliberate, and it is the same rule `rg` and `fd`
+apply: a path you named is a direct request. It spans every deny-set
+the walk consults — `.gitignore` and friends, `-X` / `--exclude`,
+`--exclude-from`, a `.bcaignore`, and a manifest `exclude` list alike.
+`rg --glob '!x.txt' pattern x.txt` searches `x.txt` for exactly this
+reason.
+
+Two boundaries on it:
+
+- **`-I` / `--include` still applies.** The allow-list narrows *which*
+  named files are analyzed, so `bca metrics -I '*.rs' notes.md` analyzes
+  nothing. Only the deny-sets are overridden.
+- **`[check] exclude` still applies.** The gate-exemption set
+  (`--check-exclude` / `--check-exclude-from`, or `exclude` under
+  `[check]` in `bca.toml`) is not a walk filter — it drops *violations*,
+  not files — so it survives an explicit path and reports `bca: skipped
+  N violations via [check.exclude]` when it fires. One caveat while
+  [#1164](https://github.com/dekobon/big-code-analysis/issues/1164) is
+  open: for an explicitly named path those globs resolve against the
+  working directory rather than the manifest root, so run `bca` from the
+  directory holding `bca.toml` — which is what CI and the agent hooks
+  already do.
+
+That second point is the one to reach for. A walker exclude shapes what
+gets **analyzed**; a check exclude shapes what gets **gated**. Anything
+you want kept out of the threshold gate permanently — dev tooling,
+generated code you still want measured, a subtree under active
+rewrite — belongs in `[check] exclude`, because any caller that names
+paths one at a time bypasses the walker excludes by design. Per-file
+callers are not hypothetical: that is the shape the
+[agent feedback hooks](../recipes/agent-feedback.md) use on every edit.
+
+When an explicitly named path does override a walker exclude, `bca`
+says so on stderr and names the glob:
+
+```text
+bca: warning: utils/gate.py matches an exclude pattern (./utils/**) but was named explicitly; analyzing anyway
+```
 
 ### Path discovery flags
 
@@ -242,8 +329,10 @@ covered by a wildcard ignore rule.
   awareness when expanding directory seeds.
 - `--paths-from <FILE>` — read newline-separated input paths from
   `<FILE>`, or from stdin when `<FILE>` is `-`. Combined as a union
-  with any `--paths` values; `-I` / `-X` globs still apply. Blank
-  lines are skipped; `#` is treated as a path character (not a
+  with any `--paths` values. `-I` globs still apply; `-X` globs do not
+  reach an entry that names a file directly, per
+  [Explicit paths bypass the filter](#explicit-paths-bypass-the-filter).
+  Blank lines are skipped; `#` is treated as a path character (not a
   comment). To pass a file literally named `-`, write `./-`.
 - `--exclude-from <FILE>` — read newline-separated `--exclude` glob
   patterns from `<FILE>`, or from stdin when `<FILE>` is `-`.

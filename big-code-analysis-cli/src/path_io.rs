@@ -4,14 +4,91 @@
 
 use super::*;
 
-/// Write `bytes` to stdout, tolerating `BrokenPipe` (the typical case when
-/// the consumer is `head`, `less`, etc.) and `die`ing on anything else.
-pub(crate) fn write_stdout_or_die(bytes: &[u8]) {
-    if let Err(e) = std::io::stdout().lock().write_all(bytes)
+/// Write every chunk of `parts` to stdout under one lock, flush, and
+/// `die` on any failure other than `BrokenPipe` (the typical case when
+/// the consumer is `head`, `less`, etc.).
+///
+/// The single place the stdout-failure policy is decided, so the
+/// newline-appending variant below cannot drift from it.
+///
+/// The flush carries the same `BrokenPipe` exemption as the writes, and
+/// is what makes the policy true rather than incidental: `Stdout` is a
+/// `LineWriter` over a 1 KiB buffer, so a payload containing no newline
+/// *anywhere* in it and shorter than that never reaches the fd here — it
+/// goes out in the exit-time cleanup flush, whose error is discarded and
+/// the run exits 0 having emitted nothing. That is the shape `bca vcs`
+/// shipped with (see [`crate::formats::write_text`]).
+///
+/// No caller of *this* helper can stage it today: every document `bca`
+/// prints through it is either line-oriented or pretty-printed JSON, so
+/// the buffer spills on an interior newline and the error surfaces from
+/// a `write_all`. The hole is therefore latent rather than live — which
+/// is exactly why it needs pinning here instead of end-to-end, and why
+/// [`write_parts_flushed`] is a seam.
+fn write_stdout_parts_or_die(parts: &[&[u8]]) {
+    let mut out = std::io::stdout().lock();
+    if let Err(e) = write_parts_flushed(&mut out, parts)
         && e.kind() != ErrorKind::BrokenPipe
     {
         die(e);
     }
+}
+
+/// Write every chunk of `parts` to `out` in order, then flush.
+///
+/// Split out so the flush can be exercised against a sink that accepts
+/// every write and fails only at flush time — the shape a `LineWriter`
+/// presents to a newline-free payload, and one no shipped subcommand can
+/// produce (see [`write_stdout_parts_or_die`]). Without the seam,
+/// deleting `out.flush()` fails no test in the workspace.
+pub(crate) fn write_parts_flushed(out: &mut impl Write, parts: &[&[u8]]) -> std::io::Result<()> {
+    parts.iter().try_for_each(|part| out.write_all(part))?;
+    out.flush()
+}
+
+/// Write `bytes` to stdout under the policy of
+/// [`write_stdout_parts_or_die`].
+pub(crate) fn write_stdout_or_die(bytes: &[u8]) {
+    write_stdout_parts_or_die(&[bytes]);
+}
+
+/// Apply [`write_stdout_parts_or_die`]'s policy to an emission that
+/// wrote itself: `die` with `context` on any failure other than
+/// `BrokenPipe`.
+///
+/// The `vcs` family emits through [`crate::formats::write_text`] rather
+/// than through the helpers above, and used to `die` on *every* error.
+/// Once `write_text` grew the flush that makes a write failure visible
+/// at all (#1132), that turned the routine `bca vcs … | head` into an
+/// `error: writing vcs output: Broken pipe` and an exit 1, while
+/// `dump` / `metrics` / `ops` piped into the same consumer exit 0. A
+/// closed consumer is not a tool error on one subcommand and routine on
+/// the rest.
+///
+/// Safe for the `--output <file>` half of those emitters too: a regular
+/// file cannot produce `EPIPE`, so the exemption can only fire on the
+/// stdout path it is written for.
+pub(crate) fn die_unless_broken_pipe(result: std::io::Result<()>, context: &str) {
+    if let Err(e) = result
+        && e.kind() != ErrorKind::BrokenPipe
+    {
+        die(format_args!("{context}: {e}"));
+    }
+}
+
+/// Write `text` and a trailing newline to stdout, under one lock.
+///
+/// The `println!` that post-walk emissions (`count`'s tally, `preproc`'s
+/// JSON) used instead *panics* on a write error, exiting 101 where the
+/// CLI documents `EXIT_TOOL_ERROR` (#1132). The newline is passed as a
+/// second chunk so both go out under the *one* lock
+/// [`write_stdout_parts_or_die`] holds — a parallel walk cannot then
+/// split a line from its terminator — and so the `BrokenPipe`-vs-`die`
+/// decision and the flush stay in a single place. (An equivalent
+/// `writeln!` would be no more costly; it would just re-decide the
+/// policy here.)
+pub(crate) fn writeln_stdout_or_die(text: &str) {
+    write_stdout_parts_or_die(&[text.as_bytes(), b"\n"]);
 }
 
 /// Reject an `--output` path that names an existing directory or whose
@@ -45,31 +122,78 @@ pub(crate) fn write_output_or_stdout(output: Option<&Path>, verb: &str, bytes: &
 }
 
 pub(crate) fn mk_globset(elems: Vec<String>) -> Result<GlobSet, String> {
+    mk_globset_retaining(elems).map(|(set, _)| set)
+}
+
+/// [`mk_globset`] plus the subset of `elems` it actually compiled, in
+/// compile order, so a `GlobSet::matches` index names the pattern the
+/// user wrote. The skip below drops patterns, so the caller's original
+/// `Vec` is *not* index-aligned with the set — deriving the retained
+/// list anywhere but inside this loop would misattribute every pattern
+/// after the first dropped one.
+fn mk_globset_retaining(elems: Vec<String>) -> Result<(GlobSet, Vec<String>), String> {
     if elems.is_empty() {
-        return Ok(GlobSet::empty());
+        return Ok((GlobSet::empty(), Vec::new()));
     }
 
     let mut globset = GlobSetBuilder::new();
-    for e in &elems {
+    let mut retained = Vec::with_capacity(elems.len());
+    for e in elems {
         // Normalise the optional leading `./` so `dir/**` and `./dir/**`
         // compile to the same glob; the match-path side is stripped
         // symmetrically in `WalkFilters::passes` / the `[check.exclude]`
         // filter (#726). The emptiness skip runs *after* the strip so a
         // bare `./` (empty once normalised) is skipped like an empty
         // pattern instead of compiling an empty glob.
-        let pattern = walk_seed::strip_dot_slash(e);
+        let pattern = walk_seed::strip_dot_slash(&e);
         if pattern.is_empty() {
             continue;
         }
         globset
             .add(Glob::new(pattern).map_err(|err| format!("invalid glob pattern {e:?}: {err}"))?);
+        retained.push(e);
     }
-    globset
+    let set = globset
         .build()
-        .map_err(|err| format!("failed to build glob set: {err}"))
+        .map_err(|err| format!("failed to build glob set: {err}"))?;
+    Ok((set, retained))
 }
 
-/// Build an exclude [`GlobSet`] from inline `patterns` unioned with any
+/// An exclude deny-set paired with the source spelling of each pattern
+/// it was compiled from, so a match can be reported *by name* rather
+/// than as an anonymous "something excluded this".
+///
+/// The pairing comes from [`mk_globset_retaining`], which is the only
+/// place the compile-time pattern skip lives, so the two halves cannot
+/// drift out of index alignment.
+pub(crate) struct ExcludeGlobs {
+    set: GlobSet,
+    patterns: Vec<String>,
+}
+
+impl ExcludeGlobs {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.set.is_empty()
+    }
+
+    pub(crate) fn is_match(&self, path: impl AsRef<Path>) -> bool {
+        self.set.is_match(path)
+    }
+
+    /// The first configured pattern `path` matches, or `None`.
+    ///
+    /// One pattern rather than all of them: the caller reports an
+    /// override the user is expected to *act* on by moving the entry to
+    /// another surface, and naming the first offender is enough to find
+    /// the line. Enumerating every overlapping glob would lengthen the
+    /// line without changing the action.
+    pub(crate) fn first_match(&self, path: impl AsRef<Path>) -> Option<&str> {
+        let idx = *self.set.matches(path).first()?;
+        self.patterns.get(idx).map(String::as_str)
+    }
+}
+
+/// Build an [`ExcludeGlobs`] from inline `patterns` unioned with any
 /// read from the `from` file (`.gitignore`-style, `-` for stdin). Dies
 /// (exit 1) on a file-read or glob-compile error. Shared by the walker's
 /// `--exclude` / `--exclude-from` deny-set and `bca check`'s
@@ -82,11 +206,12 @@ pub(crate) fn build_exclude_globset(
     mut patterns: Vec<String>,
     from: Option<&Path>,
     flag: &str,
-) -> GlobSet {
+) -> ExcludeGlobs {
     if let Some(src) = from {
         patterns.extend(read_exclude_patterns_from(src, flag).unwrap_or_else(|e| die(e)));
     }
-    mk_globset(patterns).unwrap_or_else(|e| die(e))
+    let (set, patterns) = mk_globset_retaining(patterns).unwrap_or_else(|e| die(e));
+    ExcludeGlobs { set, patterns }
 }
 
 /// Group a resolved file list by basename into the

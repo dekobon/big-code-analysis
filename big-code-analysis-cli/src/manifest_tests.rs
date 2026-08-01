@@ -2,7 +2,7 @@
 //!
 //! Discovery (which reads the process working directory) and the
 //! end-to-end CLI precedence are exercised by the integration tests in
-//! `tests/manifest.rs`; these cover the pure transforms in isolation.
+//! `tests/cli_ux/manifest.rs`; these cover the pure transforms in isolation.
 
 use super::*;
 
@@ -15,7 +15,7 @@ fn manifest(raw: RawManifest) -> Manifest {
         raw,
         // These transforms never read disk text, so default the job-count
         // key to the canonical spelling; the alias-attribution path is
-        // covered by the integration tests in `tests/manifest.rs`.
+        // covered by the integration tests in `tests/cli_ux/manifest.rs`.
         jobs_key: Some("jobs"),
     }
 }
@@ -46,7 +46,40 @@ fn thresholds_extracts_scalars_and_ignores_subtables() {
     // The soft override is captured as an absolute limit.
     assert_eq!(
         parsed.soft.get("cyclomatic"),
-        Some(&crate::thresholds::SoftLimit::Absolute(13.0))
+        Some(&crate::threshold_soft::SoftLimit::Absolute(13.0))
+    );
+}
+
+/// `[thresholds.lang.<slug>]` reaches [`Manifest::thresholds`] through
+/// the same untyped `[thresholds]` map the `soft` sub-table uses (#1141),
+/// so it needs no `RawManifest` field of its own — and, because
+/// `KNOWN_SUB_TABLES` deliberately does not walk `[thresholds]`, no
+/// allowlist entry either. Pin both halves: the nesting is split out as
+/// a per-language layer, *and* it draws no "unrecognized key" warning.
+#[test]
+fn thresholds_lang_subtable_is_split_out_and_draws_no_warning() {
+    let text = "[thresholds]\n\
+                cognitive = 15\n\
+                [thresholds.lang.c]\n\
+                cognitive = 25\n";
+    let raw: RawManifest = toml::from_str(text).expect("parse");
+    let parsed = manifest(raw).thresholds();
+
+    assert_eq!(parsed.hard.get("cognitive"), Some(&15.0));
+    assert!(
+        !parsed.hard.contains_key("lang"),
+        "the lang sub-table must not be treated as a scalar limit"
+    );
+    assert_eq!(parsed.hard.len(), 1);
+    assert_eq!(parsed.lang["c"].get("cognitive"), Some(&25.0));
+
+    assert!(
+        unknown_top_level_keys(text).is_empty(),
+        "`thresholds` is already an allowlisted top-level key"
+    );
+    assert!(
+        unknown_sub_table_keys(text).is_empty(),
+        "`[thresholds]` keys are validated by split_thresholds_table, not the allowlist"
     );
 }
 

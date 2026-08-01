@@ -67,8 +67,18 @@ fn python_comprehension_clause_nesting(
 /// cost: if walking ancestors (stopping at a `lambda` boundary) finds
 /// another `boolean_operator` first, this node is nested inside one
 /// already counted, so the `== 0` guard skips it. The outermost operator
-/// then adds one structural unit per enclosing control construct
-/// (`expression_list`, `if`/`for`/`while`) up to the nearest lambda.
+/// then adds one structural unit per enclosing `lambda`, walking upward
+/// only as far as the nearest `expression_list` / `if` / `for` / `while`.
+/// `count_specific_ancestors` takes `(ancestors, check, stop)` in that
+/// order, so it is the lambdas that get counted and the control
+/// constructs that end the walk — the reverse of what this comment
+/// claimed before #1090.
+///
+/// The per-lambda surcharge is a deliberate Python-only deviation from
+/// Campbell, reviewed and kept in #1150; the user-facing statement of
+/// it, with the measured ladder, is the Python bullet under *Cognitive
+/// Complexity → Per-language deviations* in
+/// `big-code-analysis-book/src/metrics.md`.
 fn python_apply_boolean_operator<'a>(
     node: &Node<'a>,
     ancestors: Ancestors<'a, '_>,
@@ -83,6 +93,17 @@ fn python_apply_boolean_operator<'a>(
     {
         stats.structural +=
             node.count_specific_ancestors::<PythonCode>(ancestors, python_is_lambda, |node| {
+                // Only `ExpressionList` can change the count: a lambda
+                // body is a single expression, so no lambda ever sits
+                // *above* an `if`/`for`/`while` statement, and stopping
+                // at one is indistinguishable from running to the module
+                // root. The three statement kinds are kept as an explicit
+                // statement-boundary set rather than a claim about
+                // coverage. `ExpressionList` is the observable arm,
+                // reached via a parenthesised `yield` or an f-string
+                // interpolation — see
+                // `python_boolean_in_expression_list_under_lambda`
+                // (#1090).
                 matches!(
                     node.kind_id().into(),
                     ExpressionList | IfStatement | ForStatement | WhileStatement
@@ -187,17 +208,29 @@ impl Cognitive for PythonCode {
             // spelled out here and kept in sync with it (#422; the
             // drift guard in checker.rs flags a bump that emits Lambda2).
             Lambda | Lambda2 => {
-                // Increase lambda nesting
+                // A lambda amplifies the enclosing nesting rather than
+                // replacing it, so it deliberately does NOT take the
+                // function-boundary reset below: every sibling lambda arm
+                // (Java `LambdaExpression`, JS `ArrowFunction`, Rust
+                // `ClosureExpression`, …) leaves `conditional` alone, and
+                // adding the reset here would break the cross-language
+                // parity that reset exists to preserve (#1149).
                 nesting.lambda += 1;
             }
+            // At a (possibly nested) `def` boundary, reset structural
+            // nesting to zero and bump the function-depth surcharge when
+            // this definition is itself nested inside another, so a `def`
+            // written inside an `if` is scored against its own depth rather
+            // than the enclosing function's — matching Java, Rust, and
+            // every other conforming family (#696, #1149). Python is the
+            // one family that provably needs no `nesting.lambda = 0`
+            // companion to go with it — a `def` is a statement and a
+            // lambda body is a single expression, so no
+            // `function_definition` can sit under a `lambda`. Elsewhere
+            // that shape is legal (`let f = || { fn g() {} };`) and only
+            // the JS macro currently carries the extra line.
             FunctionDefinition => {
-                // Increase depth function nesting if needed
-                increment_function_depth(
-                    &mut nesting.function_depth,
-                    node,
-                    ancestors,
-                    &[FunctionDefinition],
-                );
+                enter_function_boundary(&mut nesting, node, ancestors, &[FunctionDefinition]);
             }
             _ => {}
         }

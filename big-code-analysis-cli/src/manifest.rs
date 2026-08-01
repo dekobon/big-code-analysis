@@ -678,7 +678,7 @@ impl Manifest {
     /// fails both comparisons, is rejected too.)
     fn headroom(&self) -> Option<f64> {
         let ratio = self.raw.check.headroom.or(self.raw.headroom)?;
-        if !crate::thresholds::is_valid_scale_ratio(ratio) {
+        if !crate::threshold_soft::is_valid_scale_ratio(ratio) {
             die(format_args!(
                 "bca.toml: headroom must be in (0, 1]; got {ratio}"
             ));

@@ -13,20 +13,20 @@ pub const USAGE: &str = "\
 usage: cargo bench -p big-code-analysis-bench --bench scaling -- [options]
 
   --rounds N   measurement rounds per cell (default 7, must be odd)
-  --no-gate    measure at full depth, report the exponents, never fail
-  --smoke      shallow depths, no verdict (the `cargo test` path)
+  --no-gate    measure at full size, report the exponents, never fail
+  --smoke      small sizes, no verdict (the `cargo test` path)
   --help       this message
 ";
 
 /// What a run is for.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum Mode {
-    /// Measure at the probes' declared depths and fail on a probe that
+    /// Measure at the probes' declared sizes and fail on a probe that
     /// left its complexity class.
     Gate,
-    /// Measure at the probes' declared depths, report, never fail.
+    /// Measure at the probes' declared sizes, report, never fail.
     ReportOnly,
-    /// Shallow depths, no verdict: enough to prove the harness still
+    /// Small sizes, no verdict: enough to prove the harness still
     /// runs, not enough to mean anything.
     Smoke,
 }
@@ -55,7 +55,7 @@ pub enum Action {
 /// target; `cargo test --benches` runs the same binary with **no**
 /// arguments at all. That absence is the only signal distinguishing
 /// the two, so it selects [`Mode::Smoke`] by default: measuring every
-/// probe at production depths in an unoptimised build would add tens
+/// probe at production sizes in an unoptimised build would add tens
 /// of seconds to `cargo test` and produce numbers nobody should read.
 ///
 /// An explicit `--no-gate` / `--smoke` wins over `--bench` regardless

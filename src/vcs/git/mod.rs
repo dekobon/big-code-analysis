@@ -21,7 +21,7 @@ mod jit;
 mod repo;
 mod trend;
 
-pub use blame::{LineSpan, PerFunctionBlame};
+pub use blame::{BlameSession, LineSpan, PerFunctionBlame};
 pub(crate) use cached::build_cached;
 pub(crate) use diff_parse::score_diff;
 pub(crate) use jit::score_commit;

@@ -577,6 +577,20 @@ jobs:
       # gate without surfacing the regression in CI.
       - name: grammar-marker-sync self-tests (explicit)
         run: python3 -m unittest -q utils/check-grammar-marker-sync-test.py
+      # Defensive twin for the workspace-exclusion gate (#1145, #1151):
+      # an excluded crate that roots no workspace of its own breaks
+      # `cargo fmt --all` inside every git worktree, and an unpinned
+      # tree-sitter dependency lets `cargo update` move a grammar
+      # silently. `make lint` already runs this gate; invoking it here
+      # (matching the twins above) keeps it enforced even if a future
+      # refactor drops it from the aggregate recipe.
+      - name: check-excluded-manifests (explicit)
+        run: python3 utils/check-excluded-manifests.py
+      # Run the gate's own unittests as their own explicit step
+      # so a refactor that breaks the script can't disable the
+      # gate without surfacing the regression in CI.
+      - name: check-excluded-manifests self-tests (explicit)
+        run: python3 -m unittest -q utils/check-excluded-manifests-test.py
       # Defensive twin for the enums-codegen-drift gate (#405):
       # running any grammar regen previously regenerated
       # `src/c_langs_macros/*.rs` to a pre-optimization form

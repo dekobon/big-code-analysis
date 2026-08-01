@@ -1,6 +1,6 @@
 //! Unit tests for the pure line-span arithmetic that buckets blame
 //! entries into function spans. The git-backed end-to-end behaviour is
-//! exercised by the integration fixture in `tests/vcs_history.rs`.
+//! exercised by the integration fixture in `tests/vcs/vcs_history.rs`.
 
 use std::cell::Cell;
 
@@ -173,4 +173,89 @@ fn line_run_from_blame_hunk_saturates_at_u32_ceiling() {
     let wide = LineRun::from_blame_hunk(u32::MAX - 1, u32::MAX, oid);
     assert_eq!(wide.lo, u32::MAX);
     assert_eq!(wide.hi, u32::MAX - 1);
+}
+
+/// Round-tripping a repository through [`gix::ThreadSafeRepository`]
+/// drops the ODB object cache, and the rebuilt thread-local handle does
+/// **not** get one back — so the cache has to be set *after*
+/// `to_thread_local`, which is what `PerFunctionBlame::new_state` does
+/// (issue #1117).
+///
+/// Pinning gix's half of that here rather than trusting a read of its
+/// sources: `into_sync` keeps only `objects.into_inner().store()`,
+/// `to_thread_local` rebuilds through `gix_odb::Cache::from` (which sets
+/// `object_cache: None`), and the `setup_objects` that runs on rebuild
+/// re-applies a pack cache unconditionally but an object cache only when
+/// `gitoxide.objects.cacheLimit` is non-zero — and it defaults to zero.
+/// A future gix that starts propagating the cache fails the first
+/// assertion, at which point `new_state`'s call becomes redundant rather
+/// than load-bearing, and this is the place that says so.
+///
+/// No commit is needed: the question is about handle construction, not
+/// about any object in the database.
+#[test]
+fn thread_local_handle_carries_no_object_cache_until_one_is_set() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let repo = gix::init(dir.path()).expect("init repository");
+    let shared = repo.into_sync();
+
+    let plain = shared.to_thread_local();
+    assert!(
+        !plain.objects.has_object_cache(),
+        "gix handed back an object cache on a fresh thread-local handle; \
+         if that is now the default, new_state's object_cache_size_if_unset \
+         is no longer load-bearing"
+    );
+    // The *pack* cache is re-applied on rebuild, so an assertion that
+    // merely checked "some cache exists" would pass against the bug.
+    assert!(
+        plain.objects.has_pack_cache(),
+        "setup_objects re-applies the pack cache unconditionally"
+    );
+
+    let mut cached = shared.to_thread_local();
+    cached.object_cache_size_if_unset(super::super::OBJECT_CACHE_BYTES);
+    assert!(
+        cached.objects.has_object_cache(),
+        "object_cache_size_if_unset must take on the thread-local handle"
+    );
+}
+
+/// The state a session blames through must carry the object cache
+/// (issue #1117) — the production half of the contract the test above
+/// pins on gix's side.
+///
+/// Worth its own test because deleting `new_state`'s
+/// `object_cache_size_if_unset` is invisible everywhere else: an object
+/// cache changes only how fast a blame runs, never what it returns, so
+/// no value assertion anywhere in the suite can see it.
+///
+/// The fixture only needs a resolvable `HEAD`, not a blameable file, so
+/// the commit is written in-process against the empty tree rather than
+/// through the `git` CLI.
+#[test]
+fn a_session_handle_carries_the_object_cache() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let repo = gix::init(dir.path()).expect("init repository");
+    let who = gix::actor::SignatureRef {
+        name: "Ada".into(),
+        email: "ada@example.com".into(),
+        time: "1700000000 +0000",
+    };
+    repo.commit_as(
+        who,
+        who,
+        "HEAD",
+        "seed",
+        repo.empty_tree().id,
+        gix::commit::NO_PARENT_IDS,
+    )
+    .expect("write seed commit");
+
+    let engine = super::PerFunctionBlame::open(dir.path(), crate::vcs::options::Options::default())
+        .expect("open blame engine");
+    assert!(
+        engine.new_state().repo.objects.has_object_cache(),
+        "a blame session must set an object cache on its thread-local handle"
+    );
 }

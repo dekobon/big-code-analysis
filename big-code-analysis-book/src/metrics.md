@@ -145,7 +145,8 @@ application would over-count.
 | All languages | `default` / `_` wildcard arm excluded from the condition set | Fitzpatrick's Figure 2 lists `default`, but it falls through unconditionally — counting it would inflate `C` on every `switch` / `match` regardless of body. big-code-analysis omits it for every language (the Rust `_ =>` and Java `default:` arms included). |
 | Tcl | Chain-operand unary conditions wired; bare-truthy / argument / `return` slots are not | Each operand of a `&&` / `\|\|` chain inside `expr {…}` counts as one condition, so `if {$a && $b}` reports two. The broader Phase 2B slot routing is not wired, so a bare-truthy `if {$a}` still reports zero. |
 | iRules | Chain-operand unary conditions wired (unlike its Tcl sibling); bare-truthy / argument / `return` slots are not | Each operand of a `&&` / `\|\|` / `and` / `or` chain counts as one condition (Rule 9), so `if {!$a && !$b}` reports two. iRules also recognises the word-form string-match comparators (`contains`, `starts_with`, `ends_with`, `equals`, `matches`, …) that Tcl lacks (Tcl's `eq` / `ne` / `in` / `ni` are shared). The broader Phase 2B slot routing is not wired, so a bare-truthy `if {$a}` still reports zero. |
-| All Phase 2 languages (Java, Groovy, C#, Rust, Go, JavaScript, TypeScript, TSX, Mozjs, PHP, C++, Python, Perl, Lua) | `if (true) {}`, `m(!a, !b)`, `return !x` count their operand(s) | Phase 2B routes `if` / `while` / `do-while` / argument-list / `return` / ternary slots through the same walker, so the rule applies uniformly across decision-bearing positions. A bare `return x` continues to report zero — Fitzpatrick treats an identifier in a return slot as a value, not a unary conditional. |
+| All Phase 2 languages (Java, Groovy, C#, Rust, Go, JavaScript, TypeScript, TSX, Mozjs, PHP, C, C++, Objective-C, Mozcpp, Python, Perl, Lua) | `if (true) {}`, `m(!a, !b)`, `return !x` count their operand(s) | Phase 2B routes `if` / `while` / `do-while` / argument-list / `return` slots through the same walker, so the rule applies uniformly across decision-bearing positions. A bare `return x` continues to report zero — Fitzpatrick treats an identifier in a return slot as a value, not a unary conditional. |
+| Ternary slots: Java, Groovy, C#, C, C++, Objective-C, Mozcpp, JavaScript, TypeScript, TSX, Mozjs, PHP, Perl | `a ? !b : !c` counts its condition and both branch operands | The same walker also runs over a ternary's three operand slots, so `a ? !b : !c` reports 4 (the `?` plus three unary conditions) rather than 1. Languages with no ternary (Rust, Go, Kotlin, Lua, Elixir) are unaffected. Ruby, Python, Tcl and iRules do have one but do not yet route it (issue #1161). |
 | Ruby | Bare-predicate `if` / `unless` / `while` / `until` (block and modifier forms) count one condition | Idiomatic Ruby favours bare predicates (`if flag`, `x if flag`); counting the condition slot keeps ABC conditions at or above Ruby's cyclomatic decision count (the alignment enforced across the other languages). A comparison (`if a == b`) or `&&` / `\|\|` chain in the predicate is counted by its own operator / walker arm and is not double-counted. |
 | Bash | `if` / `elif` / `while` and each non-wildcard `case` arm count one condition | A Bash predicate is a *command*, so the branch keyword itself — not an embedded boolean expression — is the condition signal. Each matches a Bash cyclomatic decision; the bare `*)` case arm (the analogue of `default:`) is excluded, mirroring the cyclomatic standard count. |
 | Kotlin | `try` counts a condition alongside `catch` | Fitzpatrick counts both keywords, and Java / C# / C++ / Groovy already count both; Kotlin previously counted only the catch block. |
@@ -324,12 +325,49 @@ Sonar ecosystem.
   SonarSource specification adds for languages that expose those
   shapes syntactically.
 - For every language with a syntactic function-definition node, a
-  nested function (a local function, lambda, or a method on a
-  local / inner class) **resets the nesting counter to zero** at
-  its boundary and adds a function-depth surcharge, so control flow
+  nested function — a local function, or a method on a local /
+  inner class — **resets the nesting counter to zero** at its
+  boundary and adds a function-depth surcharge, so control flow
   inside it is scored against the nested function's own depth rather
   than the enclosing function's nesting. Byte-equivalent constructs
   therefore score identically across languages.
+- A lambda or closure (`x -> …`, `|x| …`, `lambda x: …`, a Ruby
+  block, an Objective-C block) is not a function boundary in that
+  sense. It adds a surcharge *on top of* the enclosing nesting
+  instead of replacing it, so a decision inside a lambda written
+  inside an `if` is charged for both.
+- **Python** charges a boolean operator an extra `+1` for each
+  enclosing `lambda`, on top of the `+1` the boolean sequence itself
+  earns. No other language does this. Only the outermost operator
+  inside a given lambda body pays the surcharge, and the walk that
+  counts those lambdas stops at the nearest enclosing
+  `expression_list`. (It also stops at `if`, `for` and `while`, but a
+  lambda body is a single expression, so no lambda ever sits above one
+  of those statements and those three arms never change a count.) The
+  sequence increments themselves still follow the operator-switch rule
+  above, so a mixed chain inside one lambda pays two of them plus a
+  single surcharge. Measured:
+
+  | Python source | `cognitive.sum` |
+  | --- | --- |
+  | `g = a and b` | 1 |
+  | `g = lambda y: y and a` | 2 |
+  | `g = lambda y: y and a and b` | 2 |
+  | `g = lambda y: y and a or b` | 3 |
+  | `g = lambda x: (lambda y: y and a)` | 3 |
+  | `k = lambda q: (yield a and b, c)` | 1 |
+  | `def f(a): g = lambda x: x` | 0 |
+
+  The last two rows are the boundaries. The parenthesised `yield` puts
+  an `expression_list` between the operator and the `lambda`, ending
+  the walk before it reaches one, so only the fundamental `+1` is left;
+  and a lambda containing no boolean operator costs nothing by itself.
+
+  Campbell gives a boolean sequence a fundamental increment and no
+  nesting increment, so this is an addition to the specification rather
+  than an implementation of it. Issue #1150 reviewed the rule and kept
+  it deliberately. Python's boolean-operator cost is not comparable
+  with another language's score for the same code.
 
 ## Cyclomatic Complexity (CC) {#cyclomatic-complexity-cc}
 
@@ -696,6 +734,26 @@ comparable numbers. The serialised output
 The implementation handles default arguments, variadic arguments,
 keyword-only arguments, and destructured parameters consistently per
 language.
+
+### Languages where it reads 0 {#nargs-language-gaps}
+
+A metric that silently reports 0 reads as "no offenders" rather than
+"not measured", so it is worth knowing where the count is inert:
+
+- **Bash** — correct and permanent. The shell has no formal parameter
+  list; arguments arrive as `$1`, `$2`, and so on. It is the only
+  language where every function reads 0.
+- **Perl subs without a signature** — correct. Signatures
+  (`sub add($x, $y)`) are counted; a sub that reads its arguments from
+  `@_` declares no formal parameters to count.
+- **Perl anonymous subs** — a gap, and an upstream one: the grammar
+  parses an anonymous sub's signature inside an error node, so
+  `my $f = sub ($x) {…}` reads 0 even though it has a signature.
+
+A `nargs` limit is therefore inert on a Bash codebase and sparse on
+Perl written before `use v5.36`. Gate it per language rather than
+repository-wide; see
+[Choosing thresholds](recipes/thresholds.md#language-gaps).
 
 ### How to read it
 

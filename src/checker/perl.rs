@@ -42,10 +42,14 @@ impl Checker for PerlCode {
         )
     }
 
+    // `NormalComma` (369) is the separator inside a subroutine signature;
+    // the bare `COMMA` (12) it wraps is that node's *child*, so listing
+    // only `COMMA` let every signature separator count as a parameter
+    // (#1147).
     fn is_non_arg(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),
-            Perl::LPAREN | Perl::COMMA | Perl::RPAREN | Perl::FatComma
+            Perl::LPAREN | Perl::COMMA | Perl::RPAREN | Perl::FatComma | Perl::NormalComma
         )
     }
 

@@ -156,6 +156,39 @@ fn perl_last_named_child<'a>(node: &Node<'a>) -> Option<Node<'a>> {
     last_named
 }
 
+// Phase-2B (issues #403 / #1102): a ternary's condition and its two
+// branch operands are each a Fitzpatrick Rule 9 unary condition, exactly
+// as `java_walk_ternary` already counts them. Without this Perl scored
+// `$a ? !$b : !$c` as 1 (the `ternary_expression` node alone) against
+// Java's 4, and `perl_inspect_container`'s `TernaryExpression`
+// boolean-context seed was unreachable.
+//
+// Slots are addressed by grammar FIELD, not by child index.
+// tree-sitter-perl names the branches `true` / `false` rather than the
+// C-family `consequence` / `alternative`, and all three slots are
+// mandatory — Perl has no short-ternary elision.
+//
+// The condition needs its own terminal check because
+// `perl_inspect_container` only counts *after* unwrapping a `(...)` /
+// `!...` layer, so a bare `$a ? … : …` would otherwise score zero.
+// Branch operands get no such check: an unnegated branch is type-free
+// and contributes nothing, which is what keeps `($a > 0) ? $b : -$b`
+// at 2 (the ternary node and the `>`).
+fn perl_walk_ternary(node: &Node, conditions: &mut f64) {
+    if let Some(condition) = node.child_by_field_name("condition") {
+        if matches!(condition.kind_id().into(), perl_bool_terminal_kinds!()) {
+            *conditions += 1.;
+        } else {
+            perl_inspect_container(&condition, node, conditions);
+        }
+    }
+    for field in ["true", "false"] {
+        if let Some(branch) = node.child_by_field_name(field) {
+            perl_inspect_container(&branch, node, conditions);
+        }
+    }
+}
+
 fn perl_is_call_argument_parent(parent: Node) -> bool {
     use Perl as P;
     matches!(
@@ -202,6 +235,13 @@ impl Abc for PerlCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        // bca: suppress(halstead)
+        // Exhaustive one-arm-per-grammar-kind dispatch table; see the
+        // rationale on `CppCode::compute`. Perl's arm list is the
+        // longest of the family — tree-sitter-perl tokenises all
+        // nineteen assignment operators and all six call-expression
+        // wrappers separately — so `halstead.effort` here is a count of
+        // distinct enum operands, not of reasoning a reader must do.
         use Perl as P;
 
         match node.kind_id().into() {
@@ -264,9 +304,7 @@ impl Abc for PerlCode {
             P::EQEQ | P::BANGEQ | P::LT | P::GT | P::LTEQ | P::GTEQ | P::LTEQGT
             | P::Eq | P::Ne | P::Lt | P::Gt | P::Le | P::Ge | P::Cmp
             | P::EQTILDE | P::BANGTILDE
-            // Ternary `a ? b : c` and each `elsif` / `else` clause of
-            // an `if` / `unless` chain.
-            | P::TernaryExpression
+            // Each `elsif` / `else` clause of an `if` / `unless` chain.
             | P::ElsifClause
             | P::ElseClause => {
                 stats.conditions += 1.;
@@ -304,6 +342,15 @@ impl Abc for PerlCode {
             // dispatch when the parent is a call-expression form.
             P::Array if ancestors.parent(node).is_some_and(perl_is_call_argument_parent) => {
                 perl_count_unary_conditions(node, &mut stats.conditions);
+            }
+            // `$a ? !$b : !$c`. Unlike the C family, this dispatcher
+            // has no `?`-token arm — the grammar emits the token, but
+            // the `ternary_expression` node is what carries the
+            // condition tally's +1 — so this arm keeps that increment
+            // and adds the three operand slots (issue #1102).
+            P::TernaryExpression => {
+                stats.conditions += 1.;
+                perl_walk_ternary(node, &mut stats.conditions);
             }
             _ => {}
         }

@@ -8,6 +8,16 @@
 # model. Stays silent (exit 0) on a clean file, an unsupported file
 # type, a tool error, or a missing analyzer — it must never block an
 # edit.
+#
+# Scope note (#1146): this passes ONE named path, and a named path
+# overrides every walker exclude by design — `.bcaignore`, `--exclude`,
+# and the manifest `exclude` list all shape directory-walk scope, not
+# gate scope. Files that must never be gated therefore belong in
+# bca.toml's `[check] exclude`, which survives an explicit path. This
+# repo's dev-tooling globs live there for that reason; `bca` warns on
+# stderr, naming the glob, whenever a named path overrides a walker
+# exclude, so a miswired entry shows up here rather than silently
+# producing false offenders.
 set -euo pipefail
 
 root="${CLAUDE_PROJECT_DIR:-$PWD}"

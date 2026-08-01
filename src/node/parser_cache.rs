@@ -79,7 +79,7 @@ fn build_parser() -> Parser {
 }
 
 // Every test here parses Rust, so the module is gated on that grammar's
-// feature the same way `tests/parser_reuse.rs` is: without it
+// feature the same way `tests/api/parser_reuse.rs` is: without it
 // `RustCode::lang().get_ts_language()` returns `None` and the whole
 // module fails at `expect` rather than being skipped. CI's
 // `no-default-features` matrix leg only runs `cargo check`, so this was
@@ -99,7 +99,7 @@ mod tests {
 
     /// The guard for the optimization itself, not for its output.
     /// Deleting the write-back in `parse_on_scratch_parser` leaves every
-    /// tree-comparison assertion in `tests/parser_reuse.rs` passing while
+    /// tree-comparison assertion in `tests/api/parser_reuse.rs` passing while
     /// reducing the cache to a no-op; only a construction count sees it.
     ///
     /// Runs on its own thread so the count starts from zero regardless of
@@ -172,7 +172,7 @@ mod tests {
     /// The two tests above call `parse_on_scratch_parser` directly, so
     /// they say nothing about whether anything *reaches* it: reverting
     /// `Tree::new` to the pre-#1118 `Parser::new()`-per-file body leaves
-    /// all 3,143 lib tests and all 5 `tests/parser_reuse.rs` integration
+    /// all 3,143 lib tests and all 5 `tests/api/parser_reuse.rs` integration
     /// tests passing (measured). Driving the public `Ast::parse` seam and
     /// counting constructions is what fails there.
     #[test]

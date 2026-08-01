@@ -93,9 +93,8 @@ impl Cognitive for PhpCode {
             // the lambda arm above and intentionally do *not* reset nesting,
             // mirroring how the siblings treat lambda vs named-function arms.
             FunctionDefinition | MethodDeclaration => {
-                nesting.conditional = 0;
-                increment_function_depth(
-                    &mut nesting.function_depth,
+                enter_function_boundary(
+                    &mut nesting,
                     node,
                     ancestors,
                     &[FunctionDefinition, MethodDeclaration],
