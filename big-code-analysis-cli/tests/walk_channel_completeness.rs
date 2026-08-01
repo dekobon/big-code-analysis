@@ -1,9 +1,10 @@
 //! Every walk result channel must deliver every record, whatever the
 //! job count (#1119).
 //!
-//! The walk streams its per-file results back over four channels hung
-//! off `Config` — `check_tx`, `markdown_tx`, `exemptions_tx`, and the
-//! `aggregate_tx` shared by `metrics` / `ops`. #1119 replaced
+//! The walk streams its per-file results back over five channels hung
+//! off `Config` — `check_tx`, `markdown_tx`, `report_hotspot_tx`,
+//! `exemptions_tx`, and the `aggregate_tx` shared by `metrics` / `ops`.
+//! #1119 replaced
 //! `Mutex<std::sync::mpsc::Sender<_>>` with a bare
 //! `crossbeam::channel::Sender<_>`, which is `Sync` and so needs no
 //! per-file lock. That rewires the send path of all four.
@@ -16,6 +17,7 @@
 //! none of them are visible in a single-threaded run, which is what the
 //! rest of the suite exercises.
 
+use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 
@@ -225,5 +227,113 @@ fn exemptions_audit_is_identical_serially_and_in_parallel() {
         sorted_lines(&serial),
         sorted_lines(&parallel),
         "exemptions audit differs between --jobs 1 and --jobs 16"
+    );
+}
+
+/// `report_hotspot_tx`: the fifth channel #1119 rewired, and the only
+/// one whose call site changed shape rather than merely losing a lock
+/// (`hotspot_sender.send((path.clone(), …))` became
+/// `hotspot_tx.send((path, …))`).
+///
+/// It carries each file's `(absolute path, cyclomatic sum)` so
+/// `report --vcs` can join a hotspot score onto the change-history
+/// section. A lost record does not fail anything — it silently blanks a
+/// Hotspot cell — so serial-vs-parallel equality is the only thing that
+/// would catch it.
+///
+/// Needs a real git repo, hence the local fixture rather than the shared
+/// `corpus` above.
+#[test]
+fn report_vcs_hotspots_are_identical_serially_and_in_parallel() {
+    /// Seconds per day, for dating fixture commits.
+    const DAY: i64 = 86_400;
+
+    let now = i64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_secs(),
+    )
+    .expect("now fits i64");
+
+    let git = |dir: &Path, secs: i64, args: &[&str]| {
+        let date = format!("@{secs} +0000");
+        let status = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .env("GIT_AUTHOR_NAME", "Ada")
+            .env("GIT_AUTHOR_EMAIL", "ada@example.com")
+            .env("GIT_AUTHOR_DATE", &date)
+            .env("GIT_COMMITTER_NAME", "Ada")
+            .env("GIT_COMMITTER_EMAIL", "ada@example.com")
+            .env("GIT_COMMITTER_DATE", &date)
+            .status()
+            .expect("spawn git");
+        assert!(status.success(), "git {args:?} failed");
+    };
+
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    git(root, now, &["init", "-q", "-b", "main"]);
+    git(root, now, &["config", "commit.gpgsign", "false"]);
+    // Enough distinct files that the pool interleaves, each branchy so
+    // its cyclomatic sum — the value on the channel — is non-zero and
+    // differs per file.
+    std::fs::create_dir(root.join("src")).expect("mkdir");
+    for i in 0..40 {
+        let mut body = format!("pub fn f{i}(n: i32) -> i32 {{\n");
+        for b in 0..=i % 5 {
+            let _ = writeln!(body, "    if n == {b} {{ return {b}; }}");
+        }
+        body.push_str("    0\n}\n");
+        std::fs::write(root.join(format!("src/f{i}.rs")), body).expect("write fixture");
+    }
+    git(root, now - 30 * DAY, &["add", "."]);
+    git(root, now - 30 * DAY, &["commit", "-q", "-m", "add sources"]);
+
+    let run = |jobs: &str| -> String {
+        let out = cli(root)
+            .args(["report", "--no-config", "--vcs", "--paths", "src"])
+            .args(["--jobs", jobs])
+            .current_dir(root)
+            .output()
+            .expect("bca runs");
+        String::from_utf8(out.stdout).expect("utf8 stdout")
+    };
+
+    let serial = run("1");
+    let parallel = run("16");
+
+    // Guard against comparing two failures. A lost record blanks that
+    // file's Hotspot cell rather than erroring, so the assertion has to
+    // be that every change-history row *has* one: count the rows whose
+    // last column holds a number. Comparing two reports where the join
+    // silently produced nothing would otherwise pass.
+    // Scoped to the change-history section: the per-metric hotspot
+    // tables above it also hold `.rs` rows ending in a number, and those
+    // come from `markdown_tx`, not the channel under test. The table is
+    // capped at 20 rows even though the fixture has 40 files.
+    let scored = |text: &str| -> usize {
+        text.lines()
+            .skip_while(|l| !l.starts_with("## Change-history risk"))
+            .skip(1)
+            .take_while(|l| !l.starts_with("## ") && !l.starts_with("### "))
+            .filter(|l| l.starts_with('|') && l.contains(".rs"))
+            .filter(|l| {
+                l.rsplit('|')
+                    .nth(1)
+                    .is_some_and(|cell| cell.trim().parse::<f64>().is_ok())
+            })
+            .count()
+    };
+    assert_eq!(
+        scored(&serial),
+        20,
+        "every change-history row should carry a joined hotspot score:\n{serial}"
+    );
+    assert_eq!(
+        sorted_lines(&serial),
+        sorted_lines(&parallel),
+        "report --vcs hotspots differ between --jobs 1 and --jobs 16"
     );
 }

@@ -153,21 +153,19 @@ pub fn compare_rca_output_with_files_under(
     exclude: &[&str],
     expected_files: usize,
 ) {
-    // `ConcurrentRunner` reserves one job for the producer thread
-    // (`max(2, n) - 1` consumers), so ask for one more than the machine's
-    // parallelism to get one consumer per core. The previous hardcoded `4`
-    // left 3 consumers analyzing DeepSpeech's 1042 files while the rest of
-    // the box idled.
+    // One consumer per core. `num_jobs` is the consumer count directly
+    // since #1114 moved dispatch onto the calling thread; before that
+    // `ConcurrentRunner` reserved a slot for a producer thread and
+    // spawned `max(2, n) - 1` consumers, so this asked for one more than
+    // the machine's parallelism to compensate. Passing the parallelism
+    // figure straight through now means what the old `+ 1` was for.
     //
     // Several corpus tests can run concurrently under nextest, each with
     // its own runner, so this nominally oversubscribes. Measured, it does
     // not cost anything: only DeepSpeech runs longer than ~1.2s, so the
     // overlap window is short, and the small corpora leave most of their
     // consumers parked on an empty queue.
-    // Written as `consumers + 1` so the fallback reads as a consumer count
-    // too: an unavailable parallelism figure keeps the previous hardcoded
-    // behaviour of 3 consumers rather than silently assuming 4 cores.
-    let num_jobs = std::thread::available_parallelism().map_or(3, NonZeroUsize::get) + 1;
+    let num_jobs = std::thread::available_parallelism().map_or(4, NonZeroUsize::get);
 
     let snapshotted = Arc::new(AtomicUsize::new(0));
     let cfg = Config {

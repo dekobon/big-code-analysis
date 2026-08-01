@@ -106,6 +106,17 @@ pub(crate) enum DiffError {
     /// (no `to_string_lossy`), so this is a hard error rather than a
     /// silent rename.
     NonUtf8Path { path: PathBuf },
+    /// The `--since` collector thread panicked, so that side's set is
+    /// incomplete. Surfaced as an error rather than resumed: a partial
+    /// set would report its missing files as added or removed, which is
+    /// the wrong-answer failure mode #1098 exists to prevent.
+    CollectorPanicked { side: DiffSide },
+    /// A `--since` walk streamed an aggregate item that was not a
+    /// metrics space. Unreachable today — `--since` only ever runs
+    /// `Action::Metrics`, and `ops` is a separate subcommand — but
+    /// dropping the item would silently shorten the set, so it is
+    /// refused rather than skipped.
+    UnexpectedAggregate,
     /// A `--since` walk could not read every file on one side, so that
     /// side's set is missing files the other side has — which the
     /// comparison would otherwise report as added or removed rather
@@ -135,6 +146,12 @@ impl std::fmt::Display for DiffError {
             }
             Self::NonUtf8Path { path } => {
                 write!(f, "path is not valid UTF-8: {}", path.display())
+            }
+            Self::CollectorPanicked { side } => {
+                write!(f, "diff --since {side} tree: metric collector panicked")
+            }
+            Self::UnexpectedAggregate => {
+                f.write_str("diff --since walk produced a non-metrics result")
             }
             Self::UnwritableOutputs { side, count } => {
                 write!(
@@ -643,9 +660,15 @@ pub(crate) fn set_from_spaces(
     for item in items {
         // `ops` never shares a walk with `metrics` — separate
         // subcommands — and `--since` only ever runs the metrics action,
-        // so the `Ops` arm cannot occur here.
+        // so the `Ops` arm cannot occur here. Rejected rather than
+        // skipped anyway: silently dropping an item would leave the file
+        // absent from this side's set, and an absent file reads as one
+        // the commit added or removed. That is the wrong-answer failure
+        // mode the surrounding `UnreadableInputs` guard exists to
+        // prevent (#1098), so it must not be reintroduced here by a
+        // `continue`.
         let crate::AggregateItem::Metrics(space, path) = item else {
-            continue;
+            return Err(DiffError::UnexpectedAggregate);
         };
         let value = serde_json::to_value(&*space).map_err(|source| DiffError::Serialize {
             path: path.clone(),

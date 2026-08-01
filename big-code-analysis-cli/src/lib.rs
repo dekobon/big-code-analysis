@@ -145,13 +145,19 @@ struct Config {
     /// document. `None` for the directory / stdout paths, which write
     /// per-file inline.
     ///
-    /// A `crossbeam` sender rather than `std::sync::mpsc`: it is `Sync`,
-    /// so the shared `Config` hands every worker the same sender
-    /// directly. The `mpsc` equivalent is `Send`-only and had to sit
-    /// behind a `Mutex` that each worker locked once per file — a single
-    /// point of contention across the pool that scaled *worse* with core
-    /// count, on top of a poisoned-lock branch nothing could reach
-    /// (#1119). The same reasoning covers every `*_tx` below.
+    /// Held bare by the shared `Config`, with no `Mutex`: the sender is
+    /// `Sync`, so every worker sends through the same one. The wrapper
+    /// each `*_tx` used to carry dated from a Rust in which
+    /// `std::sync::mpsc::Sender` was `Send`-only; it has been `Sync`
+    /// since 1.72, so by the time #1119 removed the `Mutex` it was
+    /// buying nothing but a lock taken once per file across the whole
+    /// pool and a poisoned-lock branch nothing could reach.
+    ///
+    /// `crossbeam` rather than `std::sync::mpsc` only because the
+    /// library's `ConcurrentRunner` already routes its job queue through
+    /// it, so the workspace carries one channel implementation; `mpsc`
+    /// would serve here equally well. The same applies to every `*_tx`
+    /// below.
     aggregate_tx: Option<crossbeam::channel::Sender<AggregateItem>>,
     language: Option<LANG>,
     line_start: Option<usize>,
@@ -526,9 +532,9 @@ fn run_walk_collecting(globals: GlobalOpts, mut cfg: Config) -> Vec<PathBuf> {
 
 /// Analyze the source tree rooted at `root` with `globals` (whose
 /// `paths` the caller has set to seeds *relative to* `root`, and whose
-/// `include`/`exclude` carry the user's selection), writing per-file
-/// JSON into `json_out_dir`, and return the resulting in-memory
-/// [`MetricSet`] keyed by each file's path relative to `root`.
+/// `include`/`exclude` carry the user's selection), returning the
+/// resulting in-memory [`MetricSet`] keyed by each file's path relative
+/// to `root`.
 ///
 /// This is the metric-extraction half of `bca diff --since`: the
 /// "before" side runs it against a tempdir holding the tree at a git
@@ -539,11 +545,14 @@ fn run_walk_collecting(globals: GlobalOpts, mut cfg: Config) -> Vec<PathBuf> {
 ///
 /// The walk runs with the process CWD anchored at `root` (via the
 /// drop-restoring [`with_cwd`] guard) and the caller's seeds expressed
-/// relative to it, so the JSON writer emits each per-file document under
-/// `json_out_dir` named by the root-relative source path
-/// (`src/foo.rs.json`). The key is then just that path relative to
-/// `json_out_dir` — byte-identical across the two sides whenever the
-/// same logical file exists in both trees.
+/// relative to it, so each analyzed file's emitted name *is* its
+/// root-relative path (`src/foo.rs`) with no absolute prefix to strip.
+/// That name is the key — read off the serialized document, never
+/// reconstructed from an output path — so it is byte-identical across
+/// the two sides whenever the same logical file exists in both trees.
+/// [`metric_diff::set_from_spaces`] and [`metric_diff::load_dir_set`]
+/// share one keying helper precisely so the in-memory side here and the
+/// on-disk side of `bca diff <old> <new>` cannot diverge on it.
 ///
 /// `side` names this tree in the error a partially-readable walk raises
 /// ("before" / "after"). Unreadable input is an error rather than a gap
@@ -568,17 +577,24 @@ pub(crate) fn walk_metric_set(
     // temp tree — while the `FuncSpace` trees were already in the
     // workers' hands. The format stays `Json` because the set's values
     // are `serde_json::Value`s built from the same `Serialize` impl.
-    let (tx, rx) = crossbeam::channel::unbounded();
+    let (tx, rx) =
+        crossbeam::channel::bounded(globals.num_jobs.resolve() * AGGREGATE_BACKLOG_PER_JOB);
     let cfg = Config {
         aggregate_tx: Some(tx),
         ..Config::new(action, &globals, None)
     };
+    // Collect concurrently with the walk rather than draining afterwards.
+    // Each tree is reduced to its metrics `Value` and dropped as it
+    // arrives, so the peak holds the channel backlog instead of one
+    // `FuncSpace` per file — and the conversion overlaps the walk instead
+    // of running after it.
+    let collector = std::thread::spawn(move || metric_diff::set_from_spaces(rx));
 
     // Walk with the process CWD anchored at `root` and the seeds
-    // expressed relative to it (the caller passes `.`/`<subdir>`),
-    // so the JSON writer emits files under `json_out_dir` named by the
-    // root-relative source path (`src/foo.rs.json`) with no absolute
-    // prefix to strip. This is what makes the "before" side (a
+    // expressed relative to it (the caller passes `.`/`<subdir>`), so
+    // each space's emitted name is the root-relative source path
+    // (`src/foo.rs`) with no absolute prefix to strip. This is what
+    // makes the "before" side (a
     // /tmp/… extraction) and the "after" side (the working tree or an
     // explicit dir) pair on the same keys despite different absolute
     // roots, without depending on `reanchor_seed`'s under-CWD rewrite.
@@ -589,6 +605,13 @@ pub(crate) fn walk_metric_set(
     let restore = with_cwd(root)?;
     let failures = run_walk_tallying(globals, cfg);
     drop(restore);
+
+    // `run_walk_tallying` took `cfg` by value and has joined every
+    // worker, so the sender is dropped and the collector's receiver sees
+    // disconnect. Joined before the failure guards below so the thread is
+    // always reaped, even on the error paths.
+    let collected = collector.join();
+
     if failures.read > 0 {
         return Err(metric_diff::DiffError::UnreadableInputs {
             side,
@@ -607,11 +630,33 @@ pub(crate) fn walk_metric_set(
         });
     }
 
-    // `run_walk_tallying` took `cfg` by value and has joined every
-    // worker, so the sender is dropped and the receiver is drained to
-    // disconnect rather than blocking.
-    metric_diff::set_from_spaces(rx)
+    collected.map_err(|_| metric_diff::DiffError::CollectorPanicked { side })?
 }
+
+/// Un-collected `FuncSpace` trees allowed between the worker pool and
+/// the `--since` collector, as a multiple of the pool width.
+///
+/// The bound exists to stop *unbounded* growth, not to tune the peak.
+/// Draining after the walk rather than during it let the channel hold
+/// one tree per file, which took `diff --since` over a 12,732-file tree
+/// to 849 MB resident against 453 MB for the temp-JSON route it
+/// replaced. Any finite bound fixes that; the value chosen barely moves
+/// the result, because what remains at peak is the accumulated
+/// `MetricSet`, not the backlog.
+///
+/// Measured on that tree at 16 workers, median of three:
+///
+/// | backlog | wall (min) | peak RSS |
+/// |---------|-----------|----------|
+/// | unbounded | 7.62 s | 849 MB |
+/// | 16x (this value) | 5.13 s | 591 MB |
+/// | 4x | 6.55 s | 600 MB |
+///
+/// So a tighter bound costs wall time and saves nothing: it starts
+/// throttling the pool while the peak stays put. Scaled per job rather
+/// than fixed so a wider pool cannot be throttled by a constant sized
+/// on a 16-core box.
+const AGGREGATE_BACKLOG_PER_JOB: usize = 16;
 
 const SUBCOMMANDS: &[&str] = &[
     "metrics",

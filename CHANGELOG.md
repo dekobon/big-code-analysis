@@ -107,6 +107,13 @@ for historical reference.
   parallel walker would otherwise vary it run to run; sorting also makes
   it independent of the filesystem and the machine. Any consumer that
   pinned the previous order sees a one-time reshuffle.
+- A file that disappears between the walk and its analysis is now a tool
+  error (exit 1) rather than a warning-and-exit-0 (#1114). The CLI opts
+  out of the runner's redundant `is_file()` re-check, so such a path is
+  no longer silently skipped during dispatch; it fails at the read and
+  is counted by the same `read_failures` guard that already refuses to
+  report a result derived from a partially analysed input set (#1098).
+  The previous silent skip was the inconsistency.
 - Retuned the `[thresholds]` table `bca init` scaffolds, deriving each
   limit from published thresholds plus a 20-language corpus measurement
   (#1140). `cognitive` 25 to 15 (SonarSource's own default for the
@@ -194,9 +201,20 @@ for historical reference.
   everything; the ~22 s parse-and-walk floor bounds the saving.
 - `bca diff --since` builds both sides' metric sets in memory rather
   than writing one JSON document per source file to a temp tree and
-  immediately re-walking, re-reading and re-parsing it (#1116). On
-  DeepSpeech, median of three: wall 11.73 s → 8.74 s (1.34×), system
-  time 2.75 s → 1.57 s. Output is byte-identical.
+  immediately re-walking, re-reading and re-parsing it (#1116). Each
+  tree is reduced to its metric values by a collector running alongside
+  the walk, over a bounded channel, so the trees are dropped as they
+  arrive rather than all held at once. On `tests/repositories/DeepSpeech`
+  (12,732 files), median of three: wall 9.42 s → 7.62 s, system time
+  3.59 s → 2.34 s. Output is byte-identical.
+
+  **Peak memory rises**: 437 MB → 599 MB (+37%) on that tree. The
+  `MetricSet` for a side is now accumulated during its walk instead of
+  in a separate pass afterwards, so the two overlap — that overlap is
+  what buys the speed. Draining after the walk instead of during it
+  would take the same tree to 831 MB, which is what the bounded channel
+  and the concurrent collector exist to avoid. Size CI containers
+  accordingly for very large trees.
 - The CLI's directory walk runs on `ignore`'s parallel walker instead of
   its single-threaded iterator, and the worker pool no longer reserves a
   slot for a producer thread that finished almost immediately (#1114).
