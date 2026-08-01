@@ -166,12 +166,10 @@ Ruby. Prefer re-deriving from your own repository over adopting any of those fou
 
 ### Metrics that do not apply to every language {#language-gaps}
 
-`nargs` reports 0 for every Bash and Elixir function. For Bash that is correct and permanent: the
-shell has no formal parameter list, arguments arrive as `$1`, `$2`, and so on, and the limit is
-simply inert. For Elixir it is a gap — the language has formal parameter lists and they are parsed
-but not counted, tracked in
-[issue #1142](https://github.com/dekobon/big-code-analysis/issues/1142). In both cases a `nargs`
-limit passes unconditionally, which reads as "no offenders" rather than "not measured".
+`nargs` reports 0 for every Bash function, and that is correct and permanent: the shell has no
+formal parameter list, arguments arrive as `$1`, `$2`, and so on, and the limit is simply inert. A
+`nargs` limit therefore passes unconditionally on a Bash codebase, which reads as "no offenders"
+rather than "not measured". Bash is the only language left in that position.
 
 Perl is counted, but only where the source declares a signature (`sub add($x, $y)`, stable since
 5.20 and on by default under `use v5.36`). A sub *without* a signature takes its arguments from `@_`

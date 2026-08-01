@@ -708,9 +708,8 @@ A metric that silently reports 0 reads as "no offenders" rather than
 "not measured", so it is worth knowing where the count is inert:
 
 - **Bash** — correct and permanent. The shell has no formal parameter
-  list; arguments arrive as `$1`, `$2`, and so on.
-- **Elixir** — a measurement gap, not a language property, tracked in
-  [issue #1142](https://github.com/dekobon/big-code-analysis/issues/1142).
+  list; arguments arrive as `$1`, `$2`, and so on. It is the only
+  language where every function reads 0.
 - **Perl subs without a signature** — correct. Signatures
   (`sub add($x, $y)`) are counted; a sub that reads its arguments from
   `@_` declares no formal parameters to count.
@@ -718,8 +717,9 @@ A metric that silently reports 0 reads as "no offenders" rather than
   parses an anonymous sub's signature inside an error node, so
   `my $f = sub ($x) {…}` reads 0 even though it has a signature.
 
-A `nargs` limit passes unconditionally on any codebase made only of
-those, so gate it per language rather than repository-wide. See
+A `nargs` limit is therefore inert on a Bash codebase and sparse on
+Perl written before `use v5.36`. Gate it per language rather than
+repository-wide; see
 [Choosing thresholds](recipes/thresholds.md#language-gaps).
 
 ### How to read it

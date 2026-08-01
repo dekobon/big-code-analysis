@@ -235,8 +235,16 @@ where
 {
     /// Walk `node` and update `stats` with this metric for the language
     /// implementing the trait.
-    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
-        if Self::is_func(node, ancestors) {
+    ///
+    /// Uses the source-aware [`Checker::is_func_with_code`] rather than the
+    /// byte-less `is_func`, exactly as [`crate::nom::Nom::compute`] does.
+    /// For every grammar with a syntactic function-definition node the two
+    /// are the same predicate, so no count moves; the point is that a
+    /// language whose declarations are only recognisable from the source
+    /// text — Elixir's `def` is an ordinary `Call` (#275) — does not
+    /// silently report 0 here (#1142).
+    fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        if Self::is_func_with_code(node, code, ancestors) {
             compute_args::<Self>(node, &mut stats.fn_nargs);
             return;
         }
@@ -248,7 +256,7 @@ where
 }
 
 impl NArgs for CppCode {
-    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         if Self::is_func(node, ancestors) {
             if let Some(declarator) = node.child_by_field_name("declarator") {
                 let new_node = declarator;
@@ -267,7 +275,7 @@ impl NArgs for CppCode {
 }
 
 impl NArgs for CCode {
-    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         if Self::is_func(node, ancestors) {
             if let Some(declarator) = node.child_by_field_name("declarator") {
                 let new_node = declarator;
@@ -286,7 +294,7 @@ impl NArgs for CCode {
 }
 
 impl NArgs for MozcppCode {
-    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         if Self::is_func(node, ancestors) {
             if let Some(declarator) = node.child_by_field_name("declarator") {
                 let new_node = declarator;
@@ -314,7 +322,12 @@ impl NArgs for MozcppCode {
 //   * a block `^(int x){ … }` holds its params in a `parameter_list`
 //     child rather than under a `parameters` field.
 impl NArgs for ObjcCode {
-    fn compute<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &[u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         match node.kind_id().into() {
             Objc::FunctionDefinition | Objc::FunctionDefinition2 => {
                 if let Some(declarator) = node.child_by_field_name("declarator") {
@@ -376,7 +389,7 @@ fn compute_go_args(node: &Node, nargs: &mut usize) {
 }
 
 impl NArgs for GoCode {
-    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         if Self::is_func(node, ancestors) {
             compute_go_args(node, &mut stats.fn_nargs);
             return;
@@ -418,7 +431,7 @@ fn compute_kotlin_lambda_args(node: &Node, nargs: &mut usize) {
 }
 
 impl NArgs for KotlinCode {
-    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         if Self::is_func(node, ancestors) {
             compute_kotlin_func_args(node, &mut stats.fn_nargs);
             return;
@@ -445,7 +458,7 @@ fn compute_lua_args(node: &Node, nargs: &mut usize) {
 }
 
 impl NArgs for LuaCode {
-    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         if Self::is_func(node, ancestors) {
             compute_lua_args(node, &mut stats.fn_nargs);
         } else if Self::is_closure(node, ancestors) {
@@ -465,7 +478,7 @@ fn compute_tcl_args(node: &Node, nargs: &mut usize) {
 }
 
 impl NArgs for TclCode {
-    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         if Self::is_func(node, ancestors) {
             compute_tcl_args(node, &mut stats.fn_nargs);
         }
@@ -488,7 +501,7 @@ fn compute_irules_args(node: &Node, nargs: &mut usize) {
 }
 
 impl NArgs for IrulesCode {
-    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         if Self::is_func(node, ancestors) {
             compute_irules_args(node, &mut stats.fn_nargs);
         }
@@ -545,7 +558,7 @@ fn compute_perl_args(node: &Node, nargs: &mut usize) {
 }
 
 impl NArgs for PerlCode {
-    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         if Self::is_func(node, ancestors) {
             compute_perl_args(node, &mut stats.fn_nargs);
             return;
@@ -566,6 +579,100 @@ impl NArgs for PerlCode {
     }
 }
 
+// Elixir has no function-definition node. `def bar(a, b, c)` is a `Call`
+// whose `arguments` holds a *second* `Call` carrying the real parameter
+// list, which is why the `parameters`-field heuristic in `compute_args`
+// finds nothing:
+//
+//   call (def)
+//   ├─ identifier  def            <- the `target` field
+//   ╰─ arguments                  <- NOT a field; tree-sitter-elixir
+//      ╰─ call     bar(a, b, c)      gives `call` only a `target` field,
+//         ├─ identifier bar          so both `arguments` levels have to
+//         ╰─ arguments (a, b, c)     be found by kind.
+//
+// A guarded head interposes a `when` `binary_operator` whose `left` is
+// that `Call` — without unwrapping it every guarded clause counts 0, and
+// guards are a large fraction of real Elixir. A head that is a bare
+// `identifier` (`def noargs, do: 1`) has no parameter list and counts 0.
+//
+// `def a + b` and `def -a` define the operator functions `+/2` and `-/1`.
+// Their head is the operator node itself, with the parameters as its
+// operands and no `arguments` container to walk, so the arity comes from
+// the operator's shape.
+fn elixir_declared_args(node: &Node, code: &[u8]) -> usize {
+    let Some(head) = elixir_arguments(node).and_then(|a| a.children().find(Node::is_named)) else {
+        return 0;
+    };
+    let head = elixir_unwrap_guard(&head, code);
+    match head.kind_id().into() {
+        Elixir::Call => elixir_arguments(&head).map_or(0, |p| count_elixir_args(&p)),
+        Elixir::BinaryOperator => 2,
+        Elixir::UnaryOperator => 1,
+        _ => 0,
+    }
+}
+
+fn elixir_arguments<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+    node.first_child(|id| id == Elixir::Arguments)
+}
+
+// Returns the guarded expression when `node` is a `when` guard, and
+// `node` itself otherwise. Matching `BinaryOperator` alone would also
+// unwrap an operator definition, whose operands are the parameters.
+fn elixir_unwrap_guard<'a>(node: &Node<'a>, code: &[u8]) -> Node<'a> {
+    let is_when = node.kind_id() == Elixir::BinaryOperator
+        && node
+            .child_by_field_name("operator")
+            .and_then(|op| op.utf8_text(code))
+            == Some("when");
+    if is_when {
+        node.child_by_field_name("left").unwrap_or(*node)
+    } else {
+        *node
+    }
+}
+
+fn count_elixir_args(params: &Node) -> usize {
+    let mut nargs = 0;
+    params.act_on_child(&mut |n| {
+        if !ElixirCode::is_non_arg(n) {
+            nargs += 1;
+        }
+    });
+    nargs
+}
+
+impl NArgs for ElixirCode {
+    fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        // `is_func` is byte-less and constant `false` for Elixir, because a
+        // `def` is textually indistinguishable from any other `Call`. The
+        // code-aware predicate (#275) is the only one that identifies one,
+        // and it also excludes a `def` inside `quote do … end`, which
+        // declares nothing until the macro expands (#310).
+        if Self::is_func_with_code(node, code, ancestors) {
+            stats.fn_nargs += elixir_declared_args(node, code);
+            return;
+        }
+
+        // Every clause of one `fn` must have the same arity, so the first
+        // `stab_clause` gives the closure's argument count. Summing the
+        // clauses would report `2n` for an n-clause function — do not
+        // "fix" this into a sum.
+        //
+        // A guarded clause (`fn x when is_integer(x) -> …`) aliases its
+        // `left` to a `binary_operator`, exactly as a guarded `def` head
+        // does, so it needs the same unwrap — otherwise every guarded
+        // closure counts the fixed 3 children of the guard expression.
+        if Self::is_closure(node, ancestors)
+            && let Some(clause) = node.first_child(|id| id == Elixir::StabClause)
+            && let Some(params) = clause.child_by_field_name("left")
+        {
+            stats.closure_nargs += count_elixir_args(&elixir_unwrap_guard(&params, code));
+        }
+    }
+}
+
 implement_metric_trait!(
     [NArgs],
     PythonCode,
@@ -580,7 +687,6 @@ implement_metric_trait!(
     BashCode,
     PhpCode,
     CsharpCode,
-    ElixirCode,
     RubyCode
 );
 
@@ -589,7 +695,7 @@ implement_metric_trait!(
 // for a `parameters` field) misses them. Match the closure_parameters
 // child directly and count its `closure_parameter` grand-children.
 impl NArgs for GroovyCode {
-    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         use crate::languages::language_groovy::Groovy;
 
         if Self::is_func(node, ancestors) {
@@ -3344,18 +3450,147 @@ proc g {x y z} { puts $x }",
         );
     }
 
+    /// Regression for #1142: the parameter list sits two `arguments`
+    /// levels down, so the `parameters`-field heuristic found nothing and
+    /// every Elixir function reported 0.
     #[test]
-    fn elixir_default_nargs_is_zero() {
-        // Documents Elixir's current default-impl behaviour. `def` calls
-        // are not recognised as functions (`is_func` returns `false`),
-        // and Elixir anonymous functions hold their parameters inside
-        // a `stab_clause` (not a parameter-list field), so the default
-        // `NArgs::compute` heuristic finds no formal parameters to
-        // count. This anchors the limitation so a future real impl
-        // that wires up `stab_clause`-based argument counting cannot
-        // silently regress to zero.
+    fn elixir_named_function_args() {
         check_metrics::<ElixirParser>(
-            "defmodule Foo do\n  def add(a, b), do: a + b\n  def use_anon do\n    add2 = fn x, y -> x + y end\n    add2.(1, 2)\n  end\nend\n",
+            "defmodule Foo do\n  def bar(a, b, c) do\n    a + b + c\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 1);
+                let s = &metric.nargs;
+                assert_eq!(s.function_args_sum(), 3);
+                assert_eq!(s.function_args_max(), 3);
+            },
+        );
+    }
+
+    /// A guard interposes a `when` `binary_operator` between the macro's
+    /// `arguments` and the head `Call`. Without unwrapping it every
+    /// guarded clause — a large fraction of real Elixir — counts 0.
+    #[test]
+    fn elixir_guarded_clause_args() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  defp baz(x) when is_integer(x), do: x\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 1);
+                let s = &metric.nargs;
+                assert_eq!(s.function_args_sum(), 1);
+                assert_eq!(s.function_args_max(), 1);
+            },
+        );
+    }
+
+    /// `def noargs, do: 1` puts a bare `identifier` where the head `Call`
+    /// would be. It has no parameter list, and the walk must stop there
+    /// rather than fall through to the enclosing `arguments` — which
+    /// holds the `do:` keyword pair and would count 1.
+    #[test]
+    fn elixir_zero_arg_function_has_no_parameter_list() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def noargs, do: 1\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 1);
+                assert_eq!(metric.nargs.function_args_sum(), 0);
+            },
+        );
+    }
+
+    /// Pattern and defaulted parameters are `map` and `binary_operator`
+    /// nodes rather than plain identifiers, so the punctuation-negative
+    /// filter is what keeps them counted.
+    #[test]
+    fn elixir_pattern_and_default_args() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(%{a: x}, b \\\\ 1), do: {x, b}\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 1);
+                let s = &metric.nargs;
+                assert_eq!(s.function_args_sum(), 2);
+                assert_eq!(s.function_args_max(), 2);
+            },
+        );
+    }
+
+    /// Every clause of one `fn` has the same arity, so a two-clause
+    /// two-argument closure is 2 — summing the clauses would report 4.
+    #[test]
+    fn elixir_multi_clause_closure_counts_one_clause() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def run do\n    fn\n      a, b -> a + b\n      a, _ -> a\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.nom.closures_sum(), 1);
+                let s = &metric.nargs;
+                assert_eq!(s.closure_args_sum(), 2);
+                assert_eq!(s.closure_args_max(), 2);
+            },
+        );
+    }
+
+    /// A guarded `fn` clause aliases its `left` to the same `when`
+    /// `binary_operator` a guarded `def` head uses, so it needs the same
+    /// unwrap. Without it the count is the guard expression's fixed three
+    /// children — 3 for any arity, which is why the four-parameter form is
+    /// the fixture here.
+    #[test]
+    fn elixir_guarded_closure_args() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def run do\n    fn a, b, c, d when is_integer(a) -> a + b + c + d end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.nom.closures_sum(), 1);
+                let s = &metric.nargs;
+                assert_eq!(s.closure_args_sum(), 4);
+                assert_eq!(s.closure_args_max(), 4);
+            },
+        );
+    }
+
+    /// `def a + b` and `def -a` define the operator functions `+/2` and
+    /// `-/1`. Their head is the operator node itself, with no `arguments`
+    /// container to walk, so the arity comes from the operator's shape.
+    #[test]
+    fn elixir_operator_definition_args() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def a + b, do: {a, b}\n  def -a, do: a\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 2);
+                let s = &metric.nargs;
+                assert_eq!(s.function_args_sum(), 3);
+                assert_eq!(s.function_args_max(), 2);
+            },
+        );
+    }
+
+    /// A `def` inside `quote do … end` is a code template, not a
+    /// declaration, and must not contribute arguments (#310). The quoted
+    /// head carries three parameters, so dropping the rule reads 3.
+    #[test]
+    fn elixir_quoted_def_contributes_no_args() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  defmacro mac do\n    quote do\n      def generated(p, q, r), do: p + q + r\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.nargs.function_args_sum(), 0);
+            },
+        );
+    }
+
+    /// Only `def` / `defp` / `defmacro` / `defmacrop` declare a function.
+    /// `defmodule` and `defdelegate` are ordinary `Call`s of the same
+    /// shape — `defdelegate log(msg), to: Logger` has a head `Call` with
+    /// one parameter, so a gate that matched any macro would read 1.
+    #[test]
+    fn elixir_non_method_macros_count_zero() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  defdelegate log(msg), to: Logger\nend\n",
             "foo.ex",
             |metric| {
                 assert_eq!(metric.nargs.function_args_sum(), 0);

@@ -182,14 +182,14 @@ value = 6.0
 [[entry]]
 path = "big-code-analysis-cli/src/dispatch.rs"
 qualified = "dispatch_metrics"
-start_line = 231
+start_line = 235
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/dispatch.rs"
 qualified = "dispatch_ops"
-start_line = 290
+start_line = 294
 metric = "nargs"
 value = 8.0
 
@@ -252,7 +252,7 @@ value = 7.0
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "legacy_hint"
-start_line = 678
+start_line = 825
 metric = "halstead.effort"
 value = 59351.805921378844
 
@@ -287,7 +287,7 @@ value = 8.0
 [[entry]]
 path = "big-code-analysis-cli/src/metric_diff.rs"
 qualified = "MetricDiff::from_sets"
-start_line = 238
+start_line = 269
 metric = "nargs"
 value = 8.0
 
@@ -343,7 +343,7 @@ value = 7.0
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_command.rs"
 qualified = "write_table"
-start_line = 466
+start_line = 474
 metric = "nexits"
 value = 5.0
 
@@ -782,6 +782,20 @@ metric = "nargs"
 value = 7.0
 
 [[entry]]
+path = "src/metrics/nargs.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.ploc"
+value = 525.0
+
+[[entry]]
+path = "src/metrics/nargs.rs"
+qualified = "ObjcCode::compute"
+start_line = 325
+metric = "nargs"
+value = 7.0
+
+[[entry]]
 path = "src/metrics/npa/csharp.rs"
 qualified = "CsharpCode::compute"
 start_line = 12
@@ -812,7 +826,7 @@ value = 10.0
 [[entry]]
 path = "src/metrics/npa/python.rs"
 qualified = "python_self_attr_name_bytes"
-start_line = 305
+start_line = 303
 metric = "nexits"
 value = 6.0
 
@@ -835,7 +849,7 @@ path = "src/node.rs"
 qualified = "Node<'a>"
 start_line = 93
 metric = "nom"
-value = 35.0
+value = 34.0
 
 [[entry]]
 path = "src/ops.rs"
@@ -940,7 +954,7 @@ path = "src/spaces/compute.rs"
 qualified = "compute_per_node"
 start_line = 218
 metric = "halstead.effort"
-value = 62326.31232911353
+value = 63007.70094399036
 
 [[entry]]
 path = "src/spaces/compute.rs"
