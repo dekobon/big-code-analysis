@@ -503,9 +503,19 @@ weigh them, do not drive them to zero at any cost.
 ## Tree-sitter grammars
 
 External grammar crates are version-pinned (`=0.23.5`, `=0.26.10`,
-etc.) in the root `Cargo.toml` **and in each vendored crate's own
-manifest** — `utils/check-excluded-manifests.py` enforces both, so a
-new vendored grammar cannot reintroduce a caret range (#1151).
+etc.) in the root `Cargo.toml` **and in each workspace-excluded crate's
+own manifest** (the five vendored grammars plus `enums`) —
+`utils/check-excluded-manifests.py` enforces both, so neither a root
+pin nor a new vendored grammar can reintroduce a caret range (#1151).
+Member crates take their grammars through `workspace = true` and carry
+no requirement of their own. The gate reads manifests with `tomllib`,
+so a literal string (`tree-sitter-cpp = '0.23.4'`) is checked like any
+other, and it matches `tree-sitter` anywhere in a dependency name —
+`dekobon-tree-sitter-groovy` and any future `bca-tree-sitter-*` are in
+scope. A pin means exactly `=X.Y.Z` (whitespace after `=` is fine); a
+compound requirement such as `=0.25.0, <0.26` is rejected, because the
+`.grammar-marker-baseline.toml` entry that `check-grammar-marker-sync.py`
+compares against can name only one version.
 
 One deliberate exception: `tree-sitter-language`, the ecosystem's shared
 `LanguageFn` trait shim, is **not** a grammar and must stay caret-ranged.
@@ -513,6 +523,15 @@ One deliberate exception: `tree-sitter-language`, the ecosystem's shared
 0.1.1` requires `^0.1.7`, and cargo unifies 0.1.x deps) and would break
 downstream consumers of the published `bca-tree-sitter-*` crates. The
 gate carries it in `PIN_EXEMPT_DEPS`.
+
+The `tree-sitter` runtime is **not** exempt, though the "not a grammar"
+half of that rationale fits it too. The exemption is about unification
+pressure and the runtime has none — the lockfile shows 25 crates
+depending on `tree-sitter-language` against one external dependent
+(`tree-sitter-perl`) for `tree-sitter` — and every manifest here already
+pins it at `=0.26.11` with the workspace resolving. Its ABI version is
+also what each vendored `parser.c` was generated against, so an
+accidental bump is precisely the drift the gate exists to catch.
 
 Treat the pinned version as fixed:
 

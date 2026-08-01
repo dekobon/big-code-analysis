@@ -1,3 +1,15 @@
+# Standalone workspace root. The root manifest `exclude`s this crate, but
+# `exclude` denies membership without terminating cargo's upward search for a
+# workspace root. Inside a git worktree under `.claude/worktrees/` that search
+# escapes the worktree and lands on the main checkout's manifest, where this
+# path is neither a member nor excluded — breaking `cargo fmt --all` and every
+# `make pre-commit` stage that depends on it (#1145).
+#
+# Kept at the top of the file rather than the bottom: an empty table as the
+# last thing in a manifest silently adopts any bare key appended after it, so
+# a future `foo = "1"` meant for `[package]` would become `[workspace].foo`.
+[workspace]
+
 [package]
 name = "bca-tree-sitter-mozjs"
 description = "Mozjs grammar for the tree-sitter parsing library (big-code-analysis fork)"
@@ -59,11 +71,3 @@ build = ["tree-sitter-javascript"]
 
 [dev-dependencies]
 tree-sitter = "=0.26.11"
-
-# Standalone workspace root. The root manifest `exclude`s this crate, but
-# `exclude` denies membership without terminating cargo's upward search for a
-# workspace root. Inside a git worktree under `.claude/worktrees/` that search
-# escapes the worktree and lands on the main checkout's manifest, where this
-# path is neither a member nor excluded — breaking `cargo fmt --all` and every
-# `make pre-commit` stage that depends on it (#1145).
-[workspace]

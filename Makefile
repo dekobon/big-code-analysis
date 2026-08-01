@@ -132,7 +132,7 @@ help:
 	@echo "  check-versions                       Enforce lockstep version invariant across owned crates"
 	@echo "  check-versions-test                  Self-tests for the check-versions gate"
 	@echo "  check-grammar-crate-test            Sync-test EXTENSIONS table vs src/langs.rs"
-	@echo "  check-excluded-manifests             Assert workspace-excluded crates root their own workspace"
+	@echo "  check-excluded-manifests             Assert excluded crates root a workspace and grammars are =-pinned"
 	@echo "  check-excluded-manifests-test        Self-tests for the check-excluded-manifests gate"
 	@echo "  check-manpage-assets                 Assert every bca-*.1 man page is in deb+rpm asset lists"
 	@echo "  enums-check                          cargo clippy + cargo test on workspace-excluded enums crate"
@@ -424,15 +424,15 @@ check-versions-test:
 	@echo "Running check-versions self-tests..."
 	@(cd $(BASE_DIR) && python3 -m unittest -q utils/check-versions-test.py)
 
-# Man-page packaging gate. Blocks the failure mode from #444:
-# a bca subcommand man page that drops out of the hand-maintained
 # Workspace-exclusion gate. Closes #1145: a crate in the root
 # `[workspace] exclude` array must root its own workspace, because
 # `exclude` denies membership without stopping cargo's upward search
 # for a workspace root. In a git worktree under `.claude/worktrees/`
 # that search escapes the worktree and resolves against the main
 # checkout, breaking `cargo fmt --all` and every `make pre-commit`
-# stage chained behind it. Static lint — no network, no cargo.
+# stage chained behind it. Also asserts every tree-sitter dependency
+# in the root manifest and in each excluded crate carries an `=X.Y.Z`
+# pin (#1151). Static lint — no network, no cargo.
 check-excluded-manifests:
 	@echo "Checking workspace-excluded manifests..."
 	@python3 $(BASE_DIR)utils/check-excluded-manifests.py
@@ -445,6 +445,8 @@ check-excluded-manifests-test:
 	@echo "Running check-excluded-manifests self-tests..."
 	@(cd $(BASE_DIR) && python3 -m unittest -q utils/check-excluded-manifests-test.py)
 
+# Man-page packaging gate. Blocks the failure mode from #444:
+# a bca subcommand man page that drops out of the hand-maintained
 # deb/rpm asset lists in the CLI / web crate Cargo.toml. Static
 # lint — no network, no cargo, runs in milliseconds. See #446.
 check-manpage-assets:

@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Tests for check-excluded-manifests.py.
 
-Two kinds of test, matching the check-versions-test.py pattern:
+Three kinds of test, matching the check-versions-test.py pattern:
 
-* Unit tests against synthetic manifests, including the exact shapes
-  that must **not** count as a workspace root — ``[workspace.package]``
-  and ``[workspace.dependencies]`` both start with the same eleven
-  characters, and neither terminates cargo's upward search.
+* Unit tests against synthetic manifests, weighted toward the legal
+  TOML shapes the gate's regex predecessor mis-read: literal strings,
+  commented-out entries, inline arrays, indented keys, and the text
+  ``[workspace]`` inside a multi-line string.
+* ``main()`` tests over a synthetic repository root, covering both
+  error branches and the remediation text they print.
 * A smoke test running the real gate against the real repository,
   asserting a clean tree reports OK.
 
@@ -16,12 +18,15 @@ Run with:
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import pathlib
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 UTILS_DIR = pathlib.Path(__file__).resolve().parent
 REPO_ROOT = UTILS_DIR.parent
@@ -73,6 +78,51 @@ class ReadExcludedCratesTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             GATE.read_excluded_crates('[workspace]\nmembers = ["a"]\n')
 
+    def test_literal_string_entries_are_read(self) -> None:
+        # TOML literal strings are legal Cargo syntax. The regex gate
+        # matched only double quotes, so a `'enums'` entry dropped out
+        # of the check entirely without any signal.
+        self.assertEqual(
+            GATE.read_excluded_crates(
+                "[workspace]\nexclude = [\n  'enums',\n  \"tree-sitter-tcl\",\n]\n"
+            ),
+            ["enums", "tree-sitter-tcl"],
+        )
+
+    def test_a_commented_out_entry_is_not_a_crate(self) -> None:
+        # Commenting an entry out is how a retired crate leaves the
+        # array. The regex gate returned the comment's quoted text as a
+        # crate path and then died on the missing manifest.
+        self.assertEqual(
+            GATE.read_excluded_crates(
+                '[workspace]\nexclude = [\n  "enums",\n  # "tree-sitter-retired",\n]\n'
+            ),
+            ["enums"],
+        )
+
+    def test_an_inline_array_does_not_swallow_the_next_array(self) -> None:
+        # `exclude` on one line followed by any other multi-line array:
+        # the regex ran non-greedily to the next line-initial `]` and
+        # returned the *other* array's entries as excluded crates.
+        self.assertEqual(
+            GATE.read_excluded_crates(
+                '[workspace]\nexclude = ["enums"]\nmembers = [\n  "cli",\n]\n'
+            ),
+            ["enums"],
+        )
+
+    def test_an_indented_exclude_key_is_found(self) -> None:
+        # Leading whitespace before a key is valid TOML; the regex was
+        # anchored at column zero and reported "could not locate".
+        self.assertEqual(
+            GATE.read_excluded_crates('[workspace]\n  exclude = ["enums"]\n'),
+            ["enums"],
+        )
+
+    def test_a_non_string_entry_is_a_hard_error(self) -> None:
+        with self.assertRaises(SystemExit):
+            GATE.read_excluded_crates("[workspace]\nexclude = [1]\n")
+
 
 class MissingWorkspaceTableTest(unittest.TestCase):
     def _root_with(self, manifest_body: str) -> pathlib.Path:
@@ -89,16 +139,38 @@ class MissingWorkspaceTableTest(unittest.TestCase):
         root = self._root_with('[package]\nname = "g"\n')
         self.assertEqual(GATE.missing_workspace_table(["grammar"], root), ["grammar"])
 
-    def test_workspace_package_does_not_count_as_a_workspace_root(self) -> None:
-        # The failure this gate exists to catch: `[workspace.package]`
-        # and `[workspace.dependencies]` share a prefix with the bare
-        # table but do not stop cargo's upward search.
-        for header in ("[workspace.package]", "[workspace.dependencies]"):
-            with self.subTest(header=header):
-                root = self._root_with(f'[package]\nname = "g"\n\n{header}\nx = 1\n')
-                self.assertEqual(
-                    GATE.missing_workspace_table(["grammar"], root), ["grammar"]
-                )
+    def test_any_workspace_key_roots_a_workspace(self) -> None:
+        # Cargo keys on the presence of a `workspace` key, not on the
+        # bare header. Probed on cargo 1.95.0 against a sub-package
+        # under an unrelated workspace root: with no workspace table it
+        # exits 101 ("current package believes it's in a workspace when
+        # it's not"), and each of these three headers alone makes
+        # `cargo metadata` exit 0. An earlier revision of this test
+        # asserted the opposite and encoded cargo semantics that do not
+        # exist.
+        for header in (
+            "[workspace.package]\nversion = \"0.1.0\"",
+            "[workspace.dependencies]\nserde = \"1\"",
+            "[workspace.lints]\nrust.unsafe_code = \"forbid\"",
+        ):
+            with self.subTest(header=header.splitlines()[0]):
+                root = self._root_with(f'[package]\nname = "g"\n\n{header}\n')
+                self.assertEqual(GATE.missing_workspace_table(["grammar"], root), [])
+
+    def test_a_bracketed_workspace_inside_a_string_is_not_a_table(self) -> None:
+        # The regex gate matched the *text* `[workspace]` wherever it
+        # sat, including inside a multi-line string, and reported a
+        # manifest that roots no workspace as compliant.
+        root = self._root_with(
+            '[package]\nname = "g"\ndescription = """\n[workspace]\n"""\n'
+        )
+        self.assertEqual(GATE.missing_workspace_table(["grammar"], root), ["grammar"])
+
+    def test_a_spaced_workspace_header_counts(self) -> None:
+        # `[ workspace ]` is valid TOML; the regex demanded the exact
+        # eleven characters and reported a rooted crate as an offender.
+        root = self._root_with('[package]\nname = "g"\n\n[ workspace ]\n')
+        self.assertEqual(GATE.missing_workspace_table(["grammar"], root), [])
 
     def test_missing_manifest_is_a_hard_error(self) -> None:
         root = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
@@ -121,7 +193,7 @@ class UnpinnedGrammarDepsTest(unittest.TestCase):
         # The no-space spelling is the case that matters most: #1151's
         # table missed four entries written exactly this way.
         self.assertEqual(
-            GATE.unpinned_grammar_deps('tree-sitter-perl="1.1.2"\n'),
+            GATE.unpinned_grammar_deps('[dependencies]\ntree-sitter-perl="1.1.2"\n'),
             [("tree-sitter-perl", "1.1.2")],
         )
 
@@ -132,21 +204,66 @@ class UnpinnedGrammarDepsTest(unittest.TestCase):
         # crate breaks downstream resolution (#1151).
         for spelling in ('tree-sitter-language="0.1.0"', 'tree-sitter-language = "0.1.0"'):
             with self.subTest(spelling=spelling):
-                self.assertEqual(GATE.unpinned_grammar_deps(spelling + "\n"), [])
+                self.assertEqual(
+                    GATE.unpinned_grammar_deps("[dependencies]\n" + spelling + "\n"), []
+                )
+
+    def test_the_runtime_crate_is_not_exempt(self) -> None:
+        # `tree-sitter` itself stays pin-required, unlike the shim: it
+        # has no unification pressure here (one external dependent in
+        # the lockfile) and its ABI version is what each vendored
+        # `parser.c` was generated against.
+        self.assertEqual(
+            GATE.unpinned_grammar_deps('[dev-dependencies]\ntree-sitter = "^0.26"\n'),
+            [("tree-sitter", "^0.26")],
+        )
 
     def test_caret_range_with_spaces_is_caught(self) -> None:
         self.assertEqual(
-            GATE.unpinned_grammar_deps('tree-sitter-cpp = "0.23.4"\n'),
+            GATE.unpinned_grammar_deps('[dependencies]\ntree-sitter-cpp = "0.23.4"\n'),
             [("tree-sitter-cpp", "0.23.4")],
+        )
+
+    def test_a_literal_string_requirement_is_read(self) -> None:
+        # The regex gate matched double-quoted values only, so this
+        # unpinned grammar passed the gate as if it were not a
+        # dependency at all.
+        self.assertEqual(
+            GATE.unpinned_grammar_deps("[dependencies]\ntree-sitter-cpp = '0.23.4'\n"),
+            [("tree-sitter-cpp", "0.23.4")],
+        )
+
+    def test_a_name_prefixed_grammar_is_checked(self) -> None:
+        # `dekobon-tree-sitter-groovy` is a live entry in both the root
+        # and `enums` manifests; the `^tree-sitter` anchor never reached
+        # it, and would not reach a future `bca-tree-sitter-*` either.
+        self.assertEqual(
+            GATE.unpinned_grammar_deps(
+                "[dependencies]\n"
+                'dekobon-tree-sitter-groovy = "^0.2.2"\n'
+                'bca-tree-sitter-mozjs = "2.1.0"\n'
+            ),
+            [("dekobon-tree-sitter-groovy", "^0.2.2"), ("bca-tree-sitter-mozjs", "2.1.0")],
         )
 
     def test_inline_table_without_a_pin_is_caught(self) -> None:
         self.assertEqual(
             GATE.unpinned_grammar_deps(
-                'tree-sitter-tcl = { path = "../x", version = "2.1.0" }\n'
+                '[dependencies]\ntree-sitter-tcl = { path = "../x", version = "2.1.0" }\n'
             ),
             [("tree-sitter-tcl", "2.1.0")],
         )
+
+    def test_a_workspace_inherited_entry_carries_no_requirement(self) -> None:
+        # Member crates take grammars through `workspace = true`; the
+        # requirement they inherit lives in the root manifest, which the
+        # gate checks directly. Flagging these would be a false hit.
+        manifest = (
+            "[dependencies]\n"
+            "tree-sitter.workspace = true\n"
+            "tree-sitter-bash = { workspace = true, optional = true }\n"
+        )
+        self.assertEqual(GATE.unpinned_grammar_deps(manifest), [])
 
     def test_non_grammar_dependencies_are_out_of_scope(self) -> None:
         # The pinning rule is about grammars; `cc`, `clap` and `askama`
@@ -162,6 +279,150 @@ class UnpinnedGrammarDepsTest(unittest.TestCase):
             "[package.metadata.cargo-udeps.ignore]\nbuild = [\"tree-sitter-cpp\"]\n"
         )
         self.assertEqual(GATE.unpinned_grammar_deps(manifest), [])
+
+    def test_a_commented_out_dependency_line_is_not_a_dependency(self) -> None:
+        # The regex gate needed a `^\s*` anchor to keep a commented-out
+        # line out of the dependency set, and nothing exercised it.
+        # tomllib cannot see a comment at all; this test fails against
+        # any return to line matching.
+        manifest = '[dependencies]\n# tree-sitter-cpp = "0.23.4"\ncc = "^1.2"\n'
+        self.assertEqual(GATE.unpinned_grammar_deps(manifest), [])
+
+    def test_a_grammar_named_key_outside_a_dependency_table_is_ignored(self) -> None:
+        # A version-shaped value under a non-dependency table is not a
+        # requirement. The regex gate read it as one; the walk only
+        # honours `dependencies` / `build-dependencies` /
+        # `dev-dependencies`.
+        manifest = '[package.metadata.grammar-audit]\ntree-sitter-cpp = "0.23.4"\n'
+        self.assertEqual(GATE.unpinned_grammar_deps(manifest), [])
+
+    def test_nested_dependency_tables_are_reached(self) -> None:
+        # `[workspace.dependencies]` holds the root manifest's ~20
+        # grammar pins, and `[target.'cfg(...)'.build-dependencies]` is
+        # the deepest shape cargo permits. Both must be walked.
+        manifest = (
+            "[workspace.dependencies]\n"
+            'tree-sitter-python = "^0.25.0"\n\n'
+            "[target.'cfg(unix)'.build-dependencies]\n"
+            'tree-sitter-lua = "0.5.0"\n'
+        )
+        self.assertEqual(
+            GATE.unpinned_grammar_deps(manifest),
+            [("tree-sitter-python", "^0.25.0"), ("tree-sitter-lua", "0.5.0")],
+        )
+
+
+class PinSuggestionTest(unittest.TestCase):
+    def test_a_bare_version_is_repaired_by_prepending_equals(self) -> None:
+        self.assertEqual(GATE.pin_suggestion("0.23.4"), 'should be "=0.23.4"')
+
+    def test_a_range_is_not_repaired_by_prepending_equals(self) -> None:
+        # `should be "=^0.23.4"` / `"=>=0.23, <0.24"` / `"=*"` are all
+        # requirements cargo rejects; the old message printed each one.
+        for requirement in ("^0.23.4", ">=0.23, <0.24", "*"):
+            with self.subTest(requirement=requirement):
+                message = GATE.pin_suggestion(requirement)
+                self.assertEqual(
+                    message, 'replace the range with an exact "=X.Y.Z" pin'
+                )
+
+    def test_a_spaced_equals_counts_as_a_pin(self) -> None:
+        # `= 0.25.0` is what check-grammar-marker-sync.py reduces to the
+        # bare `0.25.0`; the two gates must agree that it is a pin.
+        self.assertTrue(GATE.is_exact_pin("= 0.25.0"))
+
+    def test_a_compound_requirement_is_not_a_pin(self) -> None:
+        # `=0.25.0, <0.26` names no single version, so the grammar-
+        # marker baseline cannot record it. Accepting it here would let
+        # a manifest through that the marker gate then reports as drift.
+        self.assertFalse(GATE.is_exact_pin("=0.25.0, <0.26"))
+
+
+class MainTest(unittest.TestCase):
+    """`main()` over a synthetic repository root.
+
+    Both error branches, the multi-offender join, and the remediation
+    text were previously unexecuted by any test.
+    """
+
+    def _repo(self, root_manifest: str, crates: dict[str, str]) -> pathlib.Path:
+        root = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (root / "Cargo.toml").write_text(root_manifest, encoding="utf-8")
+        for name, body in crates.items():
+            (root / name).mkdir(parents=True)
+            (root / name / "Cargo.toml").write_text(body, encoding="utf-8")
+        self.enterContext(mock.patch.object(GATE, "REPO_ROOT", root))
+        self.enterContext(
+            mock.patch.object(GATE, "ROOT_MANIFEST", root / "Cargo.toml")
+        )
+        return root
+
+    def _run(self) -> tuple[int, str]:
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            code = GATE.main()
+        return code, err.getvalue()
+
+    def test_a_clean_tree_returns_zero(self) -> None:
+        self._repo(
+            '[workspace]\nexclude = ["a"]\n\n'
+            '[workspace.dependencies]\ntree-sitter-cpp = "=0.23.4"\n',
+            {"a": '[package]\nname = "a"\n\n[workspace]\n'},
+        )
+        code, err = self._run()
+        self.assertEqual(code, 0, err)
+
+    def test_missing_workspace_tables_are_listed_together(self) -> None:
+        self._repo(
+            '[workspace]\nexclude = ["a", "b"]\n',
+            {
+                "a": '[package]\nname = "a"\n',
+                "b": '[package]\nname = "b"\n',
+            },
+        )
+        code, err = self._run()
+        self.assertEqual(code, 1)
+        self.assertIn("a/Cargo.toml", err)
+        self.assertIn("b/Cargo.toml", err)
+        self.assertIn("#1145", err)
+
+    def test_an_unpinned_grammar_in_an_excluded_crate_is_reported(self) -> None:
+        self._repo(
+            '[workspace]\nexclude = ["a"]\n',
+            {
+                "a": '[package]\nname = "a"\n\n[dependencies]\n'
+                'tree-sitter-cpp = "0.23.4"\n\n[workspace]\n'
+            },
+        )
+        code, err = self._run()
+        self.assertEqual(code, 1)
+        self.assertIn('a/Cargo.toml: tree-sitter-cpp = "0.23.4"', err)
+        self.assertIn('should be "=0.23.4"', err)
+
+    def test_an_unpinned_grammar_in_the_root_manifest_is_reported(self) -> None:
+        # AGENTS.md claims this gate enforces the root manifest's pins.
+        # Before the root was added to the scan, loosening one there was
+        # invisible.
+        self._repo(
+            '[workspace]\nexclude = ["a"]\n\n'
+            '[workspace.dependencies]\ntree-sitter-python = "^0.25.0"\n',
+            {"a": '[package]\nname = "a"\n\n[workspace]\n'},
+        )
+        code, err = self._run()
+        self.assertEqual(code, 1)
+        self.assertIn('Cargo.toml: tree-sitter-python = "^0.25.0"', err)
+        self.assertIn('replace the range with an exact "=X.Y.Z" pin', err)
+
+    def test_a_range_requirement_is_not_suggested_back_with_an_equals(self) -> None:
+        self._repo(
+            '[workspace]\nexclude = ["a"]\n\n'
+            '[workspace.dependencies]\ntree-sitter-go = ">=0.23, <0.24"\n',
+            {"a": '[package]\nname = "a"\n\n[workspace]\n'},
+        )
+        code, err = self._run()
+        self.assertEqual(code, 1)
+        self.assertNotIn('"=>=0.23, <0.24"', err)
+        self.assertIn('replace the range with an exact "=X.Y.Z" pin', err)
 
 
 class RealRepositoryTest(unittest.TestCase):

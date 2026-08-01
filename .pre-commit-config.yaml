@@ -210,7 +210,12 @@ repos:
       - id: check-excluded-manifests
         name: check-excluded-manifests
         language: system
-        files: '(^Cargo\.toml|^(enums|tree-sitter-[a-z]+)/Cargo\.toml|^utils/check-excluded-manifests\.py)$'
+        # `tree-sitter-[a-z]+` missed `tree-sitter-c-sharp/` and
+        # `tree-sitter-mozjs2/` — any hyphen or digit in a crate
+        # directory took its manifest out of the hook's scope. Match
+        # any top-level directory, like the broad `Cargo\.toml`
+        # alternation the check-versions hook uses.
+        files: '(^Cargo\.toml|^[^/]+/Cargo\.toml|^utils/check-excluded-manifests\.py)$'
         entry: python3 utils/check-excluded-manifests.py
         pass_filenames: false
 
