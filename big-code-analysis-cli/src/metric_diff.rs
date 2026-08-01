@@ -596,13 +596,29 @@ pub(crate) fn load_dir_set(root: &Path) -> Result<MetricSet, DiffError> {
     let mut set = MetricSet::new();
     for entry in walk_json_files(root)? {
         let value = read_json(&entry)?;
-        let key = value.get(NAME_KEY).and_then(Value::as_str).map_or_else(
-            || path_to_key(entry.strip_prefix(root).unwrap_or(&entry)),
-            |name| Ok(name.to_string()),
-        )?;
-        set.insert(key, extract_metrics(value));
+        insert_document(&mut set, value, entry.strip_prefix(root).unwrap_or(&entry))?;
     }
     Ok(set)
+}
+
+/// Key one per-file document into `set` and store its `metrics` object.
+///
+/// Shared by [`load_dir_set`] and [`set_from_spaces`] so the two cannot
+/// drift on how a document becomes a pairing key (#1116). That agreement
+/// is load-bearing: `bca diff --since` builds one side in memory and
+/// `bca diff <old> <new>` reads the other off disk, and a key derived
+/// differently would pair nothing.
+///
+/// `fallback` supplies the key only for a document with no `name` field
+/// — the relative path within the set, so it stays comparable across
+/// sides.
+fn insert_document(set: &mut MetricSet, value: Value, fallback: &Path) -> Result<(), DiffError> {
+    let key = value
+        .get(NAME_KEY)
+        .and_then(Value::as_str)
+        .map_or_else(|| path_to_key(fallback), |name| Ok(name.to_owned()))?;
+    set.insert(key, extract_metrics(value));
+    Ok(())
 }
 
 /// Build a [`MetricSet`] from the `FuncSpace` trees a `--since` walk
@@ -635,11 +651,7 @@ pub(crate) fn set_from_spaces(
             path: path.clone(),
             source,
         })?;
-        let key = value
-            .get(NAME_KEY)
-            .and_then(Value::as_str)
-            .map_or_else(|| path_to_key(&path), |name| Ok(name.to_owned()))?;
-        set.insert(key, extract_metrics(value));
+        insert_document(&mut set, value, &path)?;
     }
     Ok(set)
 }
