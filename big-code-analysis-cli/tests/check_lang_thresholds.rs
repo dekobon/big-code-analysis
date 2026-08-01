@@ -666,3 +666,109 @@ fn a_language_only_manifest_warns_that_nothing_else_is_gated() {
         "nothing breaches a limit of 100: {stderr}"
     );
 }
+
+/// Issue #1165: a per-language table written with the bare
+/// `diff --metric` alias overrides the global dotted limit for the same
+/// metric, rather than adding a second threshold on the same extractor.
+///
+/// This is the issue's own reproducer. Both fixtures measure
+/// `loc.ploc = 9` at file scope; C raises the limit to 100 and must
+/// therefore pass, while Rust keeps the global 6 and must fail. Before
+/// the fix `ploc` and `loc.ploc` were unrelated map keys, so C's table
+/// resolved *both* and the tighter global limit still fired — with
+/// `--print-effective-config` showing the 100 that did not.
+#[test]
+fn a_language_alias_override_replaces_the_global_dotted_limit() {
+    let dir = polyglot_tree(
+        "paths = [\"branchy.c\", \"branchy.rs\"]\n\
+         [thresholds]\n\
+         \"loc.ploc\" = 6\n\
+         [thresholds.lang.c]\n\
+         ploc = 100\n",
+    );
+
+    let assert = cli(dir.path()).arg("check").assert().code(2);
+    let stderr = String::from_utf8(assert.get_output().stderr.clone()).expect("utf8 stderr");
+    let offenders = offenders(&stderr);
+    assert_eq!(offenders.len(), 1, "exactly one offender: {offenders:?}");
+    assert!(
+        offenders[0].contains("branchy.rs") && offenders[0].ends_with("loc.ploc = 9 (limit 6)"),
+        "C is raised to 100 and passes; Rust keeps the global 6: {offenders:?}"
+    );
+
+    // The printed configuration must name the limit that fired — one
+    // entry per metric, under the canonical id.
+    let assert = cli(dir.path())
+        .args(["check", "--print-effective-config", "toml"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8 stdout");
+    let parsed: toml::Table = toml::from_str(&stdout).expect("effective config is valid TOML");
+    let c = parsed["thresholds"]["lang"]["c"]
+        .as_table()
+        .expect("[thresholds.lang.c] is a table");
+    assert_eq!(
+        c.keys().collect::<Vec<_>>(),
+        ["loc.ploc"],
+        "one entry, canonically spelled: {c:?}"
+    );
+    assert_eq!(c["loc.ploc"].as_float(), Some(100.0));
+}
+
+/// Issue #1165: `--print-effective-config` piped back through
+/// `--config` reproduces the *gate result*, not merely the printed
+/// table — same offender lines, same exit code.
+///
+/// This is the property the printed config exists to provide, and it is
+/// strictly stronger than comparing the two printed tables against each
+/// other: a duplicated extractor collapses into one key on the way
+/// *out* (the printer is keyed by the registry's canonical id), so a
+/// print-versus-reprint comparison agrees with itself while the gate
+/// disagrees with both. Before the fix this run reported two offenders
+/// and the round trip reported one.
+#[test]
+fn the_printed_config_round_trips_to_the_same_gate_result() {
+    let dir = polyglot_tree(
+        "paths = [\"branchy.c\", \"branchy.rs\"]\n\
+         [thresholds]\n\
+         \"loc.ploc\" = 6\n\
+         [thresholds.lang.c]\n\
+         ploc = 100\n",
+    );
+
+    // Both runs name the fixtures the same way, so the offender lines
+    // are comparable verbatim rather than through a path fixup: the
+    // manifest's own `paths` resolve against the manifest directory and
+    // come back absolute.
+    let paths = ["--paths", "branchy.c", "--paths", "branchy.rs"];
+
+    let direct = cli(dir.path()).arg("check").args(paths).assert().code(2);
+    let direct = String::from_utf8(direct.get_output().stderr.clone()).expect("utf8 stderr");
+
+    let printed = cli(dir.path())
+        .args(["check", "--print-effective-config", "toml"])
+        .assert()
+        .success();
+    let printed = String::from_utf8(printed.get_output().stdout.clone()).expect("utf8 stdout");
+    let echoed = dir.path().join("effective.toml");
+    fs::write(&echoed, &printed).expect("write effective config");
+
+    let round_tripped = cli(dir.path())
+        .args(["check", "--no-config"])
+        .args(paths)
+        .args(["--config", echoed.to_str().expect("utf8 path")])
+        .assert()
+        // Same exit code, asserted before the offender comparison: two
+        // empty offender lists would otherwise compare equal.
+        .code(2);
+    let round_tripped =
+        String::from_utf8(round_tripped.get_output().stderr.clone()).expect("utf8 stderr");
+
+    let direct = offenders(&direct);
+    assert_eq!(direct.len(), 1, "one offender before the round trip");
+    assert_eq!(
+        direct,
+        offenders(&round_tripped),
+        "the printed config must gate identically to the config it was printed from"
+    );
+}

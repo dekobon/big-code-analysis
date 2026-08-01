@@ -255,6 +255,12 @@ pub(crate) fn parse_fail_above(s: &str) -> Result<f64, String> {
 /// Parse a single `--threshold metric=limit` token. Only one `=` is
 /// allowed, both sides must be non-empty, and `limit` must parse as a
 /// finite, non-negative `f64`.
+///
+/// Syntax only: the metric name is passed through verbatim, and is
+/// resolved against the registry — canonicalised, then checked for
+/// existence — one layer down, where the manifest and `--config` names
+/// are resolved too. See `canonical_cli_thresholds` for why the two
+/// halves are not split across the clap boundary (#1165).
 pub(crate) fn parse_cli_threshold(s: &str) -> Result<(String, f64), String> {
     let (name, limit) = s
         .split_once('=')
@@ -324,25 +330,80 @@ pub(crate) fn split_thresholds_table(
     let mut out = ParsedThresholds::default();
     for (key, value) in raw {
         match key.as_str() {
-            SOFT_SUBTABLE_KEY => {
-                let table = value.as_table().ok_or_else(|| {
-                    "[thresholds.soft] must be a table of `metric = <number|\"ratiox\">` entries"
-                        .to_string()
-                })?;
-                for (name, sub) in table {
-                    out.soft.insert(name.clone(), parse_soft_value(name, sub)?);
-                }
-            }
+            SOFT_SUBTABLE_KEY => out.soft = parse_soft_table(value)?,
             crate::threshold_lang::LANG_SUBTABLE_KEY => {
                 out.lang = crate::threshold_lang::parse_language_tables(value)?;
             }
             _ => {
-                out.hard
-                    .insert(key.clone(), threshold_scalar("[thresholds]", key, value)?);
+                let limit = threshold_scalar("[thresholds]", key, value)?;
+                insert_canonical_limit(&mut out.hard, "[thresholds]", key, limit)?;
             }
         }
     }
     Ok(out)
+}
+
+/// Parse the `[thresholds.soft]` sub-table into its unresolved
+/// [`SoftLimit`] entries, keyed by canonical metric id.
+///
+/// Mirrors [`crate::threshold_lang::parse_language_tables`], the other
+/// reserved sub-table of `[thresholds]`, so both nested layers are read
+/// by a named parser rather than one inline loop and one delegation.
+fn parse_soft_table(value: &toml::Value) -> Result<BTreeMap<String, SoftLimit>, String> {
+    let table = value.as_table().ok_or_else(|| {
+        "[thresholds.soft] must be a table of `metric = <number|\"ratiox\">` entries".to_string()
+    })?;
+    let context = format!("[thresholds.{SOFT_SUBTABLE_KEY}]");
+    let mut out = BTreeMap::new();
+    for (name, sub) in table {
+        let limit = parse_soft_value(name, sub)?;
+        insert_canonical_limit(&mut out, &context, name, limit)?;
+    }
+    Ok(out)
+}
+
+/// Insert `value` under `name`'s canonical metric id, so every threshold
+/// map is keyed by the dotted registry id from the parse boundary onward
+/// (#1165).
+///
+/// The bare `bca diff --metric` spelling of a `loc` sub-metric is an
+/// alias for the dotted threshold id (`sloc` == `loc.sloc`, #514).
+/// Canonicalising where the maps are *built* — rather than where they
+/// are consumed — is what makes the manifest, `--config`,
+/// `[thresholds.lang.<slug>]`, and `--threshold` layers merge by *metric*
+/// instead of by spelling. Keyed by the raw spelling, a merge kept both
+/// and gated the same extractor twice: two offender lines for one
+/// `(function, metric)` pair, and a `--print-effective-config` that
+/// printed one of the two limits while the other fired. Every consumer
+/// downstream — [`resolve_tier`](crate::commands::check::resolve_tier),
+/// [`ThresholdSet::build_tiered`], `--print-effective-config` — may
+/// therefore assume canonical keys.
+///
+/// An ambiguous family head (`halstead`, `mi`) has no single threshold
+/// scalar and is rejected here, as is a table naming one metric under two
+/// spellings: silently keeping whichever key sorts last is the same
+/// surprise this function exists to remove.
+pub(crate) fn insert_canonical_limit<V>(
+    into: &mut BTreeMap<String, V>,
+    table: &str,
+    name: &str,
+    value: V,
+) -> Result<(), String> {
+    let canonical = crate::metric_alias::normalize_for_check(name)
+        .map_err(|e| format!("{table} {e}"))?
+        .into_owned();
+    if into.contains_key(&canonical) {
+        // Names both spellings rather than quoting the earlier key,
+        // which would read as `"loc.ploc": "loc.ploc" is already set`
+        // whenever the dotted form is the one written second.
+        return Err(format!(
+            "{table} {name:?}: {canonical:?} is already set in this table under its other \
+             spelling; a bare `loc` sub-metric name and its dotted id (`ploc`, `loc.ploc`) \
+             are one metric, so set it once"
+        ));
+    }
+    into.insert(canonical, value);
+    Ok(())
 }
 
 /// Parse a hard-tier scalar limit. Accepts TOML integers and floats;
@@ -671,13 +732,15 @@ impl ThresholdSet {
     ) -> Result<Self, String> {
         let mut entries = Vec::with_capacity(raw.len());
         for (name, limit) in raw {
-            // Accept the bare `diff --metric` spelling as an alias for the
-            // dotted threshold id (issue #514): `sloc` -> `loc.sloc`. An
-            // ambiguous family head (`halstead`, `mi`, which have no single
-            // threshold scalar) is rejected here with a "did you mean"
-            // hint rather than guessing a sub-metric.
-            let canonical = crate::metric_alias::normalize_for_check(name)?;
-            let extractor = lookup_extractor(&canonical).ok_or_else(|| {
+            // Names arrive canonical: every layer that can introduce one
+            // — the manifest and `--config` tables, the per-language
+            // tables, the `--threshold` flags — resolves the bare
+            // `diff --metric` alias spelling at its own parse boundary
+            // (#1165, via `insert_canonical_limit`). Re-normalising here
+            // is what let a merge key two spellings of one metric and
+            // gate it twice, so this layer now takes canonical keys as an
+            // invariant rather than restoring it after the fact.
+            let extractor = lookup_extractor(name).ok_or_else(|| {
                 let known = known_metric_names();
                 format!(
                     "unknown threshold metric {name:?}{}; known metrics: {}",

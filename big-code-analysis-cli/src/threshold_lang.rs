@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 use big_code_analysis::{LANG, Metric};
 
-use crate::thresholds::{ThresholdSet, threshold_scalar};
+use crate::thresholds::{ThresholdSet, insert_canonical_limit, threshold_scalar};
 
 /// Reserved key inside `[thresholds]` that introduces the per-language
 /// override sub-tables (`[thresholds.lang.<slug>]`). The nesting under a
@@ -97,7 +97,8 @@ fn parse_one_language_table(
                  [thresholds.lang.{slug}] without one"
             ));
         }
-        limits.insert(name.clone(), threshold_scalar(&context, name, value)?);
+        let limit = threshold_scalar(&context, name, value)?;
+        insert_canonical_limit(&mut limits, &context, name, limit)?;
     }
     Ok(limits)
 }

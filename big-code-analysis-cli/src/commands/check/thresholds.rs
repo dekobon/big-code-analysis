@@ -147,7 +147,8 @@ pub(crate) fn validate_and_build_thresholds(
     // branch the tier resolver takes.
     let soft_table_present = !soft.is_empty();
 
-    let layers = SharedLayers::new(&args.thresholds, tier, &soft, &lang, &hard);
+    let cli = canonical_cli_thresholds(&args.thresholds);
+    let layers = SharedLayers::new(&cli, tier, &soft, &lang, &hard);
     let thresholds = layers.resolve_all(&hard, &lang);
     if thresholds.is_empty() {
         die(
@@ -169,6 +170,40 @@ pub(crate) fn validate_and_build_thresholds(
         thresholds: Arc::new(thresholds),
         provenance: resolve_provenance(tier, soft_table_present),
     }
+}
+
+/// Canonicalise the `--threshold` metric names so the CLI layer merges
+/// with the manifest, `--config`, and `[thresholds.lang.<slug>]` layers
+/// by *metric* rather than by spelling (#1165) — `--threshold ploc=100`
+/// must override a manifest `"loc.ploc"`, not gate it a second time.
+///
+/// Deliberately **not** done inside `parse_cli_threshold`, which is the
+/// clap `value_parser` for `--threshold`. That parser owns the
+/// `metric=limit` *syntax*; resolving a name against the metric registry
+/// is a semantic check, and the sibling semantic check —
+/// `--threshold not_a_metric=1`, rejected by
+/// [`ThresholdSet::build_tiered`] with the did-you-mean list — already
+/// lives here. Split across the two layers, two adjacent typo classes
+/// would report through different surfaces: an ambiguous family head
+/// wrapped as clap's `invalid value '…' for '--threshold <THRESHOLDS>'`,
+/// an unknown metric as the plain `error:` form.
+///
+/// Note this is *not* an exit-code argument. `exit_clap_error`
+/// (#561/#594) already remaps clap's usage exit 2 to `EXIT_TOOL_ERROR`
+/// precisely so `bca check`'s exit 2 stays reserved for "thresholds
+/// exceeded", so either placement exits 1.
+///
+/// Repeating one metric stays last-wins, as it already is for two
+/// occurrences of the same spelling; only the enclosing tables reject a
+/// metric named twice.
+fn canonical_cli_thresholds(raw: &[(String, f64)]) -> Vec<(String, f64)> {
+    raw.iter()
+        .map(|(name, limit)| {
+            let canonical = crate::metric_alias::normalize_for_check(name)
+                .unwrap_or_else(|e| die(format_args!("--threshold: {e}")));
+            (canonical.into_owned(), *limit)
+        })
+        .collect()
 }
 
 /// The per-metric override tables, keyed by canonical language slug.

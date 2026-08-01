@@ -417,6 +417,145 @@ fn check_cli_threshold_overrides_config() {
         .stderr(predicate::str::is_empty());
 }
 
+/// Issue #1165: a `--threshold` written with the bare `diff --metric`
+/// alias *overrides* a config limit for the same metric instead of
+/// adding a second, independent one.
+///
+/// The config's `loc.sloc = 1` gates every fixture; the CLI's
+/// `sloc=1000` is the same extractor and must replace it, so the run is
+/// clean. Before the fix the two spellings were unrelated map keys and
+/// the tight config limit still fired.
+#[test]
+fn check_cli_alias_threshold_overrides_the_dotted_config_limit() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let cfg_path = dir.path().join("thresholds.toml");
+    fs::write(&cfg_path, "[thresholds]\n\"loc.sloc\" = 1\n").unwrap();
+
+    cli(dir.path())
+        .args([
+            "check",
+            "--paths",
+            &path,
+            "--config",
+            cfg_path.to_str().unwrap(),
+            "--threshold",
+            "sloc=1000",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::is_empty());
+}
+
+/// The mirror of the test above, and the regression it guards: a config
+/// written with the *alias* must still merge with a `--threshold` in the
+/// *dotted* form. Canonicalising only the manifest keys would fix the
+/// reported bug and break this one.
+#[test]
+fn check_dotted_cli_threshold_overrides_an_alias_config_limit() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let cfg_path = dir.path().join("thresholds.toml");
+    fs::write(&cfg_path, "[thresholds]\nsloc = 1\n").unwrap();
+
+    cli(dir.path())
+        .args([
+            "check",
+            "--paths",
+            &path,
+            "--config",
+            cfg_path.to_str().unwrap(),
+            "--threshold",
+            "loc.sloc=1000",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::is_empty());
+}
+
+/// Issue #1165: one metric, one offender line. With `loc.sloc = 1` and
+/// `sloc = 2` both configured, the pre-fix gate resolved two independent
+/// thresholds onto the same extractor and emitted the file's `loc.sloc`
+/// breach twice.
+///
+/// The chosen resolution is to reject the table rather than pick a
+/// winner: a config that sets one metric under two spellings has no
+/// defensible interpretation, and silently keeping whichever key sorts
+/// last is the same surprise in a quieter form.
+#[test]
+fn check_rejects_one_metric_configured_under_two_spellings() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let cfg_path = dir.path().join("thresholds.toml");
+    fs::write(&cfg_path, "[thresholds]\n\"loc.sloc\" = 1\nsloc = 2\n").unwrap();
+
+    cli(dir.path())
+        .args([
+            "check",
+            "--paths",
+            &path,
+            "--config",
+            cfg_path.to_str().unwrap(),
+        ])
+        .assert()
+        // Exit 1 (tool error), not 2: a misconfigured table must stay
+        // distinguishable from a metric regression.
+        .code(1)
+        .stderr(predicate::str::contains(
+            "\"loc.sloc\" is already set in this table under its other spelling",
+        ));
+}
+
+/// Issue #1165: the two neighbouring `--threshold` typo classes — a
+/// metric that does not exist, and a family head that has no single
+/// threshold scalar — report through the same surface at the same exit
+/// code.
+///
+/// #1165 canonicalises the CLI layer at its consumption site rather than
+/// inside `parse_cli_threshold`, which *is* the clap `value_parser`.
+/// Putting it in the parser would fire the ambiguity diagnostic at
+/// argument-parse time, wrapped as clap's `invalid value '…' for
+/// '--threshold <THRESHOLDS>'`, while `not_a_metric=1` — resolved
+/// against the same registry, one layer down — kept the plain `error:`
+/// form. Two wordings for two adjacent typos, and only one of them
+/// carrying the did-you-mean list the other surface owns.
+///
+/// The exit code is asserted for both, but note it is *not* what this
+/// placement buys: `exit_clap_error` (#561/#594) already remaps clap's
+/// exit 2 to `EXIT_TOOL_ERROR`, so a value-parser rejection would exit 1
+/// too. The shared surface is the property that actually moves.
+#[test]
+fn check_ambiguous_and_unknown_cli_metrics_share_one_error_surface() {
+    for (spec, expected) in [
+        ("halstead=5", "ambiguous metric \"halstead\""),
+        ("not_a_metric=1", "unknown threshold metric"),
+    ] {
+        let assert = fixtures::cli_shared()
+            .args([
+                "check",
+                "--paths",
+                fixtures::trivial_rs(),
+                "--threshold",
+                spec,
+            ])
+            .assert()
+            // Exit 1 (tool error), never 2: CI must keep telling a
+            // misconfigured gate apart from a metric regression.
+            .code(1);
+        let stderr = String::from_utf8(assert.get_output().stderr.clone()).expect("utf8 stderr");
+        assert!(stderr.contains(expected), "{spec}: {stderr}");
+        assert!(
+            stderr.contains("did you mean") || stderr.contains("halstead.volume"),
+            "{spec}: both surfaces list the candidates: {stderr}"
+        );
+        assert!(
+            !stderr.contains("invalid value"),
+            "{spec}: a clap value-parser wrapper means the two typo classes \
+             now report through different surfaces: {stderr}"
+        );
+    }
+}
+
 #[test]
 fn check_emits_one_line_per_metric_per_function() {
     // Two thresholds tight enough that the same function violates both.
