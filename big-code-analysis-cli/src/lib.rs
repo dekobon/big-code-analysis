@@ -404,6 +404,12 @@ fn run_walk_resolved_tallying(paths: Vec<PathBuf>, num_jobs: usize, cfg: Config)
     let read_failures = Arc::clone(&cfg.read_failures);
     let write_failures = Arc::clone(&cfg.write_failures);
     ConcurrentRunner::new(num_jobs, act_on_file)
+        // `expand_seed_paths` classified every entry from the walker's
+        // `dirent`, so the runner's own `is_file()` check is a second
+        // `stat` for a question already answered (#1114). A path that
+        // has since vanished still surfaces through `read_failures`,
+        // which is where the walk reports unreadable inputs anyway.
+        .without_path_verification()
         .run(cfg, FilesData { paths })
         .unwrap_or_else(|e| die(format_args!("{e:?}")));
     WalkFailures {

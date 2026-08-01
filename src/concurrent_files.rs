@@ -216,9 +216,13 @@ fn explore<Config: 'static + Send + Sync>(
     files_data: FilesData,
     cfg: &Arc<Config>,
     sender: &JobSender<Config>,
+    verify_paths: bool,
 ) -> Result<(), ConcurrentErrors> {
     for path in files_data.paths {
-        if !path.is_file() {
+        // One `stat` per path, skipped when the caller has already
+        // classified every entry (#1114) — see
+        // [`ConcurrentRunner::without_path_verification`].
+        if verify_paths && !path.is_file() {
             eprintln!("Warning: not a regular file, skipping: {}", path.display());
             continue;
         }
@@ -246,6 +250,13 @@ pub enum ConcurrentErrors {
     /// The producer thread panicked and joining it failed. The panic
     /// payload is not a [`std::error::Error`], so this variant carries
     /// only a message and has no [`source`](std::error::Error::source).
+    ///
+    /// No longer produced since #1114 moved dispatch onto the calling
+    /// thread: there is no producer thread left to join, so a panic
+    /// there now unwinds the caller directly. Retained because
+    /// [`ConcurrentErrors`] is a published type and removing a variant
+    /// would break a downstream `match`; it is scheduled for removal in
+    /// the next major.
     Producer(String),
     /// Sender side error.
     ///
@@ -312,27 +323,55 @@ pub struct FilesData {
 pub struct ConcurrentRunner<Config> {
     proc_files: Box<ProcFilesFunction<Config>>,
     num_jobs: usize,
+    /// Whether dispatch re-`stat`s each path to confirm it is a regular
+    /// file. On by default; see
+    /// [`without_path_verification`](ConcurrentRunner::without_path_verification).
+    verify_paths: bool,
 }
 
 impl<Config: 'static + Send + Sync> ConcurrentRunner<Config> {
     /// Creates a new `ConcurrentRunner`.
     ///
-    /// * `num_jobs` - Total worker budget (one producer thread plus the
-    ///   consumer threads). [`run`](Self::run) always spawns a single
-    ///   producer thread, so the number of consumer threads it spawns is
-    ///   `max(2, num_jobs) - 1`. This means `0`, `1`, and `2` all collapse
-    ///   to a single consumer (no panic, no linear scaling below 2);
-    ///   values of `3` or more yield `num_jobs - 1` consumers.
+    /// * `num_jobs` - Number of consumer threads, floored at 1 so `0`
+    ///   does not mean "no workers".
+    ///
+    ///   Before #1114 this was a budget shared with a dedicated producer
+    ///   thread, and [`run`](Self::run) spawned `max(2, num_jobs) - 1`
+    ///   consumers — one slot permanently reserved for a thread that
+    ///   finished almost immediately, costing ~1/N of throughput at
+    ///   `--jobs auto`. Dispatch now happens on the calling thread, so
+    ///   the whole count goes to consumers and `num_jobs` means what it
+    ///   says.
     /// * `proc_files` - Function that processes each file in the list.
     pub fn new<ProcFiles>(num_jobs: usize, proc_files: ProcFiles) -> Self
     where
         ProcFiles: 'static + Fn(PathBuf, &Config) -> std::io::Result<()> + Send + Sync,
     {
-        let num_jobs = std::cmp::max(2, num_jobs) - 1;
         Self {
             proc_files: Box::new(proc_files),
-            num_jobs,
+            num_jobs: std::cmp::max(1, num_jobs),
+            verify_paths: true,
         }
+    }
+
+    /// Skip the per-path `is_file()` check during dispatch.
+    ///
+    /// [`FilesData::paths`] is documented as a *terminal* file list, and
+    /// the default check is a safety net for a library caller who hands
+    /// in something else. A caller whose own traversal already
+    /// classified every entry — the `bca` CLI walk, which reads the kind
+    /// straight off the `dirent` — is paying one redundant `stat` per
+    /// file for a question it has already answered (#1114).
+    ///
+    /// Opting out does not make a bad path unsafe: a path that is not a
+    /// readable regular file still fails at the read in the worker, and
+    /// that failure is reported through the same per-file error channel
+    /// as any other unreadable input. It only moves *where* the run
+    /// notices.
+    #[must_use]
+    pub fn without_path_verification(mut self) -> Self {
+        self.verify_paths = false;
+        self
     }
 
     /// Runs the producer-consumer pool over the terminal file list in
@@ -346,11 +385,9 @@ impl<Config: 'static + Send + Sync> ConcurrentRunner<Config> {
     ///
     /// # Errors
     ///
-    /// Returns [`ConcurrentErrors::Thread`] when any worker thread
-    /// (the single producer OR one of the `num_jobs` consumers)
-    /// cannot be spawned via [`std::thread::Builder::spawn`];
-    /// [`ConcurrentErrors::Producer`] when the producer thread
-    /// panics and join fails;
+    /// Returns [`ConcurrentErrors::Thread`] when one of the `num_jobs`
+    /// consumer threads cannot be spawned via
+    /// [`std::thread::Builder::spawn`];
     /// [`ConcurrentErrors::Sender`] when a worker cannot place an
     /// item (or the post-dispatch `None` poison-pill) on the channel;
     /// [`ConcurrentErrors::Receiver`] when a consumer thread panics
@@ -361,18 +398,6 @@ impl<Config: 'static + Send + Sync> ConcurrentRunner<Config> {
         let cfg = Arc::new(config);
 
         let (sender, receiver) = unbounded();
-
-        let producer = {
-            let sender = sender.clone();
-
-            match thread::Builder::new()
-                .name(String::from("Producer"))
-                .spawn(move || explore(files_data, &cfg, &sender))
-            {
-                Ok(producer) => producer,
-                Err(e) => return Err(ConcurrentErrors::Thread(Box::new(e))),
-            }
-        };
 
         let mut receivers = Vec::with_capacity(self.num_jobs);
         let proc_files = Arc::new(self.proc_files);
@@ -392,29 +417,39 @@ impl<Config: 'static + Send + Sync> ConcurrentRunner<Config> {
             receivers.push(t);
         }
 
-        let Ok(walk_result) = producer.join() else {
-            return Err(ConcurrentErrors::Producer(
-                "Child thread panicked".to_owned(),
-            ));
-        };
-        walk_result?;
+        // Dispatch on the calling thread rather than a dedicated
+        // producer thread (#1114). The consumers are already running, so
+        // they start draining the channel as the first paths land — the
+        // overlap a producer thread bought — but the caller's own thread
+        // does the pushing instead of occupying one of the `num_jobs`
+        // slots for work that finishes almost immediately. A failure
+        // here still has to fall through to the join below, or the
+        // consumers block forever on a channel that never gets its
+        // poison pills.
+        let dispatch = explore(files_data, &cfg, &sender, self.verify_paths);
 
-        // Poison the receiver, now that the producer is finished.
+        // Poison the receiver, now that dispatch is finished. Sent even
+        // when dispatch failed: the consumers must be told to stop
+        // before the joins below, and the dispatch error is returned
+        // afterwards.
+        let mut result = dispatch;
         for _ in 0..self.num_jobs {
-            if let Err(e) = sender.send(None) {
-                return Err(ConcurrentErrors::Sender(Box::new(e)));
+            if let Err(e) = sender.send(None)
+                && result.is_ok()
+            {
+                result = Err(ConcurrentErrors::Sender(Box::new(e)));
             }
         }
 
         for receiver in receivers {
-            if receiver.join().is_err() {
-                return Err(ConcurrentErrors::Receiver(
+            if receiver.join().is_err() && result.is_ok() {
+                result = Err(ConcurrentErrors::Receiver(
                     "A thread used to process a file panicked".to_owned(),
                 ));
             }
         }
 
-        Ok(())
+        result
     }
 }
 

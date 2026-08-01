@@ -123,6 +123,19 @@ section.
     than over the source bytes behind it. The order is part of the
     contract now — callers may diff or hash `ops` output — and will
     not change before `3.0`.
+  - `ConcurrentRunner` in `src/concurrent_files.rs`: `new`'s `num_jobs`
+    is the number of consumer threads. Through the `2.0` line it was a
+    budget shared with a dedicated producer thread and `run` spawned
+    `max(2, num_jobs) - 1` consumers; since #1114 dispatch happens on
+    the calling thread and all `num_jobs` go to consumers. The signature
+    did not change, so this is a behavioural change, not a source break:
+    a caller passing `n` gets one more worker than before.
+    `without_path_verification` (added #1114) opts out of the per-path
+    `is_file()` check for a caller whose own traversal already
+    classified every entry. `ConcurrentErrors::Producer` is no longer
+    constructed — the enum is `#[non_exhaustive]`, but removing a
+    variant would still break a downstream `match`, so it stays until
+    `3.0`.
   - `NumJobs` in `src/concurrent_files.rs` (added in 1.x, #560): the
     shared `<N|auto>` worker-count selector for `ConcurrentRunner`,
     used by both the `bca` CLI and the `bca-web` server. A

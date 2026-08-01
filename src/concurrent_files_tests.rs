@@ -5,6 +5,7 @@
 
 use super::*;
 use std::error::Error;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tempfile::Builder;
 
@@ -372,4 +373,148 @@ fn num_jobs_resolve_is_at_least_one() {
 #[test]
 fn num_jobs_default_is_auto() {
     assert_eq!(NumJobs::default(), NumJobs::Auto);
+}
+
+// ── #1114: dispatch on the calling thread, opt-out path verification ──
+
+/// The default still `stat`s each path, so the sibling
+/// `without_path_verification` test below is measuring a real switch
+/// rather than a no-op. Same shape as
+/// `run_skips_directories_and_missing_paths_without_walking`, kept
+/// adjacent to its opt-out twin so the pair reads as one contrast.
+#[test]
+fn run_verifies_paths_by_default() {
+    let tmp = Builder::new()
+        .prefix("verify-on")
+        .tempdir()
+        .expect("tempdir");
+    let root = tmp.path();
+    let file = root.join("keep.rs");
+    std::fs::write(&file, b"// keep").expect("write keep");
+    let subdir = root.join("sub");
+    std::fs::create_dir(&subdir).expect("mkdir sub");
+
+    let processed = Arc::new(AtomicUsize::new(0));
+    let seen = Arc::clone(&processed);
+    ConcurrentRunner::new(4, move |_path: PathBuf, _cfg: &()| {
+        seen.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    })
+    .run(
+        (),
+        FilesData {
+            paths: vec![file, subdir, root.join("gone.rs")],
+        },
+    )
+    .expect("run should succeed");
+
+    assert_eq!(
+        processed.load(Ordering::SeqCst),
+        1,
+        "the directory and the missing path must be filtered by the default stat"
+    );
+}
+
+/// `without_path_verification` skips the `is_file()` check, so every
+/// path reaches the callback and the caller's own error handling
+/// decides what to do with a bad one (#1114).
+///
+/// The `bca` CLI opts out because its walk already read each entry's
+/// kind off the `dirent`; the redundant `stat` was one extra syscall
+/// per file on every run.
+#[test]
+fn without_path_verification_dispatches_every_path() {
+    let tmp = Builder::new()
+        .prefix("verify-off")
+        .tempdir()
+        .expect("tempdir");
+    let root = tmp.path();
+    let file = root.join("keep.rs");
+    std::fs::write(&file, b"// keep").expect("write keep");
+    let subdir = root.join("sub");
+    std::fs::create_dir(&subdir).expect("mkdir sub");
+    let missing = root.join("gone.rs");
+
+    let dispatched = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&dispatched);
+    ConcurrentRunner::new(4, move |path: PathBuf, _cfg: &()| {
+        sink.lock().expect("uncontended in test").push(path);
+        Ok(())
+    })
+    .without_path_verification()
+    .run(
+        (),
+        FilesData {
+            paths: vec![file.clone(), subdir.clone(), missing.clone()],
+        },
+    )
+    .expect("run should succeed");
+
+    let mut got = dispatched.lock().expect("uncontended in test").clone();
+    got.sort();
+    let mut want = vec![file, subdir, missing];
+    want.sort();
+    assert_eq!(
+        got, want,
+        "opting out must hand every path to the callback, unfiltered"
+    );
+}
+
+/// `num_jobs` is now the consumer count, not a budget shared with a
+/// producer thread (#1114).
+///
+/// Before the change `run` spawned `max(2, num_jobs) - 1` consumers and
+/// reserved the remaining slot for a producer thread that finished
+/// almost immediately — at `--jobs auto` that idled ~1/N of the pool.
+/// Counting the distinct threads that actually ran the callback is the
+/// only way to observe the difference from outside: dispatch itself now
+/// happens on this thread.
+///
+/// Asserted as an upper bound plus "more than one", because the pool is
+/// work-stealing: with few files a fast consumer can drain the channel
+/// before its peers wake, so the exact count is not deterministic. The
+/// old `num_jobs - 1` behaviour is still excluded — at `num_jobs = 2` it
+/// permitted exactly one thread, and this fixture reaches two.
+#[test]
+fn num_jobs_is_the_consumer_count_not_a_budget_shared_with_a_producer() {
+    let tmp = Builder::new().prefix("jobs").tempdir().expect("tempdir");
+    let root = tmp.path();
+    let mut paths = Vec::new();
+    for i in 0..200 {
+        let p = root.join(format!("f{i}.rs"));
+        std::fs::write(&p, b"// x").expect("write fixture");
+        paths.push(p);
+    }
+
+    let threads = Arc::new(Mutex::new(std::collections::HashSet::new()));
+    let sink = Arc::clone(&threads);
+    let caller = thread::current().id();
+    ConcurrentRunner::new(2, move |_path: PathBuf, _cfg: &()| {
+        sink.lock()
+            .expect("uncontended in test")
+            .insert(thread::current().id());
+        // Hold the worker briefly so the second consumer is given a
+        // chance to pick up work rather than losing every race.
+        thread::sleep(std::time::Duration::from_micros(50));
+        Ok(())
+    })
+    .run((), FilesData { paths })
+    .expect("run should succeed");
+
+    let ids = threads.lock().expect("uncontended in test").clone();
+    assert!(
+        ids.len() > 1,
+        "num_jobs = 2 must give two consumers; got {} (the pre-#1114 \
+         `max(2, n) - 1` gave one)",
+        ids.len()
+    );
+    assert!(
+        ids.len() <= 2,
+        "num_jobs = 2 must not exceed two consumers; got {}",
+        ids.len()
+    );
+    assert!(
+        !ids.contains(&caller),
+        "the calling thread dispatches, it must not also consume"
+    );
 }
