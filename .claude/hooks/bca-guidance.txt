@@ -17,11 +17,12 @@ simpler -- not the number smaller.
 - When the complexity is essential, suppress with a reason. Some
   functions are irreducibly complex and clearest left whole -- a
   dispatch match, a hand-rolled parser table, an exhaustive state
-  machine. For these, add a suppression marker with a one-line
-  rationale: // bca: suppress(<metrics>) inside the function (canonical
-  names; it is nexits, never exit -- an unknown metric voids the whole
-  marker). A clear function with an honest suppression beats a
-  "compliant" tangle.
+  machine. For these, add a suppression marker with the rationale on the
+  same line: // bca: suppress(<metrics>) -- why, inside the function.
+  Anything after the metric list is free text. Use canonical names; it
+  is nexits, never exit -- an unknown name warns and is skipped, and the
+  names beside it still suppress. A clear function with an honest
+  suppression beats a "compliant" tangle.
 - Keep the fix where the violation is. The flag is scoped to the
   function you just edited. Fix it there, mention anything larger you
   noticed, and do not widen the change into a module rewrite to bring

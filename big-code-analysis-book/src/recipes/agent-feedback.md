@@ -359,8 +359,10 @@ down.
   functions are irreducibly complex *and clearest left whole* — a
   dispatch `match`, a hand-rolled parser table, an exhaustive state
   machine. For these, do not contort the code: add a suppression marker
-  with a one-line rationale and move on. A clear function with an
-  honest `// bca: suppress(...)` is better than a "compliant" tangle.
+  with the rationale on the same line —
+  `// bca: suppress(cognitive) — exhaustive opcode dispatch` — and move
+  on. A clear function with an honest marker is better than a
+  "compliant" tangle.
 - **Keep the fix where the violation is.** The flag is scoped to the
   function you just edited. Fix it there, mention anything larger you
   noticed, and do not widen the change into a module rewrite to bring
@@ -377,22 +379,28 @@ precisely (full reference:
 
 - **Per function** — place the marker in a comment inside the function
   body, naming the metric(s):
-  `// bca: suppress(cyclomatic, abc)`. A bare `// bca: suppress`
-  (no list) silences *every* metric for that function.
+  `// bca: suppress(cyclomatic, abc) — hand-rolled parser table`. A
+  bare `// bca: suppress` (no list) silences *every* metric for that
+  function.
 - **Whole file** — `// bca: suppress-file(halstead, nargs, nexits)`
   anywhere in the file; the bare `// bca: suppress-file` form silences
   every metric file-wide.
+- **Put the rationale on the marker line.** Anything after the metric
+  list is free text and does not need a separator, so the reason lives
+  where the next reader of the flagged function will see it. (After a
+  *bare* verb it must open with `-`, `:`, `//`, `#`, or a dash, so that
+  prose about the marker is not mistaken for one.) Write it every time:
+  a reviewer — human or agent — needs to tell an honest exemption from a
+  dodge, and `bca exemptions` lists every marker in the tree for exactly
+  that audit.
 - **Use canonical metric names.** The accepted identifiers are `abc`,
   `cognitive`, `cyclomatic`, `halstead`, `loc`, `mi`, `nargs`,
   `nexits`, `nom`, `npa`, `npm`, `wmc`. It is **`nexits`, not `exit`**
-  (the legacy `exit` alias was retired) — and an unknown identifier
-  both warns *and voids the entire marker*, silently un-suppressing
-  everything it listed. `tokens` is deliberately *not* suppressible;
-  treat it as a hard resource cap.
-- **Always pair a suppression with a rationale comment** so a reviewer
-  — human or agent — can later tell an honest exemption from a dodge.
-  `bca exemptions` lists every marker in the tree for exactly this
-  audit.
+  (the legacy `exit` alias was retired). An unknown identifier warns and
+  is skipped; the recognized names beside it still suppress, so
+  `suppress(cognitive, exit)` silences `cognitive` and complains about
+  `exit`. `tokens` is deliberately *not* suppressible; treat it as a
+  hard resource cap.
 
 ## Gate at the task boundary, not per edit
 

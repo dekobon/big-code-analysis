@@ -11,6 +11,12 @@
 //!     metrics for the enclosing function.
 //!   - `bca: suppress-file` — suppress all metrics for the entire file.
 //!   - `bca: suppress-file(halstead)` — suppress listed metrics file-wide.
+//!
+//!   Any of those may carry a trailing rationale on the same line
+//!   (`bca: suppress(nargs) — threaded context, not a god-function`).
+//!   After a metric list the rationale needs no separator; after a bare
+//!   verb it must open with one (`-`, `:`, `//`, `#`, an em/en dash) so
+//!   prose *about* the marker is not mistaken for one.
 //! - **Lizard compatibility markers** are recognized verbatim so
 //!   existing Lizard-instrumented codebases migrate without rewrites:
 //!   - `#lizard forgives` ≡ `bca: suppress`.
@@ -192,26 +198,79 @@ pub(crate) struct Suppression {
     pub(crate) source: SuppressionSource,
 }
 
-/// Error returned when a marker is recognized as a `bca:` directive but
-/// the body is malformed (unknown verb, malformed list, unknown metric
-/// identifier). Lizard-style markers never error: anything that does
+/// What scanning one comment for a suppression marker produced.
+///
+/// The two fields are independent, and that is the point (issue #1168):
+/// a marker can be *partly* usable — `bca: suppress(cognitive, exit)`
+/// silences `cognitive` and reports `exit` — where the previous
+/// `Result` shape forced every flaw to void the whole marker. The
+/// governing rule is that a comment recognisable as a `bca: suppress`
+/// marker never silently does nothing: it either suppresses what it
+/// names or produces a diagnostic, and often both.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MarkerScan {
+    /// The directive to apply, when the comment carried a usable one.
+    /// `None` for an ordinary comment and for a body that could not be
+    /// parsed at all.
+    pub(crate) suppression: Option<Suppression>,
+    /// Everything wrong with the marker, in source order. Empty for the
+    /// dominant case. Callers on the threshold path render these as
+    /// `warning:` lines; the read-only audit walk ignores them.
+    pub(crate) diagnostics: Vec<SuppressionError>,
+}
+
+impl MarkerScan {
+    /// The comment carries no marker — the common case.
+    fn not_a_marker() -> Self {
+        Self {
+            suppression: None,
+            diagnostics: Vec::new(),
+        }
+    }
+
+    /// The comment opens a `bca:` directive that could not be parsed
+    /// into one at all. Nothing is suppressed and `error` is reported.
+    fn rejected(error: SuppressionError) -> Self {
+        Self {
+            suppression: None,
+            diagnostics: vec![error],
+        }
+    }
+
+    /// A marker with nothing to complain about.
+    fn directive(suppression: Suppression) -> Self {
+        Self {
+            suppression: Some(suppression),
+            diagnostics: Vec::new(),
+        }
+    }
+}
+
+/// A flaw in a marker that is recognizably a `bca:` directive: an
+/// unknown verb, an unparseable body, or a metric name that cannot be
+/// honoured. Lizard-style markers never produce one: anything that does
 /// not match the exact `#lizard forgives` / `#lizard forgive global`
 /// shapes simply parses as "not a marker".
+///
+/// The first two void the marker; a bad metric name only drops that one
+/// name from the list (issue #1168).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SuppressionError {
     /// `bca:` directive used an unrecognized verb (anything other than
     /// `suppress` / `suppress-file`).
     UnknownVerb(String),
     /// `bca: suppress(...)` listed an identifier that is not a known
-    /// metric name.
+    /// metric name. Reported and skipped; the recognized names beside it
+    /// still suppress.
     UnknownMetric(String),
     /// `bca: suppress(...)` named a real metric that has no configurable
     /// threshold and therefore cannot be suppressed (currently only
     /// `tokens`). Distinct from [`Self::UnknownMetric`] so the author
     /// learns the name parsed but is simply not silenceable.
     NonSuppressibleMetric(String),
-    /// `bca: suppress(...)` body could not be tokenized (e.g. unbalanced
-    /// parentheses, stray characters).
+    /// `bca: suppress(...)` body could not be tokenized (e.g. an
+    /// unbalanced parenthesis, or a bare verb followed by words that
+    /// open no rationale).
     MalformedBody(String),
 }
 
@@ -247,7 +306,16 @@ impl fmt::Display for SuppressionError {
                 write!(f, "metric '{m}' has no threshold and cannot be suppressed")
             }
             Self::MalformedBody(body) => {
-                write!(f, "malformed bca suppression marker body '{body}'")
+                // Name the accepted shapes: the body reaching here is
+                // almost always one keystroke away from a working
+                // marker, and the author cannot see which keystroke
+                // from the raw echo alone.
+                write!(
+                    f,
+                    "malformed bca suppression marker body '{body}'; expected \
+                     `bca: suppress`, `bca: suppress(<metrics>)`, or either \
+                     with a `-` / `:` / `//`-separated rationale"
+                )
             }
         }
     }
@@ -256,12 +324,13 @@ impl fmt::Display for SuppressionError {
 impl std::error::Error for SuppressionError {}
 
 /// Parse a single comment's text and try to extract a suppression
-/// directive. Returns:
+/// directive, returning both the directive (if any) and every complaint
+/// about it — see [`MarkerScan`].
 ///
-/// - `Ok(None)` when the comment carries no marker (the common case).
-/// - `Ok(Some(s))` when a marker was successfully parsed.
-/// - `Err(e)` only for *native* markers whose body is malformed —
-///   Lizard-style markers never error.
+/// A comment that is not a marker yields an empty scan; a *native*
+/// marker that is recognizable but flawed yields at least one
+/// diagnostic. Lizard-style markers never produce diagnostics: anything
+/// off-shape simply is not a marker.
 ///
 /// The input is the raw comment text **including** the comment-syntax
 /// delimiters (e.g. `// bca: suppress`, `# bca: suppress`, `/* bca: suppress */`).
@@ -270,13 +339,13 @@ impl std::error::Error for SuppressionError {}
 /// `/`, `*`, `!`, `#`, `;`, `-`, and ASCII whitespace. The `!` entry
 /// covers Rust inner doc comments (`//!`, `/*!`); the `;` and `-`
 /// entries cover Lisp / SQL / Lua line-comment shapes.
-pub(crate) fn parse_marker(comment_text: &str) -> Result<Option<Suppression>, SuppressionError> {
+pub(crate) fn parse_marker(comment_text: &str) -> MarkerScan {
     // Fast-bail: this function runs on every comment node. Most
     // comments are license headers, doc comments, or TODO notes that
     // contain neither sigil. `str::contains` is SIMD-accelerated and
     // avoids the trim/strip chain below for the dominant case.
     if !comment_text.contains("bca:") && !comment_text.contains("lizard") {
-        return Ok(None);
+        return MarkerScan::not_a_marker();
     }
 
     // Strip a `/*` opener and a `*/` closer if present so we don't
@@ -330,8 +399,8 @@ pub(crate) fn parse_marker(comment_text: &str) -> Result<Option<Suppression>, Su
         no_opener
     };
 
-    if let Some(s) = parse_lizard(lizard_candidate) {
-        return Ok(Some(s));
+    if let Some(suppression) = parse_lizard(lizard_candidate) {
+        return MarkerScan::directive(suppression);
     }
 
     // For native parsing, strip the same `#` opener so `# bca: suppress`
@@ -377,21 +446,22 @@ fn parse_lizard(trimmed: &str) -> Option<Suppression> {
     None
 }
 
-fn parse_native(body: &str) -> Result<Option<Suppression>, SuppressionError> {
+fn parse_native(body: &str) -> MarkerScan {
     // The native dialect is `bca:` followed by a verb (`suppress` or
-    // `suppress-file`), optionally followed by `(metric, metric, ...)`.
+    // `suppress-file`), optionally followed by `(metric, metric, ...)`,
+    // optionally followed by a free-text rationale.
     let Some(rest) = body.strip_prefix("bca:") else {
-        return Ok(None);
+        return MarkerScan::not_a_marker();
     };
     let rest = rest.trim_start();
     if rest.is_empty() {
         // A bare `bca:` with nothing after it isn't useful; treat as
         // not-a-marker rather than an error so the user can write
         // documentation that mentions the namespace without firing.
-        return Ok(None);
+        return MarkerScan::not_a_marker();
     }
 
-    let malformed = || SuppressionError::MalformedBody(body.to_owned());
+    let malformed = || MarkerScan::rejected(SuppressionError::MalformedBody(body.to_owned()));
 
     // Split into verb + parenthesised body. We accept whitespace
     // between the verb and `(`. The verb is the longest prefix of
@@ -400,43 +470,68 @@ fn parse_native(body: &str) -> Result<Option<Suppression>, SuppressionError> {
         .find(|c: char| !(c.is_ascii_alphabetic() || c == '-'))
         .unwrap_or(rest.len());
     let (verb, after_verb) = rest.split_at(verb_end);
-    if verb.is_empty() {
-        return Err(malformed());
-    }
 
     let kind = match verb {
         "suppress" => SuppressionKind::Function,
         "suppress-file" => SuppressionKind::File,
-        other => return Err(SuppressionError::UnknownVerb(other.to_owned())),
+        "" => return malformed(),
+        other => return MarkerScan::rejected(SuppressionError::UnknownVerb(other.to_owned())),
     };
 
     let after_verb = after_verb.trim_start();
-    let scope = if after_verb.is_empty() {
-        SuppressionScope::All
-    } else if let Some(rest) = after_verb.strip_prefix('(') {
-        let close = rest.find(')').ok_or_else(malformed)?;
-        let (inside, trailing) = rest.split_at(close);
-        // After the `)` only whitespace (and `*/` already trimmed by
-        // caller) is allowed. Anything else is a malformed marker:
-        // reject so `bca: suppress(loc) garbage` doesn't silently succeed.
-        if !trailing[1..].trim().is_empty() {
-            return Err(malformed());
-        }
-        parse_metric_list(inside)?
+    let (scope, diagnostics) = if after_verb.is_empty() {
+        (SuppressionScope::All, Vec::new())
+    } else if let Some(list) = after_verb.strip_prefix('(') {
+        let Some(close) = list.find(')') else {
+            return malformed();
+        };
+        // Everything past the `)` is the author's rationale (issue
+        // #1168). The metric list already makes the intent unambiguous,
+        // so no separator is required and none is privileged: `— why`,
+        // `- why`, `: why`, `// why`, and bare prose all read the same.
+        // Rejecting them made `AGENTS.md`'s own "suppress with a reason"
+        // instruction produce a marker that silently did nothing.
+        let (metrics, diagnostics) = parse_metric_list(&list[..close]);
+        (SuppressionScope::Some(metrics), diagnostics)
+    } else if opens_rationale(after_verb) {
+        // `bca: suppress — why`, with no metric list. Unlike the
+        // post-`)` case there is nothing here to distinguish a rationale
+        // from prose that merely mentions the marker, so a separator is
+        // required; bare words stay malformed rather than silently
+        // silencing every metric for the enclosing scope.
+        (SuppressionScope::All, Vec::new())
     } else {
-        // Trailing text after the verb that isn't `(...)`: reject.
-        return Err(malformed());
+        return malformed();
     };
 
-    Ok(Some(Suppression {
-        kind,
-        scope,
-        source: SuppressionSource::Native,
-    }))
+    MarkerScan {
+        suppression: Some(Suppression {
+            kind,
+            scope,
+            source: SuppressionSource::Native,
+        }),
+        diagnostics,
+    }
 }
 
-fn parse_metric_list(inside: &str) -> Result<SuppressionScope, SuppressionError> {
+/// Whether the text following a bare `suppress` / `suppress-file` verb
+/// opens a rationale rather than being garbage.
+///
+/// Only the separators authors actually reach for count: an em or en
+/// dash, a hyphen, a colon, a nested comment opener (`//`, `#`). A bare
+/// word does not, because `// bca: suppress markers are honoured here`
+/// is prose about the feature, and reading it as a marker would silence
+/// every metric in the enclosing function on the strength of a sentence.
+fn opens_rationale(rest: &str) -> bool {
+    matches!(
+        rest.chars().next(),
+        Some('\u{2014}' | '\u{2013}' | '-' | ':' | '/' | '#')
+    )
+}
+
+fn parse_metric_list(inside: &str) -> (BTreeSet<Metric>, Vec<SuppressionError>) {
     let mut set = BTreeSet::new();
+    let mut diagnostics = Vec::new();
     for token in inside.split(',') {
         let name = token.trim();
         if name.is_empty() {
@@ -449,18 +544,28 @@ fn parse_metric_list(inside: &str) -> Result<SuppressionScope, SuppressionError>
         // Parse through the canonical `Metric` vocabulary (the same one
         // selection uses) so suppression and selection never drift. A
         // typo surfaces the offending token via `ParseMetricError`
-        // (#554). `tokens` parses fine but has no threshold, so reject
-        // it with a distinct, actionable error rather than silently
-        // accepting a no-op suppression.
-        let metric: Metric = name
-            .parse()
-            .map_err(|_| SuppressionError::UnknownMetric(name.to_owned()))?;
-        if metric == Metric::Tokens {
-            return Err(SuppressionError::NonSuppressibleMetric(name.to_owned()));
+        // (#554). `tokens` parses fine but has no threshold, so it gets
+        // a distinct, actionable diagnostic rather than silently
+        // registering a no-op suppression.
+        //
+        // A name we cannot honour is *skipped and reported*, not fatal
+        // to the whole list (issue #1168): `suppress(cognitive, exit)`
+        // still silences `cognitive`, because voiding the marker
+        // wholesale turned one mistyped name — `exit` for `nexits` is
+        // the documented one — into a suppression the author believed
+        // was active. Skipping can only ever narrow what a marker
+        // silences, so a typo cannot widen scope.
+        match name.parse::<Metric>() {
+            Ok(Metric::Tokens) => {
+                diagnostics.push(SuppressionError::NonSuppressibleMetric(name.to_owned()));
+            }
+            Ok(metric) => {
+                set.insert(metric);
+            }
+            Err(_) => diagnostics.push(SuppressionError::UnknownMetric(name.to_owned())),
         }
-        set.insert(metric);
     }
-    Ok(SuppressionScope::Some(set))
+    (set, diagnostics)
 }
 
 /// Whether an audited suppression marker applies to its enclosing
@@ -635,9 +740,7 @@ fn marker_at<T: ParserTrait>(
     if !T::Checker::is_comment(node) {
         return None;
     }
-    let Ok(Some(suppression)) = parse_marker(node.utf8_text(code)?) else {
-        return None;
-    };
+    let suppression = parse_marker(node.utf8_text(code)?).suppression?;
     let function = match suppression.kind {
         SuppressionKind::Function => enclosing.map(str::to_owned),
         SuppressionKind::File => None,
@@ -655,9 +758,65 @@ fn marker_at<T: ParserTrait>(
 mod tests {
     use super::*;
 
+    /// The directive `text` parses to, asserting it carried one and drew
+    /// no complaint. Use where the subject is what a *clean* marker
+    /// means; anything expecting a diagnostic should read
+    /// [`scan_diagnostics`] instead so the complaint is asserted, not
+    /// discarded.
+    #[track_caller]
+    fn marker(text: &str) -> Suppression {
+        let scan = parse_marker(text);
+        assert!(
+            scan.diagnostics.is_empty(),
+            "expected a clean parse of {text:?}; got {:?}",
+            scan.diagnostics,
+        );
+        scan.suppression
+            .unwrap_or_else(|| panic!("expected {text:?} to parse as a marker"))
+    }
+
+    /// Every complaint `text` drew.
+    fn scan_diagnostics(text: &str) -> Vec<SuppressionError> {
+        parse_marker(text).diagnostics
+    }
+
+    /// Whether `text` is no marker at all: no directive *and* no
+    /// complaint. Both halves matter — a comment that merely mentions
+    /// the syntax must stay silent, not warn at every reader.
+    fn is_not_a_marker(text: &str) -> bool {
+        let scan = parse_marker(text);
+        scan.suppression.is_none() && scan.diagnostics.is_empty()
+    }
+
+    /// The single complaint `text` drew, when exactly one is expected.
+    #[track_caller]
+    fn sole_diagnostic(text: &str) -> SuppressionError {
+        let mut diagnostics = scan_diagnostics(text);
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "expected exactly one diagnostic for {text:?}; got {diagnostics:?}",
+        );
+        diagnostics.remove(0)
+    }
+
+    /// The complaint `text` drew, asserting it also voided the marker
+    /// outright — the shape reserved for a body that parses to no
+    /// directive at all.
+    #[track_caller]
+    fn voiding_diagnostic(text: &str) -> SuppressionError {
+        let scan = parse_marker(text);
+        assert!(
+            scan.suppression.is_none(),
+            "expected {text:?} to yield no directive; got {:?}",
+            scan.suppression,
+        );
+        sole_diagnostic(text)
+    }
+
     #[test]
     fn native_bare_suppress_covers_all_for_function() {
-        let s = parse_marker("// bca: suppress").unwrap().unwrap();
+        let s = marker("// bca: suppress");
         assert_eq!(s.kind, SuppressionKind::Function);
         assert_eq!(s.source, SuppressionSource::Native);
         assert!(matches!(s.scope, SuppressionScope::All));
@@ -665,9 +824,7 @@ mod tests {
 
     #[test]
     fn native_suppress_with_metric_list() {
-        let s = parse_marker("// bca: suppress(cyclomatic, cognitive)")
-            .unwrap()
-            .unwrap();
+        let s = marker("// bca: suppress(cyclomatic, cognitive)");
         assert_eq!(s.kind, SuppressionKind::Function);
         let SuppressionScope::Some(metrics) = s.scope else {
             panic!("expected Some(...)");
@@ -678,37 +835,56 @@ mod tests {
     }
 
     #[test]
-    fn native_mixed_valid_and_unknown_metric_voids_whole_marker() {
-        // The void-on-typo contract: a marker listing one valid metric
-        // beside an unknown one must reject the ENTIRE list, not silently
-        // honor the valid part. Otherwise a misspelled metric would still
-        // suppress the correctly-spelled one beside it — the most
-        // dangerous failure mode, since it widens scope on a typo. Every
-        // other test feeds a marker whose only metric is unknown, where
-        // "void whole marker" and "skip the unknown token" are
-        // indistinguishable; only a mixed list separates them. Swapping
-        // the `?` in `parse_metric_list` for `continue` makes this parse
-        // to `Some({Cyclomatic})` and trips the assertion (#948).
-        let err = parse_marker("// bca: suppress(cyclomatic, no_such_metric)").unwrap_err();
+    fn native_mixed_valid_and_unknown_metric_keeps_the_valid_half() {
+        // Issue #1168 reversed the pre-existing void-on-typo contract
+        // (#948, #896). A misspelled name now costs its own name and
+        // nothing else: `exit`-for-`nexits` is a mistake `AGENTS.md`
+        // itself documents people making, and voiding the marker
+        // wholesale turned it into a suppression the author believed was
+        // active while the gate disagreed.
+        //
+        // Skipping cannot widen scope — the set only ever loses entries
+        // — which is what made the old contract's stated danger ("a typo
+        // silences something the author did not name") unreachable here.
+        // Every other test feeds a marker whose only metric is unknown,
+        // where "void the marker" and "skip the token" are
+        // indistinguishable; only a mixed list separates them.
+        let scan = parse_marker("// bca: suppress(cyclomatic, no_such_metric)");
+        let Some(Suppression {
+            scope: SuppressionScope::Some(metrics),
+            ..
+        }) = &scan.suppression
+        else {
+            panic!(
+                "expected an explicit metric set; got {:?}",
+                scan.suppression
+            );
+        };
+        assert_eq!(
+            metrics.iter().copied().collect::<Vec<_>>(),
+            vec![Metric::Cyclomatic],
+            "the recognized half of the list must still suppress",
+        );
         assert!(
-            matches!(&err, SuppressionError::UnknownMetric(name) if name == "no_such_metric"),
-            "mixed valid+unknown marker must error on the unknown token, \
-             voiding the whole list; got {err:?}",
+            matches!(
+                scan.diagnostics.as_slice(),
+                [SuppressionError::UnknownMetric(name)] if name == "no_such_metric",
+            ),
+            "the unrecognized half must still be reported; got {:?}",
+            scan.diagnostics,
         );
     }
 
     #[test]
     fn native_suppress_file_bare() {
-        let s = parse_marker("# bca: suppress-file").unwrap().unwrap();
+        let s = marker("# bca: suppress-file");
         assert_eq!(s.kind, SuppressionKind::File);
         assert!(matches!(s.scope, SuppressionScope::All));
     }
 
     #[test]
     fn native_suppress_file_with_metric_list() {
-        let s = parse_marker("/* bca: suppress-file(halstead, loc) */")
-            .unwrap()
-            .unwrap();
+        let s = marker("/* bca: suppress-file(halstead, loc) */");
         assert_eq!(s.kind, SuppressionKind::File);
         let SuppressionScope::Some(metrics) = s.scope else {
             panic!("expected Some(...)");
@@ -719,7 +895,7 @@ mod tests {
 
     #[test]
     fn native_unknown_metric_errors() {
-        let err = parse_marker("// bca: suppress(no_such_metric)").unwrap_err();
+        let err = sole_diagnostic("// bca: suppress(no_such_metric)");
         assert!(matches!(err, SuppressionError::UnknownMetric(_)));
         // The error must mention what was unknown so authors can
         // diagnose typos without reading our source. This is the #554
@@ -755,7 +931,7 @@ mod tests {
         // `tokens` parses as a real `Metric` but has no threshold, so a
         // marker naming it is rejected with a distinct, actionable error
         // rather than silently accepted as a no-op suppression.
-        let err = parse_marker("// bca: suppress(tokens)").unwrap_err();
+        let err = sole_diagnostic("// bca: suppress(tokens)");
         assert!(
             matches!(&err, SuppressionError::NonSuppressibleMetric(m) if m == "tokens"),
             "expected NonSuppressibleMetric(\"tokens\"); got: {err:?}",
@@ -770,7 +946,7 @@ mod tests {
 
     #[test]
     fn native_unknown_verb_errors() {
-        let err = parse_marker("// bca: disable").unwrap_err();
+        let err = voiding_diagnostic("// bca: disable");
         assert!(matches!(err, SuppressionError::UnknownVerb(_)));
         // The error message must guide the author toward the correct
         // verbs without making them grep our source. Anchor each verb
@@ -798,50 +974,180 @@ mod tests {
     /// in shipped source; this test catches that.
     #[test]
     fn legacy_allow_verb_is_unknown() {
-        let err = parse_marker("// bca: allow").unwrap_err();
+        let err = voiding_diagnostic("// bca: allow");
         assert!(matches!(err, SuppressionError::UnknownVerb(v) if v == "allow"));
-        let err = parse_marker("// bca: allow-file").unwrap_err();
+        let err = voiding_diagnostic("// bca: allow-file");
         assert!(matches!(err, SuppressionError::UnknownVerb(v) if v == "allow-file"));
-        let err = parse_marker("// bca: allow(cyclomatic)").unwrap_err();
+        let err = voiding_diagnostic("// bca: allow(cyclomatic)");
         assert!(matches!(err, SuppressionError::UnknownVerb(v) if v == "allow"));
     }
 
     #[test]
     fn native_malformed_body_errors() {
-        // Unbalanced paren.
+        // Unbalanced paren: there is no metric list to honour and no way
+        // to tell where one would have ended, so the marker is void.
         assert!(matches!(
-            parse_marker("// bca: suppress(cyclomatic").unwrap_err(),
+            voiding_diagnostic("// bca: suppress(cyclomatic"),
             SuppressionError::MalformedBody(_)
         ));
-        // Trailing garbage after the metric list.
+        // Bare verb followed by a word that opens no rationale. This is
+        // the one shape #1168 deliberately left rejected: with no metric
+        // list to anchor the intent, `// bca: suppress markers are
+        // honoured here` is prose about the feature, and reading it as a
+        // marker would silence every metric in the enclosing function.
         assert!(matches!(
-            parse_marker("// bca: suppress(cyclomatic) junk").unwrap_err(),
+            voiding_diagnostic("// bca: suppress garbage"),
             SuppressionError::MalformedBody(_)
         ));
-        // Verb followed by something other than `(...)`.
-        assert!(matches!(
-            parse_marker("// bca: suppress garbage").unwrap_err(),
-            SuppressionError::MalformedBody(_)
-        ));
+    }
+
+    #[test]
+    fn malformed_body_message_names_the_accepted_shapes() {
+        // The body reaching this path is usually one keystroke from a
+        // working marker, and the raw echo alone does not say which
+        // keystroke — so the message must name the shapes that parse,
+        // including the rationale form #1168 added.
+        let rendered = voiding_diagnostic("// bca: suppress garbage").to_string();
+        assert!(
+            rendered.contains("bca: suppress garbage"),
+            "message must echo the offending body; got: {rendered}",
+        );
+        assert!(
+            rendered.contains("`bca: suppress(<metrics>)`"),
+            "message must name the metric-list shape; got: {rendered}",
+        );
+        assert!(
+            rendered.contains("rationale"),
+            "message must point at the rationale form; got: {rendered}",
+        );
     }
 
     #[test]
     fn native_bare_colon_is_not_a_marker() {
         // `bca:` with nothing after it is not a marker; we want to
         // allow documentation comments to mention the namespace.
-        assert!(parse_marker("// bca:").unwrap().is_none());
+        let scan = parse_marker("// bca:");
+        assert_eq!(scan.suppression, None);
+        assert!(scan.diagnostics.is_empty());
     }
 
     #[test]
     fn empty_metric_list_is_noop_not_error() {
-        let s = parse_marker("// bca: suppress()").unwrap().unwrap();
+        let s = marker("// bca: suppress()");
         assert!(s.scope.is_empty());
         assert!(!s.scope.covers(Metric::Cyclomatic));
     }
 
     #[test]
+    fn trailing_rationale_after_metric_list_is_accepted() {
+        // The issue #1168 reproducer, at the parse boundary: the
+        // spelling `AGENTS.md` asks for — a metric list plus the reason
+        // the function is exempt — used to be rejected wholesale, so the
+        // author's suppression silently did nothing.
+        //
+        // No separator is privileged and none is required: after `)` the
+        // author has already said what they mean, so anything following
+        // is prose.
+        for text in [
+            "// bca: suppress(nargs) \u{2014} threaded context, not a god-function",
+            "// bca: suppress(nargs) \u{2013} threaded context",
+            "// bca: suppress(nargs) - threaded context",
+            "// bca: suppress(nargs): threaded context",
+            "// bca: suppress(nargs) // threaded context",
+            "// bca: suppress(nargs) threaded context",
+            "/* bca: suppress(nargs) \u{2014} threaded context */",
+        ] {
+            let s = marker(text);
+            assert_eq!(s.kind, SuppressionKind::Function, "for {text:?}");
+            assert!(
+                matches!(&s.scope, SuppressionScope::Some(m)
+                    if m.iter().copied().eq([Metric::Nargs])),
+                "rationale must not disturb the metric list; {text:?} gave {:?}",
+                s.scope,
+            );
+        }
+    }
+
+    #[test]
+    fn trailing_rationale_after_bare_verb_needs_a_separator() {
+        // With no metric list the marker has said nothing specific, so a
+        // separator is what distinguishes "this is my reason" from prose
+        // that merely mentions the syntax. Each accepted opener is
+        // listed by `opens_rationale`.
+        for text in [
+            "// bca: suppress \u{2014} irreducible dispatch",
+            "// bca: suppress \u{2013} irreducible dispatch",
+            "// bca: suppress - irreducible dispatch",
+            "// bca: suppress: irreducible dispatch",
+            "// bca: suppress // irreducible dispatch",
+            "# bca: suppress-file # generated",
+        ] {
+            let s = marker(text);
+            assert!(
+                matches!(s.scope, SuppressionScope::All),
+                "a bare verb plus a rationale still covers every metric; \
+                 {text:?} gave {:?}",
+                s.scope,
+            );
+        }
+        // …and the separator-free form stays a diagnostic, per
+        // `native_malformed_body_errors`.
+        assert!(matches!(
+            voiding_diagnostic("// bca: suppress-file generated file"),
+            SuppressionError::MalformedBody(_)
+        ));
+    }
+
+    #[test]
+    fn rationale_may_contain_parentheses_and_marker_syntax() {
+        // The metric list ends at the first `)`, so a rationale is free
+        // to contain further parens, and a second `suppress(` inside it
+        // is prose rather than a nested directive: one comment carries
+        // at most one marker.
+        let s = marker("// bca: suppress(nargs) — mirrors suppress(abc) in do_thing(x)");
+        assert!(
+            matches!(&s.scope, SuppressionScope::Some(m)
+                if m.iter().copied().eq([Metric::Nargs])),
+            "got {:?}",
+            s.scope,
+        );
+    }
+
+    #[test]
+    fn rationale_survives_a_flawed_metric_list() {
+        // The two #1168 halves compose: a rationale is accepted *and*
+        // the recognized metrics still suppress while the rest is
+        // reported. Neither relaxation is allowed to swallow the other.
+        let scan = parse_marker("// bca: suppress(cognitive, exit) — hand-rolled state machine");
+        assert!(
+            matches!(&scan.suppression, Some(s)
+                if matches!(&s.scope, SuppressionScope::Some(m)
+                    if m.iter().copied().eq([Metric::Cognitive]))),
+            "got {:?}",
+            scan.suppression,
+        );
+        assert!(
+            matches!(
+                scan.diagnostics.as_slice(),
+                [SuppressionError::UnknownMetric(name)] if name == "exit",
+            ),
+            "`exit` is the documented `nexits` typo and must still be \
+             reported; got {:?}",
+            scan.diagnostics,
+        );
+    }
+
+    #[test]
+    fn whitespace_only_rationale_is_not_a_diagnostic() {
+        // Trailing whitespace after the list — a stray tab before the
+        // newline, say — is not a rationale and must not read as one.
+        let s = marker("// bca: suppress(nargs)   \t ");
+        assert!(matches!(&s.scope, SuppressionScope::Some(m) if m.len() == 1));
+    }
+
+    #[test]
     fn lizard_function_marker() {
-        let s = parse_marker("// #lizard forgives").unwrap().unwrap();
+        let s = marker("// #lizard forgives");
         assert_eq!(s.kind, SuppressionKind::Function);
         assert_eq!(s.source, SuppressionSource::Lizard);
         assert!(matches!(s.scope, SuppressionScope::All));
@@ -849,7 +1155,7 @@ mod tests {
 
     #[test]
     fn lizard_file_marker() {
-        let s = parse_marker("# #lizard forgive global").unwrap().unwrap();
+        let s = marker("# #lizard forgive global");
         assert_eq!(s.kind, SuppressionKind::File);
         assert_eq!(s.source, SuppressionSource::Lizard);
     }
@@ -859,13 +1165,13 @@ mod tests {
         // Per the issue's narrow compat surface: `#lizard skip` is not
         // a recognized Lizard directive, so we treat it as no marker
         // rather than erroring or silently suppressing.
-        assert!(parse_marker("// #lizard skip").unwrap().is_none());
+        assert!(is_not_a_marker("// #lizard skip"));
     }
 
     #[test]
     fn plain_comment_is_not_a_marker() {
-        assert!(parse_marker("// just a comment").unwrap().is_none());
-        assert!(parse_marker("/* TODO: fix later */").unwrap().is_none());
+        assert!(is_not_a_marker("// just a comment"));
+        assert!(is_not_a_marker("/* TODO: fix later */"));
     }
 
     /// Locks the fast-bail contract in `parse_marker`: comments that
@@ -877,24 +1183,12 @@ mod tests {
     #[test]
     fn fast_bail_skips_sigil_free_comments() {
         // Long, sigil-free comments that should never trigger.
-        assert!(
-            parse_marker("// Copyright (c) 2026 Some Corp.")
-                .unwrap()
-                .is_none()
-        );
-        assert!(
-            parse_marker("/* SPDX-License-Identifier: MIT */")
-                .unwrap()
-                .is_none()
-        );
+        assert!(is_not_a_marker("// Copyright (c) 2026 Some Corp."));
+        assert!(is_not_a_marker("/* SPDX-License-Identifier: MIT */"));
         // Substring-mention-but-not-a-marker: contains "lizard" in
         // prose but is not a Lizard directive. Slow path must still
         // return Ok(None).
-        assert!(
-            parse_marker("// authors: jane lizard, john doe")
-                .unwrap()
-                .is_none()
-        );
+        assert!(is_not_a_marker("// authors: jane lizard, john doe"));
     }
 
     /// Locks the case sensitivity of both dialects: `Bca:` and
@@ -904,13 +1198,13 @@ mod tests {
     #[test]
     fn marker_grammar_is_case_sensitive() {
         // Uppercase B in `Bca:` is not a native marker.
-        assert!(parse_marker("// Bca: suppress").unwrap().is_none());
-        assert!(parse_marker("/* BCA: suppress */").unwrap().is_none());
+        assert!(is_not_a_marker("// Bca: suppress"));
+        assert!(is_not_a_marker("/* BCA: suppress */"));
         // Uppercase L in `#Lizard` is not a Lizard marker. The
         // fast-bail rejects it (no lowercase "lizard" substring) and
         // the slow path would also reject it via `strip_prefix("lizard")`.
-        assert!(parse_marker("# #Lizard forgives").unwrap().is_none());
-        assert!(parse_marker("// #Lizard forgives").unwrap().is_none());
+        assert!(is_not_a_marker("# #Lizard forgives"));
+        assert!(is_not_a_marker("// #Lizard forgives"));
     }
 
     #[test]
@@ -1017,11 +1311,11 @@ mod tests {
         // Without `!` in the leading-strip set the marker prefix `bca:`
         // would not match. Both line- and block-comment variants must
         // round-trip the same way.
-        let line = parse_marker("//! bca: suppress").unwrap().unwrap();
+        let line = marker("//! bca: suppress");
         assert_eq!(line.kind, SuppressionKind::Function);
         assert!(matches!(line.scope, SuppressionScope::All));
 
-        let block = parse_marker("/*! bca: suppress */").unwrap().unwrap();
+        let block = marker("/*! bca: suppress */");
         assert_eq!(block.kind, SuppressionKind::Function);
         assert!(matches!(block.scope, SuppressionScope::All));
     }
@@ -1162,19 +1456,22 @@ mod tests {
         assert!(rust_markers("fn f() {}\n").is_empty());
     }
 
-    /// A comment the parser rejects contributes nothing to the audit,
-    /// and does not stop the walk from collecting the valid markers
+    /// A comment that yields no directive contributes nothing to the
+    /// audit, and does not stop the walk from collecting the markers
     /// around it.
     ///
     /// Two rejections reach [`marker_at`] and both must be silent here.
-    /// `parse_marker` answers `Ok(None)` for an ordinary comment that
-    /// simply is not a marker, and `Err` for one that *looks* like a
-    /// marker but is malformed — an unknown metric name voids the whole
-    /// list (see `native_mixed_valid_and_unknown_metric_voids_whole_marker`).
-    /// The audit is a read-only listing of what *is* a marker; the
-    /// threshold walk is the surface that warns on malformed bodies, so
-    /// dropping them without a diagnostic is the contract, not an
-    /// oversight.
+    /// `parse_marker` yields no directive for an ordinary comment that
+    /// simply is not a marker, and none for a `bca:` body it cannot
+    /// parse at all. The audit is a read-only listing of what *is* a
+    /// marker; the threshold walk is the surface that warns, so dropping
+    /// these without a diagnostic is the contract, not an oversight.
+    ///
+    /// A merely *flawed* metric list is a third case and is deliberately
+    /// not dropped: since #1168 it yields the directive its recognized
+    /// names describe, so the audit lists it — an author reading the
+    /// exemptions report needs to see the suppression that is actually
+    /// in force.
     ///
     /// Without this, every comment the collector's tests feed it parses
     /// successfully, and the reject arm is never taken.
@@ -1182,8 +1479,8 @@ mod tests {
     fn collector_skips_comments_that_are_not_valid_markers() {
         let src = "// an ordinary comment\n\
                    fn f() {\n\
-                   \x20   // bca: suppress(cyclomatic, no_such_metric)\n\
                    \x20   // bca: suppress garbage\n\
+                   \x20   // bca: disable(cognitive)\n\
                    \x20   // bca: suppress(cognitive)\n\
                    }\n";
         let markers = rust_markers(src);
@@ -1200,6 +1497,77 @@ mod tests {
         assert!(
             rust_markers("// bca: disable\n// not a marker at all\n").is_empty(),
             "a rejected marker must not be collected with a fallback scope"
+        );
+    }
+
+    /// A marker carrying a rationale still attaches when the comment is
+    /// the last thing in the file, with no trailing newline.
+    ///
+    /// Per `.claude/rules/testing.md`, both the `check_metrics` shim and
+    /// the integration suites append a newline to every fixture, so "a
+    /// node ending at EOF" is unreachable from them —
+    /// [`crate::test_support::space_verbatim`] analyses the bytes as
+    /// given. The rationale is what makes this worth pinning: it is the
+    /// part of the marker adjacent to the missing newline, so a future
+    /// parser that indexed past the `)` unconditionally would fail here
+    /// and nowhere else.
+    #[test]
+    fn rationale_marker_at_eof_without_trailing_newline() {
+        let space = crate::test_support::space_verbatim(
+            crate::LANG::Rust,
+            b"fn f(a: u8, b: u8) -> u8 { a + b }\n\
+              // bca: suppress-file(nargs) \xe2\x80\x94 two is plenty",
+            crate::MetricsOptions::default(),
+        );
+        assert!(
+            space.suppressed.covers(Metric::Nargs),
+            "file-scoped marker at EOF must attach; got {:?}",
+            space.suppressed,
+        );
+    }
+
+    /// CRLF line endings leave a `\r` inside the comment token in most
+    /// grammars, so it lands in the rationale rather than in the metric
+    /// list. Pinned because the pre-#1168 parser reached the same answer
+    /// for the opposite reason: it trimmed the `\r` off a body that had
+    /// nothing after the `)` at all.
+    #[test]
+    fn rationale_marker_survives_crlf_line_endings() {
+        let space = crate::test_support::space_verbatim(
+            crate::LANG::Rust,
+            "fn f(a: u8, b: u8) -> u8 {\r\n\
+             // bca: suppress(nargs) \u{2014} two is plenty\r\n\
+             a + b\r\n}\r\n"
+                .as_bytes(),
+            crate::MetricsOptions::default(),
+        );
+        let f = space
+            .spaces
+            .iter()
+            .find(|s| s.name.as_deref() == Some("f"))
+            .expect("function space f");
+        assert!(
+            f.suppressed.covers(Metric::Nargs),
+            "CRLF marker must attach; got {:?}",
+            f.suppressed,
+        );
+    }
+
+    #[test]
+    fn collector_lists_a_marker_whose_list_was_partly_unusable() {
+        // The audit reports the suppression that is *in force*. Since
+        // #1168 that is the recognized half of a flawed list, so the
+        // marker must appear — with `cognitive` only, not with a
+        // defaulted `All` scope, which would misreport it as silencing
+        // everything.
+        let src = "fn f() {\n    // bca: suppress(cognitive, exit) — state machine\n}\n";
+        let markers = rust_markers(src);
+        assert_eq!(markers.len(), 1, "got {markers:?}");
+        assert!(
+            matches!(&markers[0].scope, SuppressionScope::Some(m)
+                if m.iter().copied().eq([Metric::Cognitive])),
+            "got {:?}",
+            markers[0].scope,
         );
     }
 }
