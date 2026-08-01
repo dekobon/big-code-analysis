@@ -104,7 +104,7 @@ use big_code_analysis::{
     ConcurrentRunner, CountCollector, FilesData, MetricsOptions, NumJobs, PreprocResults,
     SuppressionPolicy,
 };
-use big_code_analysis::{FuncSpace, Ops, get_from_ext, read_file};
+use big_code_analysis::{FuncSpace, Ops, get_from_ext, get_language_for_file, read_file};
 
 /// `expect` message used at every `action::<_>` call site inside the
 /// extracted `dispatch` module. Kept in `lib.rs` so any module that

@@ -205,6 +205,46 @@ fn override_warning_is_silent_for_a_seed_no_language_claims() {
         .stderr(predicate::str::contains("notes.md matches an exclude").not());
 }
 
+/// The seed's language must be resolved through the library's own
+/// `get_language_for_file`, ASCII case-fold included (#1111). A local
+/// `extension()` + `get_from_ext` pair — what this shipped as — skips
+/// that fold, so `SKIPME/A.RS` resolved to no language, the guard above
+/// returned early, and the file was analyzed with the override left
+/// silent: the exact asymmetry #1146 removes, surviving for every
+/// mixed-case extension.
+///
+/// Both spellings are named in one invocation. The lowercase half is the
+/// control: a build that stopped warning altogether fails on it instead
+/// of passing this test for the wrong reason.
+#[test]
+fn override_warning_survives_a_mixed_case_extension() {
+    let dir = fixture("exclude = [\"./skipme/**\"]\n");
+    fs::write(
+        dir.path().join("skipme").join("B.RS"),
+        branchy("upper_offender"),
+    )
+    .unwrap();
+
+    cli(dir.path())
+        .args([
+            "check",
+            "skipme/B.RS",
+            "skipme/a.rs",
+            "--no-summary",
+            "--no-remediation",
+        ])
+        .assert()
+        .code(2)
+        // Reported as an offender, so the file really was analyzed and
+        // the unannounced override was a live one.
+        .stderr(predicate::str::contains("upper_offender"))
+        .stderr(predicate::str::contains(
+            "bca: warning: skipme/B.RS matches an exclude pattern (./skipme/**) \
+             but was named explicitly; analyzing anyway",
+        ))
+        .stderr(predicate::str::contains("skipme/a.rs matches an exclude"));
+}
+
 /// `[check] exclude` is the surface that survives an explicit path: the
 /// file is analysed, its violation is dropped, and the existing
 /// `[check.exclude]` skip line reports the drop. Pinned deliberately

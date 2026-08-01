@@ -158,8 +158,18 @@ impl WalkFilters<'_> {
     /// where lockfiles, Markdown, and generated assets are the majority
     /// and produce no output either way. Warning that such a file is
     /// being "analyzed anyway" would be both noisy and untrue.
+    ///
+    /// [`get_language_for_file`] rather than a local `extension()` +
+    /// `get_from_ext` pair, which is what this shipped as: that spelling
+    /// dropped the ASCII case-fold #1111 put *inside*
+    /// `get_language_for_file`, so `bca check SKIPME/A.RS` analyzed the
+    /// file and stayed silent about the override — the exact asymmetry
+    /// #1146 exists to remove, surviving for every mixed-case extension.
+    /// It is deliberately the extension half of `guess_language` only:
+    /// the dispatch's modeline and shebang fallbacks need the file's
+    /// bytes, and the walk has not read them here.
     fn warn_exclude_overridden(&self, seed: &Path, match_path: &Path) {
-        if !self.language_forced && !seed_has_known_language(seed) {
+        if !self.language_forced && get_language_for_file(seed).is_none() {
             return;
         }
         if let Some(glob) = self
@@ -173,15 +183,6 @@ impl WalkFilters<'_> {
             );
         }
     }
-}
-
-/// Does `seed`'s extension map to a supported language? Mirrors the
-/// per-file dispatch's own extension lookup, which is what decides
-/// whether a walked file is analyzed or silently skipped.
-fn seed_has_known_language(seed: &Path) -> bool {
-    seed.extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| get_from_ext(ext).is_some())
 }
 
 /// Resolved file set plus the subset of seeds that were *explicitly
