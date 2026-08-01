@@ -1614,6 +1614,127 @@ fn check_headroom_print_effective_config_shows_scaled_values_and_ratio() {
         .stdout(predicate::str::contains("tier = \"soft\""));
 }
 
+/// The soft ratio scales the *band*, not the number: it must always make
+/// the soft tier stricter than the hard gate, whichever way the metric
+/// points (#1166).
+///
+/// A higher-is-worse limit is a ceiling, so 0.9 lowers it. A
+/// lower-is-worse `mi.*` limit is a *floor*, so 0.9 must **raise** it —
+/// `20 / 0.9`, not `20 * 0.9`. Multiplying put the early-warning floor
+/// at 18, below the hard floor of 20, which no value could reach before
+/// the hard gate: `--tier=soft` was a silent no-op for the whole `mi.*`
+/// family.
+///
+/// Both directions are asserted in one test on purpose. Each is a
+/// one-character change away from the other, so a single-direction test
+/// would let a future "simplify" invert both and stay green.
+///
+/// All three entry points to the ratio share `scale_threshold` and are
+/// exercised here, because fixing only the blanket path would leave a
+/// `[thresholds.soft]` `"0.9x"` string inverted with nothing to catch it.
+#[test]
+fn check_soft_ratio_raises_an_mi_floor_and_lowers_a_cognitive_ceiling() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let hard = write_fixture(
+        &dir,
+        "hard.toml",
+        "[thresholds]\n\"mi.original\" = 20\ncognitive = 15\n",
+    );
+    // The `"<ratio>x"` form of the same 0.9, resolved through
+    // `SoftLimit::Scale` rather than the blanket-ratio loop.
+    let scaled = write_fixture(
+        &dir,
+        "scaled.toml",
+        "[thresholds]\n\"mi.original\" = 20\ncognitive = 15\n\
+         [thresholds.soft]\n\"mi.original\" = \"0.9x\"\ncognitive = \"0.9x\"\n",
+    );
+
+    let resolved = |cfg: &str, tier_args: &[&str]| -> toml::Table {
+        let mut args = vec![
+            "check",
+            "--paths",
+            &path,
+            "--config",
+            cfg,
+            "--print-effective-config",
+            "toml",
+        ];
+        args.extend_from_slice(tier_args);
+        let assert = cli(dir.path()).args(args).assert().success();
+        let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8 stdout");
+        let parsed: toml::Table = toml::from_str(&stdout).expect("effective config is valid TOML");
+        parsed["thresholds"]
+            .as_table()
+            .expect("[thresholds] is a table")
+            .clone()
+    };
+
+    for (label, cfg, tier_args) in [
+        ("--tier=soft=0.9", hard.as_str(), &["--tier=soft=0.9"][..]),
+        // `--headroom` folds into the same `TierSpec::Soft(Some(0.9))`,
+        // and `make self-scan-headroom` is the motivating consumer.
+        ("--headroom 0.9", hard.as_str(), &["--headroom", "0.9"][..]),
+        (
+            "[thresholds.soft] \"0.9x\"",
+            scaled.as_str(),
+            &["--tier=soft"][..],
+        ),
+    ] {
+        let thresholds = resolved(cfg, tier_args);
+        // 15 * 0.9 is exact in binary, so the ceiling is pinned exactly.
+        assert_eq!(
+            thresholds["cognitive"].as_float(),
+            Some(13.5),
+            "{label}: a higher-is-worse ceiling must come down"
+        );
+        // 20 / 0.9 repeats, so the resolved floor is the quotient rounded
+        // *up* at 6 significant figures. The epsilon is 1e-9 rather than
+        // anything looser on purpose: the two wrong answers this test
+        // exists to reject — multiplying (18) and rounding to nearest
+        // (22.2222) — miss by 4.2 and 1e-4 respectively.
+        let floor = thresholds["mi.original"]
+            .as_float()
+            .expect("mi.original is a float");
+        assert!(
+            (floor - 22.2223).abs() < 1e-9,
+            "{label}: expected an mi.original floor of 22.2223, got {floor}"
+        );
+        assert!(
+            floor > 20.0,
+            "{label}: a lower-is-worse floor must rise above its hard limit, got {floor}"
+        );
+    }
+}
+
+/// A `[thresholds.soft]` limit looser than its own hard limit is
+/// rejected for the lower-is-worse `mi.*` family too.
+///
+/// #1141 added that guard for higher-is-worse metrics only, because the
+/// inverted scaling of #1166 meant every `[thresholds] mi.original = N`
+/// plus `--tier=soft` would have failed the run rather than been fixed
+/// by it. With the scaling corrected the exclusion is gone, so an
+/// `mi.*` soft *floor* below the hard floor — a band that can never fire
+/// first — is the usage error it always was.
+#[test]
+fn check_soft_mi_floor_below_the_hard_floor_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let cfg = write_fixture(
+        &dir,
+        "thresholds.toml",
+        "[thresholds]\n\"mi.original\" = 20\n[thresholds.soft]\n\"mi.original\" = 10\n",
+    );
+
+    cli(dir.path())
+        .args(["check", "--paths", &path, "--config", &cfg, "--tier=soft"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains(
+            "[thresholds.soft] \"mi.original\": soft limit 10 is looser than the hard limit 20",
+        ));
+}
+
 // ─── [thresholds.soft] per-metric soft tier (#375) ────────────────────
 //
 // `classify` in BRANCHY_RUST has cyclomatic == 5. A `[thresholds.soft]`

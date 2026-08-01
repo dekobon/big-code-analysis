@@ -231,9 +231,18 @@ cyclomatic = 15.0
 `--tier <hard|soft|soft=RATIO>` selects which threshold tier the gate
 compares against. `hard` (the default) uses the `[thresholds]` table
 verbatim; `soft` is an early-warning tier that fires *before* the hard
-gate, flagging a function at `RATIO` of any limit. A bare `--tier`
+gate, tightening every limit by `RATIO`. A bare `--tier`
 means `soft`; `soft` alone uses the default ratio `0.95`; `soft=0.90`
 pins the ratio to `0.90`; `soft=1.0` disables the blanket scale.
+
+`RATIO` scales the *band*, not the number. For most metrics a limit is
+a ceiling, so tightening it means multiplying: `cognitive = 15` with
+`soft=0.9` warns at `13.5`. For the lower-is-worse `mi.*` family a
+limit is a **floor** — a value below it is the violation — so the same
+`0.9` *divides*: `"mi.original" = 20` warns at `20 / 0.9 = 22.2223`,
+rounded up so the band never resolves below the exact quotient.
+Multiplying a floor would move the warning to `18`, *under* the hard
+gate, where nothing could reach it first.
 
 A `[thresholds.soft]` table sets per-metric soft limits, each either an
 absolute number or a `"<ratio>x"` string that scales the metric's hard
@@ -262,8 +271,8 @@ The soft tier resolves in a fixed order:
 2. If a `[thresholds.soft]` table exists, merge its overrides on top;
    metrics absent from it inherit their hard limit. The blanket `RATIO`
    does not apply (explicit per-metric limits win).
-3. Otherwise scale every limit by the soft `RATIO` (default `0.95` for
-   a bare `soft`; `soft=1.0` disables scaling).
+3. Otherwise tighten every limit by the soft `RATIO` (default `0.95`
+   for a bare `soft`; `soft=1.0` disables scaling).
 4. Repeated `--threshold name=value` flags apply last, absolutely.
 
 Steps 1 to 3 run **once per language**, against that language's own
@@ -277,9 +286,10 @@ and 30 reports "also breaches the hard limit" while sitting inside the
 limit the project configured for it.
 
 The one combination that *can* invert the two tiers is an absolute
-`[thresholds.soft]` value above a language's tightened hard limit —
+`[thresholds.soft]` value looser than the hard limit it shadows —
 `[thresholds.soft] cognitive = 12` alongside
-`[thresholds.lang.csharp] cognitive = 4`. That is a tool error (exit
+`[thresholds.lang.csharp] cognitive = 4`, or an `mi.*` soft floor
+*below* its hard floor. That is a tool error (exit
 `1`) naming the offending table, for the same reason a `"<ratio>x"`
 factor above `1` is rejected at parse time: a soft tier that fires
 *after* the hard gate is never the intent.

@@ -682,8 +682,13 @@ struct ResolvedThreshold {
 /// Maintainability Index family). Thin alias for the library catalog's
 /// [`big_code_analysis::metric_catalog::lower_is_worse`] — the single
 /// source of truth shared with the offender wording and Code Climate
-/// severity inversion.
-fn metric_is_lower_is_worse(name: &str) -> bool {
+/// severity inversion, the soft-tier scaling direction (#1166), and the
+/// per-function gate.
+///
+/// `name` must be canonical — every layer that can introduce a threshold
+/// key resolves the bare `diff --metric` alias spelling at its own parse
+/// boundary (#1165), so an alias never reaches this lookup.
+pub(crate) fn metric_is_lower_is_worse(name: &str) -> bool {
     big_code_analysis::metric_catalog::lower_is_worse(name)
 }
 
@@ -760,17 +765,10 @@ impl ThresholdSet {
             // absolute form, which per-language hard overrides make easy
             // to hit by accident (#1141).
             //
-            // Higher-is-worse metrics only. The lower-is-worse `mi.*`
-            // family is a *floor*, so tightening it means raising it —
-            // but `resolve_tier`'s blanket ratio multiplies every limit,
-            // which lowers an `mi.*` floor and therefore already emits a
-            // soft tier looser than its hard one for any pre-existing
-            // `[thresholds] mi.original = N` plus `--tier=soft`. That is
-            // a separate defect in the scaling direction (#1166);
-            // rejecting it here would fail those runs rather than fix
-            // them. Drop the guard once #1166 lands.
-            if !lower_is_worse
-                && let Some(hard) = hard_limit
+            // Both directions, since #1166: a lower-is-worse `mi.*`
+            // limit is a floor, so "looser" means *below* the hard floor
+            // — which is exactly what `breaches_limit` tests for it.
+            if let Some(hard) = hard_limit
                 && breaches_limit(*limit, hard, lower_is_worse)
             {
                 return Err(format!(

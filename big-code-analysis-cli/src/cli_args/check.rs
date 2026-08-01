@@ -220,14 +220,18 @@ CLI `--threshold` flags override values read from this file."
     ///
     /// - `hard` (default) — flag a function only when a metric is at or
     ///   over its `[thresholds]` limit.
-    /// - `soft` — early-warning tier: flag a function when a metric
-    ///   reaches `RATIO` (default 0.95) of any limit, i.e. before the
-    ///   hard gate trips. With a `[thresholds.soft]` table present, the
+    /// - `soft` — early-warning tier: tighten every limit by `RATIO`
+    ///   (default 0.95) so a function is flagged before the hard gate
+    ///   trips. With a `[thresholds.soft]` table present, the
     ///   per-metric soft limits take precedence over the blanket ratio
     ///   (metrics absent from it inherit their hard limit).
-    /// - `soft=0.90` — soft tier scaling every limit by 0.90; `soft=1.0`
-    ///   disables the blanket scale (a soft tier driven only by an
-    ///   explicit `[thresholds.soft]` table).
+    /// - `soft=0.90` — soft tier tightening every limit by 0.90;
+    ///   `soft=1.0` disables the blanket scale (a soft tier driven only
+    ///   by an explicit `[thresholds.soft]` table).
+    ///
+    /// `RATIO` scales the band, not the number: a ceiling comes down
+    /// (`cognitive = 15` warns at 13.5), while a lower-is-worse `mi.*`
+    /// floor goes up (`mi.original = 20` warns at 22.2223).
     ///
     /// Resolution order: `[thresholds]` (manifest + `--config`) →
     /// `[thresholds.soft]` or the soft ratio → absolute

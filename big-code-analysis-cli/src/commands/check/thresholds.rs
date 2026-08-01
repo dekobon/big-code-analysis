@@ -372,8 +372,12 @@ pub(crate) fn resolve_tier(
         );
     }
     let mut out = hard;
-    for limit in out.values_mut() {
-        *limit = scale_threshold(*limit, ratio);
+    for (name, limit) in &mut out {
+        // Keys arrive canonical (#1165), which is what makes this
+        // direction lookup correct by construction rather than by luck:
+        // scaling a lower-is-worse floor the higher-is-worse way inverts
+        // the whole tier (#1166).
+        *limit = scale_threshold(*limit, ratio, metric_is_lower_is_worse(name));
     }
     out
 }

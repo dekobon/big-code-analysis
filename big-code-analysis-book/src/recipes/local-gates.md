@@ -59,17 +59,19 @@ and that the broader ratchet pattern formalises.
 The pattern is two recipes wrapping the same checker, plus two
 recipes for refreshing the baseline at each tier.
 
-| Target                                | Tier | Thresholds            | Baseline-filtered | Use case                                            |
-| ------------------------------------- | ---- | --------------------- | ----------------- | --------------------------------------------------- |
-| `self-scan`                           | hard | 100% of config        | yes               | Mirror of CI. Must stay green on every commit.      |
-| `self-scan-headroom`                  | soft | config × `HEADROOM`   | yes               | Early-warning band. Fires before the hard tier.     |
-| `self-scan-write-baseline`            | hard | 100% of config        | (write)           | Absorb today's hard-tier offenders.                 |
-| `self-scan-write-baseline-headroom`   | soft | config × `HEADROOM`   | (write)           | Absorb soft-tier offenders when launching or widening the band. |
+| Target                                | Tier | Thresholds              | Baseline-filtered | Use case                                            |
+| ------------------------------------- | ---- | ----------------------- | ----------------- | --------------------------------------------------- |
+| `self-scan`                           | hard | 100% of config          | yes               | Mirror of CI. Must stay green on every commit.      |
+| `self-scan-headroom`                  | soft | tightened by `HEADROOM` | yes               | Early-warning band. Fires before the hard tier.     |
+| `self-scan-write-baseline`            | hard | 100% of config          | (write)           | Absorb today's hard-tier offenders.                 |
+| `self-scan-write-baseline-headroom`   | soft | tightened by `HEADROOM` | (write)           | Absorb soft-tier offenders when launching or widening the band. |
 
 The hard tier and the soft tier consume the **same**
 `[thresholds]` table and the **same** `.bca-baseline.toml`. The
-only difference between them is a scalar multiplier applied to
-every threshold value before `bca check` sees it.
+only difference between them is the `HEADROOM` ratio applied to
+every threshold value before `bca check` sees it — tightening each
+limit, which for the lower-is-worse `mi.*` family means *raising* it
+rather than lowering it.
 
 Write the shared baseline at the **soft** tier
 (`self-scan-write-baseline-headroom`). A v5 baseline records the tier
@@ -98,8 +100,8 @@ against. `hard` (the default) compares against `[thresholds]` verbatim.
    Metrics absent from the soft table inherit their hard limit (no
    soft band). When a soft table is present, the blanket `RATIO` does
    not apply — explicit per-metric limits win over the scalar.
-3. Otherwise scale every limit by the soft `RATIO` (default `0.95` for
-   a bare `soft`, so `--tier=soft` is never a silent no-op;
+3. Otherwise tighten every limit by the soft `RATIO` (default `0.95`
+   for a bare `soft`, so `--tier=soft` is never a silent no-op;
    `soft=1.0` disables scaling).
 4. Repeated `--threshold name=value` flags apply last, absolutely.
 
@@ -128,6 +130,14 @@ the `"<ratio>x"` form for the large-valued metrics (`halstead.*`,
 `loc.*`) where an exact integer soft limit is fussy to pick. The
 scale factor must be in `(0, 1]` — the soft tier is an early-warning
 band that fires *before* the hard gate, never looser than it.
+
+That "tighter, never looser" rule is what fixes the *direction* of the
+scaling, and it is not always a multiplication. A `mi.*` limit is a
+floor rather than a ceiling — a value **below** it is the violation —
+so `RATIO` divides instead: `"mi.original" = 20` under `--tier=soft=0.9`
+resolves to `22.2223`, not `18`. The intuition that a soft band is
+"90% of the limit" is right for every other metric and exactly
+backwards here.
 
 Both tiers ratchet through the **same** `.bca-baseline.toml` (no
 separate soft baseline file). `bca check --print-effective-config
