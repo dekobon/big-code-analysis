@@ -800,7 +800,8 @@ py-stubtest:
 # .github/workflows/benchmark.yml runs `bench-scaling` out of band, and
 # a human runs these around any change to the metric walk.
 #
-#   bench-scaling   complexity-class gate: fits time ~ depth^k per probe
+#   bench-scaling   complexity-class gate: fits time ~ size^k per probe
+#                   (size = nesting depth, or one parent's child count)
 #                   and fails when k exceeds the probe's bound.
 #   bench-walk      criterion measurements over the corpus slice, per
 #                   metric. Pass criterion flags after `--`, e.g.

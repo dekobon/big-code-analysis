@@ -1,28 +1,30 @@
-//! Interleaved measurement of the depth-scaling probes, and the
+//! Interleaved measurement of the scaling probes, and the
 //! complexity-class fit derived from it.
 //!
 //! # What is asserted, and why it is not a duration
 //!
-//! The useful property is "doubling the nesting depth roughly doubles
-//! the cost", not "this finishes within N milliseconds". An absolute
+//! The useful property is "doubling the input roughly doubles the
+//! cost", not "this finishes within N milliseconds". What "doubling"
+//! means is the probe's own [`crate::shapes::Axis`] — nesting depth,
+//! or one parent's child count. An absolute
 //! budget is calibrated to one machine; the same assertion produced
 //! four false failures during the #1052 / #1062 work — on
 //! `windows-latest`, under `cargo llvm-cov`, and twice on a local host
 //! running the rest of the validation gate alongside it.
 //!
-//! A ratio between two depths is host-independent, but it is not
+//! A ratio between two sizes is host-independent, but it is not
 //! load-independent: the two measurements are sequential, so a load
 //! spike between them skews the ratio by itself. Two things fix that
 //! here.
 //!
-//! - **Interleaving.** Every (probe, depth) cell is measured once per
+//! - **Interleaving.** Every (probe, size) cell is measured once per
 //!   round, and the visit order is rotated each round. Contention that
 //!   arrives mid-run lands on all cells rather than on whichever one
 //!   happened to be running, so it inflates the readings without
 //!   tilting the ratio between them.
-//! - **Three points, not two.** Each probe is measured at `d`, `2d`
-//!   and `4d`, and the reported figure is the slope of `ln(time)`
-//!   against `ln(depth)` — an exponent, near 1.0 for a linear walk and
+//! - **Three points, not two.** Each probe is measured at `n`, `2n`
+//!   and `4n`, and the reported figure is the slope of `ln(time)`
+//!   against `ln(size)` — an exponent, near 1.0 for a linear walk and
 //!   near 2.0 for a quadratic one. A single pair of timings cannot
 //!   distinguish "twice as slow because quadratic" from "twice as slow
 //!   because busy".
@@ -176,7 +178,7 @@ impl ProbeReport {
     }
 }
 
-/// A full run of the depth-scaling probes.
+/// A full run of the scaling probes.
 #[derive(Debug, Clone)]
 pub struct Report {
     /// Measurement rounds actually performed.
@@ -198,7 +200,7 @@ impl Report {
 
 impl fmt::Display for Report {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "metric-walk depth scaling ({} rounds)", self.rounds)?;
+        writeln!(f, "metric-walk scaling ({} rounds)", self.rounds)?;
         for probe in &self.probes {
             writeln!(f)?;
             // An abandoned probe has no exponent worth printing: it is

@@ -9,9 +9,9 @@ nested files unanalysable.
 It has two halves, and they answer different questions.
 
 - **The complexity-class gate** (`benches/scaling.rs`) answers "does
-  doubling the nesting depth roughly double the cost?" It fails the
-  process when a probe's measured exponent exceeds the bound that
-  probe declares.
+  doubling the input — its nesting depth, or one parent's child
+  count — roughly double the cost?" It fails the process when a
+  probe's measured exponent exceeds the bound that probe declares.
 - **The criterion benchmarks** (`benches/metric_walk.rs`) answer "how
   fast is this, and did my change help?" They use
   [criterion][criterion], which reports a confidence interval rather
@@ -60,10 +60,29 @@ git submodule update --init --recursive
 Each probe pairs a generated source shape with the workload that
 exercises one hot path — a metric selection through `Ast::metrics`, or
 the operator/operand walk behind `Ast::ops`. The shape is rendered at three doubling
-depths, every (probe, depth) cell is measured once per round with the
+sizes, every (probe, size) cell is measured once per round with the
 visit order rotated between rounds, and the reported figure is the
-slope of `ln(time)` against `ln(depth)`. A linear walk sits near 1.0;
+slope of `ln(time)` against `ln(size)`. A linear walk sits near 1.0;
 a quadratic one sits near 2.0.
+
+A probe declares which **axis** its size parameter grows along, because
+a walk can be linear in one and quadratic in the other:
+
+- `Axis::Depth` — the size is the shape's nesting depth. Every probe
+  but one is on this axis, and they exist because `tree_sitter` stores
+  no parent pointer, so any predicate that resolves an ancestor by
+  climbing is `O(depth)` per node.
+- `Axis::Width` — the size is the number of siblings under one parent,
+  at a depth that does not move. `nom/wide-attributed-fn` is the only
+  one, and it exists because #1100's fix trades the two axes against
+  each other (see below).
+
+The axis also selects the shape invariant a probe must satisfy in
+`shapes.rs`: a depth shape has to gain AST levels in proportion to its
+size, and a width shape has to gain children while its AST depth stays
+**constant**. That second half is what stops a "width" probe that
+quietly began nesting from reporting a healthy exponent for a bound
+nothing is testing any more.
 
 Output looks like this:
 
@@ -80,12 +99,15 @@ Read it as follows.
 - `median ms` is what the fit uses. `min` and `max` bracket the
   rounds. A wide spread means the host was busy and the run should be
   repeated, not interpreted.
-- `bytes` grows linearly with `depth` for every shape, by
+- `bytes` grows linearly with `size` for every shape, by
   construction. If it did not, a walk that is linear in input size
-  would read as superlinear in depth.
-- `ns/byte` drifts up with depth even for a linear walk, because the
-  tree outgrows cache. That drift is why the linear bound is 1.5 and
-  not 1.05.
+  would read as superlinear in its size parameter.
+- `ns/byte` drifts up with size on a depth shape even for a linear
+  walk, because the tree outgrows cache. That drift is why the linear
+  bound is 1.5 and not 1.05. The width shape shows no such drift —
+  `nom/wide-attributed-fn` holds ~180 across its ladder — which is
+  observed rather than explained; do not read a cache argument into
+  it.
 - `iter` is how many walks were folded into one timed sample. The
   cheapest cells run in a few hundred microseconds, where clock
   resolution is a visible fraction of the reading, so the harness
@@ -94,38 +116,39 @@ Read it as follows.
   probe that stopped measuring anything is visible: a shape paired with
   a workload that scores zero on it would time the walk's fixed
   overhead and report an excellent exponent forever. A reading that
-  does not grow with depth is fine as long as it is non-zero — the
-  depth signal lives in the timing column — but say so in the probe's
-  `rationale`, as `ops/nested-fn` does.
+  does not grow with the size is fine as long as it is non-zero — the
+  scaling signal lives in the timing column — but say so in the
+  probe's `rationale`, as `ops/nested-fn` does.
 
 ### What the probes cover
 
-| Probe | Language | Hot path | Class today |
-|---|---|---|---|
-| `tokens/nested-paren` | Rust | inherited in-comment flag (#1052) | linear |
-| `cognitive/nested-while` | C | `get_nesting_from_map` (#1062) | linear |
-| `nom/nested-while` | C | metric control for the row above | linear |
-| `cognitive/nested-if` | C | `Checker::is_else_if` | linear |
-| `loc/nested-while` | C | shape control for the row below | linear |
-| `loc/nested-declaration` | C | `Node::count_specific_ancestors` | linear |
-| `nom/nested-quote` | Elixir | `elixir_is_inside_quote_block` | linear |
-| `nom/nested-fn` | Rust | `FuncSpace` nesting; metric control for the row below | linear |
-| `cognitive/nested-fn` | Rust | `increment_function_depth` (#1062) | linear |
-| `ops/nested-fn` | Rust | the `Ast::ops` walk (#1110) | linear |
-| `loc/nested-fn` | Rust | shape control for the row below | linear |
-| `loc/nested-fn-rows` | Rust | `Ploc::merge` / `Cloc::merge` row-set union (#1109) | linear |
-| `nom/nested-fn-rows` | Rust | metric control for the row above | linear |
-| `nom/nested-declared-function` | JavaScript | shape control for the row below | linear |
-| `nom/nested-arrow` | JavaScript | JS-family `is_func` / `is_closure` (#1088) | linear |
-| `halstead/nested-paren` | Rust | shape control for the row below | linear |
-| `halstead/nested-not` | Rust | `Getter::get_op_type`'s parent read (#1096) | linear |
-| `abc/nested-block` | C | shape control for the row below | linear |
-| `abc/nested-if` | C | the C-family ABC container walker (#1096) | linear |
-| `cyclomatic/nested-and` | Python | shape control for the row below | linear |
-| `cyclomatic/nested-ternary` | Python | `Node::parent_grandparent_match` (#1096) | linear |
-| `loc/nested-quote` | Elixir | `loc`'s Elixir catch-all arm (#1096) | linear |
-| `nom/nested-attributed-fn` | Rust | the `exclude_tests` outer-attribute scan (#1100) | linear |
-| `nom/nested-cfg-predicate` | Rust | the `cfg(...)` predicate classifier (#1105) | linear |
+| Probe | Language | Axis | Hot path | Class today |
+|---|---|---|---|---|
+| `tokens/nested-paren` | Rust | depth | inherited in-comment flag (#1052) | linear |
+| `cognitive/nested-while` | C | depth | `get_nesting_from_map` (#1062) | linear |
+| `nom/nested-while` | C | depth | metric control for the row above | linear |
+| `cognitive/nested-if` | C | depth | `Checker::is_else_if` | linear |
+| `loc/nested-while` | C | depth | shape control for the row below | linear |
+| `loc/nested-declaration` | C | depth | `Node::count_specific_ancestors` | linear |
+| `nom/nested-quote` | Elixir | depth | `elixir_is_inside_quote_block` | linear |
+| `nom/nested-fn` | Rust | depth | `FuncSpace` nesting; metric control for the row below | linear |
+| `cognitive/nested-fn` | Rust | depth | `increment_function_depth` (#1062) | linear |
+| `ops/nested-fn` | Rust | depth | the `Ast::ops` walk (#1110) | linear |
+| `loc/nested-fn` | Rust | depth | shape control for the row below | linear |
+| `loc/nested-fn-rows` | Rust | depth | `Ploc::merge` / `Cloc::merge` row-set union (#1109) | linear |
+| `nom/nested-fn-rows` | Rust | depth | metric control for the row above | linear |
+| `nom/nested-declared-function` | JavaScript | depth | shape control for the row below | linear |
+| `nom/nested-arrow` | JavaScript | depth | JS-family `is_func` / `is_closure` (#1088) | linear |
+| `halstead/nested-paren` | Rust | depth | shape control for the row below | linear |
+| `halstead/nested-not` | Rust | depth | `Getter::get_op_type`'s parent read (#1096) | linear |
+| `abc/nested-block` | C | depth | shape control for the row below | linear |
+| `abc/nested-if` | C | depth | the C-family ABC container walker (#1096) | linear |
+| `cyclomatic/nested-and` | Python | depth | shape control for the row below | linear |
+| `cyclomatic/nested-ternary` | Python | depth | `Node::parent_grandparent_match` (#1096) | linear |
+| `loc/nested-quote` | Elixir | depth | `loc`'s Elixir catch-all arm (#1096) | linear |
+| `nom/nested-attributed-fn` | Rust | depth | the `exclude_tests` outer-attribute scan (#1100) | linear |
+| `nom/wide-attributed-fn` | Rust | width | the same scan on the width axis (#1100) | linear |
+| `nom/nested-cfg-predicate` | Rust | depth | the `cfg(...)` predicate classifier (#1105) | linear |
 
 Four of these were quadratic when the harness landed, and they shared
 one cause: `tree_sitter` stores no parent pointer, so `Node::parent`
@@ -217,19 +240,25 @@ the parent's child count against the node's depth, so it reads forward
 only where that is the cheaper bound and a shallow wide parent keeps
 exactly the walk it had.
 
-**The width axis is not guarded here.** No probe renders the wide
-shape. A fixed-depth width sweep would grow its input affinely, as the
-module requires, but it does not nest — and `shapes.rs` asserts that
-every probe's shape gains AST levels in proportion to its parameter
-(`shapes_nest_proportionally_to_depth`), which such a sweep would fail
-by construction. What the unit suite pins
-is the *dispatch*, not its cost —
+**Both halves of that trade are now measured** (#1133).
+`nom/wide-attributed-fn` renders the wide shape — a flat file of
+`n` top-level `#[inline] fn f() {}` items, 500 / 1 000 / 2 000 — under
+the same `exclude_tests` walk. It fits 0.97-1.00 against the budgeted
+dispatch. Reintroducing the rejected forward-always scan behind a local
+patch takes it to **1.99**, at 35.6 / 145.5 / 560.6 ms against
+1.9 / 3.8 / 7.2 ms — 78x at the top of the ladder, the same order as
+the 94x #1100 measured — while every depth probe stayed inside its
+1.5 bound, `nom/nested-attributed-fn` (the same scan, nesting instead
+of widening) among them at 1.06. That is the evidence that the probe
+covers what it claims and that the depth probes do not.
+
+The unit suite still pins the *dispatch* separately:
 `the_exclude_tests_prune_reads_forward_up_to_its_depth_scaled_budget`
 in `src/node.rs` asserts which arm each boundary shape takes, so
 widening the budget past a shallow parent fails a test rather than
-slipping through. The numbers the budget is derived from have no
-automated guard at all; re-measure by hand when touching either
-constant.
+slipping through. The break-even *numbers* the budget is derived from
+remain unguarded — the gate sees the complexity class, not the
+constant — so re-measure by hand when touching either constant.
 
 `nom/nested-cfg-predicate` guards [#1105][cfg-predicate] and is the only
 probe that grows one *attribute* rather than the code around it:
@@ -384,10 +413,18 @@ alone.
 
 Add a `Probe` to `PROBES` in `big-code-analysis-bench/src/shapes.rs`.
 The unit tests in that module enforce what a probe has to satisfy:
-bytes affine in depth, no parse errors, AST depth growing with the
-depth parameter, a non-zero workload reading, and depths that double.
-Set `max_exponent` from a measurement on an idle host, not from
-theory, and say in `rationale` which call the probe is watching.
+bytes affine in the size parameter, no parse errors at the smallest
+declared size, a non-zero workload reading there, sizes that double,
+and the invariant its `axis` selects — AST levels growing with the size
+on `Axis::Depth`, children growing while AST depth holds still on
+`Axis::Width`. Set `max_exponent` from a measurement on an idle host,
+not from theory, and say in `rationale` which call the probe is
+watching.
+
+Then falsify it. Reintroduce the regression the probe claims to catch
+behind a local patch, confirm the probe goes red and its controls stay
+green, and record both numbers — a probe nobody has made fail is a
+guard on paper. The width probe's own run is quoted above.
 
 ## Criterion measurements
 
@@ -398,7 +435,7 @@ Three groups:
 - `corpus/walk` is one benchmark per metric family over the
   already-parsed slice. This is the number to quote when a change
   claims to make a metric cheaper.
-- `shape/walk` is the depth-scaling shapes at a single depth, so a
+- `shape/walk` is the scaling shapes at a single size, so a
   constant-factor change on a pathological input is visible even when
   its complexity class did not move.
 
@@ -497,7 +534,7 @@ structurally; the fourth is on you.
    `byte_growth_is_affine` fails if one stops doing so.
 2. **`fd -e py | wc -l` is not the corpus.** Report what was
    analysed, which `CorpusSlice::summary` does for you.
-3. **A ratio between two depths is host-independent but not
+3. **A ratio between two sizes is host-independent but not
    load-independent.** The two measurements are sequential, so a load
    spike between them skews the ratio by itself; best-of-three sheds
    bursty contention but not sustained overhead. The gate interleaves
