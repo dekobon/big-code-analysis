@@ -4691,6 +4691,103 @@ function f(int $a, int $b): int {
         });
     }
 
+    // Issue #1161. Ruby's ternary carried only the `?` token arm, so
+    // `a ? !b : !c` scored 1 against the 4 that Java, C#, Groovy, the C
+    // family, the JS family, PHP and Perl all report for the same
+    // expression (#1102) — and `ruby_inspect_container`'s `Conditional`
+    // boolean-context seed was unreachable for the same reason.
+    //
+    // Every expectation below is the value its C++ sibling
+    // (`cpp_ternary_operand_slots_count_as_unary_conditions`) already
+    // asserts for the same expression, so the two read as one table.
+    #[test]
+    fn ruby_ternary_operand_slots_count_as_unary_conditions() {
+        // `?` (1) + condition `a` (1) + `!b` (1) + `!c` (1) = 4.
+        check_metrics::<RubyParser>("def f\n  x = a ? !b : !c\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 4);
+        });
+        // No-double-count pin, and the assertion that catches the trap
+        // this grammar sets: `-b` and `!b` are the SAME node kind
+        // (`unary:284`), separated only by child(0). Routing the branch
+        // slots through `ruby_inspect_container` — which tests for the
+        // `!` token, not for the kind — is what keeps this at 2. An
+        // implementation keying on `Unary` reads 3 here.
+        // `?` (1) + `>` (1) = 2, unchanged by the fix: the parenthesised
+        // condition unwraps to a `binary`, which is not a boolean
+        // terminal, and neither branch is negated.
+        check_metrics::<RubyParser>("def f\n  x = (a > 0) ? b : -b\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 2);
+        });
+        // Nested — Ruby needs the inner ternary parenthesised. Outer `?`
+        // (1) + outer condition `a` (1) + inner `?` (1) + inner
+        // condition `b` (1) = 4. The outer consequence unwraps to the
+        // inner `conditional`, which is neither a boolean terminal nor a
+        // further paren / `!` layer, so it adds nothing on its own; the
+        // inner ternary is reached by the walk, not by descent.
+        check_metrics::<RubyParser>(
+            "def f\n  x = a ? (b ? c : d) : e\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4);
+            },
+        );
+        // A parenthesised condition, pinning the `is_parens` unwrap on
+        // the condition slot: `(a)` is `parenthesized_statements`, not a
+        // boolean terminal, so it reaches the walker's `else` fallback
+        // and only `ruby_inspect_container` can resolve it.
+        // `?` (1) + `(a)` (1) + `!b` (1) + `!c` (1) = 4; drop the
+        // fallback and this reads 3 while every other case here holds.
+        check_metrics::<RubyParser>("def f\n  x = (a) ? !b : !c\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 4);
+        });
+        // A negated condition takes the same fallback through the `!`
+        // unwrap rather than the paren one. `?` (1) + `!a` (1) = 2.
+        check_metrics::<RubyParser>("def f\n  x = !a ? b : c\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 2);
+        });
+    }
+
+    // The boolean-context seed must discriminate between the condition
+    // slot and the two branch slots — not merely exist. None of the
+    // fixtures above can tell the difference: their branches are either
+    // `!`-unaries (which set the flag inside the unwrap loop regardless
+    // of the seed) or kinds the loop breaks on before any terminal test.
+    // A seed that returned `true` for every slot of a `Conditional`
+    // leaves all five at their asserted values and fails nothing.
+    //
+    // A parenthesised *branch* is the input that separates them: the
+    // unwrap reaches a bare terminal, so only the seed decides whether
+    // it counts. `?` (1) + condition `a` (1) = 2 in both directions.
+    #[test]
+    fn ruby_ternary_branch_operands_are_not_double_counted() {
+        check_metrics::<RubyParser>("def f\n  x = a ? (b) : c\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 2);
+        });
+        check_metrics::<RubyParser>("def f\n  x = a ? b : (c)\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 2);
+        });
+        // The same pair with a comment before the operand. Comments are
+        // tree-sitter `extras`, so they become the branch's previous
+        // sibling — which is why the seed asks the grammar which child
+        // is the `condition` field rather than testing that sibling for
+        // `?` / `:` as the C family does. Under the token form both of
+        // these read 3.
+        check_metrics::<RubyParser>(
+            "def f\n  x = a ?\n    # note\n    (b) : c\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+        check_metrics::<RubyParser>(
+            "def f\n  x = a ? b :\n    # note\n    (c)\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+    }
+
     #[test]
     fn ruby_case_when_arms() {
         // Each `when` named clause and the `else` clause count as one
