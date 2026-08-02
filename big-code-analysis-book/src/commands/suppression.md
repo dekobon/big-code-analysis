@@ -31,17 +31,17 @@ forms:
 | `bca: suppress-file`                | File              | Suppress every metric           |
 | `bca: suppress-file(metric, ...)`   | File              | Suppress only the listed metrics |
 
-Any of the four may carry a **rationale** — free text on the same line,
-after the marker itself:
+The two metric-list forms may carry a **rationale** — free text on the
+same line, after the marker itself:
 
 ```rust
 // bca: suppress(nargs) — threaded context, not a god-function
 ```
 
-After a metric list no separator is required and none is privileged:
-`— why`, `- why`, `: why`, `// why`, and bare prose all read the same.
-After a *bare* verb, with no metric list, the rationale must open with
-one of `-`, `:`, `//`, `#`, or an em/en dash — see
+No separator is required and none is privileged: `— why`, `- why`,
+`: why`, `// why`, and bare prose all read the same. The two *bare*
+verbs take no trailing text at all — `bca: suppress see #123` is not a
+marker, whatever punctuation opens the trailing words. See
 [Rationale text](#rationale-text) for why.
 
 A function-scope marker attaches to the innermost `FuncSpace`
@@ -173,26 +173,33 @@ believed was active and the gate did not.
 
 Unknown verbs (anything other than `suppress` / `suppress-file`) and
 bodies that parse to no directive at all (an unbalanced parenthesis, a
-bare verb followed by words that open no rationale) produce the same
-shape of warning, and those *do* void the marker — there is nothing left
-of it to honour. None of these are fatal: a typo in one file does not
-derail a workspace walk, and a doc comment that merely mentions the
-syntax does not fail your gate.
+bare verb followed by any trailing text) produce the same shape of
+warning, and those *do* void the marker — there is nothing left of it to
+honour. None of these are fatal: a typo in one file does not derail a
+workspace walk, and a doc comment that merely mentions the syntax does
+not fail your gate.
 
 ### Rationale text {#rationale-text}
 
-Text after the marker is yours; `bca` parses past it and does not
+Text after a metric list is yours; `bca` parses past it and does not
 interpret it. The asymmetry between the two forms is deliberate:
 
 - **After a metric list** — `bca: suppress(nargs) threaded context` —
-  anything goes. The list has already stated the intent unambiguously,
+  anything goes. The parentheses are a positive signal that this comment
+  is a marker, and the list has already stated the intent unambiguously,
   so whatever follows is prose.
-- **After a bare verb** — `bca: suppress — irreducible dispatch` — a
-  separator (`-`, `:`, `//`, `#`, an em/en dash) is required. Without a
-  list there is nothing to distinguish a rationale from a sentence
-  *about* the feature, and reading `// bca: suppress markers are
-  honoured here` as a marker would silence every metric in the enclosing
-  function on the strength of a comment. That shape warns instead.
+- **After a bare verb** — `bca: suppress — irreducible dispatch` — there
+  is no trailing text. Nothing in this shape separates a rationale from
+  a sentence *about* the feature, and no separator can: `-`, `:`, `//`,
+  `#` and the dashes are exactly the punctuation someone writing
+  `// bca: suppress - we removed this marker, see #123` reaches for.
+  Accepting them silences every metric in the enclosing function on the
+  strength of a comment, so the whole shape warns instead.
+
+  If you want to record a reason, name the metrics —
+  `bca: suppress(cognitive, cyclomatic) — reason` — which is more
+  precise than the `All` hammer anyway. If `All` really is what you
+  mean, put the reason on the line above the marker.
 
 ## Where markers may appear
 
@@ -392,7 +399,7 @@ today:
   without breaking existing markers.
 
 The `reason = "..."` argument this section used to reserve is no longer
-planned. Write the rationale after the marker instead — see
+planned. Write the rationale after the metric list instead — see
 [Rationale text](#rationale-text) — which is the spelling authors
 already reach for. Inside the parentheses, `reason = "..."` is still an
 unknown metric identifier and is skipped with a stderr warning.
