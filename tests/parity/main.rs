@@ -10,3 +10,4 @@ mod cyclomatic_cross_language_parity;
 mod exit_cross_language_parity;
 mod nargs_cross_language_parity;
 mod ops_metrics_space_parity;
+mod space_span_containment;

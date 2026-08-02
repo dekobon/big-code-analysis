@@ -24,6 +24,10 @@ The fields you reach for most often are:
 [`SpaceKind`][SpaceKind] is an enum — match on it to filter what
 you care about (`Function` only, or "anything that owns methods").
 
+`start_line..=end_line` is inclusive and never runs past the end of
+the file, and a nested space's range always lies inside its parent's,
+so it is safe to slice source by it.
+
 ## Recursive walk
 
 Recursion mirrors the tree shape. Here we collect every function
