@@ -119,13 +119,21 @@ exclude = [
 # enough to be meaningless, or fire on the long tail of dispatch arms.
 # They are still computed and visible in `bca report markdown|html`.
 [thresholds]
-# `cognitive` is looser here than the shipped default (15). That is not
-# a calibration — it is the pre-#1140 folklore value. Re-measured on
-# 2026-08-01: converging costs 19 new offenders, all between 16 and 20,
-# so it is a broad shallow overshoot rather than a few pathological
-# functions. Tracked in #1143.
+# `cognitive` and `abc` have converged onto the shipped defaults (15 and
+# 40). `cognitive` 25 -> 15 landed in #1143: 25 was the pre-#1140
+# folklore value and, at a measured maximum of 20, gated nothing at all.
+# 15 is also this repo's own 97.5th percentile — the same statistic
+# #1140 derived the shipped default from — so the two agree by
+# derivation, not by coincidence.
 #
-# `abc` has converged onto the shipped default (40).
+# The convergence cost 18 hard-tier offenders: 10 were genuinely
+# simplified and 8 carry a `bca: suppress(cognitive)` marker (per-language
+# grammar dispatch and byte-level scanners). The 16 functions sitting at
+# exactly 15 are the soft tier's own cost — a limit placed on a population
+# value puts everything at that value inside the 0.95 band by construction
+# — and 14 of them are baselined rather than marked: a function at the
+# limit is not over it, and a baseline entry keeps the growth alarm a
+# suppression marker would discard.
 #
 # `nargs` deliberately stays at 7. #1143 proposed 7 -> 6 as a free
 # ratchet on the strength of a hard-tier measurement: every offender at
@@ -139,8 +147,13 @@ exclude = [
 # to do the real 6 -> 5 work.
 #
 # Re-measure with `bca check --explain-threshold nargs=6` (#1169) rather
-# than a bare `--threshold`, which has no soft tier by design.
-cognitive = 25
+# than a bare `--threshold`, which has no soft tier by design. What makes
+# `nargs` different from the `cognitive` convergence above is where the
+# limit falls in the distribution: nothing in this repo exceeds 6, so a
+# limit of 6 sits on the population's ceiling and buys no hard-tier gate,
+# whereas `cognitive` runs to 20 with 15 inside the distribution. The
+# 6 -> 5 step is tracked separately in #1183.
+cognitive = 15
 cyclomatic = 15
 "halstead.effort" = 50000
 # File size is gated in two tiers (#1138, #1140). Both are File-scoped

@@ -53,6 +53,9 @@ use crate::*;
 // wrappers (`ScalarVariable`, `ArrayVariable`, `HashVariable` plus the
 // access shapes).
 fn perl_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
+    // bca: suppress(cognitive) — wrapper-peeling state machine, clearest whole
+    // See `cpp_inspect_container` for the shared rationale: one loop peels
+    // `(...)` / `!...` layers while carrying a single boolean-context flag.
     use Perl as P;
 
     let mut node = *container_node;

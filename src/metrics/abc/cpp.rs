@@ -25,6 +25,13 @@ use crate::*;
 // family: equivalent to the former `Cpp`-enum match for Cpp, and
 // grammar-agnostic for Mozcpp.
 pub(super) fn cpp_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
+    // bca: suppress(cognitive) — wrapper-peeling state machine, clearest whole
+    // One loop peels `(...)` / `!...` layers while carrying a single
+    // boolean-context flag, terminating on a terminal-bool kind. The flag
+    // must be readable at every step, so any split would have to thread it
+    // back out; the parts have no names a reader would draw. The siblings
+    // that also breach carry the same marker; the ones sitting at the limit
+    // are baselined instead, so growth still trips the gate (#1143).
     let mut node = *container_node;
     let mut node_kind = node.kind();
     let parent_kind = parent.kind();

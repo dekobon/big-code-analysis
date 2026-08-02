@@ -316,6 +316,33 @@ fn diff_git_new_path(rest: &str) -> Option<PathBuf> {
 /// quoted span is delimited by unescaped `"` and may contain escaped quotes
 /// (`\"`) and spaces, so a quoted path is parsed as a single token here even
 /// when `rsplit(' ')` would shred it.
+/// Index one past the closing quote of the quoted span opening at `start`
+/// (which must be the opening `"`), clamped to `bytes.len()` for an
+/// unterminated span. A `\<x>` escape spans two bytes, so a `\"` inside the
+/// span does not close it.
+fn scan_quoted_span(bytes: &[u8], start: usize) -> usize {
+    let mut i = start + 1;
+    while i < bytes.len() && bytes[i] != b'"' {
+        // Clamp so a trailing backslash cannot push the index past the end.
+        i = if bytes[i] == b'\\' {
+            (i + 2).min(bytes.len())
+        } else {
+            i + 1
+        };
+    }
+    // Advance past the closing quote.
+    (i + 1).min(bytes.len())
+}
+
+/// Index of the next space or quote at or after `start`, or `bytes.len()`.
+fn scan_unquoted_span(bytes: &[u8], start: usize) -> usize {
+    let mut i = start;
+    while i < bytes.len() && bytes[i] != b' ' && bytes[i] != b'"' {
+        i += 1;
+    }
+    i
+}
+
 fn last_quoted_token(rest: &str) -> Option<&str> {
     let bytes = rest.as_bytes();
     let mut i = 0;
@@ -325,29 +352,15 @@ fn last_quoted_token(rest: &str) -> Option<&str> {
             b' ' => i += 1,
             b'"' => {
                 let start = i;
-                i += 1;
-                while i < bytes.len() && bytes[i] != b'"' {
-                    // A `\<x>` escape spans two bytes; clamp so a trailing
-                    // backslash cannot push the slice end past the string.
-                    i = if bytes[i] == b'\\' {
-                        (i + 2).min(bytes.len())
-                    } else {
-                        i + 1
-                    };
-                }
-                // Advance past the closing quote; the slice `[start..i]` then
-                // spans the whole token, both quotes included.
-                i = (i + 1).min(bytes.len());
+                i = scan_quoted_span(bytes, i);
+                // The slice `[start..i]` spans the whole token, both quotes
+                // included.
                 last = Some(&rest[start..i]);
             }
             // Unquoted token: skip to the next space or quote. Bytes inside a
             // UTF-8 multibyte sequence are all >= 0x80, so comparing to ASCII
             // never lands mid-character.
-            _ => {
-                while i < bytes.len() && bytes[i] != b' ' && bytes[i] != b'"' {
-                    i += 1;
-                }
-            }
+            _ => i = scan_unquoted_span(bytes, i),
         }
     }
     last

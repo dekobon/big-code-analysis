@@ -80,28 +80,40 @@ fn normalize_body(source: &[u8], start_line: usize, end_line: usize) -> Vec<u8> 
         .skip(first)
         .take(end_line.saturating_sub(first))
     {
-        let mut line_started = false;
-        let mut pending_space = false;
-        for &b in line {
-            if b == b'\r' {
-                continue;
-            }
-            if b.is_ascii_whitespace() {
-                pending_space = true;
-                continue;
-            }
-            if line_started && pending_space {
-                out.push(b' ');
-            }
-            pending_space = false;
-            out.push(b);
-            line_started = true;
-        }
-        if line_started {
+        if push_normalized_line(line, &mut out) {
             out.push(b'\n');
         }
     }
     out
+}
+
+/// Append one line's non-whitespace bytes to `out`, collapsing every internal
+/// whitespace run to a single space and dropping leading and trailing runs.
+/// Returns whether the line contributed any bytes — that is, whether it was
+/// non-blank, and so whether the caller owes it a `\n`.
+fn push_normalized_line(line: &[u8], out: &mut Vec<u8>) -> bool {
+    let mut line_started = false;
+    let mut pending_space = false;
+    for &b in line {
+        // `\r` is dropped outright (a CRLF line end must not read as an
+        // internal space), while any other whitespace defers a single
+        // separator that is emitted only if a non-whitespace byte follows on
+        // this line — which is what drops the leading and trailing runs.
+        if b == b'\r' {
+            continue;
+        }
+        if b.is_ascii_whitespace() {
+            pending_space = true;
+            continue;
+        }
+        if line_started && pending_space {
+            out.push(b' ');
+        }
+        pending_space = false;
+        out.push(b);
+        line_started = true;
+    }
+    line_started
 }
 
 /// Sentinel emitted in place of the elided function name. `\x00` does not

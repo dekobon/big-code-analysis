@@ -1020,32 +1020,28 @@ fn write_language_section(
             hotspot::Source::Funcs => &funcs,
             hotspot::Source::All => entries,
         };
-        if spec.cc_note {
+        // Select first, emit second. Both selectors feed the same
+        // empty-table handling, so hoisting it out of the CC/non-CC split
+        // leaves one copy of that rule instead of two identical ones.
+        let (rows, cc_stats) = if spec.cc_note {
             let (rows, stats) = hotspot::select_cc(spec, base, top_n, policy, advisory);
-            if rows.is_empty() {
-                // Mirror the non-CC branch: a CC table emptied purely by
-                // suppression earns the same "table omitted" caption, or the
-                // Actionable Summary's raw CC bullets would dangle (#616).
-                let suppressed = hotspot::fully_suppressed_count(spec, base, policy, advisory);
-                sections::emit_fully_suppressed_note_md(out, &spec.title.render(top_n), suppressed);
-            } else {
-                sections::emit_section_md(out, spec, top_n, &rows);
-                sections::emit_cc_note_md(out, &stats, policy);
-            }
+            (rows, Some(stats))
         } else {
-            let rows = hotspot::select(spec, base, top_n, policy, advisory);
-            if rows.is_empty() {
-                // An empty table here is either a genuinely-absent metric or a
-                // table whose every matching row was suppressed; only the
-                // latter earns a caption so a summary bullet never dangles.
-                let suppressed = hotspot::fully_suppressed_count(spec, base, policy, advisory);
-                sections::emit_fully_suppressed_note_md(out, &spec.title.render(top_n), suppressed);
-            } else {
-                sections::emit_section_md(out, spec, top_n, &rows);
-                if spec.mi_note {
-                    sections::emit_mi_note_md(out);
-                }
-            }
+            (hotspot::select(spec, base, top_n, policy, advisory), None)
+        };
+        if rows.is_empty() {
+            // An empty table is either a genuinely-absent metric or a table
+            // whose every matching row was suppressed; only the latter earns
+            // a caption, or the Actionable Summary's bullets dangle (#616).
+            let suppressed = hotspot::fully_suppressed_count(spec, base, policy, advisory);
+            sections::emit_fully_suppressed_note_md(out, &spec.title.render(top_n), suppressed);
+            continue;
+        }
+        sections::emit_section_md(out, spec, top_n, &rows);
+        if let Some(stats) = cc_stats {
+            sections::emit_cc_note_md(out, &stats, policy);
+        } else if spec.mi_note {
+            sections::emit_mi_note_md(out);
         }
     }
 }

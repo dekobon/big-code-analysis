@@ -8,6 +8,38 @@
 
 use super::*;
 
+/// The `(declared, exported)` attribute counts one `field_declaration`
+/// contributes: named fields carry one or more `FieldIdentifier` children
+/// (`A, b int` → two names), while an embedded field carries none and
+/// contributes the embedded type's base name. `exported` applies Go's
+/// lexical export rule to each of those names.
+fn go_count_declaration_names(declaration: &Node, code: &[u8]) -> (usize, usize) {
+    use Go as G;
+
+    let mut names = declaration
+        .children()
+        .filter(|c| matches!(c.kind_id().into(), G::FieldIdentifier))
+        .peekable();
+    if names.peek().is_none() {
+        let Some(name) = go_embedded_field_name(declaration) else {
+            return (0, 0);
+        };
+        return (
+            1,
+            usize::from(name.utf8_text(code).is_some_and(go_is_exported)),
+        );
+    }
+    let mut declared = 0usize;
+    let mut exported = 0usize;
+    for name in names {
+        declared += 1;
+        if name.utf8_text(code).is_some_and(go_is_exported) {
+            exported += 1;
+        }
+    }
+    (declared, exported)
+}
+
 // Go attribute counting.
 //
 // Go has no `class` concept; struct types declared at file scope
@@ -72,23 +104,9 @@ impl Npa for GoCode {
             .children()
             .filter(|c| matches!(c.kind_id().into(), G::FieldDeclaration))
         {
-            let mut names = declaration
-                .children()
-                .filter(|c| matches!(c.kind_id().into(), G::FieldIdentifier))
-                .peekable();
-            if names.peek().is_some() {
-                for name in names {
-                    total += 1;
-                    if name.utf8_text(code).is_some_and(go_is_exported) {
-                        public += 1;
-                    }
-                }
-            } else if let Some(name) = go_embedded_field_name(&declaration) {
-                total += 1;
-                if name.utf8_text(code).is_some_and(go_is_exported) {
-                    public += 1;
-                }
-            }
+            let (declared, exported) = go_count_declaration_names(&declaration, code);
+            total += declared;
+            public += exported;
         }
 
         if total == 0 {

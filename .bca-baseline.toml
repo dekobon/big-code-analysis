@@ -93,7 +93,7 @@ value = 60852.18615151166
 path = "big-code-analysis-cli/src/commands/check/effective_config.rs"
 qualified = "EffectiveConfig::from_resolved"
 metric = "nargs"
-value = 14.0
+value = 12.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check/effective_config.rs"
@@ -182,12 +182,6 @@ value = 9.0
 [[entry]]
 path = "big-code-analysis-cli/src/html_report.rs"
 qualified = "write_table_core"
-metric = "halstead.effort"
-value = 91596.1159616176
-
-[[entry]]
-path = "big-code-analysis-cli/src/html_report.rs"
-qualified = "write_table_core"
 metric = "nargs"
 value = 7.0
 
@@ -201,13 +195,7 @@ value = 8.0
 path = "big-code-analysis-cli/src/html_report/sections.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 551.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/html_report/sections.rs"
-qualified = "write_language_section"
-metric = "halstead.effort"
-value = 58205.59941550624
+value = 547.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/html_report/sections.rs"
@@ -225,19 +213,13 @@ value = 59351.805921378844
 path = "big-code-analysis-cli/src/markdown_report.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 601.0
+value = 597.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report.rs"
 qualified = "extract_summaries_inner"
 metric = "abc"
 value = 39.153543900903784
-
-[[entry]]
-path = "big-code-analysis-cli/src/markdown_report.rs"
-qualified = "write_language_section"
-metric = "halstead.effort"
-value = 52993.355167839094
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report/hotspot.rs"
@@ -276,12 +258,6 @@ metric = "halstead.effort"
 value = 66737.04848699087
 
 [[entry]]
-path = "big-code-analysis-cli/src/thresholds.rs"
-qualified = "ThresholdSet::evaluate_with_policy"
-metric = "halstead.effort"
-value = 57580.96697647807
-
-[[entry]]
 path = "big-code-analysis-cli/src/vcs_command.rs"
 qualified = "<file>"
 metric = "loc.ploc"
@@ -310,6 +286,12 @@ path = "big-code-analysis-cli/src/vcs_report.rs"
 qualified = "write_html_body"
 metric = "nargs"
 value = 8.0
+
+[[entry]]
+path = "big-code-analysis-py/python/big_code_analysis/_flatten.py"
+qualified = "_flatten_metrics"
+metric = "cognitive"
+value = 15.0
 
 [[entry]]
 path = "big-code-analysis-py/src/batch.rs"
@@ -504,6 +486,12 @@ metric = "halstead.effort"
 value = 64170.027458982564
 
 [[entry]]
+path = "src/getter/cpp.rs"
+qualified = "CppCode::get_func_space_name"
+metric = "cognitive"
+value = 15.0
+
+[[entry]]
 path = "src/getter/elixir.rs"
 qualified = "ElixirCode::get_op_type"
 metric = "halstead.effort"
@@ -514,6 +502,24 @@ path = "src/getter/irules.rs"
 qualified = "IrulesCode::get_op_type"
 metric = "halstead.effort"
 value = 53163.06867422894
+
+[[entry]]
+path = "src/getter/javascript.rs"
+qualified = "JavascriptCode::get_func_space_name"
+metric = "cognitive"
+value = 15.0
+
+[[entry]]
+path = "src/getter/mozcpp.rs"
+qualified = "MozcppCode::get_func_space_name"
+metric = "cognitive"
+value = 15.0
+
+[[entry]]
+path = "src/getter/mozjs.rs"
+qualified = "MozjsCode::get_func_space_name"
+metric = "cognitive"
+value = 15.0
 
 [[entry]]
 path = "src/getter/perl.rs"
@@ -540,6 +546,24 @@ metric = "halstead.effort"
 value = 84039.86210807812
 
 [[entry]]
+path = "src/getter/tsx.rs"
+qualified = "TsxCode::get_func_space_name"
+metric = "cognitive"
+value = 15.0
+
+[[entry]]
+path = "src/getter/typescript.rs"
+qualified = "TypescriptCode::get_func_space_name"
+metric = "cognitive"
+value = 15.0
+
+[[entry]]
+path = "src/metrics/abc/csharp.rs"
+qualified = "csharp_inspect_container"
+metric = "cognitive"
+value = 15.0
+
+[[entry]]
 path = "src/metrics/abc/go.rs"
 qualified = "GoCode::compute"
 metric = "cyclomatic"
@@ -550,6 +574,18 @@ path = "src/metrics/abc/go.rs"
 qualified = "GoCode::compute"
 metric = "halstead.effort"
 value = 50933.14135135399
+
+[[entry]]
+path = "src/metrics/abc/groovy.rs"
+qualified = "groovy_inspect_container"
+metric = "cognitive"
+value = 15.0
+
+[[entry]]
+path = "src/metrics/abc/java.rs"
+qualified = "java_inspect_container"
+metric = "cognitive"
+value = 15.0
 
 [[entry]]
 path = "src/metrics/abc/kotlin.rs"
@@ -656,14 +692,26 @@ value = 7.0
 [[entry]]
 path = "src/metrics/npa/csharp.rs"
 qualified = "CsharpCode::compute"
+metric = "cognitive"
+value = 15.0
+
+[[entry]]
+path = "src/metrics/npa/csharp.rs"
+qualified = "CsharpCode::compute"
 metric = "nargs"
 value = 7.0
 
 [[entry]]
-path = "src/metrics/npa/go.rs"
-qualified = "GoCode::compute"
-metric = "nargs"
-value = 7.0
+path = "src/metrics/npa/kotlin.rs"
+qualified = "KotlinCode::compute"
+metric = "cognitive"
+value = 15.0
+
+[[entry]]
+path = "src/metrics/npa/objc.rs"
+qualified = "ObjcCode::compute"
+metric = "cognitive"
+value = 15.0
 
 [[entry]]
 path = "src/metrics/npa/php.rs"
@@ -694,6 +742,12 @@ path = "src/metrics/npm/go.rs"
 qualified = "GoCode::compute"
 metric = "nargs"
 value = 10.0
+
+[[entry]]
+path = "src/metrics/npm/objc.rs"
+qualified = "ObjcCode::compute"
+metric = "cognitive"
+value = 15.0
 
 [[entry]]
 path = "src/node.rs"
