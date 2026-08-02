@@ -46,10 +46,27 @@ fn ruby_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
 
     let mut node = *container_node;
     let mut node_kind = node.kind_id().into();
+    let parent_kind = parent.kind_id().into();
+    // A ternary seeds boolean context for its condition slot alone: the
+    // two branch operands are type-free, so an unnegated branch must
+    // contribute nothing — see `ruby_walk_ternary` (#1161).
+    //
+    // The slot is identified by grammar FIELD, not by the neighbouring
+    // `?` / `:` token. `cpp_inspect_container` uses the token form, and
+    // it has two weaknesses this avoids: a comment between the token and
+    // the operand is the previous sibling instead, which flips the seed
+    // on for a branch slot; and the token test inverts on failure, so
+    // Ruby's second `:` id (`COLON2`, unreachable at tree-sitter-ruby
+    // 0.23.1 but one grammar bump away) would silently turn every
+    // parenthesised alternative into a condition. Both are live in the
+    // C family — tracked in #1161's follow-up, not fixed here.
     let mut has_boolean_content = matches!(
-        parent.kind_id().into(),
+        parent_kind,
         Binary | Binary2 | Binary3 | If | Unless | While | Until
-    );
+    ) || (matches!(parent_kind, Conditional)
+        && parent
+            .child_by_field_name("condition")
+            .is_some_and(|condition| condition.id() == node.id()));
 
     loop {
         let is_parens = matches!(node_kind, ParenthesizedStatements);
@@ -141,6 +158,40 @@ fn ruby_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
     }
 }
 
+// Phase-2B (issues #403 / #1102 / #1161): a Ruby ternary's condition and
+// its two branch operands are each a Fitzpatrick Rule 9 unary condition,
+// exactly as `cpp_walk_ternary` counts them for the C family. Without
+// this, Ruby scored `a ? !b : !c` as 1 — the `?` token alone — against
+// Java's 4, and `ruby_inspect_container`'s `Conditional` boolean-context
+// seed was unreachable.
+//
+// Slots are addressed by grammar field, per
+// `.claude/rules/grammar-dispatch.md` item 3.
+//
+// The condition slot reuses `ruby_count_condition`, so a ternary's
+// predicate is classified by exactly the code that classifies an
+// `if` / `unless` / `while` / `until` predicate, and the two cannot
+// drift.
+//
+// Both branch slots route through `ruby_inspect_container` rather than
+// testing for the `Unary` kind here: `-b` and `!b` are the SAME node
+// kind (`unary`), distinguished only by child(0) being `-` rather than
+// `!`. Keying on the kind takes the control case `(a > 0) ? b : -b`
+// from 2 to 3.
+fn ruby_walk_ternary(node: &Node, conditions: &mut f64) {
+    if let Some(condition) = node.child_by_field_name("condition") {
+        ruby_count_condition(&condition, node, conditions);
+    }
+    // Branch operands carry no terminal check: an unnegated branch is
+    // type-free and contributes nothing, which is what keeps
+    // `(a > 0) ? b : -b` at 2 (the `?` and the `>`).
+    for field in ["consequence", "alternative"] {
+        if let Some(branch) = node.child_by_field_name(field) {
+            ruby_inspect_container(&branch, node, conditions);
+        }
+    }
+}
+
 impl Abc for RubyCode {
     fn compute<'a>(
         node: &Node<'a>,
@@ -189,6 +240,12 @@ impl Abc for RubyCode {
                 if let Some(parent) = ancestors.parent(node) {
                     ruby_count_unary_conditions(&parent, &mut stats.conditions);
                 }
+            }
+            // `a ? !b : !c` — the ternary's own `?` token is already
+            // counted by the token arm above; this walks the three
+            // operand slots (issue #1161).
+            Conditional => {
+                ruby_walk_ternary(node, &mut stats.conditions);
             }
             _ => {}
         }
