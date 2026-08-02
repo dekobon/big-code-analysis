@@ -131,6 +131,7 @@ number and the higher number stays as a redirect.
 | [85](#85-coverage-measures-execution-not-discrimination) | Coverage measures execution, not discrimination |
 | [86](#86-a-test-helper-that-normalizes-the-value-under-test-blinds-every-caller-at-once) | A helper normalising the observation blinds every caller |
 | [87](#87-an-assertion-can-be-correct-and-still-be-about-the-wrong-rows) | An assertion can be about the wrong rows |
+| [88](#88-a-text-scan-that-does-not-lex-the-language-measures-noise) | A text scan that does not lex the language measures noise |
 
 ---
 
@@ -2135,6 +2136,13 @@ contribute only its own parameters. **A recurring-regression issue trail
 to consolidate.** A pure consolidation is verified by zero snapshot drift
 across every affected caller, including the integration snapshots.
 
+**Enumerate the sites by the quantity they compute, not by the shape of
+the bug.** A site that arrives at the same wrong answer by different code
+does not match the pattern you are grepping for, and consolidating the
+sites that *do* match converts one surface's bug into a divergence
+between surfaces — a worse failure, and one no existing parity test
+covers.
+
 The cost is not the duplication but *omission by default*: a newly added
 language — or a sibling cloned from a template predating the rule —
 ships without it and silently produces wrong output until its own
@@ -2178,6 +2186,16 @@ disagree. When you add a metric or any surface that ranks or compares
 values, wire it to the shared predicate and add a test exercising a
 *lower-is-worse* metric specifically — a test covering only the majority
 case passes against inverted direction logic.
+
+**The third producer did not look like the bug** (#1163). The span
+end-row rule was reported in two places, `FuncSpace::new` and
+`Ops::new`, both spelling it as a `match` on `SpaceKind`. `function.rs`
+computed the same quantity as a blanket `end_row() + 1` with no kind
+branch at all, so it matched neither the buggy pattern nor a search for
+`SpaceKind`. Fixing only the two named sites would have left
+`bca functions` disagreeing with `bca metrics` about where a Perl
+function ends — a cross-command divergence introduced *by* the fix, in
+the release that closed the original report.
 
 ---
 
@@ -2978,6 +2996,14 @@ it survived — see the normalisation map in
 example at `src/spaces.rs` was itself demonstrating the bug in the
 published docs.
 
+**The same proxy, one file over** (#1163): `FuncSpace::new` and
+`Ops::new` branched the end-row `+ 1` on `SpaceKind::Unit`, which is a
+statement about *nodes ending at column 0* — true of the root, and also
+true of a Perl `sub` that is the last item in its file. That sub
+reported a span ending a line past its own parent unit and past EOF, the
+class of past-EOF span arithmetic behind the release `usize` underflow
+in #1051. Keying on the end column deletes the branch outright.
+
 ---
 
 ## 84. A factual claim in prose is untested code
@@ -3165,5 +3191,51 @@ checks every non-final group.
 `sum` and `value` recur across several groups, so a substring search
 accepts exactly the mis-indentation under test. Whole-line sequence
 comparison is the only form that discriminates.
+
+---
+
+## 88. A text scan that does not lex the language measures noise
+
+**Lesson:** A tool that reads source as text to produce a number must
+model the language's lexical structure — strings, raw strings, comments,
+**and char literals** — before it matches anything. Without that it does
+not report a wrong number occasionally; it reports a confident, uniform,
+plausible one every run, which is then quoted as fact. Give the scanner
+its own tests, and pin **both** directions: the under-lex that misses
+constructs and the over-lex that swallows them.
+
+The remedy for a wrong claim is normally "run the measurement" (lesson
+84). That does not help here, because the measurement *was* run. When
+the instrument is wrong, re-running it reproduces the same wrong answer,
+and re-running it is exactly what a careful person does before quoting
+it.
+
+**A `=>` regex over raw Rust counted other languages' lambdas** (#1136).
+The probe in `.claude/rules/formatting.md` matched match-arm headers by
+regex, so every JS, C# and TypeScript fixture embedded in a Rust string
+literal registered as a match arm. `src/metrics/nom.rs` reports **16**
+arm lines to the raw regex and **0** once string spans are excluded; it
+has no bailing arms at all. The over-counting script was committed to
+the rule file, and the figures it produced were handed to the agent
+implementing the fix as its starting scope — which is how a measurement
+error becomes a plan to edit files that were never affected.
+
+**The same scanner then hid what it was built to find.** Adding string
+and comment spans left char literals unlexed, so a `b'"'` read as an
+unpaired double quote and opened a span running to the next `"` anywhere
+later in the file. `src/vcs/git/diff_parse.rs` probed 4 of its 15 arms.
+A gate whose entire purpose is to catch regions that *read as clean*
+had, in its own implementation, a region that read as clean. Nothing
+currently bailing was hidden, so no count moved — the blindness was to
+future entries, which is the only thing a ratchet exists to catch.
+
+**The sibling gate has the identical gap** (#1192).
+`utils/check-snapshot-anchors.py` classifies string and comment spans
+and not char literals, so a `b'"'` makes every following
+`insta::assert_json_snapshot!` invisible to it. Latent today only
+because no file under `src/metrics/` spells one. Lifting the fix's
+`char_literal_end()` — which must return `None` for a lifetime, since
+`'a` has no closing quote and treating it as a literal swallows the file
+the other way — closes both.
 
 ---
