@@ -70,7 +70,9 @@ pub(crate) trait ParserTrait {
     fn new(code: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>) -> Self;
     fn root(&self) -> Node<'_>;
     fn code(&self) -> &[u8];
-    fn filters(&self, requested: &[String]) -> Filter;
+    /// The returned [`Filter`] borrows `self` — the `"function"`
+    /// predicate reads the source bytes (#1162).
+    fn filters(&self, requested: &[String]) -> Filter<'_>;
 }
 
 pub(crate) trait Search<'a> {

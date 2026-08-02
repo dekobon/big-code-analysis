@@ -66,15 +66,19 @@ pub(crate) struct Parser<
     phantom: PhantomData<T>,
 }
 
-type FilterFn = dyn Fn(&Node) -> bool;
+/// A single node-matching predicate. The `'a` bound lets a predicate
+/// borrow the parser's source buffer, which the `"function"` filter
+/// needs to answer for a language whose function declarations are
+/// identified by their text rather than their kind (#1162).
+type FilterFn<'a> = dyn Fn(&Node) -> bool + 'a;
 
 /// Collection of node-matching predicates used by the AST-walking
 /// metric and dump routines to decide whether to visit a node.
-pub(crate) struct Filter {
-    filters: Vec<Box<FilterFn>>,
+pub(crate) struct Filter<'a> {
+    filters: Vec<Box<FilterFn<'a>>>,
 }
 
-impl Filter {
+impl Filter<'_> {
     /// Returns `true` if *any* of the configured predicates matches `node`.
     #[must_use]
     pub fn any(&self, node: &Node) -> bool {
@@ -173,30 +177,33 @@ impl<
         &self.code
     }
 
-    fn filters(&self, requested: &[String]) -> Filter {
-        let mut res: Vec<Box<FilterFn>> = Vec::new();
+    fn filters(&self, requested: &[String]) -> Filter<'_> {
+        // Borrowed by the `"function"` arm below, which is why `Filter`
+        // carries a lifetime.
+        let code = self.code();
+        let mut res: Vec<Box<FilterFn<'_>>> = Vec::new();
         for f in requested {
             let f = f.as_str();
             match f {
                 "all" => res.push(Box::new(|_: &Node| -> bool { true })),
+                // `is_call` / `is_comment` / `is_error` / `is_string`
+                // take `&Node` and nothing else, so no language *can*
+                // make them text-dependent. The #1162 gap is confined by
+                // construction to the three `Checker` predicates that
+                // accept `code`, and `"function"` is the only filter
+                // that reaches one.
                 "call" => res.push(Box::new(T::is_call)),
                 "comment" => res.push(Box::new(T::is_comment)),
                 "error" => res.push(Box::new(T::is_error)),
                 "string" => res.push(Box::new(T::is_string)),
                 // `Ancestors::unknown()`: a `--filter` predicate is applied
-                // to nodes the dump walk reaches without a chain. Only the
-                // JS-family `is_func` consults one, and it answers the same
-                // either way — a climb costs `O(depth)` rather than `O(1)`
-                // per matched function expression (#1088).
-                //
-                // FIXME(#1162): byte-less `is_func` also cannot see
-                // Elixir's macro-shaped `def` / `defmacro` (#275), so
-                // `bca find --type function` matches nothing there.
-                // Unlike `src/function.rs`, this closure has no `code`
-                // in scope, so the fix needs the predicate type to
-                // widen — see the issue.
-                "function" => res.push(Box::new(|node: &Node| {
-                    T::is_func(node, Ancestors::unknown())
+                // to nodes the dump walk reaches without a chain. The
+                // JS-family `is_func` and Elixir's `is_func_with_code`
+                // consult one, and both answer the same either way — a
+                // climb costs `O(depth)` rather than `O(1)` per candidate
+                // node (#1088, #1162).
+                "function" => res.push(Box::new(move |node: &Node| {
+                    T::is_func_with_code(node, code, Ancestors::unknown())
                 })),
                 _ => {
                     if let Ok(n) = f.parse::<u16>() {

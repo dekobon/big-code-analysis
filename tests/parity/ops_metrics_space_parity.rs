@@ -32,10 +32,11 @@ use big_code_analysis::{Ast, FuncSpace, LANG, MetricsOptions, Ops, Source, Space
 /// `Source::name` rather than from the AST, so it is cosmetic — but it
 /// keeps a failure message readable.
 ///
-/// Shared with [`super::space_span_containment`], which asserts a
-/// different property over the same trees: one exhaustive `LANG` table
-/// serves both, so a new language cannot be added to one check and
-/// missed by the other.
+/// Shared with [`super::space_span_containment`] and
+/// [`super::functions_metrics_parity`], which assert different
+/// properties over the same trees: one exhaustive `LANG` table serves
+/// all three, so a new language cannot be added to one check and missed
+/// by the others.
 pub(super) fn fixture(lang: LANG) -> (&'static str, &'static str) {
     // Exhaustive per-language dispatch table: one arm per LANG variant
     // is the point of this function, and splitting it would break the
