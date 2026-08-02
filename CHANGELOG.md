@@ -724,7 +724,7 @@ for historical reference.
   named `Function`-kind space in the `metrics()` tree appears in
   `functions()`, which is the invariant that would have caught this seam
   and #1130's together.
-- `[check] exclude` and `exclude` globs from a `bca.toml` are resolved
+- `[check] exclude` globs from a `bca.toml` are resolved
   against the manifest's directory rather than the caller's working
   directory (#1164), so an exemption written for the project root holds
   when `bca check <file>` is invoked from a subdirectory. `[check]
@@ -737,7 +737,10 @@ for historical reference.
   #1146 was anchored by the same helper and went silent under the same
   conditions; it is fixed with them. CLI `--check-exclude` / `--exclude`
   globs stay relative to the working directory, because that is where
-  the user typed them.
+  the user typed them. A manifest `exclude` glob under a *directory*
+  walk keeps its previous walk-root anchoring, which differs from the
+  manifest root only when the walk does not start there; that remaining
+  gap predates this change and is tracked in #1189.
 - A threshold written with the bare `bca diff --metric` alias (`sloc`,
   `ploc`, `lloc`, `cloc`, `blank`) now *overrides* the same metric's
   dotted spelling instead of adding a second, independent threshold
