@@ -26,6 +26,28 @@ for historical reference.
 
 ### Added
 
+- `bca check --explain-threshold <metric>=<limit>`: preview what a
+  candidate threshold would cost at **both** tiers without editing
+  `bca.toml` or running a gate (#1169). Reports hard-tier offenders, the
+  resolved soft limit and its offenders, how many of each already match
+  a `--baseline` entry — so the new-entry count a reviewer actually
+  weighs is on screen — and names a cluster when the candidate lands on
+  top of an existing population. Repeatable, one candidate per metric;
+  honours `exclude_tests`, `[check] exclude`, suppression markers,
+  `[thresholds.lang.<slug>]` overrides and the baseline exactly as the
+  run it predicts, and always exits 0. This closes the gap that
+  `--threshold` limits are absolute and never scaled, which made the
+  one-command way to trial a candidate limit the one way that could not
+  show its soft-tier cost.
+- `make worktree-setup`: one idempotent bootstrap for a fresh clone or
+  `git worktree` (#1171). Checks out the integration corpora under
+  `tests/repositories/` and the Python-bindings venv, classifying each
+  submodule first so it is a ~100 ms no-op once the tree is set up. It
+  escalates to `git submodule update --force` for the interrupted-
+  checkout state that a plain re-run cannot repair — a plain re-run is a
+  silent no-op there, because the recorded SHA already matches HEAD —
+  and refuses to force a submodule that also carries local
+  modifications.
 - Per-language threshold overrides in `bca.toml` (#1141). A
   `[thresholds.lang.<slug>]` table layers over the global `[thresholds]`
   per metric, keyed by the same language slugs `--language` accepts, so
@@ -118,6 +140,63 @@ for historical reference.
 
 ### Changed
 
+- **(behaviour change)** `bca check` writes its offender rows to
+  **stdout** instead of stderr (#1167). The rows are the command's
+  product, so `bca check | wc -l`, `| head`, `| rg -c` and
+  `bca check 2>/dev/null` now reach them; previously all four reported
+  an empty offender list, which reads as "this tree is clean" rather
+  than as an error. Everything that is commentary about the run stays on
+  stderr: the `--- summary ---` footer, the `--- next steps ---`
+  remediation block, GitHub Actions annotations, and the
+  `bca: skipped N …` / `bca: filtered N …` / `warning:` / `error:`
+  diagnostics. One exception — `--report-format` without `--output`
+  gives the aggregated SARIF / Checkstyle / Code Climate document
+  stdout, so the human rows fall back to stderr rather than corrupting
+  a payload that parses today; `--output <file>` moves the document off
+  stdout and the rows return to it. Exit codes (including
+  `--exit-codes=tiered`), the `--summary-file` digest, and the
+  aggregated document are unchanged. *Migration:* a pipeline reading the
+  rows through `2>&1` needs no change; one that captured them with
+  `2>file` should now use `>file`.
+- An unrecognized or non-suppressible metric name inside
+  `bca: suppress(...)` is now reported and skipped rather than voiding
+  the entire marker, so `suppress(cognitive, exit)` still silences
+  `cognitive` (#1168, reversing the contract pinned by #896). Skipping
+  can only narrow a marker's coverage, so a typo still cannot widen
+  scope — whereas voiding left the author believing an exemption was
+  active when it was not.
+- **Baseline schema v6.** `.bca-baseline.toml` records `start_line` only
+  for an entry whose `(path, qualified, metric)` identity is shared with
+  another — the sole case matching consults it (#1170). Elsewhere the
+  field re-rendered on every unrelated edit above a baselined function,
+  churning diffs, hiding real value changes in review, and conflicting
+  on every merge between branches. Entry order also drops its
+  line-number tiebreak. v2–v5 baselines read unchanged; a v6 file handed
+  to a pre-v6 `bca` now reports the version mismatch by name instead of
+  a bare serde field error. `bca exemptions` omits the `:line` suffix
+  and `bca diff-baseline --format json` omits the `start_line` key for
+  an entry that pins none.
+- `.bca-baseline.toml` is marked `-merge` in `.gitattributes` (#1170).
+  The file is generated wholesale, so a textual merge of two branches
+  produces hunks that are wrong on *both* sides; git now leaves it
+  conflicted as a whole and the resolution is to regenerate with
+  `make self-scan-write-baseline-headroom`. `-merge` rather than a
+  `merge=ours` driver, which would need per-clone `git config` and
+  silently falls back to a normal merge where unconfigured.
+- `make pre-commit` and `make ci` now end with a single
+  machine-readable verdict line — `BCA_GATE: pass (gate=pre-commit)` or
+  `BCA_GATE: fail (gate=pre-commit, exit=2, stage=_pc-fmt)` — replacing
+  the success-only `Pre-commit checks passed` / `CI checks passed`
+  (#1172). Grep it anchored (`^BCA_GATE:`); absence of the line is a
+  third state (crash, kill, interrupt), not a pass. `stage=` is a
+  comma-separated list in make's report order, because `-j` stops
+  scheduling but lets running jobs finish and fail. Both gates' exit
+  statuses are unchanged.
+- The 24 tests that depend on the integration corpora now fail with a
+  diagnostic naming the cause and the remedy — including that by-hand
+  recovery needs `--force` — instead of `bca`'s generic "path does not
+  exist" or a corpus-count mismatch that conflated an absent corpus with
+  a drifted one (#1171).
 - **Metric values move.** A ternary's condition and its two branch
   operands now each count as a Fitzpatrick Rule 9 unary condition in
   `abc.conditions`, matching what Java, Groovy, and C# already did
@@ -555,6 +634,37 @@ for historical reference.
 
 ### Fixed
 
+- A threshold written with the bare `bca diff --metric` alias (`sloc`,
+  `ploc`, `lloc`, `cloc`, `blank`) now *overrides* the same metric's
+  dotted spelling instead of adding a second, independent threshold
+  (#1165). Aliases are resolved where each layer is parsed — the
+  manifest and `--config` `[thresholds]` table, `[thresholds.soft]`,
+  `[thresholds.lang.<slug>]`, and `--threshold` — so the layers merge by
+  metric rather than by spelling, one `(function, metric)` pair emits
+  one offender line, and `--print-effective-config` prints the limit
+  that actually fires; its output now round-trips through `--config` to
+  an identical gate result. A single table that sets one metric under
+  both spellings is rejected rather than silently keeping whichever key
+  sorts last.
+- `bca check --tier=soft=RATIO` (and its `--headroom` alias, and a
+  `"<ratio>x"` string in `[thresholds.soft]`) scaled the lower-is-worse
+  `mi.*` family the wrong way (#1166). A limit there is a *floor*, so
+  multiplying it by the ratio lowered it: `[thresholds] "mi.original" =
+  20` with `--tier=soft=0.5` resolved to a soft floor of 10, below the
+  hard floor it was meant to warn ahead of. The early-warning band could
+  never fire first, making the soft tier a silent no-op for the whole
+  family. The ratio now tightens each limit in its own direction — 20
+  with `soft=0.9` resolves to 22.2223, rounded up so the band never
+  resolves below the exact quotient. The `[thresholds.soft]`
+  soft-looser-than-hard check, previously restricted to higher-is-worse
+  metrics because of this defect, now applies to `mi.*` too.
+- A suppression marker carrying a rationale on the same line
+  (`// bca: suppress(nargs) — threaded context`) is no longer rejected
+  as malformed and silently inert (#1168). Anything after the metric
+  list is free text; after a bare verb the rationale must open with `-`,
+  `:`, `//`, `#`, or an em/en dash, so prose *about* a marker is not
+  read as one. `AGENTS.md` and the book prescribed writing the rationale
+  there, which is the spelling that voided the marker.
 - Corrected the inverted doc comment on `python_apply_boolean_operator`,
   which described its ancestor walk as counting control constructs and
   stopping at lambdas when `count_specific_ancestors`'s
