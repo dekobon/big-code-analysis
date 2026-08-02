@@ -29,24 +29,20 @@ impl Cognitive for JavaCode {
             IfStatement if !Self::is_else_if(node, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
-            ForStatement
-            | EnhancedForStatement
-            | WhileStatement
-            | DoStatement
-            | SwitchBlock
-            | CatchClause
-            | TernaryExpression => {
+            ForStatement | EnhancedForStatement | WhileStatement | DoStatement | SwitchBlock
+            | CatchClause | TernaryExpression => {
                 increase_nesting(stats, &mut nesting);
             }
-            Else /* else-if also */ => {
+            // `Else` here is the `else` keyword token, which the grammar
+            // also emits for the `else` of an `else if` — so this arm
+            // covers both.
+            Else => {
                 increment_by_one(stats);
             }
             // Per SonarSource Cognitive Complexity §B2, labeled `break LABEL`
             // and `continue LABEL` each add +1 for breaking the structured
             // control flow. Plain `break;` / `continue;` are not penalized.
-            BreakStatement | ContinueStatement
-                if node.is_child(Identifier as u16) =>
-            {
+            BreakStatement | ContinueStatement if node.is_child(Identifier as u16) => {
                 increment_by_one(stats);
             }
             BinaryExpression => {

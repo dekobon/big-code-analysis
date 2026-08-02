@@ -37,7 +37,10 @@ impl Cognitive for CCode {
             | ConditionalExpression => {
                 increase_nesting(stats, &mut nesting);
             }
-            GotoStatement | Else /* else-if also */ => {
+            // `Else` here is the `else` keyword token, which the grammar
+            // also emits for the `else` of an `else if` — so this arm
+            // covers both.
+            GotoStatement | Else => {
                 increment_by_one(stats);
             }
             BinaryExpression2 => {

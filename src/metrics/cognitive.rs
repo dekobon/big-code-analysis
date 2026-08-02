@@ -382,16 +382,14 @@ macro_rules! js_cognitive {
                 IfStatement if !Self::is_else_if(node, ancestors) => {
                     increase_nesting(stats, &mut nesting);
                 }
-                ForStatement
-                | ForInStatement
-                | WhileStatement
-                | DoStatement
-                | SwitchStatement
-                | CatchClause
-                | TernaryExpression => {
+                ForStatement | ForInStatement | WhileStatement | DoStatement | SwitchStatement
+                | CatchClause | TernaryExpression => {
                     increase_nesting(stats, &mut nesting);
                 }
-                Else /* else-if also */ => {
+                // `Else` here is the `else` keyword token, which the
+                // grammar also emits for the `else` of an `else if` —
+                // so this arm covers both.
+                Else => {
                     increment_by_one(stats);
                 }
                 // Per SonarSource Cognitive Complexity §B2, a labeled

@@ -32,7 +32,10 @@ impl Cognitive for RustCode {
             ForExpression | WhileExpression | LoopExpression | MatchExpression => {
                 increase_nesting(stats, &mut nesting);
             }
-            Else /*else-if also */ => {
+            // `Else` here is the `else` keyword token, which the grammar
+            // also emits for the `else` of an `else if` — so this arm
+            // covers both.
+            Else => {
                 increment_by_one(stats);
             }
             BreakExpression | ContinueExpression => {

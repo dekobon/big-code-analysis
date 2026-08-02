@@ -32,8 +32,37 @@
 #                              whose `key => value` token tree is not a
 #                              match at all
 #
-# Everything else on this list is cause 1 and is being hoisted
-# incrementally under #1136.
+# Every remaining entry is cause 1, and all of them share one shape:
+# a section comment sitting between `|` alternatives of a single long
+# or-pattern —
+#
+#     // Punctuation acting as operators
+#     | LPAREN | LBRACE | COMMA
+#     // Arithmetic
+#     | PLUS | DASH | STAR => HalsteadType::Operator,
+#
+# Hoisting such a comment above the arm means splitting the arm, so
+# each section keeps the rationale that names it. That is the readable
+# form, and it is not available here: the split arms have identical
+# bodies, which `clippy::match_same_arms` rejects — pedantic is
+# `warn` workspace-wide and CI runs `-D warnings`. Measured on
+# `src/getter/` (#1136): 17 modules split cleanly and reformatted with
+# no metric change, and clippy then reported 28 errors, every one of
+# them `match_same_arms` or `too_many_lines`.
+#
+# The alternative — stacking every section comment above the arm —
+# detaches each from the tokens it names, which for a 40-line operator
+# alphabet is worse than the bail. So these entries stay until someone
+# decides between `#[allow(clippy::match_same_arms)]` on the split
+# form, `#[rustfmt::skip]` to make the hand-formatting explicit, or a
+# different table representation entirely.
+#
+# Cleared so far: the `Else /* else-if also */ =>` family across
+# src/metrics/cognitive/ — a one-line comment with nothing to split.
+#
+# Watch the line length in every file listed here by hand. rustfmt is
+# not checking it, and it does drift: before #1136 `src/getter/java.rs`
+# carried a 252-character match arm.
 
 enums/src/macros.rs 1
 src/getter.rs 2
@@ -59,14 +88,7 @@ src/macros/mod.rs 38
 src/metrics/abc/elixir.rs 5
 src/metrics/abc/perl.rs 8
 src/metrics/abc/php.rs 9
-src/metrics/cognitive.rs 10
-src/metrics/cognitive/c.rs 6
-src/metrics/cognitive/cpp.rs 7
-src/metrics/cognitive/java.rs 8
-src/metrics/cognitive/mozcpp.rs 7
-src/metrics/cognitive/objc.rs 7
 src/metrics/cognitive/perl.rs 8
-src/metrics/cognitive/rust.rs 8
 src/metrics/cyclomatic.rs 7
 src/metrics/cyclomatic/irules.rs 2
 src/metrics/cyclomatic/perl.rs 2

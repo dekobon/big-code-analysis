@@ -39,7 +39,10 @@ impl Cognitive for CppCode {
             | ConditionalExpression => {
                 increase_nesting(stats, &mut nesting);
             }
-            GotoStatement | Else /* else-if also */ => {
+            // `Else` here is the `else` keyword token, which the grammar
+            // also emits for the `else` of an `else if` — so this arm
+            // covers both.
+            GotoStatement | Else => {
                 increment_by_one(stats);
             }
             BinaryExpression2 => {
@@ -56,9 +59,7 @@ impl Cognitive for CppCode {
             // construct inherited the enclosing nesting and every nested
             // definition missed the SonarSource B-nesting amplification
             // (#696).
-            FunctionDefinition
-            | FunctionDefinition2
-            | FunctionDefinition3
+            FunctionDefinition | FunctionDefinition2 | FunctionDefinition3
             | FunctionDefinition4 => {
                 enter_function_boundary(
                     &mut nesting,
