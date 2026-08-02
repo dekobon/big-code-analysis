@@ -19,10 +19,16 @@ essentials; the deeper conventions live in
 ```bash
 git clone https://github.com/dekobon/big-code-analysis
 cd big-code-analysis
-git submodule update --init --recursive
+make worktree-setup
 cargo build --workspace
 cargo test --workspace --all-features
 ```
+
+`make worktree-setup` checks out the integration corpora and, if `uv` is
+installed, the Python-bindings venv. It is idempotent, so re-run it any
+time the environment looks wrong — including after an interrupted corpus
+checkout, which leaves the submodule empty at the recorded SHA where a
+plain `git submodule update --init` is a silent no-op.
 
 MSRV is `1.94`, declared once in the root `Cargo.toml`
 (`[workspace.package] rust-version = "1.94"`) and inherited by every
@@ -31,8 +37,13 @@ member crate.
 Integration snapshots live in the
 [`big-code-analysis-output`](https://github.com/dekobon/big-code-analysis-output)
 submodule under `tests/repositories/`. Initialize submodules before
-running the test suite, otherwise integration tests fail with a missing
-fixture.
+running the test suite, otherwise 24 tests fail; each says so.
+
+The out-of-band benchmark harness (`make bench-*`) additionally walks
+`DeepSpeech`'s own submodules, which the corpus tests exclude and
+`worktree-setup` therefore does not fetch. See
+[Benchmarking](docs/development/benchmarking.md) for its recursive
+checkout.
 
 The two binaries shipped with the workspace are:
 

@@ -10,17 +10,10 @@ fn cli() -> Command {
 }
 
 /// A small fixture file known to the repo, resolved relative to the workspace
-/// root so the path is valid regardless of the test runner's CWD.
+/// root so the path is valid regardless of the test runner's CWD. The shared
+/// helper makes a missing integration corpus name itself (#1171).
 fn fixture_path() -> String {
-    let manifest = env!("CARGO_MANIFEST_DIR"); // .../big-code-analysis-cli
-    let workspace = std::path::Path::new(manifest)
-        .parent()
-        .expect("manifest dir has parent");
-    workspace
-        .join("tests/repositories/DeepSpeech/stats.py")
-        .to_str()
-        .expect("path is utf-8")
-        .to_string()
+    common::corpus_fixture_path()
 }
 
 #[test]

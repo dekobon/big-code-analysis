@@ -128,6 +128,16 @@ repos:
         entry: python3 -m unittest -q utils/check-excluded-manifests-test.py
         pass_filenames: false
 
+      # Self-tests for the worktree-setup submodule classifier. It is
+      # what decides when to run a destructive `git submodule update
+      # --force`, so a logic change there re-runs them (#1171).
+      - id: worktree-setup-test
+        name: worktree-setup-test
+        language: system
+        files: '^utils/worktree-setup(-test)?\.py$'
+        entry: python3 -m unittest -q utils/worktree-setup-test.py
+        pass_filenames: false
+
       # Sync-test for check-grammar-crate.py's EXTENSIONS table against
       # src/langs.rs (#869). Re-runs when the script, its test, or the
       # source-of-truth language table changes.

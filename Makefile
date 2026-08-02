@@ -88,7 +88,7 @@ find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name 
 NEXTEST        := $(shell command -v cargo-nextest 2>/dev/null)
 TEST_CMD       = $(if $(NEXTEST),$(NEXTEST) nextest run --workspace --all-features,cargo test --workspace --all-features --lib --bins --tests)
 
-.PHONY: help check-tools build build-release check test test-doc chain-audit fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors grammar-marker-sync grammar-marker-sync-test check-versions check-excluded-manifests check-excluded-manifests-test check-manpage-assets enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-pot book-po-update book-ja book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib bench bench-scaling bench-walk _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-manpage-assets _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-manpage-assets _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
+.PHONY: help check-tools worktree-setup worktree-setup-test build build-release check test test-doc chain-audit fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors grammar-marker-sync grammar-marker-sync-test check-versions check-excluded-manifests check-excluded-manifests-test check-manpage-assets enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-pot book-po-update book-ja book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib bench bench-scaling bench-walk _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-manpage-assets _pc-worktree-setup-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-manpage-assets _ci-worktree-setup-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
 
 # Default target
 help:
@@ -98,6 +98,7 @@ help:
 	@echo ""
 	@echo "Prerequisites:"
 	@echo "  check-tools                          Verify required tools are present"
+	@echo "  worktree-setup                       Bootstrap a fresh clone/worktree: corpora + Python venv"
 	@echo ""
 	@echo "Build targets:"
 	@echo "  build                                Build debug binaries"
@@ -135,6 +136,7 @@ help:
 	@echo "  check-excluded-manifests             Assert excluded crates root a workspace and grammars are =-pinned"
 	@echo "  check-excluded-manifests-test        Self-tests for the check-excluded-manifests gate"
 	@echo "  check-manpage-assets                 Assert every bca-*.1 man page is in deb+rpm asset lists"
+	@echo "  worktree-setup-test                  Self-tests for the worktree-setup submodule classifier"
 	@echo "  enums-check                          cargo clippy + cargo test on workspace-excluded enums crate"
 	@echo "  enums-codegen-drift                  Block enums codegen output drifting from checked-in files"
 	@echo "  enums-codegen-drift-test             Self-tests for the enums-codegen-drift gate"
@@ -161,7 +163,7 @@ help:
 	@echo "  smoke                                Run the release/wheel smoke scripts locally (smoke-cli + smoke-lib)"
 	@echo "  smoke-cli                            CLI smoke (scripts/smoke/cli_wheel_smoke.sh) against a debug bca"
 	@echo "  smoke-lib                            Library smoke (scripts/smoke/lib_wheel_smoke.py) via maturin develop"
-	@echo "  (first-time setup: 'make py-bootstrap' — installs uv-managed venv from uv.lock)"
+	@echo "  (first-time setup: 'make worktree-setup' — corpora + this venv; 'make py-bootstrap' for the venv alone)"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  clean                                Remove cargo build artifacts (target/) only"
@@ -204,6 +206,50 @@ help:
 # ---------------------------------------------------------------------------
 check-tools:
 	@bash $(BASE_DIR)utils/check-tools.sh
+
+# One-shot bootstrap for a fresh clone or a fresh `git worktree`: the
+# two steps nothing else states and nothing else detects (#1171).
+#
+# 1. The integration corpora under tests/repositories/. Without them 24
+#    tests fail — 5 corpus tests and 19 CLI tests that analyse a real
+#    source file from the DeepSpeech corpus.
+# 2. big-code-analysis-py/.venv. Without it `make pre-commit`'s
+#    py-typecheck stage reports ~33 mypy errors (pytest is untyped
+#    without its stubs) and py-test dies with "Couldn't find a
+#    virtualenv".
+#
+# Idempotent and cheap when there is nothing to do: the corpus half
+# classifies each submodule with a stat-only `git diff` (~60 ms for all
+# four) and skips the ones already checked out, and `uv sync --locked`
+# re-audits an up-to-date venv in ~30 ms. It does rebuild the compiled
+# extension when the Rust sources have moved since the last sync — that
+# is the venv being brought up to date, not waste, and it is why this
+# delegates to py-bootstrap rather than short-circuiting on a `.venv`
+# directory that an interrupted bootstrap may have left half-built.
+# Deliberately NOT wired into pre-commit or ci — it is a developer
+# bootstrap, not a gate.
+#
+# The venv half is a soft skip when uv is absent, matching how the other
+# py-* targets behave on a barebones host; `make py-bootstrap` remains
+# the hard-failing entry point for someone who asked for it by name.
+worktree-setup:
+	@python3 $(BASE_DIR)utils/worktree-setup.py
+	@if command -v uv >/dev/null 2>&1; then \
+	  $(MAKE) --no-print-directory py-bootstrap; \
+	else \
+	  echo "worktree-setup: uv not found; skipping the Python venv."; \
+	  echo "  Until it exists, 'make pre-commit' reports ~33 mypy errors from"; \
+	  echo "  py-typecheck and py-test dies with \"Couldn't find a virtualenv\"."; \
+	  echo "  Install uv (curl -LsSf https://astral.sh/uv/install.sh | sh), then"; \
+	  echo "  re-run 'make worktree-setup'."; \
+	fi
+
+# Self-tests for the worktree-setup classifier. Not a gate over the
+# tree's contents, but the classifier decides when to run a destructive
+# `git submodule update --force`, so it is held to the same standard as
+# the utils/ gates and runs in pre-commit alongside them.
+worktree-setup-test:
+	@(cd $(BASE_DIR) && python3 -m unittest -q utils/worktree-setup-test.py)
 
 # ---------------------------------------------------------------------------
 # Build
@@ -902,7 +948,7 @@ lint:
 	$(MAKE) -j --output-sync=target \
 	  _ci-clippy \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-manpage-assets _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test
+	  _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-manpage-assets _ci-worktree-setup-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test
 
 # ---------------------------------------------------------------------------
 # Maintenance
@@ -1047,7 +1093,7 @@ pre-commit:
 	$(MAKE) -j --output-sync=target \
 	  _pc-test \
 	  _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check \
-	  _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-manpage-assets _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test \
+	  _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-manpage-assets _pc-worktree-setup-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test \
 	  _pc-manpages \
 	  _pc-self-scan _pc-self-scan-headroom \
 	  _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest
@@ -1058,7 +1104,7 @@ ci:
 	$(MAKE) -j --output-sync=target \
 	  _ci-cargo-pipeline \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-manpage-assets _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test \
+	  _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-manpage-assets _ci-worktree-setup-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test \
 	  _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
 	@echo "CI checks passed"
 
@@ -1090,6 +1136,7 @@ ci:
 #    ├── _pc-grammar-marker-sync
 #    ├── _pc-grammar-marker-sync-test
 #    ├── _pc-check-versions
+#    ├── _pc-worktree-setup-test
 #    ├── _pc-enums-check
 #    ├── _pc-enums-codegen-drift (chained after _pc-enums-check)
 #    ├── _pc-py-fmt
@@ -1179,6 +1226,9 @@ _pc-check-excluded-manifests-test: _pc-fmt
 
 _pc-check-manpage-assets: _pc-fmt
 	$(MAKE) check-manpage-assets
+
+_pc-worktree-setup-test: _pc-fmt
+	$(MAKE) worktree-setup-test
 
 _pc-enums-check: _pc-fmt
 	$(MAKE) enums-check
@@ -1336,6 +1386,9 @@ _ci-check-excluded-manifests-test:
 
 _ci-check-manpage-assets:
 	$(MAKE) check-manpage-assets
+
+_ci-worktree-setup-test:
+	$(MAKE) worktree-setup-test
 
 _ci-enums-check:
 	$(MAKE) enums-check

@@ -9,6 +9,7 @@
 mod common;
 
 mod cli_smoke;
+mod corpus_fixture;
 mod deprecated_aliases;
 mod flag_scoping;
 mod help_text;

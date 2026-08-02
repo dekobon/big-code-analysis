@@ -735,6 +735,21 @@ your worktree.
 
 In branch mode: the orchestrator has verified a clean repo before launching you.
 
+**In worktree mode, run `make worktree-setup` before your first
+`make pre-commit`.** A fresh worktree has neither the integration corpora
+under `tests/repositories/` (24 tests fail without them: 5 corpus tests and
+19 CLI tests analysing a real `DeepSpeech` source file) nor
+`big-code-analysis-py/.venv` (`py-typecheck` reports ~33 mypy errors,
+`py-test` dies with "Couldn't find a virtualenv"). Both are bootstrap
+artifacts, not regressions in your change. The target is idempotent and a
+~100 ms no-op afterwards.
+
+If a corpus checkout is interrupted — it is long enough to hit a command
+timeout — the submodule is left with its files deleted but its HEAD already
+at the recorded SHA, so **a plain `git submodule update --init` is a silent
+no-op**. Re-run `make worktree-setup`; it detects that state and escalates
+to `--force`. Do not conclude the corpus is fine because a re-run exited 0.
+
 Try to activate Serena:
 
 ```

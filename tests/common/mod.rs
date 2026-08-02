@@ -194,11 +194,26 @@ pub fn compare_rca_output_with_files_under(
     let corpus_root = source_root.join(repo_name);
     let paths = resolve_corpus_files(&corpus_root, &include, &exclude);
 
+    // Zero files is a different failure from the wrong number of files,
+    // and conflating them costs a debugging cycle: on a fresh clone or
+    // `git worktree` the corpus submodule is simply not checked out
+    // (#938, #1171), which has nothing to do with the expected count the
+    // rest of the message talks about.
+    assert!(
+        !paths.is_empty(),
+        "integration corpus not checked out: {} resolved 0 source files. \
+         Run `make worktree-setup` from the repository root. By hand it is \
+         `git submodule update --init --force`, and the `--force` is \
+         load-bearing: after an interrupted checkout the submodule HEAD \
+         already matches the recorded SHA, so a plain re-run is a silent \
+         no-op.",
+        corpus_root.display(),
+    );
+
     // A corpus that resolves to *fewer* files than expected makes the
     // runner skip the missing files' snapshot assertions while still
     // returning `Ok(())`, so the test passes having verified less than it
-    // claims. Zero files is the degenerate case (#938): an uninitialized
-    // submodule leaves the directory empty and every assertion is skipped.
+    // claims.
     //
     // The corpora are submodules pinned to a fixed SHA, so the resolved
     // count is deterministic for a given checkout. Asserting it exactly
@@ -209,11 +224,10 @@ pub fn compare_rca_output_with_files_under(
     assert_eq!(
         paths.len(),
         expected_files,
-        "unexpected corpus file count under {}. If it resolved 0 files the \
-         integration corpus is empty or missing — initialize the submodules \
-         with `git submodule update --init --recursive`. Otherwise the \
-         corpus or the include/exclude globs changed; update the expected \
-         count alongside the snapshots.",
+        "unexpected corpus file count under {}. The corpus or the \
+         include/exclude globs changed; update the expected count \
+         alongside the snapshots. If the corpus is only partially \
+         checked out, `make worktree-setup` repairs it.",
         corpus_root.display(),
     );
 

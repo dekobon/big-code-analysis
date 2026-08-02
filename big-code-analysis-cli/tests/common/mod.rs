@@ -29,6 +29,87 @@ pub mod fixtures;
 #[allow(dead_code)]
 pub mod validators;
 
+/// Workspace-relative root of the integration corpora. Every entry
+/// under it is a git submodule, so all of it is absent from a fresh
+/// clone or a fresh `git worktree` until it is checked out.
+const CORPUS_ROOT: &str = "tests/repositories";
+
+/// The corpus holding [`FIXTURE_FILE`].
+const FIXTURE_CORPUS: &str = "DeepSpeech";
+
+/// A small real-source file, relative to [`FIXTURE_CORPUS`]. Nineteen
+/// tests in this crate analyse it, which is what makes its absence
+/// worth a named diagnostic.
+const FIXTURE_FILE: &str = "stats.py";
+
+/// Absolute path to the workspace root, derived from this crate's
+/// manifest directory rather than the process cwd (which the tests
+/// move around).
+fn workspace_root() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("manifest dir has parent")
+        .to_path_buf()
+}
+
+/// Absolute path to the shared real-source fixture, panicking with a
+/// message that names its own cause when the corpus is not checked out.
+///
+/// Without the submodule these nineteen tests failed with `bca`'s
+/// generic `error: path does not exist: …`, which reads as a bug in
+/// whatever the author was changing rather than as missing setup — the
+/// papercut #1171 is about.
+#[allow(dead_code)]
+pub fn corpus_fixture_path() -> String {
+    let root = workspace_root();
+    if let Some(hint) = corpus_checkout_hint(&root, FIXTURE_CORPUS, FIXTURE_FILE) {
+        panic!("{hint}");
+    }
+    root.join(CORPUS_ROOT)
+        .join(FIXTURE_CORPUS)
+        .join(FIXTURE_FILE)
+        .into_os_string()
+        .into_string()
+        .expect("fixture path is utf-8")
+}
+
+/// `Some(diagnostic)` when `file` is missing from the `corpus`
+/// submodule under `workspace_root`; `None` when it is present.
+///
+/// Split from [`corpus_fixture_path`] so the diagnostic is testable
+/// against a synthetic tree. The real corpus is checked out in any tree
+/// where this suite runs, so a test that waited for its absence would
+/// never execute — see `.claude/rules/testing.md`.
+#[allow(dead_code)]
+pub fn corpus_checkout_hint(workspace_root: &Path, corpus: &str, file: &str) -> Option<String> {
+    let corpus_dir = workspace_root.join(CORPUS_ROOT).join(corpus);
+    if corpus_dir.join(file).exists() {
+        return None;
+    }
+    // A submodule git has started checking out always has its `.git`
+    // file, so ignore that entry when deciding whether any content
+    // landed. Everything else distinguishes "never initialized" from
+    // "initialized and then interrupted", and only the second needs the
+    // `--force`.
+    let has_content = std::fs::read_dir(&corpus_dir).is_ok_and(|mut entries| {
+        entries.any(|entry| entry.is_ok_and(|entry| entry.file_name() != ".git"))
+    });
+    let state = if has_content {
+        "partially checked out"
+    } else {
+        "not checked out"
+    };
+    Some(format!(
+        "integration corpus {state}: {} is missing. Run `make worktree-setup` \
+         from the repository root. By hand it is `git submodule update --init \
+         --force -- {CORPUS_ROOT}/{corpus}`, and the `--force` is \
+         load-bearing: after an interrupted checkout the submodule HEAD \
+         already matches the recorded SHA, so a plain re-run is a silent \
+         no-op.",
+        corpus_dir.join(file).display(),
+    ))
+}
+
 /// Scrub CI-side env vars that `bca check` auto-detects from a
 /// freshly-built `Command`. On a GitHub Actions runner the parent
 /// process exports `GITHUB_STEP_SUMMARY` pointing to the runner's

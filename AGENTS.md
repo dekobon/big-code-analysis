@@ -212,6 +212,15 @@ and `cargo run -p big-code-analysis-web --`.
 
 ## Validation gates
 
+In a checkout you have not run the gate in before, run
+`make worktree-setup` first. It checks out the integration corpora and
+the Python-bindings venv; without them `make pre-commit` reports 24 test
+failures and ~33 mypy errors that are bootstrap artifacts rather than
+regressions. It is idempotent and a ~100 ms no-op afterwards, and it
+repairs an interrupted corpus checkout — a state a plain
+`git submodule update --init` cannot fix, because the recorded SHA
+already matches and the re-run is a silent no-op (#1171).
+
 Before considering a change done, run `make pre-commit` from the repo
 root. It is the canonical entry point for the full validation gate
 and runs, in one parallel pass: the cargo trio (`cargo fmt --check`,
