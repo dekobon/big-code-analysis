@@ -100,12 +100,12 @@ fn manifest_match_path_falls_back_to_the_cwd_form() {
     let cwd_form = Path::new("vendor/f.rs");
 
     assert_eq!(
-        super::manifest_match_path(Some(&root), &outside, cwd_form).as_ref(),
+        super::manifest_match_path(Some(&root), &outside, super::CwdForm(cwd_form)).as_ref(),
         cwd_form,
         "a path outside the manifest tree keeps the CWD form"
     );
     assert_eq!(
-        super::manifest_match_path(None, &outside, cwd_form).as_ref(),
+        super::manifest_match_path(None, &outside, super::CwdForm(cwd_form)).as_ref(),
         cwd_form,
         "no manifest means no second anchor to try"
     );

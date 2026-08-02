@@ -355,6 +355,12 @@ pub(crate) fn write_check_baseline(
 /// `[check] exclude` glob was written against the project the
 /// `bca.toml` sits at the root of. One list can carry only one anchor,
 /// and merging them silently gave the manifest half the caller's.
+///
+/// The mirroring is in the *split*, not in the matching: this type
+/// anchors the manifest set always, whereas `WalkFilters` does so only
+/// in its override warning, because a directory walk's root and the
+/// manifest's coincide for the canonical `paths = ["."]`. Do not assume
+/// the two apply the same rule.
 struct CheckExcludes<'a> {
     cli: crate::ExcludeGlobs,
     manifest: crate::ExcludeGlobs,
@@ -394,8 +400,8 @@ impl<'a> CheckExcludes<'a> {
 
     /// Whether a violation at `path` — `walk_form` being its
     /// walk-root-anchored spelling — is exempt from the threshold gate.
-    fn exempts(&self, path: &Path, walk_form: &Path) -> bool {
-        self.cli.is_match(walk_form)
+    fn exempts(&self, path: &Path, walk_form: crate::walk_seed::CwdForm<'_>) -> bool {
+        self.cli.is_match(walk_form.0)
             || self
                 .manifest
                 .is_match(crate::walk_seed::manifest_match_path(
@@ -448,7 +454,10 @@ pub(crate) fn apply_check_exclude(
             // leading `./` so bare-relative `[check.exclude]` patterns match
             // it just like `./`-prefixed ones (#726).
             let anchored = crate::walk_seed::anchor_against_seeds(&seeds, &v.path);
-            !excludes.exempts(&v.path, crate::walk_seed::strip_cur_dir(&anchored))
+            !excludes.exempts(
+                &v.path,
+                crate::walk_seed::CwdForm(crate::walk_seed::strip_cur_dir(&anchored)),
+            )
         })
         .collect();
     let skipped = before - kept.len();
@@ -458,11 +467,6 @@ pub(crate) fn apply_check_exclude(
     kept
 }
 
-/// Classify each violation against the optional `--baseline` file.
-/// The kept list carries `(Violation, Option<Coverage>)` so the
-/// stderr renderer can attach a `[new]` / `[regr +N%]` tag. Without
-/// `--baseline`, `Option<Coverage>` is `None` and the renderer emits
-/// the exact pre-tag line format byte-identically.
 /// Compose the stderr warning (issue #486) when the current run is
 /// stricter than the baseline was written against, or `None` when the
 /// comparison is safe (see [`baseline::check_provenance`] for the
@@ -489,6 +493,11 @@ pub(crate) fn provenance_warning(
     }
 }
 
+/// Classify each violation against the optional `--baseline` file.
+/// The kept list carries `(Violation, Option<Coverage>)` so the
+/// stderr renderer can attach a `[new]` / `[regr +N%]` tag. Without
+/// `--baseline`, `Option<Coverage>` is `None` and the renderer emits
+/// the exact pre-tag line format byte-identically.
 pub(crate) fn filter_by_baseline(
     violations: Vec<Violation>,
     baseline_path: Option<&Path>,

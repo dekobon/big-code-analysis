@@ -210,6 +210,18 @@ pub(crate) fn root_relative_match_path(
         .filter(|rel| !rel.as_os_str().is_empty())
 }
 
+/// A path already anchored to the working directory — the spelling
+/// every filter in this module matches CLI-origin globs against.
+///
+/// A newtype because the alternative is a function taking two `&Path`s
+/// whose meanings are not interchangeable: transposing the file as the
+/// run knows it with its anchored form compiles, and silently matches
+/// each glob set against the other's root. `AGENTS.md` bans passing two
+/// same-typed primitives that can be confused, and this pair is the
+/// exact shape #1164 was filed about.
+#[derive(Clone, Copy)]
+pub(crate) struct CwdForm<'a>(pub(crate) &'a std::path::Path);
+
 /// The path a *manifest-anchored* glob set should be matched against.
 ///
 /// `root` is the `bca.toml` directory (`None` when no manifest
@@ -226,11 +238,11 @@ pub(crate) fn root_relative_match_path(
 pub(crate) fn manifest_match_path<'a>(
     root: Option<&std::path::Path>,
     path: &std::path::Path,
-    cwd_form: &'a std::path::Path,
+    cwd_form: CwdForm<'a>,
 ) -> std::borrow::Cow<'a, std::path::Path> {
     root.and_then(|root| root_relative_match_path(root, path))
         .map_or(
-            std::borrow::Cow::Borrowed(cwd_form),
+            std::borrow::Cow::Borrowed(cwd_form.0),
             std::borrow::Cow::Owned,
         )
 }

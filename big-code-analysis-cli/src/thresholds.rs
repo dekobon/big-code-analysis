@@ -679,23 +679,6 @@ struct ResolvedThreshold {
     scope: MetricScope,
 }
 
-/// The suppression state of one [`ThresholdSet::evaluate_with_policy`] walk.
-///
-/// All three fields are constant for every `(space, threshold)` pair the walk
-/// visits, so they travel together rather than as three parallel parameters.
-struct SuppressionContext<'a> {
-    /// Whether in-source markers are honored at all. `--no-suppress`
-    /// (`SuppressionPolicy::Ignore`) clears it, emitting every threshold
-    /// violation regardless of source markers.
-    honor: bool,
-    /// Keep suppressed violations, tagged, instead of dropping them.
-    report_suppressed: bool,
-    /// The top-level Unit's markers — every `allow-file` marker in the file.
-    /// They apply to every nested function as well, so each per-function
-    /// check ORs them with the function's own scope.
-    file_scope: &'a SuppressionScope,
-}
-
 impl ResolvedThreshold {
     /// The [`Violation`] this threshold produces for `space`, or `None` when
     /// the pair is out of scope, within the limit, or suppressed.
@@ -760,6 +743,23 @@ impl ResolvedThreshold {
             suppressed,
         })
     }
+}
+
+/// The suppression state of one [`ThresholdSet::evaluate_with_policy`] walk.
+///
+/// All three fields are constant for every `(space, threshold)` pair the walk
+/// visits, so they travel together rather than as three parallel parameters.
+struct SuppressionContext<'a> {
+    /// Whether in-source markers are honored at all. `--no-suppress`
+    /// (`SuppressionPolicy::Ignore`) clears it, emitting every threshold
+    /// violation regardless of source markers.
+    honor: bool,
+    /// Keep suppressed violations, tagged, instead of dropping them.
+    report_suppressed: bool,
+    /// The top-level Unit's markers — every `allow-file` marker in the file.
+    /// They apply to every nested function as well, so each per-function
+    /// check ORs them with the function's own scope.
+    file_scope: &'a SuppressionScope,
 }
 
 /// Whether the metric named `name` is lower-is-worse (the `mi.*`

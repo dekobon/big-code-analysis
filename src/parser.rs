@@ -199,9 +199,18 @@ impl<
                 // `Ancestors::unknown()`: a `--filter` predicate is applied
                 // to nodes the dump walk reaches without a chain. The
                 // JS-family `is_func` and Elixir's `is_func_with_code`
-                // consult one, and both answer the same either way — a
-                // climb costs `O(depth)` rather than `O(1)` per candidate
-                // node (#1088, #1162).
+                // consult one, and both answer the same either way — only
+                // the cost differs (#1088, #1162).
+                //
+                // That cost is `O(depth^2)` per *candidate* node, not
+                // `O(depth)`: an unknown chain climbs by `Node::parent`,
+                // which is itself `O(depth)` per step. It stays off the
+                // general walk because each predicate rejects on
+                // `kind_id` first — Elixir climbs only for a `Call`
+                // already spelling `def`/`defp`/`defmacro`. Giving
+                // `find`/`count` the `(node, depth)` stack `act_on_node`
+                // already carries would supply a known chain and drop
+                // this to `O(depth)`.
                 "function" => res.push(Box::new(move |node: &Node| {
                     T::is_func_with_code(node, code, Ancestors::unknown())
                 })),

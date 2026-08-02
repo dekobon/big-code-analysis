@@ -255,52 +255,6 @@ fn render_baseline_rows_tty(out: &mut String, entries: &[BaselineRow], strip_pre
     }
 }
 
-/// Render the in-source marker rows as a GFM table.
-fn render_marker_rows_md(out: &mut String, rows: &[MarkerRow], strip_prefix: &str) {
-    out.push_str("| File | Line | Marker | Metrics | Function |\n");
-    out.push_str("| --- | ---: | --- | --- | --- |\n");
-    for row in rows {
-        let m = &row.marker;
-        let path = strip_path_prefix(&row.path, strip_prefix);
-        // Cells go through `escape_gfm_cell` for the same reason the
-        // crate's other two GFM emitters do (check_format /
-        // markdown_report, unified in #439): a path or symbol containing
-        // `|` or a newline would otherwise inject a spurious column break
-        // and corrupt the table. The marker label is a fixed ASCII
-        // literal, so it is safe un-escaped inside the code span.
-        let _ = writeln!(
-            out,
-            "| {} | {} | `{}` | {} | {} |",
-            escape_gfm_cell(path),
-            m.line,
-            marker_label(m.target, m.dialect),
-            escape_gfm_cell(&scope_metrics(&m.scope)),
-            escape_gfm_cell(&function_cell(m)),
-        );
-    }
-}
-
-/// Render the baseline entries as a GFM table.
-fn render_baseline_rows_md(out: &mut String, entries: &[BaselineRow], strip_prefix: &str) {
-    out.push_str("| File | Line | Symbol | Metric | Value |\n");
-    out.push_str("| --- | ---: | --- | --- | ---: |\n");
-    for e in entries {
-        let path = strip_path_prefix(&e.path, strip_prefix);
-        let _ = writeln!(
-            out,
-            "| {} | {} | {} | {} | {} |",
-            escape_gfm_cell(path),
-            // `-` for an entry that pins no line (#1170); a table column
-            // cannot simply omit its cell.
-            e.start_line
-                .map_or_else(|| "-".to_owned(), |l| l.to_string()),
-            escape_gfm_cell(&e.qualified),
-            escape_gfm_cell(&e.metric),
-            MetricScalar(e.value),
-        );
-    }
-}
-
 /// Render the in-source marker rows as an aligned plain-text block.
 /// Column widths are computed in one pass so the marker label and
 /// `path:line` columns line up regardless of input.
@@ -339,6 +293,52 @@ fn render_marker_rows_tty(out: &mut String, rows: &[MarkerRow], strip_prefix: &s
             "  {loc:loc_w$}  {label:label_w$}  metrics={}  {}",
             scope_metrics(&m.scope),
             function_cell(m),
+        );
+    }
+}
+
+/// Render the baseline entries as a GFM table.
+fn render_baseline_rows_md(out: &mut String, entries: &[BaselineRow], strip_prefix: &str) {
+    out.push_str("| File | Line | Symbol | Metric | Value |\n");
+    out.push_str("| --- | ---: | --- | --- | ---: |\n");
+    for e in entries {
+        let path = strip_path_prefix(&e.path, strip_prefix);
+        let _ = writeln!(
+            out,
+            "| {} | {} | {} | {} | {} |",
+            escape_gfm_cell(path),
+            // `-` for an entry that pins no line (#1170); a table column
+            // cannot simply omit its cell.
+            e.start_line
+                .map_or_else(|| "-".to_owned(), |l| l.to_string()),
+            escape_gfm_cell(&e.qualified),
+            escape_gfm_cell(&e.metric),
+            MetricScalar(e.value),
+        );
+    }
+}
+
+/// Render the in-source marker rows as a GFM table.
+fn render_marker_rows_md(out: &mut String, rows: &[MarkerRow], strip_prefix: &str) {
+    out.push_str("| File | Line | Marker | Metrics | Function |\n");
+    out.push_str("| --- | ---: | --- | --- | --- |\n");
+    for row in rows {
+        let m = &row.marker;
+        let path = strip_path_prefix(&row.path, strip_prefix);
+        // Cells go through `escape_gfm_cell` for the same reason the
+        // crate's other two GFM emitters do (check_format /
+        // markdown_report, unified in #439): a path or symbol containing
+        // `|` or a newline would otherwise inject a spurious column break
+        // and corrupt the table. The marker label is a fixed ASCII
+        // literal, so it is safe un-escaped inside the code span.
+        let _ = writeln!(
+            out,
+            "| {} | {} | `{}` | {} | {} |",
+            escape_gfm_cell(path),
+            m.line,
+            marker_label(m.target, m.dialect),
+            escape_gfm_cell(&scope_metrics(&m.scope)),
+            escape_gfm_cell(&function_cell(m)),
         );
     }
 }

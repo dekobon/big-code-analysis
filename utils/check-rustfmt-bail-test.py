@@ -112,6 +112,72 @@ class FindArmLinesTest(unittest.TestCase):
         source = "macro_rules! m {\n    ($a:ident, $b:ty) => {\n        1\n    };\n}\n"
         self.assertEqual(gate.find_arm_lines(source), [])
 
+    def test_char_literal_holding_a_quote_does_not_hide_later_arms(self) -> None:
+        # A `'"'` or `b'"'` is an unpaired double quote to anything that
+        # lexes strings but not chars: it opens a span running to the
+        # next `"` anywhere later in the file, and every arm in between
+        # vanishes. That is the "reads as clean" failure this gate
+        # exists to catch, so it must not be the gate's own — before
+        # char literals were classified, src/vcs/git/diff_parse.rs
+        # probed 4 of its 15 arms.
+        source = (
+            "fn f(c: u8) -> u8 {\n"
+            "    let quote = b'\"';\n"
+            '    let msg = "a string, closing the bogus span";\n'
+            "    match c {\n"
+            "        1 => quote,\n"
+            "        _ => 0,\n"
+            "    }\n"
+            "}\n"
+        )
+        self.assertEqual(gate.find_arm_lines(source), [4, 5])
+
+    def test_a_lifetime_does_not_swallow_the_arm_that_follows_it(self) -> None:
+        # The failure mode of the fix above, rather than of the bug it
+        # fixes. `'static` has no closing quote, so a lexer that scans
+        # forward for one pairs it with the quote opening `b'0'` and the
+        # span swallows the `=>` between them. The odd quote count is
+        # what makes this observable: with an even one the bogus spans
+        # pair off among themselves and every arm survives.
+        source = (
+            "fn f(x: &'static str) -> u8 {\n"
+            "    match x.len() {\n"
+            "        0 => b'0',\n"
+            "        _ => 1,\n"
+            "    }\n"
+            "}\n"
+        )
+        self.assertEqual(gate.find_arm_lines(source), [2, 3])
+
+
+class CharLiteralEndTest(unittest.TestCase):
+    """Exact span boundaries, asserted on the helper directly.
+
+    An end-to-end assertion through `find_arm_lines` only notices a
+    mis-lexed literal when the damage happens to reach an arm, which
+    depends on what follows it in the file. Asserting the boundary here
+    means each escape form is pinned by a case that can only pass for
+    the right reason.
+    """
+
+    def test_forms_and_their_ends(self) -> None:
+        for source, expected in [
+            ("'a'", 3),
+            ("'_'", 3),
+            ("'\\n'", 4),
+            ("'\\''", 4),
+            ("'\\\\'", 4),
+            ("'\"'", 3),
+            ("'\\u{1F600}'", 11),
+        ]:
+            with self.subTest(source=source):
+                self.assertEqual(gate.char_literal_end(source, 0), expected)
+
+    def test_lifetimes_and_labels_are_not_literals(self) -> None:
+        for source in ["'a>", "'a,", "'static ", "'_>", "'outer: loop", "'"]:
+            with self.subTest(source=source):
+                self.assertIsNone(gate.char_literal_end(source, 0))
+
 
 @unittest.skipUnless(HAVE_RUSTFMT, "rustfmt not installed")
 class ProbeTest(unittest.TestCase):

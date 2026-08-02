@@ -8,7 +8,7 @@ use crate::walk_seed::ManifestExcludes;
 /// manifest's. Matching keeps the two apart so each keeps its own
 /// anchor (#1164); the resolved set a reader asks
 /// `--print-effective-config` for is still the union.
-fn union_globs(cli: &[String], manifest: Option<&ManifestExcludes>) -> Vec<String> {
+fn reported_globs(cli: &[String], manifest: Option<&ManifestExcludes>) -> Vec<String> {
     manifest.map_or_else(|| cli.to_vec(), |m| m.union_globs(cli))
 }
 
@@ -231,12 +231,15 @@ impl EffectiveConfig {
             // the manifest directory as their anchor (#1164), but what a
             // reader wants reported is the resolved set both halves add
             // up to.
-            exclude: union_globs(&globals.exclude, globals.manifest_excludes.as_ref()),
+            exclude: reported_globs(&globals.exclude, globals.manifest_excludes.as_ref()),
             exclude_from: display_globs_from(
                 globals.exclude_from.as_deref(),
                 globals.manifest_excludes.as_ref(),
             ),
-            check_exclude: union_globs(&args.check_exclude, args.manifest_check_exclude.as_ref()),
+            check_exclude: reported_globs(
+                &args.check_exclude,
+                args.manifest_check_exclude.as_ref(),
+            ),
             check_exclude_from: display_globs_from(
                 args.check_exclude_from.as_deref(),
                 args.manifest_check_exclude.as_ref(),

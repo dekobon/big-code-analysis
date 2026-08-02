@@ -331,11 +331,10 @@ fn push_synthetic_unit_root<T: ParserTrait>(
             SpaceKind::Unit,
             selected,
         );
-        let (end_row, end_column) = node.end_position();
         synthetic
             .metrics
             .loc
-            .init_unit_span(node.start_row(), end_row, end_column);
+            .init_unit_span(node.start_row(), node.end_line());
         state_stack.push(State {
             space: synthetic,
             halstead_maps: HalsteadMaps::new(),
@@ -664,12 +663,11 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
             if selected.contains(Metric::Loc)
                 && let Some(state) = state_stack.last_mut()
             {
-                let (end_row, end_column) = node.end_position();
                 state
                     .space
                     .metrics
                     .loc
-                    .exclude_test_span(node.start_row(), end_row, end_column);
+                    .exclude_test_span(node.start_row(), node.end_line());
             }
             continue;
         }

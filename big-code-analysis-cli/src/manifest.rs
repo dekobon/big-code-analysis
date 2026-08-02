@@ -254,20 +254,20 @@ struct RawCheck {
     headroom: Option<f64>,
 }
 
-/// Append `extra` onto `dst`, skipping any value already present so the
-/// merged list is a duplicate-free union with CLI entries kept first
-/// (#539). Exclude lists are tiny (a handful of globs), so the linear
-/// membership check is clearer than a `HashSet` and cheaper in practice.
-/// `manifest`, unless the caller supplied `cli` — the fill-only-when-
-/// unset rule the `exclude_from` / `[check] exclude_from` *files* have
-/// always followed, spelled out now that the manifest's value no longer
-/// lands in the same field the CLI's does (#1164).
+/// Returns `manifest`, unless the caller supplied `cli` — the
+/// fill-only-when-unset rule the `exclude_from` / `[check] exclude_from`
+/// *files* have always followed, spelled out now that the manifest's
+/// value no longer lands in the same field the CLI's does (#1164).
 ///
 /// The inline `exclude` lists union instead; only the file is replaced.
 fn replaced_by<'a>(cli: Option<&Path>, manifest: Option<&'a Path>) -> Option<&'a Path> {
     manifest.filter(|_| cli.is_none())
 }
 
+/// Append `extra` onto `dst`, skipping any value already present so the
+/// merged list is a duplicate-free union with CLI entries kept first
+/// (#539). Exclude lists are tiny (a handful of globs), so the linear
+/// membership check is clearer than a `HashSet` and cheaper in practice.
 fn extend_dedup(dst: &mut Vec<String>, extra: impl IntoIterator<Item = String>) {
     for item in extra {
         if !dst.contains(&item) {
