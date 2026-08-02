@@ -354,6 +354,7 @@ fn base_check_args() -> CheckArgs {
         baseline_fuzzy_match: None,
         check_exclude: Vec::new(),
         check_exclude_from: None,
+        manifest_check_exclude: None,
     }
 }
 

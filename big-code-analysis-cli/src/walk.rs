@@ -49,6 +49,8 @@ pub(crate) fn assemble_globals(
         paths_from: selection.paths_from.clone(),
         exclude_from: selection.exclude_from.clone(),
         no_ignore: selection.no_ignore,
+        // Filled by the `bca.toml` merge, which runs after this.
+        manifest_excludes: None,
         exclude_tests: tuning.exclude_tests,
         count_cyclomatic_try: tuning.resolved_count_cyclomatic_try(),
         no_config: selection.no_config,
@@ -104,6 +106,17 @@ pub(crate) fn valid_languages() -> String {
 pub(crate) struct WalkFilters<'a> {
     include: &'a GlobSet,
     exclude: &'a ExcludeGlobs,
+    /// The manifest's own `exclude` globs, compiled separately from the
+    /// caller's so they can keep the manifest directory as their anchor
+    /// (#1164). A directory walk matches both against the walk-root
+    /// form — for the canonical `paths = ["."]` the two roots are the
+    /// same directory — but an explicitly-named file seed has no walk
+    /// root, so [`Self::warn_exclude_overridden`] anchors this set at
+    /// `manifest_dir` instead of at the caller's working directory.
+    manifest_exclude: &'a ExcludeGlobs,
+    /// Directory holding the `bca.toml` that supplied
+    /// `manifest_exclude`; `None` when no manifest applied.
+    manifest_dir: Option<&'a Path>,
     /// Whether `--language` forces a language, which makes every named
     /// file analyzable regardless of its extension. Only the
     /// exclude-override warning consults it — see
@@ -123,7 +136,8 @@ impl WalkFilters<'_> {
         // the `./`-anchored walk-root form just like `./dir/**` does (#726).
         let match_path = walk_seed::strip_cur_dir(match_path);
         (self.include.is_empty() || self.include.is_match(match_path))
-            && (self.exclude.is_empty() || !self.exclude.is_match(match_path))
+            && !self.exclude.is_match(match_path)
+            && !self.manifest_exclude.is_match(match_path)
     }
 
     /// Does `match_path` satisfy only the include allow-list (empty =
@@ -172,9 +186,19 @@ impl WalkFilters<'_> {
         if !self.language_forced && get_language_for_file(seed).is_none() {
             return;
         }
+        let cwd_form = walk_seed::strip_cur_dir(match_path);
+        // `match_path` is anchored to the working directory, which is
+        // the right root only for the globs the caller typed there. A
+        // manifest glob is written against the manifest's directory, so
+        // matching it against the CWD form left this warning silent for
+        // every caller standing anywhere but the project root — silent
+        // exactly when the override it exists to announce happens
+        // (#1164).
+        let manifest_form = walk_seed::manifest_match_path(self.manifest_dir, seed, cwd_form);
         if let Some(glob) = self
             .exclude
-            .first_match(walk_seed::strip_cur_dir(match_path))
+            .first_match(cwd_form)
+            .or_else(|| self.manifest_exclude.first_match(&manifest_form))
         {
             eprintln!(
                 "bca: warning: {} matches an exclude pattern ({glob}) \
@@ -542,10 +566,24 @@ pub(crate) fn resolve_walk_files(globals: GlobalOpts) -> (ResolvedFiles, usize) 
         globals.exclude_from.as_deref(),
         "--exclude-from",
     );
+    // The manifest's own globs compile into their own set so they keep
+    // the manifest directory as their anchor (#1164). `unwrap_or_default`
+    // yields the no-manifest case an empty, never-matching set.
+    let manifest_excludes = globals.manifest_excludes.unwrap_or_default();
+    let manifest_exclude = build_exclude_globset(
+        manifest_excludes.globs,
+        manifest_excludes.globs_from.as_deref(),
+        "bca.toml exclude_from",
+    );
     let num_jobs = globals.num_jobs.resolve();
     let filters = WalkFilters {
         include: &include,
         exclude: &exclude,
+        manifest_exclude: &manifest_exclude,
+        // An empty set never matches, so there is no anchor worth
+        // supplying — and the no-manifest default above has no
+        // directory to offer in the first place.
+        manifest_dir: (!manifest_exclude.is_empty()).then_some(manifest_excludes.dir.as_path()),
         language_forced: globals.language.is_some(),
     };
     let resolved = expand_seed_paths(

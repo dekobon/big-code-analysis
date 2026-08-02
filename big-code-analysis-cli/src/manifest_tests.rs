@@ -131,7 +131,16 @@ fn merge_globals_fills_unset_and_resolves_relative_paths() {
         g.paths,
         vec![PathBuf::from("/repo/src"), PathBuf::from("/abs")]
     );
-    assert_eq!(g.exclude_from, Some(PathBuf::from("/repo/.bcaignore")));
+    // The manifest's `exclude_from` resolves against the manifest dir
+    // and lands in the manifest-anchored set, not in the CLI's
+    // `exclude_from` — the two anchor differently (#1164).
+    let manifest_excludes = g.manifest_excludes.expect("manifest merged");
+    assert_eq!(
+        manifest_excludes.globs_from,
+        Some(PathBuf::from("/repo/.bcaignore"))
+    );
+    assert_eq!(manifest_excludes.dir, PathBuf::from("/repo"));
+    assert_eq!(g.exclude_from, None);
     assert_eq!(g.include, vec!["*.rs".to_owned()]);
 }
 
@@ -169,12 +178,52 @@ fn merge_globals_unions_exclude_with_manifest() {
     };
     m.merge_globals(&mut g, false);
 
-    // CLI patterns first, then manifest patterns appended.
-    assert_eq!(g.exclude, vec!["build".to_owned(), "vendor".to_owned()]);
+    // The union is by *effect*, not by list (#1164): each half keeps
+    // its own list so each can keep its own anchor. The CLI's is
+    // untouched, the manifest's is carried beside it with the manifest
+    // directory, and the resolved view is CLI patterns first.
+    let manifest_excludes = g.manifest_excludes.expect("manifest merged");
+    assert_eq!(g.exclude, vec!["build".to_owned()]);
+    assert_eq!(manifest_excludes.globs, vec!["vendor".to_owned()]);
+    assert_eq!(manifest_excludes.dir, PathBuf::from("/repo"));
+    assert_eq!(
+        manifest_excludes.union_globs(&g.exclude),
+        vec!["build".to_owned(), "vendor".to_owned()]
+    );
 }
 
-/// Duplicate patterns across CLI and manifest collapse to one, order
-/// preserved (CLI first).
+/// The inline `exclude` list unions with the CLI's, but the
+/// `exclude_from` *file* is replaced by a CLI `--exclude-from` — the
+/// asymmetry predates #1164 and must survive the split that moved the
+/// manifest's value out of `g.exclude_from` into its own field, where
+/// it would otherwise have started unioning silently.
+#[test]
+fn merge_globals_exclude_from_file_is_replaced_by_the_cli_not_unioned() {
+    let m = manifest(RawManifest {
+        exclude: Some(vec!["vendor".to_owned()]),
+        exclude_from: Some(PathBuf::from(".bcaignore")),
+        ..Default::default()
+    });
+    let mut g = GlobalOpts {
+        exclude_from: Some(PathBuf::from("cli.ignore")),
+        ..Default::default()
+    };
+    m.merge_globals(&mut g, false);
+
+    let manifest_excludes = g.manifest_excludes.expect("manifest merged");
+    assert_eq!(g.exclude_from, Some(PathBuf::from("cli.ignore")));
+    assert_eq!(
+        manifest_excludes.globs_from, None,
+        "a CLI --exclude-from replaces the manifest's file"
+    );
+    // The inline list is untouched by that replacement.
+    assert_eq!(manifest_excludes.globs, vec!["vendor".to_owned()]);
+}
+
+/// Duplicate patterns across CLI and manifest collapse to one in the
+/// *resolved* view, order preserved (CLI first). Matching keeps the two
+/// sets apart, where a duplicate is harmless — both sets say "exclude"
+/// — so the dedup is a reporting rule now (#1164).
 #[test]
 fn merge_globals_exclude_union_dedups() {
     let m = manifest(RawManifest {
@@ -187,7 +236,11 @@ fn merge_globals_exclude_union_dedups() {
     };
     m.merge_globals(&mut g, false);
 
-    assert_eq!(g.exclude, vec!["a".to_owned(), "b".to_owned()]);
+    let manifest_excludes = g.manifest_excludes.expect("manifest merged");
+    assert_eq!(
+        manifest_excludes.union_globs(&g.exclude),
+        vec!["a".to_owned(), "b".to_owned()]
+    );
 }
 
 /// Positive scope key `include` is REPLACED by any CLI value (pinned so a

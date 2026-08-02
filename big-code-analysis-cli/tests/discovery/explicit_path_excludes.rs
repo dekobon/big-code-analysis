@@ -294,6 +294,183 @@ fn absolute_explicit_path_does_not_override_check_exclude() {
         ));
 }
 
+/// The same contract from one directory down, which is where it used to
+/// break (#1164). `[check] exclude` globs are written against the
+/// manifest root, but a violation reaching the gate through an
+/// explicitly-named file seed was anchored to the *working directory*:
+/// standing in `skipme/`, `./skipme/**` was matched against `a.rs` and
+/// exempted nothing, so the offender failed the gate with exit 2.
+///
+/// This is the shape the shipped per-edit agent hooks produce — #1146
+/// steered them at `[check] exclude` precisely because it survives an
+/// explicit path — and a hook's working directory is not something the
+/// project controls.
+#[test]
+fn explicit_path_does_not_override_check_exclude_from_a_subdirectory() {
+    let dir = fixture("[check]\nexclude = [\"./skipme/**\"]\n");
+
+    cli(&dir.path().join("skipme"))
+        .args(["check", "a.rs", "--no-summary", "--no-remediation"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("skipme_offender").not())
+        .stderr(predicate::str::contains(
+            "skipped 1 violations via [check.exclude]",
+        ));
+}
+
+/// The absolute spelling of the case above. It takes a different route
+/// through `file_seed_match_path` — a relative seed is returned as
+/// spelled, an absolute one is reduced to its CWD-relative tail — and
+/// the reproducer showed both leaking, so both are pinned.
+#[test]
+fn absolute_explicit_path_does_not_override_check_exclude_from_a_subdirectory() {
+    let dir = fixture("[check]\nexclude = [\"./skipme/**\"]\n");
+    let sub = dir.path().join("skipme");
+    let abs = sub.join("a.rs");
+
+    cli(&sub)
+        .args([
+            "check",
+            abs.to_str().unwrap(),
+            "--no-summary",
+            "--no-remediation",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("skipme_offender").not())
+        .stderr(predicate::str::contains(
+            "skipped 1 violations via [check.exclude]",
+        ));
+}
+
+/// Anchoring a named path at the manifest root means computing its
+/// path relative to that root, and `strip_prefix` is purely lexical —
+/// it keeps `..` components. Naming a file through its parent from
+/// inside the excluded directory (`bca check ../kept.rs` from
+/// `skipme/`) therefore reduces to `skipme/../kept.rs` unless the
+/// `..` is folded first, and `./skipme/**` would *exempt* a file that
+/// is not in `skipme/` at all.
+///
+/// A false exemption is the worse direction of this bug: a real
+/// offender passes the gate silently.
+#[test]
+fn a_path_named_through_a_parent_is_not_exempted_by_the_directorys_glob() {
+    let dir = fixture("[check]\nexclude = [\"./skipme/**\"]\n");
+
+    cli(&dir.path().join("skipme"))
+        .args(["check", "../kept.rs", "--no-summary", "--no-remediation"])
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("kept_offender"))
+        .stderr(predicate::str::contains("[check.exclude]").not());
+}
+
+/// The other half of the anchoring rule, and the one a future
+/// simplification is most likely to lose: a `--check-exclude` glob the
+/// caller typed stays relative to the shell they typed it in. `a.rs` is
+/// a glob only the working-directory anchor can match — under the
+/// manifest anchor the file is `skipme/a.rs` — so collapsing the two
+/// origins back onto the manifest root fails here.
+///
+/// The manifest's own `[check] exclude` entry is deliberately one that
+/// matches nothing, for two reasons: the drop can then only have come
+/// from the CLI glob, and the manifest anchor is nonetheless *populated*
+/// — with an empty `[check]` table there is no manifest root in play at
+/// all and this test passes under either anchoring, proving nothing.
+#[test]
+fn cli_check_exclude_glob_stays_relative_to_the_working_directory() {
+    let dir = fixture("[check]\nexclude = [\"./matches-nothing/**\"]\n");
+
+    cli(&dir.path().join("skipme"))
+        .args([
+            "check",
+            "a.rs",
+            "--check-exclude",
+            "a.rs",
+            "--no-summary",
+            "--no-remediation",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("skipme_offender").not())
+        .stderr(predicate::str::contains(
+            "skipped 1 violations via [check.exclude]",
+        ));
+}
+
+/// With `--no-config` there is no manifest, so there are no
+/// manifest-anchored globs to resolve and the working directory is the
+/// only root a `--check-exclude` glob could sensibly have — which is why
+/// the fallback stays the working directory rather than moving to the
+/// walk root (#1164).
+///
+/// Two invocations, because either alone is satisfiable for the wrong
+/// reason. The first pins that `--no-config` really does drop the
+/// manifest's globs now that they live in a set of their own: the
+/// `./skipme/**` entry would otherwise exempt the offender and the run
+/// would exit 0 for a reason that has nothing to do with the flag under
+/// test. The second is its control — the caller's own glob, written for
+/// the directory the caller is standing in, still exempts the same file.
+///
+/// Neither half can distinguish the two anchors, and that is inherent
+/// rather than an oversight: with no manifest there is no second root to
+/// resolve against, so no perturbation of the anchoring rule is
+/// observable here. The discriminating case is
+/// [`cli_check_exclude_glob_stays_relative_to_the_working_directory`],
+/// which keeps a manifest in play.
+#[test]
+fn no_config_keeps_cli_check_exclude_globs_and_drops_the_manifest_table() {
+    let dir = fixture("[check]\nexclude = [\"./skipme/**\"]\n");
+    let sub = dir.path().join("skipme");
+    let base = [
+        "check",
+        "a.rs",
+        "--no-config",
+        "--threshold",
+        "cyclomatic=1",
+        "--no-summary",
+        "--no-remediation",
+    ];
+
+    cli(&sub)
+        .args(base)
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("skipme_offender"))
+        .stderr(predicate::str::contains("[check.exclude]").not());
+
+    cli(&sub)
+        .args(base)
+        .args(["--check-exclude", "a.rs"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("skipme_offender").not())
+        .stderr(predicate::str::contains(
+            "skipped 1 violations via [check.exclude]",
+        ));
+}
+
+/// #1146's override warning is anchored by the same helper as the gate
+/// exemption, so it went silent from a subdirectory for the same reason
+/// (#1164) — and a warning that is silent exactly when the override
+/// happens is worse than none. The offender is still reported, because
+/// the override itself is deliberate; only the announcement was missing.
+#[test]
+fn override_warning_fires_from_a_subdirectory() {
+    let dir = fixture("exclude = [\"./skipme/**\"]\n");
+
+    cli(&dir.path().join("skipme"))
+        .args(["check", "a.rs", "--no-summary", "--no-remediation"])
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("skipme_offender"))
+        .stderr(predicate::str::contains(
+            "bca: warning: a.rs matches an exclude pattern (./skipme/**) \
+             but was named explicitly; analyzing anyway",
+        ));
+}
+
 /// `--include` is an allow-list, not a deny-set, and an explicit path
 /// does not override it: a named file the allow-list does not admit is
 /// filtered out and the run has no input at all (`check`'s hard error,

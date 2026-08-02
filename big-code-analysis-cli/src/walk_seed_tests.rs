@@ -6,10 +6,10 @@ use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
 #[test]
-fn cwd_relative_tail_canonicalizes_both_sides_when_forms_diverge() {
+fn relative_tail_canonicalizes_both_sides_when_forms_diverge() {
     // Imported here (not at module scope) so the symbol is not "unused"
     // on non-unix targets, where this is the only caller in tests.
-    use super::cwd_relative_tail;
+    use super::relative_tail;
     // The third fallback: when `path` and `cwd` are spelled in forms that
     // share no lexical prefix even after canonicalizing `path` (on Windows
     // a `\\?\`-verbatim canonical path vs a non-verbatim CWD; simulated
@@ -29,9 +29,85 @@ fn cwd_relative_tail_canonicalizes_both_sides_when_forms_diverge() {
     // lexical strip and the canonical-`path` strip both fail — only the
     // canonical-`cwd` retry succeeds.
     assert_eq!(
-        cwd_relative_tail(&sub.join("f.rs"), &link),
+        relative_tail(&sub.join("f.rs"), &link),
         Some(PathBuf::from("sub/f.rs")),
         "diverging path/cwd spellings must still yield the relative tail"
+    );
+}
+
+/// #1164: a manifest glob is written against the `bca.toml` directory,
+/// so both spellings a per-file caller produces — the path as typed and
+/// the absolute one — must reduce to the same manifest-relative form
+/// even when the process is standing in a subdirectory.
+///
+/// The root is deliberately an *ancestor* of the working directory —
+/// the workspace root while the test process stands in the crate
+/// directory, exactly the shape a `bca.toml` at the repo root sees from
+/// a subdirectory. With the two the same directory the anchors coincide
+/// and the assertion holds under either rule. `set_current_dir` is
+/// process-global and would race the other tests in this binary, so the
+/// subdirectory comes from cargo's own cwd rather than a fixture.
+#[test]
+fn root_relative_match_path_anchors_both_spellings_from_a_subdirectory() {
+    let cwd = std::env::current_dir().expect("cwd available in test");
+    let root = cwd.parent().expect("crate dir has a parent");
+    let crate_dir = cwd.file_name().expect("crate dir has a name");
+    let expected = Path::new(crate_dir).join("src").join("lib.rs");
+
+    // Spelled relative to the CWD, and spelled absolutely: one answer.
+    assert_eq!(
+        super::root_relative_match_path(root, Path::new("src/lib.rs")),
+        Some(expected.clone())
+    );
+    assert_eq!(
+        super::root_relative_match_path(root, &cwd.join("src").join("lib.rs")),
+        Some(expected)
+    );
+}
+
+/// `strip_prefix` is purely lexical and keeps `..` components, so a
+/// path spelled through a parent must be folded before it is compared:
+/// otherwise `bca check ../src/lib.rs` from a sibling directory reduces
+/// to `<sibling>/../src/lib.rs` and a `<sibling>/**` glob — describing a
+/// directory the file is *not* in — exempts it from the gate.
+#[test]
+fn root_relative_match_path_folds_parent_components_before_comparing() {
+    let cwd = std::env::current_dir().expect("cwd available in test");
+    let root = cwd.parent().expect("crate dir has a parent");
+
+    // `../src/lib.rs` from the crate directory is the *workspace's*
+    // `src/lib.rs`, not the crate's, and must not read as living under
+    // the crate directory.
+    assert_eq!(
+        super::root_relative_match_path(root, Path::new("../src/lib.rs")),
+        Some(PathBuf::from("src/lib.rs"))
+    );
+}
+
+/// A path outside the manifest's tree has no manifest-relative
+/// identity, so [`super::manifest_match_path`] hands back the
+/// working-directory form its caller already computed rather than
+/// matching nothing. Same for a run with no manifest at all.
+#[test]
+fn manifest_match_path_falls_back_to_the_cwd_form() {
+    let td = tempfile::tempdir().expect("tempdir");
+    let root = td.path().canonicalize().expect("canonical tempdir");
+    let outside = if cfg!(windows) {
+        PathBuf::from(r"C:\definitely\not\under\root\f.rs")
+    } else {
+        PathBuf::from("/definitely/not/under/root/f.rs")
+    };
+    let cwd_form = Path::new("vendor/f.rs");
+
+    assert_eq!(
+        super::manifest_match_path(Some(&root), &outside, cwd_form).as_ref(),
+        cwd_form,
+        "a path outside the manifest tree keeps the CWD form"
+    );
+    assert_eq!(
+        super::manifest_match_path(None, &outside, cwd_form).as_ref(),
+        cwd_form,
+        "no manifest means no second anchor to try"
     );
 }
 

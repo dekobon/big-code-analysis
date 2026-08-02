@@ -40,8 +40,8 @@ mod path_key;
 
 pub(crate) use body_hash::{bare_name, hash_body};
 use body_hash::{decode_body_hash, encode_body_hash};
-pub(crate) use path_key::anchor_for;
-use path_key::{lexical_normalize, normalize_path};
+use path_key::normalize_path;
+pub(crate) use path_key::{anchor_for, lexical_normalize};
 
 /// Schema version. Bump on breaking format changes.
 ///
