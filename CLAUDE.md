@@ -23,13 +23,34 @@ destroys other agents' in-progress work:
 - If you see stale worktrees, leave them alone — another agent may
   be using them, or the user will clean them up manually.
 
-**Run `make py-bootstrap` once per worktree before `make pre-commit`.**
-A fresh worktree inherits no `.venv`, so `py-typecheck` reports ~33
-mypy errors (`pytest` untyped without its stubs) and `py-test` dies
-with "Couldn't find a virtualenv". Both are bootstrap artifacts, not
-regressions. The cargo stages themselves work in a worktree — that
-was #1145, fixed by the `[workspace]` tables on the six excluded
-crates.
+**Run `make worktree-setup` once per worktree before `make
+pre-commit`.** A fresh worktree inherits neither the integration
+corpora nor a Python venv, and neither absence names itself:
+
+- Without the corpora under `tests/repositories/`, 24 tests fail —
+  the 5 corpus tests, plus 19 CLI tests that analyse a real source
+  file from the `DeepSpeech` corpus. Since #1171 each names the cause
+  and the remedy; before it they read as bugs in whatever you were
+  changing.
+- Without `big-code-analysis-py/.venv`, `py-typecheck` reports ~33
+  mypy errors (`pytest` untyped without its stubs) and `py-test` dies
+  with "Couldn't find a virtualenv".
+
+Both are bootstrap artifacts, not regressions. The cargo stages
+themselves work in a worktree — that was #1145, fixed by the
+`[workspace]` tables on the six excluded crates.
+
+`make worktree-setup` is idempotent and a ~100 ms no-op once the tree
+is set up, so re-running it is the cheapest way to rule the
+environment out. Run it again in particular if a corpus checkout was
+interrupted: that leaves the submodule with its files deleted but its
+HEAD already at the recorded SHA, so **a plain `git submodule update
+--init` is a silent no-op** and only `--force` repairs it.
+`worktree-setup` detects that state and escalates on its own; by hand
+it is `git submodule update --init --force -- <path>`. It refuses to
+force a submodule that also has local modifications — accepted `.snap`
+files in `big-code-analysis-output` are exactly what that protects —
+and prints the command for you to run once they are safe.
 
 ### Tool choice
 
