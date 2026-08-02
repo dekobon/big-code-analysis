@@ -2,6 +2,22 @@
 
 use super::super::*;
 use super::*;
+use crate::walk_seed::ManifestExcludes;
+
+/// The exclude list to *report*: the caller's globs unioned with the
+/// manifest's. Matching keeps the two apart so each keeps its own
+/// anchor (#1164); the resolved set a reader asks
+/// `--print-effective-config` for is still the union.
+fn union_globs(cli: &[String], manifest: Option<&ManifestExcludes>) -> Vec<String> {
+    manifest.map_or_else(|| cli.to_vec(), |m| m.union_globs(cli))
+}
+
+/// The exclude-from file in effect: the caller's when given, else the
+/// manifest's (already resolved against the manifest directory).
+fn display_globs_from(cli: Option<&Path>, manifest: Option<&ManifestExcludes>) -> Option<String> {
+    cli.or_else(|| manifest.and_then(|m| m.globs_from.as_deref()))
+        .map(|p| p.display().to_string())
+}
 
 /// Serialize the resolved threshold/check configuration to stdout.
 /// Used by `--print-effective-config` to surface the post-merge view
@@ -211,16 +227,20 @@ impl EffectiveConfig {
                 .map(|p| p.display().to_string())
                 .collect(),
             include: globals.include.clone(),
-            exclude: globals.exclude.clone(),
-            exclude_from: globals
-                .exclude_from
-                .as_ref()
-                .map(|p| p.display().to_string()),
-            check_exclude: args.check_exclude.clone(),
-            check_exclude_from: args
-                .check_exclude_from
-                .as_ref()
-                .map(|p| p.display().to_string()),
+            // Manifest globs are matched from their own set so they keep
+            // the manifest directory as their anchor (#1164), but what a
+            // reader wants reported is the resolved set both halves add
+            // up to.
+            exclude: union_globs(&globals.exclude, globals.manifest_excludes.as_ref()),
+            exclude_from: display_globs_from(
+                globals.exclude_from.as_deref(),
+                globals.manifest_excludes.as_ref(),
+            ),
+            check_exclude: union_globs(&args.check_exclude, args.manifest_check_exclude.as_ref()),
+            check_exclude_from: display_globs_from(
+                args.check_exclude_from.as_deref(),
+                args.manifest_check_exclude.as_ref(),
+            ),
             paths_from: globals.paths_from.as_ref().map(|p| p.display().to_string()),
             baseline: args.baseline.as_ref().map(|p| p.display().to_string()),
             config: args.config.as_ref().map(|p| p.display().to_string()),

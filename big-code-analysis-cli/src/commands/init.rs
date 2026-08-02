@@ -169,6 +169,7 @@ pub(crate) fn scaffold_baseline(
         baseline_fuzzy_match: None,
         check_exclude: Vec::new(),
         check_exclude_from: None,
+        manifest_check_exclude: None,
     };
     // `run_check` early-exits after `write_check_baseline` runs, so it
     // returns normally on success here.

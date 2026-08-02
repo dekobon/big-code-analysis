@@ -111,6 +111,10 @@ pub(crate) struct WalkSelectionArgs {
     /// glob it overrode. `-I` / `--include` is not overridden. To exempt
     /// something from `bca check`'s threshold gate whichever way it is
     /// named, use `--check-exclude` / `[check] exclude` instead.
+    ///
+    /// A relative glob given here is resolved against the directory you
+    /// ran `bca` from; one written in `bca.toml` is resolved against the
+    /// directory holding that `bca.toml`.
     // The per-file agent hooks in the book's agent-feedback recipe are
     // the caller this bit exists for; see #1146.
     #[clap(long, short = 'X', num_args(1), action = clap::ArgAction::Append, help_heading = "Input selection")]
@@ -301,6 +305,11 @@ pub(crate) struct GlobalOpts {
     pub(crate) paths_from: Option<PathBuf>,
     pub(crate) exclude_from: Option<PathBuf>,
     pub(crate) no_ignore: bool,
+    /// The `bca.toml` `exclude` / `exclude_from` patterns, held apart
+    /// from `exclude` / `exclude_from` above so they keep the manifest
+    /// directory as their anchor rather than the caller's working
+    /// directory (#1164). `None` when no manifest applied.
+    pub(crate) manifest_excludes: Option<crate::walk_seed::ManifestExcludes>,
     pub(crate) exclude_tests: bool,
     /// Whether Rust's `?` counts toward cyclomatic complexity, in the
     /// positive sense (issue #666). `None` means the CLI set neither

@@ -43,6 +43,8 @@ fn walk_directory_seed_returns_sorted_paths() {
     let filters = WalkFilters {
         include: &empty_include,
         exclude: &empty_exclude,
+        manifest_exclude: &empty_exclude,
+        manifest_dir: None,
         language_forced: false,
     };
     let mut errors = WalkErrors::default();

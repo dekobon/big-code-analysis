@@ -462,6 +462,30 @@ Duplicates collapse; CLI patterns sort first. Pass `--no-config` to drop
 the manifest's exemptions entirely. (Positive scope keys like `paths` /
 `include` still *replace* on the CLI — only the exclude filters merge.)
 
+### What a relative glob is relative to {#what-a-relative-glob-is-relative-to}
+
+The two sources anchor to different roots, and this is the part nobody
+guesses right:
+
+| Source | A relative glob is resolved against |
+| --- | --- |
+| `bca.toml` `[check] exclude` / `exclude_from` | the directory holding the `bca.toml` |
+| `--check-exclude` / `--check-exclude-from` | the directory you ran `bca` from |
+
+So `exclude = ["./vendor/**"]` in a manifest at the repo root means
+`<repo>/vendor/`, whichever directory you invoke `bca check` from —
+including from inside `vendor/` itself. The same glob passed as
+`--check-exclude './vendor/**'` means `vendor/` *under your shell's
+current directory*, because that is where you typed it.
+
+This matters most for per-file callers — editor integrations, pre-commit
+hooks, the agent hooks in [Agent feedback](../recipes/agent-feedback.md)
+— which run `bca check <one file>` from whatever directory they happen
+to be in. Their exemptions belong in the manifest, where the anchor is
+the project's and not the caller's.
+
+The same split applies to the walker's `exclude` / `--exclude` pair.
+
 ### Precedence with the other suppression mechanisms
 
 Most-specific to least, `bca check` resolves exemptions in this order:

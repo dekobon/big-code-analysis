@@ -7,6 +7,61 @@
 
 use std::path::PathBuf;
 
+/// Exclude globs a `bca.toml` supplied, kept apart from the globs the
+/// caller typed because the two anchor to different roots (#1164).
+///
+/// A `--exclude` / `--check-exclude` glob is written in the shell the
+/// user is standing in, so the working directory is its natural anchor.
+/// A manifest glob is written against the project layout the manifest
+/// describes, and the walk's own `paths = ["."]` seed resolves to the
+/// manifest directory — so that directory, not the caller's, is what
+/// makes `exclude = ["./vendor/**"]` mean `vendor/` at the project
+/// root. Merging the two lists (which is what shipped) forced one
+/// anchor on both, and the manifest half silently stopped matching for
+/// any caller whose working directory was not the project root.
+///
+/// Both fields are the manifest's own values only; the CLI's stay in
+/// `GlobalOpts::exclude` / `CheckArgs::check_exclude`. Compiling them
+/// into separate glob sets is what lets each keep its own anchor, so
+/// the two must not be re-merged into one list.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct ManifestExcludes {
+    /// The manifest's inline `exclude` / `[check] exclude` list.
+    pub(crate) globs: Vec<String>,
+    /// The manifest's `exclude_from` / `[check] exclude_from` file,
+    /// already resolved against `dir`. Its lines carry the same anchor
+    /// as `globs`.
+    pub(crate) globs_from: Option<PathBuf>,
+    /// Directory holding the `bca.toml`, and therefore the root every
+    /// relative pattern above is written against.
+    pub(crate) dir: PathBuf,
+}
+
+impl ManifestExcludes {
+    /// Whether the manifest configured no exclude patterns at all, so
+    /// the caller can keep its allocation-free fast path.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.globs.is_empty() && self.globs_from.is_none()
+    }
+
+    /// `cli` unioned with the manifest's globs, CLI patterns first and
+    /// duplicates dropped.
+    ///
+    /// For *display* only — `--print-effective-config` and
+    /// `bca exemptions` report the resolved set, and by effect that is
+    /// the union. Glob *matching* must keep the two apart so each keeps
+    /// its own anchor; see the type doc.
+    pub(crate) fn union_globs(&self, cli: &[String]) -> Vec<String> {
+        let mut union = cli.to_vec();
+        for glob in &self.globs {
+            if !union.contains(glob) {
+                union.push(glob.clone());
+            }
+        }
+        union
+    }
+}
+
 /// Re-anchor a walk seed to the same `./`-relative form a bare
 /// `--paths .` would produce.
 ///
@@ -74,7 +129,7 @@ pub(crate) fn reanchor_seed(seed: PathBuf) -> PathBuf {
     // failure path, so the common at/under-CWD seed pays no extra syscall); an
     // unresolvable or genuinely-outside seed keeps its as-spelled absolute
     // form, the only stable identity for it.
-    match cwd_relative_tail(&seed, &cwd) {
+    match relative_tail(&seed, &cwd) {
         Some(rel) if rel.as_os_str().is_empty() => PathBuf::from("."),
         Some(rel) => rel,
         // Neither lexically nor canonically under the CWD (an unresolvable or
@@ -84,30 +139,100 @@ pub(crate) fn reanchor_seed(seed: PathBuf) -> PathBuf {
     }
 }
 
-/// The CWD-relative remainder of `path`, or `None` when it is neither
-/// lexically nor canonically under `cwd`. The lexical strip is tried
-/// first (no syscall on the common at/under-CWD case); the canonical
-/// retry covers a seed spelled through a symlinked ancestor (the macOS
-/// `/tmp` → `/private/tmp` default); the final canonical-`cwd` retry
-/// covers Windows, where `canonicalize` yields a `\\?\`-verbatim path
-/// while `current_dir` is typically non-verbatim, so the first two
-/// strips never share a prefix — canonicalizing both sides puts them in
-/// the same form (it also rescues a Unix `cwd` reached through a
-/// symlink). Shared by [`reanchor_seed`] and [`file_seed_match_path`],
-/// which differ only in what they do with the remainder.
-fn cwd_relative_tail(path: &std::path::Path, cwd: &std::path::Path) -> Option<PathBuf> {
-    if let Ok(rel) = path.strip_prefix(cwd) {
+/// The `root`-relative remainder of `path`, or `None` when it is
+/// neither lexically nor canonically under `root`. The lexical strip is
+/// tried first (no syscall on the common at/under-root case); the
+/// canonical retry covers a path spelled through a symlinked ancestor
+/// (the macOS `/tmp` → `/private/tmp` default); the final
+/// canonical-`root` retry covers Windows, where `canonicalize` yields a
+/// `\\?\`-verbatim path while `current_dir` is typically non-verbatim,
+/// so the first two strips never share a prefix — canonicalizing both
+/// sides puts them in the same form (it also rescues a Unix `root`
+/// reached through a symlink).
+///
+/// `root` is the current directory for [`reanchor_seed`] and
+/// [`file_seed_match_path`], which differ only in what they do with the
+/// remainder, and a `bca.toml` directory for
+/// [`root_relative_match_path`].
+fn relative_tail(path: &std::path::Path, root: &std::path::Path) -> Option<PathBuf> {
+    if let Ok(rel) = path.strip_prefix(root) {
         return Some(rel.to_path_buf());
     }
     let canonical = path.canonicalize().ok()?;
-    if let Ok(rel) = canonical.strip_prefix(cwd) {
+    if let Ok(rel) = canonical.strip_prefix(root) {
         return Some(rel.to_path_buf());
     }
-    let canonical_cwd = cwd.canonicalize().ok()?;
+    let canonical_root = root.canonicalize().ok()?;
     canonical
-        .strip_prefix(&canonical_cwd)
+        .strip_prefix(&canonical_root)
         .ok()
         .map(PathBuf::from)
+}
+
+/// The path to match globs written relative to `root` against, or
+/// `None` when `path` does not lie under `root`.
+///
+/// Exclude globs supplied by a `bca.toml` are written relative to the
+/// manifest's own directory — that is the root the walk's
+/// `paths = ["."]` seed resolves to, so it is the form the patterns are
+/// authored against. Every other anchor in this module resolves against
+/// the *process working directory* instead, which coincides with the
+/// manifest root only when the caller happens to be standing in it: run
+/// `bca check sub/a.rs` one directory down and a `[check] exclude`
+/// entry silently stopped matching (#1164).
+///
+/// A relative `path` is joined onto the working directory first, so the
+/// two spellings a per-file caller produces (`a.rs` and
+/// `/abs/repo/sub/a.rs`) reach the same answer. `None` — a path outside
+/// the project entirely — has no manifest-relative identity, and the
+/// caller falls back to the working-directory form rather than
+/// silently matching nothing.
+///
+/// The join runs through [`crate::baseline::lexical_normalize`], the
+/// same `.` / `..` folding the baseline path keys use, because
+/// `strip_prefix` is purely lexical and would otherwise leave the
+/// `..` in place: `bca check ../outside/f.rs` from `sub/` would strip
+/// to `sub/../outside/f.rs` and be *exempted* by a `./sub/**` glob
+/// describing a directory the file is not in. Folding is deliberately
+/// lexical rather than `canonicalize`: it needs no filesystem access,
+/// it cannot fail on a path that no longer exists, and it agrees with
+/// how the baseline keys the very same file.
+pub(crate) fn root_relative_match_path(
+    root: &std::path::Path,
+    path: &std::path::Path,
+) -> Option<PathBuf> {
+    let absolute = if path.is_relative() {
+        std::env::current_dir().ok()?.join(path)
+    } else {
+        path.to_path_buf()
+    };
+    relative_tail(&crate::baseline::lexical_normalize(&absolute), root)
+        .filter(|rel| !rel.as_os_str().is_empty())
+}
+
+/// The path a *manifest-anchored* glob set should be matched against.
+///
+/// `root` is the `bca.toml` directory (`None` when no manifest
+/// applied), `path` the file as the run knows it, and `cwd_form` the
+/// working-directory-anchored spelling every other filter in this
+/// module produces. A file inside the manifest's tree is matched in
+/// manifest-relative form; one outside it has no manifest-relative
+/// identity and falls back to `cwd_form`, so a run pointed at paths
+/// outside the project keeps matching exactly as it did before #1164.
+///
+/// Both the `bca check` gate-exemption set and the walker's
+/// override warning apply this rule; it lives here so the two cannot
+/// drift into disagreeing about which files a manifest glob describes.
+pub(crate) fn manifest_match_path<'a>(
+    root: Option<&std::path::Path>,
+    path: &std::path::Path,
+    cwd_form: &'a std::path::Path,
+) -> std::borrow::Cow<'a, std::path::Path> {
+    root.and_then(|root| root_relative_match_path(root, path))
+        .map_or(
+            std::borrow::Cow::Borrowed(cwd_form),
+            std::borrow::Cow::Owned,
+        )
 }
 
 /// The path to match `--include` globs against for an *explicitly named
@@ -131,7 +256,7 @@ pub(crate) fn file_seed_match_path(seed: &std::path::Path) -> PathBuf {
     let Ok(cwd) = std::env::current_dir() else {
         return seed.to_path_buf();
     };
-    match cwd_relative_tail(seed, &cwd) {
+    match relative_tail(seed, &cwd) {
         // A file seed can never *be* the CWD, so a non-empty remainder is
         // the only Some shape reachable here; guard anyway.
         Some(rel) if !rel.as_os_str().is_empty() => rel,

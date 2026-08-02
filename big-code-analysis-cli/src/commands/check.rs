@@ -346,23 +346,77 @@ pub(crate) fn write_check_baseline(
     );
 }
 
+/// The gate-exemption deny-sets, one per glob origin, mirroring
+/// [`crate::walk::WalkFilters`]'s split of the same two surfaces.
+///
+/// Two sets rather than one merged list because the two origins anchor
+/// differently (#1164): a `--check-exclude` glob was typed in the
+/// caller's shell, so the working directory is its root, while a
+/// `[check] exclude` glob was written against the project the
+/// `bca.toml` sits at the root of. One list can carry only one anchor,
+/// and merging them silently gave the manifest half the caller's.
+struct CheckExcludes<'a> {
+    cli: crate::ExcludeGlobs,
+    manifest: crate::ExcludeGlobs,
+    /// Directory holding the `bca.toml` that supplied `manifest`;
+    /// `None` when no manifest configured any exemption.
+    manifest_dir: Option<&'a Path>,
+}
+
+impl<'a> CheckExcludes<'a> {
+    /// Compile the two deny-sets from the resolved gate config, or
+    /// `None` when nothing is configured — the common case, which then
+    /// skips the glob-set build and the `--check-exclude-from` /
+    /// `[check] exclude_from` file reads entirely.
+    fn resolve(args: &'a CheckArgs) -> Option<Self> {
+        let manifest = args
+            .manifest_check_exclude
+            .as_ref()
+            .filter(|m| !m.is_empty());
+        if args.check_exclude.is_empty() && args.check_exclude_from.is_none() && manifest.is_none()
+        {
+            return None;
+        }
+        Some(Self {
+            cli: crate::build_exclude_globset(
+                args.check_exclude.clone(),
+                args.check_exclude_from.as_deref(),
+                "--check-exclude-from",
+            ),
+            manifest: crate::build_exclude_globset(
+                manifest.map(|m| m.globs.clone()).unwrap_or_default(),
+                manifest.and_then(|m| m.globs_from.as_deref()),
+                "bca.toml [check] exclude_from",
+            ),
+            manifest_dir: manifest.map(|m| m.dir.as_path()),
+        })
+    }
+
+    /// Whether a violation at `path` — `walk_form` being its
+    /// walk-root-anchored spelling — is exempt from the threshold gate.
+    fn exempts(&self, path: &Path, walk_form: &Path) -> bool {
+        self.cli.is_match(walk_form)
+            || self
+                .manifest
+                .is_match(crate::walk_seed::manifest_match_path(
+                    self.manifest_dir,
+                    path,
+                    walk_form,
+                ))
+    }
+}
+
 pub(crate) fn apply_check_exclude(
     violations: Vec<Violation>,
     args: &CheckArgs,
     paths: &[PathBuf],
     paths_from: Option<&Path>,
 ) -> Vec<Violation> {
-    // Fast path: nothing configured (the common case) skips the
-    // glob-set build, the `--paths-from` re-read, and the file read
-    // entirely.
-    if args.check_exclude.is_empty() && args.check_exclude_from.is_none() {
+    // Nothing configured is the common case, and it also skips the
+    // `--paths-from` re-read below.
+    let Some(excludes) = CheckExcludes::resolve(args) else {
         return violations;
-    }
-    let globset = crate::build_exclude_globset(
-        args.check_exclude.clone(),
-        args.check_exclude_from.as_deref(),
-        "--check-exclude-from",
-    );
+    };
     // Anchor each violation's emitted path to the walk-root `./`-form
     // before matching, mirroring the global `--exclude`/`--include`
     // anchoring (#489), so a `./`-anchored `[check.exclude]` pattern
@@ -394,7 +448,7 @@ pub(crate) fn apply_check_exclude(
             // leading `./` so bare-relative `[check.exclude]` patterns match
             // it just like `./`-prefixed ones (#726).
             let anchored = crate::walk_seed::anchor_against_seeds(&seeds, &v.path);
-            !globset.is_match(crate::walk_seed::strip_cur_dir(&anchored))
+            !excludes.exempts(&v.path, crate::walk_seed::strip_cur_dir(&anchored))
         })
         .collect();
     let skipped = before - kept.len();

@@ -373,6 +373,13 @@ CLI `--threshold` flags override values read from this file."
     /// path the project config deliberately exempted. Pass `--no-config`
     /// to ignore the manifest entirely. Globs match the path as walked,
     /// exactly like `--exclude`.
+    ///
+    /// A relative glob given here is resolved against the directory you
+    /// ran `bca` from; one written in `bca.toml` is resolved against the
+    /// directory holding that `bca.toml`. Put an exemption in the
+    /// manifest when it should hold whichever directory the caller
+    /// stands in — an editor or hook invoking `bca check <file>` per
+    /// edit does not control its own working directory.
     #[clap(long = "check-exclude", value_name = "GLOB")]
     pub(crate) check_exclude: Vec<String>,
     /// Read newline-separated `--check-exclude` globs from a file (one
@@ -384,6 +391,13 @@ CLI `--threshold` flags override values read from this file."
     /// `bca.toml`.
     #[clap(long = "check-exclude-from", value_parser)]
     pub(crate) check_exclude_from: Option<PathBuf>,
+    // Not a flag: filled by the `bca.toml` merge. The manifest's
+    // `[check] exclude` / `exclude_from` patterns live here rather than
+    // in the two fields above so they keep the manifest directory as
+    // their anchor (#1164) — a glob written for the project root must
+    // not change meaning with the caller's working directory.
+    #[clap(skip)]
+    pub(crate) manifest_check_exclude: Option<crate::walk_seed::ManifestExcludes>,
 }
 
 impl CheckArgs {

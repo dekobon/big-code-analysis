@@ -44,7 +44,7 @@ pub(crate) fn anchor_for(baseline_path: &Path) -> PathBuf {
 /// - `..` with no prior component to consume is preserved literally
 ///   (`../a` → `../a`, `a/../../b` → `../b`). This keeps identity for
 ///   baselines that legitimately reference a sibling of the anchor.
-pub(super) fn lexical_normalize(p: &Path) -> PathBuf {
+pub(crate) fn lexical_normalize(p: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for c in p.components() {
         match c {

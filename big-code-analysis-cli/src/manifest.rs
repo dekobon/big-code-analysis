@@ -35,6 +35,7 @@ use std::str::FromStr;
 use serde::Deserialize;
 
 use crate::thresholds::{ParsedThresholds, split_thresholds_table};
+use crate::walk_seed::ManifestExcludes;
 use crate::{
     CheckArgs, ExemptionsArgs, GlobalOpts, NumJobs, ReportArgs, VcsArgs, die, die_io,
     read_utf8_file, warn,
@@ -257,6 +258,16 @@ struct RawCheck {
 /// merged list is a duplicate-free union with CLI entries kept first
 /// (#539). Exclude lists are tiny (a handful of globs), so the linear
 /// membership check is clearer than a `HashSet` and cheaper in practice.
+/// `manifest`, unless the caller supplied `cli` — the fill-only-when-
+/// unset rule the `exclude_from` / `[check] exclude_from` *files* have
+/// always followed, spelled out now that the manifest's value no longer
+/// lands in the same field the CLI's does (#1164).
+///
+/// The inline `exclude` lists union instead; only the file is replaced.
+fn replaced_by<'a>(cli: Option<&Path>, manifest: Option<&'a Path>) -> Option<&'a Path> {
+    manifest.filter(|_| cli.is_none())
+}
+
 fn extend_dedup(dst: &mut Vec<String>, extra: impl IntoIterator<Item = String>) {
     for item in extra {
         if !dst.contains(&item) {
@@ -474,6 +485,23 @@ impl Manifest {
         &self.path
     }
 
+    /// Package one of the manifest's two exclude surfaces (the walker's
+    /// `exclude` / `exclude_from`, or `[check] exclude` /
+    /// `[check] exclude_from`) with the directory its relative patterns
+    /// are written against (#1164).
+    ///
+    /// Kept apart from the CLI's own lists rather than merged into
+    /// them: a CLI glob anchors to the working directory the user typed
+    /// it in, a manifest glob to the manifest's directory, and one list
+    /// can carry only one anchor. See [`ManifestExcludes`].
+    fn excludes(&self, globs: Option<&[String]>, globs_from: Option<&Path>) -> ManifestExcludes {
+        ManifestExcludes {
+            globs: globs.unwrap_or_default().to_vec(),
+            globs_from: globs_from.map(|p| self.resolve(p)),
+            dir: self.dir.clone(),
+        }
+    }
+
     /// Resolve a manifest-relative path against the manifest directory.
     /// Absolute paths are returned unchanged.
     fn resolve(&self, p: &Path) -> PathBuf {
@@ -507,18 +535,23 @@ impl Manifest {
         // Negative filter keys (`exclude`) UNION CLI values with the
         // manifest list (#539): a CLI `--exclude` must never silently
         // un-exclude a directory the project config deliberately skipped
-        // (e.g. `vendor/`). Mirrors ruff/ESLint `extend-exclude`. Dedup
-        // preserves order, CLI patterns first. `--no-config` short-
-        // circuits this by skipping the merge entirely (manifest is None),
-        // so an explicit opt-out still yields CLI-only excludes.
-        if let Some(exclude) = &self.raw.exclude {
-            extend_dedup(&mut g.exclude, exclude.iter().cloned());
-        }
-        if g.exclude_from.is_none()
-            && let Some(exclude_from) = &self.raw.exclude_from
-        {
-            g.exclude_from = Some(self.resolve(exclude_from));
-        }
+        // (e.g. `vendor/`). Mirrors ruff/ESLint `extend-exclude`.
+        // `--no-config` short-circuits this by skipping the merge
+        // entirely (manifest is None), so an explicit opt-out still
+        // yields CLI-only excludes.
+        //
+        // The union is by *effect*, not by list: the manifest's patterns
+        // are carried separately so they keep the manifest directory as
+        // their anchor while the CLI's keep the working directory
+        // (#1164). Every consumer applies both sets.
+        //
+        // A CLI `--exclude-from` still *replaces* the manifest's file
+        // rather than unioning with it: the inline list unions, the file
+        // does not, and #1164 changed neither rule.
+        g.manifest_excludes = Some(self.excludes(
+            self.raw.exclude.as_deref(),
+            replaced_by(g.exclude_from.as_deref(), self.raw.exclude_from.as_deref()),
+        ));
         if !num_jobs_from_cli && let Some(num_jobs) = self.num_jobs() {
             g.num_jobs = num_jobs;
         }
@@ -594,14 +627,18 @@ impl Manifest {
         // `--check-exclude` cannot silently re-gate a path the project
         // config deliberately exempted. The exclude-from path resolves
         // against the manifest directory like every other manifest path.
-        if let Some(exclude) = &self.raw.check.exclude {
-            extend_dedup(&mut args.check_exclude, exclude.iter().cloned());
-        }
-        if args.check_exclude_from.is_none()
-            && let Some(exclude_from) = &self.raw.check.exclude_from
-        {
-            args.check_exclude_from = Some(self.resolve(exclude_from));
-        }
+        //
+        // The union is by effect rather than by list, so each half keeps
+        // its own anchor (#1164); see [`Self::excludes`]. The
+        // exclude-from *file* is still replaced by a CLI one, as it
+        // always has been.
+        args.manifest_check_exclude = Some(self.excludes(
+            self.raw.check.exclude.as_deref(),
+            replaced_by(
+                args.check_exclude_from.as_deref(),
+                self.raw.check.exclude_from.as_deref(),
+            ),
+        ));
         // `[check] exit_codes` (#385/#666). The value-taking
         // `--exit-codes <default|tiered>` flag is a full override: an
         // explicit CLI value wins in either direction, so the manifest
@@ -623,12 +660,16 @@ impl Manifest {
 
     /// Merge the gate-skipping defaults `bca exemptions` audits
     /// (`baseline`, `[check] exclude` / `exclude_from`) into `args`,
-    /// mirroring [`Self::merge_check`] so the audit reflects exactly what
-    /// `bca check` would skip. Positive keys (`baseline`) fill only when
-    /// unset; the negative filter `check_exclude` UNIONs CLI values with
-    /// the manifest list (#539). Threshold / headroom / exit-code keys are
-    /// irrelevant to a read-only listing and are deliberately not merged
-    /// here.
+    /// so the audit reflects exactly what `bca check` would skip.
+    /// Positive keys (`baseline`) fill only when unset; the negative
+    /// filter `check_exclude` UNIONs CLI values with the manifest list
+    /// (#539). Threshold / headroom / exit-code keys are irrelevant to a
+    /// read-only listing and are deliberately not merged here.
+    ///
+    /// Unlike [`Self::merge_check`] the union really is one list here,
+    /// because `bca exemptions` *lists* the globs and never matches a
+    /// path against them. Only matching needs the two origins kept apart
+    /// (#1164); a reader wants the resolved set.
     pub(crate) fn merge_exemptions(&self, args: &mut ExemptionsArgs) {
         if args.baseline.is_none()
             && let Some(baseline) = self.baseline()
