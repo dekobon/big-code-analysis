@@ -469,10 +469,19 @@ fn check_exclude_anchors_paths_from_seeds() {
 #[test]
 fn print_effective_config_unions_the_manifest_check_exclude() {
     let dir = TempDir::new().unwrap();
-    fs::write(dir.path().join("kept.rs"), branchy("kept_offender")).unwrap();
-    fs::write(dir.path().join("more-globs.txt"), "vendor/**\n").unwrap();
+    // Canonicalise once and use that form throughout — the idiom the
+    // sibling discovery tests use. Manifest discovery reports the
+    // *resolved* directory, and on macOS a `TempDir` sits under
+    // `/var/folders/…`, a symlink into `/private/var/folders/…`, so
+    // comparing production's output against `dir.path()` as spelled
+    // fails on the macOS leg alone. Canonicalising only the expectation
+    // would instead break Windows, where `canonicalize` returns a
+    // `\\?\` UNC path that production does not emit.
+    let root = dir.path().canonicalize().expect("canonicalize fixture dir");
+    fs::write(root.join("kept.rs"), branchy("kept_offender")).unwrap();
+    fs::write(root.join("more-globs.txt"), "vendor/**\n").unwrap();
     fs::write(
-        dir.path().join("bca.toml"),
+        root.join("bca.toml"),
         "paths = [\".\"]\n\
          [check]\n\
          exclude = [\"./generated/**\"]\n\
@@ -480,11 +489,11 @@ fn print_effective_config_unions_the_manifest_check_exclude() {
     )
     .unwrap();
 
-    let assert = cli(dir.path())
+    let assert = cli(&root)
         .args([
             "check",
             "--paths",
-            dir.path().to_str().unwrap(),
+            root.to_str().unwrap(),
             "--threshold",
             "cyclomatic=1",
             "--check-exclude",
@@ -512,7 +521,7 @@ fn print_effective_config_unions_the_manifest_check_exclude() {
     // directory rather than dropped.
     assert_eq!(
         check["check_exclude_from"].as_str(),
-        dir.path().join("more-globs.txt").to_str(),
+        root.join("more-globs.txt").to_str(),
     );
 
     // The walker's own exclude surface stays empty: this manifest
