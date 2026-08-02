@@ -509,7 +509,7 @@ capture them.
 # Listed offenders are filtered from threshold checks; a function that
 # gets worse than its recorded value still fails. Refresh with
 # `--write-baseline` when entries become stale.
-version = 5
+version = 6
 
 [provenance]
 tier = "hard"
@@ -517,16 +517,18 @@ tier = "hard"
 [[entry]]
 path = "src/parser.rs"
 qualified = "Parser::parse_expression"
-start_line = 42
 metric = "cyclomatic"
 value = 22.0
 ```
 
 The `qualified` field is the function's qualified symbol (the
 `::`-joined chain of enclosing named containers plus the function
-name); `start_line` is retained only to disambiguate a symbol shared by
-several functions. With `--baseline-fuzzy-match`, each entry also
-carries a `body_hash` for rename-tolerant matching.
+name). An entry carries a `start_line` only when its
+`(path, qualified, metric)` identity is shared with another entry, the
+one case matching consults a line number; recording it elsewhere would
+only rewrite the file every time an edit above the function shifted it.
+With `--baseline-fuzzy-match`, each entry also carries a `body_hash`
+for rename-tolerant matching.
 
 Functions already covered by an in-source suppression marker are
 excluded. Pass `--no-suppress` together with `--write-baseline` to

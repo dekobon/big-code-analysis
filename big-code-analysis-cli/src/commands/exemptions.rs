@@ -138,12 +138,24 @@ pub(crate) fn resolve_baseline_section(args: &ExemptionsArgs) -> BaselineSection
         .into_iter()
         .map(BaselineRow::from)
         .collect();
+    // Order on the full identity. `diff_entries` walks a `HashMap`, so
+    // the input order is arbitrary and every displayed row needs a
+    // total order to be reproducible. Sorting on `start_line` no longer
+    // supplies one: a v6 baseline records it only for an ambiguous
+    // identity (#1170), so it is `None` for nearly every row.
     entries.sort_by(|a, b| {
-        (a.path.as_str(), a.start_line, a.metric.as_str()).cmp(&(
-            b.path.as_str(),
-            b.start_line,
-            b.metric.as_str(),
-        ))
+        (
+            a.path.as_str(),
+            a.qualified.as_str(),
+            a.metric.as_str(),
+            a.start_line,
+        )
+            .cmp(&(
+                b.path.as_str(),
+                b.qualified.as_str(),
+                b.metric.as_str(),
+                b.start_line,
+            ))
     });
     BaselineSection {
         path: path.display().to_string(),

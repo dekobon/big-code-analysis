@@ -75,7 +75,7 @@ fn sample_report() -> ExemptionsReport {
                 qualified: "write_language_section".to_owned(),
                 metric: "cognitive".to_owned(),
                 value: 29.0,
-                start_line: 88,
+                start_line: Some(88),
             }],
         }),
     }
@@ -185,7 +185,7 @@ fn markdown_escapes_pipe_in_path_symbol_and_function_cells() {
                 qualified: "Mod::sym|bol".to_owned(),
                 metric: "cognitive".to_owned(),
                 value: 12.0,
-                start_line: 7,
+                start_line: Some(7),
             }],
         }),
     };

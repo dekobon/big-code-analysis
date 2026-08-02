@@ -5,14 +5,21 @@
 //! express "exempt forever", baselines express "tech debt we're paying
 //! down".
 //!
-//! The on-disk shape is TOML, sorted by `(path, qualified, start_line,
-//! metric)` so diffs are reviewable. Each entry records `(path,
-//! qualified, start_line, metric, value)` plus an optional `body_hash`;
-//! matching keys on `(path, qualified, metric)` with `start_line` as a
+//! The on-disk shape is TOML, sorted by `(path, qualified, metric,
+//! start_line)` so diffs are reviewable. Each entry records `(path,
+//! qualified, metric, value)` plus an optional `body_hash`; matching
+//! keys on `(path, qualified, metric)` with `start_line` as a
 //! tolerance-band disambiguator (issue #377), so a function survives
 //! line drift from edits above it. The filter is "current value <=
 //! baseline value", so improvements pass silently and regressions
 //! still fail.
+//!
+//! `start_line` is therefore written only where it is *consulted*: an
+//! identity shared by two or more entries (issue #1170). Nothing about
+//! the ordering or the identity depends on a line number, so an edit
+//! above a baselined function produces no diff at all, and a merge of
+//! two branches that both edited a baselined file has nothing
+//! line-shaped left to conflict over.
 //!
 //! Path keys are canonicalised relative to an *anchor*: the directory
 //! containing the baseline file (lexically resolved, no symlink
@@ -63,9 +70,19 @@ use crate::thresholds::{Violation, breaches_limit};
 ///   the "baseline-refresh discipline" guards against (#449). The
 ///   table is omitted from baselines whose provenance is unknown.
 ///
+/// - v5 → v6: `start_line` is optional and is written **only** for an
+///   entry whose `(path, qualified, metric)` identity is shared with
+///   another entry in the same file — the one case the matcher consults
+///   it (issue #1170). A lone record under a key already matched
+///   unconditionally, so the field was pure noise there: it re-rendered
+///   on every unrelated edit above a baselined function, churning the
+///   diff and conflicting on every merge of two branches that touched
+///   the same file. v5 files (which carry it everywhere) read
+///   unchanged — a present line is honoured exactly as before.
+///
 /// Either legacy version emits a one-time deprecation warning so the
 /// user knows to refresh.
-pub(crate) const BASELINE_VERSION: u32 = 5;
+pub(crate) const BASELINE_VERSION: u32 = 6;
 
 /// Lowest legacy version still accepted at read time. Below this we
 /// reject with a "regenerate" hint instead of silently mis-matching.
@@ -241,7 +258,12 @@ struct SymbolKey {
 /// tolerance band.
 #[derive(Debug, Clone)]
 struct Record {
-    start_line: usize,
+    /// Recorded line, `None` when the entry omitted it. Only ever
+    /// consulted for an ambiguous group, and [`from_violations`] writes
+    /// it for exactly those, so a `None` here means either a
+    /// unique-identity entry (where it is unreachable) or a hand-edited
+    /// file (where the record simply drops out of the tolerance match).
+    start_line: Option<usize>,
     value: f64,
     /// Normalised body digest, present only for v4 entries written with
     /// fuzzy matching enabled. Feeds the rename-tolerant fallback.
@@ -250,7 +272,8 @@ struct Record {
 
 /// One baseline entry flattened for cross-file diffing
 /// (`bca diff-baseline`): the `(path, qualified, metric)` identity plus
-/// the recorded `value` and the human-review `start_line`. Produced by
+/// the recorded `value` and, where the file recorded one, the
+/// human-review `start_line`. Produced by
 /// [`Baseline::diff_entries`] *after* version validation, legacy path
 /// re-canonicalisation, and the non-finite/negative filter have run, so
 /// a diff observes exactly the records the matcher would.
@@ -259,7 +282,7 @@ pub(crate) struct DiffEntry {
     pub(crate) path: String,
     pub(crate) qualified: String,
     pub(crate) metric: String,
-    pub(crate) start_line: usize,
+    pub(crate) start_line: Option<usize>,
     pub(crate) value: f64,
 }
 
@@ -273,10 +296,15 @@ pub(crate) struct BaselineEntry {
     /// alias from legacy v2/v3 files, where it held only the bare name.
     #[serde(alias = "function")]
     qualified: String,
-    /// 1-based start line. No longer part of the identity key; retained
-    /// for human review, deterministic ordering, and as the tolerance
-    /// disambiguator for ambiguous qualified symbols.
-    start_line: usize,
+    /// 1-based start line, present only when this entry's identity is
+    /// ambiguous — i.e. shared with another entry, where the tolerance
+    /// band is what tells them apart (issue #377). For a unique
+    /// identity the matcher never reads it, so writing it would only
+    /// churn the file on every edit above the function (issue #1170).
+    /// Absent in v6+ unique entries; present on every v2–v5 entry,
+    /// which read back unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    start_line: Option<usize>,
     metric: String,
     /// Metric value at baseline time. `current > value` still fails
     /// (ratchet-down). Both non-finite and negative values (the latter
@@ -384,16 +412,12 @@ impl Baseline {
         fuzzy: bool,
     ) -> Result<Self, String> {
         let file: BaselineFile =
-            toml::from_str(text).map_err(|e| format!("malformed baseline TOML: {e}"))?;
+            toml::from_str(text).map_err(|e| parse_failure_message(text, &e))?;
         let version = file
             .version
             .ok_or_else(|| "baseline missing version field".to_string())?;
         if !(LEGACY_MIN_VERSION..=BASELINE_VERSION).contains(&version) {
-            return Err(format!(
-                "baseline version {version} is not supported by this bca \
-                 (expected {LEGACY_MIN_VERSION}..={BASELINE_VERSION}); \
-                 regenerate with `bca check --write-baseline` or upgrade bca"
-            ));
+            return Err(unsupported_version_message(version));
         }
         // v2/v3 store a bare function name and (v2 only) pre-canonical
         // paths. Below v3 the path form predates issue #376 and must be
@@ -592,7 +616,13 @@ impl Baseline {
         records
             .iter()
             .filter_map(|r| {
-                let dist = r.start_line.abs_diff(v.start_line);
+                // A record with no recorded line cannot be placed, so it
+                // drops out of the tolerance match rather than matching
+                // at distance zero. Only reachable from a hand-edited
+                // file: the writer records a line for every member of an
+                // ambiguous group, and this arm is unreachable for a
+                // singleton.
+                let dist = r.start_line?.abs_diff(v.start_line);
                 (dist <= self.tolerance).then_some((dist, r.value))
             })
             // Closest recorded line wins. On an exact distance tie — two
@@ -688,27 +718,93 @@ pub(crate) fn from_violations(
             Some(BaselineEntry {
                 path: normalize_path(&anchor, &v.path),
                 qualified: v.function,
-                start_line: v.start_line,
+                start_line: Some(v.start_line),
                 metric: v.metric.to_string(),
                 value: v.value,
                 body_hash: v.body_hash.map(encode_body_hash),
             })
         })
         .collect();
-    // Sort by `qualified` ahead of `start_line` so the records that
-    // share a symbol (the disambiguation case) cluster together in the
-    // rendered file, which is what a reviewer reads.
+    // Order on the identity alone, `start_line` last and only as a
+    // tie-break within an ambiguous group. Nothing about the rendered
+    // order then depends on where a function sits in its file, so an
+    // edit above one cannot reshuffle the baseline (issue #1170). It
+    // also makes each identity group contiguous, which
+    // `clear_unambiguous_start_lines` relies on.
     entries.sort_by(|a, b| {
         a.path
             .cmp(&b.path)
             .then(a.qualified.cmp(&b.qualified))
-            .then(a.start_line.cmp(&b.start_line))
             .then(a.metric.cmp(&b.metric))
+            .then(a.start_line.cmp(&b.start_line))
     });
+    clear_unambiguous_start_lines(&mut entries);
     BaselineFile {
         version: Some(BASELINE_VERSION),
         provenance: Some(provenance),
         entries,
+    }
+}
+
+/// The user-facing rejection for a baseline whose schema version this
+/// build cannot read, naming the two ways out. Shared by the version
+/// check and by [`parse_failure_message`], so both spell the remedy
+/// identically.
+fn unsupported_version_message(version: u32) -> String {
+    format!(
+        "baseline version {version} is not supported by this bca \
+         (expected {LEGACY_MIN_VERSION}..={BASELINE_VERSION}); \
+         regenerate with `bca check --write-baseline` or upgrade bca"
+    )
+}
+
+/// Explain a baseline that would not deserialize.
+///
+/// A file written by a *newer* bca can fail on shape — v6 made
+/// `start_line` optional, so a v5-era build rejects a v6 file for a
+/// missing field — and that failure lands before the version check ever
+/// runs. Re-read just the `version` key and, when it is one this build
+/// does not support, report the version mismatch instead: it is the
+/// same defect, stated in terms that name the fix. Genuinely malformed
+/// TOML falls through to the parser's own message.
+///
+/// Only reached on the failure path, so a well-formed baseline is still
+/// parsed exactly once.
+fn parse_failure_message(text: &str, err: &toml::de::Error) -> String {
+    #[derive(Deserialize)]
+    struct VersionProbe {
+        version: Option<u32>,
+    }
+    if let Ok(VersionProbe {
+        version: Some(version),
+    }) = toml::from_str::<VersionProbe>(text)
+        && !(LEGACY_MIN_VERSION..=BASELINE_VERSION).contains(&version)
+    {
+        return unsupported_version_message(version);
+    }
+    format!("malformed baseline TOML: {err}")
+}
+
+/// Strip `start_line` from every entry whose `(path, qualified, metric)`
+/// identity is unique in the file (issue #1170).
+///
+/// [`Baseline::match_in_group`] returns a lone record's value
+/// unconditionally, so for those entries the line is never read — it
+/// only re-renders on every unrelated edit above the function, churning
+/// the diff and giving two branches something to conflict over. Members
+/// of an ambiguous group keep their line, because there the tolerance
+/// band is the only thing that tells them apart.
+///
+/// Requires `entries` sorted so that equal identities are adjacent (the
+/// sort in [`from_violations`] guarantees it).
+fn clear_unambiguous_start_lines(entries: &mut [BaselineEntry]) {
+    let same_identity = |a: &BaselineEntry, b: &BaselineEntry| {
+        a.path == b.path && a.qualified == b.qualified && a.metric == b.metric
+    };
+    for group in entries.chunk_by_mut(same_identity) {
+        if let [only] = group {
+            only.start_line = None;
+        }
     }
 }
 

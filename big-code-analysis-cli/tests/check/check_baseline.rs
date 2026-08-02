@@ -587,7 +587,7 @@ pub fn classify(n: i32) -> &'static str {
         .stderr(predicate::str::contains("wrote 0 baseline entries"));
 
     let content = fs::read_to_string(&baseline).unwrap();
-    assert!(content.contains("version = 5"));
+    assert!(content.contains("version = 6"));
     assert!(content.contains("tier = \"hard\""));
     assert!(!content.contains("[[entry]]"));
 }
@@ -1055,7 +1055,7 @@ fn clean_tree_write_baseline_produces_empty_versioned_file() {
         .stderr(predicate::str::contains("wrote 0 baseline entries"));
 
     let content = fs::read_to_string(&baseline).unwrap();
-    assert!(content.contains("version = 5"));
+    assert!(content.contains("version = 6"));
     // No `--tier=soft`, so the write is stamped at the hard tier (#486).
     assert!(content.contains("tier = \"hard\""));
     assert!(!content.contains("headroom"));

@@ -305,7 +305,7 @@ bca exemptions --paths src/
   tests/**
 
 # Baseline (.bca-baseline.toml, 1 entry)
-  src/markdown_report.rs:88 write_language_section cognitive 29
+  src/markdown_report.rs write_language_section cognitive 29
 ```
 
 The surrounding function (for function-scoped markers) gives scope
