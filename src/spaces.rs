@@ -271,6 +271,24 @@ pub struct FuncSpace {
 // (#1056). See [`crate::recursion`].
 crate::recursion::impl_iterative_drop!(FuncSpace, spaces);
 
+/// The 1-based, inclusive line span a space occupies, shared by the
+/// metrics walk ([`FuncSpace::new`]) and the ops walk
+/// ([`crate::ops::Ops::new`]) so the two can never report different
+/// spans for the same node (#1130).
+///
+/// The end line comes from [`Node::end_line`], which keys the 0-based to
+/// 1-based conversion on the node's end column. Keying it on
+/// `SpaceKind::Unit` instead — as both walks did until #1163 — put
+/// Perl's trailing `sub` a line past its parent unit and past EOF.
+pub(crate) fn line_span(node: &Node<'_>, kind: SpaceKind) -> (usize, usize) {
+    // An empty file occupies no lines at all; the general rule would
+    // report the inverted `1..0`.
+    if kind == SpaceKind::Unit && node.child_count() == 0 {
+        return (0, 0);
+    }
+    (node.start_row() + 1, node.end_line())
+}
+
 impl FuncSpace {
     /// Project this space into its [`crate::wire::FuncSpace`] form — the
     /// plain, `Deserialize`-capable record that defines the serialized
@@ -288,16 +306,7 @@ impl FuncSpace {
         kind: SpaceKind,
         selected: MetricSet,
     ) -> Self {
-        let (start_position, end_position) = match kind {
-            SpaceKind::Unit => {
-                if node.child_count() == 0 {
-                    (0, 0)
-                } else {
-                    (node.start_row() + 1, node.end_row())
-                }
-            }
-            _ => (node.start_row() + 1, node.end_row() + 1),
-        };
+        let (start_position, end_position) = line_span(node, kind);
 
         // The top-level Unit's name is overwritten by `metrics_inner`
         // with the caller-supplied name before returning, so computing

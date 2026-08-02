@@ -165,6 +165,31 @@ impl<'a> Node<'a> {
         self.0.end_position().row
     }
 
+    /// The 1-based **last line this node occupies** — the inclusive end
+    /// of its line span.
+    ///
+    /// Converting tree-sitter's 0-based end row needs a `+ 1` only when
+    /// the node actually occupies the row it ends on. A node whose end
+    /// column is 0 finished at the *start* of the row below its last
+    /// content row, having absorbed the preceding newline, so that row
+    /// is not part of its span.
+    ///
+    /// Getting this wrong is invisible in almost every grammar, because
+    /// almost every function node ends just past its closing delimiter
+    /// and therefore at a column above 0. Perl's trailing `sub` does
+    /// not: it ends at column 0 of the row below its `}`, exactly where
+    /// the file root ends, and a blanket `+ 1` then reported it ending a
+    /// line past both its enclosing space and EOF (#1163) — the shape
+    /// behind the release `usize` underflow in #1051.
+    pub(crate) fn end_line(&self) -> usize {
+        let end = self.0.end_position();
+        if end.column == 0 {
+            end.row
+        } else {
+            end.row + 1
+        }
+    }
+
     /// Returns this node's parent.
     ///
     /// **`O(depth)`, not `O(1)`.** tree-sitter stores no parent pointer:

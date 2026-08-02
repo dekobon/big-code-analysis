@@ -12,7 +12,7 @@ use crate::checker::Checker;
 use crate::error::MetricsError;
 use crate::getter::Getter;
 use crate::node::{Ancestors, Node};
-use crate::spaces::{SpaceKind, push_children};
+use crate::spaces::{SpaceKind, line_span, push_children};
 
 use crate::halstead::{Halstead, HalsteadMaps};
 
@@ -79,16 +79,7 @@ impl Ops {
         ancestors: Ancestors<'a, '_>,
         kind: SpaceKind,
     ) -> Self {
-        let (start_position, end_position) = match kind {
-            SpaceKind::Unit => {
-                if node.child_count() == 0 {
-                    (0, 0)
-                } else {
-                    (node.start_row() + 1, node.end_row())
-                }
-            }
-            _ => (node.start_row() + 1, node.end_row() + 1),
-        };
+        let (start_position, end_position) = line_span(node, kind);
         // The top-level Unit's name is overwritten by `ops_inner` with the
         // caller-supplied name before returning, so computing it here is
         // wasted work. Non-top-level Unit spaces have no resolvable name, so

@@ -31,7 +31,12 @@ use big_code_analysis::{Ast, FuncSpace, LANG, MetricsOptions, Ops, Source, Space
 /// name of the file-level `Unit`, which both walks take from
 /// `Source::name` rather than from the AST, so it is cosmetic — but it
 /// keeps a failure message readable.
-fn fixture(lang: LANG) -> (&'static str, &'static str) {
+///
+/// Shared with [`super::space_span_containment`], which asserts a
+/// different property over the same trees: one exhaustive `LANG` table
+/// serves both, so a new language cannot be added to one check and
+/// missed by the other.
+pub(super) fn fixture(lang: LANG) -> (&'static str, &'static str) {
     // Exhaustive per-language dispatch table: one arm per LANG variant
     // is the point of this function, and splitting it would break the
     // compile-time completeness check the test relies on. The repo's own
@@ -149,7 +154,7 @@ fn fixture(lang: LANG) -> (&'static str, &'static str) {
 /// to drift from the first — printing a field one side does not — and
 /// two renderers that disagree is the exact failure mode this file
 /// exists to catch, one level up.
-trait SpaceTree: Sized {
+pub(super) trait SpaceTree: Sized {
     fn describe(&self) -> (Option<&str>, SpaceKind, usize, usize);
     fn children(&self) -> &[Self];
 }

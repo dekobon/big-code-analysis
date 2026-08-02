@@ -67,7 +67,12 @@ pub(crate) fn function<T: ParserTrait>(parser: &T) -> Vec<FunctionSpan> {
         // which scoped itself to the `ops` walk.
         if T::Checker::is_func(n, ancestors) {
             let start_line = n.start_row() + 1;
-            let end_line = n.end_row() + 1;
+            // `Node::end_line`, not a blanket `end_row() + 1`: a function
+            // ending at column 0 does not occupy the row it ends on, and
+            // reporting that row put Perl's trailing `sub` past EOF and
+            // out of step with the span `bca metrics` gives the same
+            // function (#1163).
+            let end_line = n.end_line();
             spans.push(FunctionSpan {
                 name: T::Getter::get_func_name(n, code, ancestors).map(str::to_string),
                 start_line,
