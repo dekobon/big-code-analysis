@@ -80,6 +80,30 @@ repos:
         entry: python3 utils/check-snapshot-anchors.py
         pass_filenames: false
 
+      # Block new match arms rustfmt refuses to format (#1136). A
+      # comment inside a match *pattern* makes rustfmt emit the whole
+      # match verbatim while `cargo fmt --check` still exits 0, so the
+      # `fmt` hook above cannot see any of this. The gate sweeps the
+      # whole workspace rather than a directory list — the site list in
+      # .claude/rules/formatting.md was scoped to src/metrics/ for two
+      # revisions, which is exactly how the largest cluster
+      # (src/getter/) went unnoticed — so the trigger is any Rust file.
+      - id: rustfmt-bail
+        name: rustfmt-bail
+        language: system
+        files: '^(.*\.rs|\.rustfmt-bail-baseline\.txt|utils/check-rustfmt-bail\.py)$'
+        entry: python3 utils/check-rustfmt-bail.py
+        pass_filenames: false
+
+      # Self-tests for the rustfmt-bail gate itself. Kept as a separate
+      # hook so the gate hook above remains a one-line invariant check.
+      - id: rustfmt-bail-test
+        name: rustfmt-bail-test
+        language: system
+        files: '^utils/check-rustfmt-bail(-test)?\.py$'
+        entry: python3 -m unittest -q utils/check-rustfmt-bail-test.py
+        pass_filenames: false
+
       # Block grammar-marker bumps in tree-sitter-{mozjs,mozcpp}
       # without a matching source regen (see #400). The marker is
       # a Dependabot notification hook only — Cargo never compiles

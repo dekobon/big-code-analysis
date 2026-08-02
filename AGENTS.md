@@ -59,7 +59,8 @@ and `cargo run -p big-code-analysis-web --`.
   that generates language enum tables.
 - `utils/` — repo-maintenance helper scripts, including the gates run
   by `make pre-commit` / `make ci`: `check-versions.py`,
-  `check-snapshot-anchors.py`, `check-manpage-assets.py`,
+  `check-snapshot-anchors.py`, `check-rustfmt-bail.py`,
+  `check-manpage-assets.py`,
   `check-grammar-marker-sync.py`, `check-enums-codegen-drift.sh`,
   `check-grammar-crate.py`, `check-grammars-crates.sh`,
   `check-excluded-manifests.py`, `verify-name-only-churn.py`, and each
@@ -440,6 +441,20 @@ counts are checked in at `.snapshot-anchor-baseline.txt`; CI fails
 on any *increase*. Decreases are silent and may be locked in with
 `./utils/check-snapshot-anchors.py --update`, which regenerates the
 baseline from the working tree.
+
+**`cargo fmt --check` is not the whole formatting gate.** A comment
+inside a match *pattern* makes rustfmt emit the enclosing match
+verbatim, silently, with `cargo fmt --check` still exiting `0` — so
+everything in that match sits outside the gate. `make rustfmt-bail`
+(wired into `make lint`, `make pre-commit` and `make ci`) probes for
+this directly: it over-indents every match arm, pipes the file through
+rustfmt, and counts the arms that come back untouched. Per-file counts
+live in `.rustfmt-bail-baseline.txt`; increases fail, decreases are
+silent and ratchet with `./utils/check-rustfmt-bail.py --update`. The
+fix is always to *hoist* the comment above the arm, never to delete it.
+Read [`.claude/rules/formatting.md`](.claude/rules/formatting.md) before
+touching a file this gate names — some entries have a second cause
+(an unparseable `macro_rules!` body) that no comment move will fix.
 
 **Integration snapshots live in the `big-code-analysis-output`
 submodule** (`tests/repositories/big-code-analysis-output/`). Any

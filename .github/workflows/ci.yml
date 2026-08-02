@@ -476,10 +476,14 @@ jobs:
         with:
           fetch-depth: 1
           submodules: false
+      # `rustfmt` is here for the rustfmt-bail gate, which shells out to
+      # it directly. The toolchain action installs the minimal profile,
+      # and the gate skips cleanly when rustfmt is missing — so leaving
+      # it out would disable the check in CI without failing anything.
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable tip
         with:
           toolchain: stable
-          components: clippy
+          components: clippy, rustfmt
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -548,6 +552,19 @@ jobs:
       # this check.
       - name: snapshot anchors (explicit)
         run: python3 utils/check-snapshot-anchors.py
+      # Defensive twin for the rustfmt-bail gate (#1136): a comment
+      # inside a match pattern makes rustfmt emit the whole match
+      # verbatim while `cargo fmt --check` exits 0, so the fmt job
+      # cannot catch it. `make lint` already runs this gate; pinning it
+      # here keeps it enforced even if a future refactor drops it from
+      # the aggregate recipe.
+      - name: rustfmt-bail (explicit)
+        run: python3 utils/check-rustfmt-bail.py
+      # Run the gate's own unittests as their own explicit step
+      # so a refactor that breaks the script can't disable the
+      # gate without surfacing the regression in CI.
+      - name: rustfmt-bail self-tests (explicit)
+        run: python3 -m unittest -q utils/check-rustfmt-bail-test.py
       # Defensive twin to the snapshot-anchors gate above: `make lint`
       # already invokes check-versions, but pinning it here guarantees
       # the lockstep version invariant is enforced even if a future

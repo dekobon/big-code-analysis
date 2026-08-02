@@ -1,0 +1,77 @@
+# Match arms rustfmt declines to format, per file.
+# Maintained by check-rustfmt-bail.py; see AGENTS.md "Validation gates".
+# Lower-or-equal current counts pass; any increase fails CI.
+# Regenerate with: ./utils/check-rustfmt-bail.py --update
+#
+# An entry means rustfmt emitted that many match-arm headers verbatim,
+# so everything in the enclosing `match` sits outside `cargo fmt
+# --check`. There are two causes and this gate cannot tell them apart:
+#
+#   1. A comment inside a match *pattern* (between the pattern and its
+#      `=>`, or between `|` alternatives). Fix by hoisting the comment
+#      above the arm, outside the pattern — never by deleting it. See
+#      .claude/rules/formatting.md.
+#   2. A `macro_rules!` body rustfmt cannot parse, typically a
+#      metavariable in a non-Rust position such as the pattern
+#      repetition `$ternary $(| $short_circuit)+`. No comment is
+#      involved; hoisting fixes nothing and the entry is permanent.
+#
+# Check which one you have (`./utils/check-rustfmt-bail.py --show FILE`
+# names the stuck arms) before editing anything.
+#
+# Known cause-2 entries, i.e. permanent — do not go looking for a
+# comment to hoist in these:
+#
+#   enums/src/macros.rs        `Lang::$camel => stringify!($camel)`
+#   src/macros/mod.rs          `mk_lang!` / `mk_action!` / `mk_langs!`
+#                              bodies; every arm is `LANG::$camel => …`
+#   src/metrics/cyclomatic.rs  `impl_cyclomatic_c_family!`, whose arm
+#                              `… | $ternary $(| $short_circuit)+ =>`
+#                              is a pattern repetition, not Rust
+#   tests/common/mod.rs        an `insta::with_settings!` invocation,
+#                              whose `key => value` token tree is not a
+#                              match at all
+#
+# Everything else on this list is cause 1 and is being hoisted
+# incrementally under #1136.
+
+enums/src/macros.rs 1
+src/getter.rs 2
+src/getter/bash.rs 3
+src/getter/c.rs 3
+src/getter/cpp.rs 6
+src/getter/csharp.rs 2
+src/getter/elixir.rs 2
+src/getter/go.rs 1
+src/getter/groovy.rs 4
+src/getter/irules.rs 5
+src/getter/java.rs 2
+src/getter/kotlin.rs 4
+src/getter/lua.rs 3
+src/getter/mozcpp.rs 6
+src/getter/objc.rs 3
+src/getter/perl.rs 2
+src/getter/php.rs 2
+src/getter/python.rs 7
+src/getter/ruby.rs 2
+src/getter/tcl.rs 4
+src/macros/mod.rs 38
+src/metrics/abc/elixir.rs 5
+src/metrics/abc/perl.rs 8
+src/metrics/abc/php.rs 9
+src/metrics/cognitive.rs 10
+src/metrics/cognitive/c.rs 6
+src/metrics/cognitive/cpp.rs 7
+src/metrics/cognitive/java.rs 8
+src/metrics/cognitive/mozcpp.rs 7
+src/metrics/cognitive/objc.rs 7
+src/metrics/cognitive/perl.rs 8
+src/metrics/cognitive/rust.rs 8
+src/metrics/cyclomatic.rs 7
+src/metrics/cyclomatic/irules.rs 2
+src/metrics/cyclomatic/perl.rs 2
+src/metrics/cyclomatic/php.rs 4
+src/metrics/cyclomatic/ruby.rs 5
+src/metrics/loc/perl.rs 6
+src/metrics/loc/python.rs 6
+tests/common/mod.rs 2
