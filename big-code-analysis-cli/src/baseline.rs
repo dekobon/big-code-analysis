@@ -328,6 +328,36 @@ pub(crate) struct BaselineEntry {
     body_hash: Option<String>,
 }
 
+/// The identity a baseline entry is keyed on, in the one order every
+/// baseline-shaped listing sorts by: `path`, `qualified`, `metric`, and
+/// then `start_line` — last, and only as a tie-break within an
+/// otherwise-ambiguous group.
+///
+/// Stated once because four types spread over three modules carry the
+/// same four fields and have to agree (issue #1170): rendered order
+/// must not depend on where a function sits in its file, so an edit
+/// above one entry cannot reshuffle a baseline, a `diff-baseline`
+/// bucket, or an `exemptions` section. Ordering on the identity also
+/// makes each identity group contiguous, which
+/// [`clear_unambiguous_start_lines`] relies on. And since a v6 baseline
+/// records `start_line` only for an ambiguous identity, `start_line`
+/// alone no longer supplies a total order at all.
+pub(crate) trait BaselineIdentity {
+    fn identity(&self) -> (&str, &str, &str, Option<usize>);
+}
+
+impl BaselineIdentity for BaselineEntry {
+    fn identity(&self) -> (&str, &str, &str, Option<usize>) {
+        (&self.path, &self.qualified, &self.metric, self.start_line)
+    }
+}
+
+/// The total order [`BaselineIdentity`] describes, shaped for
+/// `slice::sort_by`.
+pub(crate) fn cmp_identity<T: BaselineIdentity>(a: &T, b: &T) -> std::cmp::Ordering {
+    a.identity().cmp(&b.identity())
+}
+
 /// Top-level baseline file. `version` is required; missing field is a
 /// hard error so a truncated file isn't silently treated as empty.
 ///
@@ -733,19 +763,10 @@ pub(crate) fn from_violations(
             })
         })
         .collect();
-    // Order on the identity alone, `start_line` last and only as a
-    // tie-break within an ambiguous group. Nothing about the rendered
-    // order then depends on where a function sits in its file, so an
-    // edit above one cannot reshuffle the baseline (issue #1170). It
-    // also makes each identity group contiguous, which
-    // `clear_unambiguous_start_lines` relies on.
-    entries.sort_by(|a, b| {
-        a.path
-            .cmp(&b.path)
-            .then(a.qualified.cmp(&b.qualified))
-            .then(a.metric.cmp(&b.metric))
-            .then(a.start_line.cmp(&b.start_line))
-    });
+    // Order on the identity alone (see [`BaselineIdentity`]), so the
+    // rendered order never depends on where a function sits in its file
+    // and `clear_unambiguous_start_lines` sees contiguous groups.
+    entries.sort_by(cmp_identity);
     clear_unambiguous_start_lines(&mut entries);
     BaselineFile {
         version: Some(BASELINE_VERSION),

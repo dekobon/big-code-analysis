@@ -17,14 +17,19 @@
 //!
 //! # Why the counts match a real run
 //!
-//! Everything downstream of the walk is the gate's own code, called in
-//! the gate's own order: [`apply_check_exclude`], [`filter_by_baseline`],
-//! [`apply_changed_only`]. In-source suppression markers are honoured
-//! inside the walk exactly as they always are. The only deliberate
-//! difference is that baseline-covered offenders are *kept* (tagged
-//! `Covered`) instead of dropped, because the split between "already
-//! baselined" and "new" is the number a reviewer weighs — 134 soft
-//! offenders of which 61 are baselined means 73 new entries.
+//! Everything downstream of the walk is the gate's own code, in the
+//! gate's own order, because both run it through the same two helpers:
+//! `collect_check_violations` (walk, empty-input guard,
+//! [`apply_check_exclude`]) and `classify_check_violations`
+//! ([`filter_by_baseline`], [`apply_changed_only`]). A stage added to
+//! the gate therefore reaches the preview too, rather than compiling
+//! here while quietly predicting a different run. In-source suppression
+//! markers are honoured inside the walk exactly as they always are. The
+//! only deliberate difference is that baseline-covered offenders are
+//! *kept* (tagged `Covered`) instead of dropped, because the split
+//! between "already baselined" and "new" is the number a reviewer
+//! weighs — 134 soft offenders of which 61 are baselined means 73 new
+//! entries.
 //!
 //! That split is safe to read off a single walk because
 //! [`Baseline::classify`](crate::baseline::Baseline::classify) is a
@@ -70,31 +75,24 @@ pub(crate) fn run_explain_thresholds(
     };
     let resolved = Arc::new(build_candidate_gate(layers, &candidates, ratio));
 
-    let scope = resolve_diff_scope(args);
-    let globals_for_exclude = globals.clone();
-    let walk = run_check_walk(globals, args, preproc, Arc::clone(&resolved));
-    enforce_usable_input(&walk);
-    let violations = apply_check_exclude(
-        walk.violations,
-        args,
-        &globals_for_exclude.paths,
-        globals_for_exclude.paths_from.as_deref(),
-    );
-    let pairs = filter_by_baseline(
+    let CollectedViolations {
+        violations, scope, ..
+    } = collect_check_violations(globals, args, preproc, Arc::clone(&resolved));
+    let pairs = classify_check_violations(
         violations,
-        args.baseline.as_deref(),
-        args.baseline_line_tolerance
-            .unwrap_or(baseline::DEFAULT_LINE_TOLERANCE),
-        args.baseline_fuzzy_match.unwrap_or(false),
+        args,
+        scope.as_ref(),
         // The provenance the *user's* tier would stamp, not the soft tier
         // this walk ran at: the walk is soft only to collect a superset,
         // and warning that the baseline may under-cover would report an
         // artifact of that implementation choice as a fact about the run
         // being previewed.
         resolve_provenance(tier, !layers.soft.is_empty()),
+        // Keep baseline-covered offenders instead of dropping them: the
+        // split between "already baselined" and "new" is the number the
+        // report exists to show.
         true,
     );
-    let pairs = apply_changed_only(pairs, scope.as_ref(), args.changed_only);
 
     let context = CandidateGate {
         layers,
@@ -120,37 +118,105 @@ struct CandidateGate<'a> {
     ratio: Option<f64>,
 }
 
-/// Resolve `--explain-threshold` into canonical `metric -> limit` pairs,
-/// rejecting the two ways the request can contradict itself.
-fn candidate_limits(args: &CheckArgs) -> BTreeMap<String, f64> {
-    let mut candidates: BTreeMap<String, f64> = BTreeMap::new();
-    for (name, limit) in canonical_cli_thresholds(&args.explain_thresholds) {
-        // Two candidate limits for one metric cannot both be previewed in
-        // one walk, and silently keeping the last would answer a question
-        // the user did not ask.
-        if let Some(previous) = candidates.insert(name.clone(), limit) {
+impl CandidateGate<'_> {
+    /// Tally one candidate limit over the offenders the shared walk
+    /// produced.
+    fn explain(
+        &self,
+        metric: &str,
+        candidate: f64,
+        pairs: &[(Violation, Option<Coverage>)],
+    ) -> CandidateOutcome {
+        // Resolving under the caller's spelling is also the proof that it
+        // matches `Violation::metric`: the gate yields each entry's
+        // registry name, so a hit means the two strings are the same one
+        // and the filter below cannot silently select nothing.
+        let global_soft = resolved_limit(self.resolved.global(), metric).unwrap_or_else(|| {
             die(format_args!(
-                "--explain-threshold {name}={} conflicts with --explain-threshold \
-                 {name}={}: preview one candidate limit per metric per run",
-                MetricScalar(limit),
-                MetricScalar(previous),
-            ));
+                "--explain-threshold {metric}: candidate limit did not resolve to a gated metric"
+            ))
+        });
+        let mut outcome = CandidateOutcome {
+            metric: metric.to_owned(),
+            candidate,
+            hard: TierTally::new(candidate),
+            soft: TierTally::new(global_soft),
+            soft_derivation: self.soft_derivation(metric),
+            band_values: Vec::new(),
+            language_overrides: self.language_overrides(metric, candidate, global_soft),
+        };
+        // `v.suppressed` is only ever set under `--report-suppressed`,
+        // which keeps marker-silenced offenders in the stream for the
+        // SARIF document. `run_check` partitions them away from the gate;
+        // dropping them here is the same partition, so the preview counts
+        // what the gate would count under the user's own flags rather
+        // than what one report format happens to surface.
+        for (v, coverage) in pairs
+            .iter()
+            .filter(|(v, _)| v.metric == outcome.metric && !v.suppressed)
+        {
+            // Every record here already breaches its language's soft
+            // limit — that is what the walk gated on. The hard tier is the
+            // subset that also breaches that language's candidate ceiling,
+            // which the walk stamped on the violation.
+            outcome.soft.record(coverage.as_ref());
+            let hard_breach = v
+                .hard_limit
+                .is_some_and(|ceiling| breaches_limit(v.value, ceiling, v.lower_is_worse));
+            if hard_breach {
+                outcome.hard.record(coverage.as_ref());
+            } else {
+                outcome.band_values.push(v.value);
+            }
+        }
+        outcome
+    }
+
+    /// Where this metric's soft limit came from. A `[thresholds.soft]`
+    /// entry overrides the proportional ratio, so the two are exclusive.
+    fn soft_derivation(&self, metric: &str) -> SoftDerivation {
+        if self.layers.soft.contains_key(metric) {
+            SoftDerivation::Table
+        } else {
+            SoftDerivation::Ratio(self.ratio.unwrap_or(DEFAULT_SOFT_HEADROOM))
         }
     }
-    // A `--threshold` override is absolute and never scaled, so it has no
-    // soft tier — the exact gap this flag exists to close. Letting one sit
-    // alongside a candidate for the same metric would make the reported
-    // soft limit depend on which layer won, so reject the pairing.
-    for (name, _) in canonical_cli_thresholds(&args.thresholds) {
-        if candidates.contains_key(&name) {
-            die(format_args!(
-                "--threshold {name}=… and --explain-threshold {name}=… name the same \
-                 metric; a --threshold limit is absolute and has no soft tier to \
-                 preview, so pass only --explain-threshold"
-            ));
-        }
+
+    /// Languages gating this metric at something other than the candidate.
+    // Both comparands are threshold *limits*, not measurements: `hard` is
+    // a config value verbatim and `soft` is `scale_threshold` applied to
+    // one, so two limits derived the same way from the same base are
+    // bit-identical and an exact comparison is the contract. Mirrors the
+    // module-level allow in `crate::threshold_lang`.
+    #[allow(clippy::float_cmp)]
+    fn language_overrides(
+        &self,
+        metric: &str,
+        candidate: f64,
+        global_soft: f64,
+    ) -> Vec<LanguageOverride> {
+        self.resolved
+            .languages()
+            .filter_map(|(slug, set)| {
+                let soft = resolved_limit(set, metric)?;
+                let hard = self
+                    .layers
+                    .lang
+                    .get(slug)
+                    .and_then(|overrides| overrides.get(metric))
+                    .copied()
+                    .unwrap_or(candidate);
+                // A language table that overrides only *other* metrics
+                // resolves this one exactly as the global set does; the
+                // candidate applies there in full, so it earns no line.
+                (hard != candidate || soft != global_soft).then_some(LanguageOverride {
+                    slug,
+                    hard,
+                    soft,
+                })
+            })
+            .collect()
     }
-    candidates
 }
 
 /// One tier's share of the answer.
@@ -194,112 +260,16 @@ struct CandidateOutcome {
     candidate: f64,
     hard: TierTally,
     soft: TierTally,
-    /// How the soft limit was derived, for the report line: either the
-    /// proportional ratio in effect or the `[thresholds.soft]` table that
-    /// overrode it.
-    soft_derivation: String,
+    /// How the soft limit was derived, for the report line.
+    soft_derivation: SoftDerivation,
     /// Values of the offenders that breach the soft band but *not* the
     /// candidate ceiling — the population the candidate would newly place
     /// in the early-warning band. Cluster detection runs over these.
     band_values: Vec<f64>,
     /// Languages whose `[thresholds.lang.<slug>]` table keeps its own
-    /// limit for this metric, with the `(hard, soft)` pair it gates at.
-    /// Their files are counted against those numbers, not the candidate.
-    language_overrides: Vec<(&'static str, f64, f64)>,
-}
-
-impl CandidateGate<'_> {
-    /// Tally one candidate limit over the offenders the shared walk
-    /// produced.
-    fn explain(
-        &self,
-        metric: &str,
-        candidate: f64,
-        pairs: &[(Violation, Option<Coverage>)],
-    ) -> CandidateOutcome {
-        // Resolving under the caller's spelling is also the proof that it
-        // matches `Violation::metric`: the gate yields each entry's
-        // registry name, so a hit means the two strings are the same one
-        // and the filter below cannot silently select nothing.
-        let global_soft = resolved_limit(self.resolved.global(), metric).unwrap_or_else(|| {
-            die(format_args!(
-                "--explain-threshold {metric}: candidate limit did not resolve to a gated metric"
-            ))
-        });
-        let mut outcome = CandidateOutcome {
-            metric: metric.to_owned(),
-            candidate,
-            hard: TierTally::new(candidate),
-            soft: TierTally::new(global_soft),
-            soft_derivation: if self.layers.soft.contains_key(metric) {
-                "[thresholds.soft]".to_owned()
-            } else {
-                format!(
-                    "{}x",
-                    MetricScalar(self.ratio.unwrap_or(DEFAULT_SOFT_HEADROOM))
-                )
-            },
-            band_values: Vec::new(),
-            language_overrides: self.language_overrides(metric, candidate, global_soft),
-        };
-        // `v.suppressed` is only ever set under `--report-suppressed`,
-        // which keeps marker-silenced offenders in the stream for the
-        // SARIF document. `run_check` partitions them away from the gate;
-        // dropping them here is the same partition, so the preview counts
-        // what the gate would count under the user's own flags rather
-        // than what one report format happens to surface.
-        for (v, coverage) in pairs
-            .iter()
-            .filter(|(v, _)| v.metric == outcome.metric && !v.suppressed)
-        {
-            // Every record here already breaches its language's soft
-            // limit — that is what the walk gated on. The hard tier is the
-            // subset that also breaches that language's candidate ceiling,
-            // which the walk stamped on the violation.
-            outcome.soft.record(coverage.as_ref());
-            let hard_breach = v
-                .hard_limit
-                .is_some_and(|ceiling| breaches_limit(v.value, ceiling, v.lower_is_worse));
-            if hard_breach {
-                outcome.hard.record(coverage.as_ref());
-            } else {
-                outcome.band_values.push(v.value);
-            }
-        }
-        outcome
-    }
-
-    /// Languages gating this metric at something other than the candidate.
-    // Both comparands are threshold *limits*, not measurements: `hard` is
-    // a config value verbatim and `soft` is `scale_threshold` applied to
-    // one, so two limits derived the same way from the same base are
-    // bit-identical and an exact comparison is the contract. Mirrors the
-    // module-level allow in `crate::threshold_lang`.
-    #[allow(clippy::float_cmp)]
-    fn language_overrides(
-        &self,
-        metric: &str,
-        candidate: f64,
-        global_soft: f64,
-    ) -> Vec<(&'static str, f64, f64)> {
-        self.resolved
-            .languages()
-            .filter_map(|(slug, set)| {
-                let soft = resolved_limit(set, metric)?;
-                let hard = self
-                    .layers
-                    .lang
-                    .get(slug)
-                    .and_then(|overrides| overrides.get(metric))
-                    .copied()
-                    .unwrap_or(candidate);
-                // A language table that overrides only *other* metrics
-                // resolves this one exactly as the global set does; the
-                // candidate applies there in full, so it earns no line.
-                (hard != candidate || soft != global_soft).then_some((slug, hard, soft))
-            })
-            .collect()
-    }
+    /// limits for this metric. Their files are counted against those
+    /// numbers, not the candidate.
+    language_overrides: Vec<LanguageOverride>,
 }
 
 impl CandidateOutcome {
@@ -319,6 +289,68 @@ impl CandidateOutcome {
         let share = run as f64 / band as f64;
         (share >= CLUSTER_MIN_SHARE).then_some((value, run))
     }
+}
+
+/// How a candidate's soft limit was derived, for the report line.
+enum SoftDerivation {
+    /// A `[thresholds.soft]` entry names this metric, so the soft limit
+    /// is that table's value and no ratio was applied to it.
+    Table,
+    /// No such entry, so the soft limit is the candidate scaled by the
+    /// proportional ratio in effect.
+    Ratio(f64),
+}
+
+impl std::fmt::Display for SoftDerivation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Table => f.write_str("[thresholds.soft]"),
+            Self::Ratio(ratio) => write!(f, "{}x", MetricScalar(*ratio)),
+        }
+    }
+}
+
+/// One language gating this metric at something other than the
+/// candidate. Named fields rather than a positional `(slug, hard,
+/// soft)`: the two limits are same-typed, and transposing them in a
+/// tuple compiles and prints a plausible-but-wrong note line.
+struct LanguageOverride {
+    slug: &'static str,
+    hard: f64,
+    soft: f64,
+}
+
+/// Resolve `--explain-threshold` into canonical `metric -> limit` pairs,
+/// rejecting the two ways the request can contradict itself.
+fn candidate_limits(args: &CheckArgs) -> BTreeMap<String, f64> {
+    let mut candidates: BTreeMap<String, f64> = BTreeMap::new();
+    for (name, limit) in canonical_cli_thresholds(&args.explain_thresholds) {
+        // Two candidate limits for one metric cannot both be previewed in
+        // one walk, and silently keeping the last would answer a question
+        // the user did not ask.
+        if let Some(previous) = candidates.insert(name.clone(), limit) {
+            die(format_args!(
+                "--explain-threshold {name}={} conflicts with --explain-threshold \
+                 {name}={}: preview one candidate limit per metric per run",
+                MetricScalar(limit),
+                MetricScalar(previous),
+            ));
+        }
+    }
+    // A `--threshold` override is absolute and never scaled, so it has no
+    // soft tier — the exact gap this flag exists to close. Letting one sit
+    // alongside a candidate for the same metric would make the reported
+    // soft limit depend on which layer won, so reject the pairing.
+    for (name, _) in canonical_cli_thresholds(&args.thresholds) {
+        if candidates.contains_key(&name) {
+            die(format_args!(
+                "--threshold {name}=… and --explain-threshold {name}=… name the same \
+                 metric; a --threshold limit is absolute and has no soft tier to \
+                 preview, so pass only --explain-threshold"
+            ));
+        }
+    }
+    candidates
 }
 
 /// The limit `set` resolved for `metric`, or `None` when it gates no such
@@ -363,13 +395,14 @@ fn write_outcome(out: &mut impl Write, outcome: &CandidateOutcome) -> std::io::R
         "  soft tier {}",
         tier_line(soft, Some(soft_derivation))
     )?;
-    for (slug, lang_hard, lang_soft) in &outcome.language_overrides {
+    for over in &outcome.language_overrides {
         writeln!(
             out,
-            "  note: [thresholds.lang.{slug}] keeps {metric} at {} (soft {}); its \
+            "  note: [thresholds.lang.{}] keeps {metric} at {} (soft {}); its \
              files are counted against that, not the candidate",
-            MetricScalar(*lang_hard),
-            MetricScalar(*lang_soft),
+            over.slug,
+            MetricScalar(over.hard),
+            MetricScalar(over.soft),
         )?;
     }
     match outcome.cluster() {
@@ -381,7 +414,7 @@ fn write_outcome(out: &mut impl Write, outcome: &CandidateOutcome) -> std::io::R
 /// One tier's row. `derivation` names where a limit that was *derived*
 /// came from; the hard tier passes `None`, because the candidate is the
 /// number the user typed.
-fn tier_line(tally: &TierTally, derivation: Option<&str>) -> String {
+fn tier_line(tally: &TierTally, derivation: Option<&SoftDerivation>) -> String {
     let derivation = derivation.map_or_else(String::new, |d| format!(", {d}"));
     format!(
         "(limit {}{derivation}): {} offenders, {} already baselined, {} new",

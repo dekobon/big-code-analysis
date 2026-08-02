@@ -518,6 +518,98 @@ fn soft_limit_is_derived_by_metric_direction() {
     );
 }
 
+/// The candidate limit the two soft-derivation tests below share. It
+/// sits above every arity in the fixture, so the *default* 0.95 band is
+/// empty and any offender reported at the soft tier can only come from
+/// a soft limit the run derived some other way.
+const LOOSE_LIMIT: &str = "nargs=8";
+
+/// `--tier=soft=<R>` pins the ratio the preview scales its soft limit
+/// by. Without it the report falls back to `DEFAULT_SOFT_HEADROOM`,
+/// which is the only path the rest of this suite exercises.
+///
+/// Both the derived limit and the offender count move with the ratio,
+/// so a preview that ignored the flag could not pass this by luck.
+#[test]
+fn an_explicit_soft_ratio_derives_the_soft_limit() {
+    let dir = candidate_tree();
+    let preview_with = |tier: &[&str]| {
+        parse_preview(
+            &stdout_of(
+                cli(dir.path())
+                    .args([
+                        "check",
+                        "--no-config",
+                        "--paths",
+                        "lib.rs",
+                        "--explain-threshold",
+                        LOOSE_LIMIT,
+                    ])
+                    .args(tier),
+            ),
+            CANDIDATE_METRIC,
+        )
+    };
+
+    let explicit = preview_with(&["--tier=soft=0.5"]);
+    assert_eq!(
+        explicit.soft.limit, "4, 0.5x",
+        "the supplied ratio scales the candidate, not 0.95"
+    );
+    assert_eq!(
+        explicit.soft.total, 9,
+        "the six 5-parameter and three 6-parameter functions breach a soft limit of 4"
+    );
+    assert_eq!(explicit.hard.total, 0, "and none of them breach 8");
+
+    // Seed check: the same tree at the default tier derives 7.6, which
+    // nothing in the fixture reaches — so the ratio is what moved both
+    // the limit and the count.
+    let default = preview_with(&[]);
+    assert_eq!(default.soft.limit, "7.6, 0.95x");
+    assert_eq!(default.soft.total, 0);
+}
+
+/// A `[thresholds.soft]` entry for the explained metric supplies the
+/// soft limit outright. The report must attribute it to that table
+/// rather than to a ratio it never applied.
+#[test]
+fn a_soft_table_entry_is_named_as_the_soft_limits_source() {
+    let dir = candidate_tree();
+    fs::write(
+        dir.path().join("bca.toml"),
+        "paths = [\"lib.rs\"]\n[thresholds.soft]\nnargs = 4\n",
+    )
+    .expect("write manifest");
+
+    let preview = parse_preview(
+        &stdout_of(cli(dir.path()).args(["check", "--explain-threshold", LOOSE_LIMIT])),
+        CANDIDATE_METRIC,
+    );
+    assert_eq!(
+        preview.soft.limit, "4, [thresholds.soft]",
+        "the table's own value, attributed to the table"
+    );
+    assert_eq!(preview.soft.total, 9);
+    assert_eq!(preview.hard.total, 0);
+
+    // Seed check: drop the manifest and the same candidate derives its
+    // soft limit from the ratio instead, so the attribution above is the
+    // table being consulted and not a constant that happens to fit.
+    let ratio_derived = parse_preview(
+        &stdout_of(cli(dir.path()).args([
+            "check",
+            "--no-config",
+            "--paths",
+            "lib.rs",
+            "--explain-threshold",
+            LOOSE_LIMIT,
+        ])),
+        CANDIDATE_METRIC,
+    );
+    assert_eq!(ratio_derived.soft.limit, "7.6, 0.95x");
+}
+
 #[test]
 fn cluster_fires_when_the_soft_band_sits_on_the_candidate_limit() {
     let dir = candidate_tree();
