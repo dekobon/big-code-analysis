@@ -51,23 +51,29 @@ impl Getter for JavaCode {
         // https://www.geeksforgeeks.org/software-engineering-halsteads-software-metrics/?msclkid=5e181114abef11ecbb03527e95a34828
         match node.kind_id().into() {
             // Operator: control flow
-            | If | Else | Switch | Case | Try | Catch | Throw | Throws | Throws2 | For | While | Continue | Break | Do | Finally
+            | If | Else | Switch | Case | Try | Catch | Throw | Throws | Throws2 | For
+            | While | Continue | Break | Do | Finally
             // Operator: keywords
-            | New | Return | Default | Abstract | Assert | Instanceof | Extends | Final | Implements | Transient | Synchronized | Super | This | VoidType
+            | New | Return | Default | Abstract | Assert | Instanceof | Extends | Final
+            | Implements | Transient | Synchronized | Super | This | VoidType
             // Operator: brackets and comma and terminators (separators)
             | SEMI | COMMA | COLONCOLON | DOT | DASHGT | LBRACE | LBRACK | LPAREN
             // Operator: operators
             | EQ | LT | GT | BANG | TILDE | QMARK | COLON
             | EQEQ | LTEQ | GTEQ | BANGEQ | AMPAMP | PIPEPIPE | PLUSPLUS | DASHDASH
-            | PLUS | DASH | STAR | SLASH | AMP | PIPE | CARET | PERCENT| LTLT | GTGT | GTGTGT
-            | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | AMPEQ | PIPEEQ | CARETEQ | PERCENTEQ | LTLTEQ | GTGTEQ | GTGTGTEQ
+            | PLUS | DASH | STAR | SLASH | AMP | PIPE | CARET | PERCENT | LTLT | GTGT | GTGTGT
+            | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | AMPEQ | PIPEEQ | CARETEQ | PERCENTEQ
+            | LTLTEQ | GTGTEQ | GTGTGTEQ
             // primitive types
             | Byte | Short | Int | Long | Char | Float | Double | BooleanType
             => {
                 HalsteadType::Operator
             },
             // Operands: variables, constants, literals
-            Identifier | NullLiteral | ClassLiteral | True | False | StringLiteral | CharacterLiteral | HexIntegerLiteral | OctalIntegerLiteral | BinaryIntegerLiteral | DecimalIntegerLiteral | HexFloatingPointLiteral | DecimalFloatingPointLiteral  => {
+            Identifier | NullLiteral | ClassLiteral | True | False | StringLiteral
+            | CharacterLiteral | HexIntegerLiteral | OctalIntegerLiteral
+            | BinaryIntegerLiteral | DecimalIntegerLiteral | HexFloatingPointLiteral
+            | DecimalFloatingPointLiteral => {
                 HalsteadType::Operand
             },
             _ => {
