@@ -347,7 +347,7 @@ Use the issue data (title, body, comments) cached from Step 0a to populate
 each agent's prompt.
 
 Pass each agent the full agent prompt (see below) with `<ISSUE_NUMBER>`,
-`<ISSUE_TITLE>`, and `<ISSUE_BODY>` substituted.
+`<ISSUE_TITLE>`, `<ISSUE_BODY>`, and `<INTEGRATION_BRANCH>` substituted.
 
 #### Worktree mode (`ISOLATION_MODE=worktree`)
 
@@ -365,12 +365,23 @@ For a **multi-issue wave**: launch ALL agents in a single message block
 `model: "opus"`. Do NOT use `run_in_background` -- wait for all agents in
 the wave to complete before proceeding.
 
-**Known limitation**: Worktree agents fork from `INTEGRATION_BRANCH` at the
-moment they are spawned. Within a single multi-issue wave, agents do not
-see each other's in-flight work — they only see the integration-branch tip
-that existed when the wave started. The merge in Step 4b reconciles their
-results mechanically. For tightly coupled issues that must build on each
-other, use `--sequential` or run them as a single `/fix-issue`.
+**Worktree agents fork from the base, not from the integration-branch
+tip.** Each worktree starts at the commit `INTEGRATION_BRANCH` was created
+from in Step 1 — `main` — not at wherever the integration branch has since
+advanced to. Every wave therefore begins from the same pristine pre-batch
+tree, and a Wave-3 agent cannot see what Waves 1 and 2 already merged.
+Serializing same-crate issues into separate waves does not, on its own,
+prevent them from colliding: both agents edit the pre-batch file. Disjoint
+hunks still merge cleanly in Step 4b. Semantic coupling does not, and it
+fails quietly — the later agent writes against a helper the earlier one
+replaced, or re-does a fix that already landed.
+
+**Remedy — substitute `<INTEGRATION_BRANCH>` into every worktree-mode
+agent prompt.** The prompt's setup step then merges it, which works
+because worktrees share the object store (see "Setup — Environment
+Verification"). That covers the cross-wave case only. Agents within one
+wave run concurrently and still cannot see each other; for tightly coupled
+issues use `--sequential`, or run them as a single `/fix-issue`.
 
 #### Branch mode (`ISOLATION_MODE=branch`)
 
@@ -428,6 +439,19 @@ improvement over worktree mode where agents fork independently from `main`.
 ### 4b: Process results (after all agents in wave complete)
 
 > **Branch mode**: Skip this step — results are processed inline in Step 4a.
+
+**Merge only once every agent in the wave has returned, and only against
+a clean integration worktree.** Serialisation is the safeguard here; git
+is not. Two things follow:
+
+- `git checkout <INTEGRATION_BRANCH>` fails outright while another
+  worktree holds that branch (`fatal: '<branch>' is already used by
+  worktree at …`). That refusal means an agent is still running. Wait for
+  it and retry — nothing is broken, and there is nothing to repair.
+- `git merge` refuses only when the merge would overwrite an uncommitted
+  change to a file it actually touches. Uncommitted work in any other
+  file is carried through silently and ends up inside the merge commit.
+  Do not treat a successful merge as evidence that the tree was idle.
 
 For each agent result in the wave:
 
@@ -771,6 +795,22 @@ at the recorded SHA, so **a plain `git submodule update --init` is a silent
 no-op**. Re-run `make worktree-setup`; it detects that state and escalates
 to `--force`. Do not conclude the corpus is fine because a re-run exited 0.
 
+**In worktree mode, merge the integration branch before you investigate:**
+
+```bash
+git merge <INTEGRATION_BRANCH> --no-edit
+```
+
+Your worktree forked from the commit the integration branch was created
+from, not from its current tip, so without this you are reading the
+pre-batch tree and cannot see fixes that earlier waves already merged.
+On a fresh worktree the merge is a fast-forward. It is allowed even
+though `<INTEGRATION_BRANCH>` is checked out elsewhere: git refuses to
+*check out* a branch another worktree holds, not to merge from one.
+
+In branch mode, skip this — your branch was created from the integration
+branch's current tip in Step 4a and already contains it.
+
 Try to activate Serena:
 
 ```
@@ -1007,6 +1047,27 @@ cargo test --workspace --all-features
 # If pre-commit is installed:
 pre-commit run --all-files
 ```
+
+**When you redirect a gate to a log file, use a path that is yours alone
+— put your issue number in it.** Every agent in a wave runs on the same
+host and shares `/tmp`, so an obvious fixed name such as `/tmp/pc.log`
+gets written by all of them at once. That has already
+produced a wrong diagnosis here: one agent paired its own exit status
+with a neighbour's log, read a `fmt-check` failure out of it, and spent
+the attempt on code it had never touched.
+
+```bash
+make pre-commit > /tmp/pc-<ISSUE_NUMBER>.log 2>&1
+grep '^BCA_GATE:' /tmp/pc-<ISSUE_NUMBER>.log
+```
+
+Step 6a explains how to read that verdict line and why an exit status
+reported by the harness is not one. The requirement here is narrower: the
+path must be unique to you. Before believing a failure you did not
+expect, confirm the log is describing your tree — a passing `make
+pre-commit` run names its project root well over a hundred times, so
+`grep -c "$PROJECT_ROOT" /tmp/pc-<ISSUE_NUMBER>.log` returning 0 means
+you are reading someone else's run.
 
 If any check fails on code you changed, fix and retry (one attempt).
 If it fails again or fails on code you did not change, report as FAILED.

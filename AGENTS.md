@@ -139,6 +139,12 @@ and `cargo run -p big-code-analysis-web --`.
   fabricated measurement tables here. Build argument lists as arrays and
   expand them `"${ARR[@]}"`. See
   [`.claude/rules/shell.md`](.claude/rules/shell.md).
+- **Tool output**: a truncated result is not a result. Persisted output
+  shown as a `Preview (first 2KB)` fragment carries no marker at the cut,
+  and the orderings in routine use here — `sort | uniq -c`, `rg` over a
+  tree, a test run's trailing summary — put the rows that matter past it.
+  Read the persisted file, or aggregate in the command. See
+  [`.claude/rules/tool-output.md`](.claude/rules/tool-output.md).
 - **Code search**: `rg` (ripgrep). Never `grep` via Bash.
 - **File search**: `fd` (or `fdfind` on Debian/Ubuntu). Never `find` via
   Bash.
