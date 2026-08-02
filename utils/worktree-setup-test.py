@@ -130,7 +130,14 @@ class ClassifyTest(unittest.TestCase):
         self.assertIs(self.fixture.classify(), SETUP.State.READY)
 
     def test_deinitialized_submodule_is_missing(self) -> None:
-        run_git(self.fixture.root, "submodule", "deinit", "-f", "--", self.fixture.SUBMODULE_PATH)
+        run_git(
+            self.fixture.root,
+            "submodule",
+            "deinit",
+            "-f",
+            "--",
+            self.fixture.SUBMODULE_PATH,
+        )
         self.assertIs(self.fixture.classify(), SETUP.State.MISSING)
 
     def test_emptied_worktree_is_incomplete(self) -> None:
@@ -241,25 +248,58 @@ class MainTest(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def run_main(self) -> tuple[int, str]:
-        """`main()`'s exit code and what it wrote to stderr."""
-        err = io.StringIO()
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+    def run_main(self) -> tuple[int, str, str]:
+        """`main()`'s exit code, its stdout, and its stderr.
+
+        stdout is returned rather than discarded because it is the only
+        place the READY skip, the `fetched` bookkeeping and the
+        `nothing to do` line are observable — see the idempotency test
+        below.
+        """
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = SETUP.main()
-        return code, err.getvalue()
+        return code, out.getvalue(), err.getvalue()
 
     def test_main_repairs_an_incomplete_checkout_and_exits_zero(self) -> None:
         run_git(self.fixture.work, "rm", "-rq", ".")
-        code, err = self.run_main()
+        code, out, err = self.run_main()
         self.assertEqual(code, 0, f"stderr was: {err}")
         self.assertTrue((self.fixture.work / "a.txt").exists())
         self.assertIs(self.fixture.classify(), SETUP.State.READY)
+        self.assertIn(SETUP.State.INCOMPLETE.value, out)
+
+    def test_main_is_idempotent_and_says_so_on_the_second_run(self) -> None:
+        """The `idempotent` half of the bootstrap's contract.
+
+        A single run cannot show it. Both other cases here damage the
+        fixture before calling `main()`, so its state is never READY at
+        the loop and the `if state is State.READY: continue` branch is
+        never taken — deleting that branch outright failed none of this
+        suite's 17 tests. Running twice is what makes the skip
+        observable: without it the second pass re-runs `update()`, sets
+        `fetched`, and reports the nested-submodule note instead of
+        `nothing to do`.
+        """
+        run_git(self.fixture.work, "rm", "-rq", ".")
+        first_code, first_out, first_err = self.run_main()
+        self.assertEqual(first_code, 0, f"stderr was: {first_err}")
+        # The first run must actually do something, or "the second run
+        # is a no-op" is a claim about two no-ops.
+        self.assertIn(SETUP.State.INCOMPLETE.value, first_out)
+        self.assertNotIn("nothing to do", first_out)
+
+        second_code, second_out, second_err = self.run_main()
+        self.assertEqual(second_code, 0, f"stderr was: {second_err}")
+        self.assertIn(SETUP.State.READY.value, second_out)
+        self.assertIn("all corpora already checked out; nothing to do", second_out)
+        self.assertNotIn("nested submodules", second_out)
 
     def test_main_refuses_a_blocked_submodule_and_exits_one(self) -> None:
         run_git(self.fixture.work, "rm", "-q", "a.txt")
         modified = self.fixture.work / "snapshots" / "s.snap"
         modified.write_text("locally accepted\n")
-        code, err = self.run_main()
+        code, _out, err = self.run_main()
         self.assertEqual(code, 1, "a refusal must not exit green")
         self.assertIn(self.fixture.SUBMODULE_PATH, err)
         self.assertIn(SETUP.FORCE_RATIONALE, err)

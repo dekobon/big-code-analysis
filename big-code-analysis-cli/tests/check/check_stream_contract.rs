@@ -86,6 +86,13 @@ fn rows(text: &str) -> Vec<&str> {
         .collect()
 }
 
+/// Every line with content, matched or not. Paired with [`rows`] this
+/// turns "the rows are here" into "the rows are here *and nothing else
+/// is*" — a claim no filtered count can make on its own.
+fn non_blank_lines(text: &str) -> usize {
+    text.lines().filter(|line| !line.trim().is_empty()).count()
+}
+
 /// Both halves of the contract for the default invocation: the rows are
 /// on stdout, and stderr carries the footer without a single row.
 #[test]
@@ -98,6 +105,17 @@ fn plain_run_puts_rows_on_stdout_and_the_footer_on_stderr() {
         stdout_rows.len(),
         2,
         "one row per offending function, on stdout; stdout was:\n{stdout}"
+    );
+    // The "and nothing else" half of the contract, which every other
+    // assertion in this file is blind to: they all read `rows(&stdout)`,
+    // and a line the selector does not match is simply absent from that
+    // subset rather than a failure. Measured — appending one commentary
+    // line to the stdout writer failed none of the suite's 5053 tests.
+    // Counting *unfiltered* lines is what makes a stray line observable.
+    assert_eq!(
+        non_blank_lines(&stdout),
+        stdout_rows.len(),
+        "stdout carries the offender rows and nothing else; stdout was:\n{stdout}"
     );
     assert!(
         stdout_rows.iter().any(|r| r.contains("a_offender"))
