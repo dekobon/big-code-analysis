@@ -110,9 +110,10 @@ pub(crate) fn is_valid_scale_ratio(ratio: f64) -> bool {
 /// floor's `limit / ratio` generally has no exact decimal at all
 /// (`20 / 0.9` repeats), so the last figure is a real choice — and it
 /// goes **up**, because a floor rounded down is a band that fires
-/// marginally late, the same defect in miniature. Rounding up also keeps
-/// the resolved floor at or above the exact quotient, so it can never
-/// land under the hard floor it is derived from and trip
+/// marginally late, the same defect in miniature — but only when there
+/// is a real remainder to round, see [`FLOOR_GRID_SNAP_ULPS`]. Rounding
+/// up also keeps the resolved floor at or above the exact quotient, so
+/// it can never land under the hard floor it is derived from and trip
 /// [`ThresholdSet::build_tiered`](crate::thresholds::ThresholdSet::build_tiered)'s
 /// soft-looser-than-hard guard.
 pub(crate) fn scale_threshold(limit: f64, ratio: f64, lower_is_worse: bool) -> f64 {
@@ -146,9 +147,34 @@ pub(crate) fn scale_threshold(limit: f64, ratio: f64, lower_is_worse: bool) -> f
     }
     let ticks = scaled * factor;
     if lower_is_worse {
-        ticks.ceil() / factor
+        ceil_off_grid(ticks) / factor
     } else {
         ticks.round() / factor
+    }
+}
+
+/// How far from an exact sig-fig grid position a scaled floor may sit
+/// and still count as being *on* it, in ULPs of the value itself.
+///
+/// `limit / ratio` with `ratio == 1.0` reproduces `limit`, but the
+/// double for a limit like `8.3` is a hair above the decimal it prints
+/// as, so `8.3 * 1e5` is `830000.0000000001` — one ULP over the grid.
+/// A bare `ceil` promotes that to the next whole tick and resolves the
+/// soft floor to `8.30001`, which makes the documented `ratio == 1.0`
+/// identity false and gates the soft tier above the hard one. Four ULPs
+/// clears that single-ULP case with room to spare and is orders of
+/// magnitude below the smallest genuine remainder a real ratio leaves
+/// (`20 / 0.9` is `0.22` of a tick short).
+const FLOOR_GRID_SNAP_ULPS: f64 = 4.0;
+
+/// `ticks.ceil()`, except that a value within [`FLOOR_GRID_SNAP_ULPS`]
+/// of a grid position is already on it and rounds to it instead.
+fn ceil_off_grid(ticks: f64) -> f64 {
+    let nearest = ticks.round();
+    if (ticks - nearest).abs() <= FLOOR_GRID_SNAP_ULPS * f64::EPSILON * ticks.abs() {
+        nearest
+    } else {
+        ticks.ceil()
     }
 }
 
