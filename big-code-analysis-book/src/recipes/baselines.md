@@ -242,7 +242,7 @@ those who already knew to set it up.
 
 ### 6. Retire the baseline
 
-When `.bca-baseline.toml` contains only `version = 5` and no entries,
+When `.bca-baseline.toml` contains only `version = 6` and no entries,
 drop the `--baseline` flag from CI and delete the file. The thresholds
 now stand on their own.
 
@@ -252,7 +252,7 @@ A baseline written with `--write-baseline` (v5+) records *which gate it
 was written against* in a `[provenance]` table:
 
 ```toml
-version = 5
+version = 6
 
 [provenance]
 tier = "soft"
@@ -320,6 +320,13 @@ containers plus the function name (`MyStruct::do_thing`,
    `start_line` is closest to the violation — and within
    `--baseline-line-tolerance` lines (default 50) — wins. Beyond the
    tolerance the violation is `[new]`.
+
+   This is the only rule that reads a line number, so from schema v6 a
+   `start_line` is written **only** for entries in such a group.
+   Everywhere else the field is absent, and the file therefore does not
+   change when an edit above a baselined function moves it — which is
+   what keeps a real baseline change (a `value` moving) visible in a
+   diff instead of buried in line-number noise.
 3. **Body hash (opt-in).** With `--baseline-fuzzy-match`, a violation
    whose qualified symbol no longer matches is matched against entries
    with an identical normalised body hash within the same
@@ -395,7 +402,7 @@ bca exemptions --paths src/
   tests/**
 
 # Baseline (.bca-baseline.toml, 417 entries)
-  src/markdown_report.rs:88 write_language_section cognitive 29
+  src/markdown_report.rs write_language_section cognitive 29
   ...
 ```
 

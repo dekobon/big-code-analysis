@@ -446,6 +446,49 @@ fn a_regressed_offender_counts_as_baselined_not_new() {
     assert_eq!(preview.hard.new, EXPECTED_HARD - 1);
 }
 
+/// The v6 schema omits `start_line` for a unique identity (#1170).
+/// `--explain-threshold` resolves its baselined/new split through the
+/// same matcher as the gate, so dropping the line must not move a single
+/// offender between the two columns — asserted against the byte-for-byte
+/// numbers the v5 sibling test above pins.
+#[test]
+fn a_regressed_offender_counts_as_baselined_without_a_recorded_line() {
+    let dir = candidate_tree();
+    fs::write(
+        dir.path().join("base.toml"),
+        // Identical to the v5 fixture above except for the schema stamp
+        // and the absent `start_line`: `f26` is a unique identity, so a
+        // v6 `--write-baseline` records no line for it.
+        "version = 6\n\n[provenance]\ntier = \"hard\"\n\n[[entry]]\n\
+         path = \"lib.rs\"\nqualified = \"f26\"\n\
+         metric = \"nargs\"\nvalue = 5.0\n",
+    )
+    .expect("write baseline");
+
+    let preview = parse_preview(
+        &stdout_of(
+            cli(dir.path())
+                .args([
+                    "check",
+                    "--no-config",
+                    "--paths",
+                    "lib.rs",
+                    "--baseline",
+                    "base.toml",
+                    "--explain-threshold",
+                ])
+                .arg(format!("{CANDIDATE_METRIC}={CANDIDATE_LIMIT}")),
+        ),
+        CANDIDATE_METRIC,
+    );
+    assert_eq!(preview.hard.total, EXPECTED_HARD);
+    assert_eq!(
+        preview.hard.baselined, 1,
+        "f26 still matches its entry with no line recorded"
+    );
+    assert_eq!(preview.hard.new, EXPECTED_HARD - 1);
+}
+
 /// The soft tier is derived direction-aware (#1166): a lower-is-worse
 /// `mi.*` limit is a floor, so tightening it raises it.
 #[test]

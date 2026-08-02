@@ -14,7 +14,8 @@
 //! matcher from issue #377): a function that drifts up or down the file
 //! is the *same* entry, not an add+remove pair. When a single
 //! `(path, qualified, metric)` triple carries several records (genuinely
-//! ambiguous symbols — overloads, duplicate `impl` blocks), the records
+//! ambiguous symbols — overloads, duplicate `impl` blocks — the only
+//! case a v6+ baseline records a `start_line` for at all), the records
 //! on each side are sorted by `(value, start_line)` and paired
 //! positionally; any surplus becomes added/removed. This is a
 //! best-effort heuristic for an inherently ambiguous case, deterministic
@@ -36,7 +37,11 @@ pub(crate) struct EntryDelta {
     pub(crate) path: String,
     pub(crate) qualified: String,
     pub(crate) metric: String,
-    pub(crate) start_line: usize,
+    /// Recorded line, absent whenever the baseline did not pin one — as
+    /// v6+ files do not for a unique identity (#1170). Omitted from the
+    /// JSON rather than rendered as a placeholder line number.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) start_line: Option<usize>,
     pub(crate) value: f64,
 }
 
@@ -50,7 +55,10 @@ pub(crate) struct ValueDelta {
     pub(crate) path: String,
     pub(crate) qualified: String,
     pub(crate) metric: String,
-    pub(crate) start_line: usize,
+    /// The *new* baseline's recorded line, absent when it pinned none
+    /// (see [`EntryDelta::start_line`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) start_line: Option<usize>,
     pub(crate) old: f64,
     pub(crate) new: f64,
 }

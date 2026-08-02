@@ -57,7 +57,10 @@ pub(crate) struct BaselineRow {
     pub(crate) qualified: String,
     pub(crate) metric: String,
     pub(crate) value: f64,
-    pub(crate) start_line: usize,
+    /// Line recorded by the baseline, absent for a v6+ entry whose
+    /// identity is unique (#1170) — such an entry pins no line, and the
+    /// renderers say so rather than inventing one.
+    pub(crate) start_line: Option<usize>,
 }
 
 impl From<DiffEntry> for BaselineRow {
@@ -134,10 +137,14 @@ impl ExemptionsReport {
             if open_section(&mut out, &header, "  (none)\n", section.entries.is_empty()) {
                 for e in &section.entries {
                     let path = strip_path_prefix(&e.path, strip_prefix);
+                    // The `:line` suffix is dropped rather than filled
+                    // with a placeholder when the entry pins no line, so
+                    // the field never reads as a line number that is not
+                    // there (#1170).
+                    let line = e.start_line.map_or_else(String::new, |l| format!(":{l}"));
                     let _ = writeln!(
                         out,
-                        "  {path}:{} {} {} {}",
-                        e.start_line,
+                        "  {path}{line} {} {} {}",
                         e.qualified,
                         e.metric,
                         MetricScalar(e.value),
@@ -200,7 +207,10 @@ impl ExemptionsReport {
                         out,
                         "| {} | {} | {} | {} | {} |",
                         escape_gfm_cell(path),
-                        e.start_line,
+                        // `-` for an entry that pins no line (#1170); a
+                        // table column cannot simply omit its cell.
+                        e.start_line
+                            .map_or_else(|| "-".to_owned(), |l| l.to_string()),
                         escape_gfm_cell(&e.qualified),
                         escape_gfm_cell(&e.metric),
                         MetricScalar(e.value),
@@ -385,7 +395,9 @@ struct JsonMarker<'a> {
 #[derive(Serialize)]
 struct JsonBaseline<'a> {
     path: &'a str,
-    line: usize,
+    /// Omitted, not nulled, when the entry pins no line (#1170).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    line: Option<usize>,
     qualified: &'a str,
     metric: &'a str,
     value: f64,

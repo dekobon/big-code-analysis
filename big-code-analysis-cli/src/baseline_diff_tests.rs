@@ -9,7 +9,7 @@ fn entry(path: &str, qualified: &str, metric: &str, start_line: usize, value: f6
         path: path.to_string(),
         qualified: qualified.to_string(),
         metric: metric.to_string(),
-        start_line,
+        start_line: Some(start_line),
         value,
     }
 }

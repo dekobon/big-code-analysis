@@ -263,15 +263,17 @@ fn from_violations_skips_non_finite() {
 #[test]
 fn from_violations_deterministic_order() {
     // Inputs are crafted so every tiebreaker in the
-    // (path, qualified, start_line, metric) sort (issue #377 clusters
-    // same-symbol records together for review) is the deciding
+    // (path, qualified, metric, start_line) sort is the deciding
     // comparator for at least one adjacent pair in the output:
     //
-    //   [0] vs [1]: same path + qualified + start_line -> metric breaks tie
-    //   [1] vs [2]: same path + qualified, different start_line
-    //               -> start_line breaks tie
+    //   [0] vs [1]: same path + qualified -> metric breaks tie
+    //   [1] vs [2]: same path + qualified + metric (an ambiguous
+    //               identity) -> start_line breaks tie
     //   [2] vs [3]: same path, different qualified -> qualified breaks tie
     //   [3] vs [4]: different path -> path breaks tie
+    //
+    // The same fixture pins which entries keep a `start_line` (#1170):
+    // only [1] and [2], the two sharing one identity.
     let unsorted = vec![
         v("src/z.rs", "z", 100, "cyclomatic", 5.0),
         v("src/a.rs", "b", 10, "cognitive", 4.0),
@@ -282,18 +284,21 @@ fn from_violations_deterministic_order() {
     let file = from_violations(unsorted, test_anchor(), Provenance::hard());
     assert_eq!(file.entries[0].path, "src/a.rs");
     assert_eq!(file.entries[0].qualified, "a");
-    assert_eq!(file.entries[0].start_line, 10);
+    // Unique identity -> no line recorded.
+    assert_eq!(file.entries[0].start_line, None);
     assert_eq!(file.entries[0].metric, "cognitive");
     assert_eq!(file.entries[1].path, "src/a.rs");
     assert_eq!(file.entries[1].qualified, "a");
-    assert_eq!(file.entries[1].start_line, 10);
+    assert_eq!(file.entries[1].start_line, Some(10));
     assert_eq!(file.entries[1].metric, "cyclomatic");
     assert_eq!(file.entries[2].path, "src/a.rs");
     assert_eq!(file.entries[2].qualified, "a");
-    assert_eq!(file.entries[2].start_line, 99);
+    assert_eq!(file.entries[2].start_line, Some(99));
     assert_eq!(file.entries[3].path, "src/a.rs");
     assert_eq!(file.entries[3].qualified, "b");
+    assert_eq!(file.entries[3].start_line, None);
     assert_eq!(file.entries[4].path, "src/z.rs");
+    assert_eq!(file.entries[4].start_line, None);
 }
 
 #[test]
@@ -310,6 +315,71 @@ fn from_violations_byte_equal_across_two_calls() {
     .expect("render a");
     let b = render(&from_violations(input, test_anchor(), Provenance::hard())).expect("render b");
     assert_eq!(a, b);
+}
+
+/// The churn half of #1170, and the more valuable one: a baseline
+/// written before and after an edit that shifted every function down the
+/// file must be byte-identical, so a *real* baseline change (a `value`
+/// moving) is the only thing a reviewer ever sees in the diff.
+#[test]
+fn line_drift_leaves_the_rendered_baseline_byte_identical() {
+    let before = vec![
+        v("src/a.rs", "foo", 10, "cyclomatic", 5.0),
+        v("src/a.rs", "Bar::baz", 40, "cognitive", 7.0),
+        v("src/b.rs", "qux", 20, "cognitive", 7.0),
+    ];
+    // Same functions, same values, each pushed 500 lines down by an
+    // import block or a sibling function added above.
+    let after: Vec<Violation> = before
+        .iter()
+        .map(|v| Violation {
+            start_line: v.start_line + 500,
+            end_line: v.end_line + 500,
+            ..v.clone()
+        })
+        .collect();
+    let rendered_before =
+        render(&from_violations(before, test_anchor(), Provenance::hard())).expect("render before");
+    let rendered_after =
+        render(&from_violations(after, test_anchor(), Provenance::hard())).expect("render after");
+    assert_eq!(rendered_before, rendered_after);
+    // Guard against passing for the wrong reason: the file must really
+    // hold the entries, and really hold no line numbers.
+    assert!(rendered_before.contains("qualified = \"Bar::baz\""));
+    assert!(
+        !rendered_before.contains("start_line"),
+        "unique identities record no line:\n{rendered_before}"
+    );
+}
+
+/// The exception that keeps the tolerance disambiguator working: when
+/// two entries share one `(path, qualified, metric)` identity, a line is
+/// the only thing that tells them apart, so both record one — and those
+/// two entries do still move under line drift.
+#[test]
+fn ambiguous_identity_records_a_line_for_every_member() {
+    let file = from_violations(
+        vec![
+            v("src/a.rs", "Trait::is_valid", 10, "cyclomatic", 5.0),
+            v("src/a.rs", "Trait::is_valid", 900, "cyclomatic", 6.0),
+            v("src/a.rs", "unique", 40, "cyclomatic", 8.0),
+        ],
+        test_anchor(),
+        Provenance::hard(),
+    );
+    let lines: Vec<(&str, Option<usize>)> = file
+        .entries
+        .iter()
+        .map(|e| (e.qualified.as_str(), e.start_line))
+        .collect();
+    assert_eq!(
+        lines,
+        vec![
+            ("Trait::is_valid", Some(10)),
+            ("Trait::is_valid", Some(900)),
+            ("unique", None),
+        ]
+    );
 }
 
 #[test]
@@ -346,10 +416,19 @@ fn entry(
     BaselineEntry {
         path: path.to_string(),
         qualified: qualified.to_string(),
-        start_line,
+        start_line: Some(start_line),
         metric: metric.to_string(),
         value,
         body_hash: None,
+    }
+}
+
+/// A hand-built entry that pins no `start_line` — the shape a v6 file
+/// writes for a unique identity (#1170).
+fn entry_without_line(path: &str, qualified: &str, metric: &str, value: f64) -> BaselineEntry {
+    BaselineEntry {
+        start_line: None,
+        ..entry(path, qualified, 0, metric, value)
     }
 }
 
@@ -569,7 +648,7 @@ fn classify_fuzzy_matches_renamed_function_by_body_hash() {
         entries: vec![BaselineEntry {
             path: "a".to_string(),
             qualified: "old_name".to_string(),
-            start_line: 1,
+            start_line: Some(1),
             metric: "cyclomatic".to_string(),
             value: 5.0,
             body_hash: Some(format!("{:016x}", 0xdead_beef_u64)),
@@ -667,6 +746,155 @@ fn classify_recorded_round_trips_bit_exactly() {
         }
         other => panic!("expected Regressed, got {other:?}"),
     }
+}
+
+// -- optional start_line (issue #1170) --------------------------------
+
+/// The acceptance criterion for the v6 re-key: a legacy baseline that
+/// records a line for every entry and its v6 rewrite that records none
+/// must classify the *same set* of violations the same way. Asserting
+/// the whole set, not a count — a count can hold steady while the set
+/// changes.
+#[test]
+fn v5_and_v6_baselines_classify_an_identical_offender_set() {
+    use std::fmt::Write as _;
+
+    let recorded = [
+        ("src/a.rs", "foo", 10, "cyclomatic", 5.0),
+        ("src/a.rs", "Bar::baz", 40, "cognitive", 7.0),
+        ("src/b.rs", "qux", 300, "halstead.effort", 60_000.0),
+    ];
+    // Same entries either way; only the schema stamp and the presence
+    // of `start_line` differ.
+    let mut v5 = String::from("version = 5\n");
+    for (path, qualified, line, metric, value) in recorded {
+        let _ = write!(
+            v5,
+            "[[entry]]\npath = \"{path}\"\nqualified = \"{qualified}\"\n\
+             start_line = {line}\nmetric = \"{metric}\"\nvalue = {value}\n"
+        );
+    }
+    let v6 = render(&from_violations(
+        recorded
+            .iter()
+            .map(|&(p, q, l, m, val)| v(p, q, l, m, val))
+            .collect(),
+        test_anchor(),
+        Provenance::hard(),
+    ))
+    .expect("render v6");
+    assert!(!v6.contains("start_line"));
+
+    // Probe every interesting outcome: covered at the recorded value,
+    // covered below it, regressed above it, drifted far past the
+    // tolerance, and an entry the baseline never had.
+    let probes = [
+        v("src/a.rs", "foo", 10, "cyclomatic", 5.0),
+        v("src/a.rs", "foo", 4_000, "cyclomatic", 4.0),
+        v("src/a.rs", "Bar::baz", 40, "cognitive", 9.0),
+        v("src/b.rs", "qux", 1, "halstead.effort", 60_000.0),
+        v("src/b.rs", "never_recorded", 7, "cognitive", 3.0),
+    ];
+    let classify_all = |text: &str| -> Vec<Coverage> {
+        let b = parse(text).expect("parse");
+        probes.iter().map(|p| b.classify(p)).collect()
+    };
+    assert_eq!(classify_all(&v5), classify_all(&v6));
+    // And pin what that agreed-on set actually is, so the assertion
+    // cannot pass by both sides degrading to `New` together.
+    assert_eq!(
+        classify_all(&v6),
+        vec![
+            Coverage::Covered { recorded: 5.0 },
+            Coverage::Covered { recorded: 5.0 },
+            Coverage::Regressed { recorded: 7.0 },
+            Coverage::Covered { recorded: 60_000.0 },
+            Coverage::New,
+        ]
+    );
+}
+
+/// Two entries that differ only in `start_line` are one identity, and
+/// stay one identity when the lines are gone: the group is what the
+/// tolerance rule operates on, not the individual lines.
+#[test]
+fn entries_differing_only_in_start_line_share_one_identity() {
+    let b = baseline_with(vec![
+        entry("a", "Trait::f", 10, "cyclomatic", 5.0),
+        entry("a", "Trait::f", 900, "cyclomatic", 9.0),
+    ]);
+    assert_eq!(b.by_symbol.len(), 1, "one key, two records under it");
+    // With the lines present the tolerance still places each violation
+    // on the nearer record.
+    assert!(matches!(
+        b.classify(&v("a", "Trait::f", 12, "cyclomatic", 5.0)),
+        Coverage::Covered { recorded } if recorded == 5.0
+    ));
+    assert!(matches!(
+        b.classify(&v("a", "Trait::f", 902, "cyclomatic", 9.0)),
+        Coverage::Covered { recorded } if recorded == 9.0
+    ));
+}
+
+/// A lone record matches regardless of line, so dropping the line
+/// changes nothing for it — the property that makes omitting the field
+/// safe in the first place.
+#[test]
+fn lone_record_without_a_line_matches_at_any_distance() {
+    let b = baseline_with(vec![entry_without_line("a", "f", "cyclomatic", 5.0)]);
+    assert!(matches!(
+        b.classify(&v("a", "f", 100_000, "cyclomatic", 5.0)),
+        Coverage::Covered { recorded } if recorded == 5.0
+    ));
+}
+
+/// Only reachable by hand-editing: a record inside an *ambiguous* group
+/// with no line cannot be placed, so it drops out of the tolerance match
+/// rather than matching at distance zero and shadowing its sibling.
+#[test]
+fn unplaceable_record_in_an_ambiguous_group_is_skipped() {
+    let b = baseline_with(vec![
+        entry_without_line("a", "Trait::f", "cyclomatic", 99.0),
+        entry("a", "Trait::f", 900, "cyclomatic", 9.0),
+    ]);
+    // The lineless record's generous 99.0 must not be what covers a
+    // violation sitting on the other record's line.
+    assert!(matches!(
+        b.classify(&v("a", "Trait::f", 900, "cyclomatic", 20.0)),
+        Coverage::Regressed { recorded } if recorded == 9.0
+    ));
+    // And a violation nowhere near the placed record is `New`, not
+    // silently covered by the unplaceable one.
+    assert!(matches!(
+        b.classify(&v("a", "Trait::f", 5, "cyclomatic", 20.0)),
+        Coverage::New
+    ));
+}
+
+/// A file from a *newer* schema can fail to deserialize before the
+/// version check runs — v6 dropping a field a v5-era build requires is
+/// exactly that shape. The error must still name the remedy rather than
+/// surfacing a bare serde message.
+#[test]
+fn parse_reports_the_version_when_a_newer_schema_fails_to_deserialize() {
+    // `value` is required in every schema, so its absence stands in for
+    // "a field this build needs that version 99 no longer writes".
+    let err = parse(
+        "version = 99\n[[entry]]\npath = \"a\"\nqualified = \"f\"\nmetric = \"cyclomatic\"\n",
+    )
+    .unwrap_err();
+    assert!(
+        err.contains("version 99") && err.contains("--write-baseline"),
+        "msg: {err}"
+    );
+}
+
+/// …but a genuinely malformed file still gets the parser's own message,
+/// which is the one that says *where* it broke.
+#[test]
+fn parse_reports_the_toml_error_when_the_version_is_supported() {
+    let err = parse("version = 6\n[[entry]]\npath = \"a\"\nvalue = \"oops\"\n").unwrap_err();
+    assert!(err.contains("malformed baseline TOML"), "msg: {err}");
 }
 
 // -- anchor + lexical normalisation (issue #376) ----------------------

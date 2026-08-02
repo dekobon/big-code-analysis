@@ -649,6 +649,15 @@ window for in-place migration; older versions surface a
 "regenerate with `--write-baseline`" hint instead of silently
 mis-matching. Recent transitions:
 
+- **v5 → v6** ([#1170](https://github.com/dekobon/big-code-analysis/issues/1170)):
+  `start_line` became optional and is written only for an entry whose
+  `(path, qualified, metric)` identity is shared with another — the
+  sole case matching consults it. Elsewhere the field re-rendered on
+  every edit above the function, churning diffs and conflicting on
+  every merge. v2–v5 baselines read unchanged: a recorded line is
+  still honoured exactly as before. A v6 file read by a pre-v6 bca
+  fails to parse (a required field is missing) rather than
+  mis-matching; upgrade bca or regenerate with `--write-baseline`.
 - **v3 → v4** ([#377](https://github.com/dekobon/big-code-analysis/issues/377)):
   entries key on the qualified symbol (`function` renamed to
   `qualified`) plus a `start_line` *tolerance* rather than the exact
