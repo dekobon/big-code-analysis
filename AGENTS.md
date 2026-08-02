@@ -285,6 +285,13 @@ purely procedural: do not bypass pre-commit, and refresh the baseline
 with `make self-scan-write-baseline-headroom` in the commit that moved
 the metric. A red gate on `main` traces directly to skipping this step.
 
+The same rule governs **merges**. `.bca-baseline.toml` is marked
+`-merge` in `.gitattributes`, so git leaves it wholly conflicted rather
+than splicing two branches' entries together. That is deliberate:
+neither side's recorded values describe the merged tree, so hand
+resolution is always wrong here, not merely tedious. Regenerate with
+`make self-scan-write-baseline-headroom` and stage the result.
+
 **Price a candidate limit at both tiers before calling it free.**
 Converging a limit onto a cluster of existing values is never free while
 a proportional soft tier is active — the soft tier measures *distance to

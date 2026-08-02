@@ -11,3 +11,14 @@ tree-sitter-preproc/** linguist-vendored
 # the byte-exact comparison. Covering all `*.py` forecloses the same trap for
 # any future generated-Python gate.
 *.py text eol=lf
+
+# The self-scan baseline is generated wholesale by
+# `make self-scan-write-baseline-headroom`; nothing in it is
+# hand-authored. A textual merge of two branches that both touched a
+# baselined file yields hunks that are plausible-looking and wrong on
+# *both* sides, because neither side's measurement describes the merged
+# tree. `-merge` makes git refuse the text merge and leave the whole
+# file conflicted, which says "regenerate" rather than "pick a side".
+# Resolve with:
+#   make self-scan-write-baseline-headroom
+.bca-baseline.toml -merge

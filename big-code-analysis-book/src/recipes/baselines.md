@@ -217,6 +217,29 @@ metric per file (max `value / limit` ratio), and sorts rows by
 violation count descending then path ascending. It is the fastest way
 to read a long offender list and spot which file to start with.
 
+### Merging two branches
+
+A baseline is generated wholesale, so a *textual* merge of two branches
+that both touched it is never right: each side's values were measured
+against its own tree, and the merged tree matches neither. Tell git not
+to try, with one line in `.gitattributes`:
+
+```gitattributes
+.bca-baseline.toml -merge
+```
+
+Git then leaves the file conflicted as a whole instead of splicing the
+two sides together, and the resolution is always the same — regenerate:
+
+```bash
+bca check --write-baseline
+git add .bca-baseline.toml
+```
+
+Unlike a `merge=ours` driver, `-merge` needs no per-clone `git config`,
+so it works for everyone who clones the repository rather than only for
+those who already knew to set it up.
+
 ### 6. Retire the baseline
 
 When `.bca-baseline.toml` contains only `version = 5` and no entries,
