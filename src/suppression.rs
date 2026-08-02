@@ -1210,6 +1210,23 @@ mod tests {
             "the elided count must survive the cap; got {:?}",
             scan.diagnostics,
         );
+        // Render it. The variant assertion above holds even if the tail
+        // formats as an empty string, and this is the one diagnostic a
+        // reader only ever meets in the pathological case the cap exists
+        // for — so the count has to reach the page, not just the struct.
+        let tail = scan
+            .diagnostics
+            .last()
+            .expect("the cap always appends a tail")
+            .to_string();
+        assert!(
+            tail.contains(&overflow.to_string()),
+            "the rendered tail must name how many were elided; got {tail:?}",
+        );
+        assert!(
+            tail.contains("more unusable metric name"),
+            "the rendered tail must say what was elided; got {tail:?}",
+        );
         // The cap never touches the metrics the marker really names.
         let scan = parse_marker(&format!(
             "// bca: suppress(cognitive,{})",

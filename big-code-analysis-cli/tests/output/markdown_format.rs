@@ -276,12 +276,8 @@ fn report_renders_nonzero_tokens_for_real_file() {
 #[test]
 fn report_strip_prefix_removes_path_prefix() {
     let fp = fixture_path();
-    let prefix = {
-        let idx = fp
-            .find("DeepSpeech/")
-            .expect("fixture contains DeepSpeech/");
-        &fp[..idx]
-    };
+    let prefix = common::corpus_fixture_strip_prefix();
+    let suffix = common::corpus_fixture_suffix();
     let output = cli()
         .args([
             "report",
@@ -289,15 +285,15 @@ fn report_strip_prefix_removes_path_prefix() {
             &fp,
             "markdown",
             "--strip-prefix",
-            prefix,
+            &prefix,
         ])
         .output()
         .unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("DeepSpeech/stats.py"),
-        "stripped path should appear in report"
+        stdout.contains(&suffix),
+        "stripped path {suffix:?} should appear in report"
     );
     // `--strip-prefix` rewrites the per-file table paths only. The provenance
     // footer (issue #680) deliberately records the literal seed path the user
