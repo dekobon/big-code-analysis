@@ -13,12 +13,6 @@ headroom = 0.95
 
 [[entry]]
 path = "big-code-analysis-cli/src/baseline.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 524.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/baseline.rs"
 qualified = "Baseline::from_str"
 metric = "halstead.effort"
 value = 58410.89968953587
