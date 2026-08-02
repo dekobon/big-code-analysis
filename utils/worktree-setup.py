@@ -82,23 +82,29 @@ class State(enum.Enum):
     BLOCKED = "incomplete checkout with local modifications"
 
 
-def git(args: list[str], cwd: pathlib.Path) -> str:
+def git(args: list[str], cwd: pathlib.Path, on_failure: str | None = None) -> str:
     """Run git in `cwd`, returning stdout.
 
-    Raises `SystemExit` carrying git's own stderr on a non-zero exit: a
-    traceback would bury the one line that says what went wrong.
+    Raises `SystemExit` carrying git's own stderr on a non-zero exit, and
+    on a missing git binary: a traceback would bury the one line that
+    says what went wrong. `on_failure` replaces the generic preamble
+    where the caller can name the actual diagnosis — this runs with
+    ``check=False``, so a caller cannot catch `CalledProcessError` to
+    supply one itself.
     """
-    result = subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise SystemExit(
-            f"git {' '.join(args)} failed in {cwd}:\n{result.stderr.strip()}"
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=cwd,
+            check=False,
+            capture_output=True,
+            text=True,
         )
+    except FileNotFoundError as exc:
+        raise SystemExit("git is not on PATH; refusing to run") from exc
+    if result.returncode != 0:
+        preamble = on_failure or f"git {' '.join(args)} failed in {cwd}"
+        raise SystemExit(f"{preamble}:\n{result.stderr.strip()}")
     return result.stdout
 
 
@@ -164,10 +170,11 @@ def verify_repo_root() -> None:
     """Refuse to run anywhere but this repository's own checkout."""
     if not GITMODULES.is_file():
         raise SystemExit(f"no .gitmodules under {REPO_ROOT}; refusing to run")
-    try:
-        toplevel = git(["rev-parse", "--show-toplevel"], cwd=REPO_ROOT).strip()
-    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-        raise SystemExit(f"{REPO_ROOT} is not a git checkout; refusing to run") from exc
+    toplevel = git(
+        ["rev-parse", "--show-toplevel"],
+        cwd=REPO_ROOT,
+        on_failure=f"{REPO_ROOT} is not a git checkout; refusing to run",
+    ).strip()
     if pathlib.Path(toplevel).resolve() != REPO_ROOT:
         raise SystemExit(
             f"this script lives under {REPO_ROOT} but git reports the checkout root as "

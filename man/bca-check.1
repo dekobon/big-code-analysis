@@ -19,7 +19,7 @@ Preview what a candidate `<metric>=<limit>` would cost, at both tiers, instead o
 
 This exists because `\-\-threshold` cannot answer the question: its limits are applied last and absolutely, never scaled, so a candidate trialled that way has no soft tier at all and reads as free when it is not. The soft band is derived from the candidate itself, at the `\-\-tier=soft=RATIO` ratio when one is given and 0.95 otherwise.
 
-Honours `exclude_tests`, `[check] exclude`, in\-source suppression markers and the baseline exactly as the run it predicts, and writes nothing: no gate runs and the exit code is always 0. Conflicts with `\-\-write\-baseline`, `\-\-print\-effective\-config`, `\-\-report\-format`, and `\-\-output`, each of which would produce a second, different artifact.
+Honours `exclude_tests`, `[check] exclude`, in\-source suppression markers and the baseline exactly as the run it predicts, and writes nothing: no gate runs, so it always exits 0 on success (1 on a tool error, such as a candidate naming a metric this build does not gate). Conflicts with `\-\-write\-baseline`, `\-\-print\-effective\-config`, `\-\-report\-format`, `\-\-output`, and an explicit `\-\-summary\-file <path>`, each of which would produce a second, different artifact.
 .TP
 \fB\-\-config\fR \fI<CONFIG>\fR
 Path to a TOML config with a `[thresholds]` table. Example:

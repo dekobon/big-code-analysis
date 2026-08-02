@@ -160,7 +160,7 @@ pub(crate) fn validate_and_build_thresholds(
     // branch the tier resolver takes.
     let soft_table_present = !soft.is_empty();
 
-    let cli = canonical_cli_thresholds(&args.thresholds);
+    let cli = canonical_cli_thresholds("--threshold", &args.thresholds);
     let layers = SharedLayers::new(&cli, tier, &soft, &lang, &hard);
     let thresholds = layers.resolve_all(&hard, &lang);
     if thresholds.is_empty() {
@@ -209,11 +209,16 @@ pub(crate) fn validate_and_build_thresholds(
 /// Repeating one metric stays last-wins, as it already is for two
 /// occurrences of the same spelling; only the enclosing tables reject a
 /// metric named twice.
-pub(crate) fn canonical_cli_thresholds(raw: &[(String, f64)]) -> Vec<(String, f64)> {
+///
+/// `flag` is the spelling to blame in the diagnostic. It is a parameter
+/// rather than a literal because `--explain-threshold` (#1169) routes
+/// its own values through here, and a hardcoded `--threshold` named a
+/// flag that invocation never passed.
+pub(crate) fn canonical_cli_thresholds(flag: &str, raw: &[(String, f64)]) -> Vec<(String, f64)> {
     raw.iter()
         .map(|(name, limit)| {
             let canonical = crate::metric_alias::normalize_for_check(name)
-                .unwrap_or_else(|e| die(format_args!("--threshold: {e}")));
+                .unwrap_or_else(|e| die(format_args!("{flag}: {e}")));
             (canonical.into_owned(), *limit)
         })
         .collect()

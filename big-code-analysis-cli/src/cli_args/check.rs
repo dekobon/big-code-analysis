@@ -41,12 +41,21 @@ pub(crate) struct CheckArgs {
     ///
     /// Honours `exclude_tests`, `[check] exclude`, in-source suppression
     /// markers and the baseline exactly as the run it predicts, and
-    /// writes nothing: no gate runs and the exit code is always 0.
-    /// Conflicts with `--write-baseline`, `--print-effective-config`,
-    /// `--report-format`, and `--output`, each of which would produce a
+    /// writes nothing: no gate runs, so it always exits 0 on success
+    /// (1 on a tool error, such as a candidate naming a metric this
+    /// build does not gate). Conflicts with `--write-baseline`,
+    /// `--print-effective-config`, `--report-format`, `--output`, and an
+    /// explicit `--summary-file <path>`, each of which would produce a
     /// second, different artifact.
     // The candidate-limit preview landed in issue #1169; see the
     // "Choosing thresholds" and "Baselines" recipes in the book.
+    //
+    // `--summary-file` is rejected by `reject_summary_file_path` rather
+    // than by `conflicts_with_all`: clap conflicts on the flag's
+    // *presence*, and the keyword forms `auto` / `never` must keep
+    // working — `auto` is what a GHA workflow leaves implicit, and the
+    // preview simply produces no step summary the way any other
+    // non-gating run does.
     #[clap(
         long = "explain-threshold",
         value_name = "METRIC=LIMIT",
