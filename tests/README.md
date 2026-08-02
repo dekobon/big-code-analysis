@@ -11,13 +11,19 @@ to add one, start here.
 
 ## Layout at a glance
 
+Since [#1124](https://github.com/dekobon/big-code-analysis/issues/1124)
+the test files are grouped into directory targets rather than one crate
+root per file: each `tests/<group>/main.rs` is a single test binary that
+declares the former `tests/*.rs` files as `mod`s.
+
 ```text
 tests/
 ├── README.md                              (this file)
 ├── common/                                shared harness used by every integration test
 │   ├── mod.rs                             snapshot driver + per-corpus comparators
 │   ├── fixtures.rs                        small constructors for OffenderRecord
-│   └── validators.rs                      SARIF + Checkstyle structural validators
+│   ├── validators.rs                      SARIF + Checkstyle structural validators
+│   └── vcs_fixture.rs                     in-process git repositories for the VCS tests
 ├── fixtures/                              vendored external schemas (SARIF, Checkstyle)
 │   └── README.md                          refresh procedure + provenance
 ├── repositories/                          integration corpora (4 git submodules: 3 upstream projects + 1 fixture+snapshot store)
@@ -28,15 +34,13 @@ tests/
 │       ├── csharp/                        hand-written synthetic .cs fixtures           (C# corpus)
 │       ├── php/                           hand-written synthetic .php fixtures          (PHP corpus)
 │       └── snapshots/                     accepted YAML snapshots for ALL five corpora
-├── checkstyle_test.rs                     output-format test: Checkstyle XML schema
-├── csv_test.rs                            output-format test: CSV writer
-├── sarif_test.rs                          output-format test: SARIF JSON schema
-├── serde_test.rs                          corpus test: Rust  / serde
-├── deepspeech_test.rs                     corpus test: C++   / DeepSpeech
-├── pdf_js_test.rs                         corpus test: JS    / pdf.js
-├── csharp_test.rs                         corpus test: C#    / synthetic fixtures
-├── php_test.rs                            corpus test: PHP   / synthetic fixtures
-└── cyclomatic_cross_language_parity.rs    cross-language: 6 languages × 4 control shapes
+├── api/                                   public API: AST seam, parser reuse, derives, book examples
+├── corpus/                                corpus tests: serde, DeepSpeech, pdf.js, C#, PHP, iRules
+├── grammars/                              grammar-specific: C, mozcpp, alterator string flattening
+├── output_formats/                        output-format tests: CSV, SARIF, Checkstyle
+│   └── snapshots/                         accepted insta snapshots owned by this target
+├── parity/                                cross-language and cross-parser parity suites
+└── vcs/                                   VCS metrics: rank, trend, cache, bus factor, per-function
 ```
 
 ## Test categories
@@ -59,7 +63,7 @@ below; the canonical reference language for each parser family is:
 - Curly-brace scripting → `javascript_*` or `csharp_*`
 - Shell / dynamic → `python_*` or `bash_*`
 
-### 2. Output-format tests (`tests/<format>_test.rs`)
+### 2. Output-format tests (`tests/output_formats/`)
 
 Single-purpose: assert that the writers in `src/output/` emit
 schema-conformant documents.
@@ -71,7 +75,7 @@ schema-conformant documents.
 | `csv_test.rs` | CSV writer round-trip + header stability |
 | `serde_test.rs` | (despite the name) **not** an output test — it is the Rust corpus test, named after the `serde-rs/serde` upstream project. See corpus tests below. |
 
-### 3. Corpus tests (`tests/<repo>_test.rs`)
+### 3. Corpus tests (`tests/corpus/`)
 
 Each runs the parser → metric pipeline over every file in one
 `tests/repositories/<repo>/` corpus, then diffs the result against
@@ -103,14 +107,16 @@ Floats are rounded to 3 decimal places before comparison (machine
 portability) and the `name` field is redacted to `[filepath]` (path
 portability).
 
-### 4. Cross-language parity (`cyclomatic_cross_language_parity.rs`)
+### 4. Cross-language parity (`tests/parity/`)
 
-The only test that pins behaviour *across* languages. Asserts that
-four control-flow shapes (`switch_with_default`, `switch_without_default`,
+Where behaviour is pinned *across* languages and parsers rather than
+within one. `cyclomatic_cross_language_parity.rs` is representative: it
+asserts that four control-flow shapes
+(`switch_with_default`, `switch_without_default`,
 `if_else_if_else_chain`, `single_if_no_else`) produce the same
 cyclomatic-sum delta in Bash, C++, Java, JavaScript, Python, and Rust.
 A bug fixed in one language module that drifts another silently is
-exactly what this catches.
+exactly what these catch.
 
 ## The corpus divergence
 
@@ -260,3 +266,40 @@ Mirror `tests/output_formats/sarif_test.rs`: vendor the schema under
 `tests/fixtures/`, document provenance in `tests/fixtures/README.md`,
 and validate every emitted document via `tests/common/validators.rs`.
 Keep the validator hermetic — no network access.
+
+## Moving a test file
+
+Moving a file that owns `insta` snapshots renames every one of them.
+`insta` builds the snapshot file name from the **whole** module path of
+the asserting file — `::` replaced by `__` — followed by the snapshot
+name. It is not the last component. A test in
+`tests/output_formats/csv_test.rs` writes
+`output_formats__csv_test__<name>.snap`; one in `src/metrics/abc.rs`'s
+`mod tests` writes `big_code_analysis__metrics__abc__tests__<name>.snap`.
+The `snapshots/` directory moves as well, since insta resolves it
+relative to the asserting file.
+
+The resulting failure does not mention the move. insta reports
+`snapshot assertion for '<name>' failed`, prints the entire value as
+new, and writes a `.snap.new` under the new name — the same output a
+genuine behaviour change produces. The name in the source is correct and
+the reviewed values are still on disk under the old name, so nothing
+points at the rename. #1124 hit this merging the root suite's test
+binaries into directory targets: `tests/csv_test.rs` became
+`tests/output_formats/csv_test.rs`, and five snapshots had to be renamed,
+`tests/snapshots/csv_test__csv_cpp_widget.snap` to
+`tests/output_formats/snapshots/output_formats__csv_test__csv_cpp_widget.snap`.
+
+Rename the files; do not re-accept them:
+
+```bash
+git mv tests/snapshots/csv_test__csv_cpp_widget.snap \
+       tests/output_formats/snapshots/output_formats__csv_test__csv_cpp_widget.snap
+```
+
+`cargo insta test --accept` also turns the suite green, but it records
+whatever production emits today rather than the value that was reviewed —
+the hazard the snapshot-anchor policy exists to prevent — and it leaves
+the old file behind as an orphan. The `source:` line in the snapshot
+header is metadata and is not compared, so a stale one fails nothing;
+`cargo insta test --force-update-snapshots` refreshes it.
