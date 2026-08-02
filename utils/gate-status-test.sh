@@ -46,8 +46,14 @@ run_gate() {
 # under `-j`: the leaf target a stage delegates to, the stage itself, a
 # second stage that was already running, a duplicate report, the
 # aggregate this script is pointed at, and the outer epilogue.
-emit_make_transcript() {
-	cat >&2 <<'TRANSCRIPT'
+#
+# Held in a variable rather than inlined in the heredoc so the forwarded
+# copy can be compared against it verbatim. A line *count* is not the
+# `intact` the assertion below claims: a filter inserted into the
+# forwarding path (`| sed …`, an awk annotator) rewrites content without
+# changing the number of newlines, and that is exactly the edit the
+# `tee`-not-awk choice in gate-status.sh exists to prevent.
+read -r -d '' MAKE_TRANSCRIPT <<'TRANSCRIPT'
 make[3]: *** [Makefile:200: fmt-check] Error 1
 make[2]: *** [Makefile:1171: _pc-fmt] Error 2
 make[2]: *** Waiting for unfinished jobs....
@@ -56,6 +62,10 @@ make[2]: *** [Makefile:1171: _pc-fmt] Error 2
 make[1]: *** [Makefile:1093: _pc-all] Error 2
 make: *** [Makefile:1092: pre-commit] Error 2
 TRANSCRIPT
+export MAKE_TRANSCRIPT
+
+emit_make_transcript() {
+	printf '%s\n' "$MAKE_TRANSCRIPT" >&2
 	exit 2
 }
 export -f emit_make_transcript
@@ -87,12 +97,30 @@ expect_eq 'every failing stage is named once, in report order' \
 	"$(tail -n 1 "$out")"
 expect_eq 'fail emits exactly one verdict' 1 "$(grep -c 'BCA_GATE:' "$out")"
 expect_eq 'the make transcript still reaches stderr intact' \
-	7 "$(wc -l <"$err")"
+	"$MAKE_TRANSCRIPT" "$(cat "$err")"
+
+# --- failure path: a broken `tee` is not a gate failure ---------------
+# The case ${PIPESTATUS[0]} exists for, and the only one where it and a
+# plain `$?` disagree. Pointing TMPDIR at a missing directory makes the
+# `mktemp` fail, so `tee` gets an empty path and exits non-zero while the
+# gate itself succeeds. Under `pipefail`, `$?` is then `tee`'s status and
+# the wrapper reports a green run as failed. Without this case that
+# substitution passes the whole suite.
+TMPDIR=/nonexistent-bca-gate-status run_gate pre-commit bash -c 'echo stage output'
+expect_eq 'a tee that cannot write is not a gate failure' 0 "$rc"
+expect_eq 'the gate status, not the pipeline status, decides the verdict' \
+	'BCA_GATE: pass (gate=pre-commit)' "$(tail -n 1 "$out")"
 
 # --- usage -----------------------------------------------------------
 run_gate onlyagatename
 expect_eq 'a missing command is a usage error' 2 "$rc"
 expect_eq 'a usage error emits no verdict' 0 "$(grep -c 'BCA_GATE:' "$out")"
+# Which stream the usage line takes is the assertion, not merely that it
+# exists: a verdict-free stdout is equally what dropping the `>&2` — or
+# the whole printf — produces.
+expect_eq 'the usage line goes to stderr' \
+	"usage: $GATE_STATUS <gate-name> <command> [args...]" "$(cat "$err")"
+expect_eq 'a usage error writes nothing to stdout' 0 "$(wc -c <"$out")"
 
 if [ "$failures" -ne 0 ]; then
 	printf '%d gate-status check(s) failed\n' "$failures" >&2

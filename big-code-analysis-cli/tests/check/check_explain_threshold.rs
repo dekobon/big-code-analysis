@@ -518,6 +518,61 @@ fn soft_limit_is_derived_by_metric_direction() {
     );
 }
 
+/// Direction decides which *offenders* land in the hard tier, not only
+/// how the soft limit is derived — and that is a second production
+/// expression, `breaches_limit(v.value, ceiling, v.lower_is_worse)`.
+///
+/// The test above cannot reach it: `mi.original=20` is a floor that every
+/// one-line fixture function (all measure ≈147-149) clears, so its
+/// population is empty at both tiers and the partition never runs.
+/// Hard-coding `false` there — the pre-#1166 "higher is worse" assumption
+/// — failed none of the suite's 5053 tests.
+///
+/// A floor of `147.5` splits the fixture's three measured values
+/// (146.9456 ×3, 147.7445 ×6, 148.655 ×20): three sit below it and
+/// breach, all 29 sit below the derived `155.264` soft floor. Read with
+/// the direction inverted the hard tier would instead collect the 26
+/// *above* 147.5, so the two readings share no count.
+///
+/// Both metrics are explained in one run, and both carry a *non-empty*
+/// population — which is the second thing this pins. Every other
+/// multi-metric test here pairs a real population with an empty one, so
+/// `explain`'s per-metric filter (`v.metric == outcome.metric`) could be
+/// deleted outright without failing any of the suite's 5054 tests. With
+/// two live populations each metric would then tally the union: 12 and
+/// 58 everywhere, against the four distinct counts below.
+#[test]
+fn a_lower_is_worse_metric_partitions_offenders_by_direction() {
+    let dir = candidate_tree();
+    let candidate = format!("{CANDIDATE_METRIC}={CANDIDATE_LIMIT}");
+    let stdout = stdout_of(cli(dir.path()).args([
+        "check",
+        "--no-config",
+        "--paths",
+        "lib.rs",
+        "--explain-threshold",
+        "mi.original=147.5",
+        "--explain-threshold",
+        &candidate,
+    ]));
+    let floor = parse_preview(&stdout, "mi.original");
+    assert_eq!(
+        floor.hard.total, 3,
+        "only the three functions *below* the floor breach it; \
+         reading it as a ceiling would report 26. stdout:\n{stdout}"
+    );
+    assert_eq!(floor.hard.new, 3, "none of them is baselined");
+    assert_eq!(
+        floor.soft.total, 29,
+        "the whole population sits under the raised soft floor; stdout:\n{stdout}"
+    );
+
+    // The higher-is-worse metric keeps its own counts in the same run.
+    let ceiling = parse_preview(&stdout, CANDIDATE_METRIC);
+    assert_eq!(ceiling.hard.total, EXPECTED_HARD);
+    assert_eq!(ceiling.soft.total, EXPECTED_SOFT);
+}
+
 /// The candidate limit the two soft-derivation tests below share. It
 /// sits above every arity in the fixture, so the *default* 0.95 band is
 /// empty and any offender reported at the soft tier can only come from

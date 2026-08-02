@@ -274,12 +274,20 @@ fn from_violations_deterministic_order() {
     //
     // The same fixture pins which entries keep a `start_line` (#1170):
     // only [1] and [2], the two sharing one identity.
+    //
+    // The ambiguous pair is fed 99-before-10, against the order it must
+    // come back in. That is what makes the `start_line` claim above
+    // falsifiable: `sort_by` is stable, so an already-ascending pair
+    // comes back ascending whether or not the comparator ever looks at
+    // the line. Dropping `start_line` from `BaselineEntry::identity`
+    // failed none of the suite's 5054 tests while this vector was
+    // pre-sorted.
     let unsorted = vec![
         v("src/z.rs", "z", 100, "cyclomatic", 5.0),
         v("src/a.rs", "b", 10, "cognitive", 4.0),
         v("src/a.rs", "a", 10, "cognitive", 3.0),
-        v("src/a.rs", "a", 10, "cyclomatic", 5.0),
         v("src/a.rs", "a", 99, "cyclomatic", 6.0),
+        v("src/a.rs", "a", 10, "cyclomatic", 5.0),
     ];
     let file = from_violations(unsorted, test_anchor(), Provenance::hard());
     assert_eq!(file.entries[0].path, "src/a.rs");
@@ -356,6 +364,16 @@ fn line_drift_leaves_the_rendered_baseline_byte_identical() {
 /// two entries share one `(path, qualified, metric)` identity, a line is
 /// the only thing that tells them apart, so both record one — and those
 /// two entries do still move under line drift.
+///
+/// `src/b.rs`'s `unique` is what pins the `path` third of that identity,
+/// and it has to sit *immediately after* `src/a.rs`'s `unique` to do it:
+/// the grouping is `chunk_by_mut`, so only adjacent entries are ever
+/// compared, and entries are sorted by path first. A same-named function
+/// in a non-adjacent file would chunk alone under a broken predicate too,
+/// and prove nothing. Dropping `a.path == b.path` from `same_identity`
+/// failed none of the suite's 5053 tests before this entry existed —
+/// which is #1170's churn bug returning for `new` / `fmt` / `default`,
+/// the commonest symbol shape in a Rust tree.
 #[test]
 fn ambiguous_identity_records_a_line_for_every_member() {
     let file = from_violations(
@@ -363,21 +381,23 @@ fn ambiguous_identity_records_a_line_for_every_member() {
             v("src/a.rs", "Trait::is_valid", 10, "cyclomatic", 5.0),
             v("src/a.rs", "Trait::is_valid", 900, "cyclomatic", 6.0),
             v("src/a.rs", "unique", 40, "cyclomatic", 8.0),
+            v("src/b.rs", "unique", 40, "cyclomatic", 8.0),
         ],
         test_anchor(),
         Provenance::hard(),
     );
-    let lines: Vec<(&str, Option<usize>)> = file
+    let lines: Vec<(&str, &str, Option<usize>)> = file
         .entries
         .iter()
-        .map(|e| (e.qualified.as_str(), e.start_line))
+        .map(|e| (e.path.as_str(), e.qualified.as_str(), e.start_line))
         .collect();
     assert_eq!(
         lines,
         vec![
-            ("Trait::is_valid", Some(10)),
-            ("Trait::is_valid", Some(900)),
-            ("unique", None),
+            ("src/a.rs", "Trait::is_valid", Some(10)),
+            ("src/a.rs", "Trait::is_valid", Some(900)),
+            ("src/a.rs", "unique", None),
+            ("src/b.rs", "unique", None),
         ]
     );
 }

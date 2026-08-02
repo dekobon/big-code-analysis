@@ -96,11 +96,7 @@ fn check_reports_the_same_violations_serially_and_in_parallel() {
     let (parallel, _) = run_at_jobs(&dir, "16", &args);
 
     // 120 files, one offending function each: a dropped send shows up
-    // as a short count before the line comparison even runs. The filter
-    // stays even though #1167 gave stdout to the offender rows alone —
-    // it is the shape assertion, and a stray non-offender line on the
-    // product stream should fail the count rather than be smuggled into
-    // the comparison.
+    // as a short count before the line comparison even runs.
     let offenders = |text: &str| {
         text.lines()
             .filter(|l| l.contains(": cyclomatic = "))
@@ -110,6 +106,16 @@ fn check_reports_the_same_violations_serially_and_in_parallel() {
         offenders(&serial),
         120,
         "fixture drifted; expected one offender per file:\n{serial}"
+    );
+    // The filtered count above cannot see a line the filter skips, and
+    // the serial-vs-parallel comparison cancels one that appears on both
+    // sides — so a stray non-offender line on the product stream is
+    // invisible to both. Since #1167 gave stdout to the offender rows
+    // alone, the unfiltered count is what pins that.
+    assert_eq!(
+        serial.lines().filter(|l| !l.trim().is_empty()).count(),
+        120,
+        "stdout carries the offender rows and nothing else:\n{serial}"
     );
     assert_eq!(
         sorted_lines(&serial),
