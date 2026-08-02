@@ -441,3 +441,53 @@ fn check_exclude_anchors_paths_from_seeds() {
             "skipped 1 violations via [check.exclude]",
         ));
 }
+
+/// `--print-effective-config` must report the *manifest's* `[check]
+/// exclude` globs and `exclude_from` file, not just the caller's.
+///
+/// #1164 moved the manifest's globs out of `args.check_exclude` into
+/// their own field so each origin could keep its own anchor, which left
+/// the reporter reading only half the picture. It is re-unioned for
+/// display by `reported_globs` / `display_globs_from` — helpers that no
+/// test reached: stubbing either to drop the manifest half failed 0 of
+/// the crate's 1,319 tests. `--print-effective-config` is the surface a
+/// user reads to answer "which exemptions are in effect?", so omitting
+/// the manifest's is a wrong answer to the question #1164 was filed
+/// about.
+///
+/// Asserts the CLI glob too, so a fix that swapped one omission for the
+/// other cannot pass.
+#[test]
+fn print_effective_config_unions_the_manifest_check_exclude() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("kept.rs"), branchy("kept_offender")).unwrap();
+    fs::write(dir.path().join("more-globs.txt"), "vendor/**\n").unwrap();
+    fs::write(
+        dir.path().join("bca.toml"),
+        "paths = [\".\"]\n\
+         [check]\n\
+         exclude = [\"./generated/**\"]\n\
+         exclude_from = \"more-globs.txt\"\n",
+    )
+    .unwrap();
+
+    cli(dir.path())
+        .args([
+            "check",
+            "--paths",
+            dir.path().to_str().unwrap(),
+            "--threshold",
+            "cyclomatic=1",
+            "--check-exclude",
+            "tests/**",
+            "--print-effective-config",
+        ])
+        .assert()
+        .success()
+        // The caller's glob, and the manifest's alongside it.
+        .stdout(predicate::str::contains("tests/**"))
+        .stdout(predicate::str::contains("./generated/**"))
+        // The manifest's `exclude_from`, resolved against the manifest
+        // directory rather than dropped.
+        .stdout(predicate::str::contains("more-globs.txt"));
+}

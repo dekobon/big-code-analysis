@@ -62,7 +62,9 @@ fn ruby_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
     // Ruby's second `:` id (`COLON2`, unreachable at tree-sitter-ruby
     // 0.23.1 but one grammar bump away) would silently turn every
     // parenthesised alternative into a condition. Both are live in the
-    // C family — tracked in #1161's follow-up, not fixed here.
+    // C family — tracked in #1181, not fixed here. Reproducer for the
+    // first: `x = a ? /*n*/ (b) : c;` reports 3 conditions where the
+    // same line without the comment reports 2.
     let mut has_boolean_content = matches!(
         parent_kind,
         Binary | Binary2 | Binary3 | If | Unless | While | Until

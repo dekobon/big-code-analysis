@@ -264,6 +264,12 @@ where
     /// the closure fallback, and a language that copied them does not
     /// pick up a later correction — which is the drift #1142 and #1162
     /// were both filed about.
+    ///
+    /// The two are mutually exclusive: only the default `compute` calls
+    /// this, so a language that overrides `compute` (the C family, Objc,
+    /// Go, Kotlin, Lua, Tcl, iRules, Perl, Elixir, Groovy) would define
+    /// a `params_owner` that is never consulted. Override one or the
+    /// other, not both.
     fn params_owner<'tree>(node: &Node<'tree>, _ancestors: Ancestors<'tree, '_>) -> Node<'tree> {
         *node
     }

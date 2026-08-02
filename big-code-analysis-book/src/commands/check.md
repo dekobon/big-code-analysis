@@ -484,7 +484,15 @@ hooks, the agent hooks in [Agent feedback](../recipes/agent-feedback.md)
 to be in. Their exemptions belong in the manifest, where the anchor is
 the project's and not the caller's.
 
-The same split applies to the walker's `exclude` / `--exclude` pair.
+The walker's `exclude` / `--exclude` pair is split by origin the same
+way, but only where an explicit path is involved: the warning that a
+named file overrode an exclude resolves a manifest glob against the
+manifest root. A *directory* walk still matches manifest globs against
+the walk's own root, which is the same directory only when the walk
+starts at the manifest — the usual `paths = ["."]` case. Naming a
+subdirectory (`bca metrics -p sub`) can therefore let a manifest
+`exclude` stop matching; that gap is tracked in
+[#1189](https://github.com/dekobon/big-code-analysis/issues/1189).
 
 ### Precedence with the other suppression mechanisms
 

@@ -36,10 +36,18 @@ makes it easy to conclude — wrongly — that the file is unaffected.
 **`macro_rules!` bodies are not exempt and are not a separate cause.**
 rustfmt formats macro bodies by default (`format_macro_bodies`, default
 `true`), so a macro body containing a match with an in-pattern comment
-bails for exactly the reason above. In this repository the
-`js_cognitive!` body in `src/metrics/cognitive.rs` is unformatted solely
-because of its `Else /* else-if also */ =>` arm; delete that comment and
-rustfmt reformats the whole body.
+bails for exactly the reason above. The `js_cognitive!` body in
+`src/metrics/cognitive.rs` was the clearest demonstration of this until
+#1136 hoisted its `Else /* else-if also */ =>` comment above the arm,
+after which rustfmt reformatted the whole body — the comment was the
+only thing holding it back.
+
+A macro body can also bail for a *second*, unrelated reason: a
+metavariable in a position that is not valid Rust, such as the pattern
+repetition `$ternary $(| $short_circuit)+` in
+`impl_cyclomatic_c_family!`. No comment is involved there and hoisting
+one fixes nothing. The gate cannot tell the two apart, which is why
+`.rustfmt-bail-baseline.txt` names the known cause-2 entries.
 
 ## Measuring it
 
@@ -97,32 +105,21 @@ names the known cause-2 entries.
 
 ## Where it currently bites
 
-Thirty-six cause-1 sites, and **not** confined to `src/metrics/` — the
-per-language `Getter` modules are the largest cluster:
+**Do not read a list here — run the gate.** `make rustfmt-bail` prints
+the live per-file counts and `./utils/check-rustfmt-bail.py --show
+<file>` names the stuck arms; `.rustfmt-bail-baseline.txt` carries the
+checked-in counts and, in its header, the cause-2 entries that will
+never go away.
 
-- `src/getter/`: `bash.rs`, `c.rs`, `cpp.rs`, `csharp.rs`, `elixir.rs`,
-  `go.rs`, `groovy.rs`, `irules.rs`, `java.rs`, `kotlin.rs`, `lua.rs`,
-  `mozcpp.rs`, `objc.rs`, `perl.rs`, `php.rs`, `python.rs`, `ruby.rs`,
-  `tcl.rs` — 18 of the 25 modules there. Plus the JS-family macro body
-  in `src/getter.rs`.
-- `src/metrics/cognitive/`: `c.rs`, `cpp.rs`, `java.rs`, `mozcpp.rs`,
-  `objc.rs`, `perl.rs`, `rust.rs`, plus the `js_cognitive!` macro body
-  in `cognitive.rs`.
-- `src/metrics/cyclomatic/`: `irules.rs`, `perl.rs`, `php.rs`,
-  `ruby.rs`.
-- `src/metrics/abc/`: `elixir.rs`, `perl.rs`, `php.rs`.
-- `src/metrics/loc/`: `perl.rs` and `python.rs`.
-
-`loc/tcl.rs` and `loc/irules.rs` were on that last list until #1135
-hoisted their in-pattern comment above the arm.
-
-That list is a snapshot — run the gate rather than trusting it, since it
-moves whenever an arm gains or loses a comment, and since a directory
-nobody has swept yet reads as clean. The `src/metrics/`-only framing
-survived two revisions of this file for exactly that reason, while
-`src/getter/` — where the bail is close to universal — went unmentioned.
-The gate now sweeps every tracked Rust file, so no directory can go
-unmentioned again.
+That is a deliberate change from how this section used to read. It
+carried a hand-maintained list of files, and that list was wrong twice:
+first by naming only `src/metrics/`, which hid the largest cluster
+(`src/getter/`, 18 of 25 modules) for two revisions of this file, and
+then by going stale the moment #1136 hoisted seven comments out of
+`src/metrics/cognitive/`. A stale list of bailing files reads exactly
+like a clean tree — the failure this whole rule exists to prevent — so
+the list is gone. The gate sweeps every tracked Rust file, so no
+directory can go unmentioned again.
 
 ## Why it matters
 
