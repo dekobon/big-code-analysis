@@ -166,3 +166,14 @@ reported clean, and every one was found by reading the diff instead.
   above the arm (outside the pattern) is a legitimate fix when the
   comment reads just as well there, but manual formatting review is
   otherwise the cheaper trade.
+- **Do not open a campaign to clear the existing bails.** #1136 decided
+  they stay: the remaining ones are all section comments inside a long
+  or-pattern, so hoisting means splitting the arm into identical-bodied
+  arms that `clippy::match_same_arms` correctly rejects, and every way
+  of buying the formatting back makes the classifier table harder to
+  read. `#[rustfmt::skip]` in particular changes nothing the gate
+  measures — verified by probe — and can only sit on the enclosing
+  `fn`, so it removes more from `cargo fmt` than the bail does. The
+  reasoning and the measurements are in the header of
+  `.rustfmt-bail-baseline.txt`. Hoisting a *single* comment with
+  nothing to split is still welcome when you are already in the file.
