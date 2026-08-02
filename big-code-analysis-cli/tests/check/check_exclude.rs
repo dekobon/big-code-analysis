@@ -457,6 +457,15 @@ fn check_exclude_anchors_paths_from_seeds() {
 ///
 /// Asserts the CLI glob too, so a fix that swapped one omission for the
 /// other cannot pass.
+///
+/// The output is parsed as TOML and each value read out of the field it
+/// belongs in, rather than matched as a substring of the whole
+/// document. A gate exemption reported under the walker's `exclude` key
+/// is a wrong answer to the question this flag exists to answer, and a
+/// `contains` over the serialized form cannot tell the two apart:
+/// rendering the manifest's `[check] exclude` into `check.exclude` and
+/// dropping `check_exclude_from` altogether failed 0 of this suite's
+/// 213 tests.
 #[test]
 fn print_effective_config_unions_the_manifest_check_exclude() {
     let dir = TempDir::new().unwrap();
@@ -471,7 +480,7 @@ fn print_effective_config_unions_the_manifest_check_exclude() {
     )
     .unwrap();
 
-    cli(dir.path())
+    let assert = cli(dir.path())
         .args([
             "check",
             "--paths",
@@ -481,13 +490,41 @@ fn print_effective_config_unions_the_manifest_check_exclude() {
             "--check-exclude",
             "tests/**",
             "--print-effective-config",
+            "toml",
         ])
         .assert()
-        .success()
-        // The caller's glob, and the manifest's alongside it.
-        .stdout(predicate::str::contains("tests/**"))
-        .stdout(predicate::str::contains("./generated/**"))
-        // The manifest's `exclude_from`, resolved against the manifest
-        // directory rather than dropped.
-        .stdout(predicate::str::contains("more-globs.txt"));
+        .success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8 stdout");
+    let parsed: toml::Table = toml::from_str(&stdout).expect("effective config is valid TOML");
+    let check = parsed["check"].as_table().expect("[check] is a table");
+
+    // The caller's glob, and the manifest's alongside it — both under
+    // the *gate* key, not the walker's `exclude`.
+    let check_exclude: Vec<&str> = check["check_exclude"]
+        .as_array()
+        .expect("check_exclude is an array")
+        .iter()
+        .map(|v| v.as_str().expect("glob is a string"))
+        .collect();
+    assert_eq!(check_exclude, ["tests/**", "./generated/**"]);
+
+    // The manifest's `exclude_from`, resolved against the manifest
+    // directory rather than dropped.
+    assert_eq!(
+        check["check_exclude_from"].as_str(),
+        dir.path().join("more-globs.txt").to_str(),
+    );
+
+    // The walker's own exclude surface stays empty: this manifest
+    // configures no `exclude` key at top level, and a `[check]` glob
+    // reported there would be the wrong answer.
+    assert_eq!(
+        check["exclude"].as_array().map(Vec::len),
+        Some(0),
+        "the gate's globs must not leak into the walker's exclude list",
+    );
+    assert!(
+        !check.contains_key("exclude_from"),
+        "no walker exclude_from was configured",
+    );
 }
