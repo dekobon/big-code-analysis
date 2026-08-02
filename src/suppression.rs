@@ -31,6 +31,7 @@
 
 use std::collections::BTreeSet;
 use std::fmt;
+use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 
@@ -282,6 +283,43 @@ pub(crate) enum SuppressionError {
     /// unbalanced parenthesis, or a bare verb followed by words that
     /// open no rationale).
     MalformedBody(String),
+    /// More distinct unusable names than [`MAX_MARKER_DIAGNOSTICS`], so
+    /// the tail was elided. Carries the number dropped, because a silent
+    /// truncation would understate how wrong the marker is.
+    ElidedDiagnostics(usize),
+}
+
+/// Cap on the diagnostics one suppression marker may emit.
+///
+/// Names are deduplicated before the cap applies, so reaching it takes a
+/// marker with eight *distinct* unusable names — well past any real
+/// typo, and into the territory of `bca: suppress(a,b,c,…)` in a
+/// third-party tree. Each diagnostic renders the full suppressible-metric
+/// hint (~130 characters), so without a cap a large enough comment turns
+/// one marker into megabytes of stderr.
+const MAX_MARKER_DIAGNOSTICS: usize = 8;
+
+/// The suppressible-metric vocabulary, rendered once.
+///
+/// Built lazily and cached: [`SuppressionError::UnknownMetric`]'s
+/// `Display` is invoked once per diagnostic, and rebuilding, allocating
+/// and sorting this list on every one made a marker's cost quadratic in
+/// its own length.
+fn suppressible_metric_hint() -> &'static str {
+    static HINT: OnceLock<String> = OnceLock::new();
+    HINT.get_or_init(|| {
+        // `Metric::suppressible()` is the single source of truth for the
+        // suppressible vocabulary — it already excludes the
+        // non-suppressible `tokens` — so the hint is never re-derived
+        // from `Metric::NAMES` with a hardcoded filter. It iterates
+        // declaration order; we sort so the hint stays alphabetised and
+        // thus stable across releases.
+        let mut names: Vec<String> = Metric::suppressible()
+            .map(|metric| metric.to_string())
+            .collect();
+        names.sort_unstable();
+        names.join(", ")
+    })
 }
 
 impl fmt::Display for SuppressionError {
@@ -295,26 +333,19 @@ impl fmt::Display for SuppressionError {
                 "unknown bca directive verb '{v}'; expected `suppress` or `suppress-file`"
             ),
             Self::UnknownMetric(m) => {
-                // The hint lists the suppressible metrics, derived from
-                // `Metric::suppressible()` (the single source of truth for
-                // the suppressible vocabulary — it already excludes the
-                // non-suppressible `tokens`) rather than re-deriving from
-                // `Metric::NAMES` with a hardcoded filter. `suppressible()`
-                // iterates declaration order; we sort so the hint stays
-                // alphabetised and thus stable across releases.
-                let mut names: Vec<String> = Metric::suppressible()
-                    .map(|metric| metric.to_string())
-                    .collect();
-                names.sort_unstable();
-                let known = names.join(", ");
                 write!(
                     f,
-                    "unknown metric '{m}' in bca suppression marker; known metrics: {known}"
+                    "unknown metric '{m}' in bca suppression marker; known metrics: {}",
+                    suppressible_metric_hint()
                 )
             }
             Self::NonSuppressibleMetric(m) => {
                 write!(f, "metric '{m}' has no threshold and cannot be suppressed")
             }
+            Self::ElidedDiagnostics(n) => write!(
+                f,
+                "… and {n} more unusable metric name(s) in this bca suppression marker"
+            ),
             Self::MalformedBody(body) => {
                 // Name the accepted shapes: the body reaching here is
                 // almost always one keystroke away from a working
@@ -324,7 +355,8 @@ impl fmt::Display for SuppressionError {
                     f,
                     "malformed bca suppression marker body '{body}'; expected \
                      `bca: suppress`, `bca: suppress(<metrics>)`, or either \
-                     with a `-` / `:` / `//`-separated rationale"
+                     with a rationale opened by `-`, `:`, `//`, `#`, or an \
+                     em/en dash"
                 )
             }
         }
@@ -532,16 +564,30 @@ fn parse_native(body: &str) -> MarkerScan {
 /// word does not, because `// bca: suppress markers are honoured here`
 /// is prose about the feature, and reading it as a marker would silence
 /// every metric in the enclosing function on the strength of a sentence.
+// `//` is matched in full rather than through a bare `/` in the set
+// below. A bare slash promoted `// bca: suppress /some/path` to a
+// whole-function `SuppressionScope::All` marker — silencing every metric
+// on the enclosing function on the strength of a path, which is the
+// dangerous direction for this predicate to err in.
 fn opens_rationale(rest: &str) -> bool {
-    matches!(
-        rest.chars().next(),
-        Some('\u{2014}' | '\u{2013}' | '-' | ':' | '/' | '#')
-    )
+    rest.starts_with("//")
+        || matches!(
+            rest.chars().next(),
+            Some('\u{2014}' | '\u{2013}' | '-' | ':' | '#')
+        )
 }
 
 fn parse_metric_list(inside: &str) -> (BTreeSet<Metric>, Vec<SuppressionError>) {
     let mut set = BTreeSet::new();
     let mut diagnostics = Vec::new();
+    // A marker is free to repeat a name, and each unusable one costs a
+    // diagnostic carrying the full metric hint — so report each distinct
+    // name once and stop after `MAX_MARKER_DIAGNOSTICS` of them. Both
+    // guards bound the output by the marker's *vocabulary* rather than
+    // its length, which is what keeps an adversarial comment in an
+    // untrusted tree from flooding the log.
+    let mut reported: BTreeSet<&str> = BTreeSet::new();
+    let mut unusable = 0_usize;
     for token in inside.split(',') {
         let name = token.trim();
         if name.is_empty() {
@@ -565,15 +611,24 @@ fn parse_metric_list(inside: &str) -> (BTreeSet<Metric>, Vec<SuppressionError>) 
         // the documented one — into a suppression the author believed
         // was active. Skipping can only ever narrow what a marker
         // silences, so a typo cannot widen scope.
-        match name.parse::<Metric>() {
-            Ok(Metric::Tokens) => {
-                diagnostics.push(SuppressionError::NonSuppressibleMetric(name.to_owned()));
-            }
+        let unusable_name = match name.parse::<Metric>() {
+            Ok(Metric::Tokens) => SuppressionError::NonSuppressibleMetric(name.to_owned()),
             Ok(metric) => {
                 set.insert(metric);
+                continue;
             }
-            Err(_) => diagnostics.push(SuppressionError::UnknownMetric(name.to_owned())),
+            Err(_) => SuppressionError::UnknownMetric(name.to_owned()),
+        };
+        if reported.insert(name) {
+            unusable += 1;
+            if diagnostics.len() < MAX_MARKER_DIAGNOSTICS {
+                diagnostics.push(unusable_name);
+            }
         }
+    }
+    let elided = unusable.saturating_sub(MAX_MARKER_DIAGNOSTICS);
+    if elided > 0 {
+        diagnostics.push(SuppressionError::ElidedDiagnostics(elided));
     }
     (set, diagnostics)
 }
@@ -1106,6 +1161,80 @@ mod tests {
             voiding_diagnostic("// bca: suppress-file generated file"),
             SuppressionError::MalformedBody(_)
         ));
+    }
+
+    #[test]
+    fn a_bare_slash_does_not_open_a_rationale() {
+        // A single `/` used to satisfy `opens_rationale`, so
+        // `// bca: suppress /some/path` became a whole-function
+        // `SuppressionScope::All` marker — every metric on the enclosing
+        // function silenced by a path. The documented grammar names
+        // `//`, and over-suppression is the direction that costs
+        // coverage silently, so the opener is matched in full.
+        assert!(matches!(
+            voiding_diagnostic("// bca: suppress /some/path"),
+            SuppressionError::MalformedBody(_)
+        ));
+        // The two-character form is unaffected; it is the one the module
+        // doc and the malformed-body hint both name.
+        assert!(matches!(
+            marker("// bca: suppress // generated shim").scope,
+            SuppressionScope::All
+        ));
+    }
+
+    #[test]
+    fn unusable_names_are_deduplicated_and_capped_per_marker() {
+        // One diagnostic per *distinct* unusable name, not per token.
+        // Each renders the full suppressible-metric hint, so an
+        // unbounded marker in an untrusted tree is a log flood rather
+        // than a typo report.
+        let repeated = ["nope"; 500].join(",");
+        let scan = parse_marker(&format!("// bca: suppress({repeated})"));
+        assert_eq!(
+            scan.diagnostics,
+            vec![SuppressionError::UnknownMetric("nope".to_owned())],
+            "500 copies of one name must cost exactly one diagnostic",
+        );
+
+        // Distinct names past the cap are elided, but the tail is
+        // *counted*: a silent truncation would understate the marker.
+        let overflow = 5;
+        let distinct: Vec<String> = (0..MAX_MARKER_DIAGNOSTICS + overflow)
+            .map(|i| format!("nope{i}"))
+            .collect();
+        let scan = parse_marker(&format!("// bca: suppress({})", distinct.join(",")));
+        assert_eq!(
+            scan.diagnostics.len(),
+            MAX_MARKER_DIAGNOSTICS + 1,
+            "expected {MAX_MARKER_DIAGNOSTICS} names plus one tail; got {:?}",
+            scan.diagnostics,
+        );
+        assert_eq!(
+            scan.diagnostics.last(),
+            Some(&SuppressionError::ElidedDiagnostics(overflow)),
+            "the elided count must survive the cap; got {:?}",
+            scan.diagnostics,
+        );
+        // The cap never touches the metrics the marker really names.
+        let scan = parse_marker(&format!(
+            "// bca: suppress(cognitive,{})",
+            distinct.join(",")
+        ));
+        let Some(Suppression {
+            scope: SuppressionScope::Some(metrics),
+            ..
+        }) = &scan.suppression
+        else {
+            panic!(
+                "expected an explicit metric set; got {:?}",
+                scan.suppression
+            );
+        };
+        assert!(
+            metrics.contains(&Metric::Cognitive),
+            "capping diagnostics must not narrow the suppression; got {metrics:?}",
+        );
     }
 
     #[test]

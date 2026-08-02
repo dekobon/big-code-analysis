@@ -336,6 +336,39 @@ fn json_emits_all_buckets_with_summary_ignoring_filter() {
     assert_eq!(parsed["added"][0]["value"], 5.0);
 }
 
+/// `EntryDelta` and `ValueDelta` both carry `start_line` as an
+/// `Option` a v6 baseline usually leaves empty (#1170), but `entry()`
+/// hard-codes `Some`, so neither `skip_serializing_if` branch is
+/// otherwise exercised. Deleting either attribute would put a
+/// `"start_line": null` on every entry of every diff, and nothing else
+/// here would notice.
+#[test]
+fn json_omits_start_line_for_an_entry_that_pins_none() {
+    let lineless = |path: &str, value: f64| DiffEntry {
+        path: path.to_string(),
+        qualified: "x".to_string(),
+        metric: "cognitive".to_string(),
+        start_line: None,
+        value,
+    };
+    let old = vec![lineless("a.rs", 10.0)];
+    let new = vec![lineless("a.rs", 12.0), lineless("b.rs", 5.0)];
+    let json = BaselineDiff::compute(&old, &new).render_json().unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    // `added` is an `EntryDelta`; `worsened` is a `ValueDelta`. Both
+    // declare the field separately, so both are asserted.
+    assert_eq!(parsed["added"][0]["path"], "b.rs");
+    assert!(
+        parsed["added"][0].get("start_line").is_none(),
+        "EntryDelta must omit the key, not null it; got: {json}"
+    );
+    assert_eq!(parsed["worsened"][0]["path"], "a.rs");
+    assert!(
+        parsed["worsened"][0].get("start_line").is_none(),
+        "ValueDelta must omit the key, not null it; got: {json}"
+    );
+}
+
 #[test]
 fn file_level_metric_identity_uses_file_sentinel() {
     let old = vec![];

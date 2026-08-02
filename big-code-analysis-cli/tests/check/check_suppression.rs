@@ -311,6 +311,46 @@ fn a_trailing_rationale_suppresses_exactly_like_a_bare_marker() {
         .stdout(predicate::str::contains("many_prose").not())
         .stdout(predicate::str::contains("many_bare").not())
         .stderr(predicate::str::contains("warning:").not());
+
+    // Exit 0 plus an empty stdout is also what a tree with no violation
+    // at all produces, so the assertions above cannot tell "suppressed"
+    // from "never offended". `--no-suppress` supplies the positive
+    // control: with markers ignored, both functions must be reported.
+    cli(dir.path())
+        .args([
+            "check",
+            "--paths",
+            &path,
+            "--threshold",
+            "nargs=5",
+            "--no-suppress",
+        ])
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("many_bare"))
+        .stdout(predicate::str::contains("many_prose"));
+
+    // …and the marker silences only the metric it names. Gating a
+    // second metric the list omits keeps both functions on the report,
+    // which is what separates `SuppressionScope::Some([nargs])` from a
+    // scope-widening `All` — the two are indistinguishable while
+    // `nargs` is the only metric under test.
+    cli(dir.path())
+        .args([
+            "check",
+            "--paths",
+            &path,
+            "--threshold",
+            "nargs=5",
+            "--threshold",
+            "cyclomatic=0",
+        ])
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("cyclomatic"))
+        .stdout(predicate::str::contains("many_bare"))
+        .stdout(predicate::str::contains("many_prose"))
+        .stdout(predicate::str::contains("nargs").not());
 }
 
 #[test]

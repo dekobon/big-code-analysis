@@ -62,6 +62,7 @@ pub(crate) fn run_explain_thresholds(
     tier: TierSpec,
     preproc: Option<Arc<PreprocResults>>,
 ) {
+    reject_summary_file_path(args);
     let candidates = candidate_limits(args);
     // The soft band is derived from the candidate, so the tier the user
     // asked to *gate* at does not apply — the report covers both tiers
@@ -95,6 +96,7 @@ pub(crate) fn run_explain_thresholds(
         layers,
         resolved: &resolved,
         ratio,
+        soft_table_applies: soft_table_applies(layers, &candidates),
     };
     let report: Vec<CandidateOutcome> = candidates
         .iter()
@@ -113,6 +115,12 @@ struct CandidateGate<'a> {
     layers: &'a ParsedThresholds,
     resolved: &'a LanguageThresholds,
     ratio: Option<f64>,
+    /// Whether any *explained* metric carries a `[thresholds.soft]`
+    /// entry. [`resolve_tier`]'s soft branch is all-or-nothing per
+    /// table: one such entry switches the whole table into merge mode,
+    /// and every other explained metric then inherits its hard limit
+    /// with no ratio applied at all.
+    soft_table_applies: bool,
 }
 
 impl CandidateGate<'_> {
@@ -170,10 +178,14 @@ impl CandidateGate<'_> {
     }
 
     /// Where this metric's soft limit came from. A `[thresholds.soft]`
-    /// entry overrides the proportional ratio, so the two are exclusive.
+    /// entry overrides the proportional ratio, so the two are exclusive
+    /// — and a soft table naming *some other* explained metric suppresses
+    /// the ratio for this one without giving it a band of its own.
     fn soft_derivation(&self, metric: &str) -> SoftDerivation {
         if self.layers.soft.contains_key(metric) {
             SoftDerivation::Table
+        } else if self.soft_table_applies {
+            SoftDerivation::Inherited
         } else {
             SoftDerivation::Ratio(self.ratio.unwrap_or(DEFAULT_SOFT_HEADROOM))
         }
@@ -293,8 +305,14 @@ enum SoftDerivation {
     /// A `[thresholds.soft]` entry names this metric, so the soft limit
     /// is that table's value and no ratio was applied to it.
     Table,
-    /// No such entry, so the soft limit is the candidate scaled by the
-    /// proportional ratio in effect.
+    /// A `[thresholds.soft]` table is in force but names only *other*
+    /// explained metrics. `resolve_tier` merges such a table onto the
+    /// hard limits rather than scaling them, so this metric keeps its
+    /// hard limit verbatim and has no soft band at all — reporting a
+    /// ratio here would name an arithmetic step that never ran.
+    Inherited,
+    /// No soft table applies, so the soft limit is the candidate scaled
+    /// by the proportional ratio in effect.
     Ratio(f64),
 }
 
@@ -302,6 +320,9 @@ impl std::fmt::Display for SoftDerivation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Table => f.write_str("[thresholds.soft]"),
+            Self::Inherited => f.write_str(
+                "no soft band; [thresholds.soft] names other metrics, so the hard limit stands",
+            ),
             Self::Ratio(ratio) => write!(f, "{}x", MetricScalar(*ratio)),
         }
     }
@@ -317,11 +338,35 @@ struct LanguageOverride {
     soft: f64,
 }
 
+/// Reject an explicit `--summary-file <path>` alongside the preview.
+///
+/// `--explain-threshold` returns before `emit_check_results`, so the
+/// markdown digest is never appended — the user names a destination and
+/// finds it untouched, which is the silent no-op the structurally
+/// identical `--output` is already a hard usage error for.
+///
+/// Not expressible in the flag's `conflicts_with_all`, which fires on
+/// the *presence* of `--summary-file` and would take the keyword forms
+/// with it. `auto` — the default, and what a GHA workflow leaves
+/// implicit — must keep working: it names no destination of its own, so
+/// producing no step summary is the same thing every other non-gating
+/// run does. Only an explicit path is a promise this command breaks.
+fn reject_summary_file_path(args: &CheckArgs) {
+    if let Some(SummaryFile::Path(path)) = &args.summary_file {
+        die(format_args!(
+            "--explain-threshold cannot be used with --summary-file {}: the \
+             preview replaces the gate, so there are no results to digest \
+             into that file",
+            path.display()
+        ));
+    }
+}
+
 /// Resolve `--explain-threshold` into canonical `metric -> limit` pairs,
 /// rejecting the two ways the request can contradict itself.
 fn candidate_limits(args: &CheckArgs) -> BTreeMap<String, f64> {
     let mut candidates: BTreeMap<String, f64> = BTreeMap::new();
-    for (name, limit) in canonical_cli_thresholds(&args.explain_thresholds) {
+    for (name, limit) in canonical_cli_thresholds("--explain-threshold", &args.explain_thresholds) {
         // Two candidate limits for one metric cannot both be previewed in
         // one walk, and silently keeping the last would answer a question
         // the user did not ask.
@@ -338,7 +383,7 @@ fn candidate_limits(args: &CheckArgs) -> BTreeMap<String, f64> {
     // soft tier — the exact gap this flag exists to close. Letting one sit
     // alongside a candidate for the same metric would make the reported
     // soft limit depend on which layer won, so reject the pairing.
-    for (name, _) in canonical_cli_thresholds(&args.thresholds) {
+    for (name, _) in canonical_cli_thresholds("--threshold", &args.thresholds) {
         if candidates.contains_key(&name) {
             die(format_args!(
                 "--threshold {name}=… and --explain-threshold {name}=… name the same \
@@ -348,6 +393,19 @@ fn candidate_limits(args: &CheckArgs) -> BTreeMap<String, f64> {
         }
     }
     candidates
+}
+
+/// Whether any `[thresholds.soft]` entry survives narrowing to the
+/// explained metrics.
+///
+/// `build_candidate_gate` applies exactly that narrowing before
+/// `resolve_tier` sees the table, and `resolve_tier`'s soft branch is
+/// all-or-nothing per table — so this is the emptiness test that decides
+/// which of its two soft behaviours the preview actually ran.
+fn soft_table_applies(layers: &ParsedThresholds, candidates: &BTreeMap<String, f64>) -> bool {
+    candidates
+        .keys()
+        .any(|metric| layers.soft.contains_key(metric))
 }
 
 /// The limit `set` resolved for `metric`, or `None` when it gates no such

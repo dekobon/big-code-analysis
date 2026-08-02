@@ -658,6 +658,12 @@ mis-matching. Recent transitions:
   still honoured exactly as before. A v6 file read by a pre-v6 bca
   fails to parse (a required field is missing) rather than
   mis-matching; upgrade bca or regenerate with `--write-baseline`.
+  The optionality reaches four rendered surfaces, so an entry with no
+  recorded line changes shape in each: `bca exemptions --format json`
+  omits the `line` key and `bca diff-baseline --format json` omits
+  `start_line` (omitted, never `null`), `bca exemptions --format
+  markdown` renders `-` in the Line column, and the text format drops
+  the `:line` suffix entirely.
 - **v3 → v4** ([#377](https://github.com/dekobon/big-code-analysis/issues/377)):
   entries key on the qualified symbol (`function` renamed to
   `qualified`) plus a `start_line` *tolerance* rather than the exact

@@ -35,7 +35,9 @@ for historical reference.
   top of an existing population. Repeatable, one candidate per metric;
   honours `exclude_tests`, `[check] exclude`, suppression markers,
   `[thresholds.lang.<slug>]` overrides and the baseline exactly as the
-  run it predicts, and always exits 0. This closes the gap that
+  run it predicts, and always exits 0 on success (1 on a tool error,
+  such as a candidate naming a metric this build does not gate). This
+  closes the gap that
   `--threshold` limits are absolute and never scaled, which made the
   one-command way to trial a candidate limit the one way that could not
   show its soft-tier cost.
@@ -170,12 +172,18 @@ for historical reference.
   another — the sole case matching consults it (#1170). Elsewhere the
   field re-rendered on every unrelated edit above a baselined function,
   churning diffs, hiding real value changes in review, and conflicting
-  on every merge between branches. Entry order also drops its
-  line-number tiebreak. v2–v5 baselines read unchanged; a v6 file handed
-  to a pre-v6 `bca` now reports the version mismatch by name instead of
-  a bare serde field error. `bca exemptions` omits the `:line` suffix
-  and `bca diff-baseline --format json` omits the `start_line` key for
-  an entry that pins none.
+  on every merge between branches. Entry order keeps its line-number
+  tiebreak: `start_line` moves from third to last in the sort key, so it
+  now decides only between entries sharing one identity. v2–v5 baselines
+  read unchanged. A baseline written by a *newer* schema now reports the
+  version mismatch by name instead of a bare serde field error; the
+  reverse direction cannot be fixed from here, so a v6 file handed to an
+  already-released pre-v6 `bca` still surfaces the raw error and must be
+  regenerated with `--write-baseline`. An entry that pins no line drops
+  it from every rendering: `bca exemptions` omits the `:line` suffix
+  (text), renders `-` in the Line column (markdown), and omits the
+  `line` key (JSON); `bca diff-baseline --format json` omits
+  `start_line`.
 - `.bca-baseline.toml` is marked `-merge` in `.gitattributes` (#1170).
   The file is generated wholesale, so a textual merge of two branches
   produces hunks that are wrong on *both* sides; git now leaves it

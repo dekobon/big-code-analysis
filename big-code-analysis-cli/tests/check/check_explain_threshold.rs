@@ -610,6 +610,78 @@ fn a_soft_table_entry_is_named_as_the_soft_limits_source() {
     assert_eq!(ratio_derived.soft.limit, "7.6, 0.95x");
 }
 
+/// The third way a soft limit is arrived at, and the one the report
+/// used to misattribute. `resolve_tier`'s soft branch is all-or-nothing
+/// per table: a single `[thresholds.soft]` entry switches the whole
+/// table into merge mode, so an explained metric the table does *not*
+/// name keeps its hard limit with no ratio applied to it at all.
+///
+/// The counts were always right; the annotation was not. `limit 8,
+/// 0.95x` says 8 × 0.95, which is 7.6 — a number that appears nowhere
+/// in the run, on the one command whose entire purpose is to be trusted
+/// for a threshold decision.
+#[test]
+fn a_metric_the_soft_table_omits_reports_no_soft_band() {
+    // A candidate the fixture straddles at *both* tiers: 3 functions
+    // exceed 5, and 9 exceed the 4.75 a ratio would derive. A candidate
+    // above the fixture's whole range would compare 0 against 0 and the
+    // contrast below would hold vacuously.
+    const TIGHT_LIMIT: &str = "nargs=5";
+    const INHERITED_OFFENDERS: usize = 3;
+    const RATIO_OFFENDERS: usize = 9;
+
+    let dir = candidate_tree();
+    fs::write(
+        dir.path().join("bca.toml"),
+        "paths = [\"lib.rs\"]\n[thresholds.soft]\ncognitive = 4\n",
+    )
+    .expect("write manifest");
+
+    let stdout = stdout_of(cli(dir.path()).args([
+        "check",
+        "--explain-threshold",
+        TIGHT_LIMIT,
+        "--explain-threshold",
+        "cognitive=10",
+    ]));
+
+    // The metric the table names still reports the table.
+    assert_eq!(
+        parse_preview(&stdout, "cognitive").soft.limit,
+        "4, [thresholds.soft]",
+    );
+
+    // The metric it omits inherits the candidate verbatim, and says so.
+    let nargs = parse_preview(&stdout, CANDIDATE_METRIC);
+    assert_eq!(
+        nargs.soft.limit,
+        "5, no soft band; [thresholds.soft] names other metrics, \
+         so the hard limit stands",
+    );
+    // Same limit at both tiers means the same offenders at both — the
+    // fact the annotation has to stay consistent with.
+    assert_eq!(nargs.hard.total, INHERITED_OFFENDERS);
+    assert_eq!(nargs.soft.total, INHERITED_OFFENDERS);
+
+    // Seed check: drop the soft table and the identical candidate does
+    // get a ratio-derived band, over a strictly larger population. The
+    // reported line therefore tracks a real difference rather than a
+    // constant that happens to fit.
+    let ratio_derived = parse_preview(
+        &stdout_of(cli(dir.path()).args([
+            "check",
+            "--no-config",
+            "--paths",
+            "lib.rs",
+            "--explain-threshold",
+            TIGHT_LIMIT,
+        ])),
+        CANDIDATE_METRIC,
+    );
+    assert_eq!(ratio_derived.soft.limit, "4.75, 0.95x");
+    assert_eq!(ratio_derived.soft.total, RATIO_OFFENDERS);
+}
+
 #[test]
 fn cluster_fires_when_the_soft_band_sits_on_the_candidate_limit() {
     let dir = candidate_tree();
@@ -803,5 +875,139 @@ fn contradictory_candidates_are_rejected() {
         .code(1)
         .stderr(predicate::str::contains(
             "a --threshold limit is absolute and has no soft tier to preview",
+        ));
+}
+
+/// Every flag the preview refuses to share a run with, and the reason
+/// each is refused: the preview returns before `emit_check_results`, so
+/// a second artifact the user asked for would silently never be
+/// written. Without this the whole `conflicts_with_all` list is
+/// unguarded — dropping `"output"` from it would let
+/// `--explain-threshold X --output f.sarif` run the preview and produce
+/// no document, with nothing failing.
+#[test]
+fn flags_producing_a_second_artifact_are_rejected() {
+    let dir = candidate_tree();
+    let candidate = format!("{CANDIDATE_METRIC}={CANDIDATE_LIMIT}");
+    let out = dir.path().join("artifact.out");
+    let out = out.to_str().expect("utf-8 tempdir path");
+    for extra in [
+        "--write-baseline",
+        "--print-effective-config=json",
+        "--report-format=checkstyle",
+        &format!("--output={out}"),
+    ] {
+        cli(dir.path())
+            .args([
+                "check",
+                "--no-config",
+                "--paths",
+                "lib.rs",
+                "--explain-threshold",
+                &candidate,
+                extra,
+            ])
+            .assert()
+            .code(1)
+            // clap names both sides; asserting only the exit code would
+            // pass on any unrelated usage error.
+            .stderr(predicate::str::contains("--explain-threshold"))
+            .stderr(predicate::str::contains(
+                extra.split('=').next().unwrap_or(extra),
+            ));
+        assert!(
+            !std::path::Path::new(out).exists(),
+            "a rejected run must not have written {out}",
+        );
+    }
+
+    // `--summary-file <path>` is the same silent no-op but cannot ride
+    // on `conflicts_with_all`, which fires on the flag's presence and
+    // would take the keyword forms with it.
+    let summary = dir.path().join("summary.md");
+    let summary = summary.to_str().expect("utf-8 tempdir path");
+    cli(dir.path())
+        .args([
+            "check",
+            "--no-config",
+            "--paths",
+            "lib.rs",
+            "--explain-threshold",
+            &candidate,
+            "--summary-file",
+            summary,
+        ])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains(
+            "--explain-threshold cannot be used with --summary-file",
+        ));
+    assert!(
+        !std::path::Path::new(summary).exists(),
+        "a rejected run must not have written {summary}",
+    );
+
+    // …while `auto` keeps working: it names no destination of its own,
+    // so the preview producing no step summary is what every other
+    // non-gating run does. Rejecting it would break any CI invocation
+    // that passes the keyword explicitly.
+    cli(dir.path())
+        .args([
+            "check",
+            "--no-config",
+            "--paths",
+            "lib.rs",
+            "--explain-threshold",
+            &candidate,
+            "--summary-file",
+            "auto",
+        ])
+        .assert()
+        .code(0);
+}
+
+/// The two typo classes `--threshold` rejects, routed through the same
+/// `normalize_for_check` + `build_tiered` pair — and each message must
+/// name the flag the user actually passed. `canonical_cli_thresholds`
+/// hardcoded `--threshold` for all three of its call sites, so an
+/// ambiguous candidate blamed a flag that was never on the command line.
+#[test]
+fn an_unusable_candidate_metric_is_rejected_naming_this_flag() {
+    let dir = candidate_tree();
+    // A family head with no single scalar: rejected before the walk, by
+    // the name-resolution layer that owns the flag label.
+    cli(dir.path())
+        .args([
+            "check",
+            "--no-config",
+            "--paths",
+            "lib.rs",
+            "--explain-threshold",
+            "halstead=5",
+        ])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains(
+            "--explain-threshold: ambiguous metric \"halstead\"",
+        ))
+        .stderr(predicate::str::contains("halstead.effort"))
+        // The flag the user did not pass must not be blamed.
+        .stderr(predicate::str::contains("--threshold:").not());
+
+    // An unknown name: rejected by the threshold builder, with the
+    // did-you-mean vocabulary.
+    cli(dir.path())
+        .args([
+            "check",
+            "--no-config",
+            "--paths",
+            "lib.rs",
+            "--explain-threshold",
+            "not_a_metric=1",
+        ])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains(
+            "unknown threshold metric \"not_a_metric\"",
         ));
 }

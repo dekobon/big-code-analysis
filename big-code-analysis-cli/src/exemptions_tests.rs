@@ -217,6 +217,66 @@ fn markdown_escapes_pipe_in_path_symbol_and_function_cells() {
     );
 }
 
+/// A v6 baseline records `start_line` only for an entry whose identity
+/// is shared, so most entries render through a `None` branch that no
+/// other fixture in this file reaches — `sample_report` pins `Some(88)`
+/// and the escaping fixture `Some(7)` (#1170).
+///
+/// All three formats are asserted together because each drops the line
+/// a different way — omit the suffix, render `-`, omit the key — and
+/// each is a separate branch. A `unwrap_or(0)` in the text renderer, a
+/// blank markdown cell, or a `"line": null` in the JSON are all changes
+/// the rest of the suite is blind to.
+#[test]
+fn a_lineless_baseline_entry_drops_the_line_in_every_format() {
+    let report = ExemptionsReport {
+        markers: None,
+        excludes: None,
+        baseline: Some(BaselineSection {
+            path: ".bca-baseline.toml".to_owned(),
+            entries: vec![BaselineRow {
+                path: "src/lonely.rs".to_owned(),
+                qualified: "only_one".to_owned(),
+                metric: "cognitive".to_owned(),
+                value: 21.0,
+                start_line: None,
+            }],
+        }),
+    };
+
+    // Text: the `:line` suffix is absent, not filled with a placeholder
+    // that would read as a real line number.
+    let text = report.render(OutputFormat::Text, "").expect("tty render");
+    assert!(
+        text.contains("  src/lonely.rs only_one cognitive 21\n"),
+        "got: {text}"
+    );
+    assert!(
+        !text.contains("src/lonely.rs:"),
+        "no colon-line suffix may survive; got: {text}"
+    );
+
+    // Markdown: a table row cannot omit a cell, so the column reads `-`.
+    let md = report
+        .render(OutputFormat::Markdown, "")
+        .expect("markdown render");
+    assert!(
+        md.contains("| src/lonely.rs | - | only_one | cognitive | 21 |"),
+        "got: {md}"
+    );
+
+    // JSON: the key is omitted rather than nulled, so a consumer reads
+    // "no line recorded" as absence.
+    let json = report.render(OutputFormat::Json, "").expect("json render");
+    let v: Value = serde_json::from_str(&json).expect("valid JSON");
+    let entry = &v["suppressions"]["baseline"][0];
+    assert_eq!(entry["qualified"], "only_one");
+    assert!(
+        entry.get("line").is_none(),
+        "the line key must be omitted, not nulled; got: {json}"
+    );
+}
+
 #[test]
 fn json_nests_three_sections_under_suppressions_envelope() {
     let out = sample_report()
