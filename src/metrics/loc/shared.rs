@@ -57,14 +57,14 @@ use super::*;
 #[inline]
 pub(crate) fn init(node: &Node, stats: &mut Stats, is_func_space: bool) -> (usize, usize) {
     let (start, _) = node.start_position();
-    let (end, end_column) = node.end_position();
+    let (end, _) = node.end_position();
 
     if is_func_space {
         stats.sloc.start = start;
-        stats.sloc.end = end;
-        // The end column, not a unit/non-unit flag, decides whether the
-        // final row belongs to this span — see `span_rows` (#1067).
-        stats.sloc.end_column = end_column;
+        // `Node::end_line`, not the raw end row, and not a unit/non-unit
+        // flag: the end column decides whether the final row belongs to
+        // this span, and that rule lives in one place (#1067, #1163).
+        stats.sloc.end_line = node.end_line();
     }
     (start, end)
 }

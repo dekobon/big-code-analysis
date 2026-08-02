@@ -311,11 +311,6 @@ fn diff_git_new_path(rest: &str) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-/// The last double-quoted top-level token of a `diff --git` header rest, with
-/// its surrounding quotes, or `None` if the header carries no quoted token. A
-/// quoted span is delimited by unescaped `"` and may contain escaped quotes
-/// (`\"`) and spaces, so a quoted path is parsed as a single token here even
-/// when `rsplit(' ')` would shred it.
 /// Index one past the closing quote of the quoted span opening at `start`
 /// (which must be the opening `"`), clamped to `bytes.len()` for an
 /// unterminated span. A `\<x>` escape spans two bytes, so a `\"` inside the
@@ -343,6 +338,11 @@ fn scan_unquoted_span(bytes: &[u8], start: usize) -> usize {
     i
 }
 
+/// The last double-quoted top-level token of a `diff --git` header rest, with
+/// its surrounding quotes, or `None` if the header carries no quoted token. A
+/// quoted span is delimited by unescaped `"` and may contain escaped quotes
+/// (`\"`) and spaces, so a quoted path is parsed as a single token here even
+/// when `rsplit(' ')` would shred it.
 fn last_quoted_token(rest: &str) -> Option<&str> {
     let bytes = rest.as_bytes();
     let mut i = 0;

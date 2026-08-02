@@ -111,12 +111,51 @@ class IgnoreSpans:
         return any(start <= idx < end for start, end in self.spans)
 
 
+def char_literal_end(source: str, i: int) -> int | None:
+    """End index (exclusive) of the char literal at ``i``, else ``None``.
+
+    Rust spells lifetimes (``'a``), anonymous lifetimes (``'_``) and loop
+    labels (``'outer:``) with the same leading quote and no terminator,
+    so the two are told apart by looking for the closing ``'`` rather
+    than by the opener alone. Returning ``None`` for a lifetime is what
+    keeps it from opening a span that swallows the rest of the file.
+    """
+    n = len(source)
+    j = i + 1
+    if j >= n:
+        return None
+    if source[j] == "\\":
+        j += 1
+        if j >= n:
+            return None
+        if source[j] == "u":
+            # '\u{1F600}' — the braced form is the only multi-char escape.
+            close = source.find("}", j)
+            if close == -1:
+                return None
+            j = close + 1
+        else:
+            j += 1
+    else:
+        j += 1
+    return j + 1 if j < n and source[j] == "'" else None
+
+
 def scan_ignore_spans(source: str) -> IgnoreSpans:
-    """Classify comment and string-literal spans in one source walk.
+    """Classify comment and literal spans in one source walk.
 
     String literals are skipped before comment openers are tested, so a
     ``//`` inside a string (or a ``"`` inside a comment) is never
     misread. Rust block comments nest, so their scan tracks depth.
+
+    Char literals are classified for one reason: a ``'"'`` or ``b'"'``
+    holds an unpaired double quote, which would otherwise open a bogus
+    string span running to the next ``"`` anywhere later in the file and
+    hide every match arm in between. That is the "reads as clean"
+    failure this gate exists to prevent, so it must not be the gate's
+    own failure mode — before this was handled,
+    ``src/vcs/git/diff_parse.rs`` probed 4 of its 15 arms and a file
+    could bail invisibly.
     """
     out = IgnoreSpans()
     i = 0
@@ -163,6 +202,14 @@ def scan_ignore_spans(source: str) -> IgnoreSpans:
                     out.spans.append((i, stop))
                     i = stop
                     continue
+        if ch == "'":
+            stop = char_literal_end(source, i)
+            if stop is not None:
+                out.spans.append((i, stop))
+                i = stop
+                continue
+            i += 1
+            continue
         if ch == '"':
             j = i + 1
             while j < n:

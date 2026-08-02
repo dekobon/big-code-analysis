@@ -245,13 +245,27 @@ where
     /// silently report 0 here (#1142).
     fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         if Self::is_func_with_code(node, code, ancestors) {
-            compute_args::<Self>(node, &mut stats.fn_nargs);
+            compute_args::<Self>(&Self::params_owner(node, ancestors), &mut stats.fn_nargs);
             return;
         }
 
         if Self::is_closure(node, ancestors) {
             compute_args::<Self>(node, &mut stats.closure_nargs);
         }
+    }
+
+    /// The node whose `parameters` field holds this function's formal
+    /// arguments. Defaults to the function node itself.
+    ///
+    /// Exists so a language that spells its parameters somewhere other
+    /// than on the function node can say *that* and inherit everything
+    /// else. Overriding [`Self::compute`] to change this one expression
+    /// means re-stating the `is_func_with_code`-not-`is_func` rule and
+    /// the closure fallback, and a language that copied them does not
+    /// pick up a later correction — which is the drift #1142 and #1162
+    /// were both filed about.
+    fn params_owner<'tree>(node: &Node<'tree>, _ancestors: Ancestors<'tree, '_>) -> Node<'tree> {
+        *node
     }
 }
 
@@ -723,16 +737,8 @@ fn java_compact_constructor_record<'tree>(
 }
 
 impl NArgs for JavaCode {
-    fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
-        if Self::is_func_with_code(node, code, ancestors) {
-            let params_owner = java_compact_constructor_record(node, ancestors).unwrap_or(*node);
-            compute_args::<Self>(&params_owner, &mut stats.fn_nargs);
-            return;
-        }
-
-        if Self::is_closure(node, ancestors) {
-            compute_args::<Self>(node, &mut stats.closure_nargs);
-        }
+    fn params_owner<'tree>(node: &Node<'tree>, ancestors: Ancestors<'tree, '_>) -> Node<'tree> {
+        java_compact_constructor_record(node, ancestors).unwrap_or(*node)
     }
 }
 

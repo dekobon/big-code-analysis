@@ -127,17 +127,28 @@ pub(crate) struct WalkFilters<'a> {
 
 impl WalkFilters<'_> {
     /// Does `match_path` pass the include/exclude filters? An empty
-    /// globset is a no-op (no `--include` means "all"; no `--exclude`
-    /// means "none"). `match_path` is the form anchored to the file's
-    /// walk root (#489), so `./`-anchored patterns match regardless of
-    /// how the seed was spelled.
+    /// globset is a no-op (no `--include` means "all"; neither exclude
+    /// set configured means "none"). `match_path` is the form anchored
+    /// to the file's walk root (#489), so `./`-anchored patterns match
+    /// regardless of how the seed was spelled.
+    ///
+    /// Both exclude sets are matched against that same walk-root form.
+    /// Only an explicitly-named seed needs the manifest anchoring
+    /// [`Self::warn_exclude_overridden`] applies — see the
+    /// `manifest_exclude` field for why the two roots coincide on a
+    /// directory walk.
+    ///
+    /// The `is_empty()` arms are not redundant with the match itself:
+    /// `GlobSet::is_match` builds its `Candidate` *before* its own
+    /// empty check, and on Windows that allocates. Every walked file
+    /// reaches this, so an unconfigured set should cost nothing.
     fn passes(&self, match_path: &Path) -> bool {
         // Strip a leading `./` so bare-relative patterns (`dir/**`) match
         // the `./`-anchored walk-root form just like `./dir/**` does (#726).
         let match_path = walk_seed::strip_cur_dir(match_path);
         (self.include.is_empty() || self.include.is_match(match_path))
-            && !self.exclude.is_match(match_path)
-            && !self.manifest_exclude.is_match(match_path)
+            && (self.exclude.is_empty() || !self.exclude.is_match(match_path))
+            && (self.manifest_exclude.is_empty() || !self.manifest_exclude.is_match(match_path))
     }
 
     /// Does `match_path` satisfy only the include allow-list (empty =
@@ -186,7 +197,7 @@ impl WalkFilters<'_> {
         if !self.language_forced && get_language_for_file(seed).is_none() {
             return;
         }
-        let cwd_form = walk_seed::strip_cur_dir(match_path);
+        let cwd_form = walk_seed::CwdForm(walk_seed::strip_cur_dir(match_path));
         // `match_path` is anchored to the working directory, which is
         // the right root only for the globs the caller typed there. A
         // manifest glob is written against the manifest's directory, so
@@ -194,12 +205,13 @@ impl WalkFilters<'_> {
         // every caller standing anywhere but the project root — silent
         // exactly when the override it exists to announce happens
         // (#1164).
-        let manifest_form = walk_seed::manifest_match_path(self.manifest_dir, seed, cwd_form);
-        if let Some(glob) = self
-            .exclude
-            .first_match(cwd_form)
-            .or_else(|| self.manifest_exclude.first_match(&manifest_form))
-        {
+        // Computed inside the `or_else` because anchoring costs a
+        // `current_dir()` syscall and a normalising allocation, and the
+        // CLI set answering first makes both unnecessary.
+        if let Some(glob) = self.exclude.first_match(cwd_form.0).or_else(|| {
+            let manifest_form = walk_seed::manifest_match_path(self.manifest_dir, seed, cwd_form);
+            self.manifest_exclude.first_match(&manifest_form)
+        }) {
             eprintln!(
                 "bca: warning: {} matches an exclude pattern ({glob}) \
                  but was named explicitly; analyzing anyway",

@@ -38,29 +38,27 @@ fn min_or_zero(v: usize) -> u64 {
     if v == usize::MAX { 0 } else { v as u64 }
 }
 
-/// Number of physical source rows covered by a span running from
-/// `start_row` to `(end_row, end_column)`.
+/// Number of physical source rows covered by a span running from the
+/// 0-based `start_row` to the 1-based inclusive `end_line`.
 ///
-/// A span occupies rows `start_row..=end_row`, so the naive count is
-/// `end_row - start_row + 1`. The exception is a span whose end position
-/// sits at column 0: it stops *before* that row contributes a single
-/// character, so the row belongs to whatever follows and must not be
-/// counted. That case is not exotic — tree-sitter's root node runs to
-/// end-of-input, so every newline-terminated file's unit span ends at
-/// `(last_row + 1, 0)`, and tree-sitter-perl's `function_definition`
-/// swallows the newline after the closing brace of a file's last `sub`.
+/// The subtlety is not here — it is in which row counts as the last
+/// one, and that rule lives once, in [`Node::end_line`]: a span whose
+/// end position sits at column 0 stops *before* that row contributes a
+/// single character, so the row belongs to whatever follows. Both
+/// callers take `end_line` straight from the node, so this is plain
+/// subtraction rather than a second copy of the rule.
 ///
 /// Keying on the end column rather than on "is this the unit?" is what
-/// fixes issue #1067: the old unit/non-unit split silently assumed the
-/// unit always ends at column 0 (false for un-newline-terminated input,
-/// which then lost a row) and that nothing else ever does (false for
-/// Perl, whose last `sub` gained one).
+/// fixed issue #1067 here and #1163 in `Node`: the unit/non-unit split
+/// assumed the unit always ends at column 0 (false for un-newline-
+/// terminated input, which then lost a row) and that nothing else ever
+/// does (false for Perl, whose last `sub` gained one).
 ///
-/// Requires `end_row >= start_row`, which tree-sitter guarantees for a
+/// Requires `end_line >= start_row`, which tree-sitter guarantees for a
 /// single node's own span.
 #[inline]
-fn span_rows(start_row: usize, end_row: usize, end_column: usize) -> usize {
-    (end_row - start_row) + usize::from(end_column > 0)
+fn span_rows(start_row: usize, end_line: usize) -> usize {
+    end_line - start_row
 }
 
 mod line_set;
@@ -70,10 +68,10 @@ use line_set::LineSet;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Sloc {
     start: usize,
-    end: usize,
-    // Column of the span's end position. See `span_rows`: it decides
-    // whether the final row is really covered by the span.
-    end_column: usize,
+    // 1-based inclusive last line of the span, from `Node::end_line`.
+    // Storing the resolved line rather than the raw end row plus its
+    // column keeps the "does the final row count" rule in one place.
+    end_line: usize,
     // Physical lines removed from this space's span by `exclude_tests`
     // pruning. `sloc` is the lone loc sub-metric computed by span
     // subtraction rather than node-by-node accumulation, so a pruned
@@ -91,8 +89,7 @@ impl Default for Sloc {
     fn default() -> Self {
         Self {
             start: 0,
-            end: 0,
-            end_column: 0,
+            end_line: 0,
             excluded_lines: 0,
             sloc_min: usize::MAX,
             sloc_max: 0,
@@ -106,9 +103,8 @@ impl Sloc {
     #[must_use]
     pub fn sloc(&self) -> u64 {
         // This metric counts the number of physical lines this space
-        // occupies, including blanks and comments. See `span_rows` for why
-        // the end column decides whether the last row counts.
-        let span = span_rows(self.start, self.end, self.end_column);
+        // occupies, including blanks and comments.
+        let span = span_rows(self.start, self.end_line);
         // Subtract the lines belonging to `exclude_tests`-pruned subtrees
         // (issue #722). `saturating_sub` is defensive: `excluded_lines`
         // can never exceed the span (each pruned subtree is contained in
@@ -119,9 +115,10 @@ impl Sloc {
 
     /// Records a pruned (`exclude_tests`) subtree's row span so that
     /// `sloc()` drops in step with the node-accumulated loc sub-metrics.
-    /// The arguments are the pruned node's own start row and end position;
-    /// its row count follows the same `span_rows` rule the enclosing span
-    /// was measured with, so the subtraction cannot overshoot.
+    /// The arguments are the pruned node's own start row and
+    /// `Node::end_line`; its row count follows the same rule the
+    /// enclosing span was measured with, so the subtraction cannot
+    /// overshoot.
     ///
     /// Pruned subtrees are whole Rust items (`mod`/`fn`/`impl`/…) that
     /// rustfmt places on dedicated rows, so they share no physical line
@@ -130,8 +127,8 @@ impl Sloc {
     /// pruned item is never recorded twice). The counts therefore add
     /// without an interval merge (issue #722).
     #[inline]
-    pub(crate) fn exclude_span(&mut self, start_row: usize, end_row: usize, end_column: usize) {
-        self.excluded_lines += span_rows(start_row, end_row, end_column);
+    pub(crate) fn exclude_span(&mut self, start_row: usize, end_line: usize) {
+        self.excluded_lines += span_rows(start_row, end_line);
     }
 
     /// The `Sloc` metric minimum value. See `min_or_zero` for the
@@ -480,10 +477,9 @@ impl Stats {
     pub(crate) fn with_cloc_sloc(code_comment_lines: usize, sloc_end_row: usize) -> Self {
         let mut stats = Stats::default();
         stats.sloc.start = 0;
-        stats.sloc.end = sloc_end_row;
-        // Non-zero so the final row counts: the synthetic span models a
-        // real span ending mid-line, giving `sloc == sloc_end_row + 1`.
-        stats.sloc.end_column = 1;
+        // `end_row + 1`: the synthetic span models a real one ending
+        // mid-line, so the final row counts and `sloc == sloc_end_row + 1`.
+        stats.sloc.end_line = sloc_end_row + 1;
         // Inject `code_comment_lines` distinct synthetic code-comment
         // rows. An offset past `sloc_end_row` keeps them disjoint from
         // any real span row, so `cloc()` (the set's cardinality) equals
@@ -522,13 +518,8 @@ impl Stats {
     /// (issue #722). Called from the walker for the space enclosing each
     /// skipped subtree.
     #[inline]
-    pub(crate) fn exclude_test_span(
-        &mut self,
-        start_row: usize,
-        end_row: usize,
-        end_column: usize,
-    ) {
-        self.sloc.exclude_span(start_row, end_row, end_column);
+    pub(crate) fn exclude_test_span(&mut self, start_row: usize, end_line: usize) {
+        self.sloc.exclude_span(start_row, end_line);
     }
 
     /// The `Sloc` metric.
@@ -717,10 +708,9 @@ impl Stats {
         self.blank_max = self.blank_max.max(blank);
     }
 
-    pub(crate) fn init_unit_span(&mut self, start: usize, end: usize, end_column: usize) {
+    pub(crate) fn init_unit_span(&mut self, start: usize, end_line: usize) {
         self.sloc.start = start;
-        self.sloc.end = end;
-        self.sloc.end_column = end_column;
+        self.sloc.end_line = end_line;
     }
 }
 
@@ -9458,8 +9448,8 @@ class A {
         let mut stats = Stats::default();
         // A single-row span ending mid-line => sloc() of 1 row.
         stats.sloc.start = 0;
-        stats.sloc.end = 0;
-        stats.sloc.end_column = 1;
+        // End row 0 ending mid-line, so that row counts: sloc() == 1.
+        stats.sloc.end_line = 1;
         // ploc() is the cardinality of the physical-line set => 1.
         stats.ploc.lines.insert(0);
         // One comment-only line on the same single row.
@@ -10372,8 +10362,9 @@ class A {
         assert_eq!(loc.blank(), 0);
     }
 
-    /// Degenerate inputs, pinned so the `end_column` rule cannot drift
-    /// into fabricating rows for files that have none.
+    /// Degenerate inputs, pinned so the end-column rule in
+    /// `Node::end_line` cannot drift into fabricating rows for files
+    /// that have none.
     #[test]
     fn degenerate_inputs_report_their_real_row_count() {
         // No bytes, no rows.

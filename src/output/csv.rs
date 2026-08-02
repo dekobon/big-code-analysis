@@ -677,9 +677,9 @@ d""#
         // Match the JSON serializer convention: integer-valued f64s
         // render as `42`, not `42.0`.
         let mut space = empty_space("root", SpaceKind::Unit, 1, 1);
-        // Force a known LOC value via the public API. A span ending at
-        // column 0 of row 42 covers rows 0..41, so this yields 42.
-        space.metrics.loc.init_unit_span(0, 42, 0);
+        // Force a known LOC value via the public API. A span whose last
+        // occupied line is 42, starting at row 0, covers 42 rows.
+        space.metrics.loc.init_unit_span(0, 42);
         let out = render(&space, Path::new("a.rs"));
         let row = out.lines().nth(1).expect("data row");
         let cells: Vec<&str> = row.split(',').collect();
