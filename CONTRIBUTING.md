@@ -106,6 +106,57 @@ of [`AGENTS.md`](AGENTS.md).
 `make ci` runs the same checks without auto-fix, mirroring the GitHub
 Actions behaviour.
 
+### Reading the verdict
+
+Both gates end with exactly one machine-readable line on stdout:
+
+```text
+BCA_GATE: pass (gate=pre-commit)
+BCA_GATE: fail (gate=pre-commit, exit=2, stage=_pc-fmt)
+```
+
+Grep for a line *starting* `BCA_GATE:` — nothing else in the repository
+emits one, there is exactly one per run, and it is the last thing either
+gate writes.
+
+Do **not** read an outcome out of make's `Error N` lines. The gate is a
+parallel DAG, so `make[2]: *** [… _pc-fmt] Error 2` is printed the
+instant a stage fails, while other stages are still running — it is
+routinely followed by several more stages' *successful* output. In one
+measured run the failing stage was reported at line 58 of a 236-line
+log, with 174 lines of green output after it.
+
+`stage=` lists every stage make reported as failing, comma-separated in
+the order reported: under `-j` the first failure stops *scheduling*, but
+stages already running finish and can fail too. It reads `unknown` when
+the gate died before make named a stage.
+
+**No `BCA_GATE:` line at all is a third state, not a pass.** It means
+the run never finished — it crashed, was killed, or was interrupted. On
+the failure path make appends its own `make: *** [… pre-commit] Error 2`
+epilogue after the verdict, because the gate exits non-zero and make
+says so; the verdict line does not change either gate's exit status.
+
+Capture a run like this:
+
+```bash
+log=$(mktemp /tmp/bca-pre-commit.XXXXXX.log)
+make pre-commit >"$log" 2>&1
+grep '^BCA_GATE:' "$log"
+```
+
+Two habits that idiom encodes:
+
+- **Give every run its own log path.** A fixed `/tmp/pc.log` is shared
+  by every checkout, worktree, and tool on the host. During one batch a
+  concurrent run's log was read as this one's, and a `fmt-check` failure
+  was diagnosed against code that had never been touched.
+- **Read the verdict from the log, not from a reported exit status.**
+  Some tooling reports the status of the last command on the line, so
+  `make pre-commit >log 2>&1; echo "EXIT=$?"` announces `echo`'s
+  success. That is a property of the caller, not of make; the log is
+  the thing that is true either way.
+
 If GNU Make 4 or any optional tool is unavailable, fall back to the
 raw cargo trio:
 

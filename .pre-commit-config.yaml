@@ -138,6 +138,16 @@ repos:
         entry: python3 -m unittest -q utils/worktree-setup-test.py
         pass_filenames: false
 
+      # Self-tests for the pre-commit/ci verdict line. gate-status.sh is
+      # what stands between a red gate and a log that reads as green, so
+      # a logic change there re-runs them (#1172).
+      - id: gate-status-test
+        name: gate-status-test
+        language: system
+        files: '^utils/gate-status(-test)?\.sh$'
+        entry: bash utils/gate-status-test.sh
+        pass_filenames: false
+
       # Sync-test for check-grammar-crate.py's EXTENSIONS table against
       # src/langs.rs (#869). Re-runs when the script, its test, or the
       # source-of-truth language table changes.
