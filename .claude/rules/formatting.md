@@ -41,9 +41,63 @@ bails for exactly the reason above. In this repository the
 because of its `Else /* else-if also */ =>` arm; delete that comment and
 rustfmt reformats the whole body.
 
+## Measuring it
+
+`make rustfmt-bail` (`utils/check-rustfmt-bail.py`, #1136) is the
+measurement. It over-indents **every** match arm in every tracked Rust
+file, pipes each through `rustfmt --emit stdout`, and counts the arms
+that come back untouched. Per-file counts live in
+`.rustfmt-bail-baseline.txt`; increases fail, decreases are silent and
+ratchet with `--update`. It is wired into `make lint`, so
+`make pre-commit` and `make ci` already run it.
+
+`./utils/check-rustfmt-bail.py --show <file>` names each stuck arm with
+its line number, which is what you want before editing anything.
+
+Three things that version gets right and the hand-rolled probe below
+did not:
+
+- **It feeds rustfmt on stdin.** Given a *path*, rustfmt resolves and
+  recurses into `mod` declarations, so `src/getter.rs` and
+  `src/metrics/cognitive.rs` error out with "file not found for module"
+  — which reads exactly like a bail if stderr is discarded. On stdin
+  there is nothing to resolve, so those two probe like any other file.
+  There is no unprobeable-file class.
+- **It ignores `=>` inside string literals and comments.** A bare regex
+  over the text matches the JS, C# and TypeScript fixtures these test
+  modules are full of (`const add = (a, b) => a + b`, `public int W =>
+  _w`) and Groovy's spaceship (`a <=> b`). rustfmt never rewrites string
+  contents, so every one of those reads as a permanent bail: the naive
+  probe reported 15 in `src/metrics/nom.rs`, 8 in `wmc.rs`, 3 in
+  `nargs.rs` and 37 in `cyclomatic.rs`, and **all of them were string
+  literals**. Do not act on a count from a probe that skips this step.
+- **It probes every arm, not the first.** The bail is match-scoped, so a
+  file whose first `match` formats cleanly still hides a later one that
+  does not (`src/getter/c.rs`), and a module whose arms are all
+  expression-bodied (`… => HalsteadType::Operator,` in
+  `src/getter/go.rs`) has no `=> {` to probe at all. Over `src/getter`
+  the first-arm-only version gave 11 false verdicts out of 18.
+
+## Two causes, one measurement
+
+An entry in the baseline means rustfmt declined to format that region.
+It does not tell you why, and there is more than one why:
+
+1. **A comment inside a match pattern** — this rule. Hoist it above the
+   arm.
+2. **A `macro_rules!` body rustfmt cannot parse** — a metavariable in a
+   position that is not valid Rust, such as the pattern repetition
+   `$ternary $(| $short_circuit)+` in `impl_cyclomatic_c_family!`. No
+   comment is involved and hoisting one fixes nothing.
+
+Metavariables alone do not cause a bail: `js_cognitive!` interpolates
+`$lang` and still formats once its in-pattern comment is hoisted. So
+check with `--show` before concluding either way. The baseline file
+names the known cause-2 entries.
+
 ## Where it currently bites
 
-Thirty-six sites, and **not** confined to `src/metrics/` — the
+Thirty-six cause-1 sites, and **not** confined to `src/metrics/` — the
 per-language `Getter` modules are the largest cluster:
 
 - `src/getter/`: `bash.rs`, `c.rs`, `cpp.rs`, `csharp.rs`, `elixir.rs`,
@@ -62,67 +116,13 @@ per-language `Getter` modules are the largest cluster:
 `loc/tcl.rs` and `loc/irules.rs` were on that last list until #1135
 hoisted their in-pattern comment above the arm.
 
-That list is a snapshot — regenerate it rather than trusting it, since
-it moves whenever an arm gains or loses a comment, and since a
-directory nobody has swept yet reads as clean. The `src/metrics/`-only
-framing survived two revisions of this file for exactly that reason,
-while `src/getter/` — where the bail is close to universal — went
-unmentioned. Run the script over every directory of per-language
-modules, not just the one you happen to be editing.
-
-The script over-indents **every** arm header in the file, not just the
-first. Probing one arm is not enough: the bail is match-scoped, so a
-file whose first `match` formats cleanly still reports `ok` while a
-later one bails (`src/getter/c.rs`), and a module whose arms are all
-expression-bodied (`… => HalsteadType::Operator,` in
-`src/getter/go.rs`) has no `=> {` to probe at all. Both shapes read as
-clean.
-
-```bash
-# Prints modules rustfmt refuses to format. Run from the repo root, e.g.
-#   ./thisscript src/getter
-#   ./thisscript src/metrics/cognitive
-dir=${1:?usage: $0 <dir>}; tmp=$(mktemp -d); cp "$dir"/*.rs "$tmp/"
-for f in "$tmp"/*.rs; do
-  python3 - "$f" <<'PY'
-import pathlib, re, subprocess, sys
-
-path = pathlib.Path(sys.argv[1])
-lines = path.read_text().split("\n")
-arms = [i for i, l in enumerate(lines)
-        if re.match(r"^\s{4,}(_|[A-Za-z_|].*?)\s*(if .*)?=>", l)]
-if not arms:
-    print(f"SKIP  {path.name} (no match arms)")
-    raise SystemExit
-# Over-indent every arm header, then see which ones rustfmt puts back.
-want = {i: lines[i].strip() for i in arms}
-for i in arms:
-    lines[i] = " " * 30 + want[i]
-path.write_text("\n".join(lines))
-run = subprocess.run(["rustfmt", "--edition", "2024", str(path)],
-                     capture_output=True, text=True)
-# Do not discard stderr: a file with `mod` decls errors out, which is
-# not the same thing as a bail.
-if run.returncode or run.stderr.strip():
-    print(f"ERROR {path.name}: {run.stderr.strip().splitlines()[0]}")
-    raise SystemExit
-after = path.read_text().split("\n")
-pad = " " * 30
-kept = {l[30:] for l in after if l.startswith(pad)}
-stuck = set(want.values()) & kept
-print(f"BAILS {path.name}: {len(stuck)} arm(s)" if stuck
-      else f"ok    {path.name}")
-PY
-done; rm -rf "$tmp"
-```
-
-`ERROR` is not `BAILS`. A file carrying `mod` declarations cannot
-resolve them outside its own tree, so rustfmt refuses the whole file;
-for those (`src/getter.rs`, `src/metrics/cognitive.rs`) perturb one
-line in place, run `cargo fmt --all`, and check that line by number.
-Doing that to `src/getter.rs`'s macro body is the sharpest single
-demonstration of this whole rule: `cargo fmt --all` exits `0` and
-leaves the line over-indented.
+That list is a snapshot — run the gate rather than trusting it, since it
+moves whenever an arm gains or loses a comment, and since a directory
+nobody has swept yet reads as clean. The `src/metrics/`-only framing
+survived two revisions of this file for exactly that reason, while
+`src/getter/` — where the bail is close to universal — went unmentioned.
+The gate now sweeps every tracked Rust file, so no directory can go
+unmentioned again.
 
 ## Why it matters
 
@@ -146,13 +146,19 @@ reported clean, and every one was found by reading the diff instead.
 
   Expect some pre-existing hits in test string literals containing `\n`;
   those cannot be wrapped and are not what you are looking for.
-- To decide whether a specific region is affected, perturb *that region*
-  and check *that line* by number. Two traps, both of which have already
-  produced a wrong answer here:
-  - Suppressing stderr. A leaf module formats standalone, but a file
-    with `mod` declarations cannot resolve them outside its own tree, so
-    rustfmt errors out — which reads as a bail if you discard the
-    message.
+- To decide whether a specific region is affected, run
+  `./utils/check-rustfmt-bail.py --show <file>`; it names each stuck arm
+  by line. If you perturb by hand instead, three traps, all of which
+  have already produced a wrong answer here:
+  - Suppressing stderr. A leaf module formats standalone, but if you
+    pass rustfmt a *path* to a file with `mod` declarations it cannot
+    resolve them outside its own tree and errors out — which reads as a
+    bail if you discard the message. Feeding the text on stdin avoids
+    the whole class.
+  - Counting `=>` inside string literals. These modules are full of JS
+    and C# fixtures; rustfmt never rewrites string contents, so a probe
+    that does not skip them reports permanent bails in files that have
+    no bail at all.
   - Grepping for the restored indentation instead of checking the
     perturbed line. Another untouched line elsewhere in the file matches
     the pattern and reports a false "formatted". Likewise, perturbing a
