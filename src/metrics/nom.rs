@@ -1358,6 +1358,32 @@ mod tests {
         );
     }
 
+    /// Regression for #1160: `compact_constructor_declaration` was absent
+    /// from `JavaCode::is_func`, so a record's compact constructor was
+    /// invisible to every metric keyed on that predicate — `nom` included.
+    ///
+    /// The delegating `R(int a)` is the control: it is an ordinary
+    /// `constructor_declaration` and was always counted, so a fixture with
+    /// only the compact form could not distinguish "counted once" from
+    /// "counted as the other constructor".
+    #[test]
+    fn java_record_compact_constructor_counts_as_a_function() {
+        check_metrics::<JavaParser>(
+            "record R(int a, int b) {
+                 R { if (a < 0) { throw new IllegalArgumentException(); } }
+                 R(int a) { this(a, 0); }
+                 int sum() { return a + b; }
+             }",
+            "R.java",
+            |metric| {
+                // compact constructor + delegating constructor + sum().
+                // Pre-fix this reported 2.
+                assert_eq!(metric.nom.functions_sum(), 3);
+                assert_eq!(metric.nom.closures_sum(), 0);
+            },
+        );
+    }
+
     #[test]
     fn java_closure_nom() {
         check_metrics::<JavaParser>(

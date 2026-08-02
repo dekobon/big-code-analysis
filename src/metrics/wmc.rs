@@ -1348,6 +1348,76 @@ mod tests {
         );
     }
 
+    /// Regression for #1160: a record's compact constructor parses as
+    /// `compact_constructor_declaration`, not `constructor_declaration`,
+    /// so it opened no `SpaceKind::Function` space and its cyclomatic
+    /// never reached the record's WMC.
+    ///
+    /// The two constructor spellings coexist here deliberately. JLS
+    /// 8.10.4 forbids declaring the *canonical* constructor both
+    /// compactly and normally, but an alternative constructor delegating
+    /// with `this(…)` is legal alongside a compact one — and each must
+    /// open its own space even though both are named `R`.
+    #[test]
+    fn java_record_compact_and_alternative_constructors_open_two_spaces() {
+        check_func_space::<JavaParser, _>(
+            "record R(int a, int b) {
+                 R {                                      // entry +1, if +1
+                     if (a < 0) { throw new IllegalArgumentException(); }
+                 }
+                 R(int a) { this(a, 0); }                 // entry +1
+             }",
+            "R.java",
+            |space| {
+                assert_child_space_kind(&space, "R", SpaceKind::Class);
+                let record = child_space(&space, "R");
+                let constructors = record
+                    .spaces
+                    .iter()
+                    .filter(|child| child.kind == SpaceKind::Function)
+                    .count();
+                assert_eq!(constructors, 2, "compact + delegating constructor spaces");
+                // 2 (compact: entry + `if`) + 1 (delegating: entry).
+                // Pre-fix the compact constructor contributed nothing and
+                // this read 1.
+                assert_eq!(record.metrics.wmc.class_wmc(), 3);
+            },
+        );
+    }
+
+    /// Control for #1160: a record with no constructor is unchanged.
+    /// `Java::RecordDeclaration` sits in `Checker::is_func_space` (#280)
+    /// and is what opens the class space the compact constructor now
+    /// nests inside — the record still opens one class space holding
+    /// exactly its one declared method.
+    ///
+    /// It holds in both directions, deliberately: #1160 touched `is_func`
+    /// and `get_space_kind`, not `is_func_space`, so no perturbation of
+    /// that change can make this fail. It is here to state the boundary
+    /// of the change, not to cover a line — the `RecordDeclaration` arm
+    /// itself is covered by #280's tests.
+    #[test]
+    fn java_record_without_constructor_opens_only_its_methods() {
+        check_func_space::<JavaParser, _>(
+            "record R(int a, int b) {
+                 int sum() { return a + b; }     // entry +1
+             }",
+            "R.java",
+            |space| {
+                assert_child_space_kind(&space, "R", SpaceKind::Class);
+                let record = child_space(&space, "R");
+                let functions: Vec<_> = record
+                    .spaces
+                    .iter()
+                    .filter(|child| child.kind == SpaceKind::Function)
+                    .map(|child| child.name.as_deref())
+                    .collect();
+                assert_eq!(functions, vec![Some("sum")]);
+                assert_eq!(record.metrics.wmc.class_wmc(), 1);
+            },
+        );
+    }
+
     // Regression for issue #280: Java `AnnotationTypeDeclaration` must
     // open a `SpaceKind::Interface` FuncSpace (the `is_func_space`
     // change) AND must not aggregate WMC because annotation type

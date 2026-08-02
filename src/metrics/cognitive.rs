@@ -664,7 +664,7 @@ implement_metric_trait!(Cognitive, PreprocCode, CcommentCode);
 )]
 mod tests {
     use crate::test_support::{
-        check_func_space_only_shim, check_metrics_only_shim, function_space,
+        check_func_space_only_shim, check_metrics_only_shim, child_space, function_space,
     };
 
     use super::*;
@@ -4297,6 +4297,117 @@ mod tests {
             |metric| {
                 assert_eq!(metric.cognitive.cognitive_sum(), 5);
                 assert_eq!(metric.cognitive.cognitive_max(), 3);
+            },
+        );
+    }
+
+    /// Regression for #1160: a record's compact constructor is its own
+    /// grammar kind (`compact_constructor_declaration`), which was absent
+    /// from `is_func`, `get_space_kind`, and the boundary arm in
+    /// `cognitive/java.rs`. It therefore opened no function space and its
+    /// control flow was charged to the enclosing class, so `bca check`
+    /// could never flag one however complex it got.
+    ///
+    /// expected: each `if` is +1 at nesting 0, so `function R` scores 2
+    /// while `class R` scores 0 of its own. Both halves are asserted:
+    /// checking only the new space would still pass if the class kept a
+    /// duplicate count of the same two branches.
+    #[test]
+    fn java_record_compact_constructor_opens_function_space() {
+        check_func_space::<JavaParser, _>(
+            "record R(int a, int b) {
+                 R {
+                     if (a < 0) { throw new IllegalArgumentException(); }
+                     if (b < 0) { throw new IllegalArgumentException(); }
+                 }
+                 int sum() { return a + b; }
+             }",
+            "R.java",
+            |space| {
+                let class = child_space(&space, "R");
+                assert_eq!(class.kind, SpaceKind::Class, "record opens a class space");
+                assert_eq!(class.metrics.cognitive.cognitive(), 0, "class R own score");
+                // Also pins the space name: the compact form carries a
+                // `name` field holding the record's simple name, so the
+                // default `get_func_space_name` reports `R` rather than
+                // `<anonymous>`.
+                assert_eq!(
+                    function_space(&space, "R").metrics.cognitive.cognitive(),
+                    2,
+                    "compact constructor own score",
+                );
+            },
+        );
+    }
+
+    /// The compact constructor is a *function boundary*, not merely a
+    /// space: #1160 added it to the arm that resets structural nesting and
+    /// to the `stops` set behind the function-depth surcharge. The
+    /// reproducer above cannot see either — at nesting 0 with no enclosing
+    /// function both lines are no-ops — so each gets a fixture that only
+    /// it can satisfy.
+    ///
+    /// The first nests a *local record* (Java 16+) two conditionals deep,
+    /// per the two-level rule in
+    /// `java_nested_method_resets_nesting_and_adds_depth`: at one level
+    /// the reset and the surcharge cancel out.
+    /// expected: outer `if` +1, inner `if` +2, the compact constructor's
+    /// `if` +1 base +1 depth (it is lexically inside `m`) = 5. Without the
+    /// reset the last `if` inherits nesting 2 and scores +3, for 6.
+    ///
+    /// The second inverts the nesting: a local class method inside a
+    /// compact constructor. Only the `stops` entry makes the constructor
+    /// count as `f`'s enclosing function.
+    /// expected: `f`'s `if` is +1 base +1 depth = 2. Without the `stops`
+    /// entry the surcharge is 0 and it scores 1.
+    #[test]
+    fn java_record_compact_constructor_is_a_function_boundary() {
+        check_func_space::<JavaParser, _>(
+            "class C {
+                 void m(boolean f) {
+                     if (f) {
+                         if (f) {
+                             record R(int a) {
+                                 R {
+                                     if (a < 0) { throw new IllegalArgumentException(); }
+                                 }
+                             }
+                         }
+                     }
+                 }
+             }",
+            "C.java",
+            |space| {
+                assert_eq!(
+                    space.metrics.cognitive.cognitive_sum(),
+                    5,
+                    "local record's compact constructor restarts nesting",
+                );
+                assert_eq!(
+                    function_space(&space, "R").metrics.cognitive.cognitive(),
+                    2,
+                    "compact constructor: +1 base, +1 function depth",
+                );
+            },
+        );
+
+        check_func_space::<JavaParser, _>(
+            "record R(int a) {
+                 R {
+                     class L {
+                         void f(boolean b) {
+                             if (b) { g(); }
+                         }
+                     }
+                 }
+             }",
+            "R.java",
+            |space| {
+                assert_eq!(
+                    function_space(&space, "f").metrics.cognitive.cognitive(),
+                    2,
+                    "a compact constructor is `f`'s enclosing function",
+                );
             },
         );
     }

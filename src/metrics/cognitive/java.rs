@@ -63,12 +63,22 @@ impl Cognitive for JavaCode {
             // construct (Java local / member classes) inherited the
             // enclosing nesting and every nested method missed the
             // SonarSource B-nesting amplification (#696).
-            MethodDeclaration | ConstructorDeclaration => {
+            //
+            // A record's compact constructor is its own kind
+            // (`compact_constructor_declaration`) rather than a
+            // `constructor_declaration`, so it needs listing in both the
+            // arm and the `stops` set — otherwise its body's control flow
+            // is charged to the enclosing class space (#1160).
+            MethodDeclaration | ConstructorDeclaration | CompactConstructorDeclaration => {
                 enter_function_boundary(
                     &mut nesting,
                     node,
                     ancestors,
-                    &[MethodDeclaration, ConstructorDeclaration],
+                    &[
+                        MethodDeclaration,
+                        ConstructorDeclaration,
+                        CompactConstructorDeclaration,
+                    ],
                 );
             }
             _ => {}

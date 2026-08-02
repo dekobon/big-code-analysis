@@ -415,7 +415,9 @@ impl Exit for ElixirCode {
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::test_support::check_metrics_only_shim;
+    use crate::test_support::{
+        check_func_space_only_shim, check_metrics_only_shim, child_space, function_space,
+    };
 
     use super::*;
 
@@ -423,6 +425,7 @@ mod tests {
     // also what this module's one `metric.nom.functions_sum()`
     // assertion reads.
     check_metrics_only_shim!(check_metrics, Nexits);
+    check_func_space_only_shim!(check_func_space, Nexits);
 
     /// A `Stats::default()` that never sees an
     /// observation must not leak the `usize::MAX` sentinel for
@@ -2326,6 +2329,46 @@ end",
                   "max": 2
                 }
                 "#
+                );
+            },
+        );
+    }
+
+    /// #1160 is an *attribution* bug, and `nexits` is where that shows
+    /// most plainly: the file-level sum never moved, so only a per-space
+    /// assertion can see it. The compact constructor's `throw` belonged
+    /// to the enclosing `class R` because the constructor opened no space
+    /// of its own.
+    ///
+    /// Both halves are asserted. `class R`'s own count must be 0 — the
+    /// aggregate `nexits_sum` is 2 either way, so checking only the new
+    /// space would pass against the unfixed code as long as the space
+    /// existed at all.
+    #[test]
+    fn java_record_compact_constructor_owns_its_exits() {
+        check_func_space::<JavaParser, _>(
+            "record R(int a, int b) {
+                 R {
+                     if (a < 0) { throw new IllegalArgumentException(); }
+                 }
+                 int sum() { return a + b; }
+             }",
+            "R.java",
+            |space| {
+                assert_eq!(
+                    space.metrics.nexits.nexits_sum(),
+                    2,
+                    "one throw, one return"
+                );
+                assert_eq!(
+                    child_space(&space, "R").metrics.nexits.nexits(),
+                    0,
+                    "class R owns neither",
+                );
+                assert_eq!(
+                    function_space(&space, "R").metrics.nexits.nexits(),
+                    1,
+                    "the compact constructor owns its throw",
                 );
             },
         );

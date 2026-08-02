@@ -39,8 +39,23 @@ impl Checker for JavaCode {
         )
     }
 
+    // A record's compact constructor (`record R(int a) { R { … } }`, JLS
+    // 8.10.4) parses as its own `compact_constructor_declaration` kind
+    // rather than as a `constructor_declaration`, so it has to be listed
+    // separately. It is a constructor in every sense that matters here —
+    // it has a body, it can be arbitrarily complex, and it is where
+    // record validation conventionally lives — so it opens a function
+    // space alongside the canonical spelling (#1160). Everything keyed on
+    // `is_func` follows for free: `Nom`, `NArgs`, `Npm`'s
+    // `direct_child_funcs`, and the space tree that `Wmc` and `NExits`
+    // are attributed through.
     fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        node.kind_id() == Java::MethodDeclaration || node.kind_id() == Java::ConstructorDeclaration
+        matches!(
+            node.kind_id().into(),
+            Java::MethodDeclaration
+                | Java::ConstructorDeclaration
+                | Java::CompactConstructorDeclaration
+        )
     }
 
     fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
