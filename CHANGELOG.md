@@ -41,6 +41,21 @@ for historical reference.
   `--threshold` limits are absolute and never scaled, which made the
   one-command way to trial a candidate limit the one way that could not
   show its soft-tier cost.
+- `make rustfmt-bail` (`utils/check-rustfmt-bail.py` plus
+  `.rustfmt-bail-baseline.txt`), a gate that blocks new match arms
+  rustfmt silently refuses to format (#1136). A comment inside a match
+  *pattern* makes rustfmt emit the enclosing match verbatim while
+  `cargo fmt --check` still exits 0, so those matches sat outside the
+  formatting gate entirely — 36 of them, concentrated in exactly the
+  per-language modules where this project's most common change shape, a
+  bulk edit mirrored across sibling modules, lands. The gate mirrors the
+  snapshot-anchor pattern: per-file counts, fail on increase, silent on
+  decrease, `--update` to ratchet, wired into `make lint` and therefore
+  `make pre-commit` / `make ci`. It reports the two distinct causes it
+  cannot tell apart — a hoistable in-pattern comment, and a
+  `macro_rules!` body rustfmt cannot parse, which is permanent — so the
+  baseline does not send the next reader hunting for a comment that
+  does not exist.
 - `make worktree-setup`: one idempotent bootstrap for a fresh clone or
   `git worktree` (#1171). Checks out the integration corpora under
   `tests/repositories/` and the Python-bindings venv, classifying each
@@ -142,6 +157,20 @@ for historical reference.
 
 ### Changed
 
+- This repository's own `bca.toml` gates `cognitive` at 15, the shipped
+  default, instead of the pre-#1140 folklore value of 25 (#1143). This
+  is self-scan configuration only — no public API, no metric
+  computation, nothing a consumer sees. The old limit was inert: the
+  measured maximum here is 20, so 25 could never fire. Re-deriving the
+  statistic #1140 used against this tree gives p97.5 = 15 exactly, so
+  the shipped default and a local re-derivation agree. Of the 18
+  offenders convergence surfaced, 10 were genuinely simplified and 8
+  suppressed with a reason; the 14 further entries added to
+  `.bca-baseline.toml` all sit *at* 15 rather than over it, where a
+  baseline entry keeps the growth alarm that a suppression marker would
+  discard. `nargs` stays at 7 and `nargs` 6 → 5 is tracked separately
+  in #1183, since converging onto a population's ceiling buys permanent
+  baseline entries for no hard-tier gain.
 - **(behaviour change)** `bca check` writes its offender rows to
   **stdout** instead of stderr (#1167). The rows are the command's
   product, so `bca check | wc -l`, `| head`, `| rg -c` and
@@ -642,6 +671,73 @@ for historical reference.
 
 ### Fixed
 
+- **Metric values move.** A Java record's compact constructor
+  (`record R(int a) { R { … } }`) now opens its own function space
+  instead of charging its body to the enclosing class (#1160).
+  `cognitive`, `cyclomatic` and `nexits` move from the record's class
+  space onto the constructor's; `nom`, `npm.class_methods` /
+  `class_npm_sum` and `wmc` each count it; and `nargs` reports the
+  record's component count, so the compact and canonical spellings of
+  one constructor score identically. `bca check` can flag a compact
+  constructor for the first time — previously it could never be flagged
+  however complex it got.
+- **Metric values move.** The JS-family cognitive function-boundary
+  rule now applies to `method_definition` and to `function_expression`
+  nodes the `Checker` calls functions, not to `function_declaration`
+  alone, and the function-depth `stops` list carries the same kinds
+  (#1159). A method or bound function expression defined inside
+  conditionals no longer inherits the enclosing nesting, and a
+  `function` declared inside a method now takes the depth surcharge.
+  JavaScript / TypeScript / TSX / MozJS values move in **both**
+  directions — 544 corpus values up and 14 down, the increases
+  dominated by declarations inside IIFE module wrappers, which now take
+  the surcharge they always should have.
+- **Metric values move.** ABC now counts the condition and both branch
+  operands of a Ruby ternary, and the condition of a Python conditional
+  expression, bringing both level with Java and the C family (#1161).
+  Ruby's `a ? !b : !c` went from 1 to 4; Python's `a if c() else b`
+  from 1 to 2. Tcl and iRules remain unwired pending their broader
+  Phase 2B slot routing (#1180), and Bash's ABC is keyword-driven by
+  design rather than expression-driven, so its arithmetic ternary is
+  not a gap — the deviation table now says so, since "scores 0" and
+  "not applicable" read the same to a reader.
+- A space's `end_line` is keyed on the node's end column rather than on
+  its `SpaceKind` (#1163). A Perl function that is the last item in a
+  file reported a span one row past its parent unit and past EOF, which
+  is not a representable tree and is the shape that produced the
+  `usize` underflow in #1051 — `bca check` offender lines, the SARIF
+  `region` and any editor integration slice source by these spans. The
+  `SpaceKind::Unit` arm's missing `+ 1` was never a statement about
+  units; it was a statement about nodes that end at column 0, which the
+  root always does. `bca functions` computed the same quantity a third
+  way with no unit case at all, and is fixed with them; sources with no
+  trailing newline reported a unit span one row short in *every*
+  language, observable only through the verbatim library API.
+- `bca functions`, `bca find --type function` and `bca count --type
+  function` reported nothing at all for Elixir sources (#1162). Elixir's
+  `def` / `defp` / `defmacro` are not distinct grammar productions but
+  `Call` nodes whose target identifier spells the keyword, so a
+  byte-less predicate cannot see them; both seams now read the source
+  bytes, as `bca metrics` and `bca ops` already did. The `Ast::functions`
+  and `Ast::find` library seams and the web `/function` endpoint were
+  affected identically. A cross-language parity test now pins that every
+  named `Function`-kind space in the `metrics()` tree appears in
+  `functions()`, which is the invariant that would have caught this seam
+  and #1130's together.
+- `[check] exclude` and `exclude` globs from a `bca.toml` are resolved
+  against the manifest's directory rather than the caller's working
+  directory (#1164), so an exemption written for the project root holds
+  when `bca check <file>` is invoked from a subdirectory. `[check]
+  exclude` is the one exclude surface documented as surviving an
+  explicit path — #1146 steered the agent-feedback hooks and this
+  repository's own dev-tooling exemptions at it for exactly that
+  reason — and the guarantee silently did not hold whenever the
+  caller's cwd was not the manifest root, which for a per-file editor
+  hook is unpredictable. The `--exclude` override warning added in
+  #1146 was anchored by the same helper and went silent under the same
+  conditions; it is fixed with them. CLI `--check-exclude` / `--exclude`
+  globs stay relative to the working directory, because that is where
+  the user typed them.
 - A threshold written with the bare `bca diff --metric` alias (`sloc`,
   `ploc`, `lloc`, `cloc`, `blank`) now *overrides* the same metric's
   dotted spelling instead of adding a second, independent threshold
