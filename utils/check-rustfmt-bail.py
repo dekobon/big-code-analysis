@@ -324,6 +324,20 @@ def discover_targets(root: pathlib.Path) -> list[pathlib.Path]:
     )
 
 
+def baseline_key(path: pathlib.Path, root: pathlib.Path) -> str:
+    """The baseline's spelling of ``path``: repo-relative when it is under
+    ``root``, absolute otherwise.
+
+    A named file outside the repository has no repo-relative spelling, and
+    ``Path.relative_to`` raises rather than saying so — an argument typo
+    then surfaces as a traceback instead of a probe result.
+    """
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
 def collect_counts(
     files: list[pathlib.Path], root: pathlib.Path, rustfmt: str = "rustfmt"
 ) -> tuple["OrderedDict[str, int]", "OrderedDict[str, str]"]:
@@ -333,7 +347,7 @@ def collect_counts(
     counts: "OrderedDict[str, int]" = OrderedDict()
     errors: "OrderedDict[str, str]" = OrderedDict()
     for path, (status, count, message) in zip(files, results):
-        rel = path.relative_to(root).as_posix()
+        rel = baseline_key(path, root)
         if status == "ERROR":
             errors[rel] = message
         elif count:
@@ -417,7 +431,7 @@ def _show(files: list[pathlib.Path], root: pathlib.Path, rustfmt: str) -> int:
     for path in files:
         source = path.read_text(encoding="utf-8")
         status, count, message = probe_file(path, rustfmt)
-        rel = path.relative_to(root).as_posix()
+        rel = baseline_key(path, root)
         if status == "ERROR":
             print(f"ERROR {rel}: {message}")
             continue

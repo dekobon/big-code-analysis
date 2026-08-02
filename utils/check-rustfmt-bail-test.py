@@ -230,6 +230,26 @@ class ProbeTest(unittest.TestCase):
         self.assertEqual(gate.probe_source(source)[:2], ("ok", 0))
 
 
+class BaselineKeyTest(unittest.TestCase):
+    """A named file outside the repository must not crash the gate."""
+
+    def test_path_under_root_is_repo_relative(self) -> None:
+        root = pathlib.Path("/repo")
+        self.assertEqual(
+            gate.baseline_key(root / "src" / "lib.rs", root), "src/lib.rs"
+        )
+
+    def test_path_outside_root_keeps_its_absolute_form(self) -> None:
+        # `Path.relative_to` raises here rather than reporting that the
+        # path is elsewhere, so an argument typo used to surface as a
+        # traceback from inside the thread pool instead of a probe result.
+        root = pathlib.Path("/repo")
+        self.assertEqual(
+            gate.baseline_key(pathlib.Path("/elsewhere/f.rs"), root),
+            "/elsewhere/f.rs",
+        )
+
+
 @unittest.skipUnless(HAVE_RUSTFMT, "rustfmt not installed")
 class MainTest(unittest.TestCase):
     """The gate's exit codes over a synthetic tree."""

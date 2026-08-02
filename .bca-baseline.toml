@@ -681,7 +681,7 @@ value = 7.0
 path = "src/metrics/nargs.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 546.0
+value = 542.0
 
 [[entry]]
 path = "src/metrics/nargs.rs"
@@ -855,7 +855,7 @@ value = 7.0
 path = "src/spaces/compute.rs"
 qualified = "metrics_inner"
 metric = "halstead.effort"
-value = 122031.61766024183
+value = 120010.12175375846
 
 [[entry]]
 path = "src/suppression.rs"
