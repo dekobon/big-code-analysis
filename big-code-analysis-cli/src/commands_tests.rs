@@ -766,12 +766,19 @@ fn scale_threshold_preserves_large_exact_products() {
 #[test]
 #[allow(clippy::float_cmp)] // ratio == 1.0 must be a bit-exact identity.
 fn scale_threshold_ratio_one_is_identity() {
-    for &limit in &[0.0, 7.0, 15.0, 300.0, 50_000.0] {
+    // `8.3` is the case a grid-exact list cannot see: its double sits a
+    // hair above the decimal, so `8.3 * 1e5` is `830000.0000000001` and
+    // a bare `ceil` in the floor direction promotes it to `8.30001` —
+    // a soft floor strictly *above* the hard one on a run documented as
+    // parity. Every other limit here is already on the sig-fig grid, so
+    // it passes whether or not the snap exists.
+    for &limit in &[0.0, 7.0, 8.3, 15.0, 300.0, 50_000.0] {
         for lower_is_worse in [false, true] {
-            // Division by 1.0 is exact, and rounding up a value already
-            // on the sig-fig grid is a no-op, so the floor direction is
-            // a bit-exact identity too.
-            assert_eq!(scale_threshold(limit, 1.0, lower_is_worse), limit);
+            assert_eq!(
+                scale_threshold(limit, 1.0, lower_is_worse),
+                limit,
+                "limit {limit} lower_is_worse {lower_is_worse}",
+            );
         }
     }
 }
