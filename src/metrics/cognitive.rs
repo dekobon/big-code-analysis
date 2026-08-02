@@ -426,7 +426,9 @@ macro_rules! js_cognitive {
                         matches!(id.into(), AMPAMPEQ | PIPEPIPEEQ | QMARKQMARKEQ)
                     });
                 }
-                FunctionDeclaration => {
+                FunctionDeclaration | MethodDefinition | FunctionExpression
+                    if Self::is_func(node, ancestors) =>
+                {
                     // The JS family takes the shared function-boundary
                     // rule plus one extra channel: `nesting.lambda` is
                     // reset too, which no other language does. A `function`
@@ -435,13 +437,52 @@ macro_rules! js_cognitive {
                     // arrow's lambda surcharge. That third statement is why
                     // this arm spells the pair out rather than calling
                     // `enter_function_boundary` (#1103).
+                    //
+                    // The kind set is `is_js_func!` minus `ArrowFunction`,
+                    // and the `function_expression` half is re-derived by
+                    // asking `Self::is_func` rather than copied flat, because
+                    // `function_expression` covers both a function and a
+                    // closure. `check_if_func!` is what separates them: its
+                    // ancestor walk marks the expression a function when a
+                    // binding frame (`var x = …`, `x = …`, `label:`, object
+                    // `pair`) is reached before a positional one, and its
+                    // `$extra` disjunct additionally marks any expression
+                    // carrying its own `identifier` name child. So
+                    // `const f = function () {}` and `run(function f () {})`
+                    // are functions, while `run(function () {})` is a closure
+                    // and must keep falling through to `_`. That
+                    // classification is inherited from `is_func`, not
+                    // endorsed here — it is also what makes `nom` call the
+                    // same node a function or a closure, so cognitive
+                    // disagreeing with it would be the larger bug.
+                    // `ArrowFunction` stays out because it owns the lambda
+                    // channel in the arm below. Listing `FunctionDeclaration`
+                    // alone left a method or a bound function expression
+                    // inheriting the enclosing conditional nesting (#1159).
+                    //
+                    // `stops` takes bare kinds, so re-applying that gate to
+                    // an *ancestor* would mean changing
+                    // `increment_function_depth`'s signature. Leaving it
+                    // ungated is deliberate rather than a shortcut: an
+                    // anonymous IIFE is a lexical function scope —
+                    // `get_space_kind` maps every `function_expression` to
+                    // `SpaceKind::Function` — so a `function` declared inside
+                    // one really is nested in a function. `ArrowFunction` is
+                    // knowingly absent, and because the `nesting.lambda = 0`
+                    // above also wipes the arrow's surcharge, an arrow
+                    // ancestor contributes nothing at all: `(function () {
+                    // function g() {…} })()` charges `g` a depth of 1 where
+                    // `(() => { function g() {…} })()` charges 0. Closing
+                    // that gap means deciding what a lambda ancestor is worth
+                    // across every language — the deferred half of #1159 —
+                    // rather than settling it in one arm.
                     nesting.conditional = 0;
                     nesting.lambda = 0;
                     increment_function_depth(
                         &mut nesting.function_depth,
                         node,
                         ancestors,
-                        &[FunctionDeclaration],
+                        &[FunctionDeclaration, MethodDefinition, FunctionExpression],
                     );
                 }
                 ArrowFunction => {
@@ -9349,6 +9390,163 @@ end",
                 );
             },
         );
+    }
+
+    /// Asserts the JS-family function-boundary rule over every shape
+    /// #1159 moves, for one instantiating language.
+    ///
+    /// `js_cognitive!` listed `FunctionDeclaration` alone, so a
+    /// `method_definition` or a bound `function_expression` opened its own
+    /// `SpaceKind::Function` space — `get_space_kind` maps both — while
+    /// inheriting the enclosing conditional nesting and skipping the
+    /// function-depth surcharge. Its `stops` list was short by the same
+    /// two kinds, which is a separately observable bug: the reset shows on
+    /// a definition nested in *conditionals*, the `stops` entry on one
+    /// nested in another *function*. Both are covered below, plus the two
+    /// shapes the fix must leave alone.
+    fn check_js_function_boundary<T: ParserTrait>(filename: &str) {
+        fn score(space: &FuncSpace, name: &str) -> u64 {
+            function_space(space, name).metrics.cognitive.cognitive()
+        }
+
+        // expected: `outer`'s two `if`s are +1 and +2, so `outer` scores
+        // 3. The definition nested inside them restarts structural
+        // nesting at 0, so its own `if` costs +1 base plus +1 function
+        // depth (it is lexically inside `outer`) = 2 — the score the same
+        // body written as a `function_declaration` already had, which is
+        // why that form is asserted here as the control.
+        //
+        // Two conditional levels are load-bearing. At one level the
+        // missing reset (+1) and the missing surcharge (-1) cancel and
+        // both implementations report 2, so a one-level fixture cannot
+        // discriminate.
+        for (label, definition) in [
+            (
+                "function_declaration",
+                "function inner(c) { if (c) { return 1; } }",
+            ),
+            (
+                "method_definition",
+                "class I { inner(c) { if (c) { return 1; } } }",
+            ),
+            (
+                "function_expression",
+                "const inner = function (c) { if (c) { return 1; } };",
+            ),
+        ] {
+            let source =
+                format!("function outer(a, b) {{ if (a) {{ if (b) {{ {definition} }} }} }}");
+            check_func_space::<T, _>(&source, filename, |space| {
+                assert_eq!(
+                    score(&space, "outer"),
+                    3,
+                    "{label}: enclosing function's own score",
+                );
+                assert_eq!(
+                    score(&space, "inner"),
+                    2,
+                    "{label}: nested definition restarts structural nesting",
+                );
+            });
+        }
+
+        // The `stops` half, on a definition nested in another function
+        // rather than in conditionals.
+        // expected: `inner`'s `if` is +1 base plus +1 function depth = 2.
+        // With the enclosing kind absent from `stops` the surcharge is 0
+        // and `inner` scores 1.
+        for (label, source) in [
+            (
+                "method_definition",
+                "class I { m() { function inner(c) { if (c) { return 1; } } } }",
+            ),
+            (
+                "function_expression",
+                "const m = function () { function inner(c) { if (c) { return 1; } } };",
+            ),
+        ] {
+            check_func_space::<T, _>(source, filename, |space| {
+                assert_eq!(
+                    score(&space, "inner"),
+                    2,
+                    "{label}: +1 base, +1 depth from the enclosing definition",
+                );
+            });
+        }
+
+        // An *anonymous* `function_expression` used positionally fails
+        // `check_if_func!` and is a *closure*, so it must keep falling
+        // through to `_` and inheriting the enclosing nesting. This is what
+        // pins that the gate was re-derived rather than the kind list
+        // copied flat: an ungated arm resets here and reports 2, because
+        // `outer` is a `FunctionDeclaration` and so a `stops` entry.
+        // Anonymity is load-bearing — `check_if_func!`'s `$extra` disjunct
+        // makes `run(function named (c) {…})` a function, and `nom` agrees.
+        // expected: nesting.conditional 2 from `outer`'s two `if`s, so the
+        // callback's own `if` costs +3. The `nom` assertion states the
+        // premise — that this shape really is on the closure side of
+        // `is_func` / `is_closure` — rather than leaving it implied.
+        check_func_space::<T, _>(
+            "function outer(a, b) {
+                 if (a) { if (b) { run(function (c) { if (c) { return 1; } }); } }
+             }",
+            filename,
+            |space| {
+                assert_eq!(
+                    space.metrics.nom.closures_sum(),
+                    1,
+                    "a positional function expression is a closure",
+                );
+                assert_eq!(
+                    score(&space, "<anonymous>"),
+                    3,
+                    "a closure inherits the enclosing conditional nesting",
+                );
+            },
+        );
+
+        // `ArrowFunction` was deliberately left out of the boundary set —
+        // it owns the lambda channel in `js_cognitive!`'s `ArrowFunction`
+        // arm — so sweeping it in is the other way to get this fix wrong.
+        // expected: nesting.conditional 2 from `outer`'s two `if`s plus
+        // nesting.lambda 1 from the arrow, so its `if` costs +4. A
+        // boundary arm that swept `ArrowFunction` in would report 2.
+        check_func_space::<T, _>(
+            "function outer(a, b) {
+                 if (a) { if (b) { const inner = (c) => { if (c) { return 1; } }; } }
+             }",
+            filename,
+            |space| {
+                assert_eq!(
+                    score(&space, "inner"),
+                    4,
+                    "an arrow function keeps the lambda channel",
+                );
+            },
+        );
+    }
+
+    // One `#[test]` per language instantiating `js_cognitive!`: the macro
+    // body is shared but each grammar's `kind_id`s are its own, so a
+    // per-language enum drift is invisible from a single language's run.
+    #[test]
+    fn javascript_function_boundary_covers_methods_and_function_expressions_1159() {
+        check_js_function_boundary::<JavascriptParser>("foo.js");
+    }
+
+    #[test]
+    fn mozjs_function_boundary_covers_methods_and_function_expressions_1159() {
+        check_js_function_boundary::<MozjsParser>("foo.js");
+    }
+
+    #[test]
+    fn typescript_function_boundary_covers_methods_and_function_expressions_1159() {
+        check_js_function_boundary::<TypescriptParser>("foo.ts");
+    }
+
+    #[test]
+    fn tsx_function_boundary_covers_methods_and_function_expressions_1159() {
+        check_js_function_boundary::<TsxParser>("foo.tsx");
     }
 
     #[test]
