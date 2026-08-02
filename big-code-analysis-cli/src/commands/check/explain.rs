@@ -69,10 +69,7 @@ pub(crate) fn run_explain_thresholds(
     // default leaves it at `DEFAULT_SOFT_HEADROOM`, which is what
     // `make self-scan-headroom` and every other proportional soft gate
     // use.
-    let ratio = match tier {
-        TierSpec::Hard => None,
-        TierSpec::Soft(r) => r,
-    };
+    let ratio = tier.ratio();
     let resolved = Arc::new(build_candidate_gate(layers, &candidates, ratio));
 
     let CollectedViolations {
