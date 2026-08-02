@@ -197,10 +197,7 @@ fn relative_tail(path: &std::path::Path, root: &std::path::Path) -> Option<PathB
 /// lexical rather than `canonicalize`: it needs no filesystem access,
 /// it cannot fail on a path that no longer exists, and it agrees with
 /// how the baseline keys the very same file.
-pub(crate) fn root_relative_match_path(
-    root: &std::path::Path,
-    path: &std::path::Path,
-) -> Option<PathBuf> {
+fn root_relative_match_path(root: &std::path::Path, path: &std::path::Path) -> Option<PathBuf> {
     let absolute = if path.is_relative() {
         std::env::current_dir().ok()?.join(path)
     } else {
