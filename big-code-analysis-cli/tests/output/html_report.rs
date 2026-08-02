@@ -148,21 +148,17 @@ fn report_html_is_deterministic_across_runs() {
 #[test]
 fn report_html_strip_prefix_removes_path_prefix() {
     let fp = fixture_path();
-    let prefix = {
-        let idx = fp
-            .find("DeepSpeech/")
-            .expect("fixture contains DeepSpeech/");
-        &fp[..idx]
-    };
+    let prefix = common::corpus_fixture_strip_prefix();
+    let suffix = common::corpus_fixture_suffix();
     let output = cli()
-        .args(["report", "--paths", &fp, "html", "--strip-prefix", prefix])
+        .args(["report", "--paths", &fp, "html", "--strip-prefix", &prefix])
         .output()
         .expect("invocation");
     assert!(output.status.success());
     let body = String::from_utf8(output.stdout).expect("utf-8");
     assert!(
-        body.contains("DeepSpeech/stats.py"),
-        "stripped path should appear in HTML report"
+        body.contains(&suffix),
+        "stripped path {suffix:?} should appear in HTML report"
     );
     // `--strip-prefix` rewrites the per-file table paths only. The provenance
     // footer (issue #680) deliberately records the literal seed path the user

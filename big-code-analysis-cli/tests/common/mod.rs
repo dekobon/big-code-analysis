@@ -73,6 +73,44 @@ pub fn corpus_fixture_path() -> String {
         .expect("fixture path is utf-8")
 }
 
+/// The tail of [`corpus_fixture_path`] below the corpus root —
+/// `DeepSpeech/stats.py` — in the platform's own spelling.
+///
+/// Built by joining the same components [`corpus_fixture_path`] joins,
+/// never from a literal. `bca` renders a report row with whatever
+/// separator the walker was handed, and `--strip-prefix` is a plain
+/// `str::strip_prefix`, so a test that spells this `"DeepSpeech/stats.py"`
+/// asserts a unix path shape. That passed here and failed the
+/// `windows-latest` leg the moment #1171 replaced a single
+/// `join("tests/repositories/DeepSpeech/stats.py")` — whose embedded
+/// slashes survive on Windows — with per-component joins.
+#[allow(dead_code)]
+pub fn corpus_fixture_suffix() -> String {
+    std::path::Path::new(FIXTURE_CORPUS)
+        .join(FIXTURE_FILE)
+        .into_os_string()
+        .into_string()
+        .expect("fixture suffix is utf-8")
+}
+
+/// The `--strip-prefix` value that reduces [`corpus_fixture_path`] to
+/// exactly [`corpus_fixture_suffix`].
+///
+/// Derived by removing the one from the other rather than by rebuilding
+/// the parent, so `prefix + suffix == corpus_fixture_path()` holds by
+/// construction on every platform — the property both `report
+/// --strip-prefix` tests depend on.
+#[allow(dead_code)]
+pub fn corpus_fixture_strip_prefix() -> String {
+    let full = corpus_fixture_path();
+    let suffix = corpus_fixture_suffix();
+    full.strip_suffix(&suffix)
+        .unwrap_or_else(|| {
+            panic!("fixture path {full:?} does not end with its corpus-relative suffix {suffix:?}")
+        })
+        .to_owned()
+}
+
 /// `Some(diagnostic)` when `file` is missing from the `corpus`
 /// submodule under `workspace_root`; `None` when it is present.
 ///
