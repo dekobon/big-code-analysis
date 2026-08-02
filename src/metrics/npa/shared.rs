@@ -170,6 +170,11 @@ pub(crate) fn ruby_attr_macro_name(call: &Node, source: &[u8]) -> Option<&'stati
 // via the methods that wrap them, so the visibility flag at the point
 // of declaration is what `npa` should reflect.
 pub(crate) fn ruby_walk_class_body(body: &Node, source: &[u8], stats: &mut Stats) {
+    // bca: suppress(cognitive) — grammar dispatch match, clearest whole
+    // One pass over the body carrying Ruby's body-wide visibility flag, with
+    // an arm per attribute-declaring shape (`@x = …`, `attr_*` macros). The
+    // flag must be readable at every arm, so the arms cannot be lifted out
+    // without threading it back through each helper.
     use Ruby::*;
 
     let mut visibility = RubyVisibility::Public;

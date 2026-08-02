@@ -20,7 +20,8 @@ use std::rc::Rc;
 
 use big_code_analysis::metric_catalog::MetricScope;
 use big_code_analysis::{
-    CodeMetrics, FuncSpace, Metric, SpaceKind, SuppressionPolicy, threshold_metric_for_name,
+    CodeMetrics, FuncSpace, Metric, SpaceKind, SuppressionPolicy, SuppressionScope,
+    threshold_metric_for_name,
 };
 use serde::Deserialize;
 
@@ -678,6 +679,89 @@ struct ResolvedThreshold {
     scope: MetricScope,
 }
 
+/// The suppression state of one [`ThresholdSet::evaluate_with_policy`] walk.
+///
+/// All three fields are constant for every `(space, threshold)` pair the walk
+/// visits, so they travel together rather than as three parallel parameters.
+struct SuppressionContext<'a> {
+    /// Whether in-source markers are honored at all. `--no-suppress`
+    /// (`SuppressionPolicy::Ignore`) clears it, emitting every threshold
+    /// violation regardless of source markers.
+    honor: bool,
+    /// Keep suppressed violations, tagged, instead of dropping them.
+    report_suppressed: bool,
+    /// The top-level Unit's markers — every `allow-file` marker in the file.
+    /// They apply to every nested function as well, so each per-function
+    /// check ORs them with the function's own scope.
+    file_scope: &'a SuppressionScope,
+}
+
+impl ResolvedThreshold {
+    /// The [`Violation`] this threshold produces for `space`, or `None` when
+    /// the pair is out of scope, within the limit, or suppressed.
+    ///
+    /// A method on the threshold rather than inlined in the walk: the walk's
+    /// job is to visit every space and stamp qualified symbols, and this is
+    /// the orthogonal question of whether one metric breaches on one space.
+    fn violation_for(
+        &self,
+        space: &FuncSpace,
+        qualified: &str,
+        path: &Path,
+        ctx: &SuppressionContext<'_>,
+    ) -> Option<Violation> {
+        // Per-metric scope gate (#969): a metric's subtree accessor read at
+        // the file root or a container is a sum across many functions, not a
+        // per-function value, so skip the (space, threshold) pair whose scope
+        // excludes this space kind. Runs before the breach/suppression logic,
+        // so an out-of-scope pair never produces a `Violation` and composes
+        // trivially with suppression and the baseline.
+        if !self.scope.admits(space.kind) {
+            return None;
+        }
+        let value = (self.extractor.extract)(&space.metrics);
+        // Direction-aware gate (#698): for the lower-is-worse `mi.*` family a
+        // value *below* the limit is the violation; every other metric
+        // breaches by going *above* it. A NaN value (degenerate
+        // Halstead-derived MI on a trivial space) fails both comparisons and
+        // is never flagged, matching the prior `value <= limit`
+        // higher-is-worse behavior.
+        if !breaches_limit(value, self.limit, self.lower_is_worse) {
+            return None;
+        }
+        // A metric is suppressed when policy honors markers and an applicable
+        // file- or function-scope marker covers it. Normally such offenders
+        // are dropped (never reach the gate). Under `--report-suppressed`
+        // they are kept and tagged so the code-scan document can surface them
+        // as suppressed alerts — but they still never count toward the gate
+        // or exit code (see `Violation::suppressed`).
+        //
+        // On the root iteration `space` *is* the file root, so the OR below
+        // evaluates the same `BTreeSet::contains` twice on the same
+        // reference. The second probe is O(log n) on a tiny set and dominated
+        // by the walk itself; keeping the OR uniform avoids a special case.
+        let suppressed = ctx.honor
+            && threshold_metric_for_name(self.extractor.name)
+                .is_some_and(|kind| ctx.file_scope.covers(kind) || space.suppressed.covers(kind));
+        if suppressed && !ctx.report_suppressed {
+            return None;
+        }
+        Some(Violation {
+            path: path.to_path_buf(),
+            start_line: space.start_line,
+            end_line: space.end_line,
+            function: qualified.to_owned(),
+            metric: self.extractor.name,
+            value,
+            limit: self.limit,
+            hard_limit: self.hard_limit,
+            lower_is_worse: self.lower_is_worse,
+            body_hash: None,
+            suppressed,
+        })
+    }
+}
+
 /// Whether the metric named `name` is lower-is-worse (the `mi.*`
 /// Maintainability Index family). Thin alias for the library catalog's
 /// [`big_code_analysis::metric_catalog::lower_is_worse`] — the single
@@ -869,19 +953,13 @@ impl ThresholdSet {
         report_suppressed: bool,
         out: &mut Vec<Violation>,
     ) {
-        // The top-level Unit's `suppressed` carries every `allow-file`
-        // marker in the file; it ORs with each function's own scope
-        // during the per-violation check below. `honor` gates the
-        // entire suppression path so `--no-suppress` (Ignore) emits
-        // every threshold violation regardless of source markers.
-        //
-        // On the root iteration `current` *is* `space`, so the OR
-        // below evaluates the same `BTreeSet::contains` twice on the
-        // same reference. The second probe is O(log n) on a tiny set
-        // and dominated by the threshold-check loop itself; keeping
-        // the OR uniform avoids a special-case branch.
-        let honor = matches!(policy, SuppressionPolicy::Honor);
-        let file_scope = &space.suppressed;
+        // Resolved once for the whole walk; see [`SuppressionContext`] and
+        // [`ResolvedThreshold::violation_for`] for how each field is applied.
+        let ctx = SuppressionContext {
+            honor: matches!(policy, SuppressionPolicy::Honor),
+            report_suppressed,
+            file_scope: &space.suppressed,
+        };
 
         // Each stack frame carries the qualified-symbol prefix of the
         // popped space's *parent* chain (issue #377), so a violation can
@@ -894,64 +972,11 @@ impl ThresholdSet {
         let mut stack: Vec<(&FuncSpace, Rc<str>)> = vec![(space, Rc::from(""))];
         while let Some((current, parent_prefix)) = stack.pop() {
             let qualified = qualified_symbol(current, &parent_prefix);
-            for entry in &self.entries {
-                let ResolvedThreshold {
-                    extractor,
-                    limit,
-                    hard_limit,
-                    lower_is_worse,
-                    scope,
-                } = entry;
-                // Per-metric scope gate (#969): a metric's subtree
-                // accessor read at the file root or a container is a sum
-                // across many functions, not a per-function value, so skip
-                // the (space, threshold) pair whose scope excludes this
-                // space kind. Runs before the breach/suppression logic, so
-                // an out-of-scope pair never produces a `Violation` and
-                // composes trivially with suppression and the baseline.
-                if !scope.admits(current.kind) {
-                    continue;
-                }
-                let value = (extractor.extract)(&current.metrics);
-                // Direction-aware gate (#698): for the lower-is-worse
-                // `mi.*` family a value *below* the limit is the
-                // violation; every other metric breaches by going
-                // *above* it. A NaN value (degenerate Halstead-derived
-                // MI on a trivial space) fails both comparisons and is
-                // never flagged, matching the prior `value <= limit`
-                // higher-is-worse behavior.
-                let breached = breaches_limit(value, *limit, *lower_is_worse);
-                if !breached {
-                    continue;
-                }
-                // A metric is suppressed when policy honors markers and an
-                // applicable file- or function-scope marker covers it.
-                // Normally such offenders are dropped (never reach the
-                // gate). Under `--report-suppressed` they are kept and
-                // tagged so the code-scan document can surface them as
-                // suppressed alerts — but they still never count toward the
-                // gate or exit code (see `Violation::suppressed`).
-                let suppressed = honor
-                    && threshold_metric_for_name(extractor.name).is_some_and(|kind| {
-                        file_scope.covers(kind) || current.suppressed.covers(kind)
-                    });
-                if suppressed && !report_suppressed {
-                    continue;
-                }
-                out.push(Violation {
-                    path: path.to_path_buf(),
-                    start_line: current.start_line,
-                    end_line: current.end_line,
-                    function: qualified.clone(),
-                    metric: extractor.name,
-                    value,
-                    limit: *limit,
-                    hard_limit: *hard_limit,
-                    lower_is_worse: *lower_is_worse,
-                    body_hash: None,
-                    suppressed,
-                });
-            }
+            out.extend(
+                self.entries
+                    .iter()
+                    .filter_map(|entry| entry.violation_for(current, &qualified, path, &ctx)),
+            );
             // Children inherit this space's qualified symbol as their
             // prefix, except the file root, which stays empty so a
             // top-level function is `foo`, not `<file>::foo`. Building

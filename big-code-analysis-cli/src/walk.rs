@@ -436,6 +436,54 @@ pub(crate) fn expand_seed_paths(
     }
 }
 
+/// Handle one entry produced by [`walk_directory_seed`]'s parallel walker:
+/// forward a matching file down `tx`, or warn about (and tally) an error.
+///
+/// A free function rather than the closure body it was extracted from, because
+/// `ignore`'s `build_parallel().run(|| Box::new(move |entry| …))` API nests the
+/// visitor two closures deep. Cognitive complexity charges a nesting increment
+/// per enclosing lambda, so four decisions scored 16 there against 5 here — and
+/// the visitor reads better with a name than buried inside the builder setup.
+fn visit_walk_entry(
+    entry: Result<ignore::DirEntry, ignore::Error>,
+    seed: &Path,
+    filters: &WalkFilters<'_>,
+    tx: &crossbeam::channel::Sender<PathBuf>,
+    io_errors: &AtomicUsize,
+) {
+    // A per-entry error skips that entry rather than aborting the run (#704):
+    // a single EACCES directory deep in a large tree must not take down every
+    // file the walk has yet to reach.
+    let entry = match entry {
+        Ok(entry) => entry,
+        Err(e) => {
+            eprintln!(
+                "bca: warning: skipping walk entry in {}: {e}",
+                seed.display()
+            );
+            // Every variant warns; only an I/O-backed one is tallied, because
+            // only that one means the walk lost files it should have seen
+            // (#1131). See [`WalkErrors`] for why the rest stay non-fatal.
+            if e.io_error().is_some() {
+                io_errors.fetch_add(1, Ordering::Relaxed);
+            }
+            return;
+        }
+    };
+    if !entry.file_type().is_some_and(|t| t.is_file()) {
+        return;
+    }
+    let path = entry.into_path();
+    // Anchor the glob match to the walk root rather than the emitted (possibly
+    // absolute) path, so `./`-anchored excludes match regardless of how the
+    // seed resolved — including a manifest root above the CWD (#489).
+    if filters.passes(&walk_seed::match_path_for(seed, &path)) {
+        // The receiver outlives the walk (it is drained by the caller), so
+        // this cannot fail.
+        let _ = tx.send(path);
+    }
+}
+
 /// Walk the directory `seed` with `threads` walker threads, returning every
 /// supported file that passes the include/exclude `filters`, sorted.
 /// Factored out of [`expand_seed_paths`] so its per-seed loop reads as
@@ -498,40 +546,7 @@ fn walk_directory_seed(
         let tx = tx.clone();
         let io_errors = &io_errors;
         Box::new(move |entry| {
-            match entry {
-                Ok(entry) => {
-                    if entry.file_type().is_some_and(|t| t.is_file()) {
-                        let path = entry.into_path();
-                        // Anchor the glob match to the walk root rather than
-                        // the emitted (possibly absolute) path, so
-                        // `./`-anchored excludes match regardless of how the
-                        // seed resolved — including a manifest root above the
-                        // CWD (#489).
-                        if filters.passes(&walk_seed::match_path_for(seed, &path)) {
-                            // The receiver outlives the walk (it is drained
-                            // below), so this cannot fail.
-                            let _ = tx.send(path);
-                        }
-                    }
-                }
-                // A per-entry error skips that entry rather than aborting
-                // the run (#704): a single EACCES directory deep in a large
-                // tree must not take down every file the walk has yet to
-                // reach.
-                Err(e) => {
-                    eprintln!(
-                        "bca: warning: skipping walk entry in {}: {e}",
-                        seed.display()
-                    );
-                    // Every variant warns; only an I/O-backed one is
-                    // tallied, because only that one means the walk lost
-                    // files it should have seen (#1131). See
-                    // [`WalkErrors`] for why the rest stay non-fatal.
-                    if e.io_error().is_some() {
-                        io_errors.fetch_add(1, Ordering::Relaxed);
-                    }
-                }
-            }
+            visit_walk_entry(entry, seed, filters, &tx, io_errors);
             WalkState::Continue
         })
     });

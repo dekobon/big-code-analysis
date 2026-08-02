@@ -123,7 +123,7 @@ fn step_normal<K: MacroName, S: ::std::hash::BuildHasher>(
     macros: &HashSet<K, S>,
     state: &mut LexState,
 ) -> usize {
-    // bca: suppress(cyclomatic)
+    // bca: suppress(cyclomatic, cognitive)
     // Hand-rolled byte-level lexer dispatch: a flat sequence of guards over
     // the current byte (numeric run, line/block comment open, string/char
     // open, identifier accumulation). Each branch is a distinct lexical

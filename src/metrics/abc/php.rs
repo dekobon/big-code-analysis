@@ -21,6 +21,9 @@ use crate::*;
 // and every call / member-access / subscript form. `ParenthesizedExpression`
 // wraps `if (...)`-style condition slots.
 fn php_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
+    // bca: suppress(cognitive) — wrapper-peeling state machine, clearest whole
+    // See `cpp_inspect_container` for the shared rationale: one loop peels
+    // `(...)` / `!...` layers while carrying a single boolean-context flag.
     use Php::*;
 
     let mut node = *container_node;
@@ -129,50 +132,42 @@ fn php_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     use Php::*;
 
     let list_kind = list_node.kind_id().into();
-    let mut cursor = list_node.cursor();
 
-    if cursor.goto_first_child() {
-        loop {
-            let node = cursor.node();
-            let node_kind = node.kind_id().into();
+    // `children()` rather than a hand-driven cursor: the manual
+    // `goto_first_child` / `goto_next_sibling` bookkeeping put the
+    // skip-this-child case three levels deep (a `continue` inside a
+    // `let`-`else` inside the loop) for no behavioural difference —
+    // `children()` walks the same cursor over the same children.
+    for node in list_node.children() {
+        let node_kind = node.kind_id().into();
 
-            // PHP wraps each call argument in an `argument` node;
-            // descend through that wrapper to the value slot. For
-            // named arguments `m(name: !$a)` the value is the LAST
-            // named child (`name`/`:`/`value`); for positional
-            // arguments `m(!$a)` the value is the only child. Use
-            // the last named child to handle both shapes — and skip
-            // the rare grammar-error case where Argument has no
-            // named children.
-            // `inner_parent` is carried alongside `inner` because
-            // `php_inspect_container` seeds its boolean-context flag
-            // from the parent kind and must not rediscover it (#1096):
-            // unwrapping an `argument` makes the wrapper the parent,
-            // otherwise it is the list.
-            let (inner, inner_parent) = if matches!(node_kind, Argument) {
-                let Some(value) = php_argument_value(&node) else {
-                    if !cursor.goto_next_sibling() {
-                        break;
-                    }
-                    continue;
-                };
-                (value, node)
-            } else {
-                (node, *list_node)
-            };
-            let inner_kind = inner.kind_id().into();
-
-            if matches!(inner_kind, php_bool_terminal_kinds!())
-                && matches!(list_kind, BinaryExpression)
-            {
-                *conditions += 1.;
-            } else if inner.is_named() {
-                php_inspect_container(&inner, &inner_parent, conditions);
+        // PHP wraps each call argument in an `argument` node; descend
+        // through that wrapper to the value slot. For named arguments
+        // `m(name: !$a)` the value is the LAST named child
+        // (`name`/`:`/`value`); for positional arguments `m(!$a)` the
+        // value is the only child. Use the last named child to handle
+        // both shapes — and skip the rare grammar-error case where
+        // Argument has no named children.
+        // `inner_parent` is carried alongside `inner` because
+        // `php_inspect_container` seeds its boolean-context flag from
+        // the parent kind and must not rediscover it (#1096):
+        // unwrapping an `argument` makes the wrapper the parent,
+        // otherwise it is the list.
+        let (inner, inner_parent) = if matches!(node_kind, Argument) {
+            match php_argument_value(&node) {
+                Some(value) => (value, node),
+                None => continue,
             }
+        } else {
+            (node, *list_node)
+        };
+        let inner_kind = inner.kind_id().into();
 
-            if !cursor.goto_next_sibling() {
-                break;
-            }
+        if matches!(inner_kind, php_bool_terminal_kinds!()) && matches!(list_kind, BinaryExpression)
+        {
+            *conditions += 1.;
+        } else if inner.is_named() {
+            php_inspect_container(&inner, &inner_parent, conditions);
         }
     }
 }

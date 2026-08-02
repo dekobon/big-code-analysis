@@ -297,48 +297,64 @@ fn collapse_scc(
     let mut scc = kosaraju_scc(&*g);
     let mut scc_map: HashMap<NodeIndex, HashSet<String>> = HashMap::new();
     for component in &mut scc {
+        // A single-node "component" is not a cycle and needs no replacement.
         if component.len() > 1 {
-            // External boundaries must be captured before the replacement node
-            // is added, so the new node is never mistaken for an external
-            // neighbor.
-            let incoming = scc_external_neighbors(g, component, Direction::Incoming);
-            let outgoing = scc_external_neighbors(g, component, Direction::Outgoing);
-            let mut paths = HashSet::new();
-
-            let replacement = g.add_node(PathBuf::from(""));
-            for i in incoming {
-                g.add_edge(i, replacement, 0);
-            }
-            for o in outgoing {
-                g.add_edge(replacement, o, 0);
-            }
-            for c in component.drain(..) {
-                let path = g
-                    .remove_node(c)
-                    .expect("invariant: SCC component node must exist in graph");
-                if let Some(s) = path.to_str() {
-                    paths.insert(s.to_string());
-                } else {
-                    diagnostics.push(PreprocDiagnostic::NonUtf8CyclePath {
-                        path: path.display().to_string(),
-                    });
-                }
-                *nodes
-                    .get_mut(&path)
-                    .expect("invariant: every graph node must have a nodes map entry") =
-                    replacement;
-            }
-
-            // A `HashSet` iterates in an unspecified order; sort the member
-            // list so the emitted diagnostic is deterministic across runs.
-            let mut members: Vec<String> = paths.iter().cloned().collect();
-            members.sort_unstable();
-            diagnostics.push(PreprocDiagnostic::IncludeCycle { members });
-
+            let (replacement, paths) = collapse_one_component(g, nodes, diagnostics, component);
             scc_map.insert(replacement, paths);
         }
     }
     scc_map
+}
+
+/// Replace one strongly connected component with a single empty-path node,
+/// re-wiring its external edges and repointing every member's `nodes` entry at
+/// the replacement. Returns the replacement node and its member paths.
+///
+/// Split out of [`collapse_scc`] because that function's whole body was this
+/// operation nested inside a `for` and an `if`; naming the per-component step
+/// leaves the caller reading as "for each cycle, collapse it".
+fn collapse_one_component(
+    g: &mut IncludeGraph,
+    nodes: &mut HashMap<PathBuf, NodeIndex>,
+    diagnostics: &mut Vec<PreprocDiagnostic>,
+    component: &mut Vec<NodeIndex>,
+) -> (NodeIndex, HashSet<String>) {
+    // External boundaries must be captured before the replacement node is
+    // added, so the new node is never mistaken for an external neighbor.
+    let incoming = scc_external_neighbors(g, component, Direction::Incoming);
+    let outgoing = scc_external_neighbors(g, component, Direction::Outgoing);
+    let mut paths = HashSet::new();
+
+    let replacement = g.add_node(PathBuf::from(""));
+    for i in incoming {
+        g.add_edge(i, replacement, 0);
+    }
+    for o in outgoing {
+        g.add_edge(replacement, o, 0);
+    }
+    for c in component.drain(..) {
+        let path = g
+            .remove_node(c)
+            .expect("invariant: SCC component node must exist in graph");
+        if let Some(s) = path.to_str() {
+            paths.insert(s.to_string());
+        } else {
+            diagnostics.push(PreprocDiagnostic::NonUtf8CyclePath {
+                path: path.display().to_string(),
+            });
+        }
+        *nodes
+            .get_mut(&path)
+            .expect("invariant: every graph node must have a nodes map entry") = replacement;
+    }
+
+    // A `HashSet` iterates in an unspecified order; sort the member list so
+    // the emitted diagnostic is deterministic across runs.
+    let mut members: Vec<String> = paths.iter().cloned().collect();
+    members.sort_unstable();
+    diagnostics.push(PreprocDiagnostic::IncludeCycle { members });
+
+    (replacement, paths)
 }
 
 crate::observation::counter!(include_graph_walks);

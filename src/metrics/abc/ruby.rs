@@ -42,6 +42,9 @@ use crate::*;
 // slot may be wrapped in `parenthesized_statements`. Both are unwrapped
 // by `ruby_inspect_container`.
 fn ruby_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
+    // bca: suppress(cognitive) — wrapper-peeling state machine, clearest whole
+    // See `cpp_inspect_container` for the shared rationale: one loop peels
+    // `(...)` / `!...` layers while carrying a single boolean-context flag.
     use Ruby::*;
 
     let mut node = *container_node;

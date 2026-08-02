@@ -141,21 +141,7 @@ impl ExemptionsReport {
                 entry_count(section.entries.len())
             );
             if open_section(&mut out, &header, "  (none)\n", section.entries.is_empty()) {
-                for e in &section.entries {
-                    let path = strip_path_prefix(&e.path, strip_prefix);
-                    // The `:line` suffix is dropped rather than filled
-                    // with a placeholder when the entry pins no line, so
-                    // the field never reads as a line number that is not
-                    // there (#1170).
-                    let line = e.start_line.map_or_else(String::new, |l| format!(":{l}"));
-                    let _ = writeln!(
-                        out,
-                        "  {path}{line} {} {} {}",
-                        e.qualified,
-                        e.metric,
-                        MetricScalar(e.value),
-                    );
-                }
+                render_baseline_rows_tty(&mut out, &section.entries, strip_prefix);
             }
         }
         out
@@ -166,28 +152,7 @@ impl ExemptionsReport {
         if let Some(rows) = &self.markers {
             let header = format!("## In-source markers ({})\n\n", rows.len());
             if open_section(&mut out, &header, "_None._\n", rows.is_empty()) {
-                out.push_str("| File | Line | Marker | Metrics | Function |\n");
-                out.push_str("| --- | ---: | --- | --- | --- |\n");
-                for row in rows {
-                    let m = &row.marker;
-                    let path = strip_path_prefix(&row.path, strip_prefix);
-                    // Cells go through `escape_gfm_cell` for the same reason
-                    // the crate's other two GFM emitters do (check_format /
-                    // markdown_report, unified in #439): a path or symbol
-                    // containing `|` or a newline would otherwise inject a
-                    // spurious column break and corrupt the table. The
-                    // marker label is a fixed ASCII literal, so it is safe
-                    // un-escaped inside the code span.
-                    let _ = writeln!(
-                        out,
-                        "| {} | {} | `{}` | {} | {} |",
-                        escape_gfm_cell(path),
-                        m.line,
-                        marker_label(m.target, m.dialect),
-                        escape_gfm_cell(&scope_metrics(&m.scope)),
-                        escape_gfm_cell(&function_cell(m)),
-                    );
-                }
+                render_marker_rows_md(&mut out, rows, strip_prefix);
             }
         }
         if let Some(globs) = &self.excludes {
@@ -205,23 +170,7 @@ impl ExemptionsReport {
                 entry_count(section.entries.len())
             );
             if open_section(&mut out, &header, "_None._\n", section.entries.is_empty()) {
-                out.push_str("| File | Line | Symbol | Metric | Value |\n");
-                out.push_str("| --- | ---: | --- | --- | ---: |\n");
-                for e in &section.entries {
-                    let path = strip_path_prefix(&e.path, strip_prefix);
-                    let _ = writeln!(
-                        out,
-                        "| {} | {} | {} | {} | {} |",
-                        escape_gfm_cell(path),
-                        // `-` for an entry that pins no line (#1170); a
-                        // table column cannot simply omit its cell.
-                        e.start_line
-                            .map_or_else(|| "-".to_owned(), |l| l.to_string()),
-                        escape_gfm_cell(&e.qualified),
-                        escape_gfm_cell(&e.metric),
-                        MetricScalar(e.value),
-                    );
-                }
+                render_baseline_rows_md(&mut out, &section.entries, strip_prefix);
             }
         }
         out
@@ -282,6 +231,74 @@ fn open_section(out: &mut String, header: &str, empty_placeholder: &str, is_empt
         out.push_str(empty_placeholder);
     }
     !is_empty
+}
+
+/// Render the baseline entries as an indented plain-text block, one line
+/// per entry. Sibling of [`render_marker_rows_tty`]: the two render-*
+/// methods each open three sections, and keeping every section's body in
+/// a named row renderer keeps them at the altitude of "which sections
+/// exist, in what order" rather than interleaving that with row layout.
+fn render_baseline_rows_tty(out: &mut String, entries: &[BaselineRow], strip_prefix: &str) {
+    for e in entries {
+        let path = strip_path_prefix(&e.path, strip_prefix);
+        // The `:line` suffix is dropped rather than filled with a
+        // placeholder when the entry pins no line, so the field never
+        // reads as a line number that is not there (#1170).
+        let line = e.start_line.map_or_else(String::new, |l| format!(":{l}"));
+        let _ = writeln!(
+            out,
+            "  {path}{line} {} {} {}",
+            e.qualified,
+            e.metric,
+            MetricScalar(e.value),
+        );
+    }
+}
+
+/// Render the in-source marker rows as a GFM table.
+fn render_marker_rows_md(out: &mut String, rows: &[MarkerRow], strip_prefix: &str) {
+    out.push_str("| File | Line | Marker | Metrics | Function |\n");
+    out.push_str("| --- | ---: | --- | --- | --- |\n");
+    for row in rows {
+        let m = &row.marker;
+        let path = strip_path_prefix(&row.path, strip_prefix);
+        // Cells go through `escape_gfm_cell` for the same reason the
+        // crate's other two GFM emitters do (check_format /
+        // markdown_report, unified in #439): a path or symbol containing
+        // `|` or a newline would otherwise inject a spurious column break
+        // and corrupt the table. The marker label is a fixed ASCII
+        // literal, so it is safe un-escaped inside the code span.
+        let _ = writeln!(
+            out,
+            "| {} | {} | `{}` | {} | {} |",
+            escape_gfm_cell(path),
+            m.line,
+            marker_label(m.target, m.dialect),
+            escape_gfm_cell(&scope_metrics(&m.scope)),
+            escape_gfm_cell(&function_cell(m)),
+        );
+    }
+}
+
+/// Render the baseline entries as a GFM table.
+fn render_baseline_rows_md(out: &mut String, entries: &[BaselineRow], strip_prefix: &str) {
+    out.push_str("| File | Line | Symbol | Metric | Value |\n");
+    out.push_str("| --- | ---: | --- | --- | ---: |\n");
+    for e in entries {
+        let path = strip_path_prefix(&e.path, strip_prefix);
+        let _ = writeln!(
+            out,
+            "| {} | {} | {} | {} | {} |",
+            escape_gfm_cell(path),
+            // `-` for an entry that pins no line (#1170); a table column
+            // cannot simply omit its cell.
+            e.start_line
+                .map_or_else(|| "-".to_owned(), |l| l.to_string()),
+            escape_gfm_cell(&e.qualified),
+            escape_gfm_cell(&e.metric),
+            MetricScalar(e.value),
+        );
+    }
 }
 
 /// Render the in-source marker rows as an aligned plain-text block.

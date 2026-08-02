@@ -138,24 +138,17 @@ pub(crate) fn write_table_classed_with_tooltips(
     });
 }
 
-/// Shared table body for the HTML renderers: `cell_class` contributes an
-/// optional per-cell CSS class keyed by `(row, col)`, and `tooltip_for`
-/// resolves each header's `title=` text by `(col_index, header)`.
-fn write_table_core<'t>(
+/// Emit the `<thead>` row: one `<th>` per header, carrying its numeric hint,
+/// the pre-ranked column's `aria-sort`, an optional tooltip, and a link to the
+/// metric's hosted chapter when one exists.
+fn write_table_head<'t>(
     out: &mut String,
     headers: &[&str],
     aligns: &[Align],
-    rows: &[Vec<String>],
     ranked: Option<RankedColumn>,
-    cell_class: impl Fn(usize, usize) -> Option<&'static str>,
     tooltip_for: impl Fn(usize, &str) -> Option<&'t str>,
 ) {
-    debug_assert_eq!(headers.len(), aligns.len());
-    // Wrap every table in an overflow-x scroll container so a wide table
-    // (the 21-column VCS table especially) scrolls horizontally instead of
-    // clipping its right-most metric columns past a narrow viewport (issue
-    // #686). `white-space:nowrap` cells stay; the wrapper handles overflow.
-    let _ = out.write_str("<div class=\"table-wrap\">\n<table class=\"hotspot\">\n<thead><tr>");
+    let _ = out.write_str("<thead><tr>");
     for (i, (h, a)) in headers.iter().zip(aligns).enumerate() {
         let numeric_attr = if a.is_numeric() {
             " data-numeric=\"1\""
@@ -194,7 +187,29 @@ fn write_table_core<'t>(
             }
         }
     }
-    let _ = out.write_str("</tr></thead>\n<tbody>\n");
+    let _ = out.write_str("</tr></thead>\n");
+}
+
+/// Shared table body for the HTML renderers: `cell_class` contributes an
+/// optional per-cell CSS class keyed by `(row, col)`, and `tooltip_for`
+/// resolves each header's `title=` text by `(col_index, header)`.
+fn write_table_core<'t>(
+    out: &mut String,
+    headers: &[&str],
+    aligns: &[Align],
+    rows: &[Vec<String>],
+    ranked: Option<RankedColumn>,
+    cell_class: impl Fn(usize, usize) -> Option<&'static str>,
+    tooltip_for: impl Fn(usize, &str) -> Option<&'t str>,
+) {
+    debug_assert_eq!(headers.len(), aligns.len());
+    // Wrap every table in an overflow-x scroll container so a wide table
+    // (the 21-column VCS table especially) scrolls horizontally instead of
+    // clipping its right-most metric columns past a narrow viewport (issue
+    // #686). `white-space:nowrap` cells stay; the wrapper handles overflow.
+    let _ = out.write_str("<div class=\"table-wrap\">\n<table class=\"hotspot\">\n");
+    write_table_head(out, headers, aligns, ranked, tooltip_for);
+    let _ = out.write_str("<tbody>\n");
     for (r, row) in rows.iter().enumerate() {
         debug_assert_eq!(row.len(), headers.len());
         let _ = out.write_str("<tr>");

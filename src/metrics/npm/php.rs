@@ -15,6 +15,13 @@ impl Npm for PhpCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        // bca: suppress(cognitive) — grammar dispatch match, clearest whole
+        // The outer match selects the declaration-list kind and the inner one
+        // its owning container (class / trait / anonymous class / interface),
+        // each arm counting methods under that container's visibility rule.
+        // Splitting the arms out would scatter one grammar dispatch across
+        // helpers named after nothing but their arm, the same reason every
+        // sibling `Abc::compute` carries a marker here.
         use Php::*;
 
         if Self::is_func_space(node) && stats.is_disabled() {
