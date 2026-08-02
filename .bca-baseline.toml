@@ -771,7 +771,7 @@ value = 7.0
 path = "src/parser.rs"
 qualified = "Parser<T>::filters"
 metric = "halstead.effort"
-value = 53278.10526315789
+value = 58860.61554860244
 
 [[entry]]
 path = "src/spaces/ast.rs"
