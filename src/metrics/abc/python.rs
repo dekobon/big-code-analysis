@@ -103,6 +103,48 @@ fn python_count_condition(condition: &Node, parent: &Node, conditions: &mut f64)
     }
 }
 
+// Phase-2B (issue #1161): the condition slot of a Python conditional
+// expression, `<consequence> if <condition> else <alternative>`. Before
+// this, `a if c() else b` reported 1 — the `ConditionalExpression` node
+// alone — where every C-family language reports 2 for the equivalent
+// `c() ? a : b`, and `python_inspect_container`'s `ConditionalExpression`
+// boolean-context seed was unreachable because no call site ever passed
+// that parent.
+//
+// tree-sitter-python's `conditional_expression` is a bare
+// `seq(expression, 'if', expression, 'else', expression)` carrying no
+// grammar fields at all, so the slot cannot be named the way Ruby's and
+// the C family's can. It is located by ROLE rather than by a bare index
+// (`.claude/rules/grammar-dispatch.md` item 3): the first child after
+// the `if` keyword that is not a comment.
+//
+// Both halves of that are load-bearing, and neither is theoretical.
+// Comments are tree-sitter `extras`, so they land as direct children of
+// `conditional_expression` and shift every index after them — `child(2)`
+// reads the `if` token itself for `a\n# why\nif b else c`. They can also
+// sit between the keyword and the condition, where they would be the
+// anchor's next child, which is why the scan skips them rather than
+// taking the first. The C family is immune to both only because it can
+// ask for the slot by name.
+//
+// Only the condition is routed. Python's branch operands are already
+// counted by the top-level `NotOperator` / `ComparisonOperator` arms — a
+// different mechanism from the C-family walkers — so a wholesale
+// `cpp_walk_ternary` copy would double-count: `(b) if a else (c)` would
+// score its two parenthesised operands, which the identical
+// unparenthesised `b if a else c` correctly scores at zero.
+fn python_count_ternary_condition(node: &Node, conditions: &mut f64) {
+    use Python::*;
+    if let Some(condition) = node
+        .children()
+        .skip_while(|child| child.kind_id() != If as u16)
+        .skip(1)
+        .find(|child| child.kind_id() != Comment as u16)
+    {
+        python_count_condition(&condition, node, conditions);
+    }
+}
+
 fn python_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
     if let Some(child) = node.child(idx) {
         python_count_condition(&child, node, conditions);
@@ -174,12 +216,7 @@ impl Abc for PythonCode {
             // all parse as a single `ComparisonOperator` node — one
             // node, one condition, regardless of how many comparison
             // operators are chained.
-            ComparisonOperator
-            | ConditionalExpression
-            | ElifClause
-            | ElseClause
-            | ExceptClause
-            | FinallyClause
+            ComparisonOperator | ElifClause | ElseClause | ExceptClause | FinallyClause
             | NotOperator => {
                 // `NotOperator` is Python's unary `not`. Counting it
                 // mirrors Java's `!x` / C#'s `!x` Abc condition rule
@@ -222,6 +259,16 @@ impl Abc for PythonCode {
             // ComparisonOperator) already has its own top-level arm.
             IfStatement | WhileStatement => {
                 python_inspect_child(node, 1, &mut stats.conditions);
+            }
+            // `a if c() else b` — the conditional expression node itself
+            // is one condition, as the `?` token is in every C-family
+            // grammar; its condition slot is a further Fitzpatrick Rule 9
+            // unary condition (issue #1161). The branch operands are
+            // deliberately not walked — see
+            // `python_count_ternary_condition`.
+            ConditionalExpression => {
+                stats.conditions += 1.;
+                python_count_ternary_condition(node, &mut stats.conditions);
             }
             _ => {}
         }

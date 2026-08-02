@@ -5182,6 +5182,127 @@ function f(int $a, int $b): int {
         );
     }
 
+    // Issue #1161. Python counted the `conditional_expression` node but
+    // never its condition slot, so `a if c() else b` reported 1 where
+    // the equivalent `c() ? a : b` reports 2 everywhere else — and
+    // `python_inspect_container`'s `ConditionalExpression` boolean-
+    // context seed was unreachable, no call site having passed that
+    // parent.
+    #[test]
+    fn python_ternary_condition_slot_counts_as_a_unary_condition() {
+        // ternary (1) + condition `c()` (1) = 2. `c()` is a `Call`, a
+        // boolean terminal; it also adds one *branch*, not a condition.
+        check_metrics::<PythonParser>(
+            "def f(a, b, c):\n    return a if c() else b\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+        // A parenthesised condition, pinning the seed line this fix made
+        // reachable: `(c)` is a `parenthesized_expression`, so only
+        // `python_inspect_container` can resolve it, and it counts the
+        // unwrapped terminal only when the parent seeds boolean context.
+        // ternary (1) + `(c)` (1) = 2.
+        check_metrics::<PythonParser>(
+            "def f(a, b, c):\n    return a if (c) else b\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+        // A negated condition is *not* counted by the new slot: it is a
+        // `NotOperator`, which already has its own top-level dispatcher
+        // arm. ternary (1) + `not c` (1) = 2, not 3.
+        check_metrics::<PythonParser>(
+            "def f(a, b, c):\n    return a if not c else b\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+        // The cross-language reference case. `(not b) if a else (not c)`
+        // is the exact semantic equivalent of `a ? !b : !c`, which every
+        // other language reports as 4: ternary (1) + condition `a` (1) +
+        // two `NotOperator`s (2). The negated operands come from
+        // Python's own arm, the condition from the slot added here.
+        //
+        // #1161's resolution plan predicted this would stay 3, having
+        // measured the condition slot's contribution against the pre-fix
+        // total. 3 would have left Python disagreeing with every other
+        // language on the reference expression — the gap the issue was
+        // filed about.
+        check_metrics::<PythonParser>(
+            "def f(a, b, c):\n    return (not b) if a else (not c)\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4);
+            },
+        );
+    }
+
+    // The double-count pin, and the reason Python gets a condition-slot
+    // helper rather than a copy of `cpp_walk_ternary`: Python's branch
+    // operands are counted by the top-level `NotOperator` /
+    // `ComparisonOperator` arms, a different mechanism from every other
+    // language's walker. Routing the branch slots through
+    // `python_inspect_container` as the C family does would count a
+    // parenthesised operand that the identical unparenthesised
+    // expression scores at zero.
+    //
+    // Both fixtures below are 2 today and 4 under such a copy, so a
+    // later "make Python consistent with the others" change cannot land
+    // silently.
+    #[test]
+    fn python_ternary_branch_operands_are_not_double_counted() {
+        // ternary (1) + condition `a` (1) = 2. The two parenthesised
+        // operands add nothing — an unnegated branch is type-free.
+        check_metrics::<PythonParser>(
+            "def f(a, b, c):\n    return (b) if a else (c)\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+        // The unparenthesised form must agree: nothing about `(b)`
+        // versus `b` is a condition.
+        check_metrics::<PythonParser>(
+            "def f(a, b, c):\n    return b if a else c\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+    }
+
+    // Comments are tree-sitter `extras`, so they arrive as direct
+    // children of `conditional_expression` and shift every positional
+    // index after them. `python_count_ternary_condition` therefore
+    // anchors on the `if` keyword and skips comments after it; both
+    // halves are needed and each fixture below fails without one.
+    #[test]
+    fn python_ternary_condition_survives_an_interposed_comment() {
+        // Comment before the keyword: `child(2)` is the `if` token here,
+        // so a positional lookup reads 1. ternary (1) + `f()` (1) = 2.
+        check_metrics::<PythonParser>(
+            "def f(b, c):\n    return (b\n            # why\n            if f() else c)\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+        // Comment after the keyword: the child immediately following
+        // `if` is the comment, so taking the first rather than the first
+        // non-comment reads 1. ternary (1) + `f()` (1) = 2.
+        check_metrics::<PythonParser>(
+            "def f(b, c):\n    return (b if\n            # why\n            f() else c)\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+    }
+
     #[test]
     fn python_try_except_finally_count_conditions() {
         // ExceptClause + FinallyClause → 2 conditions.
