@@ -33,7 +33,7 @@ value = 8.0
 path = "big-code-analysis-cli/src/baseline_diff.rs"
 qualified = "BaselineDiff::compute"
 metric = "halstead.effort"
-value = 116932.193453204
+value = 118801.67275912332
 
 [[entry]]
 path = "big-code-analysis-cli/src/baseline_diff.rs"
@@ -87,7 +87,7 @@ value = 8.0
 path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "run_check"
 metric = "halstead.effort"
-value = 79248.73574750705
+value = 60852.18615151166
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check/effective_config.rs"

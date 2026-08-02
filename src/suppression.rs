@@ -244,6 +244,16 @@ impl MarkerScan {
             diagnostics: Vec::new(),
         }
     }
+
+    /// A usable marker that still drew complaints — the partly-usable
+    /// case issue #1168 exists for. `suppression` covers what parsed;
+    /// `diagnostics` names what did not.
+    fn partial(suppression: Suppression, diagnostics: Vec<SuppressionError>) -> Self {
+        Self {
+            suppression: Some(suppression),
+            diagnostics,
+        }
+    }
 }
 
 /// A flaw in a marker that is recognizably a `bca:` directive: an
@@ -504,14 +514,14 @@ fn parse_native(body: &str) -> MarkerScan {
         return malformed();
     };
 
-    MarkerScan {
-        suppression: Some(Suppression {
+    MarkerScan::partial(
+        Suppression {
             kind,
             scope,
             source: SuppressionSource::Native,
-        }),
+        },
         diagnostics,
-    }
+    )
 }
 
 /// Whether the text following a bare `suppress` / `suppress-file` verb

@@ -159,6 +159,12 @@ fn encode_non_utf8_os_str(s: &std::ffi::OsStr) -> String {
     // platform itself has already destroyed the original bytes via
     // `to_string_lossy`. Prefix with U+FFFD so the key can never collide
     // with one produced through the `to_str()` branch above.
+    //
+    // This is the documented exception to `AGENTS.md`'s blanket ban on
+    // `to_string_lossy()` for identifier paths: the two branches that
+    // can recover the real bytes are `#[cfg]`-ed out on this target, so
+    // there is nothing lossless left to call, and the U+FFFD prefix
+    // confines the lossiness to a key space of its own.
     let mut out = String::from("\u{FFFD}");
     for &b in s.to_string_lossy().as_bytes() {
         push_percent_encoded_byte(&mut out, b);

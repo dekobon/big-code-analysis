@@ -74,28 +74,16 @@ pub(crate) fn run_check(
         );
         return;
     }
-    let scope = resolve_diff_scope(&args);
-    // Clone globals for the remediation builder: `run_check_walk`
-    // consumes `globals` by value (it passes through to `run_walk`
-    // which spawns worker threads with ownership), but
-    // `format_remediation_block` needs the resolved `--paths` /
-    // `--exclude` set to compose a copy-paste-safe refresh command.
-    let globals_for_remediation = globals.clone();
-    let walk = run_check_walk(globals, &args, preproc, thresholds);
-    enforce_usable_input(&walk);
-    let violations = walk.violations;
-
-    // Drop offenders from `[check.exclude]` files (#378) before *any*
-    // downstream consumer sees them — so `--write-baseline` never
-    // records the structural exemptions and the gate never fails on
-    // them. Applied after the empty-input guard above: exempt files are
-    // still walked and counted, only their violations are dropped.
-    let violations = apply_check_exclude(
+    let CollectedViolations {
         violations,
-        &args,
-        &globals_for_remediation.paths,
-        globals_for_remediation.paths_from.as_deref(),
-    );
+        scope,
+        // Kept for the remediation builder: `run_check_walk` consumes
+        // `globals` by value (it passes through to `run_walk` which
+        // spawns worker threads with ownership), but
+        // `format_remediation_block` needs the resolved `--paths` /
+        // `--exclude` set to compose a copy-paste-safe refresh command.
+        globals: globals_for_remediation,
+    } = collect_check_violations(globals, &args, preproc, thresholds);
 
     // `--write-baseline <path>` writes there; a bare `--write-baseline`
     // is resolved to the manifest `baseline` by `merge_check` (#496), so
@@ -112,22 +100,13 @@ pub(crate) fn run_check(
         return;
     }
 
-    let pairs = filter_by_baseline(
+    let pairs = classify_check_violations(
         violations,
-        args.baseline.as_deref(),
-        args.baseline_line_tolerance
-            .unwrap_or(baseline::DEFAULT_LINE_TOLERANCE),
-        args.baseline_fuzzy_match.unwrap_or(false),
+        &args,
+        scope.as_ref(),
         provenance,
         args.report_suppressed,
     );
-    // Apply `--changed-only` diff-scope filtering to ALL offenders before
-    // splitting, so the suppressed set surfaced in the report respects the
-    // touched-file scope exactly as the active set does — otherwise
-    // `--changed-only --report-suppressed` would leak suppressed debt from
-    // files outside the diff. With `--report-suppressed` off this is the
-    // original pre-feature ordering (filter, then everything is active).
-    let pairs = apply_changed_only(pairs, scope.as_ref(), args.changed_only);
     // Split the report-only suppressed debt — in-source markers
     // (`v.suppressed`) plus baseline-covered offenders
     // (`Coverage::Covered`), present only under `--report-suppressed` — from
@@ -168,6 +147,87 @@ pub(crate) fn run_check(
     {
         process::exit(code);
     }
+}
+
+/// What the walk half of the pipeline yields: the offenders that
+/// survived `[check.exclude]`, the diff scope both callers need
+/// afterwards, and the `GlobalOpts` clone `run_check_walk` did not
+/// consume.
+struct CollectedViolations {
+    violations: Vec<Violation>,
+    scope: Option<diff::DiffScope>,
+    globals: GlobalOpts,
+}
+
+/// The gate's pre-baseline stages, in the order [`run_check`] applies
+/// them: diff scope, walk, empty-input guard, `[check.exclude]`.
+///
+/// Shared with the `--explain-threshold` preview (#1169) so that the
+/// preview cannot describe a different run from the one it predicts. A
+/// stage added here reaches both; a stage added to one call site would
+/// compile in the other and silently diverge, and no test would catch
+/// it because each path would still pass its own assertions.
+///
+/// The `[check.exclude]` drop (#378) happens before *any* downstream
+/// consumer sees the offenders — so `--write-baseline` never records
+/// the structural exemptions and the gate never fails on them. It runs
+/// after the empty-input guard: exempt files are still walked and
+/// counted, only their violations are dropped.
+fn collect_check_violations(
+    globals: GlobalOpts,
+    args: &CheckArgs,
+    preproc: Option<Arc<PreprocResults>>,
+    thresholds: Arc<LanguageThresholds>,
+) -> CollectedViolations {
+    let scope = resolve_diff_scope(args);
+    let globals_kept = globals.clone();
+    let walk = run_check_walk(globals, args, preproc, thresholds);
+    enforce_usable_input(&walk);
+    let violations = apply_check_exclude(
+        walk.violations,
+        args,
+        &globals_kept.paths,
+        globals_kept.paths_from.as_deref(),
+    );
+    CollectedViolations {
+        violations,
+        scope,
+        globals: globals_kept,
+    }
+}
+
+/// The gate's post-exclude stages, in the order [`run_check`] applies
+/// them: baseline classification, then `--changed-only` scoping. The
+/// companion to [`collect_check_violations`], and shared with the
+/// preview for the same reason.
+///
+/// It also owns the three `CheckArgs` defaults that feed
+/// [`filter_by_baseline`], which is what stops the preview and the gate
+/// resolving the same `--baseline` differently.
+///
+/// `--changed-only` filters ALL offenders before the caller splits
+/// them, so the suppressed set surfaced in the report respects the
+/// touched-file scope exactly as the active set does — otherwise
+/// `--changed-only --report-suppressed` would leak suppressed debt from
+/// files outside the diff. With `--report-suppressed` off this is the
+/// original pre-feature ordering (filter, then everything is active).
+fn classify_check_violations(
+    violations: Vec<Violation>,
+    args: &CheckArgs,
+    scope: Option<&diff::DiffScope>,
+    provenance: baseline::Provenance,
+    keep_covered: bool,
+) -> Vec<(Violation, Option<Coverage>)> {
+    let pairs = filter_by_baseline(
+        violations,
+        args.baseline.as_deref(),
+        args.baseline_line_tolerance
+            .unwrap_or(baseline::DEFAULT_LINE_TOLERANCE),
+        args.baseline_fuzzy_match.unwrap_or(false),
+        provenance,
+        keep_covered,
+    );
+    apply_changed_only(pairs, scope, args.changed_only)
 }
 
 /// What the check walk produced: the sorted violations plus the

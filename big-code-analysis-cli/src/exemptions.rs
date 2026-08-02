@@ -63,6 +63,12 @@ pub(crate) struct BaselineRow {
     pub(crate) start_line: Option<usize>,
 }
 
+impl crate::baseline::BaselineIdentity for BaselineRow {
+    fn identity(&self) -> (&str, &str, &str, Option<usize>) {
+        (&self.path, &self.qualified, &self.metric, self.start_line)
+    }
+}
+
 impl From<DiffEntry> for BaselineRow {
     fn from(e: DiffEntry) -> Self {
         Self {

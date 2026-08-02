@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 use serde::Serialize;
 
-use crate::baseline::DiffEntry;
+use crate::baseline::{BaselineIdentity, DiffEntry, cmp_identity};
 use crate::format_util::{MetricScalar, strip_path_prefix};
 
 /// An entry present in exactly one of the two baselines (`added` /
@@ -173,10 +173,10 @@ impl BaselineDiff {
             added.extend(news[paired..].iter().map(|e| entry_delta(e)));
         }
 
-        added.sort_by(cmp_entry_delta);
-        removed.sort_by(cmp_entry_delta);
-        worsened.sort_by(cmp_value_delta);
-        improved.sort_by(cmp_value_delta);
+        added.sort_by(cmp_identity);
+        removed.sort_by(cmp_identity);
+        worsened.sort_by(cmp_identity);
+        improved.sort_by(cmp_identity);
 
         Self {
             added,
@@ -438,22 +438,16 @@ fn cmp_for_pairing(a: &DiffEntry, b: &DiffEntry) -> Ordering {
         .then(a.start_line.cmp(&b.start_line))
 }
 
-fn cmp_entry_delta(a: &EntryDelta, b: &EntryDelta) -> Ordering {
-    (&a.path, &a.qualified, &a.metric, a.start_line).cmp(&(
-        &b.path,
-        &b.qualified,
-        &b.metric,
-        b.start_line,
-    ))
+impl BaselineIdentity for EntryDelta {
+    fn identity(&self) -> (&str, &str, &str, Option<usize>) {
+        (&self.path, &self.qualified, &self.metric, self.start_line)
+    }
 }
 
-fn cmp_value_delta(a: &ValueDelta, b: &ValueDelta) -> Ordering {
-    (&a.path, &a.qualified, &a.metric, a.start_line).cmp(&(
-        &b.path,
-        &b.qualified,
-        &b.metric,
-        b.start_line,
-    ))
+impl BaselineIdentity for ValueDelta {
+    fn identity(&self) -> (&str, &str, &str, Option<usize>) {
+        (&self.path, &self.qualified, &self.metric, self.start_line)
+    }
 }
 
 #[cfg(test)]
