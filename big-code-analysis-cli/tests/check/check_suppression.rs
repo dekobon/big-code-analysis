@@ -354,11 +354,11 @@ fn a_trailing_rationale_suppresses_exactly_like_a_bare_marker() {
 }
 
 #[test]
-fn a_marker_that_opens_no_rationale_still_warns_without_failing_the_run() {
-    // The genuine-malformation path #1168 deliberately kept. A bare
-    // verb followed by words opens no rationale, so it is not a marker
-    // — but it must warn rather than fail, or a doc comment or test
-    // fixture that merely mentions the syntax would break the gate.
+fn a_bare_verb_with_trailing_text_warns_without_failing_the_run() {
+    // The genuine-malformation path. A bare verb followed by words is
+    // not a marker — but it must warn rather than fail, or a doc comment
+    // or test fixture that merely mentions the syntax would break the
+    // gate.
     //
     // The exit code is 0 because the fixture has no violation at the
     // threshold under test: the marker is inert *and* the malformation
@@ -377,6 +377,50 @@ fn a_marker_that_opens_no_rationale_still_warns_without_failing_the_run() {
         .stderr(predicate::str::contains(
             "malformed bca suppression marker body",
         ));
+}
+
+/// Two over-parameterised functions whose in-body comments are prose
+/// *about* a marker, written with the punctuation a rationale would use.
+const PROSE_ABOUT_A_MARKER_RUST: &str = r"
+pub fn dashed(a: u8, b: u8, c: u8, d: u8, e: u8, f: u8, g: u8, h: u8) -> u8 {
+    // bca: suppress - we removed this marker, see #123
+    a + b + c + d + e + f + g + h
+}
+
+pub fn colonned(a: u8, b: u8, c: u8, d: u8, e: u8, f: u8, g: u8, h: u8) -> u8 {
+    // bca: suppress: not applicable to this function
+    a + b + c + d + e + f + g + h
+}
+";
+
+#[test]
+fn prose_about_a_bare_marker_neither_suppresses_nor_passes_silently() {
+    // #1168 briefly let a bare verb carry a rationale when it opened
+    // with `-`, `:`, `//`, `#`, or an em/en dash — the same punctuation
+    // an author uses to write *about* a marker. Both functions below
+    // then reported no violation at all, with nothing on stderr: the
+    // most expensive failure this tool has, since it looks exactly like
+    // compliant code.
+    //
+    // Both halves matter. The violations must fire (stdout, exit 2, per
+    // #1167's stream split), and the warning must reach stderr so the
+    // author of a genuinely-intended marker learns it did nothing.
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "prose_marker.rs", PROSE_ABOUT_A_MARKER_RUST);
+
+    cli(dir.path())
+        .args(["check", "--paths", &path, "--threshold", "nargs=5"])
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("dashed"))
+        .stdout(predicate::str::contains("colonned"))
+        .stderr(predicate::str::contains(
+            "malformed bca suppression marker body",
+        ))
+        // The warning is the only route out of this shape, so it has to
+        // say where to go: name the metrics, or move the reason up.
+        .stderr(predicate::str::contains("`bca: suppress(<metrics>)`"))
+        .stderr(predicate::str::contains("line above"));
 }
 
 #[test]

@@ -12,11 +12,14 @@
 //!   - `bca: suppress-file` — suppress all metrics for the entire file.
 //!   - `bca: suppress-file(halstead)` — suppress listed metrics file-wide.
 //!
-//!   Any of those may carry a trailing rationale on the same line
-//!   (`bca: suppress(nargs) — threaded context, not a god-function`).
-//!   After a metric list the rationale needs no separator; after a bare
-//!   verb it must open with one (`-`, `:`, `//`, `#`, an em/en dash) so
-//!   prose *about* the marker is not mistaken for one.
+//!   A marker that names a metric list may carry a trailing rationale on
+//!   the same line (`bca: suppress(nargs) — threaded context, not a
+//!   god-function`), with no separator required: the parentheses are
+//!   the positive signal that distinguish a marker from prose. A *bare*
+//!   verb takes no trailing text at all — with nothing to anchor the
+//!   intent, no separator distinguishes a rationale from a sentence
+//!   *about* the marker, and reading the latter as a marker would
+//!   silence every metric in the enclosing function.
 //! - **Lizard compatibility markers** are recognized verbatim so
 //!   existing Lizard-instrumented codebases migrate without rewrites:
 //!   - `#lizard forgives` ≡ `bca: suppress`.
@@ -280,8 +283,8 @@ pub(crate) enum SuppressionError {
     /// learns the name parsed but is simply not silenceable.
     NonSuppressibleMetric(String),
     /// `bca: suppress(...)` body could not be tokenized (e.g. an
-    /// unbalanced parenthesis, or a bare verb followed by words that
-    /// open no rationale).
+    /// unbalanced parenthesis, or a bare verb followed by any trailing
+    /// text).
     MalformedBody(String),
     /// More distinct unusable names than [`MAX_MARKER_DIAGNOSTICS`], so
     /// the tail was elided. Carries the number dropped, because a silent
@@ -347,16 +350,20 @@ impl fmt::Display for SuppressionError {
                 "… and {n} more unusable metric name(s) in this bca suppression marker"
             ),
             Self::MalformedBody(body) => {
-                // Name the accepted shapes: the body reaching here is
-                // almost always one keystroke away from a working
-                // marker, and the author cannot see which keystroke
-                // from the raw echo alone.
+                // This warning is the only thing standing between the
+                // author and a marker that silently does nothing, so it
+                // names both the accepted shapes and the two ways out of
+                // the commonest mistake — a reason written after a bare
+                // verb, which no separator can distinguish from prose
+                // about the marker.
                 write!(
                     f,
                     "malformed bca suppression marker body '{body}'; expected \
-                     `bca: suppress`, `bca: suppress(<metrics>)`, or either \
-                     with a rationale opened by `-`, `:`, `//`, `#`, or an \
-                     em/en dash"
+                     `bca: suppress` / `bca: suppress-file` with nothing after \
+                     the verb, or `bca: suppress(<metrics>)`, which may carry a \
+                     rationale (`bca: suppress(cognitive, cyclomatic) — \
+                     reason`); to keep a reason here, name the metrics or move \
+                     the reason to the line above"
                 )
             }
         }
@@ -535,14 +542,16 @@ fn parse_native(body: &str) -> MarkerScan {
         // instruction produce a marker that silently did nothing.
         let (metrics, diagnostics) = parse_metric_list(&list[..close]);
         (SuppressionScope::Some(metrics), diagnostics)
-    } else if opens_rationale(after_verb) {
-        // `bca: suppress — why`, with no metric list. Unlike the
-        // post-`)` case there is nothing here to distinguish a rationale
-        // from prose that merely mentions the marker, so a separator is
-        // required; bare words stay malformed rather than silently
-        // silencing every metric for the enclosing scope.
-        (SuppressionScope::All, Vec::new())
     } else {
+        // A bare verb followed by anything at all. Unlike the post-`)`
+        // case there is no positive signal here separating a rationale
+        // from prose that merely mentions the marker: the punctuation
+        // people reach for when writing *about* one (`-`, `:`, `//`,
+        // `#`, an em dash) is the same punctuation they would open a
+        // rationale with. Accepting either silences every metric on the
+        // enclosing function on the strength of a sentence, so the whole
+        // shape stays malformed and the author is told to name the
+        // metrics instead.
         return malformed();
     };
 
@@ -554,27 +563,6 @@ fn parse_native(body: &str) -> MarkerScan {
         },
         diagnostics,
     )
-}
-
-/// Whether the text following a bare `suppress` / `suppress-file` verb
-/// opens a rationale rather than being garbage.
-///
-/// Only the separators authors actually reach for count: an em or en
-/// dash, a hyphen, a colon, a nested comment opener (`//`, `#`). A bare
-/// word does not, because `// bca: suppress markers are honoured here`
-/// is prose about the feature, and reading it as a marker would silence
-/// every metric in the enclosing function on the strength of a sentence.
-// `//` is matched in full rather than through a bare `/` in the set
-// below. A bare slash promoted `// bca: suppress /some/path` to a
-// whole-function `SuppressionScope::All` marker — silencing every metric
-// on the enclosing function on the strength of a path, which is the
-// dangerous direction for this predicate to err in.
-fn opens_rationale(rest: &str) -> bool {
-    rest.starts_with("//")
-        || matches!(
-            rest.chars().next(),
-            Some('\u{2014}' | '\u{2013}' | '-' | ':' | '#')
-        )
 }
 
 fn parse_metric_list(inside: &str) -> (BTreeSet<Metric>, Vec<SuppressionError>) {
@@ -1055,11 +1043,10 @@ mod tests {
             voiding_diagnostic("// bca: suppress(cyclomatic"),
             SuppressionError::MalformedBody(_)
         ));
-        // Bare verb followed by a word that opens no rationale. This is
-        // the one shape #1168 deliberately left rejected: with no metric
-        // list to anchor the intent, `// bca: suppress markers are
-        // honoured here` is prose about the feature, and reading it as a
-        // marker would silence every metric in the enclosing function.
+        // Bare verb followed by a word. With no metric list to anchor
+        // the intent, `// bca: suppress markers are honoured here` is
+        // prose about the feature, and reading it as a marker would
+        // silence every metric in the enclosing function.
         assert!(matches!(
             voiding_diagnostic("// bca: suppress garbage"),
             SuppressionError::MalformedBody(_)
@@ -1068,13 +1055,13 @@ mod tests {
 
     #[test]
     fn malformed_body_message_names_the_accepted_shapes() {
-        // The body reaching this path is usually one keystroke from a
-        // working marker, and the raw echo alone does not say which
-        // keystroke — so the message must name the shapes that parse,
-        // including the rationale form #1168 added.
-        let rendered = voiding_diagnostic("// bca: suppress garbage").to_string();
+        // This warning is now the only signal an author gets that the
+        // reason they wrote after a bare verb left the marker inert, so
+        // it must name the shapes that parse *and* both ways out: name
+        // the metrics, or move the reason off the marker line.
+        let rendered = voiding_diagnostic("// bca: suppress - see #123").to_string();
         assert!(
-            rendered.contains("bca: suppress garbage"),
+            rendered.contains("bca: suppress - see #123"),
             "message must echo the offending body; got: {rendered}",
         );
         assert!(
@@ -1084,6 +1071,14 @@ mod tests {
         assert!(
             rendered.contains("rationale"),
             "message must point at the rationale form; got: {rendered}",
+        );
+        assert!(
+            rendered.contains("name the metrics"),
+            "message must tell the author to name the metrics; got: {rendered}",
+        );
+        assert!(
+            rendered.contains("line above"),
+            "message must offer the move-the-reason-up escape; got: {rendered}",
         );
     }
 
@@ -1134,52 +1129,51 @@ mod tests {
     }
 
     #[test]
-    fn trailing_rationale_after_bare_verb_needs_a_separator() {
-        // With no metric list the marker has said nothing specific, so a
-        // separator is what distinguishes "this is my reason" from prose
-        // that merely mentions the syntax. Each accepted opener is
-        // listed by `opens_rationale`.
+    fn a_bare_verb_takes_no_trailing_text_whatever_the_separator() {
+        // #1168 briefly accepted a rationale after a bare verb when it
+        // opened with `-`, `:`, `//`, `#`, or an em/en dash. Those are
+        // exactly the characters people reach for when writing *about* a
+        // marker, so ordinary comments silenced every metric on their
+        // function with no diagnostic at all. There is no positive
+        // signal in this shape to separate the two readings — the
+        // parentheses of the list form are what supply one — so every
+        // row below is malformed, including the paths and prose that
+        // never were rationales.
         for text in [
             "// bca: suppress \u{2014} irreducible dispatch",
             "// bca: suppress \u{2013} irreducible dispatch",
-            "// bca: suppress - irreducible dispatch",
-            "// bca: suppress: irreducible dispatch",
-            "// bca: suppress // irreducible dispatch",
+            "// bca: suppress - we removed this marker, see #123",
+            "// bca: suppress: not applicable to this function",
+            "// bca: suppress // generated shim",
+            "// bca: suppress /some/path",
+            "// bca: suppress markers are honoured here",
             "# bca: suppress-file # generated",
+            "// bca: suppress-file generated file",
         ] {
-            let s = marker(text);
+            let scan = parse_marker(text);
+            assert_eq!(
+                scan.suppression, None,
+                "a bare verb plus trailing text must not suppress; {text:?}",
+            );
             assert!(
-                matches!(s.scope, SuppressionScope::All),
-                "a bare verb plus a rationale still covers every metric; \
-                 {text:?} gave {:?}",
-                s.scope,
+                matches!(
+                    scan.diagnostics.as_slice(),
+                    [SuppressionError::MalformedBody(_)]
+                ),
+                "{text:?} must warn that the marker is inert; got {:?}",
+                scan.diagnostics,
             );
         }
-        // …and the separator-free form stays a diagnostic, per
-        // `native_malformed_body_errors`.
+        // Positive control: a parser that rejected everything would pass
+        // the loop above. The verb alone still suppresses, and so does a
+        // metric list carrying the rationale that replaces this shape.
         assert!(matches!(
-            voiding_diagnostic("// bca: suppress-file generated file"),
-            SuppressionError::MalformedBody(_)
-        ));
-    }
-
-    #[test]
-    fn a_bare_slash_does_not_open_a_rationale() {
-        // A single `/` used to satisfy `opens_rationale`, so
-        // `// bca: suppress /some/path` became a whole-function
-        // `SuppressionScope::All` marker — every metric on the enclosing
-        // function silenced by a path. The documented grammar names
-        // `//`, and over-suppression is the direction that costs
-        // coverage silently, so the opener is matched in full.
-        assert!(matches!(
-            voiding_diagnostic("// bca: suppress /some/path"),
-            SuppressionError::MalformedBody(_)
-        ));
-        // The two-character form is unaffected; it is the one the module
-        // doc and the malformed-body hint both name.
-        assert!(matches!(
-            marker("// bca: suppress // generated shim").scope,
+            marker("// bca: suppress").scope,
             SuppressionScope::All
+        ));
+        assert!(matches!(
+            marker("// bca: suppress(nargs) \u{2014} threaded context").scope,
+            SuppressionScope::Some(_)
         ));
     }
 

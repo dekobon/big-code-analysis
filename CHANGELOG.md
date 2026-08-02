@@ -669,10 +669,17 @@ for historical reference.
 - A suppression marker carrying a rationale on the same line
   (`// bca: suppress(nargs) — threaded context`) is no longer rejected
   as malformed and silently inert (#1168). Anything after the metric
-  list is free text; after a bare verb the rationale must open with `-`,
-  `:`, `//`, `#`, or an em/en dash, so prose *about* a marker is not
-  read as one. `AGENTS.md` and the book prescribed writing the rationale
-  there, which is the spelling that voided the marker.
+  list is free text, with no separator required: the parentheses are the
+  positive signal that the comment is a marker. `AGENTS.md` and the book
+  prescribed writing the rationale there, which is the spelling that
+  voided the marker. A *bare* verb (`// bca: suppress`, no list) still
+  takes no trailing text and warns when it carries any — no separator
+  set can distinguish a rationale from prose *about* the marker, since
+  `-`, `:`, `//`, `#` and the dashes are exactly what someone writing
+  `// bca: suppress - we removed this marker, see #123` reaches for, and
+  reading that as a marker silences every metric on its function with no
+  diagnostic at all. The warning now names the way out: list the metrics
+  you mean, or move the reason to the line above.
 - Corrected the inverted doc comment on `python_apply_boolean_operator`,
   which described its ancestor walk as counting control constructs and
   stopping at lambdas when `count_specific_ancestors`'s

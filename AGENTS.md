@@ -540,9 +540,11 @@ smaller.
   the code, with the rationale on the same line:
   `// bca: suppress(<metrics>) — <why>` inside the function (per-file:
   `// bca: suppress-file(<metrics>) — <why>`). Anything after the metric
-  list is free text; no separator is required. After a *bare* verb
-  (`// bca: suppress`, no list) the rationale must open with `-`, `:`,
-  `//`, `#`, or a dash, so prose about the marker is not read as one.
+  list is free text; no separator is required. **Name the metrics** if
+  you want to write a reason: a *bare* verb (`// bca: suppress`, no
+  list) takes no trailing text at all, because nothing distinguishes a
+  rationale from prose *about* the marker — put the reason on the line
+  above if the `All` scope is really what you want.
   Use canonical metric names — it is `nexits`, **never** `exit`; an
   unknown identifier warns and is skipped, while the recognised names in
   the same marker still suppress. `tokens` is not suppressible. See

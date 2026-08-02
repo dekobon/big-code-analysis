@@ -385,11 +385,12 @@ precisely (full reference:
 - **Whole file** — `// bca: suppress-file(halstead, nargs, nexits)`
   anywhere in the file; the bare `// bca: suppress-file` form silences
   every metric file-wide.
-- **Put the rationale on the marker line.** Anything after the metric
-  list is free text and does not need a separator, so the reason lives
-  where the next reader of the flagged function will see it. (After a
-  *bare* verb it must open with `-`, `:`, `//`, `#`, or a dash, so that
-  prose about the marker is not mistaken for one.) Write it every time:
+- **Put the rationale on the marker line, after a metric list.**
+  Anything after the list is free text and does not need a separator, so
+  the reason lives where the next reader of the flagged function will
+  see it. (A *bare* verb takes no trailing text at all — nothing there
+  distinguishes a rationale from prose about the marker, so naming the
+  metrics is what buys you a reason.) Write it every time:
   a reviewer — human or agent — needs to tell an honest exemption from a
   dodge, and `bca exemptions` lists every marker in the tree for exactly
   that audit.
