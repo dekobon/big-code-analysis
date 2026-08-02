@@ -683,12 +683,58 @@ implement_metric_trait!(
     RustCode,
     PreprocCode,
     CcommentCode,
-    JavaCode,
     BashCode,
     PhpCode,
     CsharpCode,
     RubyCode
 );
+
+// A record's compact constructor (`record R(int a, int b) { R { … } }`,
+// JLS 8.10.4) declares no formal parameter list of its own: the grammar
+// gives `compact_constructor_declaration` only `name` and `body` fields,
+// and hangs the parameters — the record's components — off the enclosing
+// `record_declaration`. Resolve that declaration so the two spellings of
+// one constructor agree: the canonical `R(int a, int b) { … }` reports 2,
+// and so should the compact form (#1160).
+//
+// The nesting is fixed by the grammar — the constructor is a direct child
+// of the record's `class_body` — so the record sits exactly two steps up.
+// The kind check states what that positional step is allowed to land on;
+// no kind other than `record_declaration` carries a `parameters` field
+// here, so it changes no count today, but it keeps the step from silently
+// starting to mean something else if one ever does.
+//
+// A record that declares *no* constructor still reports 0: its canonical
+// constructor is implicit, so there is no node to open a space for and
+// nothing to attribute the components to. Adding an empty `R { }` to such
+// a record therefore moves its `nargs` from 0 to the component count
+// without changing the API — the same asymmetry an explicit
+// `R(int a, int b) { }` already produces, and the price of measuring
+// declared code rather than generated code.
+fn java_compact_constructor_record<'tree>(
+    node: &Node<'tree>,
+    ancestors: Ancestors<'tree, '_>,
+) -> Option<Node<'tree>> {
+    if node.kind_id() != Java::CompactConstructorDeclaration {
+        return None;
+    }
+    let (grandparent, _) = ancestors.iter(node).nth(1)?;
+    (grandparent.kind_id() == Java::RecordDeclaration).then_some(grandparent)
+}
+
+impl NArgs for JavaCode {
+    fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        if Self::is_func_with_code(node, code, ancestors) {
+            let params_owner = java_compact_constructor_record(node, ancestors).unwrap_or(*node);
+            compute_args::<Self>(&params_owner, &mut stats.fn_nargs);
+            return;
+        }
+
+        if Self::is_closure(node, ancestors) {
+            compute_args::<Self>(node, &mut stats.closure_nargs);
+        }
+    }
+}
 
 // Groovy closures use `closure_parameters` as an unnamed child rather
 // than a `parameters` field, so the default NArgs walker (which looks
@@ -2477,6 +2523,44 @@ mod tests {
                 }
                 "#
                 );
+            },
+        );
+    }
+
+    /// A record's compact constructor (`R { … }`, JLS 8.10.4) writes no
+    /// formal parameter list: its parameters are the record's components,
+    /// which the grammar hangs off the enclosing `record_declaration`.
+    /// `nargs` reports the component count so the two spellings of one
+    /// constructor agree — the canonical `R(int a, int b) { … }` reports
+    /// 2, and so does the compact form (#1160).
+    ///
+    /// The records are nested, and carry *different* component counts, so
+    /// the fixture pins which record each constructor resolved to. The
+    /// lookup steps two ancestors up from the constructor; a version that
+    /// walked to the outermost record instead would give `Single` 2 and
+    /// total 4, and one that read the constructor node itself — which has
+    /// no `parameters` field — would give 0.
+    #[test]
+    fn java_record_compact_constructor_counts_record_components() {
+        check_metrics::<JavaParser>(
+            "record Pair(int a, int b) {
+                 Pair { }
+                 record Single(int c) {
+                     Single { }
+                 }
+             }",
+            "foo.java",
+            |metric| {
+                let s = &metric.nargs;
+                // Two constructors carrying 2 and 1 arguments. Pre-fix,
+                // `compact_constructor_declaration` was not a function at
+                // all, so both the count and the sum were 0.
+                assert_eq!(metric.nom.functions_sum(), 2);
+                assert_eq!(s.function_args_sum(), 3);
+                // A sum of 3 across two functions whose largest is 2 can
+                // only be 2 + 1.
+                assert_eq!(s.function_args_max(), 2);
+                assert_eq!(s.closure_args_sum(), 0);
             },
         );
     }

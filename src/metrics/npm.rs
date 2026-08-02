@@ -1259,6 +1259,36 @@ mod tests {
         );
     }
 
+    /// The same for #1160, which added `CompactConstructorDeclaration` to
+    /// `JavaCode::is_func`: a record's compact constructor joins the body
+    /// walker's method count on the same footing as the canonical
+    /// spelling. The `public` modifier check reads `child(0)`, and the
+    /// compact form carries its optional `modifiers` node in that same
+    /// slot, so the visibility half transfers unchanged.
+    ///
+    /// `half` is the control that keeps the two sums apart — without a
+    /// non-public member, `class_nm_sum == class_npm_sum` and a bug that
+    /// counted every member as public would still pass.
+    #[test]
+    fn java_record_counts_a_compact_constructor_as_a_method() {
+        check_metrics::<JavaParser>(
+            "record R(int a, int b) {
+                public R { }
+                private int half() { return a / 2; }
+                public int sum() { return a + b; }
+            }",
+            "foo.java",
+            |metric| {
+                // Compact constructor + `half` + `sum` = 3 methods, of
+                // which the constructor and `sum` are public. Pre-fix the
+                // compact constructor was not a function at all, so these
+                // read 2 and 1.
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+            },
+        );
+    }
+
     #[test]
     fn java_annotation_type_counts_elements() {
         // Asserting only the body-walker counts (`interface_nm_sum`,

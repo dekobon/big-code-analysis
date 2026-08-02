@@ -645,7 +645,7 @@ value = 7.0
 path = "src/metrics/nargs.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 525.0
+value = 546.0
 
 [[entry]]
 path = "src/metrics/nargs.rs"

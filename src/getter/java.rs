@@ -15,7 +15,17 @@ impl Getter for JavaCode {
         // bytecode level, so it maps to `SpaceKind::Interface`.
         match node.kind_id().into() {
             ClassDeclaration | EnumDeclaration | RecordDeclaration => SpaceKind::Class,
-            MethodDeclaration | ConstructorDeclaration | LambdaExpression => SpaceKind::Function,
+            // `CompactConstructorDeclaration` is a record's compact
+            // constructor (`R { … }`); it is a constructor with an
+            // implicit parameter list, so it shares the canonical
+            // constructor's space kind (#1160). It carries a required
+            // `name` field holding the record's simple name, so the
+            // default `get_func_space_name` already names the space `R` —
+            // identical to what the canonical spelling would produce.
+            MethodDeclaration
+            | ConstructorDeclaration
+            | CompactConstructorDeclaration
+            | LambdaExpression => SpaceKind::Function,
             InterfaceDeclaration | AnnotationTypeDeclaration => SpaceKind::Interface,
             // An anonymous class (`new Runnable() { ... }`) is an
             // `object_creation_expression` carrying a `class_body` child;
