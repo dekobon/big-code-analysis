@@ -400,15 +400,24 @@ impl<'a> CheckExcludes<'a> {
 
     /// Whether a violation at `path` — `walk_form` being its
     /// walk-root-anchored spelling — is exempt from the threshold gate.
+    ///
+    /// The `is_empty()` arms are not redundant with the matches, for the
+    /// same reason [`crate::walk::WalkFilters::passes`] spells them out:
+    /// `GlobSet::is_match` builds its `Candidate` *before* its own empty
+    /// check. Only one of the two sets is configured in the usual case,
+    /// so the other should cost nothing. The manifest guard buys more
+    /// than that — it also skips `manifest_match_path`, which resolves
+    /// the working directory and normalises the path, per violation.
     fn exempts(&self, path: &Path, walk_form: crate::walk_seed::CwdForm<'_>) -> bool {
-        self.cli.is_match(walk_form.0)
-            || self
-                .manifest
-                .is_match(crate::walk_seed::manifest_match_path(
-                    self.manifest_dir,
-                    path,
-                    walk_form,
-                ))
+        (!self.cli.is_empty() && self.cli.is_match(walk_form.0))
+            || (!self.manifest.is_empty()
+                && self
+                    .manifest
+                    .is_match(crate::walk_seed::manifest_match_path(
+                        self.manifest_dir,
+                        path,
+                        walk_form,
+                    )))
     }
 }
 
