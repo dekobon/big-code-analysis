@@ -270,9 +270,10 @@ for historical reference.
   walks each carried their own copy of the decision and the `ops` copy
   was byte-less, so every Elixir input came back as a bare file-level
   space while `bca metrics` returned the full module/function tree.
-  `tests/ops_metrics_space_parity.rs` pins the agreement per language.
-  `bca functions` and `bca find --type function` still use the byte-less
-  predicate and remain blind to Elixir — tracked as `FIXME(#1162)`.
+  `tests/parity/ops_metrics_space_parity.rs` pins the agreement per
+  language. `bca functions` and `bca find --type function` carried the
+  same byte-less predicate and were fixed in the same release (#1162,
+  below).
 
 - Every walking subcommand exits `1` when the traversal could not read
   an entry — typically a directory the process cannot list (#1131). A
