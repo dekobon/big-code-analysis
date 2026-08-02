@@ -52,13 +52,36 @@
 #
 # The alternative — stacking every section comment above the arm —
 # detaches each from the tokens it names, which for a 40-line operator
-# alphabet is worse than the bail. So these entries stay until someone
-# decides between `#[allow(clippy::match_same_arms)]` on the split
-# form, `#[rustfmt::skip]` to make the hand-formatting explicit, or a
-# different table representation entirely.
+# alphabet is worse than the bail.
 #
-# Cleared so far: the `Else /* else-if also */ =>` family across
-# src/metrics/cognitive/ — a one-line comment with nothing to split.
+# DECIDED (#1136, 2026-08-02): these entries stay. Do not open a
+# campaign to clear them. The three candidate remedies were priced:
+#
+#   * `#[rustfmt::skip]` buys nothing measurable. Probed directly: a
+#     bailing match reports the same count with and without it, because
+#     the gate measures what rustfmt declined to reformat and the
+#     attribute declines it too. It also cannot sit on the `match` —
+#     attributes on expressions are unstable (E0658) — so it goes on
+#     the enclosing `fn` and removes that whole function from `cargo
+#     fmt`, which is less coverage than the bail it documents.
+#   * Splitting plus `#[allow(clippy::match_same_arms)]` does restore
+#     formatting, at the cost of an `allow` for a lint that is firing
+#     correctly, and of the reflow dissolving the visual grouping the
+#     sections exist to provide. `src/getter/python.rs` additionally
+#     crosses its 50k halstead.effort limit when split.
+#   * Stacking the comments needs no `allow` and loses the association
+#     between each label and its tokens, which is the whole content.
+#
+# The problem #1136 was filed for was that these matches sat outside
+# the formatting gate and nobody knew which ones. That is fixed by this
+# gate, not by editing the tables: the set is enumerated, per-file,
+# fail-on-increase. What remains is cosmetic, and every way of buying
+# it makes these tables harder to read.
+#
+# A single-comment bail with nothing to split is still worth hoisting
+# when you are in the file anyway — that is how the `Else /* else-if
+# also */ =>` family across src/metrics/cognitive/ was cleared. Ratchet
+# with `--update` in the same commit when you do.
 #
 # Watch the line length in every file listed here by hand. rustfmt is
 # not checking it, and it does drift: before #1136 `src/getter/java.rs`
