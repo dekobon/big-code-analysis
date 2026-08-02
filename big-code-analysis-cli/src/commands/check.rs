@@ -3,12 +3,15 @@
 use super::*;
 
 mod effective_config;
+mod explain;
 mod footer;
 mod outcome;
 mod remediation;
 mod thresholds;
 
-pub(crate) use {effective_config::*, footer::*, outcome::*, remediation::*, thresholds::*};
+pub(crate) use {
+    effective_config::*, explain::*, footer::*, outcome::*, remediation::*, thresholds::*,
+};
 
 pub(crate) fn run_check(
     globals: GlobalOpts,
@@ -40,10 +43,21 @@ pub(crate) fn run_check(
     // the CLI value winning in either direction.
     let tier = args.resolved_tier();
     let tiered_exit_codes = args.resolved_exit_codes() == Some(crate::ExitCodes::Tiered);
+    let layers = merge_threshold_layers(&args, base_thresholds);
+    // `--explain-threshold` is a candidate-limit preview, not a gate
+    // (#1169): it splices its own limits into the same merged layers,
+    // walks once, and reports both tiers' cost. Branching here — after
+    // the manifest merge, before the gate's own resolution — is what
+    // makes the preview honour `exclude_tests`, `[check] exclude` and the
+    // baseline exactly as the run it predicts.
+    if !args.explain_thresholds.is_empty() {
+        run_explain_thresholds(globals, &args, &layers, tier, preproc);
+        return;
+    }
     let ResolvedThresholds {
         thresholds,
         provenance,
-    } = validate_and_build_thresholds(&mut args, base_thresholds, tier);
+    } = validate_and_build_thresholds(&mut args, layers, tier);
     // `--print-effective-config` is a read-only debug aid: print the
     // resolved configuration and exit 0 before the walk. clap already
     // rejects pairing with `--write-baseline` (conflicts_with), so by

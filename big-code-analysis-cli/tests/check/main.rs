@@ -17,6 +17,7 @@ mod action_enforcement;
 mod check_baseline;
 mod check_exclude;
 mod check_exit_codes;
+mod check_explain_threshold;
 mod check_report_suppressed_scope;
 mod check_stream_contract;
 mod check_suppression;

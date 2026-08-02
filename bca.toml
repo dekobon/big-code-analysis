@@ -128,14 +128,18 @@ exclude = [
 # `abc` has converged onto the shipped default (40).
 #
 # `nargs` deliberately stays at 7. #1143 proposed 7 -> 6 as a free
-# ratchet on the strength of a hard-tier measurement: zero new offenders,
-# because all 73 offenders at limit 5 sit at exactly 6. But the soft tier
-# scales every limit by BCA_HEADROOM (0.95), so a limit of 6 puts all 73
-# of them permanently in the 95-100% band at once — they cannot ever
-# clear it, because they are the limit. That is ~73 baseline entries
-# bought for no hard-tier gain, which is the "reads as debt rather than
-# as a decision" outcome #1143 exists to avoid. Measured 2026-08-01.
-# The honest options are to stay at 7 or to do the real 6 -> 5 work.
+# ratchet on the strength of a hard-tier measurement: every offender at
+# limit 6 is already baselined, so `bca check --threshold nargs=6`
+# reports zero. But the soft tier scales every limit by BCA_HEADROOM
+# (0.95), and 74 functions sit at exactly 6, so a limit of 6 puts all of
+# them 0.3 below the band at once — they cannot ever clear it, because
+# they are the limit. That is 74 baseline entries bought for no
+# hard-tier gain, which is the "reads as debt rather than as a decision"
+# outcome #1143 exists to avoid. The honest options are to stay at 7 or
+# to do the real 6 -> 5 work.
+#
+# Re-measure with `bca check --explain-threshold nargs=6` (#1169) rather
+# than a bare `--threshold`, which has no soft tier by design.
 cognitive = 25
 cyclomatic = 15
 "halstead.effort" = 50000

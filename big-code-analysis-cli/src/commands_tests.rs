@@ -330,6 +330,7 @@ fn base_check_args() -> CheckArgs {
         tuning: crate::WalkTuningArgs::default(),
         preproc: crate::PreprocConsumeArgs::default(),
         thresholds: Vec::new(),
+        explain_thresholds: Vec::new(),
         config: None,
         no_fail: false,
         no_suppress: false,

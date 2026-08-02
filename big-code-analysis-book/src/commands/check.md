@@ -304,6 +304,55 @@ reports the resolved `tier` alongside the post-merge limits. See the
 [Local threshold gates](../recipes/local-gates.md#two-tier-thresholds)
 recipe for the migration tip and rationale.
 
+## Previewing a candidate limit (`--explain-threshold`) {#explain-threshold}
+
+`--explain-threshold <metric>=<limit>` reports what a candidate limit
+would cost — at **both** tiers — instead of gating. It is repeatable,
+takes one candidate per metric, and writes nothing.
+
+```console
+$ bca check --explain-threshold nargs=6
+nargs: candidate limit 6
+  hard tier (limit 6): 60 offenders, 60 already baselined, 0 new
+  soft tier (limit 5.7, 0.95x): 135 offenders, 61 already baselined, 74 new
+  cluster: 75 of 75 soft-band offenders sit at exactly 6 — the candidate
+  limit itself. The soft tier measures distance to the limit, so a limit
+  of 6 places them inside the 5.7 band by construction and none of them
+  can clear it without real work.
+```
+
+The `new` column is the figure to weigh: it is how many baseline
+entries adopting the limit would add. Here the hard tier reads as free
+and the soft tier costs 74 entries, none of which any amount of tidying
+can retire — which is the whole reason the flag exists.
+
+`--threshold nargs=6` cannot tell you this. Its limits are applied last
+and **absolutely, never scaled**, so a candidate trialled that way has
+no soft tier at all. Passing both flags for the same metric is
+rejected rather than silently resolved.
+
+The soft limit is derived from the candidate exactly as a real run
+would derive it: a `[thresholds.soft]` entry for the metric wins, then
+the `--tier=soft=RATIO` ratio if one was given, then `0.95`. A
+`[thresholds.lang.<slug>]` table that overrides the metric keeps its own
+limit — a candidate *global* limit does not reach it — and the report
+says so on its own line.
+
+Everything else matches the run being predicted: `exclude_tests`,
+`[check] exclude`, in-source suppression markers, `--changed-only`, and
+the baseline all apply as usual. The one difference is that
+baseline-covered offenders are counted rather than dropped, which is
+what makes the `already baselined` / `new` split possible.
+
+The preview replaces the gate, so it never fails: the exit code is `0`
+unless a tool error (exit `1`) stops the run, and a one-line reminder of
+that goes to stderr. It conflicts with `--write-baseline`,
+`--print-effective-config`, `--report-format`, and `--output`, each of
+which would produce a second, different artifact.
+
+See [Choosing thresholds](../recipes/thresholds.md#converging-onto-a-cluster)
+for the rule this flag exists to make visible.
+
 ## Offender output
 
 Every offending `(function, metric)` pair prints one line to **stdout**

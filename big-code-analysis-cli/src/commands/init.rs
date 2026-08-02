@@ -145,6 +145,7 @@ pub(crate) fn scaffold_baseline(
         tuning: crate::WalkTuningArgs::default(),
         preproc: crate::PreprocConsumeArgs::default(),
         thresholds: Vec::new(),
+        explain_thresholds: Vec::new(),
         config: Some(manifest_path.to_path_buf()),
         no_fail: false,
         no_suppress: false,
