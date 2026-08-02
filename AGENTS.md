@@ -285,6 +285,22 @@ purely procedural: do not bypass pre-commit, and refresh the baseline
 with `make self-scan-write-baseline-headroom` in the commit that moved
 the metric. A red gate on `main` traces directly to skipping this step.
 
+**Price a candidate limit at both tiers before calling it free.**
+Converging a limit onto a cluster of existing values is never free while
+a proportional soft tier is active — the soft tier measures *distance to
+the limit*, so a limit chosen to sit exactly on a population's value
+maximises soft-tier breach by construction, and none of those functions
+can ever clear the band because they *are* the limit. The natural
+measurement is the misleading one: `bca check --threshold <m>=<limit>`
+is applied last and absolutely, never scaled, so it has no soft tier to
+report. Use `bca check --explain-threshold <metric>=<limit>`, which
+reports both tiers plus how many offenders each already has in the
+baseline, and weigh the *new-entry* count. This repo's `nargs 7 → 6`
+was approved on a hard-tier zero and would have bought 74 permanent
+baseline entries (#1143, #1169); the same trap applies to a
+`[thresholds.lang.<slug>]` override (#1141). See
+[Tightening a limit onto a cluster](big-code-analysis-book/src/recipes/thresholds.md#converging-onto-a-cluster).
+
 If GNU Make 4 or any of the optional tools (`taplo`, `rumdl`,
 `shellcheck`, `shfmt`, `checkmake`, `actionlint`, `cargo-nextest`,
 `ruff`, `mypy`, `pyright`, `maturin`) are unavailable, fall back to the

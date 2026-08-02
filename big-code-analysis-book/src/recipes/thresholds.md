@@ -341,6 +341,52 @@ function of the metrics you are already gating, so gating it too double-counts. 
 already in the table, or because their distributions are dominated by a language idiom rather than
 by design quality.
 
+## Tightening a limit onto a cluster {#converging-onto-a-cluster}
+
+**Converging a limit onto a cluster of existing values is never free while a proportional soft tier
+is active.** Measure a candidate at *both* tiers before calling it free — the hard-tier reading is
+the one you naturally take, and it is the one that misleads.
+
+The soft tier measures distance to the limit. A limit chosen to sit exactly on a population's value
+therefore maximises soft-tier breach by construction: every function at that value is inside the
+band the moment the limit lands, and no amount of tidying moves it out, because it *is* the limit.
+
+This project walked into it. `nargs` was at `7`, and tightening it to `6` looked free — every
+offender at the tighter limit was already in the baseline, so `bca check --threshold nargs=6`
+reported nothing:
+
+| `nargs` limit | hard offenders | soft limit (`0.95`) | soft offenders |
+|---|---|---|---|
+| 7 (kept) | 27 | 6.65 | 60 |
+| 6 (proposed) | 60 | 5.7 | 134 |
+
+Seventy-four functions sit at exactly `6`. A limit of `6` puts all of them `0.3` below the soft
+band at once — 74 baseline entries bought for no hard-tier gain, none of which can ever be retired
+short of rewriting the signatures. The limit stayed at `7`; the honest alternative was the real
+`6 → 5` work. ([#1143](https://github.com/dekobon/big-code-analysis/issues/1143),
+[#1169](https://github.com/dekobon/big-code-analysis/issues/1169).)
+
+`bca check --explain-threshold <metric>=<limit>` measures both tiers in one walk and names the
+cluster when it finds one, without touching `bca.toml`:
+
+```console
+$ bca check --explain-threshold nargs=6
+nargs: candidate limit 6
+  hard tier (limit 6): 60 offenders, 60 already baselined, 0 new
+  soft tier (limit 5.7, 0.95x): 135 offenders, 61 already baselined, 74 new
+  cluster: 75 of 75 soft-band offenders sit at exactly 6 — the candidate limit itself. …
+```
+
+The trap is not confined to the global table. A
+[per-language override](#per-language) is another way to converge a limit onto a population, and it
+has the same cliff — `--explain-threshold` reports a language keeping its own limit on a separate
+line rather than folding it into the count.
+
+The rule generalises past the soft tier: a limit that lands on a cluster leaves the population with
+no room, so the *next* tightening is the one that has to move real code. Prefer a limit in the gap
+between clusters. See [Preview a candidate limit](../commands/check.md#explain-threshold) for the
+flag's full contract.
+
 ## Re-deriving for your own codebase {#re-deriving}
 
 Corpus percentiles are a starting point. Your own distribution is better evidence, and producing it

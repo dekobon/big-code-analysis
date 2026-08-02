@@ -24,6 +24,36 @@ pub(crate) struct CheckArgs {
     /// `0` is allowed and means "no value permitted".
     #[clap(long = "threshold", value_parser = parse_cli_threshold)]
     pub(crate) thresholds: Vec<(String, f64)>,
+    /// Preview what a candidate `<metric>=<limit>` would cost, at both
+    /// tiers, instead of gating. Reports the hard-tier offender count,
+    /// the resolved soft limit and its offender count, and how many of
+    /// each already match a `--baseline` entry — so the decision-grade
+    /// figure (new baseline entries the change would add) is on the
+    /// screen. Repeatable, one candidate per metric; every other metric
+    /// is left out of the walk.
+    ///
+    /// This exists because `--threshold` cannot answer the question:
+    /// its limits are applied last and absolutely, never scaled, so a
+    /// candidate trialled that way has no soft tier at all and reads as
+    /// free when it is not. The soft band is derived from the candidate
+    /// itself, at the `--tier=soft=RATIO` ratio when one is given and
+    /// 0.95 otherwise.
+    ///
+    /// Honours `exclude_tests`, `[check] exclude`, in-source suppression
+    /// markers and the baseline exactly as the run it predicts, and
+    /// writes nothing: no gate runs and the exit code is always 0.
+    /// Conflicts with `--write-baseline`, `--print-effective-config`,
+    /// `--report-format`, and `--output`, each of which would produce a
+    /// second, different artifact.
+    // The candidate-limit preview landed in issue #1169; see the
+    // "Choosing thresholds" and "Baselines" recipes in the book.
+    #[clap(
+        long = "explain-threshold",
+        value_name = "METRIC=LIMIT",
+        value_parser = parse_cli_threshold,
+        conflicts_with_all = ["write_baseline", "print_effective_config", "output_format", "output"],
+    )]
+    pub(crate) explain_thresholds: Vec<(String, f64)>,
     /// Path to a TOML config with a `[thresholds]` table; CLI
     /// `--threshold` flags override values read from it.
     // The indented example lives in `long_help`, not the `///` doc

@@ -110,6 +110,27 @@ A shrinking diff is the goal. Two `--write-baseline` runs over an
 unchanged tree produce byte-identical output, so spurious diffs only
 appear when actual offenders changed.
 
+#### Before tightening a limit, price it at both tiers {#price-a-candidate-limit}
+
+Paying debt down invites tightening the limit that produced it, and the
+obvious measurement — `bca check --threshold <metric>=<candidate>` —
+answers only half the question. A `--threshold` value is applied last
+and absolutely, never scaled, so it has **no soft tier**: a candidate
+that costs nothing at the hard gate can still put a whole population
+permanently inside the `--tier=soft` band, and you will not see it
+until you have edited `bca.toml` and run the other gate.
+
+```bash
+bca check --explain-threshold cognitive=15
+```
+
+Weigh the `new` column, not the offender count: it is how many baseline
+entries the change would add, and it is what a reviewer is actually
+being asked to approve. A `cluster:` line means the candidate landed on
+top of an existing population, and those entries can never be retired —
+see
+[Tightening a limit onto a cluster](thresholds.md#converging-onto-a-cluster).
+
 ### 5. PR-review heuristics
 
 Run `bca diff-baseline <old> <new>` and read the summary instead of

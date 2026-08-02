@@ -63,7 +63,7 @@ value = 47834.17129195417
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "run"
-start_line = 101
+start_line = 103
 metric = "halstead.effort"
 value = 136001.1105471366
 
@@ -90,24 +90,17 @@ value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check.rs"
-qualified = "emit_check_results"
-start_line = 553
-metric = "nargs"
-value = 8.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "filter_by_baseline"
-start_line = 364
+start_line = 378
 metric = "nargs"
 value = 8.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "run_check"
-start_line = 13
+start_line = 16
 metric = "halstead.effort"
-value = 70554.29290465376
+value = 79248.73574750705
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check/effective_config.rs"
@@ -133,7 +126,7 @@ value = 8.0
 [[entry]]
 path = "big-code-analysis-cli/src/commands/init.rs"
 qualified = "run_command_init"
-start_line = 186
+start_line = 187
 metric = "nargs"
 value = 7.0
 
@@ -329,7 +322,7 @@ value = 66737.04848699087
 [[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "ThresholdSet::evaluate_with_policy"
-start_line = 802
+start_line = 864
 metric = "halstead.effort"
 value = 57580.96697647807
 
@@ -448,21 +441,21 @@ value = 7.0
 [[entry]]
 path = "big-code-analysis-py/src/node.rs"
 qualified = "PyNode"
-start_line = 135
+start_line = 149
 metric = "nom"
 value = 52.0
 
 [[entry]]
 path = "big-code-analysis-py/src/node.rs"
 qualified = "PyNode"
-start_line = 135
+start_line = 149
 metric = "wmc"
 value = 59.0
 
 [[entry]]
 path = "big-code-analysis-py/src/node.rs"
 qualified = "PyNode::span"
-start_line = 237
+start_line = 251
 metric = "nexits"
 value = 6.0
 
@@ -819,7 +812,7 @@ value = 10.0
 [[entry]]
 path = "src/node.rs"
 qualified = "Node<'a>"
-start_line = 93
+start_line = 100
 metric = "nom"
 value = 34.0
 
@@ -828,7 +821,7 @@ path = "src/ops.rs"
 qualified = "ops_inner"
 start_line = 310
 metric = "halstead.effort"
-value = 70750.09027709182
+value = 67661.84803230887
 
 [[entry]]
 path = "src/output/checkstyle.rs"
@@ -938,16 +931,16 @@ value = 7.0
 [[entry]]
 path = "src/spaces/compute.rs"
 qualified = "metrics_inner"
-start_line = 544
+start_line = 540
 metric = "halstead.effort"
-value = 125902.05368685763
+value = 122031.61766024183
 
 [[entry]]
 path = "src/suppression.rs"
 qualified = "parse_native"
-start_line = 380
+start_line = 449
 metric = "nexits"
-value = 8.0
+value = 6.0
 
 [[entry]]
 path = "src/tools.rs"

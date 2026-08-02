@@ -98,32 +98,23 @@ pub(crate) fn resolve_check_output_format(args: &mut CheckArgs) {
     args.output_format = Some(fmt);
 }
 
-/// Validate `--output` / `--output-format` pairing, then resolve the
-/// effective threshold sets per the documented resolution order
-/// (#373/#374/#375/#380): the manifest `[thresholds]` base, the
-/// `--config` file merged on top (keys win on collision), the
-/// per-language `[thresholds.lang.<slug>]` overrides layered per metric
-/// (#1141), the tier resolution (hard verbatim, or soft via
-/// `[thresholds.soft]` / `--headroom`), and finally the absolute
-/// `--threshold` CLI overrides. Dies if no thresholds were configured.
-/// The result is wrapped in `Arc` so it can be cloned into each walker
-/// worker's `Config`.
-pub(crate) fn validate_and_build_thresholds(
-    args: &mut CheckArgs,
+/// Merge the two file-sourced threshold layers into one set of
+/// unresolved tables: the manifest `[thresholds]` table (empty when no
+/// `bca.toml` was discovered) with `--config` layered on top, its keys
+/// winning on collision so every existing recipe is preserved. The hard,
+/// soft, and per-language layers all merge the same way — per-language
+/// nested one level deeper, so a `--config` override of one metric for
+/// one language leaves that language's other limits alone.
+///
+/// Split out of [`validate_and_build_thresholds`] so the
+/// `--explain-threshold` preview (`super::explain`) starts from exactly
+/// the same merged tables the gate does rather than re-deriving them: a
+/// preview whose configuration differs from the run it predicts is worse
+/// than none.
+pub(crate) fn merge_threshold_layers(
+    args: &CheckArgs,
     base_thresholds: ParsedThresholds,
-    tier: TierSpec,
-) -> ResolvedThresholds {
-    // Resolve the `--output` / `--format` pairing before the walk so a
-    // misconfigured invocation fails fast instead of after a full parse.
-    resolve_check_output_format(args);
-
-    // Layer 1: the manifest `[thresholds]` table (empty when no
-    // `bca.toml` was discovered). Layer 2: `--config` merges on top,
-    // its keys winning on collision, preserving every existing recipe.
-    // The hard, soft, and per-language layers all merge the same way —
-    // per-language nested one level deeper, so a `--config` override of
-    // one metric for one language leaves that language's other limits
-    // alone.
+) -> ParsedThresholds {
     let ParsedThresholds {
         mut hard,
         mut soft,
@@ -137,6 +128,28 @@ pub(crate) fn validate_and_build_thresholds(
             lang.entry(slug).or_default().extend(overrides);
         }
     }
+    ParsedThresholds { hard, soft, lang }
+}
+
+/// Validate `--output` / `--output-format` pairing, then resolve the
+/// effective threshold sets per the documented resolution order
+/// (#373/#374/#375/#380): the `merged` manifest + `--config` base from
+/// [`merge_threshold_layers`], the per-language
+/// `[thresholds.lang.<slug>]` overrides layered per metric (#1141), the
+/// tier resolution (hard verbatim, or soft via `[thresholds.soft]` /
+/// `--headroom`), and finally the absolute `--threshold` CLI overrides.
+/// Dies if no thresholds were configured. The result is wrapped in `Arc`
+/// so it can be cloned into each walker worker's `Config`.
+pub(crate) fn validate_and_build_thresholds(
+    args: &mut CheckArgs,
+    merged: ParsedThresholds,
+    tier: TierSpec,
+) -> ResolvedThresholds {
+    // Resolve the `--output` / `--format` pairing before the walk so a
+    // misconfigured invocation fails fast instead of after a full parse.
+    resolve_check_output_format(args);
+
+    let ParsedThresholds { hard, soft, lang } = merged;
 
     // The soft ratio (the `RATIO` in `--tier=soft=RATIO`) was already
     // validated to `(0, 1]` by `TierSpec::from_str` at parse time, so a
@@ -196,7 +209,7 @@ pub(crate) fn validate_and_build_thresholds(
 /// Repeating one metric stays last-wins, as it already is for two
 /// occurrences of the same spelling; only the enclosing tables reject a
 /// metric named twice.
-fn canonical_cli_thresholds(raw: &[(String, f64)]) -> Vec<(String, f64)> {
+pub(crate) fn canonical_cli_thresholds(raw: &[(String, f64)]) -> Vec<(String, f64)> {
     raw.iter()
         .map(|(name, limit)| {
             let canonical = crate::metric_alias::normalize_for_check(name)
@@ -208,6 +221,63 @@ fn canonical_cli_thresholds(raw: &[(String, f64)]) -> Vec<(String, f64)> {
 
 /// The per-metric override tables, keyed by canonical language slug.
 type LanguageOverrides = BTreeMap<&'static str, BTreeMap<String, f64>>;
+
+/// Resolve the gate a `--explain-threshold` preview walks with (#1169).
+///
+/// `candidates` replaces the global `[thresholds]` hard limits for
+/// exactly the metrics being explained, and every other metric is dropped
+/// — the preview reports only what it was asked about, and narrowing the
+/// set narrows the metric families the walk computes with it (#1113).
+///
+/// Resolved at the **soft** tier on purpose. The soft band is the more
+/// permissive of the two (it fires *before* the hard gate), so one walk
+/// against it collects a superset already containing every hard-tier
+/// offender, and each emitted [`Violation`] carries both numbers:
+/// `limit` is that language's resolved soft limit and `hard_limit` its
+/// candidate ceiling. Counting the hard tier is then a `breaches_limit`
+/// filter over the records in hand rather than a second parse of the
+/// tree.
+///
+/// Per-language `[thresholds.lang.<slug>]` overrides of an explained
+/// metric are kept as they are: a candidate *global* limit does not
+/// change what a language that overrode the metric gates at, and each
+/// language's soft band is derived from its own limit by
+/// [`SharedLayers::resolve_one`]. That is what keeps the counts exact on
+/// the trees #1141 exists for.
+pub(crate) fn build_candidate_gate(
+    layers: &ParsedThresholds,
+    candidates: &BTreeMap<String, f64>,
+    ratio: Option<f64>,
+) -> LanguageThresholds {
+    let soft = retain_explained(&layers.soft, candidates);
+    let lang: LanguageOverrides = layers
+        .lang
+        .iter()
+        .map(|(slug, overrides)| (*slug, retain_explained(overrides, candidates)))
+        .filter(|(_, kept)| !kept.is_empty())
+        .collect();
+    // No `--threshold` layer: an absolute CLI override is never scaled,
+    // so letting one through would hand the preview a metric with no soft
+    // tier to report. `run_explain_thresholds` rejects the overlap up
+    // front instead.
+    let shared = SharedLayers::new(&[], TierSpec::Soft(ratio), &soft, &lang, candidates);
+    shared.resolve_all(candidates, &lang)
+}
+
+/// Drop every entry of one threshold layer whose metric is not being
+/// explained. Shared by the `[thresholds.soft]` table and each
+/// `[thresholds.lang.<slug>]` table so both are narrowed by the same
+/// rule.
+fn retain_explained<V: Copy>(
+    table: &BTreeMap<String, V>,
+    candidates: &BTreeMap<String, f64>,
+) -> BTreeMap<String, V> {
+    table
+        .iter()
+        .filter(|(name, _)| candidates.contains_key(name.as_str()))
+        .map(|(name, value)| (name.clone(), *value))
+        .collect()
+}
 
 /// The threshold layers every table in one run shares, separated from
 /// the per-table hard limits they are applied to.
