@@ -550,6 +550,27 @@ git checkout <INTEGRATION_BRANCH>
 Then run `make pre-commit` — the canonical gate per "Validation gates"
 in `AGENTS.md` (it adds udeps, doc warnings, the lint families, the
 self-scan gates, and `make snapshot-anchors` on top of the cargo trio).
+
+**Capture it to a per-invocation log and read the verdict from the log**
+— never from a reported exit status, which in this harness is the status
+of the trailing command on the line, not of `make`:
+
+```bash
+log=$(mktemp /tmp/bca-pre-commit.XXXXXX.log)
+make pre-commit >"$log" 2>&1
+grep '^BCA_GATE:' "$log"
+```
+
+`BCA_GATE: pass (gate=pre-commit)` or
+`BCA_GATE: fail (gate=pre-commit, exit=2, stage=_pc-fmt)` — exactly one
+line, and it is the last thing the gate writes. Neither a `make[2]: ***
+… Error 2` line nor a green-looking tail is a verdict: the gate is a
+parallel DAG, so a failing stage is reported the instant it fails and
+other stages keep producing successful output after it. No `BCA_GATE:`
+line at all means the run never finished. A fixed path such as
+`/tmp/pc.log` is shared with every concurrent agent on the host and has
+already caused one agent to diagnose another's failure — hence `mktemp`.
+
 If `make` is unavailable, fall back to:
 
 ```bash

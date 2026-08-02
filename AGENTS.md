@@ -251,6 +251,30 @@ Python stage is skipped with a clear "X not found" message when the
 corresponding tool is absent). `make ci` runs the same checks without
 auto-fix, mirroring CI behaviour.
 
+**Read the outcome from the `BCA_GATE:` line, nothing else.** Both gates
+end with exactly one of `BCA_GATE: pass (gate=pre-commit)` or
+`BCA_GATE: fail (gate=pre-commit, exit=2, stage=_pc-fmt)` on stdout, and
+no other line of either gate's output starts with that token. Do not
+infer an outcome from make's `Error N` lines: the gate is a parallel
+DAG, so a stage's `make[2]: *** [… _pc-fmt] Error 2` is printed the
+instant it fails and is routinely followed by a hundred lines of other
+stages'
+*successful* output. Capture each run to its own log path — a fixed
+`/tmp/pc.log` is shared with every other checkout and agent on the host
+— and grep that log rather than trusting a reported exit status, which
+in some tooling is the status of the trailing `echo` rather than of
+make:
+
+```bash
+log=$(mktemp /tmp/bca-pre-commit.XXXXXX.log)
+make pre-commit >"$log" 2>&1
+grep '^BCA_GATE:' "$log"
+```
+
+No `BCA_GATE:` line at all is a third state, not a pass: the run
+crashed, was killed, or was interrupted. See
+[`CONTRIBUTING.md`](CONTRIBUTING.md), "Reading the verdict".
+
 **`_native.pyi` is stubtest-gated (#673).** The hand-written PyO3 stub
 `big-code-analysis-py/python/big_code_analysis/_native.pyi` is no
 longer "kept in lockstep by hand" on trust alone: `make py-stubtest`

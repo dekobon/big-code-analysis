@@ -88,7 +88,7 @@ find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name 
 NEXTEST        := $(shell command -v cargo-nextest 2>/dev/null)
 TEST_CMD       = $(if $(NEXTEST),$(NEXTEST) nextest run --workspace --all-features,cargo test --workspace --all-features --lib --bins --tests)
 
-.PHONY: help check-tools worktree-setup worktree-setup-test build build-release check test test-doc chain-audit fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors grammar-marker-sync grammar-marker-sync-test check-versions check-excluded-manifests check-excluded-manifests-test check-manpage-assets enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-pot book-po-update book-ja book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib bench bench-scaling bench-walk _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-manpage-assets _pc-worktree-setup-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-manpage-assets _ci-worktree-setup-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
+.PHONY: help check-tools worktree-setup worktree-setup-test build build-release check test test-doc chain-audit fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors grammar-marker-sync grammar-marker-sync-test check-versions check-excluded-manifests check-excluded-manifests-test check-manpage-assets gate-status-test enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-pot book-po-update book-ja book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib bench bench-scaling bench-walk _check-find _pc-all _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-manpage-assets _pc-worktree-setup-test _pc-gate-status-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-all _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-manpage-assets _ci-worktree-setup-test _ci-gate-status-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
 
 # Default target
 help:
@@ -137,6 +137,7 @@ help:
 	@echo "  check-excluded-manifests-test        Self-tests for the check-excluded-manifests gate"
 	@echo "  check-manpage-assets                 Assert every bca-*.1 man page is in deb+rpm asset lists"
 	@echo "  worktree-setup-test                  Self-tests for the worktree-setup submodule classifier"
+	@echo "  gate-status-test                     Self-tests for the pre-commit/ci BCA_GATE verdict line"
 	@echo "  enums-check                          cargo clippy + cargo test on workspace-excluded enums crate"
 	@echo "  enums-codegen-drift                  Block enums codegen output drifting from checked-in files"
 	@echo "  enums-codegen-drift-test             Self-tests for the enums-codegen-drift gate"
@@ -250,6 +251,13 @@ worktree-setup:
 # the utils/ gates and runs in pre-commit alongside them.
 worktree-setup-test:
 	@(cd $(BASE_DIR) && python3 -m unittest -q utils/worktree-setup-test.py)
+
+# Self-tests for utils/gate-status.sh, which wraps `pre-commit` and `ci`
+# and is the only thing standing between a red gate and a log that reads
+# as green. Held to the same standard as the utils/ gates for that
+# reason, and cheap enough (~0.1s, no cargo) to run in both.
+gate-status-test:
+	@bash $(BASE_DIR)utils/gate-status-test.sh
 
 # ---------------------------------------------------------------------------
 # Build
@@ -948,7 +956,7 @@ lint:
 	$(MAKE) -j --output-sync=target \
 	  _ci-clippy \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-manpage-assets _ci-worktree-setup-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test
+	  _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-manpage-assets _ci-worktree-setup-test _ci-gate-status-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test
 
 # ---------------------------------------------------------------------------
 # Maintenance
@@ -1089,24 +1097,42 @@ book-deploy:
 # ---------------------------------------------------------------------------
 all: check test build-release
 
+# `pre-commit` and `ci` delegate their real work to the `_pc-all` /
+# `_ci-all` aggregates below and run it under utils/gate-status.sh, which
+# ends the log with exactly one `BCA_GATE: pass` / `BCA_GATE: fail
+# (stage=…)` line (#1172). It replaces the old prose "Pre-commit checks
+# passed", which existed only on the success path — a failing run had no
+# terminal verdict at all, only `make[1]: *** [… _pc-fmt] Error 2` lines
+# that a parallel run emits mid-stream while other stages are still
+# going, and which are therefore not a verdict. The wrapper exits with
+# the gate's own status; it never converts a red run into a green exit.
+#
+# The aggregates exist so the wrapper has a single command to run:
+# `ci` needs two sequential sub-makes, and one verdict line per gate is
+# the whole point. Do not invoke `_pc-all` / `_ci-all` directly — that
+# skips the verdict.
 pre-commit:
+	@bash $(BASE_DIR)utils/gate-status.sh pre-commit $(MAKE) _pc-all
+
+ci:
+	@bash $(BASE_DIR)utils/gate-status.sh ci $(MAKE) _ci-all
+
+_pc-all:
 	$(MAKE) -j --output-sync=target \
 	  _pc-test \
 	  _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check \
-	  _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-manpage-assets _pc-worktree-setup-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test \
+	  _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-manpage-assets _pc-worktree-setup-test _pc-gate-status-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test \
 	  _pc-manpages \
 	  _pc-self-scan _pc-self-scan-headroom \
 	  _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest
-	@echo "Pre-commit checks passed"
 
-ci:
+_ci-all:
 	$(MAKE) _ci-fmt-check
 	$(MAKE) -j --output-sync=target \
 	  _ci-cargo-pipeline \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-manpage-assets _ci-worktree-setup-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test \
+	  _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-manpage-assets _ci-worktree-setup-test _ci-gate-status-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test \
 	  _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
-	@echo "CI checks passed"
 
 # ---------------------------------------------------------------------------
 # Parallel pre-commit DAG
@@ -1137,6 +1163,7 @@ ci:
 #    ├── _pc-grammar-marker-sync-test
 #    ├── _pc-check-versions
 #    ├── _pc-worktree-setup-test
+#    ├── _pc-gate-status-test
 #    ├── _pc-enums-check
 #    ├── _pc-enums-codegen-drift (chained after _pc-enums-check)
 #    ├── _pc-py-fmt
@@ -1229,6 +1256,9 @@ _pc-check-manpage-assets: _pc-fmt
 
 _pc-worktree-setup-test: _pc-fmt
 	$(MAKE) worktree-setup-test
+
+_pc-gate-status-test: _pc-fmt
+	$(MAKE) gate-status-test
 
 _pc-enums-check: _pc-fmt
 	$(MAKE) enums-check
@@ -1389,6 +1419,9 @@ _ci-check-manpage-assets:
 
 _ci-worktree-setup-test:
 	$(MAKE) worktree-setup-test
+
+_ci-gate-status-test:
+	$(MAKE) gate-status-test
 
 _ci-enums-check:
 	$(MAKE) enums-check
