@@ -544,4 +544,103 @@ fn print_effective_config_unions_the_manifest_check_exclude() {
         !check.contains_key("exclude_from"),
         "no walker exclude_from was configured",
     );
+
+    // The flattened `check_exclude` above cannot say which of its two
+    // globs resolves against which root, and after #1164 that is what
+    // decides whether a glob matches at all. The sibling key names the
+    // manifest-origin subset, so the resolved list stays where it is —
+    // and keeps round-tripping through `--config` — while the
+    // provenance becomes answerable (#1194). Its anchor is the
+    // `manifest` key's directory, which is populated whenever this is.
+    let manifest_check_exclude: Vec<&str> = check["manifest_check_exclude"]
+        .as_array()
+        .expect("manifest_check_exclude is an array")
+        .iter()
+        .map(|v| v.as_str().expect("glob is a string"))
+        .collect();
+    assert_eq!(
+        manifest_check_exclude,
+        ["./generated/**"],
+        "only the manifest's glob is manifest-anchored; `tests/**` came from the CLI",
+    );
+    assert!(
+        check.contains_key("manifest"),
+        "the manifest-origin subset is meaningless without the anchor it resolves against",
+    );
+
+    // The effective `check_exclude_from` came from the manifest here,
+    // so the provenance key mirrors it.
+    assert_eq!(
+        check["manifest_check_exclude_from"].as_str(),
+        check["check_exclude_from"].as_str(),
+        "no CLI --check-exclude-from was passed, so the manifest's file is the one in effect",
+    );
+
+    // The walker's exclude surface configured nothing, so its
+    // provenance key is absent rather than empty.
+    assert!(
+        !check.contains_key("manifest_exclude"),
+        "an unconfigured surface must not emit an empty provenance key",
+    );
+}
+
+/// A CLI `--check-exclude-from` *replaces* the manifest's file rather
+/// than unioning with it, so the provenance key must go absent — saying
+/// the manifest's file is in effect when it is not would be worse than
+/// saying nothing.
+///
+/// #1194 reads the manifest's file as being "dropped entirely" here.
+/// It is not dropped in the report; it is not in effect, by the
+/// documented `replaced_by` rule that governs the *file* while the
+/// inline glob list unions.
+#[test]
+fn print_effective_config_omits_a_replaced_manifest_exclude_from() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("kept.rs"), branchy("kept_offender")).unwrap();
+    fs::write(dir.path().join("more-globs.txt"), "vendor/**\n").unwrap();
+    fs::write(dir.path().join("cli-globs.txt"), "cli-vendor/**\n").unwrap();
+    fs::write(
+        dir.path().join("bca.toml"),
+        "paths = [\".\"]\n\
+         [check]\n\
+         exclude = [\"./generated/**\"]\n\
+         exclude_from = \"more-globs.txt\"\n",
+    )
+    .unwrap();
+
+    let assert = cli(dir.path())
+        .args([
+            "check",
+            "--paths",
+            dir.path().to_str().unwrap(),
+            "--threshold",
+            "cyclomatic=1",
+            "--check-exclude-from",
+            "cli-globs.txt",
+            "--print-effective-config",
+            "toml",
+        ])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8 stdout");
+    let parsed: toml::Table = toml::from_str(&stdout).expect("effective config is valid TOML");
+    let check = parsed["check"].as_table().expect("[check] is a table");
+
+    assert_eq!(
+        check["check_exclude_from"].as_str(),
+        Some("cli-globs.txt"),
+        "the CLI file is the one in effect",
+    );
+    assert!(
+        !check.contains_key("manifest_check_exclude_from"),
+        "the manifest's file was replaced, so it must not be reported as in effect",
+    );
+    // The inline glob list still unions, which is what makes the two
+    // rules distinguishable rather than a single "CLI wins" story.
+    assert!(
+        check["manifest_check_exclude"]
+            .as_array()
+            .is_some_and(|a| a.len() == 1),
+        "the manifest's inline glob is still in effect",
+    );
 }

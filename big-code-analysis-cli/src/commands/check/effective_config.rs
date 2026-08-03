@@ -14,8 +14,43 @@ fn reported_globs(cli: &[String], manifest: Option<&ManifestExcludes>) -> Vec<St
 
 /// The exclude-from file in effect: the caller's when given, else the
 /// manifest's (already resolved against the manifest directory).
+///
+/// When both are set this reports the caller's, and that is the whole
+/// story: a CLI `--exclude-from` *replaces* the manifest's file rather
+/// than unioning with it (`Manifest::merge`'s `replaced_by`), so the
+/// manifest's is not in effect and must not be reported as though it
+/// were. #1194 reads this as a value being dropped; it is not there to
+/// drop. [`manifest_globs_from`] reports it only when it applies.
 fn display_globs_from(cli: Option<&Path>, manifest: Option<&ManifestExcludes>) -> Option<String> {
     cli.or_else(|| manifest.and_then(|m| m.globs_from.as_deref()))
+        .map(|p| p.display().to_string())
+}
+
+/// The manifest-origin subset of a reported exclude list (#1194).
+///
+/// `--print-effective-config` is the surface consulted to answer "which
+/// exemptions are in effect?", and after #1164 the answer depends on
+/// where each glob came from: a CLI glob resolves against the caller's
+/// working directory, a manifest glob against the `bca.toml` directory.
+/// The flattened array cannot express that, so this names the subset
+/// carrying the manifest anchor. The anchor itself is the `manifest`
+/// key's parent directory, which is populated exactly when these are.
+///
+/// Additive rather than a split, so the resolved list stays where it is
+/// and the TOML form keeps round-tripping through `--config`.
+fn manifest_globs(manifest: Option<&ManifestExcludes>) -> Vec<String> {
+    manifest.map(|m| m.globs.clone()).unwrap_or_default()
+}
+
+/// The manifest's own `exclude_from` file, when one is in effect.
+///
+/// Present exactly when `exclude_from` above resolved to the manifest's
+/// file, absent when a CLI flag replaced it — which is the provenance
+/// question for this key: the two together say whether the effective
+/// file came from the manifest or the command line.
+fn manifest_globs_from(manifest: Option<&ManifestExcludes>) -> Option<String> {
+    manifest
+        .and_then(|m| m.globs_from.as_deref())
         .map(|p| p.display().to_string())
 }
 
@@ -128,16 +163,35 @@ pub(crate) struct EffectiveCheck {
     pub(crate) paths: Vec<String>,
     pub(crate) include: Vec<String>,
     pub(crate) exclude: Vec<String>,
+    /// The subset of `exclude` that came from the manifest, and so
+    /// resolves against the `manifest` key's directory rather than the
+    /// caller's working directory (#1194). Empty when no manifest
+    /// contributed any glob.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) manifest_exclude: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) exclude_from: Option<String>,
+    /// Set when `exclude_from` above came from the manifest rather than
+    /// from `--exclude-from`; absent when a CLI flag replaced it. The
+    /// pair answers where the effective file came from (#1194).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) manifest_exclude_from: Option<String>,
     /// Resolved `[check.exclude]` globs (#378): files analysed and
     /// reported but exempt from the gate. Empty when unset.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) check_exclude: Vec<String>,
+    /// The manifest-origin subset of `check_exclude` — the gate's half
+    /// of `manifest_exclude` above, and the case #1194 was filed about.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) manifest_check_exclude: Vec<String>,
     /// Source file for additional `check_exclude` globs
     /// (`--check-exclude-from` / `[check] exclude_from`), if any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) check_exclude_from: Option<String>,
+    /// The manifest's own `[check] exclude_from` file; see
+    /// `manifest_exclude_from`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) manifest_check_exclude_from: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) paths_from: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -232,18 +286,22 @@ impl EffectiveConfig {
             // reader wants reported is the resolved set both halves add
             // up to.
             exclude: reported_globs(&globals.exclude, globals.manifest_excludes.as_ref()),
+            manifest_exclude: manifest_globs(globals.manifest_excludes.as_ref()),
             exclude_from: display_globs_from(
                 globals.exclude_from.as_deref(),
                 globals.manifest_excludes.as_ref(),
             ),
+            manifest_exclude_from: manifest_globs_from(globals.manifest_excludes.as_ref()),
             check_exclude: reported_globs(
                 &args.check_exclude,
                 args.manifest_check_exclude.as_ref(),
             ),
+            manifest_check_exclude: manifest_globs(args.manifest_check_exclude.as_ref()),
             check_exclude_from: display_globs_from(
                 args.check_exclude_from.as_deref(),
                 args.manifest_check_exclude.as_ref(),
             ),
+            manifest_check_exclude_from: manifest_globs_from(args.manifest_check_exclude.as_ref()),
             paths_from: globals.paths_from.as_ref().map(|p| p.display().to_string()),
             baseline: args.baseline.as_ref().map(|p| p.display().to_string()),
             config: args.config.as_ref().map(|p| p.display().to_string()),
