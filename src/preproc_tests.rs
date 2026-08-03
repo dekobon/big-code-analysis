@@ -846,3 +846,77 @@ fn preprocess_truncated_include_does_not_panic() {
         .expect("file entry must be inserted");
     assert!(pf.direct_includes.is_empty());
 }
+
+/// The `Display` impl is the only rendering of these diagnostics a user
+/// ever sees — the CLI writes it to stderr and `bca-web` may surface it
+/// verbatim — so each variant's text is pinned exactly rather than
+/// probed with `contains`. Asserting the whole string is what catches a
+/// dropped path interpolation or a lost prefix; a substring check passes
+/// against both.
+///
+/// Note the deliberate `Warning:` / `warning:` split recorded here: three
+/// variants capitalise and two do not. That is the shipped text as of
+/// this commit, pinned so a normalisation is a visible, reviewed diff
+/// rather than an accident.
+#[test]
+fn preproc_diagnostic_display_renders_each_variant() {
+    assert_eq!(
+        PreprocDiagnostic::SelfInclusion {
+            file: PathBuf::from("inc/self ref.h"),
+        }
+        .to_string(),
+        "Warning: possible self inclusion inc/self ref.h",
+    );
+
+    assert_eq!(
+        PreprocDiagnostic::NonUtf8CyclePath {
+            path: "bad/\u{fffd}.h".to_owned(),
+        }
+        .to_string(),
+        "warning: skipping non-UTF-8 path in include cycle: bad/\u{fffd}.h",
+    );
+
+    assert_eq!(
+        PreprocDiagnostic::NonUtf8IndirectInclude {
+            path: "bad/\u{fffd}.h".to_owned(),
+        }
+        .to_string(),
+        "warning: skipping non-UTF-8 indirect include path: bad/\u{fffd}.h",
+    );
+
+    assert_eq!(
+        PreprocDiagnostic::NotPreprocessed {
+            file: PathBuf::from("vendor/unseen.h"),
+        }
+        .to_string(),
+        "Warning: included file which has not been preprocessed: vendor/unseen.h",
+    );
+}
+
+/// `IncludeCycle` is the only multi-line variant: a header line plus one
+/// quoted line per member, each newline-terminated. The member list here
+/// is deliberately unsorted and contains a path with a space — the
+/// quoting exists precisely so that whitespace stays visible, and a
+/// member set of one could not distinguish "prints every member" from
+/// "prints the first".
+#[test]
+fn preproc_diagnostic_display_lists_every_cycle_member() {
+    let rendered = PreprocDiagnostic::IncludeCycle {
+        members: vec!["z.h".to_owned(), "a b.h".to_owned(), "m.h".to_owned()],
+    }
+    .to_string();
+
+    assert_eq!(
+        rendered,
+        "Warning: possible include cycle:\n  - \"z.h\"\n  - \"a b.h\"\n  - \"m.h\"\n",
+    );
+
+    let empty = PreprocDiagnostic::IncludeCycle {
+        members: Vec::new(),
+    }
+    .to_string();
+    assert_eq!(
+        empty, "Warning: possible include cycle:\n",
+        "an empty member list still renders the header and nothing else"
+    );
+}
