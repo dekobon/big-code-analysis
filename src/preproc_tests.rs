@@ -854,12 +854,17 @@ fn preprocess_truncated_include_does_not_panic() {
 /// dropped path interpolation or a lost prefix; a substring check passes
 /// against both.
 ///
-/// Note the deliberate `Warning:` / `warning:` split recorded here: three
-/// variants capitalise and two do not. That is the shipped text as of
-/// this commit, pinned so a normalisation is a visible, reviewed diff
-/// rather than an accident.
+/// This covers the four single-line variants. The multi-line
+/// `IncludeCycle` is pinned by
+/// `preproc_diagnostic_display_lists_every_cycle_member` below, which
+/// needs a different assertion shape.
+///
+/// Note the deliberate `Warning:` / `warning:` split across the five
+/// variants taken together: three capitalise and two do not. That is
+/// the shipped text as of this commit, pinned so a normalisation is a
+/// visible, reviewed diff rather than an accident.
 #[test]
-fn preproc_diagnostic_display_renders_each_variant() {
+fn preproc_diagnostic_display_renders_each_single_line_variant() {
     assert_eq!(
         PreprocDiagnostic::SelfInclusion {
             file: PathBuf::from("inc/self ref.h"),
