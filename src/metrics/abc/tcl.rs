@@ -53,6 +53,15 @@ const TCL_ASSIGNMENT_COMMANDS: &[&[u8]] = &[b"incr", b"append", b"lappend"];
 // (`$x`), command substitutions (`[cmd]`), the boolean keyword, and
 // the numeric literal.
 fn tcl_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
+    // bca: suppress(cognitive) — wrapper-peeling state machine, clearest whole
+    // The same shape as `cpp_inspect_container`, and it carries the same
+    // marker for the same reason: one loop peels the `expr` / `!` layers
+    // while carrying a single boolean-context flag, the flag must be
+    // readable at every step so any split would have to thread it back
+    // out, and the parts have no names a reader would draw. It crossed
+    // the limit when #1180 wired the Phase 2B slot routing — the seed
+    // grew a ternary-slot disjunct and the loop gained the wrapper peel
+    // every sibling already had.
     let mut node = *container_node;
     let mut node_kind = node.kind_id().into();
     let parent_kind = parent.kind_id().into();

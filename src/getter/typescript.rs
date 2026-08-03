@@ -35,27 +35,21 @@ impl Getter for TypescriptCode {
             return Some("<static-init>");
         }
         if let Some(name) = node.child_by_field_name("name") {
-            node_text(code, &name)
-        } else {
-            // We can be in a pair: foo: function() {}
-            // Or in a variable declaration: var aFun = function() {}
-            if let Some(parent) = ancestors.parent(node) {
-                match parent.kind_id().into() {
-                    Typescript::Pair => {
-                        if let Some(name) = parent.child_by_field_name("key") {
-                            return node_text(code, &name);
-                        }
-                    }
-                    Typescript::VariableDeclarator => {
-                        if let Some(name) = parent.child_by_field_name("name") {
-                            return node_text(code, &name);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            Some("<anonymous>")
+            return node_text(code, &name);
         }
+        // Otherwise the name comes from the binding site: a pair
+        // (`foo: function () {}`) or a variable declaration
+        // (`var aFun = function () {}`). The two differ only in which
+        // field carries the name, so they collapse to one lookup.
+        let bound_name = ancestors.parent(node).and_then(|parent| {
+            let field = match parent.kind_id().into() {
+                Typescript::Pair => "key",
+                Typescript::VariableDeclarator => "name",
+                _ => return None,
+            };
+            parent.child_by_field_name(field)
+        });
+        bound_name.map_or(Some("<anonymous>"), |name| node_text(code, &name))
     }
 
     // TS exposes `String2` as the anonymous `"string"` alias for the
