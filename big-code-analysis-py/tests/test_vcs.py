@@ -104,17 +104,26 @@ def test_analyze_vcs_true_attaches_block(tmp_path: Path) -> None:
     assert hotspot > 0.0
 
 
-def test_analyze_vcs_true_releases_gil_for_walk(tmp_path: Path) -> None:
-    """The ``analyze(vcs=True)`` history walk runs off-GIL (#620).
+def test_analyze_vcs_true_completes_off_the_main_thread(tmp_path: Path) -> None:
+    """The ``analyze(vcs=True)`` history walk does not deadlock (#620).
 
-    Coarse no-deadlock / progress check, not a wall-clock threshold (CI
-    timing is too flaky for a hard budget): run the VCS-injecting analyze
-    in a worker thread and confirm the main thread keeps making progress —
-    it counts up while the walk runs and the walk returns its block. If the
-    walk held the GIL for its whole duration the worker would still finish,
-    so this cannot guarantee true parallelism, but it pins the contract
-    that the off-GIL call completes and produces the same result a serial
-    call does.
+    The off-GIL *interleaving* is deliberately not asserted here, and the
+    name says so. This test used to start a worker, then count loop
+    iterations while it was alive and require ``progressed > 0`` — but
+    "the worker finished before I looked" and "the GIL was held so I
+    could not run" are indistinguishable from the main thread's side.
+    The fixture repo has a single commit, so the walk is sub-millisecond
+    and the main thread routinely lost that race: it failed under `make
+    pre-commit`, which saturates every core, and passed 5/5 on an
+    unchanged tree immediately after (#1191). A tighter loop or shorter
+    sleep changes the odds, not the logic.
+
+    What remains is the regression that actually matters and that a
+    worker thread *can* observe: the walk completes rather than
+    deadlocking the interpreter, and it returns the same block a serial
+    call does. An assertion that fires on load and not on breakage is
+    worse than no assertion, because it teaches people to re-run the
+    gate — which is the habit that lets a real failure through.
     """
     import threading
 
@@ -122,28 +131,31 @@ def test_analyze_vcs_true_releases_gil_for_walk(tmp_path: Path) -> None:
     target = repo / "work.rs"
 
     result: dict[str, Any] = {}
-    started = threading.Event()
+    failure: list[BaseException] = []
 
     def run() -> None:
-        started.set()
-        out = bca.analyze(target, vcs=True)
-        assert out is not None
-        result["vcs"] = out["metrics"]["vcs"]
+        # A bare `assert` here would be swallowed by the thread and
+        # resurface in the main thread as a confusing KeyError on
+        # `result`, hiding the real cause.
+        try:
+            out = bca.analyze(target, vcs=True)
+            assert out is not None
+            result["vcs"] = out["metrics"]["vcs"]
+        except BaseException as exc:
+            failure.append(exc)
 
     worker = threading.Thread(target=run)
     worker.start()
-    started.wait()
-    # The main thread advances while the worker walks history; with the GIL
-    # released for the walk this loop interleaves rather than blocking until
-    # the worker is fully done.
-    progressed = 0
-    while worker.is_alive():
-        progressed += 1
-        time.sleep(0.001)
+    # `join` is the wait, so the timeout is load-bearing: a walk that
+    # deadlocks the interpreter fails here rather than hanging the suite.
     worker.join(timeout=30.0)
-
     assert not worker.is_alive(), "VCS walk worker thread deadlocked"
-    assert progressed > 0
+    if failure:
+        raise failure[0]
+
+    serial = bca.analyze(target, vcs=True)
+    assert serial is not None
+    assert result["vcs"] == serial["metrics"]["vcs"]
     assert result["vcs"]["commits_long"] == 1
 
 
