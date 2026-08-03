@@ -68,11 +68,22 @@ def char_literal_end(source: str, i: int) -> int | None:
         if j >= n:
             return None
         if source[j] == "u":
-            # '\u{1F600}' — the braced form is the only multi-char escape.
+            # '\u{1F600}' — braced, variable length.
             close = source.find("}", j)
             if close == -1:
                 return None
             j = close + 1
+        elif source[j] == "x":
+            # '\x41' — always exactly two hex digits. Rust's other
+            # multi-char escape; missing it made `char_literal_end`
+            # return `None` for a valid literal. Benign for the count
+            # (an unrecognised literal opens no span, and both its quotes
+            # are then consumed as ordinary characters), but the comment
+            # that used to sit here claimed the braced form was the only
+            # one — which is what would let the next reader skip it when
+            # this lexer is copied again, as it already was from
+            # `check-rustfmt-bail.py`.
+            j += 3
         else:
             j += 1
     else:
@@ -125,13 +136,22 @@ def find_macro_call_end(source: str, open_paren_idx: int) -> int:
 
     ``open_paren_idx`` must point at the ``(`` that opens the call.
     Tracks parens, skipping string literals (regular, raw and byte),
-    char literals and ``//`` line comments so a ``)`` inside the inline
-    ``@r###"…"###`` anchor does not confuse the depth counter.
+    char literals, ``//`` line comments and ``/* … */`` block comments so
+    a ``)`` inside the inline ``@r###"…"###`` anchor does not confuse the
+    depth counter.
 
     Char literals are skipped for the same reason ``scan_ignore_spans``
     skips them: a ``b'"'`` in the macro body would otherwise open a
     bogus string span, run past the real closing paren, and hand back a
     body the anchor test then reads the wrong answer out of.
+
+    Block comments are skipped for the same reason again, in both
+    directions. A ``"`` inside one opened a runaway string span and the
+    body ran into the *next* call, whose ``@"…"`` the bare call then
+    claimed as its own anchor (under-count); a ``)`` inside one dropped
+    the depth to zero early and truncated the body before its real
+    anchor (over-count, i.e. a spurious CI failure). ``scan_ignore_spans``
+    has always handled them; this sibling scanner did not.
     """
     depth = 0
     i = open_paren_idx
@@ -142,6 +162,21 @@ def find_macro_call_end(source: str, open_paren_idx: int) -> int:
         if ch == "/" and i + 1 < n and source[i + 1] == "/":
             nl = source.find("\n", i)
             i = n if nl == -1 else nl + 1
+            continue
+        # Block comment, which Rust allows to nest.
+        if ch == "/" and i + 1 < n and source[i + 1] == "*":
+            depth_comment = 1
+            i += 2
+            while i < n and depth_comment > 0:
+                if source[i] == "/" and i + 1 < n and source[i + 1] == "*":
+                    depth_comment += 1
+                    i += 2
+                    continue
+                if source[i] == "*" and i + 1 < n and source[i + 1] == "/":
+                    depth_comment -= 1
+                    i += 2
+                    continue
+                i += 1
             continue
         # Raw / byte-raw string: r"…", r#"…"#, br##"…"##, …
         if ch in "rb":

@@ -75,12 +75,21 @@ struct MetricExtractor {
 ///
 /// - *Per-space own* value — `cognitive()`, `cyclomatic()`,
 ///   `cyclomatic_modified()`, the `halstead.*`, `mi.*`, `loc.*`, and
-///   `abc` accessors. These read the value for the single function space
-///   under test, without rolling up nested children.
+///   `abc` accessors, plus `nargs`'s `function_args() + closure_args()`.
+///   These read the value for the single function space under test,
+///   without rolling up nested children.
 /// - *Sum / total over the subtree* — `tokens_sum()`, `nexits_sum()`,
-///   `nom.total()`, `nargs.total()`, `wmc.total_wmc()`, `npm.total_npm()`,
+///   `nom.total()`, `wmc.total_wmc()`, `npm.total_npm()`,
 ///   `npa.total_npa()`. These aggregate the space and its descendants, so
 ///   a threshold on, e.g., `nom` bounds the whole subtree's method count.
+///
+/// `nargs` moved from the second group to the first in #1196. It is the
+/// one metric whose subtree sum was actively misleading: a closure's
+/// parameters are not part of the enclosing function's signature, and
+/// every comparable tool counts one callable at a time. Note the
+/// serialized `nargs` keys are still subtree sums — only the gate's
+/// reading changed — so this is also the one entry where the extractor
+/// and the JSON field of the same name disagree.
 ///
 /// The split follows each metric's library accessor and its natural unit
 /// of measurement; it is intentional, not an oversight. When adding a new
@@ -184,12 +193,13 @@ const EXTRACTORS: &[MetricExtractor] = &[
         // (fewer parameters) was not the one that would clear it.
         //
         // Nothing escapes. A closure that opens its own space — Rust,
-        // JS/TS/TSX, C#, Go, PHP, Perl, Ruby, Lua, Elixir — is gated on
-        // its own row, which is also where its fix goes. In the four
-        // grammars whose lambdas open no space (Python, Java, Kotlin,
-        // C++/Mozcpp) their arguments land in the enclosing space's own
-        // `closure_args`, which is the only attribution available and is
-        // why that term is added here rather than dropped.
+        // the JS family, C#, Go, PHP, Perl, Ruby, Lua, Elixir — is gated
+        // on its own row, which is also where its fix goes. Where the
+        // closure's arguments fold into the enclosing function instead
+        // (Python, Java, Kotlin, Groovy, C++/Mozcpp) they land in that
+        // space's own `closure_args`, which is the only attribution
+        // available and is why the term is added here rather than
+        // dropped.
         //
         // This is what every comparable tool measures — RuboCop
         // `Metrics/ParameterLists`, ESLint `max-params`, Clippy
@@ -454,12 +464,13 @@ pub(crate) fn threshold_scalar(
 /// The `own + lambda` split behind an `nargs` value.
 ///
 /// Carried only where it is not already obvious. In the grammars whose
-/// closures open their own space — Rust, JS/TS/TSX, C#, Go, PHP, Perl,
-/// Ruby, Lua, Elixir — a closure is gated on its own row and the row's
-/// number *is* its signature, so there is nothing to split. In Python,
-/// Java, Kotlin and C++/Mozcpp a lambda opens no space, so its arguments
-/// can only be attributed to the enclosing function: `small` there can
-/// declare one parameter and be reported at 8.
+/// closures open their own space — Rust, JavaScript, TypeScript, TSX,
+/// MozJS, C#, Go, PHP, Perl, Ruby, Lua and Elixir — a closure is gated
+/// on its own row and the row's number *is* its signature, so there is
+/// nothing to split. In Python, Java, Kotlin, Groovy and C++/Mozcpp the
+/// closure's arguments fold into the enclosing function instead, which
+/// is the only attribution available: `small` there can declare one
+/// parameter and be reported at 8.
 ///
 /// A struct rather than a `(u64, u64)`, because the two are same-typed,
 /// not interchangeable, and transposing them would print a fluent lie
@@ -790,18 +801,29 @@ impl ResolvedThreshold {
         if suppressed && !ctx.report_suppressed {
             return None;
         }
-        // Only `nargs`, and only when a spaceless lambda actually
-        // contributed — the parenthetical would otherwise repeat the
-        // value and read as noise. `closure_args()` is the space's own
-        // term, so a closure that opened its *own* space contributes
-        // nothing here and is reported on its own row instead (#1196).
+        // Only `nargs`, and only where the number mixes two sources the
+        // reader would otherwise conflate (#1196).
+        //
+        // The discriminator cannot come from the counts. A closure's own
+        // space has `function_args() == 0, closure_args() == N` — and so
+        // does a *zero-parameter function* containing spaceless lambdas.
+        // The first is not a mix at all: `N` is that closure's own
+        // parameter list, and `(0 own + N lambda)` on it would be noise.
+        // The second is exactly the misleading row this exists to fix,
+        // and gating on `own > 0` hid it precisely there.
+        //
+        // What separates them is the subject, not the arithmetic: a
+        // closure space carries no name of its own. `<anonymous>` is that
+        // signal — the synthesised names #1184 added (`<get>`,
+        // `<static-init>`, …) are function-like and do want the split.
         let nargs_split = (self.extractor.name == "nargs")
             .then(|| {
                 let (own, lambda) = (
                     space.metrics.nargs.function_args(),
                     space.metrics.nargs.closure_args(),
                 );
-                (lambda > 0 && own > 0).then_some(NargsSplit { own, lambda })
+                let is_own_closure_space = space.name.as_deref() == Some("<anonymous>");
+                (lambda > 0 && !is_own_closure_space).then_some(NargsSplit { own, lambda })
             })
             .flatten();
         Some(Violation {

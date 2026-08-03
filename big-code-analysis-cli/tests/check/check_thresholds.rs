@@ -2363,6 +2363,60 @@ fn nargs_shows_the_split_where_a_lambda_opens_no_space() {
         ));
 }
 
+/// A function that declares *no* parameters still gets the split when a
+/// spaceless lambda put it over (#1196).
+///
+/// This is the case the first guard hid. It required `own > 0`, so
+/// `zero` rendered a bare `nargs = 7` — reading as a seven-parameter
+/// signature for a function with none, which is the misleading row the
+/// split exists to remove. Its one-parameter sibling got the annotation,
+/// which made the omission look deliberate.
+#[test]
+fn nargs_shows_the_split_even_when_the_function_declares_nothing() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(
+        &dir,
+        "zero.py",
+        "def zero():\n\
+         \x20   fat = lambda p, q, r, s, t, u, v: p\n\
+         \x20   return fat\n",
+    );
+
+    cli(dir.path())
+        .args(["check", "--paths", &path, "--threshold", "nargs=5"])
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains(
+            "zero: nargs = 7 (0 own + 7 lambda)",
+        ));
+}
+
+/// ...but a closure's *own* space never does, even though its counts are
+/// shaped identically (`0` own, `N` lambda).
+///
+/// `N` there is that closure's own parameter list, not a mix, so
+/// `(0 own + N lambda)` would be noise. The counts cannot tell the two
+/// apart — the subject can: a closure space carries no name.
+#[test]
+fn nargs_omits_the_split_on_a_closures_own_row() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(
+        &dir,
+        "clo.rs",
+        "fn small(a: u32) -> u32 {\n\
+         \x20   let f = |p: u32, q: u32, r: u32, s: u32, t: u32, u: u32| p;\n\
+         \x20   f(a, a, a, a, a, a)\n\
+         }\n",
+    );
+
+    cli(dir.path())
+        .args(["check", "--paths", &path, "--threshold", "nargs=5"])
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("<anon@L2>: nargs = 6 (limit 5)"))
+        .stdout(predicate::str::contains("own +").not());
+}
+
 /// The parenthetical stays off an ordinary offender, where it would just
 /// restate the value (#1196).
 #[test]

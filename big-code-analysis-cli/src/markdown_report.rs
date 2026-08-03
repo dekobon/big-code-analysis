@@ -196,7 +196,14 @@ fn extract_summaries_inner(
             mi_original: m.mi.original(),
             mi_sei: m.mi.sei(),
             mi_visual_studio: m.mi.visual_studio(),
-            nargs: m.nargs.total() as usize,
+            // The space's OWN parameters, matching what
+            // `bca check --threshold nargs=N` gates on (#1196). Both
+            // surfaces read the same `[thresholds] nargs` key — the
+            // report through `AdvisoryThresholds::from_manifest_hard` —
+            // so reading different quantities let `bca check` exit 0
+            // while `bca report` flagged the same function under "Many
+            // parameters" for a number the gate no longer enforced.
+            nargs: (m.nargs.function_args() + m.nargs.closure_args()) as usize,
             nexits: m.nexits.nexits_sum() as usize,
             nom: m.nom.total() as usize,
             abc: m.abc.magnitude(),
@@ -2516,7 +2523,13 @@ mod tests {
                 "formats disagree on whether {title:?} is fully suppressed"
             );
 
-            seen_table += usize::from(md_has_table);
+            // A fully-suppressed section emits the same `### {title}`
+            // heading (`emit_fully_suppressed_note_md`), so the heading
+            // alone cannot tell the two arms apart — count a rendered
+            // *table* only when the section is not the suppressed kind,
+            // or this guard passes on a fixture that exercised only the
+            // `FullySuppressed` arm.
+            seen_table += usize::from(md_has_table && !md_suppressed);
             seen_suppressed += usize::from(md_suppressed);
         }
         // Without both outcomes present the comparisons above are

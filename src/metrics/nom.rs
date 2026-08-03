@@ -703,6 +703,32 @@ mod tests {
                 "class C { p = () => 1; }",
                 true,
             ),
+            // The three field-name spellings `$extra`'s
+            // `property_identifier` sibling does *not* cover. The first
+            // fix reached the identifier case only, so these stayed
+            // closures as arrows while their `function` spellings were
+            // already functions — the same divergence, surviving in the
+            // shapes the test did not exercise. `p = …` above is the one
+            // spelling that worked before the field-definition kind
+            // joined both `$up` lists.
+            (
+                "computed-key class field",
+                "class C { [\"k\"] = function () { return 1; }; }",
+                "class C { [\"k\"] = () => 1; }",
+                true,
+            ),
+            (
+                "string-named class field",
+                "class C { \"s\" = function () { return 1; }; }",
+                "class C { \"s\" = () => 1; }",
+                true,
+            ),
+            (
+                "private class field",
+                "class C { #p = function () { return 1; }; }",
+                "class C { #p = () => 1; }",
+                true,
+            ),
             // Plain positional callbacks, unchanged by all of the above.
             (
                 "positional callback",

@@ -260,11 +260,14 @@ fn csharp_walk_for_conditions<'a>(
     }
 }
 
-// `cond ? a : b` — children are [cond, ?, a, :, b]. The cond-classifier
-// match is shared with `csharp_walk_for_conditions`'s `if`/`while`/`do`
-// arms via `csharp_count_condition`; the two branch slots delegate to
-// `csharp_inspect_container` via `csharp_inspect_child` so a parenthesised
-// or `!`-prefixed branch contributes one condition just like a bare
+// `cond ? a : b`, addressed by the grammar's `condition` /
+// `consequence` / `alternative` fields rather than by index (#1181 — a
+// comment between a token and its operand shifted every positional
+// read). The cond-classifier match is shared with
+// `csharp_walk_for_conditions`'s `if`/`while`/`do` arms via
+// `csharp_count_condition`; the two branch slots go straight to
+// `csharp_inspect_container`, so a parenthesised or `!`-prefixed branch
+// contributes one condition just like a bare
 // invocation/identifier/boolean would.
 fn csharp_walk_conditional(node: &Node, stats: &mut Stats) {
     let conds = &mut stats.conditions;

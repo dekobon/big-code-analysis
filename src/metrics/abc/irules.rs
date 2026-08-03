@@ -203,10 +203,22 @@ fn irules_inspect_container(container_node: &Node, parent: &Node, conditions: &m
     let mut has_boolean_content = matches!(
         parent_kind,
         Irules::BinopExpr | Irules::If | Irules::Elseif | Irules::While
-    ) || (matches!(parent_kind, Irules::TernaryExpr)
-        && irules_ternary_slots(parent)
-            .0
-            .is_some_and(|condition| condition.id() == node.id()));
+    );
+    // No ternary-condition disjunct here, unlike `cpp_inspect_container`.
+    // It would be dead: the flag is read only *after* a peel, and the
+    // loop peels exactly two kinds. `Expr` cannot sit under
+    // `ternary_expr` — the grammar's `_expr` alternatives are
+    // `unary_expr | binop_expr | ternary_expr | escaped_character |
+    // '(' _expr ')' | _expr_atom_no_brace | braced_word_simple` — and a
+    // `!`-unary sets the flag itself two lines below. Every other
+    // condition-slot kind breaks before the flag is read, and every
+    // terminal is counted by the ternary walker directly. Verified by
+    // deletion: the whole suite passes without it.
+    //
+    // The C-family version *is* live because C keeps `(a)` as a
+    // `parenthesized_expression` for the loop to peel, where this
+    // grammar inlines the parens. Porting it verbatim also cost two full
+    // child scans per ternary to produce `false`.
 
     loop {
         // The `expr` wrapper is this grammar's `{ … }` predicate node —

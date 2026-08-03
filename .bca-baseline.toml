@@ -141,7 +141,7 @@ value = 588.0
 path = "big-code-analysis-cli/src/markdown_report.rs"
 qualified = "extract_summaries_inner"
 metric = "abc"
-value = 39.153543900903784
+value = 40.124805295477756
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report/hotspot.rs"
@@ -171,7 +171,7 @@ value = 66737.04848699087
 path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 543.0
+value = 544.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_command.rs"

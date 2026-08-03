@@ -23,9 +23,12 @@ impl Checker for KotlinCode {
                 // code but were referenced nowhere outside the generated
                 // enum, so they opened no space at all: their control
                 // flow was charged to the enclosing class and `bca check`
-                // could never flag one however complex it got. A file of
-                // nothing but accessors reported `nom.functions == 0`
-                // (#1184).
+                // could never flag one however complex it got (#1184).
+                //
+                // Note this does *not* change `nom.functions`, which
+                // keys on `is_func` — an accessor-only file still
+                // reports 0 there, deliberately, for the reason below.
+                // The defect fixed here is the missing metric scope.
                 //
                 // `is_func_space` and not `is_func`: none of the three is
                 // a callable a user names at a call site — in Kotlin you
