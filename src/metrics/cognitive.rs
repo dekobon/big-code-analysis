@@ -503,6 +503,30 @@ macro_rules! js_cognitive {
                             GeneratorFunctionDeclaration,
                             GeneratorFunction,
                             ArrowFunction,
+                            ClassStaticBlock,
+                        ],
+                    );
+                }
+                // A class static block is a function boundary but is
+                // deliberately *not* in `is_func` (#1184), so it needs
+                // its own ungated arm rather than joining the gated one
+                // above — gated, it would never fire. It is in the
+                // `stops` list below for the same reason a
+                // `function_expression` is: a `function` declared inside
+                // a `static { … }` really is nested in one.
+                ClassStaticBlock => {
+                    enter_function_boundary(
+                        &mut nesting,
+                        node,
+                        ancestors,
+                        &[
+                            FunctionDeclaration,
+                            MethodDefinition,
+                            FunctionExpression,
+                            GeneratorFunctionDeclaration,
+                            GeneratorFunction,
+                            ArrowFunction,
+                            ClassStaticBlock,
                         ],
                     );
                 }
@@ -10512,6 +10536,107 @@ end",
                 function_depth: 2,
                 lambda: 4,
             }
+        );
+    }
+}
+
+/// The nameless constructs from #1184 are function boundaries, so a
+/// deeply-nested one must score what the same body scores as an
+/// ordinary method in the same position (#1184).
+///
+/// Each opens a `FuncSpace`, and without a cognitive boundary arm it
+/// reached none and inherited the enclosing conditional nesting: a
+/// Kotlin accessor nested two `if`s deep scored 7 where the method
+/// beside it scored 5.
+///
+/// **Two levels of nesting are load-bearing.** At one level the fixture
+/// reports the same number either way, which is the trap the issue's own
+/// checklist warns about — a first draft of this test used one `if` and
+/// could not discriminate the fix from its absence.
+///
+/// The comparison is against a *sibling method* rather than an absolute
+/// number, so the assertion states the property (these are ordinary
+/// function boundaries) rather than a value that moves with any
+/// unrelated re-tuning. The absolute is pinned too, so a regression
+/// moving both equally still fails.
+#[cfg(test)]
+mod nameless_construct_boundaries {
+    use crate::test_support::space_verbatim;
+    use crate::{FuncSpace, LANG, MetricsOptions};
+
+    fn score(lang: LANG, source: &str, name: &str) -> u64 {
+        fn find(s: &FuncSpace, name: &str) -> Option<u64> {
+            if s.name.as_deref() == Some(name) {
+                return Some(s.metrics.cognitive.cognitive());
+            }
+            s.spaces.iter().find_map(|c| find(c, name))
+        }
+        let root = space_verbatim(lang, source.as_bytes(), MetricsOptions::default());
+        find(&root, name)
+            .unwrap_or_else(|| panic!("{lang:?}: no space named {name:?} in the fixture"))
+    }
+
+    /// `(language, source, construct name, sibling method name)`. Each
+    /// fixture nests a class two `if`s deep and gives it both the
+    /// nameless construct and an ordinary method with a byte-identical
+    /// body.
+    fn cases() -> Vec<(LANG, &'static str, &'static str, &'static str)> {
+        vec![
+            (
+                LANG::Kotlin,
+                "fun outer(a: Boolean) { if (a) { if (a) { class D {\n\
+                 \x20   var q: Int = 0\n\
+                 \x20       get() { if (q > 0) { if (q > 1) { return 2 } }; return 0 }\n\
+                 \x20   fun m(): Int { if (q > 0) { if (q > 1) { return 2 } }; return 0 }\n\
+                 } } } }\n",
+                "<get>",
+                "m",
+            ),
+            (
+                LANG::Java,
+                "class K { void outer(boolean a) { if (a) { if (a) { class D {\n\
+                 \x20   static int x;\n\
+                 \x20   static { if (x > 0) { if (x > 1) { x = 2; } } }\n\
+                 \x20   void m() { if (x > 0) { if (x > 1) { x = 2; } } }\n\
+                 } } } } }\n",
+                "<static-init>",
+                "m",
+            ),
+            (
+                LANG::Javascript,
+                "function outer(a) { if (a) { if (a) { class D {\n\
+                 \x20   static x;\n\
+                 \x20   static { if (D.x > 0) { if (D.x > 1) { D.x = 2; } } }\n\
+                 \x20   m() { if (D.x > 0) { if (D.x > 1) { D.x = 2; } } }\n\
+                 } } } }\n",
+                "<static-init>",
+                "m",
+            ),
+        ]
+    }
+
+    #[test]
+    fn a_nested_nameless_construct_scores_like_a_sibling_method() {
+        let mut checked = 0;
+        for (lang, source, construct, method) in cases() {
+            if !lang.is_enabled() {
+                continue;
+            }
+            checked += 1;
+            let (got, want) = (score(lang, source, construct), score(lang, source, method));
+            assert_eq!(
+                got, want,
+                "{lang:?}: {construct} scored {got} where the sibling method scored {want}; \
+                 the construct is inheriting the enclosing nesting",
+            );
+            // expected: two `if`s at +1 and +2 = 3, plus +1 each for the
+            // function-depth surcharge from `outer` = 5. Pinned so a
+            // regression that moved both sides equally still fails.
+            assert_eq!(want, 5, "{lang:?}: the baseline itself moved");
+        }
+        assert!(
+            checked > 0,
+            "no language enabled; this test asserted nothing"
         );
     }
 }

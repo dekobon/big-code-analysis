@@ -83,12 +83,26 @@ impl Cognitive for KotlinCode {
                     matches!(id.into(), AMPAMP | PIPEPIPE | QMARKCOLON)
                 });
             }
-            FunctionDeclaration | SecondaryConstructor => {
+            // Property accessors and `init { … }` are function
+            // boundaries too (#1184). They open a `FuncSpace`, so without
+            // this arm an accessor written inside an `if` inherited that
+            // `if`'s nesting and scored more than the byte-identical
+            // accessor at top level — the same defect #1160 fixed for
+            // Java's compact constructor. They are `is_func_space`
+            // without being `is_func`, which does not matter here: this
+            // arm matches kinds directly.
+            FunctionDeclaration | SecondaryConstructor | Getter | Setter | AnonymousInitializer => {
                 enter_function_boundary(
                     &mut nesting,
                     node,
                     ancestors,
-                    &[FunctionDeclaration, SecondaryConstructor],
+                    &[
+                        FunctionDeclaration,
+                        SecondaryConstructor,
+                        Getter,
+                        Setter,
+                        AnonymousInitializer,
+                    ],
                 );
             }
             LambdaLiteral | AnonymousFunction => {
