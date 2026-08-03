@@ -2256,6 +2256,62 @@ mod nameless_construct_spaces {
         );
     }
 
+    #[test]
+    #[cfg(feature = "groovy")]
+    fn groovy_static_initializer_opens_a_named_space() {
+        // Groovy's `StaticInitializer` arm is hand-mirrored against its
+        // own enum in checker/getter/cognitive; the Java test one screen
+        // up cannot see it drift (#1184).
+        let root = analyse(
+            LANG::Groovy,
+            "class C { static int x; static { if (x > 0) { x = 1 } else { x = 2 } } }\n",
+        );
+        assert_eq!(
+            shape(&root),
+            vec![
+                (None, SpaceKind::Unit),
+                (Some("C"), SpaceKind::Class),
+                (Some("<static-init>"), SpaceKind::Function),
+            ],
+        );
+        assert_eq!(child(&root, "C").metrics.cognitive.cognitive(), 0);
+        assert_eq!(
+            child(&root, "<static-init>").metrics.cognitive.cognitive(),
+            2
+        );
+    }
+
+    /// `ClassStaticBlock` is a distinct kind_id in each JS-family enum
+    /// (Javascript 231, Typescript 258, Tsx 272, Mozjs 234), and each
+    /// grammar's arm is hand-mirrored — a kind_id that drifted in one
+    /// grammar would be invisible if only Javascript were checked
+    /// (#1184). Javascript has its own test above; this sweeps the
+    /// other three on the identical source.
+    #[test]
+    #[cfg(all(feature = "typescript", feature = "mozjs"))]
+    fn ts_family_class_static_blocks_open_named_spaces() {
+        for lang in [LANG::Typescript, LANG::Tsx, LANG::Mozjs] {
+            let root = analyse(
+                lang,
+                "class C { static f; static { if (C.f) { C.f = 1; } else { C.f = 2; } } }\n",
+            );
+            assert_eq!(
+                shape(&root),
+                vec![
+                    (None, SpaceKind::Unit),
+                    (Some("C"), SpaceKind::Class),
+                    (Some("<static-init>"), SpaceKind::Function),
+                ],
+                "space shape for {lang:?}"
+            );
+            assert_eq!(
+                child(&root, "<static-init>").metrics.cognitive.cognitive(),
+                2,
+                "static block cognitive for {lang:?}"
+            );
+        }
+    }
+
     /// Sibling constructs with the same synthesised name are allowed to
     /// collide, exactly as multiple `<anonymous>` siblings already do.
     /// Pinned so the collision reads as a decision rather than an
