@@ -508,6 +508,22 @@ Most-specific to least, `bca check` resolves exemptions in this order:
 `--print-effective-config` reports the resolved `check_exclude` globs
 alongside the other gate inputs.
 
+Globs resolve against different roots depending on where they came
+from: one you pass on the command line resolves against your working
+directory, one from a `bca.toml` against that file's directory. The
+resolved `check_exclude` array is the union of both and cannot express
+that split, so a `manifest_check_exclude` key names the manifest-origin
+subset, with the anchor being the reported `manifest` file's directory.
+The walker's own `exclude` surface reports the same pair. Both keys are
+omitted when no manifest contributed a glob.
+
+`manifest_exclude_from` and `manifest_check_exclude_from` follow the
+same idea for the `exclude_from` *files*, with one difference worth
+knowing: a command-line `--exclude-from` **replaces** the manifest's
+file rather than adding to it, so the manifest key is present only when
+the manifest's file is the one actually in effect. The inline glob
+lists union; the files do not.
+
 ## Baselines
 
 When you adopt thresholds on an existing codebase you typically face a
