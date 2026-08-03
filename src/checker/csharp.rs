@@ -75,6 +75,13 @@ impl Checker for CsharpCode {
         matches!(node.kind_id().into(), csharp_invocation_expr_kinds!())
     }
 
+    /// `x => x + 1` puts a childless `implicit_parameter` in the
+    /// `parameters` field, where `(x) => …` puts a `parameter_list`
+    /// (#1185). Same shape as Java's bare-identifier lambda.
+    fn is_bare_param(node: &Node) -> bool {
+        node.kind_id() == Csharp::ImplicitParameter as u16
+    }
+
     fn is_non_arg(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),

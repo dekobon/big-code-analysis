@@ -211,6 +211,13 @@ impl Stats {
 #[inline]
 fn compute_args<T: Checker>(node: &Node, nargs: &mut usize) {
     if let Some(params) = node.child_by_field_name("parameters") {
+        // The field can hold a lone parameter rather than a list, in
+        // which case there are no children to walk and the loop below
+        // yields zero — see `Checker::is_bare_param` (#1185).
+        if T::is_bare_param(&params) {
+            *nargs += 1;
+            return;
+        }
         let node_params = params;
         node_params.act_on_child(&mut |n| {
             if !T::is_non_arg(n) {
@@ -4054,5 +4061,125 @@ when HTTP_REQUEST { log local0. \"hit\" }
                 );
             },
         );
+    }
+}
+
+/// A lambda's parameter count must not depend on optional parentheses
+/// (#1185).
+///
+/// `x -> x + 1` and `(x) -> x + 1` are the same lambda — the parens are
+/// optional in the grammar and carry no meaning — so they must score
+/// alike, the same "byte-equivalent constructs score identically"
+/// contract the book states for cognitive.
+///
+/// The cause is shared: the `parameters` field holds a lone, childless
+/// parameter node rather than a list, and `compute_args` walks the
+/// field's children. The issue names Java; the sweep found **C#** has
+/// the identical defect via `implicit_parameter`. Kotlin and Groovy
+/// were checked and are correct — each overrides `compute` with its own
+/// closure-parameter shape — and the JS family reaches the right answer
+/// through the singular `parameter` field.
+#[cfg(test)]
+mod lambda_parenthesisation_parity {
+    use crate::test_support::metrics_verbatim;
+    use crate::{LANG, MetricsOptions};
+
+    /// `(closure_args, function_args)` — the split matters as much as
+    /// the count: a lambda must stay in the closure channel.
+    fn args(lang: LANG, source: &str) -> (u64, u64) {
+        let m = metrics_verbatim(lang, source.as_bytes(), MetricsOptions::default());
+        (m.nargs.closure_args_sum(), m.nargs.function_args_sum())
+    }
+
+    /// `(bare, parenthesised, two_params, zero_params)`.
+    fn cases(lang: LANG) -> Option<[&'static str; 4]> {
+        Some(match lang {
+            LANG::Java => [
+                "class K{ void f(){ Function<Integer,Integer> a = x -> x + 1; } }",
+                "class K{ void f(){ Function<Integer,Integer> a = (x) -> x + 1; } }",
+                "class K{ void f(){ BiFunction<Integer,Integer,Integer> c = (x, y) -> x + y; } }",
+                "class K{ void f(){ Supplier<Integer> d = () -> 1; } }",
+            ],
+            LANG::Csharp => [
+                "class K{ void f(){ Func<int,int> a = x => x + 1; } }",
+                "class K{ void f(){ Func<int,int> a = (x) => x + 1; } }",
+                "class K{ void f(){ Func<int,int,int> c = (x, y) => x + y; } }",
+                "class K{ void f(){ Func<int> d = () => 1; } }",
+            ],
+            LANG::Javascript | LANG::Typescript | LANG::Tsx | LANG::Mozjs => [
+                "function f(){ var a = x => x + 1; }",
+                "function f(){ var a = (x) => x + 1; }",
+                "function f(){ var c = (x, y) => x + y; }",
+                "function f(){ var d = () => 1; }",
+            ],
+            _ => return None,
+        })
+    }
+
+    #[test]
+    fn optional_parentheses_do_not_change_the_count() {
+        let mut checked = 0;
+        for lang in LANG::into_enum_iter() {
+            if !lang.is_enabled() {
+                continue;
+            }
+            let Some([bare, paren, two, zero]) = cases(lang) else {
+                continue;
+            };
+            checked += 1;
+
+            let (bare_args, paren_args) = (args(lang, bare), args(lang, paren));
+            assert_eq!(
+                bare_args, paren_args,
+                "{lang:?}: the parentheses changed the argument count\n  bare:  {bare}\n  paren: {paren}"
+            );
+            // The absolute value, so a regression that zeroed *both*
+            // spellings would still fail.
+            assert_eq!(
+                bare_args.0 + bare_args.1,
+                1,
+                "{lang:?}: a one-parameter lambda must report one argument"
+            );
+            // A zero-parameter lambda must stay 0: the bare-parameter
+            // branch must not mistake an empty list for a parameter.
+            assert_eq!(
+                args(lang, zero),
+                (0, 0),
+                "{lang:?}: `() -> …` has no arguments"
+            );
+            // And the plural path must be undisturbed.
+            let two_args = args(lang, two);
+            assert_eq!(
+                two_args.0 + two_args.1,
+                2,
+                "{lang:?}: a two-parameter lambda must report two arguments"
+            );
+        }
+        assert!(
+            checked > 0,
+            "no lambda language enabled; this test asserted nothing"
+        );
+    }
+
+    /// The lambda stays in the *closure* channel, not the function one.
+    ///
+    /// Java and C# route it through `is_closure`; the JS family's arrow
+    /// is classified by `check_if_arrow_func!` and lands in `fn_args`
+    /// when bound to a variable, which is a separate question (#1188).
+    /// Asserting the channel per language rather than globally keeps
+    /// this test from encoding that as a bug.
+    #[test]
+    fn a_bare_lambda_stays_in_the_closure_channel() {
+        for lang in [LANG::Java, LANG::Csharp] {
+            if !lang.is_enabled() {
+                continue;
+            }
+            let [bare, ..] = cases(lang).expect("both languages have cases");
+            assert_eq!(
+                args(lang, bare),
+                (1, 0),
+                "{lang:?}: the lambda's argument must be billed to closure_args"
+            );
+        }
     }
 }
