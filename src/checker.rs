@@ -71,14 +71,49 @@ macro_rules! js_ancestor_walk {
     };
 }
 
+// Is this expression *bound* to a name, or used positionally?
+//
+// `check_if_func!` and `check_if_arrow_func!` answer that question for
+// the two anonymous-function forms, and until #1188 they answered it
+// with two different ancestor walks. Four divergences, each measured:
+//
+// 1. `$stop` was `Arguments` for one and `CallExpression` for the other
+//    — different tree levels, since `call_expression > arguments >
+//    function_expression`. An IIFE's chain is `parenthesized_expression
+//    -> call_expression` with no `arguments` on it at all, so the func
+//    walk ran past the call and reached the binding: `(function(c){})(1)`
+//    was a closure while `const v = (function(c){})(1)` was a function.
+//    The same construct, classified by what happened one level up past
+//    the call.
+// 2. `Pair` was in the func `$up` only, so `({ "k": function(){} })` was
+//    a function and `({ "k": () => {} })` a closure. The arrow reached
+//    the same verdict for a *bare* key only, and by a different
+//    mechanism — `$extra`'s `property_identifier` sibling — which a
+//    string, number or computed key does not provide.
+// 3. `has_sibling(PropertyIdentifier)` was in the arrow `$extra` only,
+//    the exact mirror: `class C { p = () => {}; }` was a function and
+//    `class C { p = function(){}; }` a closure.
+// 4. `is_child(Identifier)` is in the func `$extra` only, and **must
+//    stay there**. For a function expression the only possible
+//    `identifier` *child* is its optional name, so it means "carries its
+//    own name" and `run(function g(){})` is rightly a function. An arrow
+//    stores its un-parenthesised single parameter in exactly that
+//    position, so unifying it would make `run(x => x)` — the commonest
+//    callback shape in any JS corpus — a function.
+//
+// The first three are unified below, which makes an IIFE a closure in
+// both spellings: that is what a reader sees, and it matches the
+// behaviour the arrow form already had. `$up` and `$stop` are now
+// token-identical and only `$extra` differs, for the reason in (4).
 macro_rules! check_if_func {
     ($node: ident, $ancestors: ident) => {
         js_ancestor_walk!(
             $node,
             $ancestors,
             [VariableDeclarator | AssignmentExpression | LabeledStatement | Pair],
-            [StatementBlock | ReturnStatement | NewExpression | Arguments],
-            $node.is_child(Identifier as u16),
+            [StatementBlock | ReturnStatement | NewExpression | CallExpression | Arguments],
+            $node.is_child(Identifier as u16)
+                || $node.has_sibling($ancestors, PropertyIdentifier as u16),
         )
     };
 }
@@ -88,8 +123,8 @@ macro_rules! check_if_arrow_func {
         js_ancestor_walk!(
             $node,
             $ancestors,
-            [VariableDeclarator | AssignmentExpression | LabeledStatement],
-            [StatementBlock | ReturnStatement | NewExpression | CallExpression],
+            [VariableDeclarator | AssignmentExpression | LabeledStatement | Pair],
+            [StatementBlock | ReturnStatement | NewExpression | CallExpression | Arguments],
             $node.has_sibling($ancestors, PropertyIdentifier as u16),
         )
     };
