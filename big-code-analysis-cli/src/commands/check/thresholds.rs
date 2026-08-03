@@ -227,12 +227,24 @@ pub(crate) fn canonical_cli_thresholds(flag: &str, raw: &[(String, f64)]) -> Vec
 /// The per-metric override tables, keyed by canonical language slug.
 type LanguageOverrides = BTreeMap<&'static str, BTreeMap<String, f64>>;
 
-/// Resolve the gate a `--explain-threshold` preview walks with (#1169).
+/// Resolve the gate a `--explain-threshold` preview walks with, plus
+/// whether the predicted run's *global* table resolves its soft tier in
+/// merge mode (#1169).
 ///
-/// `candidates` replaces the global `[thresholds]` hard limits for
-/// exactly the metrics being explained, and every other metric is dropped
-/// — the preview reports only what it was asked about, and narrowing the
-/// set narrows the metric families the walk computes with it (#1113).
+/// The candidates are spliced over the manifest's `[thresholds]` table
+/// and the whole predicted configuration is resolved through the same
+/// [`SharedLayers`] as the run it predicts; only the *result* is
+/// narrowed to the explained metrics, which still keeps the walk
+/// computing only their metric families (#1113). Narrowing the input
+/// instead flipped `resolve_tier`'s merge-vs-ratio reading in both
+/// directions: an absolute-only `[thresholds.soft]` table emptied by
+/// the narrowing previewed a ratio band the predicted run does not
+/// have, and a scale-relative entry whose only hard base lives in a
+/// `[thresholds.lang.*]` table is dropped from the global table by
+/// `resolve_one`'s per-table filter, so the predicted run *is* in ratio
+/// mode there while the manifest's table is non-empty. Only the
+/// resolver knows each table's mode; asking it and discarding the
+/// unexplained rows afterwards cannot drift.
 ///
 /// Resolved at the **soft** tier on purpose. The soft band is the more
 /// permissive of the two (it fires *before* the hard gate), so one walk
@@ -253,49 +265,27 @@ pub(crate) fn build_candidate_gate(
     layers: &ParsedThresholds,
     candidates: &BTreeMap<String, f64>,
     ratio: Option<f64>,
-) -> LanguageThresholds {
-    let soft = retain_explained(&layers.soft, candidates);
-    let lang: LanguageOverrides = layers
-        .lang
-        .iter()
-        .map(|(slug, overrides)| (*slug, retain_explained(overrides, candidates)))
-        .filter(|(_, kept)| !kept.is_empty())
-        .collect();
-    // The merge-vs-ratio decision keys on the *manifest's* soft table,
-    // not the narrowed one. A non-empty `[thresholds.soft]` puts the run
-    // being predicted in merge mode for every metric, including the ones
-    // it does not name — they gate at their hard limit with no band. The
-    // narrowing above can empty the table (the manifest names only
-    // unexplained metrics), and an empty table reads as ratio mode to
-    // `resolve_tier`, which would preview a band the predicted run does
-    // not have. Merge mode with nothing surviving resolves every table
-    // to its hard limits verbatim, which is exactly the hard tier.
-    let tier = if soft.is_empty() && !layers.soft.is_empty() {
-        TierSpec::Hard
-    } else {
-        TierSpec::Soft(ratio)
-    };
+) -> (LanguageThresholds, bool) {
+    let mut hard = layers.hard.clone();
+    hard.extend(
+        candidates
+            .iter()
+            .map(|(name, limit)| (name.clone(), *limit)),
+    );
     // No `--threshold` layer: an absolute CLI override is never scaled,
     // so letting one through would hand the preview a metric with no soft
     // tier to report. `run_explain_thresholds` rejects the overlap up
     // front instead.
-    let shared = SharedLayers::new(&[], tier, &soft, &lang, candidates);
-    shared.resolve_all(candidates, &lang)
-}
-
-/// Drop every entry of one threshold layer whose metric is not being
-/// explained. Shared by the `[thresholds.soft]` table and each
-/// `[thresholds.lang.<slug>]` table so both are narrowed by the same
-/// rule.
-fn retain_explained<V: Copy>(
-    table: &BTreeMap<String, V>,
-    candidates: &BTreeMap<String, f64>,
-) -> BTreeMap<String, V> {
-    table
-        .iter()
-        .filter(|(name, _)| candidates.contains_key(name.as_str()))
-        .map(|(name, value)| (name.clone(), *value))
-        .collect()
+    let shared = SharedLayers::new(
+        &[],
+        TierSpec::Soft(ratio),
+        &layers.soft,
+        &layers.lang,
+        &hard,
+    );
+    let resolved = shared.resolve_all(&hard, &layers.lang);
+    let keep: BTreeSet<&str> = candidates.keys().map(String::as_str).collect();
+    (resolved.narrowed_to(&keep), shared.merge_mode(&hard))
 }
 
 /// The threshold layers every table in one run shares, separated from
@@ -385,21 +375,41 @@ impl<'a> SharedLayers<'a> {
     /// `context` names the offending table in a build error, and is
     /// `None` for the global set so its long-standing message is
     /// unprefixed.
+    /// Whether one `[thresholds.soft]` entry applies to a table with
+    /// these hard limits. A scale-relative entry whose metric is gated
+    /// by some *other* table is dropped: this table has no limit for it
+    /// to scale, and nothing to gate either. Where no table supplies a
+    /// base, the entry is kept so `resolve_tier` reports the original
+    /// "no hard limit exists" error rather than silently dropping a
+    /// threshold (#1141).
+    fn soft_entry_survives(
+        &self,
+        name: &str,
+        limit: &SoftLimit,
+        hard: &BTreeMap<String, f64>,
+    ) -> bool {
+        !matches!(limit, SoftLimit::Scale(_))
+            || hard.contains_key(name)
+            || !self.hard_somewhere.contains(name)
+    }
+
+    /// Whether [`Self::resolve_one`] would hand `resolve_tier` a
+    /// non-empty soft table for a table with these hard limits — merge
+    /// mode, where a metric the table does not name inherits its hard
+    /// limit with no band, as opposed to the blanket ratio. The
+    /// `--explain-threshold` report asks this about the predicted global
+    /// table so its derivation label matches the resolution.
+    fn merge_mode(&self, hard: &BTreeMap<String, f64>) -> bool {
+        self.soft
+            .iter()
+            .any(|(name, limit)| self.soft_entry_survives(name, limit, hard))
+    }
+
     fn resolve_one(&self, mut hard: BTreeMap<String, f64>, context: Option<&str>) -> ThresholdSet {
-        // Drop a scale-relative soft entry whose metric is gated by some
-        // *other* table: this one has no limit for it to scale, and
-        // nothing to gate either. Where no table supplies a base, the
-        // entry is left in so `resolve_tier` reports the original "no
-        // hard limit exists" error rather than silently dropping a
-        // threshold (#1141).
         let soft: BTreeMap<String, SoftLimit> = self
             .soft
             .iter()
-            .filter(|(name, limit)| {
-                !matches!(limit, SoftLimit::Scale(_))
-                    || hard.contains_key(name.as_str())
-                    || !self.hard_somewhere.contains(name.as_str())
-            })
+            .filter(|(name, limit)| self.soft_entry_survives(name, limit, &hard))
             .map(|(name, limit)| (name.clone(), *limit))
             .collect();
         let mut merged = resolve_tier(self.tier, hard.clone(), &soft);

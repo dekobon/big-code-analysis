@@ -13,7 +13,7 @@
 // widened with `as f64` (#530), bounded by the count they came from.
 #![allow(clippy::doc_markdown, clippy::cast_precision_loss)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -732,7 +732,7 @@ fn format_regressed_tag(recorded: f64, value: f64) -> String {
 /// direction is resolved once at [`ThresholdSet::build`] time from
 /// [`big_code_analysis::metric_catalog`] so the per-function evaluation
 /// loop never re-derives it (#698).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ResolvedThreshold {
     extractor: &'static MetricExtractor,
     limit: f64,
@@ -975,6 +975,23 @@ impl ThresholdSet {
     /// thresholds is a usage error, not a clean pass.
     pub(crate) fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+
+    /// A copy of this set keeping only the named (canonical) metrics.
+    /// The `--explain-threshold` preview resolves the full predicted
+    /// configuration and then narrows the *result* to the explained
+    /// metrics — narrowing the input instead let the narrowing flip
+    /// `resolve_tier`'s merge-vs-ratio reading for tables the predicted
+    /// run resolves the other way (#1169).
+    pub(crate) fn narrowed_to(&self, keep: &BTreeSet<&str>) -> Self {
+        Self {
+            entries: self
+                .entries
+                .iter()
+                .filter(|entry| keep.contains(entry.extractor.name))
+                .cloned()
+                .collect(),
+        }
     }
 
     /// The metric families this set actually reads, for

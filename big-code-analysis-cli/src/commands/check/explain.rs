@@ -71,7 +71,8 @@ pub(crate) fn run_explain_thresholds(
     // `make self-scan-headroom` and every other proportional soft gate
     // use.
     let ratio = tier.ratio();
-    let resolved = Arc::new(build_candidate_gate(layers, &candidates, ratio));
+    let (resolved, global_merge_mode) = build_candidate_gate(layers, &candidates, ratio);
+    let resolved = Arc::new(resolved);
 
     let CollectedViolations {
         violations, scope, ..
@@ -96,7 +97,7 @@ pub(crate) fn run_explain_thresholds(
         layers,
         resolved: &resolved,
         ratio,
-        soft_table_applies: soft_table_applies(layers),
+        global_merge_mode,
     };
     let report: Vec<CandidateOutcome> = candidates
         .iter()
@@ -115,12 +116,13 @@ struct CandidateGate<'a> {
     layers: &'a ParsedThresholds,
     resolved: &'a LanguageThresholds,
     ratio: Option<f64>,
-    /// Whether the manifest carries a `[thresholds.soft]` table at all.
-    /// [`resolve_tier`]'s soft branch is all-or-nothing per table: one
-    /// entry switches the whole table into merge mode, and every metric
-    /// it does not name — explained or not — then inherits its hard
-    /// limit with no ratio applied at all.
-    soft_table_applies: bool,
+    /// Whether the predicted run's global table resolves its soft tier
+    /// in merge mode. Decided by [`build_candidate_gate`] with the same
+    /// per-table filter the resolver applies — manifest-table emptiness
+    /// is not it, because a scale-relative entry whose only hard base
+    /// lives in a `[thresholds.lang.*]` override drops out of the
+    /// global table and leaves the predicted run in ratio mode.
+    global_merge_mode: bool,
 }
 
 impl CandidateGate<'_> {
@@ -184,7 +186,7 @@ impl CandidateGate<'_> {
     fn soft_derivation(&self, metric: &str) -> SoftDerivation {
         if self.layers.soft.contains_key(metric) {
             SoftDerivation::Table
-        } else if self.soft_table_applies {
+        } else if self.global_merge_mode {
             SoftDerivation::Inherited
         } else {
             SoftDerivation::Ratio(self.ratio.unwrap_or(DEFAULT_SOFT_HEADROOM))
@@ -393,19 +395,6 @@ fn candidate_limits(args: &CheckArgs) -> BTreeMap<String, f64> {
         }
     }
     candidates
-}
-
-/// Whether the run being predicted resolves its soft tier in merge mode.
-///
-/// `resolve_tier`'s soft branch is all-or-nothing per table: any
-/// non-empty `[thresholds.soft]` switches the whole table into merge
-/// mode, and metrics it does not name inherit their hard limit with no
-/// band. The decision keys on the *manifest's* table — never on whether
-/// an entry survived `build_candidate_gate`'s narrowing to the explained
-/// metrics — because the run being previewed does not narrow, and
-/// `build_candidate_gate` makes the same full-table call.
-fn soft_table_applies(layers: &ParsedThresholds) -> bool {
-    !layers.soft.is_empty()
 }
 
 /// The limit `set` resolved for `metric`, or `None` when it gates no such

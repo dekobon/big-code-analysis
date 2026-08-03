@@ -21,7 +21,7 @@
 //! extension maps to no grammar is likewise skipped by the walk before
 //! the gate sees it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use big_code_analysis::{LANG, Metric};
@@ -171,6 +171,22 @@ impl LanguageThresholds {
     /// (`--print-effective-config`'s `[thresholds]` table).
     pub(crate) fn global(&self) -> &ThresholdSet {
         &self.global
+    }
+
+    /// A copy with every table narrowed to the named metrics. Preview
+    /// machinery (`--explain-threshold`): the tables are resolved from
+    /// the full predicted configuration first, so each table's soft-tier
+    /// mode matches the run being predicted, then trimmed so the walk
+    /// computes only the explained metric families (#1113).
+    pub(crate) fn narrowed_to(&self, keep: &BTreeSet<&str>) -> Self {
+        Self {
+            global: Arc::new(self.global.narrowed_to(keep)),
+            per_language: self
+                .per_language
+                .iter()
+                .map(|(slug, set)| (*slug, Arc::new(set.narrowed_to(keep))))
+                .collect(),
+        }
     }
 
     /// The per-language sets, slug-sorted.

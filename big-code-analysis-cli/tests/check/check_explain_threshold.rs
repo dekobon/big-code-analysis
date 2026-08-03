@@ -743,8 +743,8 @@ fn a_metric_the_soft_table_omits_reports_no_soft_band() {
 /// flip `resolve_tier` into blanket-ratio mode — previewing a soft band
 /// (`4.75, 0.95x`, 9 offenders) that the run being predicted does not
 /// have, on the one command whose contract is to match that run. The
-/// merge-vs-ratio decision has to key on the manifest's table, not the
-/// narrowed one.
+/// preview therefore resolves the full predicted configuration and
+/// narrows the result, never the input.
 #[test]
 fn a_soft_table_naming_only_unexplained_metrics_still_suppresses_the_ratio() {
     const TIGHT_LIMIT: &str = "nargs=5";
@@ -773,6 +773,45 @@ fn a_soft_table_naming_only_unexplained_metrics_still_suppresses_the_ratio() {
     // offenders, so equal tallies here are the table being honoured.
     assert_eq!(nargs.hard.total, INHERITED_OFFENDERS);
     assert_eq!(nargs.soft.total, INHERITED_OFFENDERS);
+}
+
+/// The inverse corner: a `[thresholds.soft]` table that is non-empty in
+/// the manifest but empty for the *global* table in the run being
+/// predicted. A scale-relative entry whose hard base lives only in a
+/// `[thresholds.lang.*]` override is dropped from the global table by
+/// `resolve_one`'s per-table filter — it has no global limit to scale —
+/// so the predicted run resolves the global table in blanket-ratio
+/// mode. Keying the preview's mode on manifest-table non-emptiness
+/// reported "no soft band" here; the mode belongs to each *resolved*
+/// table, which is why the preview now resolves the full predicted
+/// configuration and narrows the result instead of the input.
+#[test]
+fn a_scale_entry_based_in_a_lang_table_leaves_the_global_ratio_alive() {
+    const TIGHT_LIMIT: &str = "nargs=5";
+    const HARD_OFFENDERS: usize = 3;
+    const RATIO_OFFENDERS: usize = 9;
+
+    let dir = candidate_tree();
+    fs::write(
+        dir.path().join("bca.toml"),
+        "paths = [\"lib.rs\"]\n\
+         [thresholds.soft]\n\
+         nom = \"0.5x\"\n\
+         [thresholds.lang.elixir]\n\
+         nom = 30\n",
+    )
+    .expect("write manifest");
+
+    let nargs = parse_preview(
+        &stdout_of(cli(dir.path()).args(["check", "--explain-threshold", TIGHT_LIMIT])),
+        CANDIDATE_METRIC,
+    );
+    // The fixture's Rust files are gated by the global table, whose
+    // filtered soft table is empty in the predicted run — so the ratio
+    // band is real and covers the full 9-offender population.
+    assert_eq!(nargs.soft.limit, "4.75, 0.95x");
+    assert_eq!(nargs.soft.total, RATIO_OFFENDERS);
+    assert_eq!(nargs.hard.total, HARD_OFFENDERS);
 }
 
 #[test]
