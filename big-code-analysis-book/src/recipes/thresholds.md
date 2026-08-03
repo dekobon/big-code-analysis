@@ -71,7 +71,10 @@ who derive risk bands at the 70th, 80th, and 90th percentiles. Their 90th percen
 
 Two of the previous defaults failed that rule and changed as a result. `nargs` at 7 fired on under
 1% of functions in the median language and on nothing at all in this project's own source, which
-makes it a limit that cannot catch anything. `cognitive` at 25 was inherited from
+makes it a limit that cannot catch anything. (That corpus measurement predates
+[#1196](https://github.com/dekobon/big-code-analysis/issues/1196), which narrowed `nargs` to a
+function's own parameters. Re-measuring would move the figure *down*, and most for closure-heavy
+languages, so the "cannot catch anything" conclusion holds a fortiori.) `cognitive` at 25 was inherited from
 [clippy](https://rust-lang.github.io/rust-clippy/master/#cognitive_complexity), which is
 deliberately conservative because it lints rather than gates; 15 is what the metric's designers
 chose.
@@ -365,6 +368,23 @@ band at once — 74 baseline entries bought for no hard-tier gain, none of which
 short of rewriting the signatures. The limit stayed at `7`; the honest alternative was the real
 `6 → 5` work. ([#1143](https://github.com/dekobon/big-code-analysis/issues/1143),
 [#1169](https://github.com/dekobon/big-code-analysis/issues/1169).)
+
+Those figures were measured before
+[#1196](https://github.com/dekobon/big-code-analysis/issues/1196), when the `nargs` gate summed a
+function's own parameters with every nested closure's. Most of that population was not
+parameter-heavy at all: of the 76 functions a limit of `5` would have newly gated, only 17 had six
+or more parameters of their own, and one had a single parameter plus five contributed by closures
+in its body. Re-measured on the same tree under own-parameter gating:
+
+| `nargs` limit | hard offenders | new (unbaselined) | soft offenders | new |
+|---|---|---|---|---|
+| 7 (kept) | 6 | 0 | 16 | 0 |
+| 6 | 16 | 0 | 38 | 17 |
+| 5 | 38 | 17 | 129 | 99 |
+
+The cluster trap itself is unchanged and is the reason this section exists — 91 functions now sit
+at exactly `5`, so a limit of `5` still puts every one of them permanently inside the soft band.
+What changed is the size of the real work behind it: 17 signatures rather than 76 mixed cases.
 
 `bca check --explain-threshold <metric>=<limit>` measures both tiers in one walk and names the
 cluster when it finds one, without touching `bca.toml`:

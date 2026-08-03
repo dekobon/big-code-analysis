@@ -2263,3 +2263,121 @@ fn check_multi_metric_config_gates_on_every_named_metric() {
         );
     }
 }
+
+/// The `nargs` gate measures a function's **own** parameters, not the
+/// subtree sum (#1196).
+///
+/// It gated on `nargs.total()` — `function_args_sum() + closure_args_sum()`
+/// — so a function was charged for every nested closure's parameters
+/// too. A three-parameter function with a two-parameter sort comparator
+/// was reported at 5, and the remediation its number implied (fewer
+/// parameters) was not the one that would clear it. Every comparable
+/// tool — `RuboCop` `Metrics/ParameterLists`, `ESLint` `max-params`,
+/// Clippy `too_many_arguments`, lizard, `SonarQube` S107, Pylint `R0913`
+/// — counts a callable's own formal parameters, and two of those are the
+/// anchors the shipped default is derived from.
+///
+/// `outer` declares two parameters and contains a three-parameter nested
+/// function plus a two-parameter closure. Under the old rule it scored
+/// 7; the fixture is built so the old value and the new one fall on
+/// opposite sides of the limit, which is what makes this discriminate.
+#[test]
+fn nargs_gates_a_function_on_its_own_parameters() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(
+        &dir,
+        "own.rs",
+        "fn outer(a: u32, b: u32) -> u32 {\n\
+         \x20   fn inner(p: u32, q: u32, r: u32) -> u32 { p + q + r }\n\
+         \x20   let c = |x: u32, y: u32| x + y;\n\
+         \x20   inner(a, b, 1) + c(a, b)\n\
+         }\n",
+    );
+
+    cli(dir.path())
+        .args(["check", "--paths", &path, "--threshold", "nargs=2"])
+        .assert()
+        .code(2)
+        // `inner` really does declare three parameters.
+        .stdout(predicate::str::contains("outer::inner: nargs = 3"))
+        // `outer` declares two and must not be charged for its children.
+        // Asserting on the qualified name alone would match the `inner`
+        // row above, which is prefixed with it.
+        .stdout(predicate::str::contains("outer: nargs =").not());
+}
+
+/// Nothing escapes the narrower gate: a closure that opens its own space
+/// is flagged on its own row, which is also where its fix goes (#1196).
+///
+/// This is the guarantee that makes own-parameter gating safe rather
+/// than a loophole, and it holds in the ten grammars whose closures are
+/// `is_func_space` — Rust here.
+#[test]
+fn nargs_flags_a_fat_closure_on_its_own_row() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(
+        &dir,
+        "fat.rs",
+        "fn small(a: u32) -> u32 {\n\
+         \x20   let fat = |p: u32, q: u32, r: u32, s: u32, t: u32, u: u32| p+q+r+s+t+u;\n\
+         \x20   fat(a, a, a, a, a, a)\n\
+         }\n",
+    );
+
+    cli(dir.path())
+        .args(["check", "--paths", &path, "--threshold", "nargs=5"])
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("<anon@L2>: nargs = 6"))
+        // The enclosing function declares one parameter and is clean.
+        .stdout(predicate::str::contains("small: nargs =").not());
+}
+
+/// Where a lambda opens no space, its arguments still fold into the
+/// enclosing function — and the row shows the split so the reader knows
+/// which lever to pull (#1196).
+///
+/// Python, Java, Kotlin and C++/Mozcpp are the four grammars in this
+/// position: their lambdas are `is_closure` without being
+/// `is_func_space`, so the enclosing function is the only attribution
+/// available. Without the parenthetical the row reads as though `small`
+/// declared eight parameters, which is the confusion this whole change
+/// is about.
+#[test]
+fn nargs_shows_the_split_where_a_lambda_opens_no_space() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(
+        &dir,
+        "lam.py",
+        "def small(a):\n\
+         \x20   fat = lambda p, q, r, s, t, u, v: p+q+r+s+t+u+v\n\
+         \x20   return fat(a, a, a, a, a, a, a)\n",
+    );
+
+    cli(dir.path())
+        .args(["check", "--paths", &path, "--threshold", "nargs=5"])
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains(
+            "small: nargs = 8 (1 own + 7 lambda)",
+        ));
+}
+
+/// The parenthetical stays off an ordinary offender, where it would just
+/// restate the value (#1196).
+#[test]
+fn nargs_omits_the_split_for_a_plain_parameter_list() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(
+        &dir,
+        "plain.rs",
+        "fn wide(a: u32, b: u32, c: u32, d: u32, e: u32, f: u32) -> u32 { a+b+c+d+e+f }\n",
+    );
+
+    cli(dir.path())
+        .args(["check", "--paths", &path, "--threshold", "nargs=5"])
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("wide: nargs = 6 (limit 5)"))
+        .stdout(predicate::str::contains("own +").not());
+}

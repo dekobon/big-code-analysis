@@ -47,8 +47,17 @@ pub enum MetricScope {
     /// Gate only individual function spaces ([`SpaceKind::Function`] —
     /// free functions, methods, closures). The per-function complexity
     /// metrics (cognitive, cyclomatic, abc, mi.*) and the subtree sums
-    /// that describe one function and its nested closures (halstead.*,
-    /// nargs, nexits, tokens) live here.
+    /// that describe one function (halstead.*, nargs, nexits, tokens)
+    /// live here.
+    ///
+    /// Whether "one function" includes its nested closures is per
+    /// metric, not per scope. `halstead.*`, `nexits` and `tokens` read
+    /// subtree sums, because a closure's tokens and exits really are
+    /// part of the enclosing body a reader must follow. `nargs` reads
+    /// the space's own parameters instead (#1196): a closure that opens
+    /// its own space is gated on its own row, and summing its arguments
+    /// into the enclosing signature made the offender's number describe
+    /// something its remediation could not change.
     Function,
     /// Gate only container spaces that own methods (class / struct /
     /// trait / impl / namespace / interface) — the object-oriented size
