@@ -363,7 +363,7 @@ reported nothing:
 | 7 (kept) | 27 | 6.65 | 60 |
 | 6 (proposed) | 60 | 5.7 | 134 |
 
-Seventy-four functions sit at exactly `6`. A limit of `6` puts all of them `0.3` below the soft
+Seventy-four functions sit at exactly `6`. A limit of `6` puts all of them `0.3` inside the soft
 band at once — 74 baseline entries bought for no hard-tier gain, none of which can ever be retired
 short of rewriting the signatures. The limit stayed at `7`; the honest alternative was the real
 `6 → 5` work. ([#1143](https://github.com/dekobon/big-code-analysis/issues/1143),

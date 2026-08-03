@@ -761,7 +761,7 @@ gate read that sum, so a three-parameter function with a two-parameter
 sort comparator was flagged at 5 — and the remediation its number
 implied, fewer parameters, was not the one that would clear it.
 
-Nothing escapes the narrower rule. In the ten grammars whose closures
+Nothing escapes the narrower rule. In the twelve grammars whose closures
 open their own space — Rust, JavaScript, TypeScript, TSX, MozJS, C#, Go,
 PHP, Perl, Ruby, Lua and Elixir — a closure is gated on its own offender
 row, which is also where its fix belongs. In Python, Java, Kotlin and
