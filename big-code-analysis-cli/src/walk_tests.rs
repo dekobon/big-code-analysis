@@ -48,6 +48,7 @@ fn walk_directory_seed_returns_sorted_paths() {
             &empty_exclude,
             None,
             &cwd,
+            None,
         ),
         language_forced: false,
     };

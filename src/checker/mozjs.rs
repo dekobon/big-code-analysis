@@ -32,7 +32,7 @@ impl Checker for MozjsCode {
         )
     }
 
-    is_js_func_and_closure_checker!(Mozjs);
+    is_js_func_and_closure_checker!(Mozjs, FieldDefinition);
 
     fn is_call(node: &Node) -> bool {
         node.kind_id() == Mozjs::CallExpression

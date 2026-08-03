@@ -8718,6 +8718,70 @@ function f(int $a, int $b): int {
         );
     }
 
+    /// A parenthesised operand under `!` counts the same as a bare one.
+    ///
+    /// `_expr` inlines `( … )` as anonymous children, so `!($a)` puts
+    /// `(` where a positional read expects the operand. The walker's
+    /// negation branch kept a fixed `child(1)` through the first draft of
+    /// #1180 and scored these 0 while the unparenthesised forms scored 1
+    /// — an inconsistency the fix itself introduced, since before it
+    /// neither form counted. Found in review, not by the tests: the
+    /// parenthesised fixtures added with #1180 covered the ternary
+    /// *condition* slot only.
+    #[test]
+    fn tcl_parenthesised_negated_operands_match_the_bare_form() {
+        let conditions = |source: &str| {
+            crate::test_support::metrics_verbatim(
+                crate::LANG::Tcl,
+                source.as_bytes(),
+                crate::MetricsOptions::default(),
+            )
+            .abc
+            .conditions_sum()
+        };
+        for (bare, parenthesised) in [
+            (
+                "proc f {a} {\n if {!$a} { puts x }\n}",
+                "proc f {a} {\n if {!($a)} { puts x }\n}",
+            ),
+            (
+                "proc f {a b} {\n if {$a && !$b} { puts x }\n}",
+                "proc f {a b} {\n if {$a && !($b)} { puts x }\n}",
+            ),
+            (
+                "proc f {a b c} {\n set r [expr {$a ? !$b : !$c}]\n}",
+                "proc f {a b c} {\n set r [expr {$a ? !($b) : !$c}]\n}",
+            ),
+        ] {
+            let want = conditions(bare);
+            assert!(want > 0, "the bare form must count something: {bare}");
+            assert_eq!(
+                conditions(parenthesised),
+                want,
+                "parenthesising the negated operand changed the count\n  bare:  {bare}\n  paren: {parenthesised}"
+            );
+        }
+    }
+
+    #[test]
+    fn irules_abc_parenthesised_negated_operands_match_the_bare_form() {
+        let conditions = |source: &str| {
+            crate::test_support::metrics_verbatim(
+                crate::LANG::Irules,
+                source.as_bytes(),
+                crate::MetricsOptions::default(),
+            )
+            .abc
+            .conditions_sum()
+        };
+        let want = conditions("when X {\n    if { !$a } { log local0. hi }\n}\n");
+        assert_eq!(want, 1);
+        assert_eq!(
+            conditions("when X {\n    if { !($a) } { log local0. hi }\n}\n"),
+            want
+        );
+    }
+
     #[test]
     fn tcl_bare_truthy_and_negated_predicates_count_one_condition() {
         // The headline #1180 fix, on the Tcl side: both were 0 before.

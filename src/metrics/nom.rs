@@ -710,6 +710,22 @@ mod tests {
                 "run(() => 1);",
                 false,
             ),
+            // A positional callback that is the *object* of a member
+            // expression. The first fix for the class-field divergence
+            // used `has_sibling(PropertyIdentifier)`, which tests every
+            // sibling rather than a binding position — so `.bind(this)`
+            // supplied the sibling and made this a function while the
+            // arrow spelling (which needs parentheses, interposing a
+            // node) stayed a closure. That re-created the very func/arrow
+            // divergence this test exists to forbid, in a new shape, and
+            // it moved real pdf.js corpus counts before review caught it.
+            // The binding site is now named structurally, by kind.
+            (
+                "member-expression object",
+                "run(function () { return 1; }.bind(this));",
+                "run((() => 1).bind(this));",
+                false,
+            ),
         ];
 
         for &(label, func_form, arrow_form, expected) in cases {

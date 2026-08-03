@@ -201,7 +201,10 @@ class BaselineTest(unittest.TestCase):
 
             code, _, _ = self._run([str(target), "--baseline", str(baseline), "--update"])
             self.assertEqual(code, 0)
-            self.assertIn("1", baseline.read_text(encoding="utf-8"))
+            # The parsed dict, not a substring: the written header carries
+            # "#1192" and "126", so `assertIn("1", …)` holds for an empty
+            # baseline too and pins nothing.
+            self.assertEqual(list(gate.load_baseline(baseline).values()), [1])
 
             code, _, _ = self._run([str(target), "--baseline", str(baseline)])
             self.assertEqual(code, 0, "unchanged tree must pass")

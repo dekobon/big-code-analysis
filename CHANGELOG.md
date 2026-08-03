@@ -26,6 +26,32 @@ for historical reference.
 
 ### Added
 
+- `bca check --print-effective-config` reports which exclude globs are
+  manifest-anchored (#1194). After #1164 a glob's meaning depends on its
+  origin — a `--check-exclude` pattern resolves against the caller's
+  working directory, a `bca.toml` one against the manifest's directory —
+  and a single flattened array cannot express that. `manifest_exclude`,
+  `manifest_check_exclude`, `manifest_exclude_from` and
+  `manifest_check_exclude_from` name the manifest-origin subset
+  alongside the resolved lists, which stay where they were so the TOML
+  form keeps round-tripping through `--config`. The anchor is the
+  reported `manifest` file's directory. Each key is omitted when the
+  manifest contributed nothing; the `*_from` pair is present only when
+  the manifest's file is the one actually in effect, since a CLI
+  `--exclude-from` *replaces* rather than unions with it.
+- Kotlin property accessors (`get()` / `set()`) and `init { … }`, Java
+  and Groovy `static { … }`, and JavaScript class static blocks now open
+  a function space of their own (#1184). Each carries executable code but
+  was referenced nowhere outside the generated language enum, so its
+  control flow was charged to the enclosing class and `bca check` could
+  never flag one however complex it got. They are reported under
+  synthesised names — `<get>`, `<set>`, `<init>`, `<static-init>` —
+  following the existing `<anonymous>` convention. **They are
+  deliberately absent from `nom.functions`, `nargs` and `bca functions`**:
+  none is a callable named at a call site, and counting an accessor as a
+  method would make `npm` bill the same property once as an attribute and
+  again as a method. See the NOM section of the metrics guide.
+
 - `bca check --explain-threshold <metric>=<limit>`: preview what a
   candidate threshold would cost at **both** tiers without editing
   `bca.toml` or running a gate (#1169). Reports hard-tier offenders, the
@@ -681,6 +707,61 @@ for historical reference.
   interleaved paired benchmark; output is bit-identical.
 
 ### Fixed
+
+- **Metric drift.** ABC `conditions` moves wherever a comment sits inside
+  a ternary (#1181). Slots are now addressed by grammar field rather than
+  by neighbouring token or fixed index, which fixes two opposite errors
+  from one cause: C, C++, Objective-C, Mozcpp, PHP, Perl, JavaScript,
+  TypeScript, TSX and MozJS **over**-counted (`a ? /*n*/ (b) : c` scored
+  3 against `a ? (b) : c`'s 2), while Java, C# and Groovy **under**-counted
+  (`a ? /*n*/ !b : c` scored 2 against `a ? !b : c`'s 3).
+- **Metric drift.** ABC `conditions` counts Ruby's and Perl's `not`
+  keyword like `!` (#1182). `if not b` scored 0 against `if !b`'s 1, and a
+  `not` ternary scored 2 against the `!` form's 4. Lua and Elixir were
+  already correct.
+- **Metric drift.** Tcl and iRules gained the Phase 2B slot routing every
+  other language already had (#1180): `if {$a}` and `while {$a}` move 0 →
+  1, `if`/`elseif`/`else` 2 → 4, and `expr {$a ? !$b : !$c}` 1 → 4,
+  matching the value the other languages report for the same expression.
+  The argument and `return` slots remain unrouted.
+- **Metric drift.** A lambda written without its optional parentheses
+  reports its parameter in Java and C# (#1185). `x -> x + 1` scored
+  `nargs` 0 where `(x) -> x + 1` scored 1; the parameters are billed to
+  `closure_args` as before.
+- **Metric drift.** JavaScript-family generator functions are classified
+  as functions rather than closures (#1186), so `nom`'s function/closure
+  split, `nargs`' `fn_args`/`closure_args` split and cognitive nesting all
+  move for `function*`. `bca functions` and `bca find --type function`
+  now report a named generator, which they previously omitted.
+- **Metric drift.** An immediately-invoked function expression is a
+  closure whether or not its result is bound (#1188). `nom` and `nargs`
+  previously classified `(function(){…})()` and
+  `const v = (function(){…})()` differently. A class field initialiser and
+  a non-identifier-keyed object property are now classified the same way
+  whether written as a function expression or an arrow.
+- **Metric drift.** Cognitive complexity resets the lambda surcharge at
+  every function boundary, not only in the JavaScript family (#1187). A
+  function *declared inside* a closure scored 3 where the same body
+  outside one scored 2, in Rust, Java, C++, PHP and C#. Separately,
+  `(function(){ function g(){…} })()` and `(() => { function g(){…} })()`
+  now charge `g` the same function depth.
+- **Metric drift.** The file-level unit's line span is anchored at line 1
+  (#1195). A whitespace-only file reported `0..0`, and any file opening
+  with blank lines reported a span that omitted them — `"\n\n\nfn a(){}\n"`
+  gave `4..4` of a 4-line file. An empty file still reports `0..0`, having
+  no lines.
+- **Metric drift.** Kotlin `init { … }` complexity now contributes to its
+  class's WMC, which follows from the new function space (#1184).
+- A `bca.toml` `exclude` glob keeps applying under a directory seed
+  (#1189). `bca metrics -p sub` moved the walk root, and manifest globs —
+  written against the manifest's directory — silently stopped matching.
+  The rule is now stated once and shared by the walker and the `bca check`
+  gate.
+- `utils/check-snapshot-anchors.py` lexes char literals, byte-raw strings
+  and the whole of `src/metrics/` (#1192). A `b'"'` opened a string span
+  that hid every later snapshot call, and the scan was non-recursive so
+  the 126 files under the per-language subdirectories were never checked.
+  Latent — no live count changed.
 
 - **Metric values move.** A Java record's compact constructor
   (`record R(int a) { R { … } }`) now opens its own function space

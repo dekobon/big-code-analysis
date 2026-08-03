@@ -33,7 +33,7 @@ impl Checker for JavascriptCode {
         )
     }
 
-    is_js_func_and_closure_checker!(Javascript);
+    is_js_func_and_closure_checker!(Javascript, FieldDefinition);
 
     fn is_call(node: &Node) -> bool {
         node.kind_id() == Javascript::CallExpression

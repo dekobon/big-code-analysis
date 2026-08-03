@@ -8,13 +8,13 @@ impl Getter for TsxCode {
         use Tsx::*;
 
         match node.kind_id().into() {
+            // `ClassStaticBlock` is ES2022 `static { … }` (#1184).
             FunctionExpression
             | MethodDefinition
             | GeneratorFunction
             | FunctionDeclaration
             | GeneratorFunctionDeclaration
             | ArrowFunction
-            // ES2022 `static { … }` (#1184).
             | ClassStaticBlock => SpaceKind::Function,
             Class | ClassDeclaration | AbstractClassDeclaration => SpaceKind::Class,
             InterfaceDeclaration => SpaceKind::Interface,

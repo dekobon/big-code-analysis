@@ -593,16 +593,22 @@ pub(crate) fn resolve_walk_files(globals: GlobalOpts) -> (ResolvedFiles, usize) 
     // either — `bca diff`'s directory guard moves the cwd — so once per
     // walk is the right granularity (#1189).
     let cwd = std::env::current_dir().unwrap_or_default();
+    // An empty set never matches, so there is no anchor worth supplying —
+    // and the no-manifest default above has no directory to offer in the
+    // first place.
+    let manifest_dir = (!manifest_exclude.is_empty()).then_some(manifest_excludes.dir.as_path());
+    // Once per walk, not once per file: the exclude match runs for every
+    // entry, and a project reached through a symlink would otherwise pay
+    // two `canonicalize` syscalls per file inside `relative_tail`.
+    let canonical_manifest_dir = manifest_dir.and_then(|dir| dir.canonicalize().ok());
     let filters = WalkFilters {
         include: &include,
         excludes: walk_seed::AnchoredExcludes::new(
             &exclude,
             &manifest_exclude,
-            // An empty set never matches, so there is no anchor worth
-            // supplying — and the no-manifest default above has no
-            // directory to offer in the first place.
-            (!manifest_exclude.is_empty()).then_some(manifest_excludes.dir.as_path()),
+            manifest_dir,
             &cwd,
+            canonical_manifest_dir.as_deref(),
         ),
         language_forced: globals.language.is_some(),
     };

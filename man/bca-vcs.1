@@ -124,7 +124,7 @@ Glob to exclude files. Repeat the flag to add multiple globs (`\-X \*(Aq*.tmp\*(
 
 Shapes directory\-walk scope only: a file named directly on the command line overrides every exclude glob and is analyzed anyway (the ripgrep/fd convention), with a warning on stderr naming the glob it overrode. `\-I` / `\-\-include` is not overridden. To exempt something from `bca check`\*(Aqs threshold gate whichever way it is named, use `\-\-check\-exclude` / `[check] exclude` instead.
 
-A relative glob given here is resolved against the directory you ran `bca` from. One written in `bca.toml` is matched against each file\*(Aqs path relative to the *walk root*, which is the manifest\*(Aqs own directory only when the walk starts there — as it does for the usual `paths = ["."]`. Naming a subdirectory explicitly (`bca metrics \-p sub`) moves the walk root and can stop a manifest glob matching. `[check] exclude` does not have this caveat: it anchors at the manifest whatever the caller names.
+A relative glob given here is resolved against the directory you ran `bca` from. One written in `bca.toml` is resolved against the manifest\*(Aqs own directory, whatever path you name and wherever you run from — so `bca metrics \-p sub` honours the same exclusions the bare `bca metrics` does. `[check] exclude` anchors the same way.
 .TP
 \fB\-l\fR, \fB\-\-language\fR \fI<LANGUAGE>\fR
 Force a language instead of inferring from extension. Accepts a canonical language name (`rust`, `python`, `cpp`, …) or a file extension (`rs`, `py`, …). An unrecognized value is a hard error

@@ -228,16 +228,15 @@ fn irules_inspect_container(container_node: &Node, parent: &Node, conditions: &m
             has_boolean_content = true;
         }
 
-        // `!` stores its operand at child 1 (after the token). The `expr`
-        // wrapper holds `{`, the expression, `}`, and `_expr` inlines
-        // parens, so take the first *named* child instead of a fixed
-        // index — that resolves `{($a)}` as well as `{$a}`.
-        let next = if is_not {
-            node.child(1)
-        } else {
-            node.children().find(Node::is_named)
+        // The first *named* child, for both wrappers. `!` and the `{`
+        // / `(` delimiters are all anonymous, so this is the operand in
+        // every shape — and unlike a fixed index it survives `_expr`
+        // inlining its parens: `!($a)` puts `(` at child 1, where a
+        // positional read lands on the delimiter and the walk stops
+        // without counting the negation at all.
+        let Some(child) = node.children().find(Node::is_named) else {
+            break;
         };
-        let Some(child) = next else { break };
         node = child;
         node_kind = node.kind_id().into();
 

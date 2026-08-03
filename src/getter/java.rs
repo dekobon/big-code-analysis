@@ -54,11 +54,11 @@ impl Getter for JavaCode {
             // `name` field holding the record's simple name, so the
             // default `get_func_space_name` already names the space `R` —
             // identical to what the canonical spelling would produce.
+            // `StaticInitializer` is `static { … }` (#1184).
             MethodDeclaration
             | ConstructorDeclaration
             | CompactConstructorDeclaration
             | LambdaExpression
-            // `static { … }` (#1184).
             | StaticInitializer => SpaceKind::Function,
             InterfaceDeclaration | AnnotationTypeDeclaration => SpaceKind::Interface,
             // An anonymous class (`new Runnable() { ... }`) is an

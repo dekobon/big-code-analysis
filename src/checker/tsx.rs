@@ -32,7 +32,7 @@ impl Checker for TsxCode {
         )
     }
 
-    is_js_func_and_closure_checker!(Tsx);
+    is_js_func_and_closure_checker!(Tsx, PublicFieldDefinition);
 
     fn is_call(node: &Node) -> bool {
         node.kind_id() == Tsx::CallExpression

@@ -199,12 +199,17 @@ finds at the call site. All four probes fitted 1.99-2.06 before and
 
 That change also confirmed #1088's lesson a second time from the other
 direction. The ABC condition walkers reach a slot's parent to decide
-whether it sits in boolean context, and the same walkers ask
+whether it sits in boolean context, and the same walkers used to ask
 `Node::previous_sibling` whether a ternary's `?` / `:` precedes the
 operand — and `ts_node__prev_sibling` opens with `ts_node_parent`, so
 it carries the same `O(depth)`. Passing the parent in and scanning its
-children (`Node::previous_sibling_under`) was needed for the fix to
-hold on a ternary shape, not only on the shapes the probes render.
+children (`Node::previous_sibling_under`) was what made the fix hold on
+a ternary shape, not only on the shapes the probes render.
+
+That helper no longer exists: #1181 moved every ternary slot onto
+`child_by_field_name`, which needs no sibling scan at all, and the
+method was removed with its last caller. The sibling cost described
+above is still the reason to reach for a field lookup first.
 
 The `Ancestors::unknown()` call sites that remain are deliberate rather
 than deferred: the two synthetic-`Unit`-root pushes hand it a node that
