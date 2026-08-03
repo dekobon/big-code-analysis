@@ -444,27 +444,44 @@ fn write_language_header(out: &mut String, headings: &mut Headings, lang_name: &
     let _ = out.write_str("\n");
 }
 
-fn write_language_summary(
-    out: &mut String,
-    headings: &mut Headings,
-    id_prefix: &str,
-    units: &[&FunctionSummary],
-) {
+/// Where an HTML section is being written: the buffer, the heading
+/// emitter that assigns and records ids, and the language slug those ids
+/// are namespaced under.
+///
+/// The three always travel together — every section writer below took
+/// all three as its first arguments, and no caller has one without the
+/// others, because they jointly answer "which language's section am I
+/// appending to". Bundling them is what the parameter count was pointing
+/// at: `nargs` counted six on three of these, and four of the six were
+/// this one idea spelled out longhand.
+struct HtmlSection<'a> {
+    out: &'a mut String,
+    headings: &'a mut Headings,
+    /// Slug-based id prefix for this language's `h3` headings, so a
+    /// hotspot table deep-links to e.g. `#rust-cyclomatic-complexity-hotspots`.
+    id_prefix: &'a str,
+}
+
+fn write_language_summary(section: &mut HtmlSection<'_>, units: &[&FunctionSummary]) {
     let totals = LanguageTotals::from_units(units);
     let cr = totals.comment_ratio();
     let avg_mi = totals.avg_mi();
     let rating = mi_rating(avg_mi);
 
-    headings.emit_h3(out, &format!("{id_prefix}-summary"), "Summary");
+    section.headings.emit_h3(
+        section.out,
+        &format!("{}-summary", section.id_prefix),
+        "Summary",
+    );
     let _ = writeln!(
-        out,
+        section.out,
         "<p class=\"note\">Files: {} | SLOC: {} | PLOC: {} | Comment ratio: {cr:.1}%</p>",
         escape_html(&thousands(totals.files)),
         escape_html(&thousands(totals.sloc)),
         escape_html(&thousands(totals.ploc)),
     );
     let _ = writeln!(
-        out,
+        section.out,
         "<p class=\"note\">{}: {avg_mi:.1} ({rating})</p>",
         crate::markdown_report::AVG_MI_LABEL
     );
@@ -477,9 +494,7 @@ fn write_language_summary(
 /// [`hotspot::HotspotTitle::render`]), it is a no-op for today's
 /// metachar-free titles.
 fn emit_html_section(
-    out: &mut String,
-    headings: &mut Headings,
-    id_prefix: &str,
+    section: &mut HtmlSection<'_>,
     spec: &HotspotSpec,
     top_n: usize,
     rows: &[&FunctionSummary],
@@ -489,12 +504,12 @@ fn emit_html_section(
     // ("<Concept> hotspots", without the `(top N by …)` clause), so the
     // fragment (`#rust-cyclomatic-complexity-hotspots`) does not shift with
     // `--top` (issue #677). The displayed text is the full rendered title.
-    headings.emit_h3(
-        out,
-        &format!("{id_prefix}-{}", spec.title.id_basis()),
+    section.headings.emit_h3(
+        section.out,
+        &format!("{}-{}", section.id_prefix, spec.title.id_basis()),
         &escape_html(&title),
     );
-    write_hotspot_table(out, spec, rows);
+    write_hotspot_table(section.out, spec, rows);
 }
 
 /// The cyclomatic summary note under the CC hotspot table. A caption over the
@@ -575,36 +590,36 @@ fn write_actionable_bullets(
 }
 
 fn write_actionable_summary(
-    out: &mut String,
-    headings: &mut Headings,
-    id_prefix: &str,
+    section: &mut HtmlSection<'_>,
     funcs: &[&FunctionSummary],
     policy: SuppressionPolicy,
     advisory: AdvisoryThresholds,
 ) {
     let counts = advisory.count_over(funcs);
-    headings.emit_h3(
-        out,
-        &format!("{id_prefix}-actionable-summary"),
+    section.headings.emit_h3(
+        section.out,
+        &format!("{}-actionable-summary", section.id_prefix),
         "Actionable Summary",
     );
     // Provenance so the cutoffs are always attributable (issue #630).
     let _ = writeln!(
-        out,
+        section.out,
         "<p class=\"note\">{}</p>",
         escape_html(advisory.provenance_line())
     );
     let breakdown = hotspot::suppressed_metric_breakdown(funcs, policy, advisory);
     let _ = writeln!(
-        out,
+        section.out,
         "<p class=\"note\">{}</p>",
         escape_html(&hotspot::actionable_summary_caption(&breakdown))
     );
     if counts.all_clear() {
-        let _ = out.write_str("<p class=\"note\">No major quality concerns detected.</p>\n");
+        let _ = section
+            .out
+            .write_str("<p class=\"note\">No major quality concerns detected.</p>\n");
         return;
     }
-    write_actionable_bullets(out, counts, advisory);
+    write_actionable_bullets(section.out, counts, advisory);
 }
 
 /// Emit the section heading (`<h3>` + id) followed by the "table omitted: all
@@ -616,9 +631,7 @@ fn write_actionable_summary(
 /// summary bullet never points at a table absent from the document (issue
 /// #616). A no-op when `count == 0`.
 fn emit_fully_suppressed_note_html(
-    out: &mut String,
-    headings: &mut Headings,
-    id_prefix: &str,
+    section: &mut HtmlSection<'_>,
     spec: &HotspotSpec,
     top_n: usize,
     count: usize,
@@ -631,13 +644,13 @@ fn emit_fully_suppressed_note_html(
     // `emit_html_section` uses, so a fully-suppressed section keeps its place
     // in the heading/id sequence and deep links resolve regardless of
     // suppression state (issue #681). The omission note is the section body.
-    headings.emit_h3(
-        out,
-        &format!("{id_prefix}-{}", spec.title.id_basis()),
+    section.headings.emit_h3(
+        section.out,
+        &format!("{}-{}", section.id_prefix, spec.title.id_basis()),
         &escape_html(&title),
     );
     let _ = writeln!(
-        out,
+        section.out,
         "<p class=\"note\">{}</p>",
         escape_html(&hotspot::fully_suppressed_caption(&title, count))
     );
@@ -657,13 +670,18 @@ pub(crate) fn write_language_section(
     // table deep-links to e.g. `#rust-cyclomatic-complexity-hotspots`. Built
     // from the raw language slug, matching the `h2` section id.
     let id_prefix = slugify(lang_name);
+    let section = &mut HtmlSection {
+        out,
+        headings,
+        id_prefix: &id_prefix,
+    };
     let (units, funcs) = hotspot::partition_by_kind(entries);
-    write_language_summary(out, headings, &id_prefix, &units);
+    write_language_summary(section, &units);
 
     // The Actionable Summary leads the section (directly after Summary,
     // before any hotspot table) so a reader sees the highest-altitude counts
     // first (issue #678).
-    write_actionable_summary(out, headings, &id_prefix, &funcs, policy, advisory);
+    write_actionable_summary(section, &funcs, policy, advisory);
 
     // Drive every hotspot section from the shared `SPECS` table so the HTML
     // and Markdown reports cannot diverge in membership/order/suppression.
@@ -672,17 +690,17 @@ pub(crate) fn write_language_section(
     for spec in SPECS {
         match hotspot::select_for(spec, &units, &funcs, entries, top_n, policy, advisory) {
             hotspot::SpecOutcome::FullySuppressed(suppressed) => {
-                emit_fully_suppressed_note_html(out, headings, &id_prefix, spec, top_n, suppressed);
+                emit_fully_suppressed_note_html(section, spec, top_n, suppressed);
             }
             hotspot::SpecOutcome::Rows { rows, cc_stats } => {
-                emit_html_section(out, headings, &id_prefix, spec, top_n, &rows);
+                emit_html_section(section, spec, top_n, &rows);
                 if let Some(stats) = cc_stats {
-                    emit_cc_note_html(out, &stats, policy);
+                    emit_cc_note_html(section.out, &stats, policy);
                 } else if spec.mi_note {
                     // HTML wraps the note in a styled `<p>`; the Markdown
                     // writer has a dedicated emitter for the same text.
                     let _ = writeln!(
-                        out,
+                        section.out,
                         "<p class=\"note\">{}</p>",
                         escape_html(hotspot::MI_NOTE)
                     );
@@ -691,5 +709,5 @@ pub(crate) fn write_language_section(
         }
     }
 
-    let _ = out.write_str("</section>\n");
+    let _ = section.out.write_str("</section>\n");
 }

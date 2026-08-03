@@ -183,6 +183,15 @@ for historical reference.
 
 ### Changed
 
+- This project's own `nargs` limit converges from 7 to the shipped
+  default of 5 (#1183). Repository configuration only — no library or CLI
+  behaviour changes. The convergence was declined twice before, both
+  times correctly: #1143 measured it against a hard-tier count that
+  missed the soft tier, and #1183 found the offenders were mostly
+  artifacts of the gate summing closure parameters into the enclosing
+  function. #1196 removed that, and with it the reason to stay at 7 —
+  which had become a limit catching nothing in the current tree.
+
 - **`bca check --threshold nargs=N` now gates each callable on its own
   parameter list** rather than on `nargs.total()`, which summed a
   function's parameters with every nested closure's (#1196). This changes
