@@ -66,6 +66,13 @@ impl Checker for JavaCode {
         node.kind_id() == Java::MethodInvocation
     }
 
+    /// `x -> x + 1` puts a bare `identifier` in the `parameters` field;
+    /// `(x) -> …` and `(x, y) -> …` put an `inferred_parameters` list
+    /// and `() -> …` a `formal_parameters` one (#1185).
+    fn is_bare_param(node: &Node) -> bool {
+        node.kind_id() == Java::Identifier as u16
+    }
+
     fn is_non_arg(node: &Node) -> bool {
         // Java's explicit receiver parameter (`void m(S this, int a)`, JLS
         // 8.4.1) parses as a `receiver_parameter` child of

@@ -292,6 +292,26 @@ pub(crate) trait Checker {
     fn is_non_arg(_: &Node) -> bool {
         false
     }
+    /// Whether `node` — the value of a function's `parameters` field —
+    /// is itself a *single formal parameter* rather than a parameter
+    /// *list*.
+    ///
+    /// `compute_args` walks the field node's children, which is right
+    /// for a list and yields zero for a lone parameter that has none.
+    /// Java's `lambda_expression` spells its `parameters` field three
+    /// ways — `formal_parameters` and `inferred_parameters` are lists,
+    /// but the un-parenthesised `x -> …` form puts a bare, childless
+    /// `identifier` there — and C#'s puts a childless
+    /// `implicit_parameter`. Both reported `nargs = 0` for a lambda
+    /// that plainly has one argument (#1185).
+    ///
+    /// Gated per language rather than inferred from `child_count() == 0`
+    /// so a MISSING or zero-width ERROR node under `parameters` on a
+    /// broken parse cannot silently conjure an argument.
+    #[inline]
+    fn is_bare_param(_: &Node) -> bool {
+        false
+    }
     #[inline]
     fn is_string(_: &Node) -> bool {
         false
