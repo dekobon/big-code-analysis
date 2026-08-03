@@ -15,10 +15,17 @@
 #      metavariable in a non-Rust position such as the pattern
 #      repetition `$ternary $(| $short_circuit)+`. No comment is
 #      involved; hoisting fixes nothing and the entry is permanent.
+#   3. An arm wider than rustfmt's `max_width` of 100 columns. One
+#      over-long arm header makes rustfmt emit the whole match
+#      verbatim, with no comment and no macro in sight. Wrap or
+#      shorten it; this is the cause you can act on immediately.
 #
 # Check which one you have (`./utils/check-rustfmt-bail.py --show FILE`
-# names the stuck arms) before editing anything.
+# names the stuck arms) before editing anything: an arm past 100
+# columns is cause 3, an in-pattern comment is cause 1, and neither --
+# inside a `macro_rules!` body -- is cause 2.
 #
+# ---- notes below are preserved across --update ----
 # Known cause-2 entries, i.e. permanent — do not go looking for a
 # comment to hoist in these:
 #

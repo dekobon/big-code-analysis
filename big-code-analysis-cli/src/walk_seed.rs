@@ -197,14 +197,42 @@ fn relative_tail(path: &std::path::Path, root: &std::path::Path) -> Option<PathB
 /// lexical rather than `canonicalize`: it needs no filesystem access,
 /// it cannot fail on a path that no longer exists, and it agrees with
 /// how the baseline keys the very same file.
-fn root_relative_match_path(root: &std::path::Path, path: &std::path::Path) -> Option<PathBuf> {
+fn root_relative_match_path(anchor: ManifestAnchor<'_>, path: &std::path::Path) -> Option<PathBuf> {
     let absolute = if path.is_relative() {
-        std::env::current_dir().ok()?.join(path)
+        anchor.cwd.join(path)
     } else {
         path.to_path_buf()
     };
-    relative_tail(&crate::baseline::lexical_normalize(&absolute), root)
+    relative_tail(&crate::baseline::lexical_normalize(&absolute), anchor.root?)
         .filter(|rel| !rel.as_os_str().is_empty())
+}
+
+/// Where a manifest-anchored glob set resolves from: the `bca.toml`
+/// directory, plus the working directory a relative path is completed
+/// against.
+///
+/// One struct rather than two `&Path` parameters, for the reason
+/// [`CwdForm`] exists: the two are same-typed and not interchangeable,
+/// and transposing them would match every glob against the wrong root.
+///
+/// `cwd` is carried rather than read per call because
+/// [`crate::commands::check::apply_check_exclude`] resolves it once per
+/// run and then tests every violation against it — and because the
+/// process cwd is *not* constant (`walk.rs`'s directory guard moves it
+/// for `bca diff`), so it cannot simply be cached in a `OnceLock`.
+#[derive(Clone, Copy)]
+pub(crate) struct ManifestAnchor<'a> {
+    pub(crate) root: Option<&'a std::path::Path>,
+    pub(crate) cwd: &'a std::path::Path,
+}
+
+impl<'a> ManifestAnchor<'a> {
+    /// Resolve the working directory once. `None` when it cannot be
+    /// read, which makes every manifest match fall back to the
+    /// cwd-anchored form exactly as an absent manifest does.
+    pub(crate) fn resolve(root: Option<&'a std::path::Path>, cwd: &'a PathBuf) -> Self {
+        Self { root, cwd }
+    }
 }
 
 /// A path already anchored to the working directory — the spelling
@@ -233,15 +261,14 @@ pub(crate) struct CwdForm<'a>(pub(crate) &'a std::path::Path);
 /// override warning apply this rule; it lives here so the two cannot
 /// drift into disagreeing about which files a manifest glob describes.
 pub(crate) fn manifest_match_path<'a>(
-    root: Option<&std::path::Path>,
+    anchor: ManifestAnchor<'_>,
     path: &std::path::Path,
     cwd_form: CwdForm<'a>,
 ) -> std::borrow::Cow<'a, std::path::Path> {
-    root.and_then(|root| root_relative_match_path(root, path))
-        .map_or(
-            std::borrow::Cow::Borrowed(cwd_form.0),
-            std::borrow::Cow::Owned,
-        )
+    root_relative_match_path(anchor, path).map_or(
+        std::borrow::Cow::Borrowed(cwd_form.0),
+        std::borrow::Cow::Owned,
+    )
 }
 
 /// The path to match `--include` globs against for an *explicitly named

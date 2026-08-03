@@ -474,6 +474,20 @@ macro_rules! js_cognitive {
                     // that gap means deciding what a lambda ancestor is worth
                     // across every language — the deferred half of #1159 —
                     // rather than settling it in one arm.
+                    //
+                    // Generators are the other knowing omission, and the
+                    // argument above applies to them verbatim:
+                    // `GeneratorFunction` / `GeneratorFunctionDeclaration`
+                    // are `SpaceKind::Function` to the Getter too. They
+                    // are absent from both this list and the boundary arm
+                    // because `is_js_func!` excludes them — the Checker
+                    // calls them closures — so `function* g() {}` still
+                    // inherits enclosing nesting and still gives a nested
+                    // `function` no depth surcharge. Fixing that means
+                    // moving them between the two Checker predicates,
+                    // which also moves `nom`'s function/closure split and
+                    // `nargs`' `fn_nargs`/`closure_nargs`; tracked in
+                    // #1186, deliberately not settled here.
                     nesting.conditional = 0;
                     nesting.lambda = 0;
                     increment_function_depth(

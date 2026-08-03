@@ -165,12 +165,22 @@ for historical reference.
   statistic #1140 used against this tree gives p97.5 = 15 exactly, so
   the shipped default and a local re-derivation agree. Of the 18
   offenders convergence surfaced, 10 were genuinely simplified and 8
-  suppressed with a reason; the 14 further entries added to
-  `.bca-baseline.toml` all sit *at* 15 rather than over it, where a
-  baseline entry keeps the growth alarm that a suppression marker would
-  discard. `nargs` stays at 7 and `nargs` 6 → 5 is tracked separately
-  in #1183, since converging onto a population's ceiling buys permanent
-  baseline entries for no hard-tier gain.
+  suppressed with a reason.
+
+  The rest of the ledger, stated plainly because it is a cost and not a
+  benefit: **14 further entries were added to `.bca-baseline.toml`**,
+  all sitting *at* 15. `bca check --explain-threshold cognitive=15`
+  reports them as a cluster — "14 of 14 soft-band offenders sit at
+  exactly 15, the candidate limit itself … none of them can clear it
+  without real work" — which is the same shape `AGENTS.md` warns about
+  under *Price a candidate limit at both tiers*. The "0 new offenders"
+  reading is circular: it is 0 *because* those 14 are baselined. What
+  distinguishes this from the `nargs` case that was rejected is that
+  the population extends past the limit (`cognitive` runs to 20, so the
+  hard tier gains 18 real offenders) rather than stopping at it, and
+  that a baseline entry at the limit keeps a growth alarm a suppression
+  marker would discard. `nargs` stays at 7; `nargs` 6 → 5 is tracked
+  separately in #1183.
 - **(behaviour change)** `bca check` writes its offender rows to
   **stdout** instead of stderr (#1167). The rows are the command's
   product, so `bca check | wc -l`, `| head`, `| rg -c` and
@@ -742,6 +752,28 @@ for historical reference.
   walk keeps its previous walk-root anchoring, which differs from the
   manifest root only when the walk does not start there; that remaining
   gap predates this change and is tracked in #1189.
+
+  **Migration — only if your `bca.toml` sets `paths` to something other
+  than `["."]`.** `[check] exclude` globs were previously matched
+  against each file's path relative to the *walk root*; they are now
+  matched relative to the manifest's directory. Where `paths = ["."]`
+  those are the same directory and nothing moves — which is the common
+  case, and why this is a fix rather than a break. Where they differ,
+  both directions are live, and the second is the one to check for:
+
+  ```toml
+  paths = ["sub"]
+  [check]
+  exclude = ["vendor/**"]      # walk-root-relative: exempted before, reports now
+  exclude = ["sub/vendor/**"]  # manifest-relative: matched nothing before, exempts now
+  ```
+
+  The first direction fails loudly — an offender you had exempted
+  starts being reported. The second is silent and is the dangerous one:
+  a glob that never matched anything, and that nobody would have
+  noticed was inert, now exempts real violations. Run
+  `bca check --print-effective-config` and confirm the resolved
+  `check_exclude` list still means what you intended.
 - A threshold written with the bare `bca diff --metric` alias (`sloc`,
   `ploc`, `lloc`, `cloc`, `blank`) now *overrides* the same metric's
   dotted spelling instead of adding a second, independent threshold

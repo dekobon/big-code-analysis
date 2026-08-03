@@ -24,10 +24,10 @@ Probing every arm is load-bearing. The bail is scoped to the enclosing
 later one that does not; the first-arm-only version of this probe gave
 11 false verdicts out of 18 bailing modules in ``src/getter/`` (#1136).
 
-## Two causes, one measurement
+## Three causes, one measurement
 
 This gate cannot tell you *why* rustfmt declined, and there are at least
-two reasons, with different remedies:
+three reasons, with different remedies:
 
 1. **A comment inside a match pattern** — between the pattern and its
    ``=>``, or between ``|`` alternatives. This is the one
@@ -41,9 +41,18 @@ two reasons, with different remedies:
    ``impl_cyclomatic_c_family!``. No comment is involved and hoisting
    one fixes nothing; the count is simply a fact about that macro.
 
+3. **An arm wider than rustfmt's ``max_width``** (100 columns). A
+   single over-long arm header makes rustfmt emit the *whole* match
+   verbatim, with no comment and no macro involved — measured: a
+   128-column arm bails, the same match with a short variant name does
+   not. The fix is to wrap or shorten the arm, and it is the one cause
+   of the three that a reader can act on immediately.
+
 Do not start hoisting comments out of a file on this gate's say-so.
-Find the in-pattern comment first (``--show`` names the stuck arms);
-if there is none, the file is in class 2 and its entry is permanent.
+Run ``--show`` first: it names the stuck arms, which distinguishes all
+three. An arm past 100 columns is cause 3; an in-pattern comment is
+cause 1; neither, inside a ``macro_rules!`` body, is cause 2 and
+permanent.
 
 Reads and writes are anchored at the repository root rather than the
 cwd, so the gate runs correctly from anywhere.
@@ -65,9 +74,46 @@ from concurrent.futures import ThreadPoolExecutor
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT_BASELINE = REPO_ROOT / ".rustfmt-bail-baseline.txt"
 
-# Rust edition the workspace is on; rustfmt needs it to parse 2024-only
-# syntax (let-chains) without erroring out.
-EDITION = "2024"
+# Edition to parse with when a file's owning manifest does not say.
+# rustfmt needs the right one: 2024 to accept let-chains, 2021 to accept
+# an identifier such as `gen` that became a keyword in 2024.
+DEFAULT_EDITION = "2024"
+
+# Cache of manifest directory -> edition, so resolving an edition costs
+# one read per crate rather than one per file.
+_EDITION_CACHE: dict[pathlib.Path, str] = {}
+
+
+def edition_for(path: pathlib.Path, root: pathlib.Path) -> str:
+    """The Rust edition of the crate owning ``path``.
+
+    The workspace is 2024, but five vendored grammar crates
+    (`tree-sitter-{tcl,preproc,mozjs,mozcpp,ccomment}`) are 2021. Parsing
+    one of their files as 2024 works today only because none of them
+    spells a 2024 keyword; the day one does, the gate exits 2 with
+    "rustfmt refused to parse these files", which reads as a broken repo
+    rather than as an edition mismatch.
+    """
+    for parent in [path.parent, *path.parents]:
+        if parent in _EDITION_CACHE:
+            return _EDITION_CACHE[parent]
+        manifest = parent / "Cargo.toml"
+        if manifest.is_file():
+            edition = DEFAULT_EDITION
+            for line in manifest.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if stripped.startswith("edition"):
+                    _, _, value = stripped.partition("=")
+                    value = value.strip().strip('"')
+                    # `edition.workspace = true` inherits the root's.
+                    if value.isdigit():
+                        edition = value
+                    break
+            _EDITION_CACHE[parent] = edition
+            return edition
+        if parent == root:
+            break
+    return DEFAULT_EDITION
 
 # The probe indent. Deliberately not a multiple of four: rustfmt indents
 # in multiples of four, so a surviving line at exactly this column can
@@ -245,7 +291,10 @@ def find_arm_lines(source: str) -> list[int]:
 
 
 def probe_arms(
-    source: str, arms: list[int], rustfmt: str = "rustfmt"
+    source: str,
+    arms: list[int],
+    rustfmt: str = "rustfmt",
+    edition: str = DEFAULT_EDITION
 ) -> tuple[str, int, str]:
     """Probe the given arm lines. Returns ``(status, count, message)``.
 
@@ -270,7 +319,7 @@ def probe_arms(
         want[stripped] += 1
         lines[i] = PAD + stripped
     run = subprocess.run(
-        [rustfmt, "--edition", EDITION, "--emit", "stdout"],
+        [rustfmt, "--edition", edition, "--emit", "stdout"],
         input="\n".join(lines),
         capture_output=True,
         text=True,
@@ -290,13 +339,21 @@ def probe_arms(
     return ("ok", stuck, "")
 
 
-def probe_source(source: str, rustfmt: str = "rustfmt") -> tuple[str, int, str]:
+def probe_source(
+    source: str, rustfmt: str = "rustfmt", edition: str = DEFAULT_EDITION
+) -> tuple[str, int, str]:
     """Probe every match-arm header in ``source`` at once."""
-    return probe_arms(source, find_arm_lines(source), rustfmt)
+    return probe_arms(source, find_arm_lines(source), rustfmt, edition)
 
 
-def probe_file(path: pathlib.Path, rustfmt: str = "rustfmt") -> tuple[str, int, str]:
-    return probe_source(path.read_text(encoding="utf-8"), rustfmt)
+def probe_file(
+    path: pathlib.Path,
+    rustfmt: str = "rustfmt",
+    root: pathlib.Path = REPO_ROOT,
+) -> tuple[str, int, str]:
+    return probe_source(
+        path.read_text(encoding="utf-8"), rustfmt, edition_for(path, root)
+    )
 
 
 def discover_targets(root: pathlib.Path) -> list[pathlib.Path]:
@@ -371,6 +428,12 @@ def load_baseline(path: pathlib.Path) -> dict[str, int]:
     return baseline
 
 
+# Separates the generated header from hand-written notes. `--update`
+# rewrites everything above it and preserves every comment line below,
+# so the header and the notes can drift independently without either
+# being duplicated or lost.
+NOTES_SENTINEL = "# ---- notes below are preserved across --update ----"
+
 BASELINE_HEADER = """\
 # Match arms rustfmt declines to format, per file.
 # Maintained by check-rustfmt-bail.py; see AGENTS.md "Validation gates".
@@ -389,9 +452,17 @@ BASELINE_HEADER = """\
 #      metavariable in a non-Rust position such as the pattern
 #      repetition `$ternary $(| $short_circuit)+`. No comment is
 #      involved; hoisting fixes nothing and the entry is permanent.
+#   3. An arm wider than rustfmt's `max_width` of 100 columns. One
+#      over-long arm header makes rustfmt emit the whole match
+#      verbatim, with no comment and no macro in sight. Wrap or
+#      shorten it; this is the cause you can act on immediately.
 #
 # Check which one you have (`./utils/check-rustfmt-bail.py --show FILE`
-# names the stuck arms) before editing anything.
+# names the stuck arms) before editing anything: an arm past 100
+# columns is cause 3, an in-pattern comment is cause 1, and neither --
+# inside a `macro_rules!` body -- is cause 2.
+#
+""" + NOTES_SENTINEL + """
 """
 
 
@@ -416,12 +487,20 @@ def read_notes(path: pathlib.Path) -> str | None:
     """
     if not path.exists():
         return None
-    header = BASELINE_HEADER.splitlines()
     lines = path.read_text(encoding="utf-8").splitlines()
-    # Strip the header only as a positional prefix. Matching line-by-line
-    # instead would eat a note's bare `#` separators, since the header
-    # has those too.
-    rest = lines[len(header) :] if lines[: len(header)] == header else lines
+    # Split on the sentinel rather than on a positional prefix. The
+    # header lives in two places by construction -- this module's
+    # constant and the checked-in file -- so they drift, and a
+    # positional compare then treats the file's whole header as a note
+    # and `--update` writes it out a second time.
+    if NOTES_SENTINEL in lines:
+        rest = lines[lines.index(NOTES_SENTINEL) + 1 :]
+    else:
+        # A baseline written before the sentinel existed. The old
+        # prefix strip is correct whenever the header has not drifted,
+        # and keeping notes twice is better than losing them.
+        header = BASELINE_HEADER.splitlines()
+        rest = lines[len(header) :] if lines[: len(header)] == header else lines
     kept = [line for line in rest if line.startswith("#")]
     return "\n".join(kept) if kept else None
 
@@ -546,12 +625,17 @@ def main(argv: list[str] | None = None) -> int:
             )
         sys.stderr.write(
             "\nrustfmt is now emitting more match arms verbatim in these files,\n"
-            "so `cargo fmt --check` no longer sees them. Usual cause: a comment\n"
-            "moved inside a match pattern -- between the pattern and its `=>`,\n"
-            "or between `|` alternatives. Hoist it above the arm; do not delete\n"
-            "it. Run `./utils/check-rustfmt-bail.py --show <file>` to see which\n"
-            "arms are stuck, and .claude/rules/formatting.md for the full rule.\n"
-            "If the increase is deliberate and unavoidable, ratchet with:\n"
+            "so `cargo fmt --check` no longer sees them. Run\n"
+            "`./utils/check-rustfmt-bail.py --show <file>` first -- it names the\n"
+            "stuck arms, which tells you which of the three causes you have:\n"
+            "  * an arm wider than 100 columns -> wrap or shorten it;\n"
+            "  * a comment inside a match pattern (between the pattern and its\n"
+            "    `=>`, or between `|` alternatives) -> hoist it above the arm,\n"
+            "    never delete it;\n"
+            "  * neither, inside a `macro_rules!` body -> rustfmt cannot parse\n"
+            "    the body and there is nothing to fix.\n"
+            ".claude/rules/formatting.md has the full rule. If the increase is\n"
+            "deliberate and unavoidable, ratchet with:\n"
             "  ./utils/check-rustfmt-bail.py --update\n"
         )
         return 1
