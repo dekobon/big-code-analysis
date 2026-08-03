@@ -71,25 +71,18 @@ impl Checker for ElixirCode {
         code: &[u8],
         ancestors: Ancestors<'a, '_>,
     ) -> bool {
-        use crate::metrics::cognitive::{
-            elixir_call_keyword, elixir_is_class_macro, elixir_is_inside_quote_block,
-            elixir_is_method_macro,
-        };
-        // Cheap path: byte-less `is_func_space` matches `Source` and
-        // `AnonymousFunction` without needing any text inspection.
-        if Self::is_func_space(node) {
-            return true;
-        }
-        // Otherwise one `elixir_call_keyword` lookup answers the
-        // combined question instead of the two the default impl would
-        // have made via `is_func_with_code || is_func_space_with_code`.
-        let Some(kw) = elixir_call_keyword(node, code) else {
-            return false;
-        };
-        if elixir_is_class_macro(kw) {
-            return true;
-        }
-        elixir_is_method_macro(kw) && !elixir_is_inside_quote_block(node, code, ancestors)
+        // The default is `is_func_with_code || is_func_space_with_code`,
+        // which costs two `elixir_call_keyword` lookups. Here the second
+        // predicate already subsumes the first — its final clause *is*
+        // `is_func_with_code`, since a method macro outside a `quote`
+        // block satisfies both — so forwarding to it alone answers the
+        // combined question with one lookup (#310 follow-on perf) and
+        // keeps a single copy of the rule. Spelling the body out a
+        // second time is what let this override and
+        // `is_func_space_with_code` drift apart unnoticed: only the
+        // override was reachable from the walk, so no test could see
+        // the copy it was not using.
+        Self::is_func_space_with_code(node, code, ancestors)
     }
 
     fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
