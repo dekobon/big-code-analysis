@@ -9,7 +9,7 @@
 
 use std::fmt::Write as _;
 
-use big_code_analysis::{SpaceKind, SuppressionPolicy};
+use big_code_analysis::SuppressionPolicy;
 
 use super::advisory::AdvisoryThresholds;
 use super::hotspot::{Cell, CyclomaticStats, HotspotSpec};
@@ -230,23 +230,4 @@ pub(super) fn emit_fully_suppressed_note_md(out: &mut String, title: &str, count
         "_{}_",
         super::hotspot::fully_suppressed_caption(title, count)
     );
-}
-
-/// Partition `entries` by `SpaceKind` into (units, functions). The
-/// `units` slice drives the file-level summary and MI section; the
-/// `funcs` slice drives all per-function hotspot tables.
-pub(super) fn split_units_and_functions<'a>(
-    entries: &[&'a FunctionSummary],
-) -> (Vec<&'a FunctionSummary>, Vec<&'a FunctionSummary>) {
-    let units: Vec<&FunctionSummary> = entries
-        .iter()
-        .filter(|s| s.kind == SpaceKind::Unit)
-        .copied()
-        .collect();
-    let funcs: Vec<&FunctionSummary> = entries
-        .iter()
-        .filter(|s| s.kind == SpaceKind::Function)
-        .copied()
-        .collect();
-    (units, funcs)
 }

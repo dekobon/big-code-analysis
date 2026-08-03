@@ -389,24 +389,6 @@ pub(crate) fn write_legend_html(out: &mut String, entries: &[(&str, &str)]) {
     let _ = out.write_str("</dl>\n</details>\n");
 }
 
-/// Split a per-language slice into its unit (file) and function buckets
-/// in a single pass. Class-likes are intentionally dropped from both
-/// buckets — the WMC hotspot sources them straight from `entries`.
-fn partition_by_kind<'a>(
-    entries: &[&'a FunctionSummary],
-) -> (Vec<&'a FunctionSummary>, Vec<&'a FunctionSummary>) {
-    let mut units: Vec<&FunctionSummary> = Vec::with_capacity(entries.len());
-    let mut funcs: Vec<&FunctionSummary> = Vec::with_capacity(entries.len());
-    for &s in entries {
-        match s.kind {
-            SpaceKind::Unit => units.push(s),
-            SpaceKind::Function => funcs.push(s),
-            _ => {}
-        }
-    }
-    (units, funcs)
-}
-
 /// File-level roll-up backing one language's `<h3>Summary</h3>` note.
 /// Only `SpaceKind::Unit` summaries feed it.
 struct LanguageTotals {
@@ -675,7 +657,7 @@ pub(crate) fn write_language_section(
     // table deep-links to e.g. `#rust-cyclomatic-complexity-hotspots`. Built
     // from the raw language slug, matching the `h2` section id.
     let id_prefix = slugify(lang_name);
-    let (units, funcs) = partition_by_kind(entries);
+    let (units, funcs) = hotspot::partition_by_kind(entries);
     write_language_summary(out, headings, &id_prefix, &units);
 
     // The Actionable Summary leads the section (directly after Summary,
@@ -685,39 +667,27 @@ pub(crate) fn write_language_section(
 
     // Drive every hotspot section from the shared `SPECS` table so the HTML
     // and Markdown reports cannot diverge in membership/order/suppression.
-    // WMC draws from the full slice, MI from units, the rest from functions.
+    // `select_for` owns the whole format-independent half, leaving the four
+    // emit calls below as the only thing this renderer decides (#1190).
     for spec in SPECS {
-        let base: &[&FunctionSummary] = match spec.source {
-            Source::Units => &units,
-            Source::Funcs => &funcs,
-            Source::All => entries,
-        };
-        // Select first, emit second — same shape as the Markdown writer, and
-        // for the same reason: both selectors feed identical empty-table
-        // handling, so hoisting it leaves one copy of that rule instead of two.
-        let (rows, cc_stats) = if spec.cc_note {
-            let (rows, stats) = hotspot::select_cc(spec, base, top_n, policy, advisory);
-            (rows, Some(stats))
-        } else {
-            (hotspot::select(spec, base, top_n, policy, advisory), None)
-        };
-        if rows.is_empty() {
-            // An empty table is either a genuinely-absent metric or a table
-            // whose every matching row was suppressed; only the latter earns
-            // a caption, or the Actionable Summary's bullets dangle (#616).
-            let suppressed = hotspot::fully_suppressed_count(spec, base, policy, advisory);
-            emit_fully_suppressed_note_html(out, headings, &id_prefix, spec, top_n, suppressed);
-            continue;
-        }
-        emit_html_section(out, headings, &id_prefix, spec, top_n, &rows);
-        if let Some(stats) = cc_stats {
-            emit_cc_note_html(out, &stats, policy);
-        } else if spec.mi_note {
-            let _ = writeln!(
-                out,
-                "<p class=\"note\">{}</p>",
-                escape_html(hotspot::MI_NOTE)
-            );
+        match hotspot::select_for(spec, &units, &funcs, entries, top_n, policy, advisory) {
+            hotspot::SpecOutcome::FullySuppressed(suppressed) => {
+                emit_fully_suppressed_note_html(out, headings, &id_prefix, spec, top_n, suppressed);
+            }
+            hotspot::SpecOutcome::Rows { rows, cc_stats } => {
+                emit_html_section(out, headings, &id_prefix, spec, top_n, &rows);
+                if let Some(stats) = cc_stats {
+                    emit_cc_note_html(out, &stats, policy);
+                } else if spec.mi_note {
+                    // HTML wraps the note in a styled `<p>`; the Markdown
+                    // writer has a dedicated emitter for the same text.
+                    let _ = writeln!(
+                        out,
+                        "<p class=\"note\">{}</p>",
+                        escape_html(hotspot::MI_NOTE)
+                    );
+                }
+            }
         }
     }
 

@@ -967,6 +967,87 @@ pub(crate) fn suppressed_metric_breakdown(
         .collect()
 }
 
+/// Partition `entries` by `SpaceKind` into (units, functions) in a
+/// single pass.
+///
+/// Class-likes land in neither bucket — the WMC hotspot sources them
+/// straight from `entries` via [`Source::All`]. Lived twice, once per
+/// renderer, with the same signature and semantics and two different
+/// implementations (#1190).
+pub(crate) fn partition_by_kind<'a>(
+    entries: &[&'a FunctionSummary],
+) -> (Vec<&'a FunctionSummary>, Vec<&'a FunctionSummary>) {
+    let mut units: Vec<&FunctionSummary> = Vec::with_capacity(entries.len());
+    let mut funcs: Vec<&FunctionSummary> = Vec::with_capacity(entries.len());
+    for &s in entries {
+        match s.kind {
+            big_code_analysis::SpaceKind::Unit => units.push(s),
+            big_code_analysis::SpaceKind::Function => funcs.push(s),
+            _ => {}
+        }
+    }
+    (units, funcs)
+}
+
+/// What one [`HotspotSpec`] resolved to for a language: rows to emit, or
+/// nothing to emit and why.
+///
+/// The distinction is the whole reason this is an enum rather than an
+/// empty `Vec`. An empty table is either a genuinely-absent metric or a
+/// table whose every matching row was suppressed, and only the latter
+/// earns a caption — without it the Actionable Summary's bullets dangle
+/// (#616).
+pub(crate) enum SpecOutcome<'a> {
+    /// Rows survived selection. `cc_stats` is `Some` exactly for a spec
+    /// carrying `cc_note`, computed over the full suppression-filtered
+    /// set before truncation.
+    Rows {
+        rows: Vec<&'a FunctionSummary>,
+        cc_stats: Option<CyclomaticStats>,
+    },
+    /// Every matching row was suppressed; the payload is how many.
+    FullySuppressed(usize),
+}
+
+/// Resolve one spec against a language's entries — the whole
+/// format-independent half of rendering a hotspot section.
+///
+/// Both renderers ran this identically: pick the source slice, run the
+/// CC or plain selector, and on an empty result count the suppressed
+/// rows. A comment in each claimed the two could not diverge; this makes
+/// that structural rather than asserted (#1190). What stays per-format
+/// is the emit half, which really is the only part that differs.
+pub(crate) fn select_for<'a>(
+    spec: &HotspotSpec,
+    units: &[&'a FunctionSummary],
+    funcs: &[&'a FunctionSummary],
+    entries: &[&'a FunctionSummary],
+    top_n: usize,
+    policy: SuppressionPolicy,
+    advisory: AdvisoryThresholds,
+) -> SpecOutcome<'a> {
+    // WMC draws from the full slice, MI from units, the rest from
+    // functions.
+    let base: &[&FunctionSummary] = match spec.source {
+        Source::Units => units,
+        Source::Funcs => funcs,
+        Source::All => entries,
+    };
+    // Select first, emit second: both selectors feed the same empty-table
+    // handling, so hoisting it out of the CC/non-CC split leaves one copy
+    // of that rule rather than two identical ones.
+    let (rows, cc_stats) = if spec.cc_note {
+        let (rows, stats) = select_cc(spec, base, top_n, policy, advisory);
+        (rows, Some(stats))
+    } else {
+        (select(spec, base, top_n, policy, advisory), None)
+    };
+    if rows.is_empty() {
+        return SpecOutcome::FullySuppressed(fully_suppressed_count(spec, base, policy, advisory));
+    }
+    SpecOutcome::Rows { rows, cc_stats }
+}
+
 /// Like [`select`] but also returns the cyclomatic stats over the FULL
 /// suppression-filtered set (before truncation), for the CC note.
 pub(crate) fn select_cc<'a>(
