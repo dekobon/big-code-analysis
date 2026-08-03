@@ -2027,3 +2027,85 @@ int helper(int y) {
         );
     });
 }
+
+/// The `line_span` carve-out for a root that parses to no children
+/// (#1195).
+///
+/// These inputs are unreachable through `check_metrics` and the
+/// integration harnesses, both of which append a trailing newline (see
+/// `.claude/rules/testing.md`), so they go through `space_verbatim`.
+#[cfg(all(test, feature = "rust"))]
+mod childless_root_span {
+    use crate::test_support::space_verbatim;
+    use crate::{LANG, MetricsOptions};
+
+    fn span(source: &str) -> (usize, usize) {
+        let space = space_verbatim(LANG::Rust, source.as_bytes(), MetricsOptions::default());
+        (space.start_line, space.end_line)
+    }
+
+    #[test]
+    fn a_whitespace_only_file_spans_its_lines() {
+        // tree-sitter collapses a childless root to a point at the end
+        // of the whitespace, so `start_row` is the *last* row: before
+        // #1195 the guard returned `0..0` and the general rule would
+        // have returned the inverted `3..2`. Neither is the answer every
+        // other space gives, which is `1..line_count`.
+        for source in ["\n", "\n\n", "   \n  \n", "   ", "\t\n\n\n"] {
+            let lines = source.lines().count();
+            assert_eq!(
+                span(source),
+                (1, lines),
+                "whitespace-only source {source:?} has {lines} lines"
+            );
+        }
+    }
+
+    #[test]
+    fn an_empty_file_keeps_the_degenerate_zero_span() {
+        // The one input with no lines at all. `1..0` would be inverted,
+        // which is what the containment invariant forbids, so `0..0` is
+        // deliberate rather than an oversight.
+        assert_eq!(span(""), (0, 0));
+        assert_eq!("".lines().count(), 0);
+    }
+
+    #[test]
+    fn a_file_with_code_is_unaffected() {
+        // Pins that the anchoring is scoped to the unit: a *nested*
+        // space still takes `start_row + 1`, so a fix that hard-coded 1
+        // everywhere would pass the cases above and fail here.
+        assert_eq!(span("fn a() {}\n"), (1, 1));
+        assert_eq!(span("fn a() {}\nfn b() {}\n"), (1, 2));
+
+        let space = space_verbatim(
+            LANG::Rust,
+            b"\n\nfn a() {\n    let x = 1;\n}\n",
+            MetricsOptions::default(),
+        );
+        assert_eq!(
+            (space.spaces[0].start_line, space.spaces[0].end_line),
+            (3, 5),
+            "the nested function keeps its measured span"
+        );
+    }
+
+    #[test]
+    fn leading_blank_lines_do_not_shorten_the_unit() {
+        // The second half of the same defect, found by the control test
+        // above. tree-sitter starts the root at the first *token*, so a
+        // file opening with blank lines reported a unit that omitted
+        // them: 6 lines of source, span 4..6.
+        for source in ["\n\nfn a() {}\n", "\nfn a() {}\n", "\n\n\nfn a() {}\n\n\n"] {
+            let lines = source.lines().count();
+            assert_eq!(
+                span(source),
+                (1, lines),
+                "source {source:?} has {lines} lines"
+            );
+        }
+        // A leading comment was never affected: comments are in the
+        // tree, so the root already started at line 1.
+        assert_eq!(span("// c\nfn a() {}\n"), (1, 2));
+    }
+}
