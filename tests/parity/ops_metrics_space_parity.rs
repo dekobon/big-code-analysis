@@ -45,8 +45,15 @@ pub(super) fn fixture(lang: LANG) -> (&'static str, &'static str) {
     // per-edit `bca check` hook rather than for the self-scan gate.
     // bca: suppress(cyclomatic)
     match lang {
+        // The generator is deliberate: `function* h()` opened a
+        // `SpaceKind::Function` space named `h` while `is_func` said
+        // false, so `functions()` did not report it — a live violation of
+        // `functions_metrics_parity`'s coverage claim that no fixture
+        // reached. #1186 fixed the classification; this makes the fixture
+        // able to catch a regression of it.
         LANG::Javascript | LANG::Mozjs => (
-            "function f(a) {\n  const g = (b) => b * 2;\n  return g(a) + 1;\n}\n",
+            "function f(a) {\n  const g = (b) => b * 2;\n  return g(a) + 1;\n}\n\
+             function* h(n) {\n  yield n;\n}\n",
             "js",
         ),
         LANG::Typescript => (

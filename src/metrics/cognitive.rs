@@ -424,7 +424,11 @@ macro_rules! js_cognitive {
                         matches!(id.into(), AMPAMPEQ | PIPEPIPEEQ | QMARKQMARKEQ)
                     });
                 }
-                FunctionDeclaration | MethodDefinition | FunctionExpression
+                FunctionDeclaration
+                | MethodDefinition
+                | FunctionExpression
+                | GeneratorFunctionDeclaration
+                | GeneratorFunction
                     if Self::is_func(node, ancestors) =>
                 {
                     // The JS family takes the shared function-boundary
@@ -475,26 +479,31 @@ macro_rules! js_cognitive {
                     // across every language — the deferred half of #1159 —
                     // rather than settling it in one arm.
                     //
-                    // Generators are the other knowing omission, and the
-                    // argument above applies to them verbatim:
-                    // `GeneratorFunction` / `GeneratorFunctionDeclaration`
-                    // are `SpaceKind::Function` to the Getter too. They
-                    // are absent from both this list and the boundary arm
-                    // because `is_js_func!` excludes them — the Checker
-                    // calls them closures — so `function* g() {}` still
-                    // inherits enclosing nesting and still gives a nested
-                    // `function` no depth surcharge. Fixing that means
-                    // moving them between the two Checker predicates,
-                    // which also moves `nom`'s function/closure split and
-                    // `nargs`' `fn_nargs`/`closure_nargs`; tracked in
-                    // #1186, deliberately not settled here.
+                    // Both generator kinds are in the arm and in `stops`
+                    // since #1186, which moved them from `is_js_closure!`
+                    // to `is_js_func!`. The two halves are independent
+                    // and had to move together: the arm decides whether
+                    // `function* g()` resets its own inherited nesting,
+                    // while `stops` decides whether a plain `function`
+                    // nested *inside* a generator gets a depth surcharge.
+                    // `GeneratorFunction` is gated by `Self::is_func` for
+                    // the same reason `FunctionExpression` is — it has an
+                    // optional name and covers both a function and a
+                    // closure — while `GeneratorFunctionDeclaration`,
+                    // like `FunctionDeclaration`, is unconditional.
                     nesting.conditional = 0;
                     nesting.lambda = 0;
                     increment_function_depth(
                         &mut nesting.function_depth,
                         node,
                         ancestors,
-                        &[FunctionDeclaration, MethodDefinition, FunctionExpression],
+                        &[
+                            FunctionDeclaration,
+                            MethodDefinition,
+                            FunctionExpression,
+                            GeneratorFunctionDeclaration,
+                            GeneratorFunction,
+                        ],
                     );
                 }
                 ArrowFunction => {
@@ -9445,6 +9454,17 @@ end",
                 "function_expression",
                 "const inner = function (c) { if (c) { return 1; } };",
             ),
+            // Generators reach this arm since #1186. Before it,
+            // `is_js_func!` called them closures, so neither form
+            // reached the boundary and each scored 3.
+            (
+                "generator_function_declaration",
+                "function* inner(c) { if (c) { yield 1; } }",
+            ),
+            (
+                "generator_function",
+                "const inner = function* (c) { if (c) { yield 1; } };",
+            ),
         ] {
             let source =
                 format!("function outer(a, b) {{ if (a) {{ if (b) {{ {definition} }} }} }}");
@@ -9475,6 +9495,19 @@ end",
             (
                 "function_expression",
                 "const m = function () { function inner(c) { if (c) { return 1; } } };",
+            ),
+            // The independent half of #1186: a plain `function` nested
+            // inside a *generator* got no depth surcharge, because the
+            // generator was excluded from `stops` by the same
+            // `is_js_func!` gate. This scored 1 before the fix while the
+            // non-generator control above scored 2.
+            (
+                "generator_function_declaration",
+                "function* m() { function inner(c) { if (c) { return 1; } } }",
+            ),
+            (
+                "generator_function",
+                "const m = function* () { function inner(c) { if (c) { return 1; } } };",
             ),
         ] {
             check_func_space::<T, _>(source, filename, |space| {

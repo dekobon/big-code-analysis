@@ -95,11 +95,27 @@ macro_rules! check_if_arrow_func {
     };
 }
 
+// A generator is a function, not a closure (#1186). `function* g() {}`
+// is lexically a function *declaration* — the `*` is a modifier on the
+// declaration, not a different binding form — and `get_space_kind`
+// already calls both generator kinds `SpaceKind::Function`. The Checker
+// disagreeing with the Getter is what made `nom` report a generator as a
+// closure, bill its parameters to `closure_args`, and (reaching no
+// cognitive boundary arm) let it inherit the enclosing nesting.
+//
+// The two kinds are **not** symmetrical, which the issue's "move both"
+// framing misses. `generator_function_declaration` has a required `name`
+// field and mirrors `function_declaration`, so it is unconditionally a
+// function. `generator_function` has an *optional* one and mirrors
+// `function_expression`, so it routes through the same
+// binding-site walk: making it unconditional would classify
+// `run(function*(){})` as a function while `run(function(){})` stays a
+// closure.
 macro_rules! is_js_func {
     ($node: ident, $ancestors: ident) => {
         match $node.kind_id().into() {
-            FunctionDeclaration | MethodDefinition => true,
-            FunctionExpression => check_if_func!($node, $ancestors),
+            FunctionDeclaration | GeneratorFunctionDeclaration | MethodDefinition => true,
+            FunctionExpression | GeneratorFunction => check_if_func!($node, $ancestors),
             ArrowFunction => check_if_arrow_func!($node, $ancestors),
             _ => false,
         }
@@ -109,8 +125,7 @@ macro_rules! is_js_func {
 macro_rules! is_js_closure {
     ($node: ident, $ancestors: ident) => {
         match $node.kind_id().into() {
-            GeneratorFunction | GeneratorFunctionDeclaration => true,
-            FunctionExpression => !check_if_func!($node, $ancestors),
+            FunctionExpression | GeneratorFunction => !check_if_func!($node, $ancestors),
             ArrowFunction => !check_if_arrow_func!($node, $ancestors),
             _ => false,
         }
