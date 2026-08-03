@@ -4,6 +4,38 @@
 use super::*;
 
 impl Getter for GroovyCode {
+    /// Names the space, synthesising one for constructs that carry no
+    /// name token (#1184).
+    ///
+    /// `get_func_space_name` returns `Option<&'a str>` borrowed from
+    /// `code`, so the only name available for a nameless construct is a
+    /// `&'static str` — a per-property spelling like `<get-foo>` would
+    /// need a signature change. Angle brackets follow the existing
+    /// `<anonymous>` convention and cannot collide with a real
+    /// identifier in any of these grammars.
+    ///
+    /// Sibling collisions are accepted, exactly as multiple
+    /// `<anonymous>` siblings already are: two properties each with a
+    /// getter, or two `static { }` blocks in one class, produce two
+    /// spaces with the same name. Nothing enforces name uniqueness
+    /// among siblings, and inventing an index would make the name
+    /// unstable under an unrelated edit.
+    ///
+    /// `<static-init>` rather than the JVM's `<clinit>`: the same
+    /// construct exists in JavaScript, where `<clinit>` would mean
+    /// nothing, and one spelling across languages is worth more here
+    /// than JVM precision.
+    fn get_func_space_name<'a, 'tree>(
+        node: &Node<'tree>,
+        code: &'a [u8],
+        ancestors: Ancestors<'tree, '_>,
+    ) -> Option<&'a str> {
+        if node.kind_id() == Groovy::StaticInitializer as u16 {
+            return Some("<static-init>");
+        }
+        crate::getter::default_func_space_name(node, code, ancestors)
+    }
+
     fn get_space_kind(node: &Node) -> SpaceKind {
         use Groovy::{
             AnnotationTypeDeclaration, ClassDeclaration, Closure, ConstructorDeclaration,
@@ -37,7 +69,12 @@ impl Getter for GroovyCode {
             InterfaceDeclaration | TraitDeclaration | AnnotationTypeDeclaration => {
                 SpaceKind::Interface
             }
-            MethodDeclaration | ConstructorDeclaration | Closure => SpaceKind::Function,
+            // `Groovy::` qualified: this module imports an explicit list
+            // rather than glob-importing, so a bare name here would parse
+            // as a binding and match everything.
+            MethodDeclaration | ConstructorDeclaration | Closure | Groovy::StaticInitializer => {
+                SpaceKind::Function
+            }
             SourceFile => SpaceKind::Unit,
             _ => SpaceKind::Unknown,
         }

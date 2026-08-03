@@ -30,6 +30,9 @@ impl Checker for GroovyCode {
                 | Groovy::EnumDeclaration
                 | Groovy::RecordDeclaration
                 | Groovy::AnnotationTypeDeclaration
+                // `static { … }` — see `JavaCode::is_func_space`, which
+                // this mirrors (#1184).
+                | Groovy::StaticInitializer
         )
     }
 

@@ -830,6 +830,18 @@ crate with many closures and few functions is typical of
 iterator-heavy code; a Python module with many functions and few
 closures is typical of script-style code.
 
+Some constructs that carry executable code are deliberately counted by
+neither field: Kotlin property accessors (`get()` / `set()`) and `init`
+blocks, Java and Groovy `static { … }` initialisers, and JavaScript
+class static blocks. Each opens a function *space* — so it has its own
+complexity scores, `bca check` can flag it, and it contributes to WMC —
+but none is a callable you name at a call site, and counting an accessor
+as a method would make NPM bill the same property once as an attribute
+and again as a method, skewing the NPA/NPM ratio the OOP metrics exist
+to report. A Kotlin file of nothing but property accessors therefore
+reports `nom.functions == 0` while still reporting their complexity
+(#1184).
+
 ### How to read it
 
 NOM is the input to several other metrics — WMC sums *cyclomatic*

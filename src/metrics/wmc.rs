@@ -2515,19 +2515,27 @@ mod tests {
 
     #[test]
     fn kotlin_init_block() {
-        // `init` blocks are anonymous initializers, not function spaces;
-        // they do not add to WMC directly. The class still has whatever
-        // methods it declares.
+        // An `init` block opens a function space since #1184, so its
+        // complexity rolls into the class's WMC — the metric is the sum
+        // of a class's method-body complexities, and an initializer body
+        // is real class complexity a reader has to account for. Before
+        // #1184 the block opened no space at all: its control flow was
+        // charged to the enclosing class space without WMC ever seeing
+        // it, and `bca check` could not flag one however complex it got.
+        //
+        // WMC keys on `SpaceKind::Function` rather than on `is_func`,
+        // which is why this moves even though the block is deliberately
+        // *not* in `is_func` (it is not a callable anyone names).
         check_metrics::<KotlinParser>(
             "class C(val n: Int) {
-                init {                                   // not counted
+                init {                                   // +1 since #1184
                     require(n >= 0) { \"n must be non-negative\" }
                 }
                 fun get(): Int = n                       // +1
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 1);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },

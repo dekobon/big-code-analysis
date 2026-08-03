@@ -36,6 +36,13 @@ impl Checker for JavaCode {
                 | Java::EnumDeclaration
                 | Java::RecordDeclaration
                 | Java::AnnotationTypeDeclaration
+                // `static { … }` carries executable code — conventionally
+                // the class's initialisation logic — but was referenced
+                // nowhere outside the generated enum, so it opened no
+                // space and its control flow was charged to the class
+                // (#1184). `is_func_space` rather than `is_func`: it is
+                // not a callable anyone names at a call site.
+                | Java::StaticInitializer
         )
     }
 
