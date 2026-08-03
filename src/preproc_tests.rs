@@ -859,10 +859,14 @@ fn preprocess_truncated_include_does_not_panic() {
 /// `preproc_diagnostic_display_lists_every_cycle_member` below, which
 /// needs a different assertion shape.
 ///
-/// Note the deliberate `Warning:` / `warning:` split across the five
-/// variants taken together: three capitalise and two do not. That is
-/// the shipped text as of this commit, pinned so a normalisation is a
-/// visible, reviewed diff rather than an accident.
+/// All five variants use the lowercase `warning:` prefix, matching the
+/// CLI's own severity ladder in `big-code-analysis-cli/src/diag.rs`
+/// (#609). That is load-bearing rather than cosmetic: `warn(msg)` is
+/// `eprintln!("warning: {msg}")`, and `bca preproc` currently emits
+/// these through a bare `eprintln!("{diagnostic}")`, so the two
+/// spellings now produce identical bytes. Moving the prefix out of
+/// `Display` and onto `warn()` is therefore a pure refactor — these
+/// assertions are what will prove it emitted nothing new.
 #[test]
 fn preproc_diagnostic_display_renders_each_single_line_variant() {
     assert_eq!(
@@ -870,7 +874,7 @@ fn preproc_diagnostic_display_renders_each_single_line_variant() {
             file: PathBuf::from("inc/self ref.h"),
         }
         .to_string(),
-        "Warning: possible self inclusion inc/self ref.h",
+        "warning: possible self inclusion inc/self ref.h",
     );
 
     assert_eq!(
@@ -894,7 +898,7 @@ fn preproc_diagnostic_display_renders_each_single_line_variant() {
             file: PathBuf::from("vendor/unseen.h"),
         }
         .to_string(),
-        "Warning: included file which has not been preprocessed: vendor/unseen.h",
+        "warning: included file which has not been preprocessed: vendor/unseen.h",
     );
 }
 
@@ -913,7 +917,7 @@ fn preproc_diagnostic_display_lists_every_cycle_member() {
 
     assert_eq!(
         rendered,
-        "Warning: possible include cycle:\n  - \"z.h\"\n  - \"a b.h\"\n  - \"m.h\"\n",
+        "warning: possible include cycle:\n  - \"z.h\"\n  - \"a b.h\"\n  - \"m.h\"\n",
     );
 
     let empty = PreprocDiagnostic::IncludeCycle {
@@ -921,7 +925,7 @@ fn preproc_diagnostic_display_lists_every_cycle_member() {
     }
     .to_string();
     assert_eq!(
-        empty, "Warning: possible include cycle:\n",
+        empty, "warning: possible include cycle:\n",
         "an empty member list still renders the header and nothing else"
     );
 }

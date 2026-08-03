@@ -77,10 +77,10 @@ impl std::fmt::Display for PreprocDiagnostic {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::SelfInclusion { file } => {
-                write!(f, "Warning: possible self inclusion {}", file.display())
+                write!(f, "warning: possible self inclusion {}", file.display())
             }
             Self::IncludeCycle { members } => {
-                writeln!(f, "Warning: possible include cycle:")?;
+                writeln!(f, "warning: possible include cycle:")?;
                 for member in members {
                     // Explicit quotes preserve whitespace visibility for
                     // paths that contain spaces — important when the cycle
@@ -101,7 +101,7 @@ impl std::fmt::Display for PreprocDiagnostic {
             ),
             Self::NotPreprocessed { file } => write!(
                 f,
-                "Warning: included file which has not been preprocessed: {}",
+                "warning: included file which has not been preprocessed: {}",
                 file.display()
             ),
         }
