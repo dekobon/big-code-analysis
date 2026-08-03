@@ -2,18 +2,16 @@
 # Maintained by check-snapshot-anchors.py; see AGENTS.md.
 # Lower-or-equal current counts pass; any increase fails CI.
 # Regenerate with: ./utils/check-snapshot-anchors.py --update
+#
+# Only files with outstanding bare calls are listed. An unlisted
+# file is allowed zero, which `load_baseline`'s `.get(rel, 0)`
+# already encodes — so omitting them keeps this a list of debt
+# rather than a census of every scanned file (#1192 made the
+# scan recursive, which would otherwise have added 126 zeroes).
 
 src/metrics/abc.rs 27
-src/metrics/cognitive.rs 0
 src/metrics/cyclomatic.rs 1
 src/metrics/halstead.rs 3
-src/metrics/loc.rs 0
-src/metrics/mi.rs 0
-src/metrics/mod.rs 0
-src/metrics/nargs.rs 0
-src/metrics/nexits.rs 0
-src/metrics/nom.rs 0
 src/metrics/npa.rs 12
 src/metrics/npm.rs 23
-src/metrics/tokens.rs 0
 src/metrics/wmc.rs 13

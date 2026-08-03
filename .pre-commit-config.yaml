@@ -80,6 +80,16 @@ repos:
         entry: python3 utils/check-snapshot-anchors.py
         pass_filenames: false
 
+      # Self-tests for the snapshot-anchors gate itself. Kept as a
+      # separate hook so the gate hook above remains a one-line
+      # invariant check, matching the rustfmt-bail pair below.
+      - id: snapshot-anchors-test
+        name: snapshot-anchors-test
+        language: system
+        files: '^utils/check-snapshot-anchors(-test)?\.py$'
+        entry: python3 -m unittest -q utils/check-snapshot-anchors-test.py
+        pass_filenames: false
+
       # Block new match arms rustfmt refuses to format (#1136). A
       # comment inside a match *pattern* makes rustfmt emit the whole
       # match verbatim while `cargo fmt --check` still exits 0, so the

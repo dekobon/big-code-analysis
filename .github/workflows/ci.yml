@@ -552,6 +552,11 @@ jobs:
       # this check.
       - name: snapshot anchors (explicit)
         run: python3 utils/check-snapshot-anchors.py
+      # Run the gate's own unittests as their own explicit step, for the
+      # same reason as the rustfmt-bail twin below: a refactor that
+      # breaks the script must not be able to disable the gate silently.
+      - name: snapshot-anchors self-tests (explicit)
+        run: python3 -m unittest -q utils/check-snapshot-anchors-test.py
       # Defensive twin for the rustfmt-bail gate (#1136): a comment
       # inside a match pattern makes rustfmt emit the whole match
       # verbatim while `cargo fmt --check` exits 0, so the fmt job
