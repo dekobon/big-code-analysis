@@ -44,14 +44,21 @@ use super::ops_metrics_space_parity::fixture;
 /// no business pinning — so the coverage claim below is scoped to spaces
 /// that carry a real name.
 ///
-/// A predicate over the angle-bracket convention rather than the single
-/// literal `"<anonymous>"` it used to be: #1184 added `<get>`, `<set>`,
-/// `<init>` and `<static-init>` for constructs that carry executable
-/// code but no name token, and each is `is_func_space` without being
-/// `is_func` for exactly the reason above. No language here permits `<`
-/// in an identifier, so the convention cannot collide with a real name.
+/// The five names are enumerated rather than matched by shape. A
+/// `starts_with('<') && ends_with('>')` predicate reads as equivalent
+/// but is not: Ruby's spaceship operator is a real method, and
+/// `def <=>(other)` produces a space named literally `<=>`, which such a
+/// predicate would exempt from the coverage claim below. Enumerating
+/// also makes a sixth synthesised name fail loudly rather than inherit
+/// the exemption silently.
+///
+/// `<anonymous>` is the trait default; #1184 added the other four for
+/// constructs that carry executable code but no name token, each
+/// `is_func_space` without being `is_func` for exactly the reason above.
+const SYNTHESISED_NAMES: &[&str] = &["<anonymous>", "<get>", "<set>", "<init>", "<static-init>"];
+
 fn is_synthesised_name(name: &str) -> bool {
-    name.starts_with('<') && name.ends_with('>')
+    SYNTHESISED_NAMES.contains(&name)
 }
 
 /// A space or span, reduced to the fields all three seams report.

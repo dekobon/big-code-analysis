@@ -182,7 +182,11 @@ fn manifest_exclude_still_applies_to_the_canonical_root_walk() {
         .assert()
         .code(2)
         .stdout(predicate::str::contains("nested_kept_offender"))
-        .stdout(predicate::str::contains("kept_offender"))
+        // The root fixture's own survivor, matched on its file rather
+        // than its function name: `kept_offender` is a substring of
+        // `nested_kept_offender`, so asserting the name alone is implied
+        // by the line above and cannot fail independently.
+        .stdout(predicate::str::contains("kept.rs"))
         .stdout(predicate::str::contains("nested_skipme_offender").not());
 }
 

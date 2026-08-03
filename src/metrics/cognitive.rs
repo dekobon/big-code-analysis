@@ -470,15 +470,14 @@ macro_rules! js_cognitive {
                     // anonymous IIFE is a lexical function scope —
                     // `get_space_kind` maps every `function_expression` to
                     // `SpaceKind::Function` — so a `function` declared inside
-                    // one really is nested in a function. `ArrowFunction` is
-                    // knowingly absent, and because the `nesting.lambda = 0`
-                    // above also wipes the arrow's surcharge, an arrow
-                    // ancestor contributes nothing at all: `(function () {
-                    // function g() {…} })()` charges `g` a depth of 1 where
-                    // `(() => { function g() {…} })()` charges 0. Closing
-                    // that gap means deciding what a lambda ancestor is worth
-                    // across every language — the deferred half of #1159 —
-                    // rather than settling it in one arm.
+                    // one really is nested in a function.
+                    //
+                    // `ArrowFunction` is in the list since #1187, which is
+                    // what makes `(function () { function g() {…} })()` and
+                    // `(() => { function g() {…} })()` both charge `g` a
+                    // depth of 1; the arrow form charged 0 while the kind
+                    // was absent. It cannot double-charge, because the sole
+                    // caller resets `nesting.lambda` first.
                     //
                     // Both generator kinds are in the arm and in `stops`
                     // since #1186, which moved them from `is_js_closure!`

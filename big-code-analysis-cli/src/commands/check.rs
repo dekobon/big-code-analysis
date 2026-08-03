@@ -380,6 +380,10 @@ struct CheckExcludes<'a> {
     /// `exempts` rebuilds the borrowed view per call, which is three
     /// pointer copies.
     cwd: std::path::PathBuf,
+    /// `manifest_dir` resolved through symlinks, once per run — see
+    /// [`crate::walk_seed::ManifestAnchor`]'s `canonical_root`. `exempts`
+    /// runs per violation, so this must not be recomputed there.
+    canonical_manifest_dir: Option<std::path::PathBuf>,
 }
 
 impl<'a> CheckExcludes<'a> {
@@ -408,6 +412,7 @@ impl<'a> CheckExcludes<'a> {
                 "bca.toml [check] exclude_from",
             ),
             manifest_dir: manifest.map(|m| m.dir.as_path()),
+            canonical_manifest_dir: manifest.and_then(|m| m.dir.canonicalize().ok()),
             cwd: std::env::current_dir().unwrap_or_default(),
         })
     }
@@ -423,6 +428,7 @@ impl<'a> CheckExcludes<'a> {
             &self.manifest,
             self.manifest_dir,
             &self.cwd,
+            self.canonical_manifest_dir.as_deref(),
         )
         .excludes(path, walk_form)
     }

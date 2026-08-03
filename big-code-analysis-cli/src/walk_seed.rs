@@ -155,14 +155,43 @@ pub(crate) fn reanchor_seed(seed: PathBuf) -> PathBuf {
 /// remainder, and a `bca.toml` directory for
 /// [`root_relative_match_path`].
 fn relative_tail(path: &std::path::Path, root: &std::path::Path) -> Option<PathBuf> {
+    relative_tail_with(path, root, None)
+}
+
+/// [`relative_tail`], with the caller's already-canonicalised `root`.
+///
+/// The plain form canonicalises `root` per call, which is per *walked
+/// file* on the exclude path — and `root` is fixed for a whole run. A
+/// caller that can hoist it (see [`ManifestAnchor::resolve`]) passes it
+/// here, which turns the common symlinked-root case — a macOS
+/// `/var/folders/…` `TempDir`, or any project reached through a symlink
+/// — into a second lexical `strip_prefix` rather than two `canonicalize`
+/// syscalls per file.
+///
+/// The `path.canonicalize()` fallback stays last: only it can rescue a
+/// symlink *inside* the path, and it is now reached only when both
+/// lexical attempts fail.
+fn relative_tail_with(
+    path: &std::path::Path,
+    root: &std::path::Path,
+    canonical_root: Option<&std::path::Path>,
+) -> Option<PathBuf> {
     if let Ok(rel) = path.strip_prefix(root) {
+        return Some(rel.to_path_buf());
+    }
+    if let Some(canonical_root) = canonical_root
+        && let Ok(rel) = path.strip_prefix(canonical_root)
+    {
         return Some(rel.to_path_buf());
     }
     let canonical = path.canonicalize().ok()?;
     if let Ok(rel) = canonical.strip_prefix(root) {
         return Some(rel.to_path_buf());
     }
-    let canonical_root = root.canonicalize().ok()?;
+    let canonical_root = match canonical_root {
+        Some(root) => root.to_path_buf(),
+        None => root.canonicalize().ok()?,
+    };
     canonical
         .strip_prefix(&canonical_root)
         .ok()
@@ -203,8 +232,12 @@ fn root_relative_match_path(anchor: ManifestAnchor<'_>, path: &std::path::Path) 
     } else {
         path.to_path_buf()
     };
-    relative_tail(&crate::baseline::lexical_normalize(&absolute), anchor.root?)
-        .filter(|rel| !rel.as_os_str().is_empty())
+    relative_tail_with(
+        &crate::baseline::lexical_normalize(&absolute),
+        anchor.root?,
+        anchor.canonical_root,
+    )
+    .filter(|rel| !rel.as_os_str().is_empty())
 }
 
 /// Where a manifest-anchored glob set resolves from: the `bca.toml`
@@ -224,14 +257,32 @@ fn root_relative_match_path(anchor: ManifestAnchor<'_>, path: &std::path::Path) 
 pub(crate) struct ManifestAnchor<'a> {
     pub(crate) root: Option<&'a std::path::Path>,
     pub(crate) cwd: &'a std::path::Path,
+    /// `root` resolved through symlinks, when a caller hoisted it.
+    ///
+    /// `root` is fixed for a whole run while the exclude match runs per
+    /// *walked file*, so canonicalising it here rather than inside
+    /// [`relative_tail`] keeps two syscalls per file off the path a
+    /// symlinked project root would otherwise take.
+    pub(crate) canonical_root: Option<&'a std::path::Path>,
 }
 
 impl<'a> ManifestAnchor<'a> {
     /// Resolve the working directory once. `None` when it cannot be
     /// read, which makes every manifest match fall back to the
     /// cwd-anchored form exactly as an absent manifest does.
-    pub(crate) fn resolve(root: Option<&'a std::path::Path>, cwd: &'a PathBuf) -> Self {
-        Self { root, cwd }
+    /// `root` may be pre-canonicalised by the caller — see the
+    /// `canonical_root` field for why that matters on the per-walked-file
+    /// path.
+    pub(crate) fn resolve(
+        root: Option<&'a std::path::Path>,
+        cwd: &'a std::path::Path,
+        canonical_root: Option<&'a std::path::Path>,
+    ) -> Self {
+        Self {
+            root,
+            cwd,
+            canonical_root,
+        }
     }
 }
 
@@ -303,12 +354,13 @@ impl<'a> AnchoredExcludes<'a> {
         cli: &'a crate::ExcludeGlobs,
         manifest: &'a crate::ExcludeGlobs,
         manifest_dir: Option<&'a std::path::Path>,
-        cwd: &'a PathBuf,
+        cwd: &'a std::path::Path,
+        canonical_manifest_dir: Option<&'a std::path::Path>,
     ) -> Self {
         Self {
             cli,
             manifest,
-            anchor: ManifestAnchor::resolve(manifest_dir, cwd),
+            anchor: ManifestAnchor::resolve(manifest_dir, cwd, canonical_manifest_dir),
         }
     }
 

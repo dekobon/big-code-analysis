@@ -113,19 +113,16 @@ pub(crate) struct WalkSelectionArgs {
     /// named, use `--check-exclude` / `[check] exclude` instead.
     ///
     /// A relative glob given here is resolved against the directory you
-    /// ran `bca` from. One written in `bca.toml` is matched against
-    /// each file's path relative to the *walk root*, which is the
-    /// manifest's own directory only when the walk starts there — as it
-    /// does for the usual `paths = ["."]`. Naming a subdirectory
-    /// explicitly (`bca metrics -p sub`) moves the walk root and can
-    /// stop a manifest glob matching. `[check] exclude` does not have
-    /// this caveat: it anchors at the manifest whatever the caller
-    /// names.
+    /// ran `bca` from. One written in `bca.toml` is resolved against the
+    /// manifest's own directory, whatever path you name and wherever you
+    /// run from — so `bca metrics -p sub` honours the same exclusions the
+    /// bare `bca metrics` does. `[check] exclude` anchors the same way.
     // The per-file agent hooks in the book's agent-feedback recipe are
-    // the caller this bit exists for; see #1146. The walk-root caveat
-    // above is #1189 — #1164 anchored the explicit-path warning and the
-    // `[check] exclude` gate at the manifest, but left the directory
-    // walk matching manifest globs against the walk root.
+    // the caller this bit exists for; see #1146. #1164 anchored the
+    // explicit-path warning and the `[check] exclude` gate at the
+    // manifest; #1189 did the same for the directory walk, which until
+    // then matched manifest globs against the walk root and so stopped
+    // excluding anything once a directory seed moved it.
     #[clap(long, short = 'X', num_args(1), action = clap::ArgAction::Append, help_heading = "Input selection")]
     pub(crate) exclude: Vec<String>,
     /// Force a language instead of inferring from extension. Accepts a

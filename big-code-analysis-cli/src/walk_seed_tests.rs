@@ -50,8 +50,8 @@ fn relative_tail_canonicalizes_both_sides_when_forms_diverge() {
 /// Build a [`super::ManifestAnchor`] for a test. Exists so the tests
 /// read as `(root, cwd)` at each call rather than repeating the struct
 /// literal, and so a future field lands in one place.
-fn anchor<'a>(root: Option<&'a Path>, cwd: &'a std::path::PathBuf) -> super::ManifestAnchor<'a> {
-    super::ManifestAnchor::resolve(root, cwd)
+fn anchor<'a>(root: Option<&'a Path>, cwd: &'a Path) -> super::ManifestAnchor<'a> {
+    super::ManifestAnchor::resolve(root, cwd, None)
 }
 
 #[test]

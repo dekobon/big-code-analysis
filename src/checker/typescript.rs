@@ -35,7 +35,7 @@ impl Checker for TypescriptCode {
         )
     }
 
-    is_js_func_and_closure_checker!(Typescript);
+    is_js_func_and_closure_checker!(Typescript, PublicFieldDefinition);
 
     fn is_call(node: &Node) -> bool {
         node.kind_id() == Typescript::CallExpression

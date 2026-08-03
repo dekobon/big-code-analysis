@@ -143,8 +143,7 @@ exclude = [
 # them 0.3 below the band at once — they cannot ever clear it, because
 # they are the limit. That is 74 baseline entries bought for no
 # hard-tier gain, which is the "reads as debt rather than as a decision"
-# outcome #1143 exists to avoid. The honest options are to stay at 7 or
-# to do the real 6 -> 5 work.
+# outcome #1143 exists to avoid.
 #
 # Re-measure with `bca check --explain-threshold nargs=6` (#1169) rather
 # than a bare `--threshold`, which has no soft tier by design. What makes

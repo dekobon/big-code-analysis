@@ -106,14 +106,17 @@ macro_rules! js_ancestor_walk {
 // behaviour the arrow form already had. `$up` and `$stop` are now
 // token-identical and only `$extra` differs, for the reason in (4).
 macro_rules! check_if_func {
-    ($node: ident, $ancestors: ident) => {
+    ($node: ident, $ancestors: ident, $field_definition: ident) => {
         js_ancestor_walk!(
             $node,
             $ancestors,
-            [VariableDeclarator | AssignmentExpression | LabeledStatement | Pair],
+            [VariableDeclarator
+                | AssignmentExpression
+                | LabeledStatement
+                | Pair
+                | $field_definition],
             [StatementBlock | ReturnStatement | NewExpression | CallExpression | Arguments],
-            $node.is_child(Identifier as u16)
-                || $node.has_sibling($ancestors, PropertyIdentifier as u16),
+            $node.is_child(Identifier as u16),
         )
     };
 }
@@ -147,10 +150,12 @@ macro_rules! check_if_arrow_func {
 // `run(function*(){})` as a function while `run(function(){})` stays a
 // closure.
 macro_rules! is_js_func {
-    ($node: ident, $ancestors: ident) => {
+    ($node: ident, $ancestors: ident, $field_definition: ident) => {
         match $node.kind_id().into() {
             FunctionDeclaration | GeneratorFunctionDeclaration | MethodDefinition => true,
-            FunctionExpression | GeneratorFunction => check_if_func!($node, $ancestors),
+            FunctionExpression | GeneratorFunction => {
+                check_if_func!($node, $ancestors, $field_definition)
+            }
             ArrowFunction => check_if_arrow_func!($node, $ancestors),
             _ => false,
         }
@@ -158,9 +163,11 @@ macro_rules! is_js_func {
 }
 
 macro_rules! is_js_closure {
-    ($node: ident, $ancestors: ident) => {
+    ($node: ident, $ancestors: ident, $field_definition: ident) => {
         match $node.kind_id().into() {
-            FunctionExpression | GeneratorFunction => !check_if_func!($node, $ancestors),
+            FunctionExpression | GeneratorFunction => {
+                !check_if_func!($node, $ancestors, $field_definition)
+            }
             ArrowFunction => !check_if_arrow_func!($node, $ancestors),
             _ => false,
         }
@@ -168,17 +175,17 @@ macro_rules! is_js_closure {
 }
 
 macro_rules! is_js_func_and_closure_checker {
-    ($language: ident) => {
+    ($language: ident, $field_definition: ident) => {
         #[inline]
         fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
             use $language::*;
-            is_js_func!(node, ancestors)
+            is_js_func!(node, ancestors, $field_definition)
         }
 
         #[inline]
         fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
             use $language::*;
-            is_js_closure!(node, ancestors)
+            is_js_closure!(node, ancestors, $field_definition)
         }
     };
 }
