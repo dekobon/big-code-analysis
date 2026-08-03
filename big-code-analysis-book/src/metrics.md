@@ -336,6 +336,15 @@ Sonar ecosystem.
   sense. It adds a surcharge *on top of* the enclosing nesting
   instead of replacing it, so a decision inside a lambda written
   inside an `if` is charged for both.
+- That surcharge stops at the next function boundary. A function
+  *declared inside* a closure body opens a fresh lexical scope, so it
+  does not inherit the closure's surcharge — `fn g` inside a `|| { … }`
+  scores what it would score outside one. Until #1187 only the
+  JavaScript family applied this, so the same body scored differently
+  in Rust, Java, C++, PHP and C# depending on whether something two
+  levels up happened to be a closure. Python cannot express the shape
+  at all: a `def` is a statement and a lambda body is a single
+  expression.
 - **Python** charges a boolean operator an extra `+1` for each
   enclosing `lambda`, on top of the `+1` the boolean sequence itself
   earns. No other language does this. Only the outermost operator

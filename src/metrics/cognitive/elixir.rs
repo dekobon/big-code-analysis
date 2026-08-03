@@ -99,11 +99,20 @@ impl Cognitive for ElixirCode {
                     // concern — the lambda channel via
                     // `AnonymousFunction` handles the analogous
                     // higher-order case. Elixir is therefore the one
-                    // language that takes the reset without the depth
+                    // language that takes the resets without the depth
                     // bump, so it resets inline instead of calling the
                     // shared `enter_function_boundary` the other
                     // eighteen modules use (#1103).
+                    //
+                    // Both channels, not just the conditional one. `def`
+                    // inside `fn` is invalid Elixir but the grammar
+                    // parses it, and skipping the lambda reset here is
+                    // exactly the accidental opt-out that #1187 moved
+                    // the line into the shared helper to prevent — so
+                    // the one language that cannot use the helper has to
+                    // stay in step by hand.
                     nesting.conditional = 0;
+                    nesting.lambda = 0;
                 }
                 _ => {}
             },

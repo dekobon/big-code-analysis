@@ -309,20 +309,29 @@ fn increment_function_depth<'a, T: PartialEq + From<u16>>(
 /// Applies the function-boundary rule at `node`, which every language
 /// with a syntactic function-definition kind shares (#696).
 ///
-/// It moves two of [`Nesting`]'s three channels. Structural nesting
-/// restarts at zero, so control flow written inside this function is
-/// charged against its own depth rather than the enclosing function's;
-/// and the function-depth surcharge rises when this definition is
-/// itself lexically nested in one of `stops`. Byte-equivalent
-/// constructs therefore score the same across languages, which is the
-/// property the book's per-language deviations list states.
+/// It moves all three of [`Nesting`]'s channels. Structural nesting and
+/// the lambda surcharge restart at zero, so control flow written inside
+/// this function is charged against its own depth rather than against
+/// whatever enclosed the definition; and the function-depth surcharge
+/// rises when this definition is itself lexically nested in one of
+/// `stops`. Byte-equivalent constructs therefore score the same across
+/// languages, which is the property the book's per-language deviations
+/// list states.
+///
+/// The lambda reset was the JS macro's alone until #1187. Every other
+/// language carried the enclosing closure's surcharge into a function
+/// *declared inside* it, so the same body scored 3 or 2 depending on
+/// whether something two levels up happened to be a closure — measured
+/// in Rust, Java, C++, PHP and C#, where a `LocalFunctionStatement`
+/// inside a lambda is idiomatic. A function declaration is a new lexical
+/// scope whatever encloses it, so the reset belongs to every boundary,
+/// and living here is what stops a language opting out by accident —
+/// which is how the gap arose.
 ///
 /// The two statements were spelled out longhand in eighteen modules
-/// before #1103. Two callers still spell them out, for opposite
-/// reasons: `elixir.rs` takes only the reset and deliberately skips the
-/// depth bump, while the `js_cognitive!` macro takes the pair *plus* a
-/// `nesting.lambda` reset no other language performs. Each says why at
-/// its own site.
+/// before #1103. One caller still spells them out: `elixir.rs` takes the
+/// resets and deliberately skips the depth bump, and says why at its own
+/// site.
 fn enter_function_boundary<'a, T: PartialEq + From<u16>>(
     nesting: &mut Nesting,
     node: &Node<'a>,
@@ -330,6 +339,7 @@ fn enter_function_boundary<'a, T: PartialEq + From<u16>>(
     stops: &[T],
 ) {
     nesting.conditional = 0;
+    nesting.lambda = 0;
     increment_function_depth(&mut nesting.function_depth, node, ancestors, stops);
 }
 
@@ -431,15 +441,6 @@ macro_rules! js_cognitive {
                 | GeneratorFunction
                     if Self::is_func(node, ancestors) =>
                 {
-                    // The JS family takes the shared function-boundary
-                    // rule plus one extra channel: `nesting.lambda` is
-                    // reset too, which no other language does. A `function`
-                    // declaration written inside an arrow function starts a
-                    // fresh lexical scope, so it should not inherit that
-                    // arrow's lambda surcharge. That third statement is why
-                    // this arm spells the pair out rather than calling
-                    // `enter_function_boundary` (#1103).
-                    //
                     // The kind set is `is_js_func!` minus `ArrowFunction`,
                     // and the `function_expression` half is re-derived by
                     // asking `Self::is_func` rather than copied flat, because
@@ -491,10 +492,8 @@ macro_rules! js_cognitive {
                     // optional name and covers both a function and a
                     // closure — while `GeneratorFunctionDeclaration`,
                     // like `FunctionDeclaration`, is unconditional.
-                    nesting.conditional = 0;
-                    nesting.lambda = 0;
-                    increment_function_depth(
-                        &mut nesting.function_depth,
+                    enter_function_boundary(
+                        &mut nesting,
                         node,
                         ancestors,
                         &[
@@ -503,6 +502,7 @@ macro_rules! js_cognitive {
                             FunctionExpression,
                             GeneratorFunctionDeclaration,
                             GeneratorFunction,
+                            ArrowFunction,
                         ],
                     );
                 }
@@ -10161,27 +10161,32 @@ end",
     /// Pins that `function_depth` and `lambda` are distinguishable.
     ///
     /// They are summed symmetrically almost everywhere, so most inputs
-    /// cannot tell them apart. The one asymmetric operation in the whole
-    /// cognitive family is the JS `FunctionDeclaration` arm's
-    /// `lambda = 0`, which clears one field alone.
+    /// cannot tell them apart. The asymmetric operation is
+    /// `enter_function_boundary`'s `lambda = 0`, which clears one field
+    /// while `increment_function_depth` raises the other — since #1187
+    /// that pair runs for every language, not only the JS macro.
     ///
-    /// Whether that separates them depends on the *parity* of the
-    /// ancestor chain between the innermost arrow and the
-    /// `function_declaration`, because a swap at the write site
-    /// transposes the pair at every node on the way down. The plain
+    /// The doubled arrow is still load-bearing, for the reason it always
+    /// was: a swap at the write site transposes the pair at every node
+    /// on the way down, and the plain
     /// `arrow -> statement_block -> function_declaration` chain has odd
-    /// parity and stays at the same total either way; a second chained
-    /// arrow flips it. Hence the doubled arrow here — without it this
-    /// test passes with the two fields transposed and guards nothing.
+    /// parity and totals the same either way. A mutant writing
+    /// `function_depth = 0` in place of `lambda = 0` leaves `lambda 2,
+    /// function_depth 1` here and charges the `if` 4 rather than 2.
     #[test]
     fn javascript_function_depth_and_lambda_are_distinguishable() {
-        // expected: the inner `function` resets lambda, so only its own
-        // function-depth level survives and the `if` costs 1.
+        // expected: `inner` takes the boundary, so `conditional` and
+        // `lambda` both reset to 0. `ArrowFunction` joined the `stops`
+        // list in #1187, so `inner` earns a function-depth surcharge of
+        // 1 — `increment_function_depth` asks whether *any* ancestor is a
+        // stop, not how many, so two arrows still give 1. The `if` costs
+        // 1 base + 1 depth = 2, up from 1 before the arrow entered
+        // `stops`.
         check_metrics::<JavascriptParser>(
             "const f = () => () => { function inner() { if (a) { } } };",
             "nest.js",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
             },
         );
     }

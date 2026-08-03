@@ -238,3 +238,100 @@ func f(x int) string {
     assert_eq!(irules, expected, "irules");
     assert_eq!(objc, expected, "objc");
 }
+
+/// A function *declared inside a closure* must score the same as the
+/// same function declared outside one (#1187).
+///
+/// The lambda surcharge is a property of where the closure's *body* sits,
+/// not of a new function boundary opened inside it. Until #1187 only the
+/// JS macro reset `nesting.lambda` at a boundary, so every other language
+/// carried the enclosing closure's surcharge into the nested declaration
+/// and the same body scored 3 or 2 depending on whether something two
+/// levels up happened to be a closure.
+///
+/// The paired fixtures are what make this discriminate: an absolute
+/// value alone would move with any unrelated re-tuning, whereas the
+/// *difference* between the two is exactly the defect. Both halves are
+/// asserted so a regression that changed both equally still fails.
+///
+/// Python is deliberately absent: a `def` is a statement and a lambda
+/// body is a single expression, so the shape is unconstructible.
+#[test]
+fn a_function_declared_inside_a_closure_scores_the_same_as_outside() {
+    /// The innermost `g`'s own cognitive score.
+    fn inner_g(lang: LANG, source: &str, ext: &str) -> f64 {
+        fn find(space: &big_code_analysis::FuncSpace) -> Option<f64> {
+            if space.name.as_deref() == Some("g") {
+                return Some(space.metrics.cognitive.cognitive() as f64);
+            }
+            space.spaces.iter().find_map(find)
+        }
+        let name = format!("parity.{ext}");
+        let space = analyze(
+            Source::new(lang, source.as_bytes()).with_name(Some(name)),
+            MetricsOptions::default(),
+        )
+        .expect("parser produced no FuncSpace for parity fixture");
+        find(&space).unwrap_or_else(|| panic!("{lang:?}: fixture has no function named `g`"))
+    }
+
+    // (language, extension, inside a closure, outside one). The inner
+    // body is byte-identical between the two halves of each pair.
+    let cases: &[(LANG, &str, &str, &str)] = &[
+        (
+            LANG::Rust,
+            "rs",
+            "fn outer(a: bool, b: bool) { let f = || { if a { fn g(b: bool) { if b { println!(\"x\"); } } g(b); } }; f(); }",
+            "fn outer(a: bool, b: bool) { if a { fn g(b: bool) { if b { println!(\"x\"); } } g(b); } }",
+        ),
+        (
+            LANG::Java,
+            "java",
+            "class K { void outer(boolean a, boolean b){ Runnable r = () -> { if(a){ class L { void g(boolean b){ if(b){ System.out.print(1); } } } } }; } }",
+            "class K { void outer(boolean a, boolean b){ if(a){ class L { void g(boolean b){ if(b){ System.out.print(1); } } } } } }",
+        ),
+        (
+            LANG::Cpp,
+            "cpp",
+            "void outer(bool a, bool b){ auto f = [&]{ if(a){ struct L { void g(bool b){ if(b){ } } }; } }; f(); }",
+            "void outer(bool a, bool b){ if(a){ struct L { void g(bool b){ if(b){ } } }; } }",
+        ),
+        (
+            LANG::Php,
+            "php",
+            "<?php function outer($a,$b){ $f = function() use ($a,$b) { if($a){ function g($b){ if($b){ echo 1; } } } }; $f(); }",
+            "<?php function outer($a,$b){ if($a){ function g($b){ if($b){ echo 1; } } } }",
+        ),
+        (
+            LANG::Csharp,
+            "cs",
+            "class K{ void outer(bool a, bool b){ Action f = () => { if(a){ void g(bool b){ if(b){ } } } }; f(); } }",
+            "class K{ void outer(bool a, bool b){ if(a){ void g(bool b){ if(b){ } } } } }",
+        ),
+    ];
+
+    let mut checked = 0;
+    for &(lang, ext, inside, outside) in cases {
+        if !lang.is_enabled() {
+            continue;
+        }
+        checked += 1;
+        let (inside_score, outside_score) =
+            (inner_g(lang, inside, ext), inner_g(lang, outside, ext));
+        assert_eq!(
+            inside_score, outside_score,
+            "{lang:?}: `g` scored {inside_score} inside a closure and {outside_score} outside it",
+        );
+        // expected: `g`'s own `if` is +1 base, plus +1 for `g` being
+        // lexically nested in another function. The enclosing closure
+        // must contribute nothing.
+        assert_eq!(
+            outside_score, 2.0,
+            "{lang:?}: the baseline itself moved, so the equality above proves nothing",
+        );
+    }
+    assert!(
+        checked > 0,
+        "at least one language feature must be enabled for this test to mean anything"
+    );
+}
