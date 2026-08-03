@@ -24,9 +24,9 @@ fn java_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
     // Initializes the flag to true if the container is known to contain a boolean value
     let mut has_boolean_content = match parent.kind_id().into() {
         BinaryExpression | IfStatement | WhileStatement | DoStatement | ForStatement => true,
-        TernaryExpression => node
-            .previous_sibling_under(parent)
-            .is_none_or(|prev_node| !matches!(prev_node.kind_id().into(), QMARK | COLON)),
+        TernaryExpression => parent
+            .child_by_field_name("condition")
+            .is_some_and(|condition| condition.id() == node.id()),
         _ => false,
     };
 
@@ -238,9 +238,17 @@ fn java_walk_for_conditions<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, s
 fn java_walk_ternary(node: &Node, stats: &mut Stats) {
     use Java::*;
     let conds = &mut stats.conditions;
-    // Child 0: condition itself. The terminal set mirrors the one in
-    // `java_inspect_container` (issue #372 / lesson #19).
-    if let Some(condition) = node.child(0) {
+    // Slots are addressed by grammar FIELD, not by index. The positional
+    // form read children 0 / 2 / 4, and tree-sitter counts comments among
+    // a node's children, so `a ? /*n*/ !b : c` put the comment at index 2
+    // and the negated operand went uninspected — the ternary scored 2
+    // where the same expression without the comment scores 3 (#1181).
+    // That is the mirror image of the over-count the token-based seed
+    // produced in the C family, from the same cause.
+    //
+    // The terminal set mirrors the one in `java_inspect_container`
+    // (issue #372 / lesson #19).
+    if let Some(condition) = node.child_by_field_name("condition") {
         match condition.kind_id().into() {
             java_bool_terminal_kinds!() => *conds += 1.,
             ParenthesizedExpression | UnaryExpression => {
@@ -249,9 +257,11 @@ fn java_walk_ternary(node: &Node, stats: &mut Stats) {
             _ => {}
         }
     }
-    // Children 2 and 4: the two branch expressions.
-    java_inspect_child(node, 2, conds);
-    java_inspect_child(node, 4, conds);
+    for field in ["consequence", "alternative"] {
+        if let Some(branch) = node.child_by_field_name(field) {
+            java_inspect_container(&branch, node, conds);
+        }
+    }
 }
 
 // Handles the `for (...)` multi-shape positional cascade: the loop

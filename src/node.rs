@@ -235,30 +235,10 @@ impl<'a> Node<'a> {
     ///
     /// **`O(depth)`, not `O(1)`**, for [`Node::parent`]'s reason:
     /// `ts_node__prev_sibling` opens with `ts_node_parent`. Callers on a
-    /// walk should use [`previous_sibling_under`] or
-    /// [`Ancestors::previous_sibling`] instead (#1096).
-    ///
-    /// [`previous_sibling_under`]: Self::previous_sibling_under
+    /// walk should use [`Ancestors::previous_sibling`] instead (#1096).
     pub(crate) fn previous_sibling(&self) -> Option<Node<'a>> {
         node_resolved_sibling_lookups::record();
         self.0.prev_sibling().map(Node)
-    }
-
-    /// The sibling immediately before this node among `parent`'s
-    /// children, or `None` when this node is `parent`'s first child.
-    ///
-    /// [`Node::previous_sibling`] would resolve the parent first and pay
-    /// its `O(depth)` cost; callers that already hold the parent — every
-    /// ABC condition walker does, because it descended from it — pay a
-    /// cursor walk over the siblings instead (#1096).
-    ///
-    /// A one-element chain is all [`Ancestors::previous_sibling`] reads,
-    /// so this delegates rather than repeating the scan — including its
-    /// fallback for a node that is not among `parent`'s children, which
-    /// is a caller error here but a legitimate chain/node mismatch
-    /// there.
-    pub(crate) fn previous_sibling_under(&self, parent: &Node<'a>) -> Option<Node<'a>> {
-        Ancestors::known(std::slice::from_ref(parent)).previous_sibling(self)
     }
 
     /// Returns `true` if any direct child has the given grammar
@@ -1982,56 +1962,6 @@ mod tests {
             Ancestors::known(&[]).previous_sibling(&second).is_none(),
             "an empty chain means `second` is the root, which has no siblings"
         );
-    }
-
-    /// `previous_sibling_under` must answer exactly what the
-    /// authoritative `Node::previous_sibling` does, for every child of
-    /// the parent — including the first, whose answer is `None` for a
-    /// reason (no earlier sibling) rather than by accident. The ABC
-    /// container walkers depend on this: they seed their
-    /// boolean-context flag from whether a ternary's `?` / `:` precedes
-    /// the operand (#1096).
-    #[test]
-    fn previous_sibling_under_agrees_with_the_authoritative_lookup() {
-        // Anonymous tokens (`(`, `,`, `)`) sit between the named
-        // arguments, so the sequence exercises both kinds of sibling.
-        let code = b"int main() { f(a, b, c); }";
-        let tree = Tree::new::<crate::langs::CCode>(code);
-        let arguments = tree
-            .get_root()
-            .preorder()
-            .find(|n| n.kind() == "argument_list")
-            .expect("fixture has an argument list");
-        let children: Vec<Node<'_>> = arguments.children().collect();
-        assert!(
-            children.len() > 3,
-            "fixture must have several siblings, got {}",
-            children.len()
-        );
-
-        let mut first_is_none = false;
-        for child in &children {
-            let expected = child.previous_sibling().map(|p| p.id());
-            assert_eq!(
-                child.previous_sibling_under(&arguments).map(|p| p.id()),
-                expected,
-                "disagreed on the sibling before a {} node",
-                child.kind()
-            );
-            first_is_none |= expected.is_none();
-        }
-        assert!(
-            first_is_none,
-            "the first child's `None` is part of what this pins"
-        );
-        // One break this cannot see: a scan that never finds `node`
-        // among the children falls back to the authoritative lookup and
-        // so still answers correctly, just at `Node::parent`'s cost.
-        // That failure mode is a perf regression, not a wrong answer,
-        // and the `abc/nested-if` probe is what covers it. Every
-        // *wrong-answer* break does fail here — returning the following
-        // sibling, or the parent's first child, fails on the first
-        // child alone.
     }
 
     /// `count_specific_ancestors` must return the same count whichever

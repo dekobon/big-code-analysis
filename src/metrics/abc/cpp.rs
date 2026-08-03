@@ -39,9 +39,9 @@ pub(super) fn cpp_inspect_container(container_node: &Node, parent: &Node, condit
         parent_kind,
         "binary_expression" | "if_statement" | "while_statement" | "do_statement" | "for_statement"
     ) || (parent_kind == "conditional_expression"
-        && node
-            .previous_sibling_under(parent)
-            .is_none_or(|prev| !matches!(prev.kind(), "?" | ":")));
+        && parent
+            .child_by_field_name("condition")
+            .is_some_and(|condition| condition.id() == node.id()));
 
     loop {
         // `condition_clause` is the C++-grammar wrapper around an

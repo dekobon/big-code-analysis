@@ -8948,3 +8948,133 @@ function f(int $a, int $b): int {
         );
     }
 }
+
+/// A comment inside a ternary must not change its ABC conditions
+/// (#1181).
+///
+/// Two opposite defects, one cause: tree-sitter counts a comment among a
+/// node's children, so it is the operand's previous sibling *and* it
+/// shifts every positional index.
+///
+/// * Languages whose seed asked "is my previous sibling `?` or `:`"
+///   (C family, PHP, Perl, JS family) read the comment as "not a
+///   ternary token", flipped the boolean-context seed on for a *branch*
+///   slot, and **over**-counted: `a ? /*n*/ (b) : c` scored 3 where
+///   `a ? (b) : c` scores 2.
+/// * Languages whose branch walk read `child(2)` / `child(4)` (Java,
+///   C#, Groovy) landed on the comment instead of the operand, never
+///   inspected it, and **under**-counted: `a ? /*n*/ !b : c` scored 2
+///   where `a ? !b : c` scores 3.
+///
+/// Both slots are now addressed by grammar field. The parenthesised
+/// operand is the only input that discriminates the first defect and
+/// the negated operand the only one that discriminates the second —
+/// existing ternary fixtures use neither.
+#[cfg(test)]
+mod ternary_comment_invariance {
+    use crate::test_support::metrics_verbatim;
+    use crate::{LANG, MetricsOptions};
+
+    fn conditions(lang: LANG, source: &str) -> u64 {
+        metrics_verbatim(lang, source.as_bytes(), MetricsOptions::default())
+            .abc
+            .conditions_sum()
+    }
+
+    /// `(base, with_comment)` for a parenthesised and a negated branch
+    /// operand, per language.
+    fn cases(lang: LANG) -> Option<[(String, String); 2]> {
+        // `{}` marks the consequence slot; `/*n*/` the inserted comment.
+        let (template, paren, negated, comment) = match lang {
+            LANG::Cpp | LANG::C | LANG::Objc | LANG::Mozcpp => {
+                ("int f(){ int x = a ? {} : c; }", "(b)", "!b", "/*n*/ ")
+            }
+            LANG::Java => (
+                "class K{ void f(){ int x = a ? {} : c; } }",
+                "(b)",
+                "!b",
+                "/*n*/ ",
+            ),
+            LANG::Csharp => (
+                "class K{ void f(){ var x = a ? {} : c; } }",
+                "(b)",
+                "!b",
+                "/*n*/ ",
+            ),
+            LANG::Groovy => ("def f(){ def x = a ? {} : c }", "(b)", "!b", "/*n*/ "),
+            LANG::Javascript | LANG::Typescript | LANG::Tsx | LANG::Mozjs => {
+                ("function f(){ var x = a ? {} : c; }", "(b)", "!b", "/*n*/ ")
+            }
+            LANG::Php => (
+                "<?php function f(){ $x = $a ? {} : $c; }",
+                "($b)",
+                "!$b",
+                "/*n*/ ",
+            ),
+            // Perl has no block comment: `#` runs to end of line, so the
+            // comment must carry its own newline.
+            LANG::Perl => ("sub f { my $x = $a ? {} : $c; }", "($b)", "!$b", "# n\n "),
+            _ => return None,
+        };
+        let build = |operand: &str, with_comment: bool| {
+            let slot = if with_comment {
+                format!("{comment}{operand}")
+            } else {
+                operand.to_owned()
+            };
+            template.replace("{}", &slot)
+        };
+        Some([
+            (build(paren, false), build(paren, true)),
+            (build(negated, false), build(negated, true)),
+        ])
+    }
+
+    #[test]
+    fn a_comment_before_a_branch_operand_changes_nothing() {
+        let mut checked = 0;
+        for lang in LANG::into_enum_iter() {
+            if !lang.is_enabled() {
+                continue;
+            }
+            let Some(pairs) = cases(lang) else { continue };
+            checked += 1;
+            for (base, commented) in pairs {
+                assert_eq!(
+                    conditions(lang, &commented),
+                    conditions(lang, &base),
+                    "{lang:?}: a comment changed the ABC conditions of a ternary\n  \
+                     without: {base}\n  with:    {commented}"
+                );
+            }
+        }
+        assert!(
+            checked > 0,
+            "no ternary language enabled; this test asserted nothing"
+        );
+    }
+
+    /// The absolute values the invariance test compares against, so a
+    /// regression that moved *both* sides equally still fails.
+    ///
+    /// expected: `a ? (b) : c` counts the `?` marker plus the condition
+    /// `a` in boolean context = 2. Negating the consequence adds one
+    /// more, since `!b` establishes boolean content for that slot = 3.
+    #[test]
+    fn the_baseline_values_are_two_and_three() {
+        for lang in LANG::into_enum_iter() {
+            if !lang.is_enabled() {
+                continue;
+            }
+            let Some([(paren, _), (negated, _)]) = cases(lang) else {
+                continue;
+            };
+            assert_eq!(
+                conditions(lang, &paren),
+                2,
+                "{lang:?}: parenthesised branch"
+            );
+            assert_eq!(conditions(lang, &negated), 3, "{lang:?}: negated branch");
+        }
+    }
+}
