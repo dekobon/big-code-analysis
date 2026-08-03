@@ -356,11 +356,13 @@ pub(crate) fn write_check_baseline(
 /// `bca.toml` sits at the root of. One list can carry only one anchor,
 /// and merging them silently gave the manifest half the caller's.
 ///
-/// The mirroring is in the *split*, not in the matching: this type
-/// anchors the manifest set always, whereas `WalkFilters` does so only
-/// in its override warning, because a directory walk's root and the
-/// manifest's coincide for the canonical `paths = ["."]`. Do not assume
-/// the two apply the same rule.
+/// The matching rule itself lives in
+/// [`crate::walk_seed::AnchoredExcludes`], which the walker's filters
+/// also use. It did not always: this type anchored the manifest set
+/// always and `WalkFilters::passes` never did, on the reasoning that a
+/// directory walk's root and the manifest's coincide — true only for
+/// the canonical `paths = ["."]`, and the source of #1189. The two now
+/// share one implementation and cannot drift again.
 struct CheckExcludes<'a> {
     cli: crate::ExcludeGlobs,
     manifest: crate::ExcludeGlobs,
@@ -372,6 +374,11 @@ struct CheckExcludes<'a> {
     /// decide whether the file lies under the manifest, and `exempts`
     /// runs for every violation — so reading it there cost a syscall
     /// per offender on exactly the runs #1164 exists to serve.
+    ///
+    /// Owned rather than borrowed because `AnchoredExcludes` borrows it,
+    /// and a self-referential struct is not worth the alternative here;
+    /// `exempts` rebuilds the borrowed view per call, which is three
+    /// pointer copies.
     cwd: std::path::PathBuf,
 }
 
@@ -408,23 +415,16 @@ impl<'a> CheckExcludes<'a> {
     /// Whether a violation at `path` — `walk_form` being its
     /// walk-root-anchored spelling — is exempt from the threshold gate.
     ///
-    /// The `is_empty()` arms are not redundant with the matches, for the
-    /// same reason [`crate::walk::WalkFilters::passes`] spells them out:
-    /// `GlobSet::is_match` builds its `Candidate` *before* its own empty
-    /// check. Only one of the two sets is configured in the usual case,
-    /// so the other should cost nothing. The manifest guard buys more
-    /// than that — it also skips `manifest_match_path`, which
-    /// normalises the path per violation.
+    /// Delegates to the shared rule, so the gate and the walker cannot
+    /// disagree about which files a manifest glob describes.
     fn exempts(&self, path: &Path, walk_form: crate::walk_seed::CwdForm<'_>) -> bool {
-        (!self.cli.is_empty() && self.cli.is_match(walk_form.0))
-            || (!self.manifest.is_empty()
-                && self
-                    .manifest
-                    .is_match(crate::walk_seed::manifest_match_path(
-                        crate::walk_seed::ManifestAnchor::resolve(self.manifest_dir, &self.cwd),
-                        path,
-                        walk_form,
-                    )))
+        crate::walk_seed::AnchoredExcludes::new(
+            &self.cli,
+            &self.manifest,
+            self.manifest_dir,
+            &self.cwd,
+        )
+        .excludes(path, walk_form)
     }
 }
 
