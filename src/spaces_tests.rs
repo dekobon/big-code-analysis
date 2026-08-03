@@ -2285,31 +2285,42 @@ mod nameless_construct_spaces {
     /// (Javascript 231, Typescript 258, Tsx 272, Mozjs 234), and each
     /// grammar's arm is hand-mirrored — a kind_id that drifted in one
     /// grammar would be invisible if only Javascript were checked
-    /// (#1184). Javascript has its own test above; this sweeps the
-    /// other three on the identical source.
+    /// (#1184). Javascript has its own test above; these sweep the
+    /// other three on the identical source, gated per feature so a
+    /// build with one grammar family still checks it.
+    #[cfg(any(feature = "typescript", feature = "mozjs"))]
+    fn assert_class_static_block_space(lang: LANG) {
+        let root = analyse(
+            lang,
+            "class C { static f; static { if (C.f) { C.f = 1; } else { C.f = 2; } } }\n",
+        );
+        assert_eq!(
+            shape(&root),
+            vec![
+                (None, SpaceKind::Unit),
+                (Some("C"), SpaceKind::Class),
+                (Some("<static-init>"), SpaceKind::Function),
+            ],
+            "space shape for {lang:?}"
+        );
+        assert_eq!(
+            child(&root, "<static-init>").metrics.cognitive.cognitive(),
+            2,
+            "static block cognitive for {lang:?}"
+        );
+    }
+
     #[test]
-    #[cfg(all(feature = "typescript", feature = "mozjs"))]
-    fn ts_family_class_static_blocks_open_named_spaces() {
-        for lang in [LANG::Typescript, LANG::Tsx, LANG::Mozjs] {
-            let root = analyse(
-                lang,
-                "class C { static f; static { if (C.f) { C.f = 1; } else { C.f = 2; } } }\n",
-            );
-            assert_eq!(
-                shape(&root),
-                vec![
-                    (None, SpaceKind::Unit),
-                    (Some("C"), SpaceKind::Class),
-                    (Some("<static-init>"), SpaceKind::Function),
-                ],
-                "space shape for {lang:?}"
-            );
-            assert_eq!(
-                child(&root, "<static-init>").metrics.cognitive.cognitive(),
-                2,
-                "static block cognitive for {lang:?}"
-            );
-        }
+    #[cfg(feature = "typescript")]
+    fn typescript_and_tsx_class_static_blocks_open_named_spaces() {
+        assert_class_static_block_space(LANG::Typescript);
+        assert_class_static_block_space(LANG::Tsx);
+    }
+
+    #[test]
+    #[cfg(feature = "mozjs")]
+    fn mozjs_class_static_block_opens_a_named_space() {
+        assert_class_static_block_space(LANG::Mozjs);
     }
 
     /// Sibling constructs with the same synthesised name are allowed to
