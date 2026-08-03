@@ -135,39 +135,34 @@ exclude = [
 # limit is not over it, and a baseline entry keeps the growth alarm a
 # suppression marker would discard.
 #
-# `nargs` deliberately stays at 7. #1143 proposed 7 -> 6 as a free
-# ratchet on the strength of a hard-tier measurement: every offender at
-# limit 6 is already baselined, so `bca check --threshold nargs=6`
-# reports zero. But the soft tier scales every limit by BCA_HEADROOM
-# (0.95), and 74 functions sit at exactly 6, so a limit of 6 puts all of
-# them 0.3 below the band at once — they cannot ever clear it, because
-# they are the limit. That is 74 baseline entries bought for no
-# hard-tier gain, which is the "reads as debt rather than as a decision"
-# outcome #1143 exists to avoid.
+# `nargs` is at the shipped default of 5, converged from 7 (#1183).
 #
-# Re-measure with `bca check --explain-threshold nargs=6` (#1169) rather
-# than a bare `--threshold`, which has no soft tier by design. What makes
-# `nargs` different from the `cognitive` convergence above is where the
-# limit falls in the distribution: nothing *unbaselined* exceeds 6, so a
-# limit of 6 sits on the population's ceiling and buys no hard-tier gate,
-# whereas `cognitive` runs to 20 with 15 inside the distribution.
+# The convergence was declined twice before, and both refusals were
+# right at the time. #1143 measured 7 -> 6 as a free ratchet on a
+# hard-tier count and missed that the proportional soft tier would park
+# 74 functions permanently in the band. #1183 then measured 6 -> 5 and
+# found the offenders were mostly not parameter-heavy at all: the gate
+# summed a function's own parameters with every nested closure's, so 59
+# of 76 would-be offenders were artifacts and one had a single parameter
+# plus five from closures in its body.
 #
-# The 6 -> 5 step (#1183) was measured and rejected, and the reason is
-# about the metric rather than about this codebase. The gate extracts
-# `nargs.total()`, which sums a function's own parameters with every
-# nested closure's. Of the 76 functions a limit of 5 would newly gate,
-# only 17 have 6 or more parameters of their own; 59 carry closure args
-# and 44 have four or fewer own parameters. The extreme is
-# `Parser<T>::filters` — one parameter, plus five from the closures in
-# its body. Converging would therefore pressure contributors to delete
-# idiomatic inline closures rather than to simplify signatures, which is
-# not what the metric is for. #1196 settled that: the gate now keys on a
-# callable's own parameters, which is what every comparable tool
-# measures. Re-measured on this tree afterwards, `nargs = 6` costs 0 new
-# hard-tier offenders and `nargs = 5` costs 17 — the genuine signatures,
-# without the 59 closure-inflated ones attached. 91 functions sit at
-# exactly 5, so a limit of 5 still parks all of them permanently in the
-# soft band; that cluster, not the count, is why this stays at 7 for now.
+# #1196 fixed that — the gate now counts a callable's own parameters,
+# which is what RuboCop, ESLint, Clippy, lizard, SonarQube and Pylint all
+# measure, and what this limit's own rationale in
+# `default_thresholds.rs` was derived from. That removed the reason to
+# stay at 7, and staying would have left a limit that caught nothing in
+# the current tree: at 7 there were 6 offenders and all 6 were already
+# baselined, which is the same "cannot catch anything" the book uses to
+# argue the shipped default off 7.
+#
+# The remaining cost is the soft tier, and it is worth naming precisely.
+# For an integer metric, a function sitting *exactly* at the limit is
+# always above `0.95 x limit`, so it is always in the soft band — that is
+# structural, not specific to 5, and it is true of the functions at
+# exactly 7 today. What changes with the limit is only how many sit
+# there: 91 at 5 against 10 at 7. That is the real content of #1143's
+# "cluster" objection, and it is an argument about the soft tier's fit
+# for small-integer metrics rather than about this number.
 cognitive = 15
 cyclomatic = 15
 "halstead.effort" = 50000
@@ -198,7 +193,7 @@ cyclomatic = 15
 # limit, which is trimming-to-fit rather than a natural distribution.
 "loc.sloc" = 1300
 nom = 30
-nargs = 7
+nargs = 5
 nexits = 5
 abc = 40
 wmc = 60

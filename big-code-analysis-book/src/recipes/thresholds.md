@@ -384,7 +384,20 @@ in its body. Re-measured on the same tree under own-parameter gating:
 
 The cluster trap itself is unchanged and is the reason this section exists — 91 functions now sit
 at exactly `5`, so a limit of `5` still puts every one of them permanently inside the soft band.
-What changed is the size of the real work behind it: 17 signatures rather than 76 mixed cases.
+What changed is the size of the real work behind it: signatures rather than mixed cases.
+
+The convergence landed on that evidence. One thing measuring it clarified, which this section
+previously got wrong: the cluster effect is **structural for every integer metric**, not a property
+of landing on a population's mode. A function sitting exactly at limit `L` is always above
+`0.95 x L`, so it is always in the soft band — the ten functions at exactly `7` were in it before
+the change, just as the ninety-one at exactly `5` are after. What the limit choice controls is only
+*how many* sit there. Read `#1143`'s objection that way: it was sound because the hard-tier gain
+was zero, not because `6` was near a mode.
+
+That also means the soft tier carries little information for a small-integer metric, where
+`0.95 x L` and `L` differ by less than one. It is doing real work for `halstead.effort` (50000 vs
+47500) and almost none for `nargs` (5 vs 4.75, which flags every compliant function at the
+ceiling).
 
 `bca check --explain-threshold <metric>=<limit>` measures both tiers in one walk and names the
 cluster when it finds one, without touching `bca.toml`:
