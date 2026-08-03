@@ -46,14 +46,92 @@ EXPECTED_COMMENT_RE = re.compile(r"//\s*expected\s*:", re.IGNORECASE)
 LOOKBACK_LINES = 5
 
 
+def char_literal_end(source: str, i: int) -> int | None:
+    """End index (exclusive) of the char literal at ``i``, else ``None``.
+
+    Rust spells lifetimes (``'a``), anonymous lifetimes (``'_``) and loop
+    labels (``'outer:``) with the same leading quote and no terminator,
+    so the two are told apart by looking for the closing ``'`` rather
+    than by the opener alone. Returning ``None`` for a lifetime is what
+    keeps it from opening a span that swallows the rest of the file.
+
+    Shared in shape (and in tests) with ``check-rustfmt-bail.py``, which
+    hit the identical defect first (#1136). The scripts are hyphen-named
+    and so not importable, hence the copy rather than a shared module.
+    """
+    n = len(source)
+    j = i + 1
+    if j >= n:
+        return None
+    if source[j] == "\\":
+        j += 1
+        if j >= n:
+            return None
+        if source[j] == "u":
+            # '\u{1F600}' — the braced form is the only multi-char escape.
+            close = source.find("}", j)
+            if close == -1:
+                return None
+            j = close + 1
+        else:
+            j += 1
+    else:
+        j += 1
+    return j + 1 if j < n and source[j] == "'" else None
+
+
+def raw_string_end(source: str, i: int) -> int | None:
+    """End index (exclusive) of the raw string at ``i``, else ``None``.
+
+    Covers ``r"…"``, ``r#"…"#``, and the byte-string spellings ``br"…"``
+    / ``br##"…"##``. A plain ``b"…"`` needs no special case: the ``b`` is
+    consumed as an ordinary character and the ``"`` that follows opens a
+    regular literal, which escapes identically.
+    """
+    n = len(source)
+    j = i
+    if source[j] == "b" and j + 1 < n and source[j + 1] == "r":
+        j += 1
+    if j >= n or source[j] != "r":
+        return None
+    j += 1
+    hashes = 0
+    while j < n and source[j] == "#":
+        hashes += 1
+        j += 1
+    if j >= n or source[j] != '"':
+        return None
+    close = '"' + ("#" * hashes)
+    end = source.find(close, j + 1)
+    return n if end == -1 else end + len(close)
+
+
+def regular_string_end(source: str, i: int) -> int:
+    """End index (exclusive) of the ``"``-delimited literal at ``i``."""
+    n = len(source)
+    j = i + 1
+    while j < n:
+        if source[j] == "\\" and j + 1 < n:
+            j += 2
+            continue
+        if source[j] == '"':
+            break
+        j += 1
+    return j + 1
+
+
 def find_macro_call_end(source: str, open_paren_idx: int) -> int:
     """Return the index *after* the closing ``)`` of a macro call.
 
     ``open_paren_idx`` must point at the ``(`` that opens the call.
-    Tracks parens, skipping string literals (including Rust raw strings
-    of the form ``r"…"``, ``r#"…"#``, …) and ``//`` line comments so
-    nested ``)`` inside the inline ``@r###"…"###`` anchor does not
-    confuse the depth counter.
+    Tracks parens, skipping string literals (regular, raw and byte),
+    char literals and ``//`` line comments so a ``)`` inside the inline
+    ``@r###"…"###`` anchor does not confuse the depth counter.
+
+    Char literals are skipped for the same reason ``scan_ignore_spans``
+    skips them: a ``b'"'`` in the macro body would otherwise open a
+    bogus string span, run past the real closing paren, and hand back a
+    body the anchor test then reads the wrong answer out of.
     """
     depth = 0
     i = open_paren_idx
@@ -65,29 +143,23 @@ def find_macro_call_end(source: str, open_paren_idx: int) -> int:
             nl = source.find("\n", i)
             i = n if nl == -1 else nl + 1
             continue
-        # Raw string: r"…", r#"…"#, r##"…"##, …
-        if ch == "r" and i + 1 < n and source[i + 1] in ('"', "#"):
-            j = i + 1
-            hashes = 0
-            while j < n and source[j] == "#":
-                hashes += 1
-                j += 1
-            if j < n and source[j] == '"':
-                close = '"' + ("#" * hashes)
-                end = source.find(close, j + 1)
-                i = n if end == -1 else end + len(close)
+        # Raw / byte-raw string: r"…", r#"…"#, br##"…"##, …
+        if ch in "rb":
+            stop = raw_string_end(source, i)
+            if stop is not None:
+                i = stop
                 continue
+        # Char literal — or a lifetime, which `char_literal_end` rejects.
+        if ch == "'":
+            stop = char_literal_end(source, i)
+            if stop is not None:
+                i = stop
+                continue
+            i += 1
+            continue
         # Regular string literal.
         if ch == '"':
-            j = i + 1
-            while j < n:
-                if source[j] == "\\" and j + 1 < n:
-                    j += 2
-                    continue
-                if source[j] == '"':
-                    break
-                j += 1
-            i = j + 1
+            i = regular_string_end(source, i)
             continue
         if ch == "(":
             depth += 1
@@ -104,11 +176,15 @@ class IgnoreSpans:
 
     A single source walk classifies every ``//`` line comment, every
     ``/* … */`` block comment (Rust block comments nest), and every
-    string literal (regular and Rust raw strings) into disjoint span
-    lists. Keeping them separate lets ``count_bare`` answer two distinct
-    questions with the same scan: *is this match inside a comment or
-    string?* (block + string spans) and *is the ``//`` before it a real
-    line comment, or just text inside a string?* (line-comment spans).
+    string or char literal into disjoint span lists. Keeping them
+    separate lets ``count_bare`` answer two distinct questions with the
+    same scan: *is this match inside a comment or literal?* (block +
+    literal spans) and *is the ``//`` before it a real line comment, or
+    just text inside a string?* (line-comment spans).
+
+    Char literals share the ``strings`` list rather than getting a
+    fourth: no ``insta::assert_json_snapshot!`` can begin inside one, so
+    the only thing that matters is that the walk *consumes* them.
     """
 
     def __init__(self) -> None:
@@ -122,11 +198,19 @@ def scan_ignore_spans(source: str) -> IgnoreSpans:
 
     The walk skips string literals before testing for comment openers,
     so a ``//`` or ``/*`` that appears inside a string (or a ``"``
-    inside a comment) is never misread. This is the single string-aware
+    inside a comment) is never misread. This is the single literal-aware
     scanner the bare-call counter relies on: over-counting a commented
     or quoted ``insta::assert_json_snapshot!`` occurrence produces a
     spurious gate failure, and under-counting (treating a ``//`` inside
     a string as a real comment) lets an unanchored snapshot through.
+
+    Char literals are classified for one reason (#1192): a ``'"'`` or
+    ``b'"'`` holds an unpaired double quote, which would otherwise open
+    a bogus string span running to the next ``"`` anywhere later in the
+    file and hide every snapshot call in between. The gate would then
+    report zero for a file that really does carry a bare snapshot — the
+    exact "reads as clean" failure it exists to prevent, which must not
+    be its own failure mode.
     """
     spans = IgnoreSpans()
     i = 0
@@ -157,31 +241,26 @@ def scan_ignore_spans(source: str) -> IgnoreSpans:
                 i += 1
             spans.block_comments.append((start, i))
             continue
-        # Raw string: r"…", r#"…"#, …
-        if ch == "r" and i + 1 < n and source[i + 1] in ('"', "#"):
-            j = i + 1
-            hashes = 0
-            while j < n and source[j] == "#":
-                hashes += 1
-                j += 1
-            if j < n and source[j] == '"':
-                close = '"' + ("#" * hashes)
-                end = source.find(close, j + 1)
-                stop = n if end == -1 else end + len(close)
+        # Raw / byte-raw string: r"…", r#"…"#, br##"…"##, …
+        if ch in "rb":
+            stop = raw_string_end(source, i)
+            if stop is not None:
                 spans.strings.append((i, stop))
                 i = stop
                 continue
+        # Char literal — or a lifetime, which `char_literal_end` rejects
+        # so it cannot open a span that swallows the rest of the file.
+        if ch == "'":
+            stop = char_literal_end(source, i)
+            if stop is not None:
+                spans.strings.append((i, stop))
+                i = stop
+                continue
+            i += 1
+            continue
         # Regular string literal.
         if ch == '"':
-            j = i + 1
-            while j < n:
-                if source[j] == "\\" and j + 1 < n:
-                    j += 2
-                    continue
-                if source[j] == '"':
-                    break
-                j += 1
-            stop = j + 1
+            stop = regular_string_end(source, i)
             spans.strings.append((i, stop))
             i = stop
             continue
@@ -244,11 +323,25 @@ def count_bare(path: pathlib.Path) -> int:
     return count_bare_in_source(path.read_text(encoding="utf-8"))
 
 
+def baseline_key(path: pathlib.Path, root: pathlib.Path) -> str:
+    """The baseline's spelling of ``path``: repo-relative when it is under
+    ``root``, absolute otherwise.
+
+    A named file outside the repository has no repo-relative spelling, and
+    ``Path.relative_to`` raises rather than saying so — an argument typo
+    then surfaces as a traceback instead of a count. Ported from
+    ``check-rustfmt-bail.py``, which fixed the same crash first.
+    """
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
 def collect_counts(files: list[pathlib.Path]) -> "OrderedDict[str, int]":
     counts: OrderedDict[str, int] = OrderedDict()
     for path in sorted(files):
-        rel = path.relative_to(REPO_ROOT).as_posix()
-        counts[rel] = count_bare(path)
+        counts[baseline_key(path, REPO_ROOT)] = count_bare(path)
     return counts
 
 
@@ -274,15 +367,31 @@ def write_baseline(path: pathlib.Path, counts: dict[str, int]) -> None:
         "# Maintained by check-snapshot-anchors.py; see AGENTS.md.",
         "# Lower-or-equal current counts pass; any increase fails CI.",
         "# Regenerate with: ./utils/check-snapshot-anchors.py --update",
+        "#",
+        "# Only files with outstanding bare calls are listed. An unlisted",
+        "# file is allowed zero, which `load_baseline`'s `.get(rel, 0)`",
+        "# already encodes — so omitting them keeps this a list of debt",
+        "# rather than a census of every scanned file (#1192 made the",
+        "# scan recursive, which would otherwise have added 126 zeroes).",
         "",
     ]
     for rel, count in counts.items():
-        body.append(f"{rel} {count}")
+        if count:
+            body.append(f"{rel} {count}")
     path.write_text("\n".join(body) + "\n", encoding="utf-8")
 
 
 def default_targets() -> list[pathlib.Path]:
-    return sorted(p for p in METRICS_DIR.glob("*.rs") if p.is_file())
+    """Every Rust file under ``src/metrics/``, subdirectories included.
+
+    ``rglob``, not ``glob``: the non-recursive form scanned only the 14
+    top-level modules, so the 126 files under ``abc/``, ``cognitive/``,
+    ``cyclomatic/``, ``loc/``, ``npa/`` and ``npm/`` — created when the
+    per-language impls were split out (#969) — were invisible to the
+    gate. No bare call lives there today, but a new one would have
+    landed silently, which is the failure this gate exists to prevent.
+    """
+    return sorted(p for p in METRICS_DIR.rglob("*.rs") if p.is_file())
 
 
 def _self_test() -> int:
@@ -375,18 +484,23 @@ def main() -> int:
 
     if args.update:
         write_baseline(args.baseline, counts)
-        print(f"Baseline updated: {args.baseline.relative_to(REPO_ROOT)}")
+        print(f"Baseline updated: {baseline_key(args.baseline, REPO_ROOT)}")
         for rel, count in counts.items():
             print(f"  {rel} {count}")
         return 0
 
-    baseline = load_baseline(args.baseline)
-    if not baseline:
+    # Existence, not emptiness: since zero counts are omitted from the
+    # written baseline, a tree with no outstanding bare calls anywhere
+    # legitimately produces a file of nothing but comments. Testing the
+    # parsed dict for truthiness would report that clean state as a
+    # missing baseline and fail the gate with exit 2.
+    if not args.baseline.exists():
         sys.stderr.write(
-            f"error: baseline file not found or empty: {args.baseline}\n"
+            f"error: baseline file not found: {args.baseline}\n"
             "       run with --update to create it.\n"
         )
         return 2
+    baseline = load_baseline(args.baseline)
 
     regressions: list[tuple[str, int, int]] = []
     for rel, count in counts.items():

@@ -436,11 +436,26 @@ as part of `make pre-commit` and `make ci`, the
 `.github/workflows/ci.yml`) invokes
 `./utils/check-snapshot-anchors.py`, which scans every
 `insta::assert_json_snapshot!(metric.…)` call under `src/metrics/`
-and counts the unanchored ones per file. The current per-file
-counts are checked in at `.snapshot-anchor-baseline.txt`; CI fails
-on any *increase*. Decreases are silent and may be locked in with
+— **subdirectories included since #1192**; before that the glob was
+non-recursive and the 126 files under `abc/`, `cognitive/`,
+`cyclomatic/`, `loc/`, `npa/` and `npm/` were invisible to it — and
+counts the unanchored ones per file. Outstanding counts are checked
+in at `.snapshot-anchor-baseline.txt`; CI fails on any *increase*.
+A file with no bare calls is **not** listed, and an unlisted file is
+allowed zero, so the baseline reads as a list of debt rather than a
+census. Decreases are silent and may be locked in with
 `./utils/check-snapshot-anchors.py --update`, which regenerates the
 baseline from the working tree.
+
+The gate lexes Rust literals to decide what is live code, and that
+lexer is itself gated: `make snapshot-anchors-test` runs
+`utils/check-snapshot-anchors-test.py`, which pins both directions of
+the char-literal rule (#1192). A `b'"'` read as an unpaired quote
+opens a string span that hides every later snapshot call, and a
+lifetime (`'a`, `'outer:`) read as a literal swallows the rest of the
+file the other way. Both failure modes make the gate report a clean
+file — the outcome it exists to prevent — so neither may be left to
+inspection.
 
 **`cargo fmt --check` is not the whole formatting gate.** A comment
 inside a match *pattern* makes rustfmt emit the enclosing match
