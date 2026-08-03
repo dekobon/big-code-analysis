@@ -80,12 +80,13 @@ impl Cognitive for GroovyCode {
             // families. Groovy methods can nest inside inner classes; a
             // nested method previously inherited the enclosing nesting and
             // missed the SonarSource B-nesting amplification (#696).
-            MethodDeclaration | ConstructorDeclaration => {
+            // `static { … }` — see `java.rs`, which this mirrors (#1184).
+            MethodDeclaration | ConstructorDeclaration | StaticInitializer => {
                 enter_function_boundary(
                     &mut nesting,
                     node,
                     ancestors,
-                    &[MethodDeclaration, ConstructorDeclaration],
+                    &[MethodDeclaration, ConstructorDeclaration, StaticInitializer],
                 );
             }
             _ => {}

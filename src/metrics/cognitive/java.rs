@@ -65,7 +65,14 @@ impl Cognitive for JavaCode {
             // `constructor_declaration`, so it needs listing in both the
             // arm and the `stops` set — otherwise its body's control flow
             // is charged to the enclosing class space (#1160).
-            MethodDeclaration | ConstructorDeclaration | CompactConstructorDeclaration => {
+            // `static { … }` joins them for the same reason (#1184): it
+            // opens a `FuncSpace`, so without this arm an initialiser
+            // written inside a nested class inherited the enclosing
+            // nesting.
+            MethodDeclaration
+            | ConstructorDeclaration
+            | CompactConstructorDeclaration
+            | StaticInitializer => {
                 enter_function_boundary(
                     &mut nesting,
                     node,
@@ -74,6 +81,7 @@ impl Cognitive for JavaCode {
                         MethodDeclaration,
                         ConstructorDeclaration,
                         CompactConstructorDeclaration,
+                        StaticInitializer,
                     ],
                 );
             }
