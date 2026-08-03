@@ -96,7 +96,7 @@ pub(crate) fn run_explain_thresholds(
         layers,
         resolved: &resolved,
         ratio,
-        soft_table_applies: soft_table_applies(layers, &candidates),
+        soft_table_applies: soft_table_applies(layers),
     };
     let report: Vec<CandidateOutcome> = candidates
         .iter()
@@ -115,11 +115,11 @@ struct CandidateGate<'a> {
     layers: &'a ParsedThresholds,
     resolved: &'a LanguageThresholds,
     ratio: Option<f64>,
-    /// Whether any *explained* metric carries a `[thresholds.soft]`
-    /// entry. [`resolve_tier`]'s soft branch is all-or-nothing per
-    /// table: one such entry switches the whole table into merge mode,
-    /// and every other explained metric then inherits its hard limit
-    /// with no ratio applied at all.
+    /// Whether the manifest carries a `[thresholds.soft]` table at all.
+    /// [`resolve_tier`]'s soft branch is all-or-nothing per table: one
+    /// entry switches the whole table into merge mode, and every metric
+    /// it does not name — explained or not — then inherits its hard
+    /// limit with no ratio applied at all.
     soft_table_applies: bool,
 }
 
@@ -395,17 +395,17 @@ fn candidate_limits(args: &CheckArgs) -> BTreeMap<String, f64> {
     candidates
 }
 
-/// Whether any `[thresholds.soft]` entry survives narrowing to the
-/// explained metrics.
+/// Whether the run being predicted resolves its soft tier in merge mode.
 ///
-/// `build_candidate_gate` applies exactly that narrowing before
-/// `resolve_tier` sees the table, and `resolve_tier`'s soft branch is
-/// all-or-nothing per table — so this is the emptiness test that decides
-/// which of its two soft behaviours the preview actually ran.
-fn soft_table_applies(layers: &ParsedThresholds, candidates: &BTreeMap<String, f64>) -> bool {
-    candidates
-        .keys()
-        .any(|metric| layers.soft.contains_key(metric))
+/// `resolve_tier`'s soft branch is all-or-nothing per table: any
+/// non-empty `[thresholds.soft]` switches the whole table into merge
+/// mode, and metrics it does not name inherit their hard limit with no
+/// band. The decision keys on the *manifest's* table — never on whether
+/// an entry survived `build_candidate_gate`'s narrowing to the explained
+/// metrics — because the run being previewed does not narrow, and
+/// `build_candidate_gate` makes the same full-table call.
+fn soft_table_applies(layers: &ParsedThresholds) -> bool {
+    !layers.soft.is_empty()
 }
 
 /// The limit `set` resolved for `metric`, or `None` when it gates no such

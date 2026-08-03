@@ -261,11 +261,25 @@ pub(crate) fn build_candidate_gate(
         .map(|(slug, overrides)| (*slug, retain_explained(overrides, candidates)))
         .filter(|(_, kept)| !kept.is_empty())
         .collect();
+    // The merge-vs-ratio decision keys on the *manifest's* soft table,
+    // not the narrowed one. A non-empty `[thresholds.soft]` puts the run
+    // being predicted in merge mode for every metric, including the ones
+    // it does not name — they gate at their hard limit with no band. The
+    // narrowing above can empty the table (the manifest names only
+    // unexplained metrics), and an empty table reads as ratio mode to
+    // `resolve_tier`, which would preview a band the predicted run does
+    // not have. Merge mode with nothing surviving resolves every table
+    // to its hard limits verbatim, which is exactly the hard tier.
+    let tier = if soft.is_empty() && !layers.soft.is_empty() {
+        TierSpec::Hard
+    } else {
+        TierSpec::Soft(ratio)
+    };
     // No `--threshold` layer: an absolute CLI override is never scaled,
     // so letting one through would hand the preview a metric with no soft
     // tier to report. `run_explain_thresholds` rejects the overlap up
     // front instead.
-    let shared = SharedLayers::new(&[], TierSpec::Soft(ratio), &soft, &lang, candidates);
+    let shared = SharedLayers::new(&[], tier, &soft, &lang, candidates);
     shared.resolve_all(candidates, &lang)
 }
 

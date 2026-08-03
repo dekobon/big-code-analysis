@@ -737,6 +737,44 @@ fn a_metric_the_soft_table_omits_reports_no_soft_band() {
     assert_eq!(ratio_derived.soft.total, RATIO_OFFENDERS);
 }
 
+/// The narrowing corner of the case above: a `[thresholds.soft]` table
+/// naming *only* metrics the preview was not asked about. Narrowing the
+/// table to the explained set empties it, and an empty table used to
+/// flip `resolve_tier` into blanket-ratio mode — previewing a soft band
+/// (`4.75, 0.95x`, 9 offenders) that the run being predicted does not
+/// have, on the one command whose contract is to match that run. The
+/// merge-vs-ratio decision has to key on the manifest's table, not the
+/// narrowed one.
+#[test]
+fn a_soft_table_naming_only_unexplained_metrics_still_suppresses_the_ratio() {
+    const TIGHT_LIMIT: &str = "nargs=5";
+    const INHERITED_OFFENDERS: usize = 3;
+
+    let dir = candidate_tree();
+    fs::write(
+        dir.path().join("bca.toml"),
+        "paths = [\"lib.rs\"]\n[thresholds.soft]\ncognitive = 4\n",
+    )
+    .expect("write manifest");
+
+    // Explain nargs alone: cognitive sits in the manifest's soft table
+    // but not on the command line, so nothing survives the narrowing.
+    let nargs = parse_preview(
+        &stdout_of(cli(dir.path()).args(["check", "--explain-threshold", TIGHT_LIMIT])),
+        CANDIDATE_METRIC,
+    );
+    assert_eq!(
+        nargs.soft.limit,
+        "5, no soft band; [thresholds.soft] names other metrics, \
+         so the hard limit stands",
+    );
+    // The sibling test's seed check pins the contrast: without the
+    // manifest this exact candidate derives `4.75, 0.95x` over 9
+    // offenders, so equal tallies here are the table being honoured.
+    assert_eq!(nargs.hard.total, INHERITED_OFFENDERS);
+    assert_eq!(nargs.soft.total, INHERITED_OFFENDERS);
+}
+
 #[test]
 fn cluster_fires_when_the_soft_band_sits_on_the_candidate_limit() {
     let dir = candidate_tree();
