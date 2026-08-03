@@ -281,10 +281,27 @@ crate::recursion::impl_iterative_drop!(FuncSpace, spaces);
 /// `SpaceKind::Unit` instead — as both walks did until #1163 — put
 /// Perl's trailing `sub` a line past its parent unit and past EOF.
 pub(crate) fn line_span(node: &Node<'_>, kind: SpaceKind) -> (usize, usize) {
-    // An empty file occupies no lines at all; the general rule would
-    // report the inverted `1..0`.
-    if kind == SpaceKind::Unit && node.child_count() == 0 {
-        return (0, 0);
+    if kind == SpaceKind::Unit {
+        // The file-level unit starts at line 1 by definition — it *is*
+        // the file — so its start is anchored rather than measured. The
+        // root node's own `start_row` is not line 1 whenever the file
+        // opens with blank lines, because tree-sitter starts the root at
+        // the first token: `"\n\n\nfn a() {}\n"` put the unit at 4..4 of
+        // a 4-line file, omitting the three lines above it. A leading
+        // *comment* was always fine, since comments are in the tree.
+        //
+        // A childless root is the acute form of the same thing: with no
+        // token to start at, the node collapses to a point at the end of
+        // the whitespace, so `start_row` is the *last* row and the
+        // measured rule inverts outright — `"\n\n"` gives 3..2 (#1195).
+        //
+        // An empty file is the one input that genuinely has no lines.
+        // `end_line` is 0 there and `1..0` would be inverted in turn, so
+        // it keeps the degenerate `0..0` — and is therefore the one
+        // input `space_span_containment`'s `(1, line_count)` rule
+        // cannot be asked about.
+        let end = node.end_line();
+        return if end == 0 { (0, 0) } else { (1, end) };
     }
     (node.start_row() + 1, node.end_line())
 }

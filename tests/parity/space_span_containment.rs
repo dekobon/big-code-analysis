@@ -137,6 +137,42 @@ fn every_space_lies_within_its_parent_in_every_language() {
     );
 }
 
+/// The degenerate sources every language must still span correctly
+/// (#1195).
+///
+/// The sweep above only ever feeds `check_source` a real code fixture,
+/// so the `(1, line_count)` rule it asserts was never tested against a
+/// file that opens with blank lines or holds nothing but whitespace —
+/// exactly the inputs where it did not hold. A whitespace-only file
+/// parses to a childless root, which tree-sitter collapses to a point at
+/// the *end* of the whitespace; the unit reported `0..0` for every one
+/// of these before the fix.
+///
+/// An empty file is deliberately absent: it has no lines at all, so the
+/// `(1, line_count)` rule would demand the inverted `1..0`. That carve-out
+/// is pinned as a unit test beside `line_span` instead.
+#[test]
+fn degenerate_sources_still_span_their_lines_in_every_language() {
+    let mut checked = 0;
+
+    for lang in LANG::into_enum_iter() {
+        if !lang.is_enabled() {
+            continue;
+        }
+        checked += 1;
+
+        let (_, ext) = fixture(lang);
+        for source in ["\n", "\n\n", "   \n  \n", "\t\n\n\n"] {
+            check_source(lang, source, ext);
+        }
+    }
+
+    assert!(
+        checked > 0,
+        "at least one language feature must be enabled for this test to mean anything"
+    );
+}
+
 /// The #1163 reproducer and its two controls, with the spans spelled out
 /// rather than only checked for containment — the invariant above says
 /// the tree is *representable*, these say it is *right*.
