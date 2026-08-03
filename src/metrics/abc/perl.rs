@@ -69,9 +69,9 @@ fn perl_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
             | P::WhileStatement
             | P::UntilStatement
     ) || (matches!(parent_kind, P::TernaryExpression)
-        && node
-            .previous_sibling_under(parent)
-            .is_none_or(|prev| !matches!(prev.kind_id().into(), P::QMARK | P::COLON)));
+        && parent
+            .child_by_field_name("condition")
+            .is_some_and(|condition| condition.id() == node.id()));
 
     loop {
         // `Array` is tree-sitter-perl's name for the `(...)` shape

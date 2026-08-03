@@ -21,9 +21,9 @@ fn groovy_inspect_container(container_node: &Node, parent: &Node, conditions: &m
 
     let mut has_boolean_content = match parent.kind_id().into() {
         BinaryExpression | IfStatement | WhileStatement | DoWhileStatement | ForStatement => true,
-        TernaryExpression => node
-            .previous_sibling_under(parent)
-            .is_none_or(|prev_node| !matches!(prev_node.kind_id().into(), QMARK | COLON)),
+        TernaryExpression => parent
+            .child_by_field_name("condition")
+            .is_some_and(|condition| condition.id() == node.id()),
         _ => false,
     };
 
@@ -220,11 +220,17 @@ fn groovy_walk_for_conditions<'a>(
 
 fn groovy_walk_ternary(node: &Node, stats: &mut Stats) {
     let conds = &mut stats.conditions;
-    if let Some(condition) = node.child(0) {
+    // By grammar FIELD, not index — see `java_walk_ternary` for why the
+    // positional form dropped a negated branch operand behind a comment
+    // (#1181).
+    if let Some(condition) = node.child_by_field_name("condition") {
         groovy_count_condition(&condition, node, conds);
     }
-    groovy_inspect_child(node, 2, conds);
-    groovy_inspect_child(node, 4, conds);
+    for field in ["consequence", "alternative"] {
+        if let Some(branch) = node.child_by_field_name(field) {
+            groovy_inspect_container(&branch, node, conds);
+        }
+    }
 }
 
 // Two shapes: a present condition lives at child(3); an empty condition

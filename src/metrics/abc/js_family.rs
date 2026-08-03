@@ -40,9 +40,9 @@ macro_rules! impl_js_family_unary_walker {
                 parent_kind,
                 BinaryExpression | IfStatement | WhileStatement | DoStatement | ForStatement
             ) || (matches!(parent_kind, TernaryExpression)
-                && node
-                    .previous_sibling_under(parent)
-                    .is_none_or(|prev| !matches!(prev.kind_id().into(), QMARK | COLON)));
+                && parent
+                    .child_by_field_name("condition")
+                    .is_some_and(|condition| condition.id() == node.id()));
 
             loop {
                 let is_parens = matches!(node_kind, ParenthesizedExpression);

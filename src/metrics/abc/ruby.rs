@@ -55,16 +55,15 @@ fn ruby_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
     // contribute nothing — see `ruby_walk_ternary` (#1161).
     //
     // The slot is identified by grammar FIELD, not by the neighbouring
-    // `?` / `:` token. `cpp_inspect_container` uses the token form, and
-    // it has two weaknesses this avoids: a comment between the token and
-    // the operand is the previous sibling instead, which flips the seed
-    // on for a branch slot; and the token test inverts on failure, so
-    // Ruby's second `:` id (`COLON2`, unreachable at tree-sitter-ruby
-    // 0.23.1 but one grammar bump away) would silently turn every
-    // parenthesised alternative into a condition. Both are live in the
-    // C family — tracked in #1181, not fixed here. Reproducer for the
-    // first: `x = a ? /*n*/ (b) : c;` reports 3 conditions where the
-    // same line without the comment reports 2.
+    // `?` / `:` token. The token form had two weaknesses this avoids: a
+    // comment between the token and the operand is the previous sibling
+    // instead, which flips the seed on for a branch slot; and the test
+    // inverts on failure, so Ruby's second `:` id (`COLON2`, unreachable
+    // at tree-sitter-ruby 0.23.1 but one grammar bump away) would
+    // silently turn every parenthesised alternative into a condition.
+    // Both were live across the C family, PHP, Perl and the JS family
+    // until #1181 moved them all onto this form; the cross-language
+    // regression test is `ternary_comment_invariance` in `abc.rs`.
     let mut has_boolean_content = matches!(
         parent_kind,
         Binary | Binary2 | Binary3 | If | Unless | While | Until
