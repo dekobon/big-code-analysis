@@ -8801,6 +8801,30 @@ function f(int $a, int $b): int {
     }
 
     #[test]
+    fn tcl_bare_truthy_elseif_predicate_counts_one_condition() {
+        // The `Tcl::Elseif` arm routes its predicate through
+        // `tcl_condition_expr` exactly as `If` / `While` do (#1180), but
+        // a comparison predicate is counted by its leaf operator, so it
+        // cannot tell the routing from its absence. Only a bare truthy
+        // predicate can: `$b` scores through the routed walker or not at
+        // all.
+        let conditions = |source: &str| {
+            crate::test_support::metrics_verbatim(
+                crate::LANG::Tcl,
+                source.as_bytes(),
+                crate::MetricsOptions::default(),
+            )
+            .abc
+            .conditions_sum()
+        };
+        // `$a` truthy (1) + `elseif` clause (1) + `$b` truthy (1).
+        assert_eq!(
+            conditions("proc f {a b} {\n if {$a} { puts x } elseif {$b} { puts y }\n}"),
+            3
+        );
+    }
+
+    #[test]
     fn tcl_elseif_and_else_count_conditions() {
         // `if` / `elseif` / `else` clause productions each
         // contribute one condition. The leaf comparison inside the
