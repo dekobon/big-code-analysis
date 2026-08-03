@@ -47,6 +47,13 @@ fn relative_tail_canonicalizes_both_sides_when_forms_diverge() {
 /// and the assertion holds under either rule. `set_current_dir` is
 /// process-global and would race the other tests in this binary, so the
 /// subdirectory comes from cargo's own cwd rather than a fixture.
+/// Build a [`super::ManifestAnchor`] for a test. Exists so the tests
+/// read as `(root, cwd)` at each call rather than repeating the struct
+/// literal, and so a future field lands in one place.
+fn anchor<'a>(root: Option<&'a Path>, cwd: &'a std::path::PathBuf) -> super::ManifestAnchor<'a> {
+    super::ManifestAnchor::resolve(root, cwd)
+}
+
 #[test]
 fn root_relative_match_path_anchors_both_spellings_from_a_subdirectory() {
     let cwd = std::env::current_dir().expect("cwd available in test");
@@ -56,11 +63,11 @@ fn root_relative_match_path_anchors_both_spellings_from_a_subdirectory() {
 
     // Spelled relative to the CWD, and spelled absolutely: one answer.
     assert_eq!(
-        super::root_relative_match_path(root, Path::new("src/lib.rs")),
+        super::root_relative_match_path(anchor(Some(root), &cwd), Path::new("src/lib.rs")),
         Some(expected.clone())
     );
     assert_eq!(
-        super::root_relative_match_path(root, &cwd.join("src").join("lib.rs")),
+        super::root_relative_match_path(anchor(Some(root), &cwd), &cwd.join("src").join("lib.rs")),
         Some(expected)
     );
 }
@@ -79,7 +86,7 @@ fn root_relative_match_path_folds_parent_components_before_comparing() {
     // `src/lib.rs`, not the crate's, and must not read as living under
     // the crate directory.
     assert_eq!(
-        super::root_relative_match_path(root, Path::new("../src/lib.rs")),
+        super::root_relative_match_path(anchor(Some(root), &cwd), Path::new("../src/lib.rs")),
         Some(PathBuf::from("src/lib.rs"))
     );
 }
@@ -98,14 +105,20 @@ fn manifest_match_path_falls_back_to_the_cwd_form() {
         PathBuf::from("/definitely/not/under/root/f.rs")
     };
     let cwd_form = Path::new("vendor/f.rs");
+    let cwd = std::env::current_dir().expect("cwd available in test");
 
     assert_eq!(
-        super::manifest_match_path(Some(&root), &outside, super::CwdForm(cwd_form)).as_ref(),
+        super::manifest_match_path(
+            anchor(Some(&root), &cwd),
+            &outside,
+            super::CwdForm(cwd_form)
+        )
+        .as_ref(),
         cwd_form,
         "a path outside the manifest tree keeps the CWD form"
     );
     assert_eq!(
-        super::manifest_match_path(None, &outside, super::CwdForm(cwd_form)).as_ref(),
+        super::manifest_match_path(anchor(None, &cwd), &outside, super::CwdForm(cwd_form)).as_ref(),
         cwd_form,
         "no manifest means no second anchor to try"
     );

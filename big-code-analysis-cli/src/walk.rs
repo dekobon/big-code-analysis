@@ -209,7 +209,9 @@ impl WalkFilters<'_> {
         // `current_dir()` syscall and a normalising allocation, and the
         // CLI set answering first makes both unnecessary.
         if let Some(glob) = self.exclude.first_match(cwd_form.0).or_else(|| {
-            let manifest_form = walk_seed::manifest_match_path(self.manifest_dir, seed, cwd_form);
+            let cwd = std::env::current_dir().unwrap_or_default();
+            let anchor = walk_seed::ManifestAnchor::resolve(self.manifest_dir, &cwd);
+            let manifest_form = walk_seed::manifest_match_path(anchor, seed, cwd_form);
             self.manifest_exclude.first_match(&manifest_form)
         }) {
             eprintln!(

@@ -367,6 +367,12 @@ struct CheckExcludes<'a> {
     /// Directory holding the `bca.toml` that supplied `manifest`;
     /// `None` when no manifest configured any exemption.
     manifest_dir: Option<&'a Path>,
+    /// The working directory, resolved once here rather than per
+    /// violation. A relative violation path is completed against it to
+    /// decide whether the file lies under the manifest, and `exempts`
+    /// runs for every violation — so reading it there cost a syscall
+    /// per offender on exactly the runs #1164 exists to serve.
+    cwd: std::path::PathBuf,
 }
 
 impl<'a> CheckExcludes<'a> {
@@ -395,6 +401,7 @@ impl<'a> CheckExcludes<'a> {
                 "bca.toml [check] exclude_from",
             ),
             manifest_dir: manifest.map(|m| m.dir.as_path()),
+            cwd: std::env::current_dir().unwrap_or_default(),
         })
     }
 
@@ -406,15 +413,15 @@ impl<'a> CheckExcludes<'a> {
     /// `GlobSet::is_match` builds its `Candidate` *before* its own empty
     /// check. Only one of the two sets is configured in the usual case,
     /// so the other should cost nothing. The manifest guard buys more
-    /// than that — it also skips `manifest_match_path`, which resolves
-    /// the working directory and normalises the path, per violation.
+    /// than that — it also skips `manifest_match_path`, which
+    /// normalises the path per violation.
     fn exempts(&self, path: &Path, walk_form: crate::walk_seed::CwdForm<'_>) -> bool {
         (!self.cli.is_empty() && self.cli.is_match(walk_form.0))
             || (!self.manifest.is_empty()
                 && self
                     .manifest
                     .is_match(crate::walk_seed::manifest_match_path(
-                        self.manifest_dir,
+                        crate::walk_seed::ManifestAnchor::resolve(self.manifest_dir, &self.cwd),
                         path,
                         walk_form,
                     )))

@@ -179,6 +179,42 @@ class CharLiteralEndTest(unittest.TestCase):
                 self.assertIsNone(gate.char_literal_end(source, 0))
 
 
+class EditionTest(unittest.TestCase):
+    """The edition is per-crate, not per-workspace."""
+
+    def test_vendored_grammar_crates_resolve_to_their_own_edition(self) -> None:
+        # Five vendored grammar crates are edition 2021 while the
+        # workspace is 2024. Parsing their files as 2024 works only
+        # until one spells a 2024 keyword, at which point the gate exits
+        # 2 with "rustfmt refused to parse these files" -- which reads
+        # as a broken repo rather than an edition mismatch.
+        self.assertEqual(
+            gate.edition_for(
+                REPO_ROOT / "tree-sitter-tcl/bindings/rust/lib.rs", REPO_ROOT
+            ),
+            "2021",
+        )
+        self.assertEqual(
+            gate.edition_for(REPO_ROOT / "src/getter/lua.rs", REPO_ROOT), "2024"
+        )
+
+    @unittest.skipUnless(HAVE_RUSTFMT, "rustfmt not installed")
+    def test_a_2024_keyword_as_an_identifier_parses_under_2021(self) -> None:
+        # `gen` became a keyword in 2024. This is the concrete shape the
+        # per-crate lookup exists for.
+        source = (
+            "fn f(x: u32) -> u32 {\n"
+            "    let gen = 1;\n"
+            "    match x {\n"
+            "        1 => gen,\n"
+            "        _ => 0,\n"
+            "    }\n"
+            "}\n"
+        )
+        self.assertEqual(gate.probe_source(source, edition="2024")[0], "ERROR")
+        self.assertEqual(gate.probe_source(source, edition="2021")[0], "ok")
+
+
 @unittest.skipUnless(HAVE_RUSTFMT, "rustfmt not installed")
 class ProbeTest(unittest.TestCase):
     """Both directions of the measurement, against the real rustfmt.
@@ -292,7 +328,14 @@ class MainTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("src/a.rs", err)
         self.assertIn("baseline 0, current 2", err)
-        self.assertIn("Hoist it above the arm", err)
+        # Name every cause, not just the one that prompted the gate. A
+        # message asserting a single "usual cause" is the misdirection
+        # the gate exists to prevent: someone who lands an over-long arm
+        # goes looking for an in-pattern comment that is not there.
+        self.assertIn("wider than 100 columns", err)
+        self.assertIn("comment inside a match pattern", err)
+        self.assertIn("`macro_rules!` body", err)
+        self.assertIn("--show", err)
 
     def test_decrease_is_silent_and_ratchets_on_update(self) -> None:
         target = self.src / "a.rs"
@@ -319,6 +362,44 @@ class MainTest(unittest.TestCase):
             "# note: src/a.rs reads worse hoisted.",
             self.baseline.read_text(encoding="utf-8"),
         )
+
+    def test_update_does_not_duplicate_a_drifted_header(self) -> None:
+        # The header lives in two places by construction -- the module
+        # constant and the checked-in file -- so drift is the likely
+        # case, not the exotic one. Before the sentinel, a positional
+        # prefix compare failed on a drifted header, every `#` line was
+        # kept as a "note", and --update wrote the whole header out a
+        # second time. The migration to the sentinel hit exactly this.
+        (self.src / "a.rs").write_text(IN_PATTERN_COMMENT, encoding="utf-8")
+        self.assertEqual(self._run("--update")[0], 0)
+        text = self.baseline.read_text(encoding="utf-8")
+        first = gate.BASELINE_HEADER.splitlines()[0]
+        self.assertEqual(text.count(first), 1, "sanity: one header line to start")
+
+        # Drift the header, then add a note below the sentinel.
+        drifted = text.replace(first, first.upper(), 1).replace(
+            "\nsrc/a.rs", "\n# note: deliberate.\nsrc/a.rs"
+        )
+        self.baseline.write_text(drifted, encoding="utf-8")
+        self.assertEqual(self._run("--update")[0], 0)
+
+        after = self.baseline.read_text(encoding="utf-8")
+        self.assertEqual(
+            after.count(first) + after.count(first.upper()),
+            1,
+            "the drifted header must be replaced, not appended to",
+        )
+        self.assertIn("# note: deliberate.", after, "notes must survive the drift")
+
+    def test_update_is_idempotent(self) -> None:
+        # A second --update over an unchanged tree must be a no-op. This
+        # is what catches a note-preservation bug that grows the file by
+        # a constant amount each run rather than duplicating visibly.
+        (self.src / "a.rs").write_text(IN_PATTERN_COMMENT, encoding="utf-8")
+        self.assertEqual(self._run("--update")[0], 0)
+        once = self.baseline.read_text(encoding="utf-8")
+        self.assertEqual(self._run("--update")[0], 0)
+        self.assertEqual(once, self.baseline.read_text(encoding="utf-8"))
 
     def test_malformed_baseline_line_exits_two(self) -> None:
         (self.src / "a.rs").write_text(CLEAN_MATCH, encoding="utf-8")
