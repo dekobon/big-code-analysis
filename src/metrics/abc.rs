@@ -9147,9 +9147,11 @@ function f(int $a, int $b): int {
             .abc
             .conditions_sum()
         };
+        let bare = conditions("when X {\n    set y [expr { $a ? !$b : !$c }]\n}\n");
+        assert_eq!(bare, 4, "the bare form is the documented reference value");
         assert_eq!(
             conditions("when X {\n    set y [expr { ($a) ? !$b : !$c }]\n}\n"),
-            conditions("when X {\n    set y [expr { $a ? !$b : !$c }]\n}\n"),
+            bare,
             "parenthesising the condition must not change the count"
         );
     }
@@ -9268,6 +9270,7 @@ mod ternary_comment_invariance {
     /// more, since `!b` establishes boolean content for that slot = 3.
     #[test]
     fn the_baseline_values_are_two_and_three() {
+        let mut checked = 0;
         for lang in LANG::into_enum_iter() {
             if !lang.is_enabled() {
                 continue;
@@ -9281,7 +9284,12 @@ mod ternary_comment_invariance {
                 "{lang:?}: parenthesised branch"
             );
             assert_eq!(conditions(lang, &negated), 3, "{lang:?}: negated branch");
+            checked += 1;
         }
+        assert!(
+            checked > 0,
+            "no ternary language enabled; this test asserted nothing"
+        );
     }
 }
 
@@ -9363,6 +9371,7 @@ mod keyword_negation_parity {
     /// boolean context, and one per negated branch operand.
     #[test]
     fn the_baseline_values_are_one_and_four() {
+        let mut checked = 0;
         for (lang, guard, ternary) in [
             (
                 LANG::Ruby,
@@ -9380,7 +9389,12 @@ mod keyword_negation_parity {
             }
             assert_eq!(conditions(lang, guard), 1, "{lang:?}: `if not b`");
             assert_eq!(conditions(lang, ternary), 4, "{lang:?}: `not` ternary");
+            checked += 1;
         }
+        assert!(
+            checked > 0,
+            "no language enabled; this test asserted nothing"
+        );
     }
 
     /// Lua's only negation keyword is `not`, so it has no `!` twin to

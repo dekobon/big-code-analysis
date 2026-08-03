@@ -112,11 +112,16 @@ pub(crate) struct WalkSelectionArgs {
     /// something from `bca check`'s threshold gate whichever way it is
     /// named, use `--check-exclude` / `[check] exclude` instead.
     ///
-    /// A relative glob given here is resolved against the directory you
-    /// ran `bca` from. One written in `bca.toml` is resolved against the
-    /// manifest's own directory, whatever path you name and wherever you
-    /// run from — so `bca metrics -p sub` honours the same exclusions the
-    /// bare `bca metrics` does. `[check] exclude` anchors the same way.
+    /// The two sources anchor differently, and it is worth knowing which
+    /// you are writing. A glob given *here* is matched against each
+    /// file's path as the walk emits it — relative to the seed you
+    /// named — so `bca metrics -p sub -X './skipme/**'` excludes
+    /// `sub/skipme`, while `'./sub/skipme/**'` matches nothing. A glob
+    /// written in `bca.toml` is resolved against the manifest's own
+    /// directory instead, whatever path you name and wherever you run
+    /// from, so the bare `bca metrics` and `bca metrics -p sub` honour
+    /// the same manifest exclusions. `[check] exclude` anchors at the
+    /// manifest the same way.
     // The per-file agent hooks in the book's agent-feedback recipe are
     // the caller this bit exists for; see #1146. #1164 anchored the
     // explicit-path warning and the `[check] exclude` gate at the

@@ -65,6 +65,10 @@ class CharLiteralEndTest(unittest.TestCase):
             (r"'\\'", 4),
             ("'\"'", 3),
             (r"'\u{1F600}'", 11),
+            # Rust's other multi-char escape, always two hex digits. The
+            # comment here used to claim the braced form was the only one.
+            (r"'\x41'", 6),
+            (r"'\x22'", 6),
         ]:
             with self.subTest(source=source):
                 self.assertEqual(gate.char_literal_end(source, 0), expected)
@@ -133,15 +137,68 @@ fn f<'a>(x: &'a str, y: &'a str) {
         self.assertEqual(gate.count_bare_in_source(source), 1)
 
     def test_byte_raw_string_does_not_hide_a_later_call(self) -> None:
-        """The raw string holds an *odd* number of double quotes.
+        """A `br#"…"#` holding an unpaired quote leaves later calls visible.
 
-        `br#"a"#` alone proves nothing: with the byte-raw branch removed
-        the inner `"a"` still lexes as a balanced regular string and the
-        call stays visible. An unpaired quote is what makes the missing
-        branch bite.
+        Honest caveat: this does **not** discriminate the `b`-prefix
+        branch of `raw_string_end`. Measured — with that branch disabled
+        the count is still 1, because the walk consumes the `b` as an
+        ordinary character and then recognises `r#"a"b"#` one index
+        later, producing the same span from a different start. Across
+        every `.rs` file in the workspace the `b` branch changes no
+        count at all; only `test_raw_and_byte_raw_forms` pins it.
+
+        The case is kept because it pins the *scanner's* behaviour on a
+        real Rust spelling, which is worth having even though the branch
+        it looks like it guards is guarded elsewhere.
         """
         source = 'let s = br#"a"b"#;\ninsta::assert_json_snapshot!(metric.x);\n'
         self.assertEqual(gate.count_bare_in_source(source), 1)
+
+    def test_block_comment_in_the_arguments_does_not_steal_a_later_anchor(self) -> None:
+        """`find_macro_call_end` skipped every literal kind but block comments.
+
+        A `"` inside one opened a runaway string span, so the body scan
+        ran past the real closing paren into the next call and the bare
+        call claimed that call's `@"1"` as its own: 0 instead of 1.
+        """
+        source = (
+            'insta::assert_json_snapshot!(m.x /* " */);\n'
+            'insta::assert_json_snapshot!(m.y, @"1");\n'
+        )
+        self.assertEqual(gate.count_bare_in_source(source), 1)
+
+    def test_block_comment_in_the_arguments_does_not_truncate_the_body(self) -> None:
+        """The same gap in the other direction — a spurious gate failure.
+
+        A `)` inside a block comment dropped the paren depth to zero
+        early, truncating the body before its real inline anchor, so an
+        anchored call counted as bare.
+        """
+        source = 'insta::assert_json_snapshot!(m.x /* ) */, @"1");\n'
+        self.assertEqual(gate.count_bare_in_source(source), 0)
+        # Rust block comments nest; the body scan tracks depth.
+        nested = 'insta::assert_json_snapshot!(m.x /* a /* b */ c */, @"1");\n'
+        self.assertEqual(gate.count_bare_in_source(nested), 0)
+
+    def test_escaped_quote_in_a_string_does_not_hide_a_later_call(self) -> None:
+        """Pins `regular_string_end`'s escape branch.
+
+        Extracted as a named helper by #1192 and untested until now:
+        replacing it with a naive "find the next quote" makes this count
+        0 instead of 1, and the rest of the suite stays green.
+        """
+        source = 'let s = "a\\"b"; insta::assert_json_snapshot!(m.x);\n'
+        self.assertEqual(gate.count_bare_in_source(source), 1)
+
+    def test_nested_block_comments_stay_commented_out(self) -> None:
+        """Pins the depth counter in `scan_ignore_spans`.
+
+        Removing the depth-increment survives the rest of the suite; this
+        input is what discriminates it — the inner `*/` would otherwise
+        close the comment early and expose the call as live code.
+        """
+        source = "/* outer /* inner */ insta::assert_json_snapshot!(m.x); */"
+        self.assertEqual(gate.count_bare_in_source(source), 0)
 
     def test_char_literal_in_the_arguments_does_not_borrow_a_later_anchor(self) -> None:
         """`find_macro_call_end` carries the same lexer and the same gap.

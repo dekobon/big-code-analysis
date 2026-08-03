@@ -161,9 +161,13 @@ exclude = [
 # `Parser<T>::filters` — one parameter, plus five from the closures in
 # its body. Converging would therefore pressure contributors to delete
 # idiomatic inline closures rather than to simplify signatures, which is
-# not what the metric is for. Whether the gate should key on
-# `function_args` instead is tracked in #1196; until that is settled a
-# lower limit here would be measuring the wrong thing.
+# not what the metric is for. #1196 settled that: the gate now keys on a
+# callable's own parameters, which is what every comparable tool
+# measures. Re-measured on this tree afterwards, `nargs = 6` costs 0 new
+# hard-tier offenders and `nargs = 5` costs 17 — the genuine signatures,
+# without the 59 closure-inflated ones attached. 91 functions sit at
+# exactly 5, so a limit of 5 still parks all of them permanently in the
+# soft band; that cluster, not the count, is why this stays at 7 for now.
 cognitive = 15
 cyclomatic = 15
 "halstead.effort" = 50000

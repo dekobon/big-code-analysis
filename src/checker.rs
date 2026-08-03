@@ -103,8 +103,17 @@ macro_rules! js_ancestor_walk {
 //
 // The first three are unified below, which makes an IIFE a closure in
 // both spellings: that is what a reader sees, and it matches the
-// behaviour the arrow form already had. `$up` and `$stop` are now
+// behaviour the arrow form already had. `$up` and `$stop` are
 // token-identical and only `$extra` differs, for the reason in (4).
+//
+// The field-definition kind is threaded in per language rather than
+// named here because JS and TS spell it differently (`field_definition`
+// vs `public_field_definition`). Both macros take it: `$extra`'s
+// `property_identifier` sibling covers a class field only when its name
+// *is* an identifier, so without the `$up` entry
+// `class C { ["k"] = () => 1 }`, `{ "s" = … }` and `{ #p = … }` stayed
+// closures while their `function` spellings were already functions —
+// divergence (3) surviving in the shapes the first fix did not reach.
 macro_rules! check_if_func {
     ($node: ident, $ancestors: ident, $field_definition: ident) => {
         js_ancestor_walk!(
@@ -122,11 +131,15 @@ macro_rules! check_if_func {
 }
 
 macro_rules! check_if_arrow_func {
-    ($node: ident, $ancestors: ident) => {
+    ($node: ident, $ancestors: ident, $field_definition: ident) => {
         js_ancestor_walk!(
             $node,
             $ancestors,
-            [VariableDeclarator | AssignmentExpression | LabeledStatement | Pair],
+            [VariableDeclarator
+                | AssignmentExpression
+                | LabeledStatement
+                | Pair
+                | $field_definition],
             [StatementBlock | ReturnStatement | NewExpression | CallExpression | Arguments],
             $node.has_sibling($ancestors, PropertyIdentifier as u16),
         )
@@ -156,7 +169,7 @@ macro_rules! is_js_func {
             FunctionExpression | GeneratorFunction => {
                 check_if_func!($node, $ancestors, $field_definition)
             }
-            ArrowFunction => check_if_arrow_func!($node, $ancestors),
+            ArrowFunction => check_if_arrow_func!($node, $ancestors, $field_definition),
             _ => false,
         }
     };
@@ -168,7 +181,7 @@ macro_rules! is_js_closure {
             FunctionExpression | GeneratorFunction => {
                 !check_if_func!($node, $ancestors, $field_definition)
             }
-            ArrowFunction => !check_if_arrow_func!($node, $ancestors),
+            ArrowFunction => !check_if_arrow_func!($node, $ancestors, $field_definition),
             _ => false,
         }
     };
