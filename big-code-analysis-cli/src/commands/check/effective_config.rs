@@ -253,28 +253,25 @@ fn resolved_limits(set: &ThresholdSet) -> BTreeMap<String, f64> {
         .collect()
 }
 
-impl EffectiveConfig {
-    /// Project the resolved `ThresholdSet` + the original CLI args into
-    /// a serializable view. Paths are rendered with [`Path::display`]
-    /// because the printed config is informational; `--config` only
-    /// reads the `[thresholds]` table back, where keys/values are pure
-    /// ASCII metric names + numbers and round-trip exactly.
-    pub(crate) fn from_resolved(
+impl EffectiveCheck {
+    /// Project the CLI args and any applied manifest into the
+    /// serializable `[check]` view.
+    ///
+    /// Its own constructor rather than a block inside
+    /// [`EffectiveConfig::from_resolved`]: that function built two
+    /// independent types, and this half is a flat projection whose
+    /// Halstead effort is entirely operand vocabulary — one unique
+    /// operand per field name, and no decisions at all. Splitting on
+    /// the boundary a reader would already draw puts each type’s
+    /// construction with its own type.
+    fn from_resolved(
         globals: &GlobalOpts,
         args: &CheckArgs,
-        resolved: &LanguageThresholds,
         manifest: Option<&Manifest>,
         tier: TierSpec,
         tiered_exit_codes: bool,
     ) -> Self {
-        let thresholds = EffectiveThresholds {
-            global: resolved_limits(resolved.global()),
-            lang: resolved
-                .languages()
-                .map(|(slug, set)| (slug, resolved_limits(set)))
-                .collect(),
-        };
-        let check = EffectiveCheck {
+        Self {
             paths: globals
                 .paths
                 .iter()
@@ -323,7 +320,32 @@ impl EffectiveConfig {
             },
             baseline_line_tolerance: args.baseline_line_tolerance,
             baseline_fuzzy_match: args.baseline_fuzzy_match.unwrap_or(false),
+        }
+    }
+}
+
+impl EffectiveConfig {
+    /// Project the resolved `ThresholdSet` + the original CLI args into
+    /// a serializable view. Paths are rendered with [`Path::display`]
+    /// because the printed config is informational; `--config` only
+    /// reads the `[thresholds]` table back, where keys/values are pure
+    /// ASCII metric names + numbers and round-trip exactly.
+    pub(crate) fn from_resolved(
+        globals: &GlobalOpts,
+        args: &CheckArgs,
+        resolved: &LanguageThresholds,
+        manifest: Option<&Manifest>,
+        tier: TierSpec,
+        tiered_exit_codes: bool,
+    ) -> Self {
+        let thresholds = EffectiveThresholds {
+            global: resolved_limits(resolved.global()),
+            lang: resolved
+                .languages()
+                .map(|(slug, set)| (slug, resolved_limits(set)))
+                .collect(),
         };
+        let check = EffectiveCheck::from_resolved(globals, args, manifest, tier, tiered_exit_codes);
         Self { thresholds, check }
     }
 }
