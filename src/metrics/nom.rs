@@ -612,17 +612,24 @@ mod tests {
              }",
             "foo.js",
             |metric| {
-                // Number of spaces = 5
-                // functions: f, foo, bar
-                // closures:  return function ()
+                // Number of spaces = 5.
+                // functions: f, foo
+                // closures:  the IIFE assigned to `bar`, and the
+                //            function it returns
+                //
+                // The IIFE moved to the closure side in #1188. It used to
+                // count as the function `bar` purely because its *result*
+                // was bound to a name: written `(function(){…})()` with
+                // the assignment dropped, the identical construct was
+                // already a closure. Both spellings are closures now.
                 insta::assert_json_snapshot!(
                     metric.nom,
                     @r#"
                 {
-                  "functions": 3,
-                  "closures": 1,
-                  "functions_average": 0.6,
-                  "closures_average": 0.2,
+                  "functions": 2,
+                  "closures": 2,
+                  "functions_average": 0.4,
+                  "closures_average": 0.4,
                   "total": 4,
                   "average": 0.8,
                   "functions_min": 0,
@@ -634,6 +641,126 @@ mod tests {
                 );
             },
         );
+    }
+
+    /// The two anonymous-function forms must be classified by the same
+    /// rule (#1188).
+    ///
+    /// `check_if_func!` and `check_if_arrow_func!` walk the ancestor
+    /// chain to decide whether an expression is *bound to a name* or used
+    /// positionally, and they used to disagree in three ways. Each case
+    /// below is one measured divergence; the function-expression and
+    /// arrow spellings must now agree.
+    ///
+    /// Uses `metrics_verbatim` rather than the `check_metrics` shim,
+    /// whose bare-`fn` callback cannot capture the case's label or its
+    /// expectation.
+    fn check_js_binding_site_parity(lang: crate::LANG) {
+        let split = |source: &str| {
+            let m = crate::test_support::metrics_verbatim(
+                lang,
+                source.as_bytes(),
+                crate::MetricsOptions::default(),
+            );
+            (m.nom.functions_sum(), m.nom.closures_sum())
+        };
+
+        // (label, function-expression form, arrow form, is it a function?)
+        let cases: &[(&str, &str, &str, bool)] = &[
+            // An IIFE is the same construct whether or not its *result*
+            // is bound. It used to be a function in the bound spelling
+            // only, because `$stop` was `Arguments` for functions and
+            // `CallExpression` for arrows — different tree levels, and an
+            // IIFE's chain carries no `arguments` node at all.
+            (
+                "bare IIFE",
+                "(function (c) { return c; })(1);",
+                "(() => 1)(1);",
+                false,
+            ),
+            (
+                "bound IIFE",
+                "const v = (function (c) { return c; })(1);",
+                "const v = (() => 1)(1);",
+                false,
+            ),
+            // A pair with a *non-identifier* key. The arrow reached the
+            // right verdict for a bare key only, through `$extra`'s
+            // `property_identifier` sibling, which a string key does not
+            // provide; `Pair` was in the function `$up` alone.
+            (
+                "string-keyed pair",
+                "({ \"k\": function () { return 1; } });",
+                "({ \"k\": () => 1 });",
+                true,
+            ),
+            // The mirror: `has_sibling(PropertyIdentifier)` was in the
+            // arrow `$extra` alone, so a class field initialiser was a
+            // function as an arrow and a closure as a function expression.
+            (
+                "class field initialiser",
+                "class C { p = function () { return 1; }; }",
+                "class C { p = () => 1; }",
+                true,
+            ),
+            // Plain positional callbacks, unchanged by all of the above.
+            (
+                "positional callback",
+                "run(function () { return 1; });",
+                "run(() => 1);",
+                false,
+            ),
+        ];
+
+        for &(label, func_form, arrow_form, expected) in cases {
+            for (form, source) in [("function", func_form), ("arrow", arrow_form)] {
+                let (functions, closures) = split(source);
+                assert_eq!(
+                    functions == 1,
+                    expected,
+                    "{lang:?} {label} / {form}: expected a {}, got functions {functions} closures {closures}",
+                    if expected { "function" } else { "closure" },
+                );
+            }
+        }
+
+        // The divergence that must **survive**: for a function expression
+        // an `identifier` child is its optional name, so
+        // `run(function g(){})` is a function; for an arrow it is the
+        // un-parenthesised parameter, so `run(x => x)` must stay a
+        // closure. Unifying that one would reclassify the commonest
+        // callback shape in any JS corpus. Asserted in both directions so
+        // a future "unify the last one too" cannot pass quietly.
+        assert_eq!(
+            split("run(function g() { return 1; });").0,
+            1,
+            "{lang:?}: a named function expression carries its own name",
+        );
+        assert_eq!(
+            split("run(x => x);").1,
+            1,
+            "{lang:?}: an arrow's identifier child is its parameter, not a name",
+        );
+    }
+
+    #[test]
+    fn javascript_binding_site_parity() {
+        check_js_binding_site_parity(crate::LANG::Javascript);
+    }
+
+    #[test]
+    fn mozjs_binding_site_parity() {
+        check_js_binding_site_parity(crate::LANG::Mozjs);
+    }
+
+    #[test]
+    fn typescript_binding_site_parity() {
+        check_js_binding_site_parity(crate::LANG::Typescript);
+    }
+
+    #[test]
+    fn tsx_binding_site_parity() {
+        check_js_binding_site_parity(crate::LANG::Tsx);
     }
 
     #[test]
@@ -1594,10 +1721,10 @@ mod tests {
                     metric.nom,
                     @r#"
                 {
-                  "functions": 3,
-                  "closures": 1,
-                  "functions_average": 0.6,
-                  "closures_average": 0.2,
+                  "functions": 2,
+                  "closures": 2,
+                  "functions_average": 0.4,
+                  "closures_average": 0.4,
                   "total": 4,
                   "average": 0.8,
                   "functions_min": 0,
