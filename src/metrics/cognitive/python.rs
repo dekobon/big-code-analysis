@@ -222,13 +222,17 @@ impl Cognitive for PythonCode {
             // this definition is itself nested inside another, so a `def`
             // written inside an `if` is scored against its own depth rather
             // than the enclosing function's — matching Java, Rust, and
-            // every other conforming family (#696, #1149). Python is the
-            // one family that provably needs no `nesting.lambda = 0`
-            // companion to go with it — a `def` is a statement and a
-            // lambda body is a single expression, so no
-            // `function_definition` can sit under a `lambda`. Elsewhere
-            // that shape is legal (`let f = || { fn g() {} };`) and only
-            // the JS macro currently carries the extra line.
+            // every other conforming family (#696, #1149).
+            //
+            // Python is the one family for which the helper's
+            // `nesting.lambda = 0` is provably a no-op rather than a
+            // correction: a `def` is a statement and a lambda body is a
+            // single expression, so no `function_definition` can sit
+            // under a `lambda`. Elsewhere that shape is legal
+            // (`let f = || { fn g() {} };`), and until #1187 only the JS
+            // macro reset the channel — which is why the same body
+            // scored 3 or 2 in Rust, Java, C++, PHP and C# depending on
+            // whether something two levels up was a closure.
             FunctionDefinition => {
                 enter_function_boundary(&mut nesting, node, ancestors, &[FunctionDefinition]);
             }
