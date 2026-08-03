@@ -183,6 +183,19 @@ for historical reference.
 
 ### Changed
 
+- `PreprocDiagnostic`'s `Display` output now uses a lowercase
+  `warning:` prefix for all five variants. `SelfInclusion`,
+  `IncludeCycle` and `NotPreprocessed` previously capitalised it while
+  the two non-UTF-8 variants did not, so `bca preproc` emitted both
+  spellings — and the capitalised three matched no other CLI
+  diagnostic, since `warn()` has printed lowercase `warning:` since
+  #609. Per `STABILITY.md`, `Display` impls are stable but their exact
+  wording is not, so this is not a breaking change. It is also
+  deliberately byte-compatible with routing these through `warn()`
+  later: `warn(msg)` renders `warning: {msg}`, so moving the prefix out
+  of `Display` will produce identical output rather than a second
+  user-visible change.
+
 - This project's own `nargs` limit converges from 7 to the shipped
   default of 5 (#1183). Repository configuration only — no library or CLI
   behaviour changes. The convergence was declined twice before, both
