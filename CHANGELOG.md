@@ -1295,7 +1295,7 @@ for historical reference.
 
   **This changes metric values.** Any Rust file whose last line is a doc
   comment with no trailing newline now reports one more `cloc` (and one
-  fewer `blank`) than a `2.0.1` release build did; two such comments
+  fewer `blank`) than a `2.0.0` release build did; two such comments
   shift by two. Re-check `.bca-baseline.toml` entries and thresholds for
   affected files.
 
