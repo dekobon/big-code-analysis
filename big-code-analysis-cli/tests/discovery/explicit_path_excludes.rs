@@ -109,6 +109,83 @@ fn same_manifest_exclude_still_drops_the_file_on_a_directory_walk() {
         .stderr(predicate::str::contains("named explicitly").not());
 }
 
+/// A manifest exclude must keep applying when the walk root is a
+/// *subdirectory* of the manifest root (#1189).
+///
+/// The glob is written against the `bca.toml` directory, but a directory
+/// seed moves the walk root: `bca check nested` emits `nested/skipme/a.rs`
+/// where `./nested/skipme/**` was authored for the project root, so
+/// matching the manifest set against the walk-root form silently stopped
+/// excluding anything. `same_manifest_exclude_still_drops_the_file_on_a_directory_walk`
+/// above cannot detect this — it runs from the fixture root with no
+/// seed, where the two roots coincide.
+///
+/// `nested/kept.rs` is the positive half: without a surviving offender,
+/// "the excluded file is absent" is indistinguishable from a run that
+/// resolved no files at all.
+fn nested_fixture() -> TempDir {
+    let dir = fixture("exclude = [\"./nested/skipme/**\"]\n");
+    fs::create_dir_all(dir.path().join("nested").join("skipme")).unwrap();
+    fs::write(
+        dir.path().join("nested").join("skipme").join("a.rs"),
+        branchy("nested_skipme_offender"),
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("nested").join("kept.rs"),
+        branchy("nested_kept_offender"),
+    )
+    .unwrap();
+    dir
+}
+
+#[test]
+fn manifest_exclude_applies_under_a_directory_seed() {
+    let dir = nested_fixture();
+
+    cli(dir.path())
+        .args(["check", "nested", "--no-summary", "--no-remediation"])
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("nested_kept_offender"))
+        .stdout(predicate::str::contains("nested_skipme_offender").not());
+}
+
+/// The same seed named from *inside* the subdirectory, where the walk
+/// root, the working directory and the manifest root are three different
+/// places. This is the harder half: the manifest is discovered upwards,
+/// so the glob still carries the project root's spelling while every
+/// path the walk emits is relative to `nested`.
+#[test]
+fn manifest_exclude_applies_to_a_directory_seed_from_inside_it() {
+    let dir = nested_fixture();
+
+    cli(&dir.path().join("nested"))
+        .args(["check", ".", "--no-summary", "--no-remediation"])
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("nested_kept_offender"))
+        .stdout(predicate::str::contains("nested_skipme_offender").not());
+}
+
+/// The control: the canonical `paths = ["."]` walk from the manifest
+/// root, which was always correct, must stay correct. Anchoring the
+/// manifest set at the manifest directory rather than the walk root is a
+/// no-op here precisely because the two coincide — and if that stopped
+/// holding, this is the test that says so.
+#[test]
+fn manifest_exclude_still_applies_to_the_canonical_root_walk() {
+    let dir = nested_fixture();
+
+    cli(dir.path())
+        .args(["check", "--no-summary", "--no-remediation"])
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("nested_kept_offender"))
+        .stdout(predicate::str::contains("kept_offender"))
+        .stdout(predicate::str::contains("nested_skipme_offender").not());
+}
+
 /// The `-X` / `--exclude` CLI surface behaves as the manifest key does,
 /// and the reported glob is the *matching* pattern rather than whichever
 /// one happens to sit first.

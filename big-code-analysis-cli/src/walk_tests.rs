@@ -40,11 +40,15 @@ fn walk_directory_seed_returns_sorted_paths() {
 
     let empty_include = mk_globset(Vec::new()).expect("empty globset");
     let empty_exclude = build_exclude_globset(Vec::new(), None, "--exclude-from");
+    let cwd = std::env::current_dir().unwrap_or_default();
     let filters = WalkFilters {
         include: &empty_include,
-        exclude: &empty_exclude,
-        manifest_exclude: &empty_exclude,
-        manifest_dir: None,
+        excludes: crate::walk_seed::AnchoredExcludes::new(
+            &empty_exclude,
+            &empty_exclude,
+            None,
+            &cwd,
+        ),
         language_forced: false,
     };
     let mut errors = WalkErrors::default();

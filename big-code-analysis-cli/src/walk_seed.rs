@@ -271,6 +271,88 @@ pub(crate) fn manifest_match_path<'a>(
     )
 }
 
+/// The two exclude sets a run carries, each matched at its own root.
+///
+/// The rule is one sentence — *a path is excluded when the CLI set
+/// matches it at the working directory, or the manifest set matches it
+/// at the manifest directory* — and before #1189 it was spelled three
+/// separate times with three different answers. [`WalkFilters::passes`]
+/// matched both sets at the walk root, which is only the manifest root
+/// for the canonical `paths = ["."]`; a directory seed
+/// (`bca metrics -p sub`) moved the walk root and the manifest globs
+/// silently stopped applying. The other two sites anchored correctly.
+///
+/// Stating it once is the point. There is exactly one deliberate
+/// exception, and it is a *separate method on the caller* rather than a
+/// divergence inside this rule: [`crate::walk::WalkFilters::includes`]
+/// consults the include allow-list and skips excludes entirely, because
+/// a project's ignore rules shape *directory-walk* scope and must not
+/// silently discard a file the user named on the command line (#726).
+pub(crate) struct AnchoredExcludes<'a> {
+    /// Globs the caller typed, resolved against the working directory.
+    cli: &'a crate::ExcludeGlobs,
+    /// Globs from a `bca.toml`, resolved against that file's directory.
+    manifest: &'a crate::ExcludeGlobs,
+    anchor: ManifestAnchor<'a>,
+}
+
+impl<'a> AnchoredExcludes<'a> {
+    /// `manifest_dir` is `None` when no manifest applied, which makes
+    /// every manifest match fall back to the cwd-anchored form.
+    pub(crate) fn new(
+        cli: &'a crate::ExcludeGlobs,
+        manifest: &'a crate::ExcludeGlobs,
+        manifest_dir: Option<&'a std::path::Path>,
+        cwd: &'a PathBuf,
+    ) -> Self {
+        Self {
+            cli,
+            manifest,
+            anchor: ManifestAnchor::resolve(manifest_dir, cwd),
+        }
+    }
+
+    /// The first pattern `path` matches in either set, or `None`.
+    ///
+    /// `path` is the file as the run knows it; `cwd_form` its
+    /// working-directory-anchored spelling. The CLI set is consulted
+    /// first and the manifest anchoring computed only if it declines,
+    /// because [`manifest_match_path`] allocates and this runs for every
+    /// walked file.
+    pub(crate) fn first_match(
+        &self,
+        path: &std::path::Path,
+        cwd_form: CwdForm<'_>,
+    ) -> Option<&'a str> {
+        if !self.cli.is_empty()
+            && let Some(glob) = self.cli.first_match(cwd_form.0)
+        {
+            return Some(glob);
+        }
+        if self.manifest.is_empty() {
+            return None;
+        }
+        self.manifest
+            .first_match(manifest_match_path(self.anchor, path, cwd_form))
+    }
+
+    /// Whether either set excludes `path`.
+    ///
+    /// The `is_empty` arms are not redundant with the match itself:
+    /// `GlobSet::is_match` builds its `Candidate` *before* its own empty
+    /// check, and on Windows that allocates. Every walked file reaches
+    /// this, so an unconfigured set must cost nothing.
+    pub(crate) fn excludes(&self, path: &std::path::Path, cwd_form: CwdForm<'_>) -> bool {
+        if !self.cli.is_empty() && self.cli.is_match(cwd_form.0) {
+            return true;
+        }
+        !self.manifest.is_empty()
+            && self
+                .manifest
+                .is_match(manifest_match_path(self.anchor, path, cwd_form))
+    }
+}
+
 /// The path to match `--include` globs against for an *explicitly named
 /// file seed*: its CWD-relative tail when the file lies under the CWD,
 /// otherwise the seed as spelled.
