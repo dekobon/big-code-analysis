@@ -4,7 +4,9 @@
 
 use std::cell::Cell;
 
-use super::{LineRun, LineSpan, MAX_BLAME_ATTEMPTS, ObjectId, retry_transient};
+use super::{
+    LineRun, LineSpan, MAX_BLAME_ATTEMPTS, ObjectId, is_transient_object_miss, retry_transient,
+};
 
 /// Drive `retry_transient` with a synthetic closure whose i-th call
 /// returns `outcomes[i]` (and counts calls), treating every `Err` as
@@ -257,5 +259,45 @@ fn a_session_handle_carries_the_object_cache() {
     assert!(
         engine.new_state().repo.objects.has_object_cache(),
         "a blame session must set an object cache on its thread-local handle"
+    );
+}
+
+/// `is_transient_object_miss` decides whether the post-blame commit
+/// lookup is retried. Getting it wrong is silent in both directions: too
+/// narrow and the #579 race resurfaces as a hard failure, too wide and a
+/// genuinely-missing or wrong-kind object burns the whole retry budget
+/// before reporting what was actually wrong.
+///
+/// The predicate is a two-level `matches!`, so a test that only supplied
+/// the retryable value would pass against `|_| true`. Each non-retryable
+/// shape is therefore constructed too, one per arm the pattern can
+/// reject: the sibling `Find` variant (inner arm) and `Convert` (outer
+/// arm).
+#[test]
+fn only_a_not_found_commit_lookup_is_retried() {
+    use gix::object::find::existing::Error as ExistingError;
+    use gix::object::find::existing::with_conversion::Error as LookupError;
+
+    let oid = ObjectId::null(gix::hash::Kind::Sha1);
+
+    assert!(
+        is_transient_object_miss(&LookupError::Find(ExistingError::NotFound { oid })),
+        "a NotFound miss is the transient ODB race (#579) and must be retried"
+    );
+
+    assert!(
+        !is_transient_object_miss(&LookupError::Find(ExistingError::Find(
+            "odb handle is closed".into()
+        ))),
+        "a lower-level Find failure is deterministic — retrying it only delays the error"
+    );
+
+    assert!(
+        !is_transient_object_miss(&LookupError::Convert(gix::object::try_into::Error {
+            actual: gix::objs::Kind::Tree,
+            expected: gix::objs::Kind::Commit,
+            id: oid,
+        })),
+        "an object that is not a commit will never become one; retrying cannot help"
     );
 }
