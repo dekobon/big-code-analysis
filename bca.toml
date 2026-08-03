@@ -149,10 +149,22 @@ exclude = [
 # Re-measure with `bca check --explain-threshold nargs=6` (#1169) rather
 # than a bare `--threshold`, which has no soft tier by design. What makes
 # `nargs` different from the `cognitive` convergence above is where the
-# limit falls in the distribution: nothing in this repo exceeds 6, so a
+# limit falls in the distribution: nothing *unbaselined* exceeds 6, so a
 # limit of 6 sits on the population's ceiling and buys no hard-tier gate,
-# whereas `cognitive` runs to 20 with 15 inside the distribution. The
-# 6 -> 5 step is tracked separately in #1183.
+# whereas `cognitive` runs to 20 with 15 inside the distribution.
+#
+# The 6 -> 5 step (#1183) was measured and rejected, and the reason is
+# about the metric rather than about this codebase. The gate extracts
+# `nargs.total()`, which sums a function's own parameters with every
+# nested closure's. Of the 76 functions a limit of 5 would newly gate,
+# only 17 have 6 or more parameters of their own; 59 carry closure args
+# and 44 have four or fewer own parameters. The extreme is
+# `Parser<T>::filters` — one parameter, plus five from the closures in
+# its body. Converging would therefore pressure contributors to delete
+# idiomatic inline closures rather than to simplify signatures, which is
+# not what the metric is for. Whether the gate should key on
+# `function_args` instead is tracked in #1196; until that is settled a
+# lower limit here would be measuring the wrong thing.
 cognitive = 15
 cyclomatic = 15
 "halstead.effort" = 50000
