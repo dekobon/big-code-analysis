@@ -8671,8 +8671,10 @@ function f(int $a, int $b): int {
 
     #[test]
     fn tcl_ternary_counts_condition() {
-        // `$a ? $b : $c` inside an `expr` is one `ternary_expr`
-        // node → 1 condition.
+        // The `ternary_expr` node is one condition and its condition
+        // slot `$a` — a bare truthy test — is another, matching C++'s
+        // `int r = a ? b : c;` (also 2). The two branch operands are
+        // unnegated and so contribute nothing (#1180).
         check_metrics::<TclParser>(
             "proc f {a b c} {\n\
                  set r [expr {$a ? $b : $c}]\n\
@@ -8681,10 +8683,57 @@ function f(int $a, int $b): int {
             |metric| {
                 assert_eq!(metric.abc.assignments_sum(), 1);
                 assert_eq!(metric.abc.branches_sum(), 0);
-                assert_eq!(metric.abc.conditions_sum(), 1);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
+    }
+
+    /// The Tcl half of the ternary slot-location guard (#1180).
+    ///
+    /// `ternary_expr` exposes no grammar fields, so the slots are found
+    /// relative to the `?` and `:` tokens. A *parenthesised* condition is
+    /// the input that discriminates that from a fixed-index reading:
+    /// `_expr` inlines `( … )` as anonymous children of `ternary_expr`,
+    /// so `($a) ? !$b : !$c` shifts every operand right by one and
+    /// `child(0)` / `child(2)` / `child(4)` land on `(`, `)` and `?`.
+    /// Without this case the whole fixed-index revert passes.
+    #[test]
+    fn tcl_parenthesised_ternary_condition_matches_the_bare_form() {
+        let conditions = |source: &str| {
+            crate::test_support::metrics_verbatim(
+                crate::LANG::Tcl,
+                source.as_bytes(),
+                crate::MetricsOptions::default(),
+            )
+            .abc
+            .conditions_sum()
+        };
+        let bare = conditions("proc f {a b c} {\n set r [expr {$a ? !$b : !$c}]\n}");
+        assert_eq!(bare, 4, "the bare form is the documented reference value");
+        assert_eq!(
+            conditions("proc f {a b c} {\n set r [expr {($a) ? !$b : !$c}]\n}"),
+            bare,
+            "parenthesising the condition must not change the count"
+        );
+    }
+
+    #[test]
+    fn tcl_bare_truthy_and_negated_predicates_count_one_condition() {
+        // The headline #1180 fix, on the Tcl side: both were 0 before.
+        let conditions = |source: &str| {
+            crate::test_support::metrics_verbatim(
+                crate::LANG::Tcl,
+                source.as_bytes(),
+                crate::MetricsOptions::default(),
+            )
+            .abc
+            .conditions_sum()
+        };
+        assert_eq!(conditions("proc f {a} {\n if {$a} { puts x }\n}"), 1);
+        assert_eq!(conditions("proc f {a} {\n if {!$a} { puts x }\n}"), 1);
+        assert_eq!(conditions("proc f {a} {\n while {$a} { puts x }\n}"), 1);
+        assert_eq!(conditions("proc f {a} {\n while {!$a} { puts x }\n}"), 1);
     }
 
     #[test]
@@ -8728,8 +8777,14 @@ function f(int $a, int $b): int {
              }",
             "foo.tcl",
             |metric| {
-                // The two `expr` predicates feed the walker: 4 + 3 = 7.
-                assert_eq!(metric.abc.conditions_sum(), 7);
+                // The two chains feed the walker: 4 + 3 = 7. Each `if`
+                // predicate is additionally a bare truthy test of a
+                // command substitution — `{[expr {…}]}` is structurally
+                // `if {[somecmd]}`, which counts 1 exactly as `if {$a}`
+                // does — so 7 + 2 = 9 (#1180). Written without the
+                // redundant `[expr …]` wrapper, `if {$a || $b}` scores
+                // 2, matching C++'s `if (a || b)`.
+                assert_eq!(metric.abc.conditions_sum(), 9);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8747,7 +8802,10 @@ function f(int $a, int $b): int {
              }",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4);
+                // 2 + 2 from the chains, plus one bare truthy test per
+                // `while` predicate — see `tcl_if_multiple_conditions`
+                // (#1180).
+                assert_eq!(metric.abc.conditions_sum(), 6);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8895,7 +8953,11 @@ function f(int $a, int $b): int {
             "foo.irule",
             |metric| {
                 assert_eq!(metric.abc.assignments_sum(), 3);
-                assert_eq!(metric.abc.conditions_sum(), 2);
+                // The `elseif` and `else` clauses are one condition each,
+                // as before; #1180 adds the two bare truthy predicates
+                // (`{ $a }`, `{ $b }`). C++'s
+                // `if(a){} else if(b){} else {}` also scores 4.
+                assert_eq!(metric.abc.conditions_sum(), 4);
             },
         );
     }
@@ -8930,21 +8992,101 @@ function f(int $a, int $b): int {
         );
     }
 
-    /// A bare-truthy `if {$a}` condition carries no comparison, ternary,
-    /// or short-circuit operator, so the unary-conditional walker is
-    /// never invoked and conditions stay 0 — iRules does not wire the
-    /// broader Phase 2B slot routing that counts bare-truthy operands.
-    /// The `log` command is the single branch. Pins the metrics-book
-    /// claim in the ABC per-language deviation table.
+    /// A bare-truthy `if {$a}` predicate is one condition (#1180).
+    ///
+    /// It carries no comparison, ternary or short-circuit operator, so
+    /// before the Phase 2B slot routing landed nothing invoked the
+    /// unary-conditional walker and the whole predicate scored 0 — this
+    /// test previously pinned that absence, and the metrics book's ABC
+    /// deviation table said so. Now the `if` node routes its `expr`
+    /// predicate and the count matches C++'s `if (a)`, which is also 1.
+    /// The `log` command remains the single branch.
     #[test]
-    fn irules_abc_bare_truthy_reports_zero() {
+    fn irules_abc_bare_truthy_counts_one_condition() {
         check_metrics::<IrulesParser>(
             "when X {\n    if { $a } { log local0. hi }\n}\n",
             "foo.irule",
             |metric| {
                 assert_eq!(metric.abc.branches_sum(), 1);
-                assert_eq!(metric.abc.conditions_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
             },
+        );
+    }
+
+    /// The negated form of the same predicate, which was *also* 0 before
+    /// #1180: `!$a` reached the walker but no parent seeded boolean
+    /// context, so the terminal operand was never counted. Distinct from
+    /// `irules_abc_negated_operands_in_chain`, whose `&&` supplied the
+    /// seed the bare form lacked.
+    #[test]
+    fn irules_abc_negated_bare_truthy_counts_one_condition() {
+        check_metrics::<IrulesParser>(
+            "when X {\n    if { !$a } { log local0. hi }\n}\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 1);
+                assert_eq!(metric.abc.conditions_sum(), 1);
+            },
+        );
+    }
+
+    /// The ternary's three operand slots, located relative to the `?`
+    /// and `:` tokens because the grammar exposes no fields (#1180).
+    ///
+    /// `$a ? !$b : !$c` is four: the `ternary_expr` node, the bare
+    /// truthy condition, and one per negated branch — the same value
+    /// Java, C#, Groovy, the C family, the JS family, PHP, Perl, Ruby
+    /// and Python report for the identical expression.
+    #[test]
+    fn irules_abc_ternary_routes_its_operand_slots() {
+        check_metrics::<IrulesParser>(
+            "when X {\n    set y [expr { $a ? !$b : !$c }]\n}\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4);
+            },
+        );
+    }
+
+    /// The #1161 control: a ternary whose condition is a *comparison*
+    /// must not move. The `>` already supplied its condition and the
+    /// branches are unnegated, so routing the slots adds nothing.
+    #[test]
+    fn irules_abc_comparison_ternary_is_unchanged_by_slot_routing() {
+        check_metrics::<IrulesParser>(
+            "when X {\n    set y [expr { $a > 0 ? 1 : 0 }]\n}\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+    }
+
+    /// A parenthesised ternary condition scores the same as a bare one.
+    ///
+    /// The grammar inlines `( … )` as anonymous children of
+    /// `ternary_expr` rather than wrapping them in a node, so a
+    /// fixed-index reading of the slots would shift right by one and
+    /// mis-assign every operand. This is the input that discriminates
+    /// the token-relative location the fix uses.
+    #[test]
+    fn irules_abc_parenthesised_ternary_condition_matches_the_bare_form() {
+        // `check_metrics` takes a bare `fn`, so it cannot carry the
+        // first measurement into the second comparison; `metrics_verbatim`
+        // returns a value instead.
+        let conditions = |source: &str| {
+            crate::test_support::metrics_verbatim(
+                crate::LANG::Irules,
+                source.as_bytes(),
+                crate::MetricsOptions::default(),
+            )
+            .abc
+            .conditions_sum()
+        };
+        assert_eq!(
+            conditions("when X {\n    set y [expr { ($a) ? !$b : !$c }]\n}\n"),
+            conditions("when X {\n    set y [expr { $a ? !$b : !$c }]\n}\n"),
+            "parenthesising the condition must not change the count"
         );
     }
 }
