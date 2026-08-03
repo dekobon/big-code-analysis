@@ -25,6 +25,11 @@ impl Checker for JavascriptCode {
                 | Javascript::GeneratorFunctionDeclaration
                 | Javascript::ClassDeclaration
                 | Javascript::ArrowFunction
+                // ES2022 `static { … }`. Referenced nowhere
+                // outside the generated enum before #1184, so a
+                // class static block opened no space and its
+                // control flow was charged to the class.
+                | Javascript::ClassStaticBlock
         )
     }
 

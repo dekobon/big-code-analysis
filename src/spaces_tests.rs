@@ -2109,3 +2109,170 @@ mod childless_root_span {
         assert_eq!(span("// c\nfn a() {}\n"), (1, 2));
     }
 }
+
+/// Constructs that carry executable code but no name token now open a
+/// function space of their own (#1184).
+///
+/// Each was referenced nowhere outside the generated language enum, so
+/// it opened no `FuncSpace` at all: its control flow was charged to the
+/// enclosing class, `nom` / `wmc` under-counted, and `bca check` could
+/// never flag one however complex it got. A Kotlin file of nothing but
+/// property accessors reported `nom.functions == 0`.
+///
+/// Every assertion here is made on **both** the new space and the space
+/// it took the value from. Asserting only the new one passes even if the
+/// parent kept a duplicate count, which is the defect #1160 found in the
+/// first draft of the equivalent Java fix.
+#[cfg(test)]
+mod nameless_construct_spaces {
+    use crate::test_support::space_verbatim;
+    use crate::{FuncSpace, LANG, MetricsOptions, SpaceKind};
+
+    fn analyse(lang: LANG, source: &str) -> FuncSpace {
+        space_verbatim(lang, source.as_bytes(), MetricsOptions::default())
+    }
+
+    /// The `(name, kind)` of every descendant space, in preorder.
+    fn shape(space: &FuncSpace) -> Vec<(Option<&str>, SpaceKind)> {
+        let mut out = vec![(space.name.as_deref(), space.kind)];
+        for child in &space.spaces {
+            out.extend(shape(child));
+        }
+        out
+    }
+
+    fn child<'a>(space: &'a FuncSpace, name: &str) -> &'a FuncSpace {
+        fn find<'a>(s: &'a FuncSpace, name: &str) -> Option<&'a FuncSpace> {
+            if s.name.as_deref() == Some(name) {
+                return Some(s);
+            }
+            s.spaces.iter().find_map(|c| find(c, name))
+        }
+        find(space, name).unwrap_or_else(|| panic!("no space named {name:?} in {:?}", shape(space)))
+    }
+
+    #[test]
+    #[cfg(feature = "kotlin")]
+    fn kotlin_accessors_and_init_open_named_spaces() {
+        let root = analyse(
+            LANG::Kotlin,
+            "class C {\n\
+             \x20   var p: Int = 0\n\
+             \x20       get() { if (field > 0) { return field } else { return 0 } }\n\
+             \x20       set(v) { if (v > 0) { field = v } }\n\
+             \x20   init { if (p > 0) { println(\"x\") } }\n\
+             }\n",
+        );
+        assert_eq!(
+            shape(&root),
+            vec![
+                (None, SpaceKind::Unit),
+                (Some("C"), SpaceKind::Class),
+                (Some("<get>"), SpaceKind::Function),
+                (Some("<set>"), SpaceKind::Function),
+                (Some("<init>"), SpaceKind::Function),
+            ],
+        );
+
+        // The value moved rather than being duplicated: the accessor
+        // owns its branch, and the class no longer owns it directly.
+        let class = child(&root, "C");
+        assert_eq!(
+            class.metrics.cognitive.cognitive(),
+            0,
+            "class own cognitive"
+        );
+        assert_eq!(child(&root, "<get>").metrics.cognitive.cognitive(), 2);
+        assert_eq!(child(&root, "<set>").metrics.cognitive.cognitive(), 1);
+        assert_eq!(child(&root, "<init>").metrics.cognitive.cognitive(), 1);
+
+        // `nom.functions` deliberately stays 0. The issue calls an
+        // accessor-only file reporting `nom.functions == 0` the worst of
+        // the set, and this fix does *not* change that number: `Nom`
+        // keys on `is_func`, and these constructs are `is_func_space`
+        // only, because a Kotlin accessor is not a callable anyone names
+        // at a call site (`p.foo`, not `p.getFoo()`) and counting it as
+        // a method would have `npm` bill the same property once as an
+        // attribute and again as a method.
+        //
+        // What the fix does change is everything the missing *space*
+        // caused: each accessor now has its own metric scope, so its
+        // complexity is no longer charged to the class and `bca check`
+        // can flag it. WMC picks them up because it keys on the space
+        // kind rather than on `is_func`.
+        assert_eq!(
+            root.metrics.nom.functions_sum(),
+            0,
+            "accessors are is_func_space, not is_func"
+        );
+        assert_eq!(
+            root.metrics.wmc.class_wmc_sum(),
+            6,
+            "WMC keys on SpaceKind::Function, so it does pick them up"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "java")]
+    fn java_static_initializer_opens_a_named_space() {
+        let root = analyse(
+            LANG::Java,
+            "class C { static int x; static { if (x > 0) { x = 1; } else { x = 2; } } }\n",
+        );
+        assert_eq!(
+            shape(&root),
+            vec![
+                (None, SpaceKind::Unit),
+                (Some("C"), SpaceKind::Class),
+                (Some("<static-init>"), SpaceKind::Function),
+            ],
+        );
+        assert_eq!(child(&root, "C").metrics.cognitive.cognitive(), 0);
+        assert_eq!(
+            child(&root, "<static-init>").metrics.cognitive.cognitive(),
+            2
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "javascript")]
+    fn javascript_class_static_block_opens_a_named_space() {
+        let root = analyse(
+            LANG::Javascript,
+            "class C { static f; static { if (C.f) { C.f = 1; } else { C.f = 2; } } }\n",
+        );
+        assert_eq!(
+            shape(&root),
+            vec![
+                (None, SpaceKind::Unit),
+                (Some("C"), SpaceKind::Class),
+                (Some("<static-init>"), SpaceKind::Function),
+            ],
+        );
+        assert_eq!(child(&root, "C").metrics.cognitive.cognitive(), 0);
+        assert_eq!(
+            child(&root, "<static-init>").metrics.cognitive.cognitive(),
+            2
+        );
+    }
+
+    /// Sibling constructs with the same synthesised name are allowed to
+    /// collide, exactly as multiple `<anonymous>` siblings already do.
+    /// Pinned so the collision reads as a decision rather than an
+    /// oversight — inventing an index would make the name unstable under
+    /// an unrelated edit.
+    #[test]
+    #[cfg(feature = "java")]
+    fn two_static_initializers_produce_two_identically_named_spaces() {
+        let root = analyse(
+            LANG::Java,
+            "class C { static int x; static { x = 1; } static { x = 2; } }\n",
+        );
+        let names: Vec<_> = shape(&root)
+            .into_iter()
+            .filter(|(_, k)| *k == SpaceKind::Function)
+            .map(|(n, _)| n)
+            .collect();
+        assert_eq!(names, vec![Some("<static-init>"), Some("<static-init>")]);
+    }
+}

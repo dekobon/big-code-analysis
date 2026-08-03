@@ -19,6 +19,25 @@ impl Checker for KotlinCode {
                 | Kotlin::ObjectDeclaration
                 | Kotlin::CompanionObject
                 | Kotlin::ObjectLiteral
+                // Property accessors and `init { … }` carry executable
+                // code but were referenced nowhere outside the generated
+                // enum, so they opened no space at all: their control
+                // flow was charged to the enclosing class and `bca check`
+                // could never flag one however complex it got. A file of
+                // nothing but accessors reported `nom.functions == 0`
+                // (#1184).
+                //
+                // `is_func_space` and not `is_func`: none of the three is
+                // a callable a user names at a call site — in Kotlin you
+                // write `p.foo`, not `p.getFoo()` — and putting an
+                // accessor in `is_func` would have `npm` count the same
+                // property once as an attribute and again as a method,
+                // skewing the NPA/NPM ratio the OOP metrics exist to
+                // report. This is the same split the JS family already
+                // uses for `FunctionExpression`.
+                | Kotlin::Getter
+                | Kotlin::Setter
+                | Kotlin::AnonymousInitializer
         )
     }
 

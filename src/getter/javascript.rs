@@ -13,7 +13,9 @@ impl Getter for JavascriptCode {
             | GeneratorFunction
             | FunctionDeclaration
             | GeneratorFunctionDeclaration
-            | ArrowFunction => SpaceKind::Function,
+            | ArrowFunction
+            // ES2022 `static { … }` (#1184).
+            | ClassStaticBlock => SpaceKind::Function,
             Class | ClassDeclaration => SpaceKind::Class,
             Program => SpaceKind::Unit,
             _ => SpaceKind::Unknown,
@@ -25,6 +27,12 @@ impl Getter for JavascriptCode {
         code: &'a [u8],
         ancestors: Ancestors<'tree, '_>,
     ) -> Option<&'a str> {
+        // A class static block has no name token and no naming parent to
+        // fall back on, so it would otherwise land on `<anonymous>`
+        // alongside every arrow and function expression (#1184).
+        if node.kind_id() == Javascript::ClassStaticBlock as u16 {
+            return Some("<static-init>");
+        }
         if let Some(name) = node.child_by_field_name("name") {
             node_text(code, &name)
         } else {

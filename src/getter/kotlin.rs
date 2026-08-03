@@ -123,6 +123,39 @@ fn kotlin_string_has_interp(node: &Node, code: &[u8]) -> bool {
 }
 
 impl Getter for KotlinCode {
+    /// Names the space, synthesising one for constructs that carry no
+    /// name token (#1184).
+    ///
+    /// `get_func_space_name` returns `Option<&'a str>` borrowed from
+    /// `code`, so the only name available for a nameless construct is a
+    /// `&'static str` — a per-property spelling like `<get-foo>` would
+    /// need a signature change. Angle brackets follow the existing
+    /// `<anonymous>` convention and cannot collide with a real
+    /// identifier in any of these grammars.
+    ///
+    /// Sibling collisions are accepted, exactly as multiple
+    /// `<anonymous>` siblings already are: two properties each with a
+    /// getter, or two `static { }` blocks in one class, produce two
+    /// spaces with the same name. Nothing enforces name uniqueness
+    /// among siblings, and inventing an index would make the name
+    /// unstable under an unrelated edit.
+    ///
+    /// `<get>` / `<set>` are Kotlin's own spelling of the accessor
+    /// keywords; `<init>` is what the JVM calls the constructor an
+    /// `init` block compiles into.
+    fn get_func_space_name<'a, 'tree>(
+        node: &Node<'tree>,
+        code: &'a [u8],
+        ancestors: Ancestors<'tree, '_>,
+    ) -> Option<&'a str> {
+        match node.kind_id().into() {
+            Kotlin::Getter => Some("<get>"),
+            Kotlin::Setter => Some("<set>"),
+            Kotlin::AnonymousInitializer => Some("<init>"),
+            _ => crate::getter::default_func_space_name(node, code, ancestors),
+        }
+    }
+
     fn get_space_kind(node: &Node) -> SpaceKind {
         use Kotlin::*;
 
@@ -165,6 +198,13 @@ impl Getter for KotlinCode {
             FunctionDeclaration | SecondaryConstructor | LambdaLiteral | AnonymousFunction => {
                 SpaceKind::Function
             }
+            // Property accessors and `init { … }` (#1184). Fully
+            // qualified deliberately: the enclosing `use Kotlin::*` would
+            // otherwise put the `Getter` *variant* and the `Getter`
+            // *trait* (in scope from `use super::*`) in the same
+            // namespace. `src/getter/ruby.rs` hit the same collision and
+            // solved it with `use Ruby as R;`.
+            Kotlin::Getter | Kotlin::Setter | Kotlin::AnonymousInitializer => SpaceKind::Function,
             SourceFile => SpaceKind::Unit,
             _ => SpaceKind::Unknown,
         }

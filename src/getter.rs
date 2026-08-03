@@ -165,6 +165,26 @@ macro_rules! impl_js_family_get_op_type {
     };
 }
 
+/// The default space name: the node's `name` field, else `<anonymous>`.
+///
+/// A free function as well as the trait default so a language that needs
+/// to name a *few* kinds specially can delegate the rest rather than
+/// restate the rule — `<get>` / `<set>` / `<init>` / `<static-init>` in
+/// Kotlin, Java and Groovy all do (#1184). Calling `Self::…` there would
+/// recurse.
+pub(crate) fn default_func_space_name<'a, 'tree>(
+    node: &Node<'tree>,
+    code: &'a [u8],
+    _ancestors: Ancestors<'tree, '_>,
+) -> Option<&'a str> {
+    // we're in a function or in a class
+    if let Some(name) = node.child_by_field_name("name") {
+        node_text(code, &name)
+    } else {
+        Some("<anonymous>")
+    }
+}
+
 /// Per-language accessors the space walker and the Halstead
 /// operator/operand classification dispatch through.
 ///
@@ -199,14 +219,9 @@ pub(crate) trait Getter {
     fn get_func_space_name<'a, 'tree>(
         node: &Node<'tree>,
         code: &'a [u8],
-        _ancestors: Ancestors<'tree, '_>,
+        ancestors: Ancestors<'tree, '_>,
     ) -> Option<&'a str> {
-        // we're in a function or in a class
-        if let Some(name) = node.child_by_field_name("name") {
-            node_text(code, &name)
-        } else {
-            Some("<anonymous>")
-        }
+        default_func_space_name(node, code, ancestors)
     }
 
     fn get_space_kind(_node: &Node) -> SpaceKind {

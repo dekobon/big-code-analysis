@@ -30,8 +30,8 @@ use big_code_analysis::{Ast, FuncSpace, LANG, MetricsOptions, Source, SpaceKind,
 
 use super::ops_metrics_space_parity::fixture;
 
-/// The name `Getter::get_func_space_name` reports for a space whose AST
-/// node carries no name field — a closure, lambda, or block.
+/// Whether `name` is one `Getter::get_func_space_name` synthesised for a
+/// space whose AST node carries no name of its own.
 ///
 /// These are the one legitimate asymmetry between the two sides. Every
 /// language promotes such a node to a `SpaceKind::Function` space, but
@@ -39,11 +39,20 @@ use super::ops_metrics_space_parity::fixture;
 /// `FuncLiteral`, Perl's and PHP's anonymous `sub`/`function`, Ruby's
 /// `lambda` and Lua's `function` expression are `is_func_space` without
 /// being `is_func`, while a JavaScript arrow function and an iRules
-/// `when` block are both. `bca functions` therefore reports some
-/// anonymous spaces and not others, which is a per-grammar judgement
-/// this test has no business pinning — so the coverage claim below is
-/// scoped to spaces that carry a real name.
-const ANONYMOUS: &str = "<anonymous>";
+/// `when` block are both. `bca functions` therefore reports some such
+/// spaces and not others, which is a per-grammar judgement this test has
+/// no business pinning — so the coverage claim below is scoped to spaces
+/// that carry a real name.
+///
+/// A predicate over the angle-bracket convention rather than the single
+/// literal `"<anonymous>"` it used to be: #1184 added `<get>`, `<set>`,
+/// `<init>` and `<static-init>` for constructs that carry executable
+/// code but no name token, and each is `is_func_space` without being
+/// `is_func` for exactly the reason above. No language here permits `<`
+/// in an identifier, so the convention cannot collide with a real name.
+fn is_synthesised_name(name: &str) -> bool {
+    name.starts_with('<') && name.ends_with('>')
+}
 
 /// A space or span, reduced to the fields all three seams report.
 type Fun = (Option<String>, usize, usize);
@@ -122,7 +131,7 @@ fn every_named_function_space_is_reported_by_functions_and_find() {
         // back out of `functions()`. This is the #1162 direction: before
         // the fix, Elixir's `bar` was here and nowhere else.
         for fun in &from_metrics {
-            if fun.0.as_deref() == Some(ANONYMOUS) {
+            if fun.0.as_deref().is_some_and(is_synthesised_name) {
                 continue;
             }
             assert!(
