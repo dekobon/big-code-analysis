@@ -333,9 +333,9 @@ for historical reference.
   `abc.conditions`, matching what Java, Groovy, and C# already did
   (#1102). `a ? !b : !c` scored 1 — the `?` alone — and now scores 4.
   Affects C, C++, Mozcpp, Objective-C, JavaScript, TypeScript, TSX,
-  Mozjs, PHP, and Perl. Ruby and Python are **not** covered by this
-  pass and still score the flat `+1`, so a cross-language comparison of
-  ternary-heavy code remains uneven.
+  Mozjs, PHP, and Perl. Ruby and Python are not covered by this pass
+  but caught up later in this same release (#1161), as did Tcl and
+  iRules (#1180), so the cross-language comparison ships even.
 
 - **Metric values move.** `nargs` counts formal parameters for Elixir
   (#1142) and for Perl subroutine signatures (#1147), both of which
@@ -846,11 +846,12 @@ for historical reference.
   operands of a Ruby ternary, and the condition of a Python conditional
   expression, bringing both level with Java and the C family (#1161).
   Ruby's `a ? !b : !c` went from 1 to 4; Python's `a if c() else b`
-  from 1 to 2. Tcl and iRules remain unwired pending their broader
-  Phase 2B slot routing (#1180), and Bash's ABC is keyword-driven by
-  design rather than expression-driven, so its arithmetic ternary is
-  not a gap — the deviation table now says so, since "scores 0" and
-  "not applicable" read the same to a reader.
+  from 1 to 2. Tcl and iRules got the same coverage through their
+  broader Phase 2B slot routing, which also ships in this release
+  (#1180). Bash's ABC is keyword-driven by design rather than
+  expression-driven, so its arithmetic ternary is not a gap — the
+  deviation table now says so, since "scores 0" and "not applicable"
+  read the same to a reader.
 - A space's `end_line` is keyed on the node's end column rather than on
   its `SpaceKind` (#1163). A Perl function that is the last item in a
   file reported a span one row past its parent unit and past EOF, which
@@ -998,6 +999,14 @@ for historical reference.
   --all` and every `make pre-commit` stage chained behind it with it.
   `.claude/worktrees` is excluded from the root workspace for the
   mirror-image reason.
+- The `tree-sitter` runtime is `=0.26.11`, up from the `=0.26.9` that
+  `v2.0.0` shipped — two upstream patch releases, taken via Dependabot
+  and pinned in lockstep across the root manifest and every excluded
+  crate. `tree_sitter` is re-exported from the library root, so the
+  resolved version is visible to consumers; per `STABILITY.md`, a
+  runtime bump rides a minor release. No grammar content moved: the
+  vendored `parser.c` sources and every external grammar pin are
+  byte-identical to `v2.0.0`.
 - The vendored grammar manifests pin their tree-sitter dependencies with
   `=X.Y.Z` requirements rather than caret ranges (#1151):
   `tree-sitter-cpp` in `bca-tree-sitter-mozcpp` and
