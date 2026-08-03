@@ -576,6 +576,11 @@ pub(crate) fn violation_to_offender(v: Violation) -> OffenderRecord {
         // offender formatters (`OffenderRecord::default_message`,
         // Code Climate severity), so it is not carried on the record.
         lower_is_worse: _,
+        // A presentation detail of the human row (`summary_tail`), not
+        // part of the machine record — the serialized offender already
+        // carries the value, and consumers that want the split can read
+        // the `nargs` block on the space itself.
+        nargs_split: _,
         // The body hash is an internal baseline-matching aid, not part
         // of the serialized offender record.
         body_hash: _,
@@ -614,6 +619,7 @@ mod tests {
             lower_is_worse: false,
             body_hash: None,
             suppressed: false,
+            nargs_split: None,
         }
     }
 
@@ -661,6 +667,7 @@ mod tests {
             lower_is_worse: false,
             body_hash: None,
             suppressed: false,
+            nargs_split: None,
         };
         let offender = violation_to_offender(v);
         assert_eq!(offender.path, path);
@@ -682,6 +689,7 @@ mod tests {
             lower_is_worse: false,
             body_hash: None,
             suppressed: false,
+            nargs_split: None,
         }
     }
 
@@ -825,6 +833,7 @@ mod tests {
             lower_is_worse: false,
             body_hash: None,
             suppressed: false,
+            nargs_split: None,
         };
         let mut buf = Vec::new();
         write_github_annotations(&mut buf, std::iter::once(&v), DEFAULT_GITHUB_ANNOTATION_CAP)
@@ -895,6 +904,7 @@ mod tests {
             lower_is_worse: false,
             body_hash: None,
             suppressed: false,
+            nargs_split: None,
         };
         let mut buf = Vec::new();
         write_github_annotations(&mut buf, std::iter::once(&v), DEFAULT_GITHUB_ANNOTATION_CAP)

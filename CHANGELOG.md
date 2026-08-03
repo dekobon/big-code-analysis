@@ -183,6 +183,42 @@ for historical reference.
 
 ### Changed
 
+- **`bca check --threshold nargs=N` now gates each callable on its own
+  parameter list** rather than on `nargs.total()`, which summed a
+  function's parameters with every nested closure's (#1196). This changes
+  gate outcomes on existing configurations — read it before upgrading a
+  pinned CI.
+
+  A three-parameter function containing a two-parameter sort comparator
+  was reported at 5, and the remediation the number implied — fewer
+  parameters — was not the one that would clear it. Measured on this
+  repository, of the 76 functions a limit of 5 would have newly gated,
+  only 17 had six or more parameters of their own; one had a single
+  parameter plus five contributed by closures in its body. Refreshing
+  this project's own baseline under the new rule retired 45 of its 61
+  recorded `nargs` entries.
+
+  Every comparable tool measures the same quantity the gate now does —
+  RuboCop `Metrics/ParameterLists`, ESLint `max-params`, Clippy
+  `too_many_arguments`, lizard, SonarQube S107, Pylint `R0913` — and two
+  of those are the anchors the shipped default of 5 is derived from, so
+  the default and the gate were previously calibrated against different
+  quantities.
+
+  Nothing escapes the narrower rule. Where a closure opens its own space
+  (Rust, the JavaScript family, C#, Go, PHP, Perl, Ruby, Lua, Elixir) it
+  is gated on its own offender row. Where a lambda opens none (Python,
+  Java, Kotlin, C++) its arguments still fold into the enclosing
+  function, and the offender row now shows the split —
+  `nargs = 8 (1 own + 7 lambda)` — so the reader can tell whether the
+  lever is the signature or the lambda.
+
+  Unchanged: the serialized `function_args` / `closure_args` / `total`
+  keys, which remain subtree sums. Only the gate's reading of them moved.
+  If you have a `nargs` limit tuned against the old behaviour, expect
+  fewer offenders and consider whether the limit is now looser than you
+  intended.
+
 - This repository's own `bca.toml` gates `cognitive` at 15, the shipped
   default, instead of the pre-#1140 folklore value of 25 (#1143). This
   is self-scan configuration only — no public API, no metric

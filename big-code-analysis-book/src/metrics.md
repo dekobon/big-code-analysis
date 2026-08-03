@@ -744,6 +744,37 @@ The implementation handles default arguments, variadic arguments,
 keyword-only arguments, and destructured parameters consistently per
 language.
 
+### What the threshold gate measures {#nargs-gate}
+
+`bca check --threshold nargs=N` gates each callable on **its own**
+parameter list, which is what every comparable tool measures — RuboCop
+`Metrics/ParameterLists`, ESLint `max-params`, Clippy
+`too_many_arguments`, lizard, SonarQube S107 and Pylint `R0913` all
+count one callable at a time.
+
+Note that this is *not* the serialized `total`. The `function_args` and
+`closure_args` keys above are subtree sums: a function that declares two
+parameters and contains a three-parameter nested function reports
+`function_args: 5`. Before
+[#1196](https://github.com/dekobon/big-code-analysis/issues/1196) the
+gate read that sum, so a three-parameter function with a two-parameter
+sort comparator was flagged at 5 — and the remediation its number
+implied, fewer parameters, was not the one that would clear it.
+
+Nothing escapes the narrower rule. In the ten grammars whose closures
+open their own space — Rust, JavaScript, TypeScript, TSX, MozJS, C#, Go,
+PHP, Perl, Ruby, Lua and Elixir — a closure is gated on its own offender
+row, which is also where its fix belongs. In Python, Java, Kotlin and
+C++ a lambda opens no space, so its arguments can only be attributed to
+the enclosing function; there the offender row shows the split:
+
+```text
+small: nargs = 8 (1 own + 7 lambda) (limit 5)
+```
+
+so you can tell at a glance whether the lever is the signature or the
+lambda.
+
 ### Languages where it reads 0 {#nargs-language-gaps}
 
 A metric that silently reports 0 reads as "no offenders" rather than

@@ -353,6 +353,7 @@ fn violation_display_is_stable() {
         lower_is_worse: false,
         body_hash: None,
         suppressed: false,
+        nargs_split: None,
     };
     assert_eq!(
         v.to_string(),
@@ -374,6 +375,7 @@ fn violation_display_keeps_fractional_precision() {
         lower_is_worse: false,
         body_hash: None,
         suppressed: false,
+        nargs_split: None,
     };
     assert!(v.to_string().contains("= 12.5"), "{v}");
     assert!(v.to_string().contains("limit 10)"), "{v}");
@@ -410,6 +412,7 @@ fn violation_path_preserves_non_utf8_bytes() {
         lower_is_worse: false,
         body_hash: None,
         suppressed: false,
+        nargs_split: None,
     };
 
     // Raw bytes round-trip identically — no lossy substitution.
@@ -692,6 +695,7 @@ fn sample_violation() -> Violation {
         lower_is_worse: false,
         body_hash: None,
         suppressed: false,
+        nargs_split: None,
     }
 }
 
@@ -1009,6 +1013,7 @@ fn mi_ratio_inverts_so_lower_value_ranks_worse() {
         lower_is_worse: true,
         body_hash: None,
         suppressed: false,
+        nargs_split: None,
     };
     let mild = Violation {
         value: 45.0,

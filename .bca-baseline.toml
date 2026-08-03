@@ -18,34 +18,10 @@ metric = "halstead.effort"
 value = 58410.89968953587
 
 [[entry]]
-path = "big-code-analysis-cli/src/baseline.rs"
-qualified = "Baseline::match_in_group"
-metric = "nargs"
-value = 7.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/baseline_diff.rs"
-qualified = "BaselineDiff::column_widths"
-metric = "nargs"
-value = 8.0
-
-[[entry]]
 path = "big-code-analysis-cli/src/baseline_diff.rs"
 qualified = "BaselineDiff::compute"
 metric = "halstead.effort"
 value = 118801.67275912332
-
-[[entry]]
-path = "big-code-analysis-cli/src/baseline_diff.rs"
-qualified = "BaselineDiff::compute"
-metric = "nargs"
-value = 8.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/check_format.rs"
-qualified = "AggregatedFormat::dump"
-metric = "nargs"
-value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/check_format.rs"
@@ -72,18 +48,6 @@ metric = "halstead.effort"
 value = 48544.21441032752
 
 [[entry]]
-path = "big-code-analysis-cli/src/commands/analyze.rs"
-qualified = "write_aggregate"
-metric = "nargs"
-value = 7.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/commands/check.rs"
-qualified = "filter_by_baseline"
-metric = "nargs"
-value = 8.0
-
-[[entry]]
 path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "run_check"
 metric = "halstead.effort"
@@ -91,37 +55,7 @@ value = 60852.18615151166
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check/effective_config.rs"
-qualified = "EffectiveCheck::from_resolved"
-metric = "nargs"
-value = 10.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/commands/check/effective_config.rs"
-qualified = "EffectiveConfig::from_resolved"
-metric = "nargs"
-value = 7.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/commands/check/effective_config.rs"
 qualified = "print_effective_config"
-metric = "nargs"
-value = 9.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/commands/diff_cmd.rs"
-qualified = "compute_since_diff"
-metric = "nargs"
-value = 8.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/commands/init.rs"
-qualified = "run_command_init"
-metric = "nargs"
-value = 7.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/commands/init.rs"
-qualified = "scaffold_baseline"
 metric = "nargs"
 value = 7.0
 
@@ -146,12 +80,6 @@ value = 60390.01093335322
 [[entry]]
 path = "big-code-analysis-cli/src/diff.rs"
 qualified = "materialize_tree"
-metric = "nargs"
-value = 10.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/diff.rs"
-qualified = "materialize_tree"
 metric = "nexits"
 value = 9.0
 
@@ -171,31 +99,19 @@ value = 7.0
 path = "big-code-analysis-cli/src/dispatch.rs"
 qualified = "dispatch_ops"
 metric = "nargs"
-value = 8.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/html_report.rs"
-qualified = "write_table_classed"
-metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/html_report.rs"
 qualified = "write_table_classed_with_tooltips"
 metric = "nargs"
-value = 9.0
+value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/html_report.rs"
 qualified = "write_table_core"
 metric = "nargs"
 value = 7.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/html_report.rs"
-qualified = "write_table_with_tooltips"
-metric = "nargs"
-value = 8.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/html_report/sections.rs"
@@ -240,18 +156,6 @@ metric = "nargs"
 value = 7.0
 
 [[entry]]
-path = "big-code-analysis-cli/src/markdown_report/sections.rs"
-qualified = "emit_section_md"
-metric = "nargs"
-value = 8.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/metric_diff.rs"
-qualified = "MetricDiff::from_sets"
-metric = "nargs"
-value = 8.0
-
-[[entry]]
 path = "big-code-analysis-cli/src/threshold_suggestion.rs"
 qualified = "closest_names"
 metric = "halstead.effort"
@@ -259,15 +163,15 @@ value = 55785.628204736706
 
 [[entry]]
 path = "big-code-analysis-cli/src/threshold_suggestion.rs"
-qualified = "closest_names"
-metric = "nargs"
-value = 9.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/threshold_suggestion.rs"
 qualified = "edit_distance_with_cutoff"
 metric = "halstead.effort"
 value = 66737.04848699087
+
+[[entry]]
+path = "big-code-analysis-cli/src/thresholds.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 543.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_command.rs"
@@ -277,27 +181,9 @@ value = 532.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_command.rs"
-qualified = "build_options"
-metric = "nargs"
-value = 8.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/vcs_command.rs"
-qualified = "rank"
-metric = "nargs"
-value = 7.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/vcs_command.rs"
 qualified = "write_table"
 metric = "nexits"
 value = 5.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/vcs_report.rs"
-qualified = "write_html_body"
-metric = "nargs"
-value = 8.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/walk_seed.rs"
@@ -333,7 +219,7 @@ value = 6.0
 path = "big-code-analysis-py/src/batch.rs"
 qualified = "analyze_paths"
 metric = "nargs"
-value = 12.0
+value = 11.0
 
 [[entry]]
 path = "big-code-analysis-py/src/batch.rs"
@@ -436,12 +322,6 @@ path = "big-code-analysis-web/src/web/server.rs"
 qualified = "run_parse"
 metric = "halstead.effort"
 value = 82478.1543040951
-
-[[entry]]
-path = "big-code-analysis-web/src/web/server.rs"
-qualified = "run_with_timeout"
-metric = "nargs"
-value = 7.0
 
 [[entry]]
 path = "big-code-analysis-web/src/web/server/routing.rs"
@@ -596,62 +476,8 @@ value = 16.0
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "tcl_switch_decision_arms"
-metric = "nargs"
-value = 7.0
-
-[[entry]]
-path = "src/metrics/cognitive.rs"
-qualified = "tcl_switch_decision_arms"
 metric = "nexits"
 value = 6.0
-
-[[entry]]
-path = "src/metrics/cognitive/csharp.rs"
-qualified = "CsharpCode::compute"
-metric = "nargs"
-value = 7.0
-
-[[entry]]
-path = "src/metrics/cognitive/kotlin.rs"
-qualified = "KotlinCode::compute"
-metric = "nargs"
-value = 7.0
-
-[[entry]]
-path = "src/metrics/cognitive/php.rs"
-qualified = "PhpCode::compute"
-metric = "nargs"
-value = 7.0
-
-[[entry]]
-path = "src/metrics/loc/c.rs"
-qualified = "CCode::compute"
-metric = "nargs"
-value = 7.0
-
-[[entry]]
-path = "src/metrics/loc/cpp.rs"
-qualified = "CppCode::compute"
-metric = "nargs"
-value = 7.0
-
-[[entry]]
-path = "src/metrics/loc/groovy.rs"
-qualified = "GroovyCode::compute"
-metric = "nargs"
-value = 7.0
-
-[[entry]]
-path = "src/metrics/loc/mozcpp.rs"
-qualified = "MozcppCode::compute"
-metric = "nargs"
-value = 7.0
-
-[[entry]]
-path = "src/metrics/loc/objc.rs"
-qualified = "ObjcCode::compute"
-metric = "nargs"
-value = 7.0
 
 [[entry]]
 path = "src/metrics/loc/perl.rs"
@@ -660,34 +486,16 @@ metric = "halstead.effort"
 value = 55025.91689557041
 
 [[entry]]
-path = "src/metrics/loc/shared.rs"
-qualified = "add_multiline_string_ploc"
-metric = "nargs"
-value = 7.0
-
-[[entry]]
 path = "src/metrics/nargs.rs"
 qualified = "<file>"
 metric = "loc.ploc"
 value = 547.0
 
 [[entry]]
-path = "src/metrics/nargs.rs"
-qualified = "ObjcCode::compute"
-metric = "nargs"
-value = 7.0
-
-[[entry]]
 path = "src/metrics/npa/csharp.rs"
 qualified = "CsharpCode::compute"
 metric = "cognitive"
 value = 15.0
-
-[[entry]]
-path = "src/metrics/npa/csharp.rs"
-qualified = "CsharpCode::compute"
-metric = "nargs"
-value = 7.0
 
 [[entry]]
 path = "src/metrics/npa/kotlin.rs"
@@ -708,12 +516,6 @@ metric = "halstead.effort"
 value = 52227.844233305164
 
 [[entry]]
-path = "src/metrics/npa/php.rs"
-qualified = "PhpCode::compute"
-metric = "nargs"
-value = 10.0
-
-[[entry]]
 path = "src/metrics/npa/python.rs"
 qualified = "python_self_attr_name_bytes"
 metric = "nexits"
@@ -724,12 +526,6 @@ path = "src/metrics/npm/go.rs"
 qualified = "GoCode::compute"
 metric = "halstead.effort"
 value = 65898.2477704053
-
-[[entry]]
-path = "src/metrics/npm/go.rs"
-qualified = "GoCode::compute"
-metric = "nargs"
-value = 10.0
 
 [[entry]]
 path = "src/metrics/npm/objc.rs"
@@ -804,12 +600,6 @@ metric = "halstead.effort"
 value = 80351.11907066956
 
 [[entry]]
-path = "src/output/sarif.rs"
-qualified = "write_sarif_with_suppressed"
-metric = "nargs"
-value = 7.0
-
-[[entry]]
 path = "src/parser.rs"
 qualified = "Parser<T>::filters"
 metric = "halstead.effort"
@@ -859,33 +649,15 @@ value = 7.0
 
 [[entry]]
 path = "src/vcs/bus_factor.rs"
-qualified = "authors_of_file"
-metric = "nargs"
-value = 9.0
-
-[[entry]]
-path = "src/vcs/bus_factor.rs"
 qualified = "compute"
 metric = "halstead.effort"
 value = 47694.803479864124
-
-[[entry]]
-path = "src/vcs/bus_factor.rs"
-qualified = "compute"
-metric = "nargs"
-value = 10.0
 
 [[entry]]
 path = "src/vcs/git/blame.rs"
 qualified = "PerFunctionBlame"
 metric = "nom"
 value = 30.0
-
-[[entry]]
-path = "src/vcs/git/blame.rs"
-qualified = "PerFunctionBlame::blame_spans"
-metric = "nargs"
-value = 7.0
 
 [[entry]]
 path = "src/vcs/git/blame.rs"
@@ -915,13 +687,7 @@ value = 11.0
 path = "src/vcs/git/cached.rs"
 qualified = "incremental_events"
 metric = "nargs"
-value = 12.0
-
-[[entry]]
-path = "src/vcs/git/cached.rs"
-qualified = "load_candidates"
-metric = "nargs"
-value = 7.0
+value = 9.0
 
 [[entry]]
 path = "src/vcs/git/diff_parse.rs"
@@ -992,12 +758,6 @@ value = 5.0
 [[entry]]
 path = "src/vcs/git/jit.rs"
 qualified = "experience_features"
-metric = "nargs"
-value = 7.0
-
-[[entry]]
-path = "src/vcs/git/jit.rs"
-qualified = "experience_features"
 metric = "nexits"
 value = 6.0
 
@@ -1050,34 +810,16 @@ metric = "nexits"
 value = 5.0
 
 [[entry]]
-path = "src/vcs/replay.rs"
-qualified = "fold_commit"
-metric = "nargs"
-value = 7.0
-
-[[entry]]
 path = "src/vcs/score.rs"
 qualified = "apply_percentile"
 metric = "halstead.effort"
 value = 68450.87280037583
 
 [[entry]]
-path = "src/vcs/score.rs"
-qualified = "apply_percentile"
-metric = "nargs"
-value = 13.0
-
-[[entry]]
 path = "src/vcs/stats.rs"
 qualified = "Accumulator::finalize"
 metric = "halstead.effort"
 value = 79569.58843331039
-
-[[entry]]
-path = "src/vcs/stats.rs"
-qualified = "Accumulator::finalize"
-metric = "nargs"
-value = 7.0
 
 [[entry]]
 path = "src/vcs/stats.rs"
@@ -1090,9 +832,3 @@ path = "src/wire.rs"
 qualified = "CodeMetrics::from"
 metric = "halstead.effort"
 value = 49790.15156224738
-
-[[entry]]
-path = "src/wire/vcs.rs"
-qualified = "VcsTrend::from_trend"
-metric = "nargs"
-value = 8.0

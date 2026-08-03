@@ -22,6 +22,7 @@ fn violation(path: &str, function: &str, value: f64, limit: f64) -> Violation {
         lower_is_worse: false,
         body_hash: None,
         suppressed: false,
+        nargs_split: None,
     }
 }
 

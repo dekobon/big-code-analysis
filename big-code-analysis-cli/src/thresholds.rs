@@ -175,7 +175,30 @@ const EXTRACTORS: &[MetricExtractor] = &[
     },
     MetricExtractor {
         name: "nargs",
-        extract: |m| m.nargs.total() as f64,
+        // The space's OWN parameters, not `total()` (#1196). `total()` is
+        // `function_args_sum() + closure_args_sum()` — subtree sums — so a
+        // function was gated on its own parameters *plus every nested
+        // closure's*. `write_top_offenders` has three parameters and was
+        // reported at 6 because a sort comparator and a format closure
+        // contributed three more, and the remediation the number implied
+        // (fewer parameters) was not the one that would clear it.
+        //
+        // Nothing escapes. A closure that opens its own space — Rust,
+        // JS/TS/TSX, C#, Go, PHP, Perl, Ruby, Lua, Elixir — is gated on
+        // its own row, which is also where its fix goes. In the four
+        // grammars whose lambdas open no space (Python, Java, Kotlin,
+        // C++/Mozcpp) their arguments land in the enclosing space's own
+        // `closure_args`, which is the only attribution available and is
+        // why that term is added here rather than dropped.
+        //
+        // This is what every comparable tool measures — RuboCop
+        // `Metrics/ParameterLists`, ESLint `max-params`, Clippy
+        // `too_many_arguments`, lizard, SonarQube S107, Pylint R0913 all
+        // count a callable's own formal parameters. Two of those are the
+        // anchors `default_thresholds.rs` derives the shipped limit from,
+        // so before this the default was calibrated against a different
+        // quantity than the gate enforced.
+        extract: |m| (m.nargs.function_args() + m.nargs.closure_args()) as f64,
         metric: Metric::Nargs,
     },
     MetricExtractor {
@@ -428,6 +451,28 @@ pub(crate) fn threshold_scalar(
     }
 }
 
+/// The `own + lambda` split behind an `nargs` value.
+///
+/// Carried only where it is not already obvious. In the grammars whose
+/// closures open their own space — Rust, JS/TS/TSX, C#, Go, PHP, Perl,
+/// Ruby, Lua, Elixir — a closure is gated on its own row and the row's
+/// number *is* its signature, so there is nothing to split. In Python,
+/// Java, Kotlin and C++/Mozcpp a lambda opens no space, so its arguments
+/// can only be attributed to the enclosing function: `small` there can
+/// declare one parameter and be reported at 8.
+///
+/// A struct rather than a `(u64, u64)`, because the two are same-typed,
+/// not interchangeable, and transposing them would print a fluent lie
+/// (`AGENTS.md`, "do not pass two same-typed primitives where they could
+/// be confused").
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct NargsSplit {
+    /// Parameters the offending function declares itself.
+    pub(crate) own: u64,
+    /// Parameters contributed by lambdas that open no space of their own.
+    pub(crate) lambda: u64,
+}
+
 /// One offending `(function, metric)` pair.
 #[derive(Debug, Clone)]
 pub(crate) struct Violation {
@@ -493,6 +538,12 @@ pub(crate) struct Violation {
     /// `false` under the default policy (suppressed offenders are dropped)
     /// and under `--no-suppress` (markers ignored, so nothing is suppressed).
     pub(crate) suppressed: bool,
+    /// For an `nargs` violation whose value includes spaceless-lambda
+    /// arguments, the split to show the reader (#1196). `None` for every
+    /// other metric, and for an `nargs` value that is purely the
+    /// function's own parameter list — which is the usual case, and the
+    /// one where a parenthetical would be noise.
+    pub(crate) nargs_split: Option<NargsSplit>,
 }
 
 impl Violation {
@@ -505,11 +556,21 @@ impl Violation {
     /// this method so their message body stays in lockstep with the
     /// human stderr line.
     pub(crate) fn summary_tail(&self) -> String {
+        // The split is appended, never substituted for the value: the
+        // number stays the thing compared against the limit, and tooling
+        // that parses the row keeps finding it in the same position.
+        let split = match self.nargs_split {
+            Some(NargsSplit { own, lambda }) => {
+                format!(" ({own} own + {lambda} lambda)")
+            }
+            None => String::new(),
+        };
         format!(
-            "{}: {} = {} (limit {})",
+            "{}: {} = {}{} (limit {})",
             self.function,
             self.metric,
             MetricScalar(self.value),
+            split,
             MetricScalar(self.limit),
         )
     }
@@ -729,6 +790,20 @@ impl ResolvedThreshold {
         if suppressed && !ctx.report_suppressed {
             return None;
         }
+        // Only `nargs`, and only when a spaceless lambda actually
+        // contributed — the parenthetical would otherwise repeat the
+        // value and read as noise. `closure_args()` is the space's own
+        // term, so a closure that opened its *own* space contributes
+        // nothing here and is reported on its own row instead (#1196).
+        let nargs_split = (self.extractor.name == "nargs")
+            .then(|| {
+                let (own, lambda) = (
+                    space.metrics.nargs.function_args(),
+                    space.metrics.nargs.closure_args(),
+                );
+                (lambda > 0 && own > 0).then_some(NargsSplit { own, lambda })
+            })
+            .flatten();
         Some(Violation {
             path: path.to_path_buf(),
             start_line: space.start_line,
@@ -737,6 +812,7 @@ impl ResolvedThreshold {
             metric: self.extractor.name,
             value,
             limit: self.limit,
+            nargs_split,
             hard_limit: self.hard_limit,
             lower_is_worse: self.lower_is_worse,
             body_hash: None,
