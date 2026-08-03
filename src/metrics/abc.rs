@@ -9078,3 +9078,118 @@ mod ternary_comment_invariance {
         }
     }
 }
+
+/// A keyword negation must score like its symbolic twin (#1182).
+///
+/// `not b` and `!b` are the same negation — they differ in precedence,
+/// not in meaning, and ABC counts the negation rather than the parse.
+/// Ruby and Perl tested only the `!` token, so `if not b` scored 0
+/// against `if !b`'s 1, and a `not` ternary scored 2 against the `!`
+/// form's 4.
+///
+/// Lua and Elixir were checked in the same sweep and were already
+/// correct: Lua's only negation keyword *is* `not` and it was the token
+/// being tested, and Elixir reaches the same count by another path.
+/// They are exercised here so a future edit cannot regress them
+/// silently. Python counts `not` through its own dispatcher arm and has
+/// no `!` spelling to compare against.
+#[cfg(test)]
+mod keyword_negation_parity {
+    use crate::test_support::metrics_verbatim;
+    use crate::{LANG, MetricsOptions};
+
+    fn conditions(lang: LANG, source: &str) -> u64 {
+        metrics_verbatim(lang, source.as_bytes(), MetricsOptions::default())
+            .abc
+            .conditions_sum()
+    }
+
+    /// `(bang_form, keyword_form)` pairs that must score identically.
+    fn pairs(lang: LANG) -> Option<Vec<(String, String)>> {
+        let build =
+            |t: &str| -> (String, String) { (t.replace("{NOT}", "!"), t.replace("{NOT}", "not ")) };
+        let templates: &[&str] = match lang {
+            LANG::Ruby => &[
+                "def f(b)\n  if {NOT}b\n    1\n  end\nend\n",
+                "def f(a, b, c)\n  x = a ? ({NOT}b) : ({NOT}c)\nend\n",
+                "def f(a, b, c)\n  x = a ? b : ({NOT}c)\nend\n",
+            ],
+            LANG::Perl => &[
+                "sub f { if ({NOT}$b) { 1; } }",
+                "sub f { my $x = $a ? ({NOT}$b) : ({NOT}$c); }",
+                "sub f { my $x = $a ? $b : ({NOT}$c); }",
+            ],
+            // Already correct before #1182; pinned so they stay that way.
+            LANG::Elixir => &["def f(b) do\n  if {NOT}b do\n    1\n  end\nend\n"],
+            _ => return None,
+        };
+        Some(templates.iter().map(|t| build(t)).collect())
+    }
+
+    #[test]
+    fn the_not_keyword_scores_like_bang() {
+        let mut checked = 0;
+        for lang in LANG::into_enum_iter() {
+            if !lang.is_enabled() {
+                continue;
+            }
+            let Some(pairs) = pairs(lang) else { continue };
+            checked += 1;
+            for (bang, keyword) in pairs {
+                assert_eq!(
+                    conditions(lang, &keyword),
+                    conditions(lang, &bang),
+                    "{lang:?}: `not` and `!` scored differently\n  bang:    {bang}\n  keyword: {keyword}"
+                );
+            }
+        }
+        assert!(
+            checked > 0,
+            "no language enabled; this test asserted nothing"
+        );
+    }
+
+    /// The absolute values, so a regression that moved both spellings
+    /// equally still fails.
+    ///
+    /// expected: `if !b` is one condition — the negated bare operand.
+    /// `a ? (!b) : (!c)` is four: the `?` marker, the condition `a` in
+    /// boolean context, and one per negated branch operand.
+    #[test]
+    fn the_baseline_values_are_one_and_four() {
+        for (lang, guard, ternary) in [
+            (
+                LANG::Ruby,
+                "def f(b)\n  if not b\n    1\n  end\nend\n",
+                "def f(a, b, c)\n  x = a ? (not b) : (not c)\nend\n",
+            ),
+            (
+                LANG::Perl,
+                "sub f { if (not $b) { 1; } }",
+                "sub f { my $x = $a ? (not $b) : (not $c); }",
+            ),
+        ] {
+            if !lang.is_enabled() {
+                continue;
+            }
+            assert_eq!(conditions(lang, guard), 1, "{lang:?}: `if not b`");
+            assert_eq!(conditions(lang, ternary), 4, "{lang:?}: `not` ternary");
+        }
+    }
+
+    /// Lua's only negation keyword is `not`, so it has no `!` twin to
+    /// compare against — its guard is that the keyword counts at all.
+    #[test]
+    fn lua_counts_its_only_negation_keyword() {
+        if !LANG::Lua.is_enabled() {
+            return;
+        }
+        assert_eq!(
+            conditions(
+                LANG::Lua,
+                "function f(b)\n  if not b then return 1 end\nend\n"
+            ),
+            1
+        );
+    }
+}

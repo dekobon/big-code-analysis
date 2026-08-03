@@ -74,8 +74,16 @@ fn ruby_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
 
     loop {
         let is_parens = matches!(node_kind, ParenthesizedStatements);
+        // Both spellings of the same negation. `not` and `!` differ in
+        // precedence but not in meaning, and ABC counts the negation,
+        // not the parse — testing `BANG` alone scored `if not b` as 0
+        // where `if !b` scores 1, and a `not` ternary as 2 where the `!`
+        // form scores 4 (#1182). Read through the grammar's `operator`
+        // field rather than child(0), matching the ternary slots (#1181).
         let is_not = matches!(node_kind, Unary | Unary2 | Unary3 | Unary4 | Unary5)
-            && node.child(0).is_some_and(|c| c.kind_id() == BANG as u16);
+            && node
+                .child_by_field_name("operator")
+                .is_some_and(|op| matches!(op.kind_id().into(), BANG | Not));
 
         if !is_parens && !is_not {
             break;

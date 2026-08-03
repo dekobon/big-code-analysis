@@ -86,8 +86,16 @@ fn perl_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
         // has only one inner expression, so child(1) and last-named
         // are equivalent.
         let is_parens = matches!(node_kind, P::ParenthesizedArgument | P::Array);
+        // Both spellings of the same negation — see `ruby_inspect_container`
+        // for the rationale; Perl has the identical gap (#1182). Read
+        // through the grammar's `operator` field, whose type list is
+        // `! + ++ - -- and not ~`. Do NOT match the hidden `_unary_not`
+        // supertype (`P::UnaryNot`), which the parser never emits
+        // (grammar-dispatch item 2).
         let is_not = matches!(node_kind, P::UnaryExpression)
-            && node.child(0).is_some_and(|c| c.kind_id() == P::BANG as u16);
+            && node
+                .child_by_field_name("operator")
+                .is_some_and(|op| matches!(op.kind_id().into(), P::BANG | P::Not));
 
         if !is_parens && !is_not {
             break;
