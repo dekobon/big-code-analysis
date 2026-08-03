@@ -36,7 +36,7 @@ use std::fmt::Write;
 use big_code_analysis::{SpaceKind, SuppressionPolicy};
 
 use crate::markdown_report::advisory::{AdvisoryCounts, AdvisoryThresholds};
-use crate::markdown_report::hotspot::{self, Align, Cell, HotspotSpec, SPECS, Source};
+use crate::markdown_report::hotspot::{self, Align, Cell, HotspotSpec, SPECS};
 use crate::markdown_report::{
     FunctionSummary, is_class_like, language_display_name, mi_rating, mi_weight_numerator,
     sloc_weighted_avg_mi, thousands,

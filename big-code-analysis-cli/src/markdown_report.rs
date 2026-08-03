@@ -1000,7 +1000,7 @@ fn write_language_section(
     let display_name = language_display_name(lang_name);
     let _ = writeln!(out, "\n## {display_name}\n");
 
-    let (units, funcs) = sections::split_units_and_functions(entries);
+    let (units, funcs) = hotspot::partition_by_kind(entries);
     sections::write_summary(out, &units);
 
     // The Actionable Summary is the highest-altitude block (the
@@ -1012,36 +1012,24 @@ fn write_language_section(
 
     // Drive every hotspot section from the shared `SPECS` table (the same
     // table the HTML report uses) so the two formats cannot diverge in
-    // membership/order/suppression. WMC draws from the full slice, MI from
-    // units, the rest from functions.
+    // membership/order/suppression. `select_for` owns the whole
+    // format-independent half, leaving the four emit calls below as the
+    // only thing this renderer decides (#1190).
     for spec in hotspot::SPECS {
-        let base: &[&FunctionSummary] = match spec.source {
-            hotspot::Source::Units => &units,
-            hotspot::Source::Funcs => &funcs,
-            hotspot::Source::All => entries,
-        };
-        // Select first, emit second. Both selectors feed the same
-        // empty-table handling, so hoisting it out of the CC/non-CC split
-        // leaves one copy of that rule instead of two identical ones.
-        let (rows, cc_stats) = if spec.cc_note {
-            let (rows, stats) = hotspot::select_cc(spec, base, top_n, policy, advisory);
-            (rows, Some(stats))
-        } else {
-            (hotspot::select(spec, base, top_n, policy, advisory), None)
-        };
-        if rows.is_empty() {
-            // An empty table is either a genuinely-absent metric or a table
-            // whose every matching row was suppressed; only the latter earns
-            // a caption, or the Actionable Summary's bullets dangle (#616).
-            let suppressed = hotspot::fully_suppressed_count(spec, base, policy, advisory);
-            sections::emit_fully_suppressed_note_md(out, &spec.title.render(top_n), suppressed);
-            continue;
-        }
-        sections::emit_section_md(out, spec, top_n, &rows);
-        if let Some(stats) = cc_stats {
-            sections::emit_cc_note_md(out, &stats, policy);
-        } else if spec.mi_note {
-            sections::emit_mi_note_md(out);
+        match hotspot::select_for(spec, &units, &funcs, entries, top_n, policy, advisory) {
+            hotspot::SpecOutcome::FullySuppressed(suppressed) => {
+                // Markdown renders the caption from the title text; the
+                // HTML writer needs the spec itself, for the heading id.
+                sections::emit_fully_suppressed_note_md(out, &spec.title.render(top_n), suppressed);
+            }
+            hotspot::SpecOutcome::Rows { rows, cc_stats } => {
+                sections::emit_section_md(out, spec, top_n, &rows);
+                if let Some(stats) = cc_stats {
+                    sections::emit_cc_note_md(out, &stats, policy);
+                } else if spec.mi_note {
+                    sections::emit_mi_note_md(out);
+                }
+            }
         }
     }
 }
@@ -2465,6 +2453,78 @@ mod tests {
         assert!(
             normalized.contains("| 99 |"),
             "class token count should appear in normalized report"
+        );
+    }
+
+    /// The two renderers must agree on *which* sections a language gets
+    /// and which are fully suppressed — the selection half, which
+    /// `hotspot::select_for` now owns (#1190).
+    ///
+    /// The existing cross-format guard below checks column membership
+    /// only. That would not have noticed the two copies of the selection
+    /// logic diverging, which is the divergence the extraction removes
+    /// the possibility of; a structural guard should not rest on a
+    /// property no test covers.
+    ///
+    /// Both outcomes have to appear in one fixture, or the assertion
+    /// holds for a renderer that emits every section or none: `hot`
+    /// surfaces in the function tables, while `quiet` is suppressed and
+    /// is the sole member of its own, so that section comes back
+    /// `FullySuppressed`.
+    #[test]
+    fn both_formats_select_the_same_sections() {
+        use crate::html_report::generate_html_report;
+
+        let unit = make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust);
+        let mut hot = make_summary("hot", "src/lib.rs", SpaceKind::Function, LANG::Rust);
+        hot.halstead_effort = 200.0;
+        hot.nargs = 4;
+        hot.cyclomatic = 12.0;
+        let mut quiet = make_summary("quiet", "src/lib.rs", SpaceKind::Function, LANG::Rust);
+        quiet.nexits = 9;
+        quiet.suppressed =
+            big_code_analysis::SuppressionScope::Some(std::collections::BTreeSet::from([
+                big_code_analysis::Metric::Nexits,
+            ]));
+        let fixture = [unit, hot, quiet];
+
+        let md = generate_report(&fixture, 20, SuppressionPolicy::Honor);
+        let html = generate_html_report(&fixture, 20, SuppressionPolicy::Honor);
+
+        let mut seen_table = 0;
+        let mut seen_suppressed = 0;
+        for spec in hotspot::SPECS {
+            let title = spec.title.render(20);
+            let md_has_table = md.contains(&format!("### {title}"));
+            // The HTML heading id is derived per language, so match the
+            // rendered title inside an `h3` close rather than the id.
+            let html_has_table = html.match_indices(&format!(">{title}")).any(|(i, _)| {
+                html[i..]
+                    .find('<')
+                    .is_some_and(|lt| html[i + lt..].starts_with("</h3>"))
+            });
+            assert_eq!(
+                md_has_table, html_has_table,
+                "formats disagree on whether {title:?} renders a table"
+            );
+
+            let caption = hotspot::fully_suppressed_caption(&title, 1);
+            let md_suppressed = md.contains(&caption);
+            let html_suppressed = html.contains(&caption);
+            assert_eq!(
+                md_suppressed, html_suppressed,
+                "formats disagree on whether {title:?} is fully suppressed"
+            );
+
+            seen_table += usize::from(md_has_table);
+            seen_suppressed += usize::from(md_suppressed);
+        }
+        // Without both outcomes present the comparisons above are
+        // vacuously equal for a renderer that emits nothing at all.
+        assert!(seen_table > 0, "fixture produced no hotspot table");
+        assert!(
+            seen_suppressed > 0,
+            "fixture produced no fully-suppressed section, so that arm is untested"
         );
     }
 
