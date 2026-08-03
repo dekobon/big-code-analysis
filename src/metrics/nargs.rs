@@ -3687,6 +3687,12 @@ proc g {x y z} { puts $x }",
             "foo.ex",
             |metric| {
                 assert_eq!(metric.nargs.function_args_sum(), 0);
+                // Anchor the zero: if Elixir def-recognition broke
+                // entirely, `function_args_sum` would also read 0. The
+                // enclosing `defmacro mac` still counting proves the
+                // recognizer ran and the quote-block gate did the
+                // excluding.
+                assert_eq!(metric.nom.functions_sum(), 1);
             },
         );
     }
