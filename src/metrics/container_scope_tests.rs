@@ -28,7 +28,8 @@
 //! *function* space, and a file whose only container sat inside a
 //! function left the root without one, so the counts were serialized
 //! nowhere. #1203 removed the choice: the space's own kind is now the
-//! only input, recorded once in `FuncSpace::new`. Every language is
+//! only input, recorded once per space by the walker's finalize step
+//! (`spaces::compute::note_member_scope`). Every language is
 //! covered below for that reason — the point is no longer that ten obey
 //! a predicate, but that the rule has no per-language surface left to
 //! deviate on.
@@ -654,7 +655,12 @@ fn container_counts_are_independent_of_the_emission_gate() {
 /// `_sum` fields either way, which is exactly why an absence-only test
 /// could not tell the two outcomes apart. Both fixtures below therefore
 /// assert the root's sums include the nested declaration's members.
+// Gated for the same reason as
+// `a_language_with_no_member_construct_emits_neither_block` below: a
+// two-language case list makes `assert_fixtures_present` a false
+// failure under a feature set that enables neither.
 #[test]
+#[cfg(any(feature = "go", feature = "rust"))]
 fn a_type_declared_inside_a_function_reaches_the_root_rollup() {
     // (language, the function holding the declaration, the root's
     // `class_na_sum` / `class_npa_sum` once the nested type is folded in)
@@ -741,7 +747,14 @@ fn a_cpp_namespace_is_a_member_scope() {
 /// keep those languages out, the way `wmc`'s no-op `compute` does by
 /// never recording a kind. Asserted on the root because it is the only
 /// space these fixtures have that is a member scope.
+// Gated on the fixtures' own features rather than left ungated: the
+// case list is three languages wide, so a feature set that enables
+// others but none of these — `--no-default-features --features
+// rust,typescript`, the canonical minimal-langs CI configuration —
+// would trip `assert_fixtures_present` and read as a defect in
+// whatever was being changed.
 #[test]
+#[cfg(any(feature = "bash", feature = "lua", feature = "c"))]
 fn a_language_with_no_member_construct_emits_neither_block() {
     let cases: &[(LANG, &str)] = &[
         #[cfg(feature = "bash")]
