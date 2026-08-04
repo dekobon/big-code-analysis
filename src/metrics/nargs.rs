@@ -254,6 +254,83 @@ fn compute_args<T: Checker>(node: &Node, nargs: &mut usize) {
     }
 }
 
+/// The node whose `parameters` field holds a C-family function's *own*
+/// formal arguments: the **innermost** one along the declarator chain.
+///
+/// C declarator syntax nests outward from the declared name, so a
+/// function node's `declarator` field is only the function's parameter
+/// list when the return type is plain. Anything the return type
+/// contributes — a `*`, a `&`, a parenthesised group — wraps the
+/// `function_declarator` that owns the real list, and the outermost
+/// `parameters` a chain carries can belong to the *return type* rather
+/// than to the function (`int (*f(int a))(int b)` returns a pointer to a
+/// one-argument function and itself takes one argument). Taking the
+/// innermost is what makes both of those come out right (#1200).
+///
+/// The walk is by field name, per `.claude/rules/grammar-dispatch.md`
+/// §3, which also sidesteps §1: `PointerDeclarator2`,
+/// `FunctionDeclarator2`/`3` and `ReferenceDeclarator2`/`3`/`4` are
+/// numeric-suffix aliases that a `kind_id` match would have to
+/// enumerate and would silently regress on the next grammar bump.
+///
+/// Two of the rules in the chain expose no field at all, which is why
+/// the field alone is not enough. From the pinned grammars'
+/// `node-types.json` (`tree-sitter-cpp` 0.23.4, `tree-sitter-c` 0.24.2,
+/// `tree-sitter-objc` 3.0.2, vendored `tree-sitter-mozcpp`):
+///
+/// | rule | `declarator` field |
+/// | --- | --- |
+/// | `pointer_declarator` | required |
+/// | `function_declarator` | required |
+/// | `abstract_function_declarator` | **optional** |
+/// | `reference_declarator` | **absent — no fields** |
+/// | `parenthesized_declarator` | **absent — no fields** |
+///
+/// `reference_declarator` is `seq(choice('&', '&&'), _declarator)` and
+/// `parenthesized_declarator` is `seq('(', optional(ms_call_modifier),
+/// _declarator, ')')`: in both the inner declarator is the last *named*
+/// child, so that is the fallback. Last rather than sole, so a leading
+/// `ms_call_modifier` (`int (__cdecl *f(int a))(int b)`) does not defeat
+/// it, and comment-filtered because tree-sitter admits a comment
+/// anywhere.
+///
+/// The fallback stops at a node that already carries `parameters`,
+/// which is the C++ lambda: `abstract_function_declarator`'s
+/// `declarator` field is optional, so `[](int a, int (*cb)(int x))`
+/// would otherwise descend into the `parameter_list` and return `cb`'s
+/// `(int x)` — one argument instead of two.
+///
+/// Every step strictly descends a finite tree, so the walk terminates
+/// without a depth cap.
+fn declarator_params_owner<'tree, T: Checker>(node: &Node<'tree>) -> Option<Node<'tree>> {
+    // The chain starts at the field rather than at `node` so the
+    // last-named-child fallback can never fire on the function node
+    // itself and walk into its body.
+    let mut current = node.child_by_field_name("declarator")?;
+    let mut owner = None;
+    loop {
+        let carries_params = current.child_by_field_name("parameters").is_some();
+        if carries_params {
+            owner = Some(current);
+        }
+        current = match current.child_by_field_name("declarator") {
+            Some(declarator) => declarator,
+            None if carries_params => break,
+            None => {
+                let Some(last) = current
+                    .children()
+                    .filter(|child| child.is_named() && !T::is_comment(child))
+                    .last()
+                else {
+                    break;
+                };
+                last
+            }
+        };
+    }
+    owner
+}
+
 #[doc(hidden)]
 /// Per-language counting of function arguments.
 pub(crate) trait NArgs
@@ -278,12 +355,15 @@ where
         }
 
         if Self::is_closure(node, ancestors) {
-            compute_args::<Self>(node, &mut stats.closure_nargs);
+            compute_args::<Self>(
+                &Self::params_owner(node, ancestors),
+                &mut stats.closure_nargs,
+            );
         }
     }
 
-    /// The node whose `parameters` field holds this function's formal
-    /// arguments. Defaults to the function node itself.
+    /// The node whose `parameters` field holds this callable's formal
+    /// arguments. Defaults to the callable's own node.
     ///
     /// Exists so a language that spells its parameters somewhere other
     /// than on the function node can say *that* and inherit everything
@@ -293,70 +373,46 @@ where
     /// pick up a later correction — which is the drift #1142 and #1162
     /// were both filed about.
     ///
+    /// It answers for both channels — a closure reaches its parameters
+    /// through this too, which is what lets the C family express a C++
+    /// lambda and a pointer-returning function as one rule (#1200).
+    ///
     /// The two are mutually exclusive: only the default `compute` calls
-    /// this, so a language that overrides `compute` (the C family, Objc,
-    /// Go, Kotlin, Lua, Tcl, iRules, Perl, Elixir, Groovy) would define
-    /// a `params_owner` that is never consulted. Override one or the
+    /// this, so a language that overrides `compute` (Objc, Go, Kotlin,
+    /// Lua, Tcl, iRules, Perl, Elixir, Groovy) would define a
+    /// `params_owner` that is never consulted. Override one or the
     /// other, not both.
     fn params_owner<'tree>(node: &Node<'tree>, _ancestors: Ancestors<'tree, '_>) -> Node<'tree> {
         *node
     }
 }
 
+// The C family spells a function's parameters on the
+// `function_declarator` buried under whatever the *return type*
+// contributed, so all three point `params_owner` at the innermost
+// declarator carrying a `parameters` field. Falling back to the node
+// keeps the pre-#1200 answer for a shape with no declarator at all — a
+// parameterless C++ lambda, `[]{ … }`, which has none.
+//
+// C++ and Mozcpp reach this for their lambdas as well as their
+// functions; C has no closure form at all (`CCode::is_closure` is a
+// constant `false`), so its closure channel is unreachable rather than
+// merely unused.
 impl NArgs for CppCode {
-    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
-        if Self::is_func(node, ancestors) {
-            if let Some(declarator) = node.child_by_field_name("declarator") {
-                let new_node = declarator;
-                compute_args::<Self>(&new_node, &mut stats.fn_nargs);
-            }
-            return;
-        }
-
-        if Self::is_closure(node, ancestors)
-            && let Some(declarator) = node.child_by_field_name("declarator")
-        {
-            let new_node = declarator;
-            compute_args::<Self>(&new_node, &mut stats.closure_nargs);
-        }
+    fn params_owner<'tree>(node: &Node<'tree>, _ancestors: Ancestors<'tree, '_>) -> Node<'tree> {
+        declarator_params_owner::<Self>(node).unwrap_or(*node)
     }
 }
 
 impl NArgs for CCode {
-    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
-        if Self::is_func(node, ancestors) {
-            if let Some(declarator) = node.child_by_field_name("declarator") {
-                let new_node = declarator;
-                compute_args::<Self>(&new_node, &mut stats.fn_nargs);
-            }
-            return;
-        }
-
-        if Self::is_closure(node, ancestors)
-            && let Some(declarator) = node.child_by_field_name("declarator")
-        {
-            let new_node = declarator;
-            compute_args::<Self>(&new_node, &mut stats.closure_nargs);
-        }
+    fn params_owner<'tree>(node: &Node<'tree>, _ancestors: Ancestors<'tree, '_>) -> Node<'tree> {
+        declarator_params_owner::<Self>(node).unwrap_or(*node)
     }
 }
 
 impl NArgs for MozcppCode {
-    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
-        if Self::is_func(node, ancestors) {
-            if let Some(declarator) = node.child_by_field_name("declarator") {
-                let new_node = declarator;
-                compute_args::<Self>(&new_node, &mut stats.fn_nargs);
-            }
-            return;
-        }
-
-        if Self::is_closure(node, ancestors)
-            && let Some(declarator) = node.child_by_field_name("declarator")
-        {
-            let new_node = declarator;
-            compute_args::<Self>(&new_node, &mut stats.closure_nargs);
-        }
+    fn params_owner<'tree>(node: &Node<'tree>, _ancestors: Ancestors<'tree, '_>) -> Node<'tree> {
+        declarator_params_owner::<Self>(node).unwrap_or(*node)
     }
 }
 
@@ -378,8 +434,11 @@ impl NArgs for ObjcCode {
     ) {
         match node.kind_id().into() {
             Objc::FunctionDefinition | Objc::FunctionDefinition2 => {
-                if let Some(declarator) = node.child_by_field_name("declarator") {
-                    compute_args::<Self>(&declarator, &mut stats.fn_nargs);
+                // The same declarator walk C and C++ use: Objective-C
+                // inherits C's declarator syntax, so `FILE *f(int a)`
+                // buries the parameter list one level down (#1200).
+                if let Some(owner) = declarator_params_owner::<Self>(node) {
+                    compute_args::<Self>(&owner, &mut stats.fn_nargs);
                 }
             }
             Objc::MethodDefinition => {
@@ -4514,5 +4573,160 @@ mod comments_in_parameter_lists {
                 "{lang:?}: a bare lambda parameter is one closure argument"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod c_family_return_type_declarators {
+    use crate::test_support::space_verbatim;
+    use crate::{LANG, MetricsOptions};
+
+    /// `(closure_args, function_args)` read from the fixture's sole
+    /// nested space.
+    ///
+    /// The space rather than the file roll-up, because since #1196 the
+    /// `nargs` gate reads a callable's *own* parameter count: a fix that
+    /// repaired only the roll-up would leave the gate exactly as blind
+    /// as #1200 found it. The pair rather than the total, so a
+    /// regression that merely moved a count between the function and
+    /// closure channels cannot read as a pass.
+    #[track_caller]
+    fn sole_space_args(lang: LANG, source: &str) -> (u64, u64) {
+        let root = space_verbatim(lang, source.as_bytes(), MetricsOptions::default());
+        let [space] = root.spaces.as_slice() else {
+            panic!(
+                "{lang:?}: fixture must open exactly one space, opened {}",
+                root.spaces.len()
+            );
+        };
+        (
+            space.metrics.nargs.closure_args(),
+            space.metrics.nargs.function_args(),
+        )
+    }
+
+    /// The return shapes every C-derived grammar here shares, plus the
+    /// unwrapped control that keeps the fix honest.
+    ///
+    /// Every pointer row reported **0** before #1200 and the nested rows
+    /// reported the *return type's* arity; the plain row already passed
+    /// and is here so a helper that returned nothing at all could not
+    /// look like a fix.
+    ///
+    /// Each nested row deliberately gives the inner and outer parameter
+    /// lists **different** lengths. An earlier draft of the `__cdecl`
+    /// row spelled both as one argument, which made it agree with the
+    /// answer it was written to reject.
+    fn c_declarator_shapes(lang: LANG) -> Option<&'static [(&'static str, (u64, u64))]> {
+        if !matches!(lang, LANG::C | LANG::Cpp | LANG::Mozcpp | LANG::Objc) {
+            return None;
+        }
+        // C declarator syntax, shared by all four grammars. `Foo` is
+        // deliberately an undeclared type: tree-sitter resolves the
+        // shape syntactically, and a fixture that leaned on a typedef
+        // would be testing the fixture.
+        Some(&[
+            // A pointer return: the reported symptom in #1200.
+            ("FILE *f(int a, int b, int c) { return 0; }", (0, 3)),
+            // Two levels of `pointer_declarator`, so a walk that steps
+            // exactly once still fails.
+            ("int **g(int a, int b) { return 0; }", (0, 2)),
+            // A storage-class specifier ahead of the pointer, which
+            // sits outside the declarator entirely.
+            ("static int *h(int a) { return 0; }", (0, 1)),
+            // A function returning a pointer to a one-argument
+            // function. The *outer* `function_declarator` owns
+            // `(int c)` — the return type's list — so taking the first
+            // `parameters` found reports 1. `fp` takes two.
+            ("int (*fp(int a, int b))(int c) { return 0; }", (0, 2)),
+            // The same shape with an MSVC calling convention, which
+            // parses as a real `ms_call_modifier` node *preceding* the
+            // declarator inside the `parenthesized_declarator`. This is
+            // what makes the fallback take the last named child rather
+            // than the first.
+            (
+                "int (__cdecl *w(int a, int b))(int c) { return 0; }",
+                (0, 2),
+            ),
+            // The unwrapped control: its `declarator` field already is
+            // the `function_declarator`, so it passed before the fix
+            // and must keep passing after it.
+            ("int plain(int a, int b) { return a; }", (0, 2)),
+        ])
+    }
+
+    /// The shapes only C++ has: `reference_declarator`, which — unlike
+    /// `pointer_declarator` — exposes no `declarator` field at all, and
+    /// the lambda, which reaches `params_owner` through the closure
+    /// channel rather than the function one.
+    fn cpp_only_shapes(lang: LANG) -> Option<&'static [(&'static str, (u64, u64))]> {
+        Some(match lang {
+            LANG::Cpp | LANG::Mozcpp => &[
+                ("int &r(int a, int b) { static int x; return x; }", (0, 2)),
+                // The rule's other spelling: `&&` is a distinct token
+                // in the same `reference_declarator`, so a fix keyed on
+                // the `&` token alone would pass the row above.
+                (
+                    "Foo &&m(int a) { static Foo f; return static_cast<Foo &&>(f); }",
+                    (0, 1),
+                ),
+                // A member function returning a reference: the chain
+                // ends at a `qualified_identifier` rather than a bare
+                // one, which has named children of its own.
+                ("Foo &Bar::get(int a) { static Foo f; return f; }", (0, 1)),
+                (
+                    "int g() { auto f = [](int a, int b){ return a + b; }; return f(1, 2); }",
+                    (2, 0),
+                ),
+                // The guard for the walk's stop condition. A lambda's
+                // `abstract_function_declarator` carries `parameters`
+                // but its `declarator` field is *optional* and absent
+                // here, so a walk that falls through to the last named
+                // child descends into the parameter list and reports
+                // `cb`'s own `(int x)` — one argument instead of two.
+                (
+                    "int g() { auto f = [](int a, int (*cb)(int x)){ return cb(a); }; return 0; }",
+                    (2, 0),
+                ),
+            ],
+            _ => return None,
+        })
+    }
+
+    #[test]
+    fn a_wrapped_return_type_does_not_hide_the_parameter_list() {
+        let (mut shared, mut cpp_only) = (0, 0);
+        let mut failures = Vec::new();
+        for lang in LANG::into_enum_iter().filter(LANG::is_enabled) {
+            for (table, counter) in [
+                (c_declarator_shapes(lang), &mut shared),
+                (cpp_only_shapes(lang), &mut cpp_only),
+            ] {
+                for (source, expected) in table.unwrap_or_default() {
+                    *counter += 1;
+                    let got = sole_space_args(lang, source);
+                    // Collected rather than asserted inline so a
+                    // regression shows every language and shape it
+                    // broke, not just the first. The branch carries no
+                    // formatting — a line that runs only on failure can
+                    // never be covered.
+                    if got != *expected {
+                        failures.push((lang, source, *expected, got));
+                    }
+                }
+            }
+        }
+        let (failed, checked) = (failures.len(), shared + cpp_only);
+        assert!(
+            failures.is_empty(),
+            "{failed}/{checked} return-type shapes lost their parameter list: {failures:#?}"
+        );
+        // Both tallies, so a renamed `LANG` variant or a feature that
+        // stopped being enabled fails here rather than passing
+        // vacuously.
+        assert!(
+            shared > 0 && cpp_only > 0,
+            "no fixture ran (shared={shared}, cpp_only={cpp_only}); this test asserted nothing"
+        );
     }
 }
