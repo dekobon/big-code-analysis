@@ -341,21 +341,21 @@ fn top() -> u8 {
 package main
 
 type S struct {
-\tPub  int
-\tpriv int
+    Pub  int
+    priv int
 }
 
 type I interface {
-\tSpeak() string
+    Speak() string
 }
 
 func (s S) Method() int { return s.Pub }
 
 func Outer() int {
-\ttype inner struct {
-\t\tX int
-\t}
-\treturn inner{X: 1}.X
+    type inner struct {
+        X int
+    }
+    return inner{X: 1}.X
 }
 ",
     },
@@ -379,6 +379,33 @@ def top(x):
     #[cfg(feature = "cpp")]
     Fixture {
         lang: LANG::Cpp,
+        containers: &["N", "C"],
+        source: "\
+namespace N {
+class C {
+public:
+    int a;
+    int q() { return a; }
+};
+}
+
+int top() { return 0; }
+",
+    },
+    // Mozcpp owns no file extension, so nothing routes to it and it gets
+    // no integration-snapshot coverage at all — the case
+    // `.claude/rules/grammar-dispatch.md` says to pin against its
+    // extension-owning sibling. `cpp_mozcpp_parity` does not cover this:
+    // it compares metric *values* through `metric_sums`, so it would not
+    // notice Mozcpp losing both blocks to a stray `HAS_MEMBERS = false`
+    // on its impl — verified by perturbation, which fails here and
+    // nowhere else. (Adding Mozcpp to the `implement_metric_trait!`
+    // no-op list is *not* the hazard: it collides with the real impl and
+    // fails to compile.) Same source as the Cpp fixture, deliberately,
+    // so a divergence reads as one.
+    #[cfg(feature = "mozcpp")]
+    Fixture {
+        lang: LANG::Mozcpp,
         containers: &["N", "C"],
         source: "\
 namespace N {
@@ -588,7 +615,7 @@ fn the_1184_constructs_open_quiet_function_spaces() {
 /// block.
 #[test]
 #[cfg(feature = "java")]
-fn container_counts_survive_the_narrowed_enable() {
+fn container_counts_are_independent_of_the_emission_gate() {
     let space = space_verbatim(
         LANG::Java,
         fixture_source(LANG::Java).as_bytes(),
