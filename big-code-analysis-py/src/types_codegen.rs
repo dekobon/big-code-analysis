@@ -1058,13 +1058,16 @@ mod tests {
     /// `vcs` block respectively — otherwise their specs would be untested.
     ///
     /// `npm` / `npa` are read off the class space rather than the file
-    /// root: since #1197 they are emitted only on container spaces.
+    /// root. Both carry the block, but the class is where the counts are
+    /// actually produced — the root only rolls them up — so asserting
+    /// there keeps the spec check independent of the roll-up.
     #[test]
     fn class_only_and_vcs_specs_match_wire_json_keys() {
         use big_code_analysis::wire;
 
-        // Java emits wmc at the file root, but npm / npa only on the
-        // container space itself (#1197) — read each where it lives.
+        // Java emits all three on both the root and the class; read wmc
+        // at the root and npm / npa at the class, so each is checked
+        // where the metric is defined rather than where it aggregates.
         let value = analyze_to_value(
             "java",
             "public class Foo {\n    public int a;\n    public int m() { return 1; }\n}\n",

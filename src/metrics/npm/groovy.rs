@@ -18,14 +18,14 @@ use super::*;
 impl Npm for GroovyCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
         use crate::metrics::npa::{groovy_body_is_interface_like, groovy_has_explicit_public};
         use Groovy::*;
 
-        stats.enable_for_container::<Self>(node);
+        stats.enable_for_member_scope::<Self>(node, code, ancestors);
 
         match node.kind_id().into() {
             ClassBody | EnumBody => {

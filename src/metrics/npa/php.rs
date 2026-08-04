@@ -11,13 +11,13 @@ use super::*;
 impl Npa for PhpCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
         use Php::*;
 
-        stats.enable_for_container::<Self>(node);
+        stats.enable_for_member_scope::<Self>(node, code, ancestors);
 
         // Class / trait / anonymous-class / interface bodies all share
         // the `DeclarationList` kind; the parent kind disambiguates.

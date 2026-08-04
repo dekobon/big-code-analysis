@@ -17,7 +17,7 @@ impl Npa for RubyCode {
     ) {
         use Ruby::*;
 
-        stats.enable_for_container::<Self>(node);
+        stats.enable_for_member_scope::<Self>(node, code, ancestors);
 
         if !matches!(node.kind_id().into(), BodyStatement | BodyStatement2) {
             return;

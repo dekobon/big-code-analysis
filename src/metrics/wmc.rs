@@ -143,7 +143,7 @@ impl Stats {
     // Checks if the `Wmc` metric is disabled
     #[inline]
     pub(crate) fn is_disabled(&self) -> bool {
-        matches!(self.space_kind, SpaceKind::Function | SpaceKind::Unknown)
+        !self.space_kind.is_member_scope()
     }
 }
 

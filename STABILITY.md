@@ -1074,8 +1074,12 @@ drift-gate test, so the Python types cannot diverge from the JSON the
 CLI emits. The change is stub-only (the runtime values are plain
 dicts, byte-identical to the CLI output), so it only narrows the
 static type. Every metric block is `NotRequired` because a `metrics=`
-selection can elide blocks; under the default full suite every block
-is present. The VCS *report* dicts are now single-sourced and typed too
+selection can elide blocks, and because the object-oriented blocks are
+scope-gated: `wmc`, `npm` and `npa` are emitted on container spaces and
+on the file root, never on a function space (#1197), and a language
+with no class-like construct emits them nowhere. Which spaces carry
+which block is not part of the shape contract — the `wire` struct
+definitions are. The VCS *report* dicts are now single-sourced and typed too
 (#664): `vcs.rank` returns `VcsReportDict`, `vcs.trend` returns
 `VcsTrendDict`, `vcs.commit` returns `JitCommitReportDict`, and
 `vcs.score_diff` returns `JitDiffReportDict`. The report / trend envelope

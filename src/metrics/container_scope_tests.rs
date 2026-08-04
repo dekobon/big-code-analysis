@@ -10,15 +10,21 @@
 //!
 //! That blindness is exactly how #1197 shipped: `Npm` and `Npa` enabled
 //! themselves on `Checker::is_func_space`, which means "opens a space",
-//! not "is a container". Ten languages therefore emitted an all-zero
-//! block on the file root, and seven of them on every ordinary method
-//! too; #1184 then added property accessors and `init` / `static` blocks
-//! to the list, next to sibling methods that had none.
+//! not "is a scope that owns members". Seven of the ten languages
+//! therefore emitted an all-zero block on every ordinary method, and
+//! #1184 added Kotlin property accessors and `init` / `static` blocks to
+//! the list, next to sibling methods that had none.
+//!
+//! The rule they now follow is [`SpaceKind::is_member_scope`], which
+//! `wmc` already used: containers and the file unit carry the block, a
+//! function space never does. Both directions are asserted below,
+//! because narrowing too far would silently delete the whole-file
+//! roll-up rather than the all-zero noise.
 
 use serde_json::Value;
 
 use crate::spaces::SpaceKind;
-use crate::test_support::space_verbatim;
+use crate::test_support::{assert_fixtures_present, space_verbatim};
 use crate::{LANG, MetricsOptions};
 
 /// A serialized space, flattened to what these tests assert on.
@@ -69,7 +75,7 @@ fn flatten(value: &Value, out: &mut Vec<Emitted>) {
 }
 
 /// One fixture per language whose `Npm` / `Npa` impl enables on
-/// [`opens_container_space`](super::opens_container_space).
+/// [`opens_member_scope`](super::opens_member_scope).
 ///
 /// Each carries a container with one public method and one public
 /// attribute, at least one ordinary method, and — where the grammar has
@@ -120,6 +126,7 @@ fn only_space<'a>(lang: LANG, spaces: &'a [Emitted], name: &str) -> &'a Emitted 
 }
 
 const FIXTURES: &[Fixture] = &[
+    #[cfg(feature = "kotlin")]
     Fixture {
         lang: LANG::Kotlin,
         containers: &["C", "I"],
@@ -136,6 +143,7 @@ class C : I {
 }
 ",
     },
+    #[cfg(feature = "java")]
     Fixture {
         lang: LANG::Java,
         containers: &["C", "I"],
@@ -150,6 +158,7 @@ class C implements I {
 }
 ",
     },
+    #[cfg(feature = "groovy")]
     Fixture {
         lang: LANG::Groovy,
         containers: &["C", "I"],
@@ -164,6 +173,7 @@ class C implements I {
 }
 ",
     },
+    #[cfg(feature = "javascript")]
     Fixture {
         lang: LANG::Javascript,
         containers: &["C"],
@@ -176,6 +186,7 @@ class C {
 function top(x) { return x; }
 ",
     },
+    #[cfg(feature = "mozjs")]
     Fixture {
         lang: LANG::Mozjs,
         containers: &["C"],
@@ -188,6 +199,7 @@ class C {
 function top(x) { return x; }
 ",
     },
+    #[cfg(feature = "typescript")]
     Fixture {
         lang: LANG::Typescript,
         containers: &["C", "I"],
@@ -203,6 +215,7 @@ class C implements I {
 function top(x: number): number { return x; }
 ",
     },
+    #[cfg(feature = "typescript")]
     Fixture {
         lang: LANG::Tsx,
         containers: &["C", "I"],
@@ -218,6 +231,7 @@ class C implements I {
 function top(x: number): number { return x; }
 ",
     },
+    #[cfg(feature = "csharp")]
     Fixture {
         lang: LANG::Csharp,
         containers: &["C", "I"],
@@ -227,10 +241,17 @@ interface I {
 }
 class C : I {
     public int A = 1;
+    private int[] _v = new int[4];
+    // An expression-bodied property and an accessor-less indexer are
+    // `is_func_space` and `SpaceKind::Function` (#464, #472), so before
+    // #1197 each carried an all-zero block beside `Q`, which had none.
+    public int W => A;
+    public int this[int i] => _v[i];
     public int Q() { return A; }
 }
 ",
     },
+    #[cfg(feature = "php")]
     Fixture {
         lang: LANG::Php,
         containers: &["C", "I"],
@@ -246,6 +267,7 @@ class C implements I {
 function top($x) { return $x; }
 ",
     },
+    #[cfg(feature = "ruby")]
     Fixture {
         lang: LANG::Ruby,
         // A Ruby `module` is `SpaceKind::Namespace`, which is a container.
@@ -269,6 +291,7 @@ end
 /// #1197 by disabling the metric everywhere.
 #[test]
 fn containers_emit_npm_and_npa() {
+    assert_fixtures_present(FIXTURES);
     for fixture in FIXTURES {
         let spaces = emitted_spaces(fixture.lang, fixture.source);
         for want in fixture.containers {
@@ -293,29 +316,30 @@ fn containers_emit_npm_and_npa() {
     }
 }
 
-/// No function space and no file root carries either block.
+/// No function space carries either block.
 ///
 /// This is the assertion #1197 is about. The `<get>` / `<set>` /
 /// `<init>` / `<static-init>` spaces #1184 introduced are ordinary
-/// function spaces here and are covered by the same sweep.
+/// function spaces here and are covered by the same sweep, as are C#'s
+/// expression-bodied property and indexer.
 #[test]
-fn function_spaces_and_file_roots_emit_neither() {
+fn function_spaces_emit_neither() {
+    assert_fixtures_present(FIXTURES);
     for fixture in FIXTURES {
         let spaces = emitted_spaces(fixture.lang, fixture.source);
-        let non_containers: Vec<&Emitted> = spaces
+        let functions: Vec<&Emitted> = spaces
             .iter()
-            .filter(|s| matches!(s.kind, SpaceKind::Unit | SpaceKind::Function))
+            .filter(|s| s.kind == SpaceKind::Function)
             .collect();
         // A fixture whose functions all failed to open a space would make
         // every assertion below vacuous.
         assert!(
-            non_containers.len() >= 2,
-            "{:?}: expected the unit root plus at least one function space, \
-             got {:?}",
+            !functions.is_empty(),
+            "{:?}: expected at least one function space, got {:?}",
             fixture.lang,
             summary(&spaces)
         );
-        for space in non_containers {
+        for space in functions {
             assert!(
                 !space.has_npm && !space.has_npa,
                 "{:?}: {:?} space {:?} must not emit npm/npa (npm={}, npa={})",
@@ -329,6 +353,30 @@ fn function_spaces_and_file_roots_emit_neither() {
     }
 }
 
+/// The whole-file roll-up survives on the unit root, exactly as `wmc`'s
+/// does.
+///
+/// Narrowing the enable to containers alone would have deleted this — an
+/// information loss, not the all-zero-noise removal #1197 asked for, and
+/// it would have left `npm` / `npa` disagreeing with `wmc` about a root
+/// the three metrics share a [`MetricScope`](crate::metric_catalog::MetricScope).
+#[test]
+fn the_file_root_keeps_its_rollup() {
+    assert_fixtures_present(FIXTURES);
+    for fixture in FIXTURES {
+        let spaces = emitted_spaces(fixture.lang, fixture.source);
+        let root = spaces.first().expect("the root space is always emitted");
+        assert_eq!(root.kind, SpaceKind::Unit, "{:?}: root kind", fixture.lang);
+        assert!(
+            root.has_npm && root.has_npa,
+            "{:?}: the unit root must keep its npm/npa roll-up (npm={}, npa={})",
+            fixture.lang,
+            root.has_npm,
+            root.has_npa
+        );
+    }
+}
+
 /// Every #1184 construct opens a function space that emits neither
 /// block, while a plain method beside it does the same.
 ///
@@ -338,14 +386,22 @@ fn function_spaces_and_file_roots_emit_neither() {
 #[test]
 fn the_1184_constructs_open_quiet_function_spaces() {
     let cases: &[(LANG, &[&str])] = &[
+        #[cfg(feature = "kotlin")]
         (LANG::Kotlin, &["<get>", "<set>", "<init>"]),
+        #[cfg(feature = "java")]
         (LANG::Java, &["<static-init>"]),
+        #[cfg(feature = "groovy")]
         (LANG::Groovy, &["<static-init>"]),
+        #[cfg(feature = "javascript")]
         (LANG::Javascript, &["<static-init>"]),
+        #[cfg(feature = "mozjs")]
         (LANG::Mozjs, &["<static-init>"]),
+        #[cfg(feature = "typescript")]
         (LANG::Typescript, &["<static-init>"]),
+        #[cfg(feature = "typescript")]
         (LANG::Tsx, &["<static-init>"]),
     ];
+    assert_fixtures_present(cases);
     for (lang, names) in cases {
         let spaces = emitted_spaces(*lang, fixture_source(*lang));
         for name in *names {
@@ -367,6 +423,7 @@ fn the_1184_constructs_open_quiet_function_spaces() {
 /// is worth pinning rather than assuming, since a wrong predicate could
 /// have skipped a `ClassBody` walk instead of just a block.
 #[test]
+#[cfg(feature = "java")]
 fn container_counts_survive_the_narrowed_enable() {
     let space = space_verbatim(
         LANG::Java,
@@ -376,6 +433,11 @@ fn container_counts_survive_the_narrowed_enable() {
     let class = crate::test_support::child_space(&space, "C");
     assert_eq!(class.metrics.npm.class_npm_sum(), 1, "public method `q`");
     assert_eq!(class.metrics.npa.class_npa_sum(), 1, "public attribute `a`");
+
+    // The interface half of the same fixture, which a class-only
+    // assertion would leave free to regress to zero.
+    let interface = crate::test_support::child_space(&space, "I");
+    assert_eq!(interface.metrics.npm.interface_npm_sum(), 1, "`I::q`");
 
     // The roll-up still reaches the root even though the root no longer
     // serializes it — the sum is what `bca check` reads at a container,

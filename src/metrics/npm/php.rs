@@ -11,7 +11,7 @@ use super::*;
 impl Npm for PhpCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
@@ -24,7 +24,7 @@ impl Npm for PhpCode {
         // sibling `Abc::compute` carries a marker here.
         use Php::*;
 
-        stats.enable_for_container::<Self>(node);
+        stats.enable_for_member_scope::<Self>(node, code, ancestors);
 
         match node.kind_id().into() {
             DeclarationList => {
