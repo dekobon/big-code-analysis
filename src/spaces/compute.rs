@@ -60,6 +60,33 @@ fn compute_wmc<T: ParserTrait>(state: &mut State, selected: MetricSet) {
     }
 }
 
+/// Records the space kind that decides whether `npm` / `npa` are
+/// serialized on this space.
+///
+/// Both are emitted only on a member scope — a container, or the file
+/// unit that rolls its containers up — and since #1203 the space's own
+/// kind is the whole of that decision. Doing it here rather than letting
+/// each language raise a flag from its own grammar node kinds is what
+/// makes the rule hold for every language, including one added later:
+/// there is no per-language surface left to deviate on, in either
+/// direction.
+///
+/// `HAS_MEMBERS` is the one exception, and it is a language-level opt
+/// out rather than a per-space one: a grammar with no class-shaped
+/// construct anywhere (C, Bash, Lua, …) would otherwise report an
+/// all-zero block on every file root, since a unit is a member scope
+/// like any other.
+#[inline]
+fn note_member_scope<T: ParserTrait>(state: &mut State, selected: MetricSet) {
+    let kind = state.space.kind;
+    if selected.contains(Metric::Npm) && <T::Npm as Npm>::HAS_MEMBERS {
+        state.space.metrics.npm.set_space_kind(kind);
+    }
+    if selected.contains(Metric::Npa) && <T::Npa as Npa>::HAS_MEMBERS {
+        state.space.metrics.npa.set_space_kind(kind);
+    }
+}
+
 #[inline]
 fn compute_averages(state: &mut State, selected: MetricSet) {
     // The per-function averages for Cognitive, Exit, and NArgs divide
@@ -152,6 +179,7 @@ fn finalize_state<T: ParserTrait>(state: &mut State, selected: MetricSet) {
     compute_sum(state, selected);
     compute_halstead_and_mi::<T>(state, selected);
     compute_wmc::<T>(state, selected);
+    note_member_scope::<T>(state, selected);
     compute_averages(state, selected);
 }
 

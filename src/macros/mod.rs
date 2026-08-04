@@ -96,11 +96,40 @@ macro_rules! implement_metric_trait {
     (Cyclomatic, $($code:ident),+) => (
         implement_metric_trait!(@code_and_chain_taking Cyclomatic, $($code),+);
     );
+    // `Npa` and `Npm` cannot delegate to the shared arm above: their
+    // no-op impls must also opt the language out of *emitting* the
+    // block, which `HAS_MEMBERS` does. Without it a shell script would
+    // report `class_npa_sum: 0` — the file unit is a member scope like
+    // any other, so the walker would seed it (#1203). `wmc` reaches the
+    // same place by different means: its no-op `compute` simply never
+    // records a space kind.
     (Npa, $($code:ident),+) => (
-        implement_metric_trait!(@code_and_chain_taking Npa, $($code),+);
+        $(
+           impl Npa for $code {
+               const HAS_MEMBERS: bool = false;
+
+               fn compute<'a>(
+                   _node: &Node<'a>,
+                   _code: &'a [u8],
+                   _ancestors: crate::Ancestors<'a, '_>,
+                   _stats: &mut Stats,
+               ) {}
+           }
+        )+
     );
     (Npm, $($code:ident),+) => (
-        implement_metric_trait!(@code_and_chain_taking Npm, $($code),+);
+        $(
+           impl Npm for $code {
+               const HAS_MEMBERS: bool = false;
+
+               fn compute<'a>(
+                   _node: &Node<'a>,
+                   _code: &'a [u8],
+                   _ancestors: crate::Ancestors<'a, '_>,
+                   _stats: &mut Stats,
+               ) {}
+           }
+        )+
     );
     (Loc, $($code:ident),+) => (
         $(

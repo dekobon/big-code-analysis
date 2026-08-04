@@ -18,23 +18,11 @@ impl Npm for GoCode {
         use Go as G;
 
         match node.kind_id().into() {
-            // First-visit pass on the file root: enable npm output if
-            // the file declares any receiver methods. Walks only the
-            // direct children — Go always declares methods at file
-            // scope, so deeper recursion is unnecessary.
-            G::SourceFile
-                if stats.is_disabled()
-                    && node
-                        .children()
-                        .any(|c| matches!(c.kind_id().into(), G::MethodDeclaration)) =>
-            {
-                stats.is_class_space = true;
-            }
             // Each receiver method contributes one to the per-space
             // count; `compute_sum` rolls it into `class_nm_sum`, and
-            // the parent's merge bubbles it up to the Unit. The
-            // method's own space is left unmarked so its
-            // per-function npm block stays suppressed.
+            // the parent's merge bubbles it up to the Unit, which is
+            // where a Go file's npm is reported — Go has no container
+            // space to attach it to.
             G::MethodDeclaration => {
                 stats.class_nm += 1;
                 // Go's export rule is lexical (issue #458): the method
@@ -82,12 +70,6 @@ impl Npm for GoCode {
                     if is_exported {
                         exported += 1;
                     }
-                }
-                if methods == 0 {
-                    return;
-                }
-                if stats.is_disabled() {
-                    stats.is_class_space = true;
                 }
                 stats.interface_nm += methods;
                 stats.interface_npm += exported;

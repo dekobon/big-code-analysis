@@ -31,6 +31,11 @@ impl Npa for ElixirCode {
     ) {
         use crate::metrics::cognitive::{elixir_call_keyword, elixir_do_block_call_children};
 
+        // The space-opening node for a `defmodule` Call is the node
+        // itself, and the walker pushes that space before running any
+        // metric against it, so a nested `defmodule` is counted by its
+        // own module and never reaches this one's stats.
+        //
         // `is_func_space_with_code` is not consulted: it is implied.
         // `elixir_is_class_macro` is exactly `kw == "defmodule"`, so it
         // answers `true` for every node this check lets through, and for
@@ -39,11 +44,9 @@ impl Npa for ElixirCode {
         // rejects the node anyway. Calling it cost a source-text keyword
         // scan per node plus, before #1088, an `O(depth)` climb, and its
         // answer was discarded either way (#1088).
-        if !stats.is_disabled() || !matches!(elixir_call_keyword(node, code), Some("defmodule")) {
+        if !matches!(elixir_call_keyword(node, code), Some("defmodule")) {
             return;
         }
-
-        stats.is_class_space = true;
 
         for stmt in elixir_do_block_call_children(node) {
             if matches!(elixir_call_keyword(&stmt, code), Some("defstruct")) {

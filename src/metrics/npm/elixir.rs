@@ -26,7 +26,9 @@ impl Npm for ElixirCode {
         use crate::metrics::cognitive::{elixir_call_keyword, elixir_do_block_call_children};
 
         // The space-opening node for a `defmodule` Call is the node
-        // itself, so this triggers exactly once per Class.
+        // itself, and the walker pushes that space before running any
+        // metric against it, so a nested `defmodule` is counted by its
+        // own module and never reaches this one's stats.
         //
         // `is_func_space_with_code` is not consulted: it is implied.
         // `elixir_is_class_macro` is exactly `kw == "defmodule"`, so it
@@ -36,11 +38,9 @@ impl Npm for ElixirCode {
         // rejects the node anyway. Calling it cost a source-text keyword
         // scan per node plus, before #1088, an `O(depth)` climb, and its
         // answer was discarded either way (#1088).
-        if !stats.is_disabled() || !matches!(elixir_call_keyword(node, code), Some("defmodule")) {
+        if !matches!(elixir_call_keyword(node, code), Some("defmodule")) {
             return;
         }
-
-        stats.is_class_space = true;
 
         // Direct-child method Calls of the module's do_block. We do
         // not descend deeper — methods nested inside another

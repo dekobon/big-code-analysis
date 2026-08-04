@@ -51,8 +51,7 @@ fn objc_count_instance_variables(block: &Node) -> (usize, usize) {
 // Members are direct children of the class node (a `@protocol` nests its
 // post-`@required` / `@optional` members under a
 // `qualified_protocol_interface_declaration`), so we walk them when the
-// class node itself is visited — the same point `is_class_space` is
-// marked (mirroring the C++ impl's marking step).
+// class node itself is visited, where `stats` is already the class space.
 impl Npa for ObjcCode {
     fn compute<'a>(
         node: &Node<'a>,
@@ -65,9 +64,6 @@ impl Npa for ObjcCode {
         let is_interface = matches!(node.kind_id().into(), ClassInterface | ProtocolDeclaration);
         if !is_interface && node.kind_id() != ClassImplementation as u16 {
             return;
-        }
-        if stats.is_disabled() {
-            stats.is_class_space = true;
         }
         let (mut attributes, mut public) = (0usize, 0usize);
         for child in node.children() {
