@@ -6,7 +6,7 @@
 
 use crate::checker::Checker;
 use crate::getter::Getter;
-use crate::metric_catalog::MetricScope;
+use crate::node::Ancestors;
 use crate::node::Node;
 
 /// Assignment / Branch / Condition counts.
@@ -75,32 +75,40 @@ pub(crate) fn average(sum: f64, count: usize) -> f64 {
     sum / count.max(1) as f64
 }
 
-/// Whether `node` opens a *container* space — a class-like scope that owns
-/// methods and attributes, and therefore the one scope where the
-/// object-oriented `Npm` / `Npa` blocks mean anything.
+/// Whether `node` opens a space at which the object-oriented member
+/// metrics are meaningful — a container, or the file unit that rolls its
+/// containers up. See [`SpaceKind::is_member_scope`].
 ///
 /// [`Checker::is_func_space`] answers a strictly wider question — "does
 /// this node open a space at all" — and stood in for this one until the
-/// gap showed. It lists the grammar root in every language, and ordinary
-/// methods in the JS family and C#; [#1184] then added property accessors
-/// and `init { … }` / `static { … }` blocks. Each of those spaces grew an
-/// all-zero `npm` / `npa` block that the plain method beside it did not
-/// have ([#1197]).
+/// gap showed. It lists ordinary methods in the JS family, C#, PHP and
+/// Ruby; [#1184] then added Kotlin property accessors and `init { … }` /
+/// `static { … }` blocks. Each of those function spaces grew an all-zero
+/// `npm` / `npa` block that the plain method beside it did not have
+/// ([#1197]).
 ///
-/// [`MetricScope::Container`] is reused rather than re-derived: `bca check`
-/// and the SARIF export already gate these metrics on exactly that set of
-/// space kinds ([#969]), so sharing the definition is what keeps the
-/// emitted tree and the threshold scope from drifting apart again.
+/// Classifies through the **source-aware** [`Checker::is_func_space_with_code`]
+/// and [`Getter::get_space_kind_with_code`], because those are what the
+/// walker itself uses to build and label the space tree
+/// (`spaces::compute`). The byte-less forms disagree for Elixir, whose
+/// `defmodule` is a `Class` only to `get_space_kind_with_code` — routing
+/// Elixir through here with the plain forms would silently emit nothing
+/// for every module, with no test or diagnostic to catch it.
 ///
-/// The [`Checker::is_func_space`] conjunct is kept as a precondition, so
-/// the flag can still only be set on a node that genuinely opens a space —
-/// this predicate is a narrowing of the old one and can never enable a
-/// space the old one left disabled.
+/// The `is_func_space_with_code` conjunct is a precondition rather than a
+/// live filter: no language currently classifies a member scope on a node
+/// that opens no space. It keeps the flag pinned to the space's own root
+/// node, so a container kind appearing on a non-space node could never
+/// enable the *enclosing* space by accident.
 ///
-/// [#969]: https://github.com/dekobon/big-code-analysis/issues/969
 /// [#1184]: https://github.com/dekobon/big-code-analysis/issues/1184
 /// [#1197]: https://github.com/dekobon/big-code-analysis/issues/1197
 #[inline]
-fn opens_container_space<L: Checker + Getter>(node: &Node) -> bool {
-    L::is_func_space(node) && MetricScope::Container.admits(L::get_space_kind(node))
+fn opens_member_scope<'a, L: Checker + Getter>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    L::is_func_space_with_code(node, code, ancestors)
+        && L::get_space_kind_with_code(node, code, ancestors).is_member_scope()
 }

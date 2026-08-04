@@ -32,7 +32,7 @@ fn kotlin_count_property_attrs(decl: &Node) -> usize {
 impl Npa for KotlinCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
@@ -40,7 +40,7 @@ impl Npa for KotlinCode {
 
         // Enables the `Npa` metric for both class and interface spaces
         // (and `object` singletons, which `Getter` reports as `Class`).
-        stats.enable_for_container::<Self>(node);
+        stats.enable_for_member_scope::<Self>(node, code, ancestors);
 
         match node.kind_id().into() {
             // A `ClassParameter` carrying `val` / `var` is a Kotlin

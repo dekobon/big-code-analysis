@@ -41,18 +41,6 @@ def _metrics_keys(result: FuncSpaceDict) -> set[str]:
     return set(result["metrics"].keys())
 
 
-def _all_metrics_keys(result: FuncSpaceDict) -> set[str]:
-    """Return every metric-family key on the space tree, at any depth.
-
-    ``npm`` and ``npa`` are emitted only on container spaces (#1197), so
-    a key that exists for a fixture need not exist at its root.
-    """
-    keys = _metrics_keys(result)
-    for space in result.get("spaces", ()):
-        keys |= _all_metrics_keys(space)
-    return keys
-
-
 # ─────────────────────────────────────────────────────────────────
 # METRIC_NAMES module constant
 # ─────────────────────────────────────────────────────────────────
@@ -89,19 +77,22 @@ def test_metric_names_constant_shape() -> None:
 def test_metric_names_round_trip_through_analyze() -> None:
     """Every name in ``METRIC_NAMES`` is accepted by ``metrics=``.
 
-    Class-only metrics (``npa``, ``npm``, ``wmc``) need a class to
-    attach to, so they use the Java fixture. ``npa`` and ``npm`` are
-    further emitted only on the container space itself (#1197), never
-    on the file root, so their keys are collected over the whole space
-    tree rather than off the top-level space.
+    Class-only metrics (``npa``, ``npm``, ``wmc``) are elided from
+    a unit-level space when there is no class to attach them to —
+    use the Java fixture (which carries a class) for those so the
+    output key actually appears.
+
+    They are also elided from every *function* space, which is where
+    the unit root differs from a nested one (#1197); the assertion
+    below reads the root, and ``test_class_only_metrics_skip_function_spaces``
+    pins the other half.
     """
     class_only = {"npa", "npm", "wmc"}
-    container_only = {"npa", "npm"}
     for name in bca.METRIC_NAMES:
         fixture = FIXTURES / ("Hello.java" if name in class_only else "hello.py")
         result = bca.analyze(fixture, metrics=[name])
         assert result is not None, f"analyze returned None for metrics=[{name!r}]"
-        keys = _all_metrics_keys(result) if name in container_only else _metrics_keys(result)
+        keys = _metrics_keys(result)
         # ``mi`` and ``wmc`` are derived; their *direct* output key
         # may sit on a nested space (or, for ``wmc``, be ``"wmc"``
         # at the unit root after the Java class merge). Their
@@ -528,3 +519,33 @@ def test_metrics_does_not_override_skip_generated() -> None:
     """
     result = bca.analyze(FIXTURES / "generated.rs", metrics=["loc"])
     assert result is None
+
+
+def test_class_only_metrics_skip_function_spaces() -> None:
+    """``npa`` / ``npm`` never appear on a function space (#1197).
+
+    The root-level assertion in
+    ``test_metric_names_round_trip_through_analyze`` cannot see this:
+    it reads only the top-level space, which legitimately carries the
+    whole-file roll-up. Before #1197 every Java method space carried an
+    all-zero block of its own.
+    """
+    result = bca.analyze(FIXTURES / "Hello.java")
+    assert result is not None
+    assert {"npa", "npm"} <= _metrics_keys(result), "root keeps its roll-up"
+
+    functions = [s for s in _walk(result) if s["kind"] == "function"]
+    assert functions, "the Java fixture must contain at least one method"
+    for space in functions:
+        keys = set(space["metrics"].keys())
+        assert not ({"npa", "npm"} & keys), (
+            f"function space {space['name']!r} must not carry npa/npm; got {sorted(keys)}"
+        )
+
+
+def _walk(space: FuncSpaceDict) -> list[FuncSpaceDict]:
+    """Every space in the tree, root first."""
+    out = [space]
+    for child in space.get("spaces", ()):
+        out.extend(_walk(child))
+    return out

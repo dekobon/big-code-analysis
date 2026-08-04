@@ -1041,7 +1041,7 @@ value = 15.0
 path = "src/metrics/npa/php.rs"
 qualified = "PhpCode::compute"
 metric = "halstead.effort"
-value = 49513.64118505867
+value = 51274.96613103099
 
 [[entry]]
 path = "src/metrics/npa/python.rs"

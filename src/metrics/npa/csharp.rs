@@ -11,13 +11,13 @@ use super::*;
 impl Npa for CsharpCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
         use Csharp::*;
 
-        stats.enable_for_container::<Self>(node);
+        stats.enable_for_member_scope::<Self>(node, code, ancestors);
 
         // Class / struct / record / interface bodies all share
         // `DeclarationList`; the parent kind disambiguates.

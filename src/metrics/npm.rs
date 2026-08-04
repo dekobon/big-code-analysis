@@ -24,7 +24,7 @@ use crate::getter::Getter;
 use crate::langs::*;
 use crate::macros::implement_metric_trait;
 use crate::metrics::npa::{accessibility_ratio, python_is_block, ts_member_is_public};
-use crate::metrics::opens_container_space;
+use crate::metrics::opens_member_scope;
 use crate::node::Node;
 use crate::*;
 
@@ -33,10 +33,14 @@ use crate::*;
 /// This metric counts the number of public methods
 /// of classes/interfaces.
 ///
-/// It is emitted only on *container* spaces — class, struct, trait,
-/// impl, namespace and interface — so a serialized function space and
-/// the file root carry no `npm` block at all. The enable predicate is
-/// `metrics::opens_container_space`.
+/// Emitted on container spaces and on the file unit that rolls them up,
+/// never on a function space — the rule `wmc` also follows, spelled once
+/// as `SpaceKind::is_member_scope`. Each language decides *when* to set
+/// the flag: the ten that route through `metrics::opens_member_scope`
+/// obey the rule for every node, while Python, Rust, C++, Mozcpp, Go,
+/// Objective-C and Elixir gate on their own node kinds and may still
+/// enable a space the shared predicate would not (Go's file root, for
+/// one).
 #[derive(Clone, Debug, Default, PartialEq)]
 #[non_exhaustive]
 pub struct Stats {
@@ -221,17 +225,23 @@ impl Stats {
         !self.is_class_space
     }
 
-    /// Enables `Npm` on the space `node` opens, if that space is a
-    /// container (#1197).
+    /// Enables `Npm` on the space `node` opens, when that space is a
+    /// member scope — a container, or the file unit that rolls its
+    /// containers up (#1197).
     ///
     /// Idempotent by design: `compute` runs once per node, so the first
-    /// container node to reach a given space wins and every later call is
+    /// qualifying node to reach a given space wins and every later call is
     /// a no-op. The languages that gate on a bespoke node-kind set —
     /// Python, Rust, C++, Mozcpp, Go, Objective-C, Elixir — set the flag
     /// themselves and do not route through here.
     #[inline]
-    fn enable_for_container<L: Checker + Getter>(&mut self, node: &Node) {
-        if self.is_disabled() && opens_container_space::<L>(node) {
+    fn enable_for_member_scope<'a, L: Checker + Getter>(
+        &mut self,
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) {
+        if self.is_disabled() && opens_member_scope::<L>(node, code, ancestors) {
             self.is_class_space = true;
         }
     }
@@ -277,7 +287,7 @@ where
     fn compute<'a>(
         node: &Node<'a>,
         code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     );
 }
@@ -304,13 +314,13 @@ macro_rules! impl_npm_java_like {
         impl Npm for $code {
             fn compute<'a>(
                 node: &Node<'a>,
-                _code: &'a [u8],
-                _ancestors: Ancestors<'a, '_>,
+                code: &'a [u8],
+                ancestors: Ancestors<'a, '_>,
                 stats: &mut Stats,
             ) {
                 use $lang::*;
 
-                stats.enable_for_container::<Self>(node);
+                stats.enable_for_member_scope::<Self>(node, code, ancestors);
 
                 match node.kind_id().into() {
                     ClassBody | EnumBodyDeclarations => {
@@ -377,13 +387,13 @@ macro_rules! ts_npm_compute {
     ($lang:ident) => {
         fn compute<'a>(
             node: &Node<'a>,
-            _code: &'a [u8],
-            _ancestors: Ancestors<'a, '_>,
+            code: &'a [u8],
+            ancestors: Ancestors<'a, '_>,
             stats: &mut Stats,
         ) {
             use $lang::*;
 
-            stats.enable_for_container::<Self>(node);
+            stats.enable_for_member_scope::<Self>(node, code, ancestors);
 
             match node.kind_id().into() {
                 ClassBody => {
@@ -453,13 +463,13 @@ macro_rules! js_npm_compute {
     ($lang:ident) => {
         fn compute<'a>(
             node: &Node<'a>,
-            _code: &'a [u8],
-            _ancestors: Ancestors<'a, '_>,
+            code: &'a [u8],
+            ancestors: Ancestors<'a, '_>,
             stats: &mut Stats,
         ) {
             use $lang::*;
 
-            stats.enable_for_container::<Self>(node);
+            stats.enable_for_member_scope::<Self>(node, code, ancestors);
 
             if !matches!(node.kind_id().into(), ClassBody) {
                 return;
