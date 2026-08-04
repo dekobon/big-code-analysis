@@ -40,9 +40,7 @@ impl Npa for KotlinCode {
 
         // Enables the `Npa` metric for both class and interface spaces
         // (and `object` singletons, which `Getter` reports as `Class`).
-        if opens_container_space::<Self>(node) && stats.is_disabled() {
-            stats.is_class_space = true;
-        }
+        stats.enable_for_container::<Self>(node);
 
         match node.kind_id().into() {
             // A `ClassParameter` carrying `val` / `var` is a Kotlin

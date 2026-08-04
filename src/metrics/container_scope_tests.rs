@@ -21,10 +21,14 @@ use crate::spaces::SpaceKind;
 use crate::test_support::space_verbatim;
 use crate::{LANG, MetricsOptions};
 
-/// A serialized space flattened to the two things these tests assert on.
+/// A serialized space, flattened to what these tests assert on.
 struct Emitted {
     kind: SpaceKind,
-    name: String,
+    /// `None` for the unit root, which `space_verbatim` analyses without a
+    /// filename. Modelled as absent rather than defaulted to `""` so a
+    /// *nested* space that lost its name fails a lookup below instead of
+    /// quietly matching nothing.
+    name: Option<String>,
     has_npm: bool,
     has_npa: bool,
 }
@@ -47,9 +51,15 @@ fn flatten(value: &Value, out: &mut Vec<Emitted>) {
     let metrics = value["metrics"]
         .as_object()
         .expect("every space serializes a metrics object");
+    // `expect` rather than a default on `kind`: a space missing it would
+    // read as `Unknown`, which no assertion below could tell apart from a
+    // space these tests are meant to skip.
+    let kind = value["kind"]
+        .as_str()
+        .expect("every space serializes a kind");
     out.push(Emitted {
-        kind: SpaceKind::from_serialized(value["kind"].as_str().unwrap_or_default()),
-        name: value["name"].as_str().unwrap_or_default().to_owned(),
+        kind: SpaceKind::from_serialized(kind),
+        name: value["name"].as_str().map(str::to_owned),
         has_npm: metrics.contains_key("npm"),
         has_npa: metrics.contains_key("npa"),
     });
@@ -70,6 +80,18 @@ struct Fixture {
     /// Names of the container spaces that must carry both blocks.
     containers: &'static [&'static str],
     source: &'static str,
+}
+
+/// The fixture for `lang`.
+///
+/// Looked up by language rather than by index, so reordering [`FIXTURES`]
+/// cannot silently pair a language with another's source.
+fn fixture_source(lang: LANG) -> &'static str {
+    FIXTURES
+        .iter()
+        .find(|f| f.lang == lang)
+        .unwrap_or_else(|| panic!("no fixture for {lang:?}"))
+        .source
 }
 
 const FIXTURES: &[Fixture] = &[
@@ -227,7 +249,7 @@ fn containers_emit_npm_and_npa() {
         for want in fixture.containers {
             let found: Vec<&Emitted> = spaces
                 .iter()
-                .filter(|s| s.name == *want && s.kind != SpaceKind::Unit)
+                .filter(|s| s.name.as_deref() == Some(*want) && s.kind != SpaceKind::Unit)
                 .collect();
             assert_eq!(
                 found.len(),
@@ -237,7 +259,7 @@ fn containers_emit_npm_and_npa() {
                 fixture.lang,
                 spaces
                     .iter()
-                    .map(|s| (s.kind, s.name.as_str()))
+                    .map(|s| (s.kind, s.name.as_deref()))
                     .collect::<Vec<_>>()
             );
             let space = found[0];
@@ -283,7 +305,7 @@ fn function_spaces_and_file_roots_emit_neither() {
             fixture.lang,
             spaces
                 .iter()
-                .map(|s| (s.kind, s.name.as_str()))
+                .map(|s| (s.kind, s.name.as_deref()))
                 .collect::<Vec<_>>()
         );
         for space in non_containers {
@@ -308,30 +330,29 @@ fn function_spaces_and_file_roots_emit_neither() {
 /// they exist *and* stay quiet.
 #[test]
 fn the_1184_constructs_open_quiet_function_spaces() {
-    let cases: &[(LANG, &str, &[&str])] = &[
-        (
-            LANG::Kotlin,
-            FIXTURES[0].source,
-            &["<get>", "<set>", "<init>"],
-        ),
-        (LANG::Java, FIXTURES[1].source, &["<static-init>"]),
-        (LANG::Groovy, FIXTURES[2].source, &["<static-init>"]),
-        (LANG::Javascript, FIXTURES[3].source, &["<static-init>"]),
-        (LANG::Mozjs, FIXTURES[4].source, &["<static-init>"]),
-        (LANG::Typescript, FIXTURES[5].source, &["<static-init>"]),
-        (LANG::Tsx, FIXTURES[6].source, &["<static-init>"]),
+    let cases: &[(LANG, &[&str])] = &[
+        (LANG::Kotlin, &["<get>", "<set>", "<init>"]),
+        (LANG::Java, &["<static-init>"]),
+        (LANG::Groovy, &["<static-init>"]),
+        (LANG::Javascript, &["<static-init>"]),
+        (LANG::Mozjs, &["<static-init>"]),
+        (LANG::Typescript, &["<static-init>"]),
+        (LANG::Tsx, &["<static-init>"]),
     ];
-    for (lang, source, names) in cases {
-        let spaces = emitted_spaces(*lang, source);
+    for (lang, names) in cases {
+        let spaces = emitted_spaces(*lang, fixture_source(*lang));
         for name in *names {
-            let found: Vec<&Emitted> = spaces.iter().filter(|s| s.name == *name).collect();
+            let found: Vec<&Emitted> = spaces
+                .iter()
+                .filter(|s| s.name.as_deref() == Some(*name))
+                .collect();
             assert_eq!(
                 found.len(),
                 1,
                 "{lang:?}: expected exactly one {name:?} space, got {:?}",
                 spaces
                     .iter()
-                    .map(|s| (s.kind, s.name.as_str()))
+                    .map(|s| (s.kind, s.name.as_deref()))
                     .collect::<Vec<_>>()
             );
             assert_eq!(found[0].kind, SpaceKind::Function, "{lang:?}: {name:?}");
@@ -354,7 +375,7 @@ fn the_1184_constructs_open_quiet_function_spaces() {
 fn container_counts_survive_the_narrowed_enable() {
     let space = space_verbatim(
         LANG::Java,
-        FIXTURES[1].source.as_bytes(),
+        fixture_source(LANG::Java).as_bytes(),
         MetricsOptions::default(),
     );
     let class = crate::test_support::child_space(&space, "C");

@@ -17,9 +17,7 @@ impl Npa for PhpCode {
     ) {
         use Php::*;
 
-        if opens_container_space::<Self>(node) && stats.is_disabled() {
-            stats.is_class_space = true;
-        }
+        stats.enable_for_container::<Self>(node);
 
         // Class / trait / anonymous-class / interface bodies all share
         // the `DeclarationList` kind; the parent kind disambiguates.

@@ -1032,18 +1032,6 @@ metric = "loc.ploc"
 value = 547.0
 
 [[entry]]
-path = "src/metrics/npa/csharp.rs"
-qualified = "CsharpCode::compute"
-metric = "cognitive"
-value = 15.0
-
-[[entry]]
-path = "src/metrics/npa/kotlin.rs"
-qualified = "KotlinCode::compute"
-metric = "cognitive"
-value = 15.0
-
-[[entry]]
 path = "src/metrics/npa/objc.rs"
 qualified = "ObjcCode::compute"
 metric = "cognitive"
@@ -1053,7 +1041,7 @@ value = 15.0
 path = "src/metrics/npa/php.rs"
 qualified = "PhpCode::compute"
 metric = "halstead.effort"
-value = 52614.71715355187
+value = 49513.64118505867
 
 [[entry]]
 path = "src/metrics/npa/python.rs"

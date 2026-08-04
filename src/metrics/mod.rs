@@ -79,14 +79,13 @@ pub(crate) fn average(sum: f64, count: usize) -> f64 {
 /// methods and attributes, and therefore the one scope where the
 /// object-oriented `Npm` / `Npa` blocks mean anything.
 ///
-/// [`Checker::is_func_space`] answers a different, strictly wider question:
-/// "does this node open a space at all". The two coincided closely enough
-/// to pass for the container test until they did not. In the JS family and
-/// C# it has always been true of ordinary methods, and of the file root in
-/// every language whose grammar root is listed; [#1184] then added property
-/// accessors, `init { … }` and `static { … }` blocks. Each of those spaces
-/// grew an all-zero `npm` / `npa` block that the plain method beside it did
-/// not have ([#1197]).
+/// [`Checker::is_func_space`] answers a strictly wider question — "does
+/// this node open a space at all" — and stood in for this one until the
+/// gap showed. It lists the grammar root in every language, and ordinary
+/// methods in the JS family and C#; [#1184] then added property accessors
+/// and `init { … }` / `static { … }` blocks. Each of those spaces grew an
+/// all-zero `npm` / `npa` block that the plain method beside it did not
+/// have ([#1197]).
 ///
 /// [`MetricScope::Container`] is reused rather than re-derived: `bca check`
 /// and the SARIF export already gate these metrics on exactly that set of
