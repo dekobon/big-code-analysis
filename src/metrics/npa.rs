@@ -229,12 +229,9 @@ impl Stats {
     /// Records the kind of the space these stats describe, which is the
     /// sole input to [`Self::is_disabled`].
     ///
-    /// Called from `FuncSpace::new`, so it runs once per space, before
-    /// any node in that space is walked. `wmc` records the same thing
-    /// from the walker's finalize step instead, because its `merge`
-    /// dispatches on it; nothing here does, so the earlier seam is
-    /// available and makes the field agree with the space it belongs to
-    /// for the whole of that space's life.
+    /// Called once per space from the walker's finalize step, beside the
+    /// equivalent `wmc` call. Left unset — and so reported disabled — for
+    /// a language whose `HAS_MEMBERS` is `false`.
     #[inline]
     pub(crate) fn set_space_kind(&mut self, kind: SpaceKind) {
         self.space_kind = kind;

@@ -77,9 +77,10 @@ impl Npa for RustCode {
 }
 
 // Counts the fields of a Rust `struct_item` and records them on the
-// enclosing func_space. Empty structs (`attrs == 0`) record nothing and
-// do not mark the space as a class space, so a fieldless marker struct
-// never emits a spurious npa metric.
+// enclosing space. A struct declared inside a function body lands on
+// that function's stats and reaches the nearest enclosing container —
+// or the file root — through the usual merge; which space *serializes*
+// the block is decided later, by its kind alone (#1203).
 fn rust_count_struct_attrs(node: &Node, stats: &mut Stats) {
     use Rust::*;
 
@@ -117,10 +118,8 @@ fn rust_count_struct_attrs(node: &Node, stats: &mut Stats) {
             _ => {}
         }
     }
-    if attrs > 0 {
-        stats.class_na += attrs;
-        stats.class_npa += public_attrs;
-    }
+    stats.class_na += attrs;
+    stats.class_npa += public_attrs;
 }
 
 // Counts an associated `const`/`static` declared directly in an `impl`

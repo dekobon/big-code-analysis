@@ -806,6 +806,13 @@ for historical reference.
   since `bca check` gates both on container spaces, no `npm` or `npa`
   limit can fire on Go source. Both are documented in the metrics guide.
 
+  One consequence reaches a front-end. The Python `to_sarif` binding
+  walks serialized JSON and skips a metric whose key is absent, so it
+  silently dropped every `npm` / `npa` offender on a C++ `namespace` —
+  a kind `MetricScope::Container` admits and the CLI has always gated,
+  reading the struct rather than the JSON. The two front-ends now agree,
+  and SARIF output may gain namespace-scoped findings it was missing.
+
 - **Serialized shape.** `npm` and `npa` no longer emit an all-zero block
   on function spaces (#1197). They enabled themselves from
   `Checker::is_func_space`, which answers "does this node open a space",

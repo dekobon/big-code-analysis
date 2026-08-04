@@ -96,16 +96,16 @@ macro_rules! implement_metric_trait {
     (Cyclomatic, $($code:ident),+) => (
         implement_metric_trait!(@code_and_chain_taking Cyclomatic, $($code),+);
     );
-    // `Npa` and `Npm` cannot delegate to the shared arm above: their
-    // no-op impls must also opt the language out of *emitting* the
-    // block, which `HAS_MEMBERS` does. Without it a shell script would
-    // report `class_npa_sum: 0` — the file unit is a member scope like
-    // any other, so the walker would seed it (#1203). `wmc` reaches the
-    // same place by different means: its no-op `compute` simply never
-    // records a space kind.
-    (Npa, $($code:ident),+) => (
+    // `Npa` and `Npm` take the same shape as the arm above plus one
+    // thing: the no-op impl must also opt the language out of
+    // *emitting* the block, which `HAS_MEMBERS` does. Without it a shell
+    // script would report `class_npa_sum: 0`, because the file unit is a
+    // member scope like any other and the walker would record its kind
+    // (#1203). `wmc` reaches the same place by different means — its
+    // no-op `compute` simply never records a kind.
+    (@code_and_chain_taking_memberless $trait:ident, $($code:ident),+) => (
         $(
-           impl Npa for $code {
+           impl $trait for $code {
                const HAS_MEMBERS: bool = false;
 
                fn compute<'a>(
@@ -117,19 +117,11 @@ macro_rules! implement_metric_trait {
            }
         )+
     );
+    (Npa, $($code:ident),+) => (
+        implement_metric_trait!(@code_and_chain_taking_memberless Npa, $($code),+);
+    );
     (Npm, $($code:ident),+) => (
-        $(
-           impl Npm for $code {
-               const HAS_MEMBERS: bool = false;
-
-               fn compute<'a>(
-                   _node: &Node<'a>,
-                   _code: &'a [u8],
-                   _ancestors: crate::Ancestors<'a, '_>,
-                   _stats: &mut Stats,
-               ) {}
-           }
-        )+
+        implement_metric_trait!(@code_and_chain_taking_memberless Npm, $($code),+);
     );
     (Loc, $($code:ident),+) => (
         $(
