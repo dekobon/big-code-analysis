@@ -380,7 +380,7 @@ fn the_file_root_keeps_its_rollup() {
 /// Every #1184 construct opens a function space that emits neither
 /// block, while a plain method beside it does the same.
 ///
-/// [`function_spaces_and_file_roots_emit_neither`] would still pass if a
+/// [`function_spaces_emit_neither`] would still pass if a
 /// grammar stopped opening these spaces at all; naming them pins that
 /// they exist *and* stay quiet.
 #[test]

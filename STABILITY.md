@@ -1076,7 +1076,8 @@ dicts, byte-identical to the CLI output), so it only narrows the
 static type. Every metric block is `NotRequired` because a `metrics=`
 selection can elide blocks, and because the object-oriented blocks are
 scope-gated: `wmc`, `npm` and `npa` are emitted on container spaces and
-on the file root, never on a function space (#1197), and a language
+on the file root, and — outside Rust and Go, which gate `npm` / `npa`
+on their own node kinds — not on a function space (#1197). A language
 with no class-like construct emits them nowhere. Which spaces carry
 which block is not part of the shape contract — the `wire` struct
 definitions are. The VCS *report* dicts are now single-sourced and typed too

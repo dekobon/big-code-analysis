@@ -6,8 +6,7 @@
 
 use crate::checker::Checker;
 use crate::getter::Getter;
-use crate::node::Ancestors;
-use crate::node::Node;
+use crate::node::{Ancestors, Node};
 
 /// Assignment / Branch / Condition counts.
 pub mod abc;
