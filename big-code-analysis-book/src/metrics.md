@@ -917,6 +917,16 @@ decides what counts as "public" (Java `public`, C# `public`, Rust
 `pub`, Python's "no leading underscore" convention, …) and what
 counts as "attribute" rather than "method".
 
+NPA and NPM are emitted **only on container spaces** {#oop-emission-scope}
+— `class`, `struct`, `trait`, `impl`, `namespace`, `interface`. A
+function space and the whole-file `unit` root carry no `npa` / `npm`
+block at all, because neither owns attributes or methods. This is the
+same set of space kinds a `npa` / `npm` threshold is checked against
+(see [Threshold scope](commands/check.md#threshold-scope)), so what
+`bca metrics` emits and what `bca check` gates are one rule. The CSV
+projection is the exception: it is a fixed-column format and writes the
+`npa.*` / `npm.*` columns as zeros on every row, container or not.
+
 ### How to read it
 
 NPA is a *direct* measure of encapsulation. Every public attribute
@@ -946,7 +956,9 @@ As with NPA, big-code-analysis splits NPM by definition-site kind
 `interface_npm_sum`, `class_methods` (sum of *all* methods — public or
 not — across classes), `interface_methods`, `class_coa`,
 `interface_coa` (operation-accessibility *ratios*, not averages),
-`total`, `total_methods`, and `coa`.
+`total`, `total_methods`, and `coa`. It is emitted on the same
+container spaces, and elided everywhere else, for the same reason
+([above](#oop-emission-scope)).
 The language-specific `Npm` trait decides what counts as public —
 for example, Rust's `pub`, Python's leading-underscore convention,
 C++'s `public:` section — and folds together regular methods,

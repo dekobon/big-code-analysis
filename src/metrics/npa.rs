@@ -22,6 +22,7 @@ use std::fmt;
 use crate::checker::Checker;
 use crate::langs::*;
 use crate::macros::{csharp_var_decl_kinds, csharp_var_declarator_kinds, implement_metric_trait};
+use crate::metrics::opens_container_space;
 use crate::node::Node;
 use crate::*;
 
@@ -29,6 +30,11 @@ use crate::*;
 ///
 /// This metric counts the number of public attributes
 /// of classes/interfaces.
+///
+/// It is emitted only on *container* spaces — class, struct, trait,
+/// impl, namespace and interface — so a serialized function space and
+/// the file root carry no `npa` block at all. The enable predicate is
+/// `metrics::opens_container_space`.
 #[derive(Clone, Debug, Default, PartialEq)]
 #[non_exhaustive]
 pub struct Stats {
@@ -255,10 +261,13 @@ where
     );
 }
 
-// Java and Groovy share their grammar tokens for class/interface
-// bodies, so `Npa::compute` differs only by the language enum.
-// `impl_npa_java_like!` emits the same body against each enum
-// (issue #280).
+// `impl_npa_java_like!` was introduced for Java and Groovy, whose
+// grammar tokens for class/interface bodies matched closely enough that
+// `Npa::compute` differed only by the language enum (issue #280). Groovy
+// has since moved to a hand-written impl — the dekobon grammar flattens
+// modifiers, see `npa/groovy.rs` — so this expands against Java alone.
+// It is kept in macro form because the next Java-shaped grammar can
+// reuse it.
 //
 // `ClassBody` covers classes and records (records reuse `class_body`
 // for their explicit declaration body). Record components in
@@ -287,7 +296,7 @@ macro_rules! impl_npa_java_like {
             ) {
                 use $lang::*;
 
-                if Self::is_func_space(node) && stats.is_disabled() {
+                if opens_container_space::<Self>(node) && stats.is_disabled() {
                     stats.is_class_space = true;
                 }
 
@@ -376,7 +385,7 @@ macro_rules! ts_npa_compute {
         ) {
             use $lang::*;
 
-            if Self::is_func_space(node) && stats.is_disabled() {
+            if opens_container_space::<Self>(node) && stats.is_disabled() {
                 stats.is_class_space = true;
             }
 
@@ -498,7 +507,7 @@ macro_rules! js_npa_compute {
         ) {
             use $lang::*;
 
-            if Self::is_func_space(node) && stats.is_disabled() {
+            if opens_container_space::<Self>(node) && stats.is_disabled() {
                 stats.is_class_space = true;
             }
 

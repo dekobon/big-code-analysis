@@ -4,6 +4,11 @@
 //! traits, and its `Stats` accumulator. See the crate-level docs for an
 //! overview of the metric suite.
 
+use crate::checker::Checker;
+use crate::getter::Getter;
+use crate::metric_catalog::MetricScope;
+use crate::node::Node;
+
 /// Assignment / Branch / Condition counts.
 pub mod abc;
 /// Cognitive complexity.
@@ -30,6 +35,10 @@ pub mod npm;
 pub mod tokens;
 /// Weighted Methods per Class.
 pub mod wmc;
+
+#[cfg(test)]
+#[path = "container_scope_tests.rs"]
+mod container_scope_tests;
 
 /// Divides a metric sum by a count, guarding the divisor with `.max(1)`.
 ///
@@ -64,4 +73,35 @@ pub mod wmc;
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn average(sum: f64, count: usize) -> f64 {
     sum / count.max(1) as f64
+}
+
+/// Whether `node` opens a *container* space — a class-like scope that owns
+/// methods and attributes, and therefore the one scope where the
+/// object-oriented `Npm` / `Npa` blocks mean anything.
+///
+/// [`Checker::is_func_space`] answers a different, strictly wider question:
+/// "does this node open a space at all". The two coincided closely enough
+/// to pass for the container test until they did not. In the JS family and
+/// C# it has always been true of ordinary methods, and of the file root in
+/// every language whose grammar root is listed; [#1184] then added property
+/// accessors, `init { … }` and `static { … }` blocks. Each of those spaces
+/// grew an all-zero `npm` / `npa` block that the plain method beside it did
+/// not have ([#1197]).
+///
+/// [`MetricScope::Container`] is reused rather than re-derived: `bca check`
+/// and the SARIF export already gate these metrics on exactly that set of
+/// space kinds ([#969]), so sharing the definition is what keeps the
+/// emitted tree and the threshold scope from drifting apart again.
+///
+/// The [`Checker::is_func_space`] conjunct is kept as a precondition, so
+/// the flag can still only be set on a node that genuinely opens a space —
+/// this predicate is a narrowing of the old one and can never enable a
+/// space the old one left disabled.
+///
+/// [#969]: https://github.com/dekobon/big-code-analysis/issues/969
+/// [#1184]: https://github.com/dekobon/big-code-analysis/issues/1184
+/// [#1197]: https://github.com/dekobon/big-code-analysis/issues/1197
+#[inline]
+pub(crate) fn opens_container_space<L: Checker + Getter>(node: &Node) -> bool {
+    L::is_func_space(node) && MetricScope::Container.admits(L::get_space_kind(node))
 }
