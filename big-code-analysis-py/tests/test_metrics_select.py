@@ -527,20 +527,49 @@ def test_class_only_metrics_skip_function_spaces() -> None:
     The root-level assertion in
     ``test_metric_names_round_trip_through_analyze`` cannot see this:
     it reads only the top-level space, which legitimately carries the
-    whole-file roll-up. Before #1197 every Java method space carried an
-    all-zero block of its own.
+    whole-file roll-up.
+
+    Uses **JavaScript**, not the ``Hello.java`` fixture. Java's
+    ``is_func_space`` never listed ``method_declaration``, so a Java
+    method carried no block even before the fix and asserting its
+    absence would hold either way. JavaScript's did list every function
+    form, so each of the three function spaces below — a class method,
+    a static block, and a top-level function — really did carry an
+    all-zero ``npm``/``npa`` block in 2.0.x.
     """
-    result = bca.analyze(FIXTURES / "Hello.java")
+    result = bca.analyze_source(
+        "class C {\n"
+        "  a = 1;\n"
+        "  static { this.b = 2; }\n"
+        "  m() { return this.a; }\n"
+        "}\n"
+        "function top(x) { return x; }\n",
+        "javascript",
+    )
     assert result is not None
     assert {"npa", "npm"} <= _metrics_keys(result), "root keeps its roll-up"
 
-    functions = [s for s in _walk(result) if s["kind"] == "function"]
-    assert functions, "the Java fixture must contain at least one method"
+    spaces = _walk(result)
+    classes = [s for s in spaces if s["kind"] == "class"]
+    assert len(classes) == 1, f"expected one class space, got {_shape(spaces)}"
+    assert {"npa", "npm"} <= set(classes[0]["metrics"].keys()), (
+        "the container itself must still carry both blocks"
+    )
+
+    functions = [s for s in spaces if s["kind"] == "function"]
+    assert len(functions) == 3, (
+        f"expected m, <static-init> and top as function spaces, got {_shape(spaces)}"
+    )
     for space in functions:
         keys = set(space["metrics"].keys())
         assert not ({"npa", "npm"} & keys), (
             f"function space {space['name']!r} must not carry npa/npm; got {sorted(keys)}"
         )
+
+
+def _shape(spaces: list[FuncSpaceDict]) -> list[tuple[str, str | None]]:
+    """``(kind, name)`` per space, for an assertion message."""
+    return [(s["kind"], s["name"]) for s in spaces]
 
 
 def _walk(space: FuncSpaceDict) -> list[FuncSpaceDict]:
