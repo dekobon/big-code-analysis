@@ -766,6 +766,24 @@ for historical reference.
 
 ### Fixed
 
+- C, C++, Mozcpp and Objective-C functions whose return type is a
+  pointer or a reference now report their real arity instead of 0
+  (#1200). C declarator syntax nests outward from the declared name, so
+  `FILE *f(int a, int b, int c)` puts the parameter list on a
+  `function_declarator` wrapped by the `pointer_declarator` the return
+  type contributed; `nargs` read the wrapper, found no parameters and
+  reported nothing. `int **`, `int &`, `Foo &&`, `static int *` and a
+  member function returning a reference were all affected. A function
+  returning a *function pointer* — `int (*fp(int a, int b))(int c)` —
+  is fixed in the same walk: it had been reporting `(int c)`, the
+  return type's list, rather than its own.
+
+  **Metric drift.** Serialized `nargs` rises wherever such a function
+  appears — 3,336 recorded values across 276 files of the `DeepSpeech`
+  corpus, and nothing falls. Since #1196 made the gate read a
+  callable's own parameter count, these functions were invisible to
+  `bca check --threshold nargs=N` and can now trip it.
+
 - A comment written inside a parameter list is no longer counted as a
   parameter (#1201). tree-sitter attaches such a comment as a direct
   child of the parameter-*list* node rather than inside the parameter it

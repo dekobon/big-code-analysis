@@ -4729,4 +4729,49 @@ mod c_family_return_type_declarators {
             "no fixture ran (shared={shared}, cpp_only={cpp_only}); this test asserted nothing"
         );
     }
+
+    /// FIXME(#1208): the arity of a function returning a function
+    /// pointer is right after #1200; its **name** is not.
+    ///
+    /// `get_func_space_name` reaches the declarator through
+    /// `first_occurrence`, which stops at the *outer*
+    /// `function_declarator` — the return type's — whose `child(0)` is a
+    /// `parenthesized_declarator` and matches none of the identifier
+    /// kinds, so the arm falls through to `None`. That is a getter bug
+    /// in a different metric surface, tracked separately.
+    ///
+    /// Pinned here rather than left in the tracker so the gap fails in
+    /// CI the day it is fixed, per `.claude/rules/grammar-dispatch.md`.
+    /// When #1208 lands, this test inverts: assert `Some("fp")`.
+    #[test]
+    fn a_parenthesised_declarator_still_loses_its_space_name() {
+        for lang in [LANG::C, LANG::Cpp, LANG::Mozcpp, LANG::Objc]
+            .into_iter()
+            .filter(LANG::is_enabled)
+        {
+            let root = space_verbatim(
+                lang,
+                b"int (*fp(int a, int b))(int c) { return 0; }",
+                MetricsOptions::default(),
+            );
+            let [space] = root.spaces.as_slice() else {
+                panic!("{lang:?}: fixture must open exactly one space");
+            };
+            assert_eq!(
+                space.name, None,
+                "{lang:?}: #1208 appears to be fixed — invert this test to assert Some(\"fp\")"
+            );
+            // The control, so a regression that lost *every* space name
+            // would not read as #1208 merely still being open.
+            let named = space_verbatim(
+                lang,
+                b"int plain(int a, int b) { return a; }",
+                MetricsOptions::default(),
+            );
+            let [space] = named.spaces.as_slice() else {
+                panic!("{lang:?}: control must open exactly one space");
+            };
+            assert_eq!(space.name.as_deref(), Some("plain"), "{lang:?}");
+        }
+    }
 }
