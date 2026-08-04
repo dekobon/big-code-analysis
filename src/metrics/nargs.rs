@@ -4678,6 +4678,18 @@ mod c_family_return_type_declarators {
                     "int g() { auto f = [](int a, int b){ return a + b; }; return f(1, 2); }",
                     (2, 0),
                 ),
+                // The one shape with no declarator to walk: a
+                // parameterless lambda has no
+                // `abstract_function_declarator` at all, so the walk
+                // returns `None` on its first step and `params_owner`
+                // falls back to the node. `g` carries parameters of its
+                // own so the expected pair is not all-zero — an
+                // all-default expectation would hold however badly the
+                // fallback behaved.
+                (
+                    "int g(int a, int b) { auto f = []{ return 1; }; return f(); }",
+                    (0, 2),
+                ),
                 // The guard for the walk's stop condition. A lambda's
                 // `abstract_function_declarator` carries `parameters`
                 // but its `declarator` field is *optional* and absent
