@@ -70,8 +70,12 @@ macro_rules! implement_metric_trait {
     );
     // Internal helper: shared no-op body for traits whose `compute`
     // signature is `<'a>(&Node<'a>, &'a [u8], Ancestors<'a, '_>,
-    // &mut Stats)` (Abc, Cyclomatic, Npa, Npm). Public arms below
-    // delegate here so the body is written once.
+    // &mut Stats)` (Abc, Cyclomatic). Public arms below delegate here
+    // so the body is written once. `Npa` and `Npm` share the signature
+    // but need `HAS_MEMBERS = false` as well, so they route through
+    // `@code_and_chain_taking_memberless` instead — reaching for this
+    // arm for a new no-op `Npa` / `Npm` impl would silently restore
+    // the all-zero file-root block #1203 removed.
     (@code_and_chain_taking $trait:ident, $($code:ident),+) => (
         $(
            impl $trait for $code {
