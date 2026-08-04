@@ -1029,37 +1029,13 @@ value = 5.0
 path = "src/metrics/nargs.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 547.0
-
-[[entry]]
-path = "src/metrics/npa/objc.rs"
-qualified = "ObjcCode::compute"
-metric = "cognitive"
-value = 15.0
-
-[[entry]]
-path = "src/metrics/npa/php.rs"
-qualified = "PhpCode::compute"
-metric = "halstead.effort"
-value = 51274.96613103099
+value = 536.0
 
 [[entry]]
 path = "src/metrics/npa/python.rs"
 qualified = "python_self_attr_name_bytes"
 metric = "nexits"
 value = 6.0
-
-[[entry]]
-path = "src/metrics/npm/go.rs"
-qualified = "GoCode::compute"
-metric = "halstead.effort"
-value = 65898.2477704053
-
-[[entry]]
-path = "src/metrics/npm/objc.rs"
-qualified = "ObjcCode::compute"
-metric = "cognitive"
-value = 15.0
 
 [[entry]]
 path = "src/node.rs"

@@ -742,7 +742,9 @@ comparable numbers. The serialised output
 `closure_args_max`.
 The implementation handles default arguments, variadic arguments,
 keyword-only arguments, and destructured parameters consistently per
-language.
+language. Comments written inside the parameter list are not
+parameters, including the C++ idiom that puts one where an unused
+parameter's name would go — `void f(int /*unused*/)` is one argument.
 
 ### What the threshold gate measures {#nargs-gate}
 

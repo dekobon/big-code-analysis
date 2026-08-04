@@ -208,22 +208,43 @@ impl Stats {
     }
 }
 
+/// How many of `params`' children are formal parameters.
+///
+/// The one place that says what a parameter is, and the only caller of
+/// [`Checker::is_non_arg`]. No language's `is_non_arg` lists a comment —
+/// they carry punctuation plus, in a few cases, a non-parameter the
+/// grammar puts in the list anyway (Rust's `self` receivers, Python's
+/// PEP 570 `/` marker, PHP's `...`) — so the purely negative filter
+/// this replaces counted a comment sitting between two parameters —
+/// `int h(int a /* one */, int b)` reported 3 — and counted the comment
+/// that stands in for an unnamed parameter, so `void f(int /*unused*/)`
+/// reported 2 (#1201). tree-sitter attaches a comment as a direct child
+/// of the parameter list, not inside the parameter it documents, which
+/// is why no `is_non_arg` list could have caught it.
+///
+/// Excluding comments here rather than in twenty `is_non_arg` impls is
+/// what makes it one rule: the next language added inherits it. Perl,
+/// Elixir and Kotlin lambdas reach their parameter list by three routes
+/// `compute_args` cannot express, so they call this directly.
+#[inline]
+fn count_args<T: Checker>(params: &Node) -> usize {
+    params
+        .children()
+        .filter(|child| !T::is_non_arg(child) && !T::is_comment(child))
+        .count()
+}
+
 #[inline]
 fn compute_args<T: Checker>(node: &Node, nargs: &mut usize) {
     if let Some(params) = node.child_by_field_name("parameters") {
         // The field can hold a lone parameter rather than a list, in
-        // which case there are no children to walk and the loop below
+        // which case there are no children to walk and `count_args`
         // yields zero — see `Checker::is_bare_param` (#1185).
         if T::is_bare_param(&params) {
             *nargs += 1;
             return;
         }
-        let node_params = params;
-        node_params.act_on_child(&mut |n| {
-            if !T::is_non_arg(n) {
-                *nargs += 1;
-            }
-        });
+        *nargs += count_args::<T>(&params);
     } else if node.child_by_field_name("parameter").is_some() {
         // JS/TS/TSX/MozJS arrow functions with a bare identifier parameter
         // (`x => …`) use the singular `parameter` field instead of the plural
@@ -444,16 +465,17 @@ fn compute_kotlin_func_args(node: &Node, nargs: &mut usize) {
 fn compute_kotlin_lambda_args(node: &Node, nargs: &mut usize) {
     // Lambda parameters are plain identifiers or destructuring patterns separated
     // by commas; there is no typed `Parameter` wrapper node (unlike function
-    // value parameters), so a negative COMMA filter is the correct predicate here.
+    // value parameters), so a negative filter is the correct predicate here — the
+    // shared one, which also drops the comment `{ a, /* one */ b -> }` puts
+    // between them (#1201). `KotlinCode::is_non_arg` adds the parens to the
+    // comma, which costs nothing: a destructuring pattern nests its own parens
+    // inside a `multi_variable_declaration`, so `lambda_parameters` never has a
+    // paren as a direct child.
     if let Some(params) = node
         .children()
         .find(|c| c.kind_id() == Kotlin::LambdaParameters)
     {
-        params.act_on_child(&mut |n| {
-            if n.kind_id() != Kotlin::COMMA {
-                *nargs += 1;
-            }
-        });
+        *nargs += count_args::<KotlinCode>(&params);
     }
 }
 
@@ -566,22 +588,20 @@ fn perl_signature<'a>(node: &Node<'a>) -> Option<Node<'a>> {
     })
 }
 
-// Count every signature child that is neither punctuation nor a comment:
-// a defaulted parameter (`$y = 5`) is a `binary_expression`, not a bare
-// `scalar_variable`, so a positive variant list would undercount it. The
-// negative filter also survives signature forms the grammar may add — at
-// the price of needing the comment exclusion, since a multi-line
-// signature documents its parameters with `comments` children sitting
-// directly under `function_signature`.
+// Count every signature child `count_args` accepts: a defaulted parameter
+// (`$y = 5`) is a `binary_expression`, not a bare `scalar_variable`, so a
+// positive variant list would undercount it. The negative filter also
+// survives signature forms the grammar may add — at the price of needing
+// the comment exclusion, since a multi-line signature documents its
+// parameters with `comments` children sitting directly under
+// `function_signature`. Perl carried that exclusion inline for years
+// before #1201 found the same hole in every other language and moved it
+// into the shared predicate.
 fn compute_perl_args(node: &Node, nargs: &mut usize) {
     let Some(signature) = perl_signature(node) else {
         return;
     };
-    signature.act_on_child(&mut |n| {
-        if !PerlCode::is_non_arg(n) && !PerlCode::is_comment(n) {
-            *nargs += 1;
-        }
-    });
+    *nargs += count_args::<PerlCode>(&signature);
 }
 
 impl NArgs for PerlCode {
@@ -633,7 +653,7 @@ fn elixir_declared_args(node: &Node, code: &[u8]) -> usize {
     };
     let head = elixir_unwrap_guard(&head, code);
     match head.kind_id().into() {
-        Elixir::Call => elixir_arguments(&head).map_or(0, |p| count_elixir_args(&p)),
+        Elixir::Call => elixir_arguments(&head).map_or(0, |p| count_args::<ElixirCode>(&p)),
         Elixir::BinaryOperator => 2,
         Elixir::UnaryOperator => 1,
         _ => 0,
@@ -658,16 +678,6 @@ fn elixir_unwrap_guard<'a>(node: &Node<'a>, code: &[u8]) -> Node<'a> {
     } else {
         *node
     }
-}
-
-fn count_elixir_args(params: &Node) -> usize {
-    let mut nargs = 0;
-    params.act_on_child(&mut |n| {
-        if !ElixirCode::is_non_arg(n) {
-            nargs += 1;
-        }
-    });
-    nargs
 }
 
 impl NArgs for ElixirCode {
@@ -695,7 +705,7 @@ impl NArgs for ElixirCode {
             && let Some(clause) = node.first_child(|id| id == Elixir::StabClause)
             && let Some(params) = clause.child_by_field_name("left")
         {
-            stats.closure_nargs += count_elixir_args(&elixir_unwrap_guard(&params, code));
+            stats.closure_nargs += count_args::<ElixirCode>(&elixir_unwrap_guard(&params, code));
         }
     }
 }
@@ -1586,8 +1596,9 @@ mod tests {
 
     /// C-style variadic `...` parameter contributes +1 (one named declarator
     /// plus the `...` declarator).  The grammar emits the variadic ellipsis
-    /// as a sibling parameter node that `compute_args` counts via the
-    /// `is_non_arg` filter (which excludes only `(`, `)`, and `,`).
+    /// as a sibling parameter node that `count_args` counts, because it is
+    /// neither a comment nor one of the `(`, `)`, `,` tokens `CCode::is_non_arg`
+    /// rejects.
     #[test]
     fn c_variadic_function() {
         check_metrics::<CParser>(
@@ -4185,6 +4196,324 @@ mod lambda_parenthesisation_parity {
                 args(lang, bare),
                 (1, 0),
                 "{lang:?}: the lambda's argument must be billed to closure_args"
+            );
+        }
+    }
+}
+
+/// #1201 — a comment inside a parameter list counted as a parameter.
+///
+/// tree-sitter attaches a comment written between two parameters as a
+/// direct child of the parameter-*list* node, not inside the parameter
+/// it documents. Every negative filter in this module lists punctuation
+/// only, so each comment scored one: `int h(int a /* one */, int b)`
+/// reported 3, and the C++ idiom for a deliberately unused parameter,
+/// `void f(int /*unused*/)`, reported 2.
+///
+/// Four independent loops could carry the defect and each has its own
+/// row below, so reverting any single one of them fails on its own:
+/// `compute_args` (the C family through Groovy), `elixir_declared_args`,
+/// `compute_kotlin_lambda_args`, and `compute_perl_args` — the last of
+/// which already excluded comments and is here as a no-change guard on
+/// its collapse onto the shared `count_args`.
+///
+/// Go, Lua, Objective-C methods and blocks, Kotlin *functions* and
+/// Groovy *closures* were already correct — each filters positively for
+/// its parameter kind — and are swept anyway, because "this one is a
+/// positive filter" is the reasoning that has to hold for a grammar
+/// bump, not just for today.
+#[cfg(test)]
+mod comments_in_parameter_lists {
+    use crate::test_support::metrics_verbatim;
+    use crate::{LANG, MetricsOptions};
+
+    /// `(closure_args, function_args)`. Asserting the pair rather than
+    /// the sum keeps a fix that merely moved a count between channels
+    /// from reading as a pass.
+    fn args(lang: LANG, source: &str) -> (u64, u64) {
+        let m = metrics_verbatim(lang, source.as_bytes(), MetricsOptions::default());
+        (m.nargs.closure_args_sum(), m.nargs.function_args_sum())
+    }
+
+    /// Fixtures for the languages #1201 repaired. Every one of these
+    /// reported an inflated count before the fix.
+    ///
+    /// Each fixture declares exactly two parameters — bar the C-family
+    /// unnamed-parameter shape, which declares one — so the expected
+    /// value is a 2 in one channel or the other. Where a language spells
+    /// both a block and a line comment, both appear: they are separate
+    /// `is_comment` arms in Rust, Java, C#, Kotlin, Groovy, PHP and the
+    /// JS family, and a block-only sweep leaves the other arm untested.
+    fn repaired_cases(lang: LANG) -> Option<&'static [(&'static str, (u64, u64))]> {
+        Some(match lang {
+            LANG::C => &[
+                (
+                    "int h(int a /* one */, int b /* two */) { return a; }",
+                    (0, 2),
+                ),
+                ("int h(int a, // one\n      int b) { return a; }", (0, 2)),
+                // The unnamed-parameter idiom: the comment is the only
+                // thing standing where the name would be, so counting it
+                // doubled the arity rather than adding to it.
+                ("void f(int /*unused*/) { }", (0, 1)),
+            ],
+            // Split from `C` only for the lambda, which C has no form of.
+            LANG::Cpp | LANG::Mozcpp => &[
+                (
+                    "int h(int a /* one */, int b /* two */) { return a; }",
+                    (0, 2),
+                ),
+                ("int h(int a, // one\n      int b) { return a; }", (0, 2)),
+                ("void f(int /*unused*/) { }", (0, 1)),
+                // The closure channel, which reaches `compute_args`
+                // through the same `declarator` field as the function
+                // one but bills a different counter.
+                (
+                    "int g() { auto f = [](int a, /* one */ int b){ return a + b; }; return f(1,2); }",
+                    (2, 0),
+                ),
+            ],
+            LANG::Objc => &[("int h(int a /* one */, int b) { return a; }", (0, 2))],
+            LANG::Javascript | LANG::Mozjs => &[
+                ("function h(a, /* one */ b) { return a; }", (0, 2)),
+                ("function h(a, // one\n           b) { return a; }", (0, 2)),
+            ],
+            LANG::Typescript | LANG::Tsx => &[
+                (
+                    "function h(a: number, /* one */ b: number) { return a; }",
+                    (0, 2),
+                ),
+                (
+                    "function h(a: number, // one\n           b: number) { return a; }",
+                    (0, 2),
+                ),
+            ],
+            // Python has no block comment, so the `#` form is the whole
+            // of its exposure.
+            LANG::Python => &[("def h(a,  # one\n      b):\n    return a\n", (0, 2))],
+            LANG::Rust => &[
+                ("fn h(a: i32, /* one */ b: i32) -> i32 { a }", (0, 2)),
+                ("fn h(a: i32, // one\n     b: i32) -> i32 { a }", (0, 2)),
+                // `compute_args` is reached a second time for closures,
+                // with `closure_nargs` as the target. Same walk, but a
+                // fixture that only ever asserts the function channel
+                // cannot tell a regression at that call site apart from
+                // a pass.
+                (
+                    "fn g() { let f = |a: i32, /* one */ b: i32| a + b; }",
+                    (2, 0),
+                ),
+            ],
+            // One source parses as both, so they share an arm rather
+            // than tripping `clippy::match_same_arms` on two copies.
+            LANG::Java | LANG::Csharp => &[
+                (
+                    "class K { int h(int a, /* one */ int b) { return a; } }",
+                    (0, 2),
+                ),
+                (
+                    "class K { int h(int a, // one\n                int b) { return a; } }",
+                    (0, 2),
+                ),
+            ],
+            LANG::Php => &[
+                ("<?php function h($a, /* one */ $b) { return $a; }", (0, 2)),
+                (
+                    "<?php function h($a, // one\n                 $b) { return $a; }",
+                    (0, 2),
+                ),
+            ],
+            LANG::Ruby => &[("def h(a, # one\n      b)\n  a\nend", (0, 2))],
+            LANG::Groovy => &[
+                ("def h(a, /* one */ b) { return a }", (0, 2)),
+                ("def h(a, // one\n      b) { return a }", (0, 2)),
+            ],
+            // Elixir's parameter list is a second `Call`'s `arguments`,
+            // reached without ever entering `compute_args`, so nothing
+            // above proves anything about it.
+            LANG::Elixir => &[(
+                "defmodule M do\n  def h(a, # one\n        b) do\n    a\n  end\nend",
+                (0, 2),
+            )],
+            // `compute_kotlin_lambda_args` is a separate loop with its own
+            // negative filter, which the Kotlin *function* guard below
+            // never reaches.
+            LANG::Kotlin => &[
+                (
+                    "fun g() {\n  val f = { a: Int, /* one */ b: Int -> a }\n  println(f)\n}",
+                    (2, 0),
+                ),
+                (
+                    "fun g() {\n  val f = { a: Int, // one\n            b: Int -> a }\n  println(f)\n}",
+                    (2, 0),
+                ),
+            ],
+            // Bash functions take no formal parameters, and Tcl/iRules
+            // have no comment in this position at all — see
+            // `tcl_has_no_comment_inside_a_parameter_list`.
+            _ => return None,
+        })
+    }
+
+    /// Fixtures for the counting loops that were already correct before
+    /// #1201, each because it filters *positively* for its parameter
+    /// kind and so never saw a comment to miscount.
+    ///
+    /// They are swept anyway: "this one is a positive filter" is a claim
+    /// that has to keep holding across a grammar bump, not just today,
+    /// and Perl's is the guard on collapsing its private comment
+    /// exclusion onto the shared `count_args`.
+    fn already_correct_cases(lang: LANG) -> Option<&'static [(&'static str, (u64, u64))]> {
+        Some(match lang {
+            // One `method_parameter` per labelled argument.
+            LANG::Objc => &[(
+                "@implementation K\n- (void)foo:(int)a /* one */ bar:(int)b { }\n@end",
+                (0, 2),
+            )],
+            // A positive `ClosureParameter` filter.
+            LANG::Groovy => &[("def c = { x, /* one */ y -> x }", (2, 0))],
+            // A positive `Parameter` filter.
+            LANG::Kotlin => &[("fun h(a: Int, /* one */ b: Int): Int { return a }", (0, 2))],
+            // Names are counted inside each `parameter_declaration`, so a
+            // sibling comment is invisible.
+            LANG::Go => &[
+                (
+                    "package m\nfunc h(a int, /* one */ b int) int { return a }",
+                    (0, 2),
+                ),
+                (
+                    "package m\nvar f = func(x int, /* one */ y int) int { return x }",
+                    (2, 0),
+                ),
+            ],
+            // A positive `Identifier | VarargExpression` filter.
+            LANG::Lua => &[("local f = function(a, --[[one]] b) return a end", (2, 0))],
+            // Perl carried the comment exclusion inline before #1201
+            // moved it into `count_args`; this pins that the move changed
+            // nothing.
+            LANG::Perl => &[(
+                "use feature 'signatures';\nsub h(\n  $a, # one\n  $b\n) { return $a; }",
+                (0, 2),
+            )],
+            _ => return None,
+        })
+    }
+
+    #[test]
+    fn a_comment_in_a_parameter_list_is_not_a_parameter() {
+        let (mut repaired, mut guards) = (0, 0);
+        let mut failures = Vec::new();
+        for lang in LANG::into_enum_iter() {
+            if !lang.is_enabled() {
+                continue;
+            }
+            for (table, counter) in [
+                (repaired_cases(lang), &mut repaired),
+                (already_correct_cases(lang), &mut guards),
+            ] {
+                for (source, expected) in table.unwrap_or_default() {
+                    *counter += 1;
+                    let got = args(lang, source);
+                    if got != *expected {
+                        // Collected rather than asserted inline so a
+                        // revert of any one of the four loops shows every
+                        // language it broke, not just the alphabetically
+                        // first.
+                        failures.push(format!(
+                            "{lang:?}: expected (closure, function) = {expected:?}, got {got:?}\n{source}"
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "{} of {} fixtures counted a comment as a parameter:\n\n{}",
+            failures.len(),
+            repaired + guards,
+            failures.join("\n\n")
+        );
+        // Both tallies, so a table that stopped being reached — a renamed
+        // `LANG` variant, a feature that stopped being enabled — fails
+        // here rather than passing vacuously.
+        assert!(
+            repaired > 0 && guards > 0,
+            "no fixture ran (repaired={repaired}, guards={guards}); this test asserted nothing"
+        );
+    }
+
+    /// Tcl — and iRules, which shares the shape — reports **4** for a
+    /// `#` line inside a `proc` argument list, and that is correct.
+    ///
+    /// Tcl recognises a comment only where a command is expected, so
+    /// `proc h {a\n# c\n b}` really does declare four arguments named
+    /// `a`, `#`, `c` and `b`. The grammar agrees: it emits four
+    /// `argument` nodes and no comment node, which is why
+    /// `compute_tcl_args` never needed the exclusion the other
+    /// languages did. Issue #1201 cited Tcl as the language that had
+    /// already solved this; it had not — it has no problem to solve.
+    #[test]
+    fn tcl_has_no_comment_inside_a_parameter_list() {
+        if !LANG::Tcl.is_enabled() {
+            return;
+        }
+        assert_eq!(
+            args(LANG::Tcl, "proc h {a\n  # c\n  b} { return $a }"),
+            (0, 4),
+            "a `#` in a Tcl argument list is an argument named `#`, not a comment"
+        );
+        // The uncommented control, so a regression that zeroed the whole
+        // count would not read as this rule holding.
+        assert_eq!(args(LANG::Tcl, "proc h {a b} { return $a }"), (0, 2));
+    }
+
+    /// The one path `count_args` never runs on: `Checker::is_bare_param`
+    /// short-circuits before the child walk, so a comment on an
+    /// un-parenthesised lambda parameter is safe only because of where
+    /// the *grammar* puts it. Confirmed rather than reasoned, per
+    /// `.claude/rules/grammar-dispatch.md`: dumping
+    /// `x /* c */ -> x` shows `block_comment` as a **sibling** of the
+    /// bare `identifier`, and the `parameters` field points at that
+    /// childless identifier.
+    ///
+    /// So the comment is not a discriminating input here, and this test
+    /// is deliberately written as a *parity* assertion rather than a
+    /// count one. No perturbation distinguishes the commented spelling
+    /// from the bare one — both fail together under every perturbation of
+    /// the bare-parameter branch, which
+    /// `lambda_parenthesisation_parity` already covers. What this adds
+    /// is the guarantee that the two spellings cannot diverge, which is
+    /// what would break if a grammar bump moved the comment inside the
+    /// field.
+    #[test]
+    fn a_comment_on_a_bare_lambda_parameter_changes_nothing() {
+        for (lang, commented, bare) in [
+            (
+                LANG::Java,
+                "class K { java.util.function.Function<Integer,Integer> f = x /* c */ -> x; }",
+                "class K { java.util.function.Function<Integer,Integer> f = x -> x; }",
+            ),
+            (
+                LANG::Csharp,
+                "class K { System.Func<int,int> f = x /* c */ => x + 1; }",
+                "class K { System.Func<int,int> f = x => x + 1; }",
+            ),
+        ] {
+            if !lang.is_enabled() {
+                continue;
+            }
+            let got = args(lang, commented);
+            assert_eq!(
+                got,
+                args(lang, bare),
+                "{lang:?}: the comment moved the count off the bare spelling's answer"
+            );
+            // The absolute value too, so a regression that zeroed both
+            // spellings would not read as parity holding.
+            assert_eq!(
+                got,
+                (1, 0),
+                "{lang:?}: a bare lambda parameter is one closure argument"
             );
         }
     }
