@@ -766,7 +766,7 @@ fn a_language_with_no_member_construct_emits_neither_block() {
     }
 }
 
-/// Each Elixir `defmodule` counts only its own members.
+/// No Elixir `defmodule` counts a nested module's members twice.
 ///
 /// Until #1203 the Elixir impls opened with `if !stats.is_disabled() ||
 /// …  { return; }` — a first-wins guard reusing the emission flag, which
@@ -777,7 +777,7 @@ fn a_language_with_no_member_construct_emits_neither_block() {
 /// guard load-bearing, `Outer` would absorb `Inner`'s members twice.
 #[test]
 #[cfg(feature = "elixir")]
-fn each_elixir_module_counts_only_its_own_members() {
+fn nested_elixir_modules_are_not_double_counted() {
     use crate::test_support::child_space;
 
     let root = space_verbatim(
@@ -786,9 +786,10 @@ fn each_elixir_module_counts_only_its_own_members() {
         MetricsOptions::default(),
     );
 
-    let outer = child_space(&root, "Outer");
-    // `def q` + `defp r`, plus `Inner`'s `def s` through the roll-up;
+    // `def q` + `defp r`, plus `Inner`'s `def s` once through the
+    // roll-up — 4 would mean `Outer` counted `s` directly as well.
     // `defp` is private, so two of the three are public.
+    let outer = child_space(&root, "Outer");
     assert_eq!(outer.metrics.npm.class_nm_sum(), 3, "Outer: q, r, Inner::s");
     assert_eq!(outer.metrics.npm.class_npm_sum(), 2, "Outer: q, Inner::s");
     // `defstruct [:a]`, and Elixir struct fields are all public.
