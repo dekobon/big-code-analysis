@@ -4403,10 +4403,7 @@ mod comments_in_parameter_lists {
     fn a_comment_in_a_parameter_list_is_not_a_parameter() {
         let (mut repaired, mut guards) = (0, 0);
         let mut failures = Vec::new();
-        for lang in LANG::into_enum_iter() {
-            if !lang.is_enabled() {
-                continue;
-            }
+        for lang in LANG::into_enum_iter().filter(LANG::is_enabled) {
             for (table, counter) in [
                 (repaired_cases(lang), &mut repaired),
                 (already_correct_cases(lang), &mut guards),
@@ -4414,24 +4411,25 @@ mod comments_in_parameter_lists {
                 for (source, expected) in table.unwrap_or_default() {
                     *counter += 1;
                     let got = args(lang, source);
+                    // Collected rather than asserted inline so a revert of
+                    // any one of the four loops shows every language it
+                    // broke, not just the alphabetically first. The branch
+                    // carries no formatting — a line that runs only on
+                    // failure can never be covered, so the report is built
+                    // once, below, from the raw tuples.
                     if got != *expected {
-                        // Collected rather than asserted inline so a
-                        // revert of any one of the four loops shows every
-                        // language it broke, not just the alphabetically
-                        // first.
-                        failures.push(format!(
-                            "{lang:?}: expected (closure, function) = {expected:?}, got {got:?}\n{source}"
-                        ));
+                        failures.push((lang, source, *expected, got));
                     }
                 }
             }
         }
+        // Bound eagerly and interpolated by name: an `assert!` argument is
+        // evaluated only when the assertion fires, so spelling these out
+        // as arguments would leave two more never-executed lines behind.
+        let (failed, total) = (failures.len(), repaired + guards);
         assert!(
             failures.is_empty(),
-            "{} of {} fixtures counted a comment as a parameter:\n\n{}",
-            failures.len(),
-            repaired + guards,
-            failures.join("\n\n")
+            "{failed}/{total} fixtures counted a comment as a parameter: {failures:#?}"
         );
         // Both tallies, so a table that stopped being reached — a renamed
         // `LANG` variant, a feature that stopped being enabled — fails
@@ -4498,10 +4496,10 @@ mod comments_in_parameter_lists {
                 "class K { System.Func<int,int> f = x /* c */ => x + 1; }",
                 "class K { System.Func<int,int> f = x => x + 1; }",
             ),
-        ] {
-            if !lang.is_enabled() {
-                continue;
-            }
+        ]
+        .into_iter()
+        .filter(|(lang, ..)| lang.is_enabled())
+        {
             let got = args(lang, commented);
             assert_eq!(
                 got,
