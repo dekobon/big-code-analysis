@@ -23,6 +23,7 @@ use crate::checker::{Checker, csharp_accessor_count};
 use crate::langs::*;
 use crate::macros::implement_metric_trait;
 use crate::metrics::npa::{accessibility_ratio, python_is_block, ts_member_is_public};
+use crate::metrics::opens_container_space;
 use crate::node::Node;
 use crate::*;
 
@@ -30,6 +31,11 @@ use crate::*;
 ///
 /// This metric counts the number of public methods
 /// of classes/interfaces.
+///
+/// It is emitted only on *container* spaces — class, struct, trait,
+/// impl, namespace and interface — so a serialized function space and
+/// the file root carry no `npm` block at all. The enable predicate is
+/// `metrics::opens_container_space`.
 #[derive(Clone, Debug, Default, PartialEq)]
 #[non_exhaustive]
 pub struct Stats {
@@ -260,10 +266,13 @@ where
     );
 }
 
-// Java and Groovy share their grammar tokens for class / interface
-// bodies, so `Npm::compute` differs only by the language enum.
-// `impl_npm_java_like!` emits the same body against each enum
-// (mirrors `impl_npa_java_like!` in `npa.rs`; issue #280).
+// `impl_npm_java_like!` was introduced for Java and Groovy, whose
+// grammar tokens for class / interface bodies matched closely enough that
+// `Npm::compute` differed only by the language enum (mirrors
+// `impl_npa_java_like!` in `npa.rs`; issue #280). Groovy has since moved
+// to a hand-written impl — the dekobon grammar flattens modifiers, see
+// `npm/groovy.rs` — so this expands against Java alone. It is kept in
+// macro form because the next Java-shaped grammar can reuse it.
 //
 // `ClassBody` covers class and record explicit bodies;
 // `EnumBodyDeclarations` is the optional declarations block inside
@@ -285,7 +294,7 @@ macro_rules! impl_npm_java_like {
             ) {
                 use $lang::*;
 
-                if Self::is_func_space(node) && stats.is_disabled() {
+                if opens_container_space::<Self>(node) && stats.is_disabled() {
                     stats.is_class_space = true;
                 }
 
@@ -360,7 +369,7 @@ macro_rules! ts_npm_compute {
         ) {
             use $lang::*;
 
-            if Self::is_func_space(node) && stats.is_disabled() {
+            if opens_container_space::<Self>(node) && stats.is_disabled() {
                 stats.is_class_space = true;
             }
 
@@ -438,7 +447,7 @@ macro_rules! js_npm_compute {
         ) {
             use $lang::*;
 
-            if Self::is_func_space(node) && stats.is_disabled() {
+            if opens_container_space::<Self>(node) && stats.is_disabled() {
                 stats.is_class_space = true;
             }
 

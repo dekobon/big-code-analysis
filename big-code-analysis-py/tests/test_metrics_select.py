@@ -41,6 +41,18 @@ def _metrics_keys(result: FuncSpaceDict) -> set[str]:
     return set(result["metrics"].keys())
 
 
+def _all_metrics_keys(result: FuncSpaceDict) -> set[str]:
+    """Return every metric-family key on the space tree, at any depth.
+
+    ``npm`` and ``npa`` are emitted only on container spaces (#1197), so
+    a key that exists for a fixture need not exist at its root.
+    """
+    keys = _metrics_keys(result)
+    for space in result.get("spaces", ()):
+        keys |= _all_metrics_keys(space)
+    return keys
+
+
 # ─────────────────────────────────────────────────────────────────
 # METRIC_NAMES module constant
 # ─────────────────────────────────────────────────────────────────
@@ -77,17 +89,19 @@ def test_metric_names_constant_shape() -> None:
 def test_metric_names_round_trip_through_analyze() -> None:
     """Every name in ``METRIC_NAMES`` is accepted by ``metrics=``.
 
-    Class-only metrics (``npa``, ``npm``, ``wmc``) are elided from
-    a unit-level space when there is no class to attach them to —
-    use the Java fixture (which carries a class) for those so the
-    output key actually appears.
+    Class-only metrics (``npa``, ``npm``, ``wmc``) need a class to
+    attach to, so they use the Java fixture. ``npa`` and ``npm`` are
+    further emitted only on the container space itself (#1197), never
+    on the file root, so their keys are collected over the whole space
+    tree rather than off the top-level space.
     """
     class_only = {"npa", "npm", "wmc"}
+    container_only = {"npa", "npm"}
     for name in bca.METRIC_NAMES:
         fixture = FIXTURES / ("Hello.java" if name in class_only else "hello.py")
         result = bca.analyze(fixture, metrics=[name])
         assert result is not None, f"analyze returned None for metrics=[{name!r}]"
-        keys = _metrics_keys(result)
+        keys = _all_metrics_keys(result) if name in container_only else _metrics_keys(result)
         # ``mi`` and ``wmc`` are derived; their *direct* output key
         # may sit on a nested space (or, for ``wmc``, be ``"wmc"``
         # at the unit root after the Java class merge). Their

@@ -766,6 +766,31 @@ for historical reference.
 
 ### Fixed
 
+- **Serialized shape.** `npm` and `npa` are now emitted only on
+  *container* spaces — class, struct, trait, impl, namespace, interface
+  (#1197). They were enabled from `Checker::is_func_space`, which answers
+  "does this node open a space", not "is this a container that owns
+  methods and attributes". Ten languages therefore emitted an all-zero
+  block on the whole-file `unit` root, and C#, JavaScript, MozJS,
+  TypeScript, TSX, PHP and Ruby emitted one on every ordinary method as
+  well; #1184 then gave Kotlin `get()` / `set()` / `init { … }`, Java and
+  Groovy `static { … }` and the JS-family `class_static_block` their own
+  function spaces, so those grew a block that the plain method beside
+  them did not have. The enable now reuses `MetricScope::Container`, the
+  same set of space kinds `bca check` and the SARIF export already gate
+  these metrics on (#969), so emission and thresholding are one rule
+  rather than two. Kotlin, Java, Groovy, JavaScript, MozJS, TypeScript,
+  TSX, C#, PHP and Ruby are affected; Python, Rust, C, C++, Mozcpp, Go,
+  Objective-C and Elixir already gated on node kind and do not move.
+  **This changes serialized JSON / YAML / TOML / CBOR shape versus
+  `2.0.x`** for the seven languages that emitted on methods, and for all
+  ten at the file root: a consumer reading `metrics.npm` off a function
+  space or the unit root now finds the key absent. Every removed block
+  was all zeros, no metric *value* changed, and container counts —
+  including the `_sum` roll-up the whole tree still accumulates — are
+  unchanged. The CSV projection is a fixed-column format and is
+  unaffected: it writes the `npm.*` / `npa.*` columns on every row
+  regardless.
 - **Metric drift.** ABC `conditions` moves wherever a comment sits inside
   a ternary (#1181). Slots are now addressed by grammar field rather than
   by neighbouring token or fixed index, which fixes two opposite errors

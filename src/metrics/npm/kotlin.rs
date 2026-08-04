@@ -23,8 +23,7 @@ impl Npm for KotlinCode {
     ) {
         use Kotlin::*;
 
-        // Enables the `Npm` metric for any class-like func_space.
-        if Self::is_func_space(node) && stats.is_disabled() {
+        if opens_container_space::<Self>(node) && stats.is_disabled() {
             stats.is_class_space = true;
         }
 

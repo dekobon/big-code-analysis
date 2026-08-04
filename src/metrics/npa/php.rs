@@ -17,8 +17,7 @@ impl Npa for PhpCode {
     ) {
         use Php::*;
 
-        // Enables the `Npa` metric if computing stats of a class-like space.
-        if Self::is_func_space(node) && stats.is_disabled() {
+        if opens_container_space::<Self>(node) && stats.is_disabled() {
             stats.is_class_space = true;
         }
 

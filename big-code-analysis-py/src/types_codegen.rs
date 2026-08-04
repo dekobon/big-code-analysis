@@ -1056,19 +1056,27 @@ mod tests {
     /// never appear in the Rust fixture (disabled / not injected), so they
     /// are checked against a language that emits them and a synthetic
     /// `vcs` block respectively — otherwise their specs would be untested.
+    ///
+    /// `npm` / `npa` are read off the class space rather than the file
+    /// root: since #1197 they are emitted only on container spaces.
     #[test]
     fn class_only_and_vcs_specs_match_wire_json_keys() {
         use big_code_analysis::wire;
 
-        // Java emits wmc / npm / npa on a class.
+        // Java emits wmc at the file root, but npm / npa only on the
+        // container space itself (#1197) — read each where it lives.
         let value = analyze_to_value(
             "java",
             "public class Foo {\n    public int a;\n    public int m() { return 1; }\n}\n",
         );
         let metrics = value["metrics"].as_object().expect("metrics");
         assert_keys_match("WmcDict", &metrics["wmc"]);
-        assert_keys_match("NpmDict", &metrics["npm"]);
-        assert_keys_match("NpaDict", &metrics["npa"]);
+
+        let class = &value["spaces"][0];
+        assert_eq!(class["kind"], "class", "fixture's first child is the class");
+        let class_metrics = class["metrics"].as_object().expect("class metrics");
+        assert_keys_match("NpmDict", &class_metrics["npm"]);
+        assert_keys_match("NpaDict", &class_metrics["npa"]);
 
         // VcsDict: serialize a default wire::Vcs directly (with the two
         // optional fields populated so they appear in the key set, which we
