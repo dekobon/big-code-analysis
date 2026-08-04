@@ -20,6 +20,7 @@
 use std::fmt;
 
 use crate::checker::Checker;
+use crate::getter::Getter;
 use crate::langs::*;
 use crate::macros::{csharp_var_decl_kinds, csharp_var_declarator_kinds, implement_metric_trait};
 use crate::metrics::opens_container_space;
@@ -218,6 +219,21 @@ impl Stats {
     pub(crate) fn is_disabled(&self) -> bool {
         !self.is_class_space
     }
+
+    /// Enables `Npa` on the space `node` opens, if that space is a
+    /// container (#1197).
+    ///
+    /// Idempotent by design: `compute` runs once per node, so the first
+    /// container node to reach a given space wins and every later call is
+    /// a no-op. The languages that gate on a bespoke node-kind set —
+    /// Python, Rust, C++, Mozcpp, Go, Objective-C, Elixir — set the flag
+    /// themselves and do not route through here.
+    #[inline]
+    fn enable_for_container<L: Checker + Getter>(&mut self, node: &Node) {
+        if self.is_disabled() && opens_container_space::<L>(node) {
+            self.is_class_space = true;
+        }
+    }
 }
 
 // Computes an accessibility ratio (public members / total members),
@@ -296,9 +312,7 @@ macro_rules! impl_npa_java_like {
             ) {
                 use $lang::*;
 
-                if opens_container_space::<Self>(node) && stats.is_disabled() {
-                    stats.is_class_space = true;
-                }
+                stats.enable_for_container::<Self>(node);
 
                 match node.kind_id().into() {
                     ClassBody | EnumBodyDeclarations => {
@@ -385,9 +399,7 @@ macro_rules! ts_npa_compute {
         ) {
             use $lang::*;
 
-            if opens_container_space::<Self>(node) && stats.is_disabled() {
-                stats.is_class_space = true;
-            }
+            stats.enable_for_container::<Self>(node);
 
             match node.kind_id().into() {
                 ClassBody => {
@@ -507,9 +519,7 @@ macro_rules! js_npa_compute {
         ) {
             use $lang::*;
 
-            if opens_container_space::<Self>(node) && stats.is_disabled() {
-                stats.is_class_space = true;
-            }
+            stats.enable_for_container::<Self>(node);
 
             if !matches!(node.kind_id().into(), ClassBody) {
                 return;

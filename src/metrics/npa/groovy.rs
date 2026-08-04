@@ -27,9 +27,7 @@ impl Npa for GroovyCode {
     ) {
         use Groovy::*;
 
-        if opens_container_space::<Self>(node) && stats.is_disabled() {
-            stats.is_class_space = true;
-        }
+        stats.enable_for_container::<Self>(node);
 
         match node.kind_id().into() {
             ClassBody | EnumBody => {

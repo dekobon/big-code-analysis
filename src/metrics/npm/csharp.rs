@@ -59,9 +59,7 @@ impl Npm for CsharpCode {
     ) {
         use Csharp::*;
 
-        if opens_container_space::<Self>(node) && stats.is_disabled() {
-            stats.is_class_space = true;
-        }
+        stats.enable_for_container::<Self>(node);
 
         if !matches!(node.kind_id().into(), DeclarationList) {
             return;

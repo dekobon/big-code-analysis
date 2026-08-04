@@ -17,9 +17,7 @@ impl Npa for CsharpCode {
     ) {
         use Csharp::*;
 
-        if opens_container_space::<Self>(node) && stats.is_disabled() {
-            stats.is_class_space = true;
-        }
+        stats.enable_for_container::<Self>(node);
 
         // Class / struct / record / interface bodies all share
         // `DeclarationList`; the parent kind disambiguates.

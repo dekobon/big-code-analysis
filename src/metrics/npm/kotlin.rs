@@ -23,9 +23,7 @@ impl Npm for KotlinCode {
     ) {
         use Kotlin::*;
 
-        if opens_container_space::<Self>(node) && stats.is_disabled() {
-            stats.is_class_space = true;
-        }
+        stats.enable_for_container::<Self>(node);
 
         // Each `ClassBody` contributes its direct `FunctionDeclaration`
         // and `SecondaryConstructor` children to whichever func_space is
