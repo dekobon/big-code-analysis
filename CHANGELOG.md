@@ -766,6 +766,25 @@ for historical reference.
 
 ### Fixed
 
+- A comment written inside a parameter list is no longer counted as a
+  parameter (#1201). tree-sitter attaches such a comment as a direct
+  child of the parameter-*list* node rather than inside the parameter it
+  documents, and every `nargs` filter listed punctuation only, so
+  `int h(int a /* one */, int b /* two */)` reported 4 and the C++ idiom
+  for a deliberately unused parameter, `void f(int /*unused*/)`,
+  reported 2. Fixed for C, C++, Mozcpp, Objective-C, JavaScript, MozJS,
+  TypeScript, TSX, Python, Rust, Java, C#, PHP, Ruby, Groovy, Elixir and
+  Kotlin lambdas in one shared predicate. Go, Lua, Tcl, iRules,
+  Objective-C methods and blocks, Kotlin functions and Groovy closures
+  were already correct and are unchanged; Perl had carried the exclusion
+  privately since its signature support landed.
+
+  **Metric drift.** Serialized `nargs` falls wherever a signature
+  carries a comment — across the `DeepSpeech` corpus, 854 recorded
+  values, including kenlm's `DontBhiksha::DontBhiksha` (7 → 4) and
+  `ReadBackoff` (3 → 2). A signature that previously tripped
+  `bca check --threshold nargs=N` on its comments alone now passes.
+
 - **Serialized shape.** `npm` and `npa` emission is now decided by the
   space's kind alone, for every language (#1203). #1197 declared the rule
   — containers and the file `unit` root carry the block, a function space
