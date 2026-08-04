@@ -313,20 +313,16 @@ fn declarator_params_owner<'tree, T: Checker>(node: &Node<'tree>) -> Option<Node
         if carries_params {
             owner = Some(current);
         }
-        current = match current.child_by_field_name("declarator") {
-            Some(declarator) => declarator,
-            None if carries_params => break,
-            None => {
-                let Some(last) = current
-                    .children()
-                    .filter(|child| child.is_named() && !T::is_comment(child))
-                    .last()
-                else {
-                    break;
-                };
-                last
-            }
+        let next = match current.child_by_field_name("declarator") {
+            Some(declarator) => Some(declarator),
+            None if carries_params => None,
+            None => current
+                .children()
+                .filter(|child| child.is_named() && !T::is_comment(child))
+                .last(),
         };
+        let Some(next) = next else { break };
+        current = next;
     }
     owner
 }
