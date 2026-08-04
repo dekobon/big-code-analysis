@@ -303,28 +303,23 @@ fn compute_args<T: Checker>(node: &Node, nargs: &mut usize) {
 /// Every step strictly descends a finite tree, so the walk terminates
 /// without a depth cap.
 fn declarator_params_owner<'tree, T: Checker>(node: &Node<'tree>) -> Option<Node<'tree>> {
-    // The chain starts at the field rather than at `node` so the
-    // last-named-child fallback can never fire on the function node
-    // itself and walk into its body.
-    let mut current = node.child_by_field_name("declarator")?;
-    let mut owner = None;
-    loop {
-        let carries_params = current.child_by_field_name("parameters").is_some();
-        if carries_params {
-            owner = Some(current);
-        }
-        let next = match current.child_by_field_name("declarator") {
+    // The chain starts at the `declarator` field rather than at `node`
+    // so the last-named-child fallback can never fire on the function
+    // node itself and walk into its body. The walk runs outside-in, so
+    // the innermost qualifying link is the last one it yields.
+    std::iter::successors(
+        node.child_by_field_name("declarator"),
+        |current| match current.child_by_field_name("declarator") {
             Some(declarator) => Some(declarator),
-            None if carries_params => None,
+            None if current.child_by_field_name("parameters").is_some() => None,
             None => current
                 .children()
                 .filter(|child| child.is_named() && !T::is_comment(child))
                 .last(),
-        };
-        let Some(next) = next else { break };
-        current = next;
-    }
-    owner
+        },
+    )
+    .filter(|link| link.child_by_field_name("parameters").is_some())
+    .last()
 }
 
 #[doc(hidden)]
