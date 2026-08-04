@@ -101,6 +101,6 @@ pub(crate) fn average(sum: f64, count: usize) -> f64 {
 /// [#1184]: https://github.com/dekobon/big-code-analysis/issues/1184
 /// [#1197]: https://github.com/dekobon/big-code-analysis/issues/1197
 #[inline]
-pub(crate) fn opens_container_space<L: Checker + Getter>(node: &Node) -> bool {
+fn opens_container_space<L: Checker + Getter>(node: &Node) -> bool {
     L::is_func_space(node) && MetricScope::Container.admits(L::get_space_kind(node))
 }

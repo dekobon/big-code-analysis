@@ -94,6 +94,31 @@ fn fixture_source(lang: LANG) -> &'static str {
         .source
 }
 
+/// Every space as `(kind, name)`, for an assertion message.
+fn summary(spaces: &[Emitted]) -> Vec<(SpaceKind, Option<&str>)> {
+    spaces.iter().map(|s| (s.kind, s.name.as_deref())).collect()
+}
+
+/// The one space named `name`, or a failure naming every space there was.
+///
+/// Asserting the match count rather than taking the first hit is what
+/// stops a rename or a lost space from making the caller's assertions
+/// vacuous.
+#[track_caller]
+fn only_space<'a>(lang: LANG, spaces: &'a [Emitted], name: &str) -> &'a Emitted {
+    let found: Vec<&Emitted> = spaces
+        .iter()
+        .filter(|s| s.name.as_deref() == Some(name))
+        .collect();
+    assert_eq!(
+        found.len(),
+        1,
+        "{lang:?}: expected exactly one space named {name:?}, got {:?}",
+        summary(spaces)
+    );
+    found[0]
+}
+
 const FIXTURES: &[Fixture] = &[
     Fixture {
         lang: LANG::Kotlin,
@@ -247,22 +272,7 @@ fn containers_emit_npm_and_npa() {
     for fixture in FIXTURES {
         let spaces = emitted_spaces(fixture.lang, fixture.source);
         for want in fixture.containers {
-            let found: Vec<&Emitted> = spaces
-                .iter()
-                .filter(|s| s.name.as_deref() == Some(*want) && s.kind != SpaceKind::Unit)
-                .collect();
-            assert_eq!(
-                found.len(),
-                1,
-                "{:?}: expected exactly one container space named {want:?}, \
-                 got {:?}",
-                fixture.lang,
-                spaces
-                    .iter()
-                    .map(|s| (s.kind, s.name.as_deref()))
-                    .collect::<Vec<_>>()
-            );
-            let space = found[0];
+            let space = only_space(fixture.lang, &spaces, want);
             assert!(
                 matches!(
                     space.kind,
@@ -303,10 +313,7 @@ fn function_spaces_and_file_roots_emit_neither() {
             "{:?}: expected the unit root plus at least one function space, \
              got {:?}",
             fixture.lang,
-            spaces
-                .iter()
-                .map(|s| (s.kind, s.name.as_deref()))
-                .collect::<Vec<_>>()
+            summary(&spaces)
         );
         for space in non_containers {
             assert!(
@@ -342,22 +349,10 @@ fn the_1184_constructs_open_quiet_function_spaces() {
     for (lang, names) in cases {
         let spaces = emitted_spaces(*lang, fixture_source(*lang));
         for name in *names {
-            let found: Vec<&Emitted> = spaces
-                .iter()
-                .filter(|s| s.name.as_deref() == Some(*name))
-                .collect();
-            assert_eq!(
-                found.len(),
-                1,
-                "{lang:?}: expected exactly one {name:?} space, got {:?}",
-                spaces
-                    .iter()
-                    .map(|s| (s.kind, s.name.as_deref()))
-                    .collect::<Vec<_>>()
-            );
-            assert_eq!(found[0].kind, SpaceKind::Function, "{lang:?}: {name:?}");
+            let space = only_space(*lang, &spaces, name);
+            assert_eq!(space.kind, SpaceKind::Function, "{lang:?}: {name:?}");
             assert!(
-                !found[0].has_npm && !found[0].has_npa,
+                !space.has_npm && !space.has_npa,
                 "{lang:?}: {name:?} must not emit npm/npa"
             );
         }
