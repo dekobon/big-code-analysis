@@ -37,9 +37,10 @@ use crate::*;
 /// as `SpaceKind::is_member_scope`. Each language decides *when* to set
 /// the flag: the ten that route through `metrics::opens_member_scope`
 /// obey the rule for every node, while Python, Rust, C++, Mozcpp, Go,
-/// Objective-C and Elixir gate on their own node kinds and may still
-/// enable a space the shared predicate would not (Go's file root, for
-/// one).
+/// Objective-C and Elixir gate on their own node kinds and can still
+/// disagree with it in both directions — a Rust or Go `struct` declared
+/// inside a function enables the block on that *function* space, and a
+/// file with no `struct` at file scope leaves the unit root without one.
 #[derive(Clone, Debug, Default, PartialEq)]
 #[non_exhaustive]
 pub struct Stats {
