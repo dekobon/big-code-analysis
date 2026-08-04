@@ -53,13 +53,11 @@ fn csharp_member_public_method_count(member: &Node) -> usize {
 impl Npm for CsharpCode {
     fn compute<'a>(
         node: &Node<'a>,
-        code: &'a [u8],
+        _code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
         use Csharp::*;
-
-        stats.enable_for_member_scope::<Self>(node, code, ancestors);
 
         if !matches!(node.kind_id().into(), DeclarationList) {
             return;

@@ -15,9 +15,8 @@ use super::*;
 // interface declaration. There is no per-node visibility marker to read,
 // so every method counts as public — `npm == nm`. The members are direct
 // children of the class node (not a `field_declaration_list`), so we walk
-// them when the class node itself is visited (where `stats` is already the
-// class space, the same point `is_class_space` is marked — mirroring the
-// C++ impl's marking step). `@property` accessors are auto-generated and
+// them when the class node itself is visited, where `stats` is already the
+// class space. `@property` accessors are auto-generated and
 // carry no `method_declaration` node, so they are not counted here.
 impl Npm for ObjcCode {
     fn compute<'a>(
@@ -31,9 +30,6 @@ impl Npm for ObjcCode {
         let is_interface = matches!(node.kind_id().into(), ClassInterface | ProtocolDeclaration);
         if !is_interface && node.kind_id() != ClassImplementation as u16 {
             return;
-        }
-        if stats.is_disabled() {
-            stats.is_class_space = true;
         }
         let mut methods = 0;
         for child in node.children() {

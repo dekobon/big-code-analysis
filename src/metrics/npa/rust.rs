@@ -57,12 +57,6 @@ impl Npa for RustCode {
     ) {
         use Rust::*;
 
-        // Mark Impl / Trait spaces as class spaces so the metric is
-        // emitted on them.
-        if matches!(node.kind_id().into(), ImplItem | TraitItem) && stats.is_disabled() {
-            stats.is_class_space = true;
-        }
-
         match node.kind_id().into() {
             // Counted on the StructItem so each struct's fields are
             // tallied exactly once. The enclosing func_space (Unit or
@@ -124,9 +118,6 @@ fn rust_count_struct_attrs(node: &Node, stats: &mut Stats) {
         }
     }
     if attrs > 0 {
-        if stats.is_disabled() {
-            stats.is_class_space = true;
-        }
         stats.class_na += attrs;
         stats.class_npa += public_attrs;
     }

@@ -766,6 +766,46 @@ for historical reference.
 
 ### Fixed
 
+- **Serialized shape.** `npm` and `npa` emission is now decided by the
+  space's kind alone, for every language (#1203). #1197 declared the rule
+  — containers and the file `unit` root carry the block, a function space
+  never does — but enforced it only for the ten languages it routed
+  through a shared predicate. The other seven kept enabling from their
+  own grammar node kinds and disagreed with it in both directions:
+
+  - A Go or Rust `struct` declared inside a function body put the block
+    on that **function** space. Across the `serde` corpus that was 38
+    function spaces in 9 files, most of them `#[test]` functions
+    declaring a local `struct`.
+  - A C++ `namespace`, and any file root whose only container sat inside
+    a function, carried **no** block. In the last case the counts were
+    serialized nowhere at all — they reached the root's `_sum` fields,
+    which nothing emitted — so merely suppressing the function-space
+    block would have deleted them from output rather than relocating
+    them.
+
+  The space kind is now the only input, recorded once per space by the
+  walker, so there is no per-language surface left to deviate on.
+  Practically: every container space and every file root of a language
+  with class-shaped constructs carries both blocks, and no function space
+  does. In this repository's integration corpora that adds a block to
+  1,252 file roots and 1,337 C++ namespaces, and removes one from 38 Rust
+  function spaces.
+
+  **No metric value changed.** The counts always rolled up through every
+  enclosing space regardless of which one serialized them; this moves
+  which space reports them. Thresholds are unaffected — `bca check` reads
+  `metrics.npm` directly through `MetricScope`, which never consulted the
+  emission gate. `STABILITY.md` already places which space carries which
+  block outside the shape contract.
+
+  Languages with no class-shaped construct at all — Bash, C, Lua, Perl,
+  Tcl, iRules — still emit neither block, rather than gaining an all-zero
+  one on every file root. Go remains the one language whose `npm` / `npa`
+  appear only on the root, because its space tree has no container kind;
+  since `bca check` gates both on container spaces, no `npm` or `npa`
+  limit can fire on Go source. Both are documented in the metrics guide.
+
 - **Serialized shape.** `npm` and `npa` no longer emit an all-zero block
   on function spaces (#1197). They enabled themselves from
   `Checker::is_func_space`, which answers "does this node open a space",

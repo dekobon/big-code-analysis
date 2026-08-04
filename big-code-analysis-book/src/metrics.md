@@ -927,20 +927,33 @@ method owns no methods or attributes of its own, so the block would be
 all zeros. Before big-code-analysis 2.1.0, NPA and NPM did emit that
 all-zero block on function spaces in C#, JavaScript, MozJS, TypeScript,
 TSX, PHP and Ruby, and on the Kotlin, Java, Groovy and JS-family
-accessor / `init` / `static` spaces.
+accessor / `init` / `static` spaces. In the same release Go, Rust,
+Python, C++, Objective-C and Elixir went the other way: they decided
+from their own grammar node kinds, so a `struct` declared inside a
+function put the block on that **function** space, while a `namespace`
+or a file root with no container at file scope carried none. Both
+deviations are gone — the space's kind is now the only input, for every
+language.
 
-Two caveats. Go and Rust do not follow that rule: they set the flag
-from their own node kinds, on whichever space encloses the `struct`
-they are counting. So a `struct` declared inside a function puts the
-block on that **function** space, and a file with no `struct` at file
-scope leaves the root without one — both the opposite of what the rule
-above predicts. And the CSV projection is a fixed-column format: it
-writes the `npa.*` / `npm.*` columns on **every** row regardless of
-space kind, carrying the real accessor values rather than eliding them.
+That rule governs the *block*, not the numbers behind it: the counts
+roll up through every enclosing space regardless. So a type declared
+inside a function body is reported by the nearest enclosing container,
+or by the file root when there is none.
+
+Two things read differently. A Go file's NPA and NPM live on the `unit`
+root and nowhere else, because Go is the one supported language whose
+space tree has no container kind — `type … struct` and
+`type … interface` open no space of their own. And the CSV projection
+is a fixed-column format: it writes the `npa.*` / `npm.*` columns on
+**every** row regardless of space kind, carrying the real accessor
+values rather than eliding them.
 
 Thresholds are narrower still — `bca check` gates `npa` / `npm` on
 container spaces only, never the file root (see
-[Threshold scope](commands/check.md#threshold-scope)).
+[Threshold scope](commands/check.md#threshold-scope)). Taken with the
+paragraph above, that has a consequence worth stating outright: since a
+Go file's NPA and NPM are only ever reported at the root, **no `npa` or
+`npm` threshold can fire on Go source**.
 
 ### How to read it
 

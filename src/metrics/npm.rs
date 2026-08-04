@@ -20,11 +20,9 @@
 use std::fmt;
 
 use crate::checker::{Checker, csharp_accessor_count};
-use crate::getter::Getter;
 use crate::langs::*;
 use crate::macros::implement_metric_trait;
 use crate::metrics::npa::{accessibility_ratio, python_is_block, ts_member_is_public};
-use crate::metrics::opens_member_scope;
 use crate::node::Node;
 use crate::*;
 
@@ -33,15 +31,24 @@ use crate::*;
 /// This metric counts the number of public methods
 /// of classes/interfaces.
 ///
-/// Emitted on container spaces and on the file unit that rolls them up,
-/// never on a function space — the rule `wmc` also follows, spelled once
-/// as `SpaceKind::is_member_scope`. Each language decides *when* to set
-/// the flag: the ten that route through `metrics::opens_member_scope`
-/// obey the rule for every node, while Python, Rust, C++, Mozcpp, Go,
-/// Objective-C and Elixir gate on their own node kinds and can still
-/// disagree with it in both directions — a Rust or Go `struct` declared
-/// inside a function enables the block on that *function* space, and a
-/// file with no `struct` at file scope leaves the unit root without one.
+/// Emitted on container spaces — [`SpaceKind::Class`], `Struct`,
+/// `Trait`, `Impl`, `Namespace`, `Interface` — and on the
+/// [`SpaceKind::Unit`] file root that rolls them up. Never on a
+/// [`SpaceKind::Function`] space, which owns no members of its own.
+///
+/// Since [#1203] that holds by construction rather than by convention:
+/// the space's own kind is the only input, so no language can disagree
+/// with it in either direction. [`Wmc`](crate::wmc::Stats) decides the
+/// same way. A language with no class-shaped construct at all — C, Bash,
+/// Lua, Perl, Tcl — emits no block anywhere rather than an all-zero one
+/// on each file root.
+///
+/// The rule governs the *block*, not the counts behind it: those roll up
+/// through every enclosing space regardless, so a type declared inside a
+/// function body is reported by the nearest enclosing container, or by
+/// the file root when there is none.
+///
+/// [#1203]: https://github.com/dekobon/big-code-analysis/issues/1203
 #[derive(Clone, Debug, Default, PartialEq)]
 #[non_exhaustive]
 pub struct Stats {
@@ -53,7 +60,7 @@ pub struct Stats {
     interface_npm_sum: usize,
     class_nm_sum: usize,
     interface_nm_sum: usize,
-    is_class_space: bool,
+    space_kind: SpaceKind,
 }
 
 impl fmt::Display for Stats {
@@ -220,31 +227,24 @@ impl Stats {
         self.interface_nm_sum += self.interface_nm;
     }
 
+    /// Records the kind of the space these stats describe, which is the
+    /// sole input to [`Self::is_disabled`].
+    ///
+    /// Called from `FuncSpace::new`, so it runs once per space, before
+    /// any node in that space is walked. `wmc` records the same thing
+    /// from the walker's finalize step instead, because its `merge`
+    /// dispatches on it; nothing here does, so the earlier seam is
+    /// available and makes the field agree with the space it belongs to
+    /// for the whole of that space's life.
+    #[inline]
+    pub(crate) fn set_space_kind(&mut self, kind: SpaceKind) {
+        self.space_kind = kind;
+    }
+
     // Checks if the `Npm` metric is disabled
     #[inline]
     pub(crate) fn is_disabled(&self) -> bool {
-        !self.is_class_space
-    }
-
-    /// Enables `Npm` on the space `node` opens, when that space is a
-    /// member scope — a container, or the file unit that rolls its
-    /// containers up (#1197).
-    ///
-    /// Idempotent by design: `compute` runs once per node, so the first
-    /// qualifying node to reach a given space wins and every later call is
-    /// a no-op. The languages that gate on a bespoke node-kind set —
-    /// Python, Rust, C++, Mozcpp, Go, Objective-C, Elixir — set the flag
-    /// themselves and do not route through here.
-    #[inline]
-    fn enable_for_member_scope<'a, L: Checker + Getter>(
-        &mut self,
-        node: &Node<'a>,
-        code: &[u8],
-        ancestors: Ancestors<'a, '_>,
-    ) {
-        if self.is_disabled() && opens_member_scope::<L>(node, code, ancestors) {
-            self.is_class_space = true;
-        }
+        !self.space_kind.is_member_scope()
     }
 }
 
@@ -268,6 +268,17 @@ pub(crate) trait Npm
 where
     Self: Checker,
 {
+    /// Whether this language has any construct that owns members.
+    ///
+    /// `false` only for the no-op impls — grammars with no class-shaped
+    /// construct at all (C, Bash, Perl, Lua, Tcl, iRules, and the two
+    /// comment/preprocessor grammars), where the metric could report
+    /// nothing but zeros. The walker consults it before recording a
+    /// space kind, so those languages emit no block rather than an
+    /// all-zero one on every file root (#1203). `wmc` gets the same
+    /// outcome from its no-op `compute`, which never records a kind.
+    const HAS_MEMBERS: bool = true;
+
     /// Walk `node` and update `stats` with this metric for the language
     /// implementing the trait.
     ///
@@ -315,13 +326,11 @@ macro_rules! impl_npm_java_like {
         impl Npm for $code {
             fn compute<'a>(
                 node: &Node<'a>,
-                code: &'a [u8],
-                ancestors: Ancestors<'a, '_>,
+                _code: &'a [u8],
+                _ancestors: Ancestors<'a, '_>,
                 stats: &mut Stats,
             ) {
                 use $lang::*;
-
-                stats.enable_for_member_scope::<Self>(node, code, ancestors);
 
                 match node.kind_id().into() {
                     ClassBody | EnumBodyDeclarations => {
@@ -388,13 +397,11 @@ macro_rules! ts_npm_compute {
     ($lang:ident) => {
         fn compute<'a>(
             node: &Node<'a>,
-            code: &'a [u8],
-            ancestors: Ancestors<'a, '_>,
+            _code: &'a [u8],
+            _ancestors: Ancestors<'a, '_>,
             stats: &mut Stats,
         ) {
             use $lang::*;
-
-            stats.enable_for_member_scope::<Self>(node, code, ancestors);
 
             match node.kind_id().into() {
                 ClassBody => {
@@ -464,13 +471,11 @@ macro_rules! js_npm_compute {
     ($lang:ident) => {
         fn compute<'a>(
             node: &Node<'a>,
-            code: &'a [u8],
-            ancestors: Ancestors<'a, '_>,
+            _code: &'a [u8],
+            _ancestors: Ancestors<'a, '_>,
             stats: &mut Stats,
         ) {
             use $lang::*;
-
-            stats.enable_for_member_scope::<Self>(node, code, ancestors);
 
             if !matches!(node.kind_id().into(), ClassBody) {
                 return;

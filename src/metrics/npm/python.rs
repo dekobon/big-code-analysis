@@ -37,14 +37,10 @@ impl Npm for PythonCode {
     ) {
         use Python::*;
 
-        // Gate on `ClassDefinition` specifically so the flag is not
-        // set on plain function or module spaces.
+        // Only a `ClassDefinition` owns methods, so nothing else can
+        // contribute to the count.
         if !matches!(node.kind_id().into(), ClassDefinition) {
             return;
-        }
-
-        if stats.is_disabled() {
-            stats.is_class_space = true;
         }
 
         // The class body is the `block` child; route through

@@ -183,7 +183,10 @@ is therefore sparse on codebases predating `use v5.36`, and one anonymous-sub fo
 because the grammar misparses its signature.
 
 `wmc`, `npm`, and `npa` are only produced for languages with a class-like container. They are absent
-from Bash, C, Go, Lua, Perl, and Tcl output.
+from Bash, C, Lua, Perl, and Tcl output. Go is a half case: it has no container space at all, so
+`wmc` is absent and `npm` / `npa` are reported only on the file `unit` root. `bca check` gates both
+on container spaces and never on the root, so **no `npm` or `npa` limit can fire on Go source** — see
+[Which spaces carry NPA, NPM and WMC](../metrics.md#oop-emission-scope).
 
 A per-language override cannot fix any of these. Bash `nargs` is `0` for every function, so no
 limit — not even `0`, which fires only on a value *above* it — can make the gate say anything. The

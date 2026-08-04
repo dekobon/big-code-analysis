@@ -109,13 +109,6 @@ impl Npa for GoCode {
             public += exported;
         }
 
-        if total == 0 {
-            return;
-        }
-
-        if stats.is_disabled() {
-            stats.is_class_space = true;
-        }
         stats.class_na += total;
         stats.class_npa += public;
     }

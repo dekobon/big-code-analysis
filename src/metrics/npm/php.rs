@@ -11,7 +11,7 @@ use super::*;
 impl Npm for PhpCode {
     fn compute<'a>(
         node: &Node<'a>,
-        code: &'a [u8],
+        _code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
@@ -23,8 +23,6 @@ impl Npm for PhpCode {
         // helpers named after nothing but their arm, the same reason every
         // sibling `Abc::compute` carries a marker here.
         use Php::*;
-
-        stats.enable_for_member_scope::<Self>(node, code, ancestors);
 
         match node.kind_id().into() {
             DeclarationList => {

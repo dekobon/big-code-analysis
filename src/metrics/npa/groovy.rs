@@ -21,13 +21,11 @@ use super::*;
 impl Npa for GroovyCode {
     fn compute<'a>(
         node: &Node<'a>,
-        code: &'a [u8],
+        _code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
         use Groovy::*;
-
-        stats.enable_for_member_scope::<Self>(node, code, ancestors);
 
         match node.kind_id().into() {
             ClassBody | EnumBody => {

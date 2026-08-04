@@ -17,13 +17,11 @@ use super::*;
 impl Npm for KotlinCode {
     fn compute<'a>(
         node: &Node<'a>,
-        code: &'a [u8],
+        _code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
         use Kotlin::*;
-
-        stats.enable_for_member_scope::<Self>(node, code, ancestors);
 
         // Each `ClassBody` contributes its direct `FunctionDeclaration`
         // and `SecondaryConstructor` children to whichever func_space is

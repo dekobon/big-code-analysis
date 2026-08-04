@@ -48,12 +48,6 @@ impl Npa for PythonCode {
             return;
         }
 
-        // Mark the current space as a class space so the metric is
-        // emitted (otherwise it is suppressed by `is_disabled`).
-        if stats.is_disabled() {
-            stats.is_class_space = true;
-        }
-
         let Some(body) = python_class_body(node) else {
             return;
         };

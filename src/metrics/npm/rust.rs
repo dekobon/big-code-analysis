@@ -33,11 +33,6 @@ impl Npm for RustCode {
     ) {
         use Rust::*;
 
-        // Mark Impl / Trait spaces as class spaces so npm emits.
-        if matches!(node.kind_id().into(), ImplItem | TraitItem) && stats.is_disabled() {
-            stats.is_class_space = true;
-        }
-
         // A method is a `function_item` or `function_signature_item`
         // whose parent is the `declaration_list` of an `impl` or
         // `trait`. Gating on the kind, parent, and grandparent keeps

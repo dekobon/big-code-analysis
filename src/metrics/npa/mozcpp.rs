@@ -17,13 +17,6 @@ impl Npa for MozcppCode {
     ) {
         use Mozcpp::*;
 
-        // Mark class / struct spaces as class spaces so the metric is
-        // emitted on them.
-        if matches!(node.kind_id().into(), ClassSpecifier | StructSpecifier) && stats.is_disabled()
-        {
-            stats.is_class_space = true;
-        }
-
         if !matches!(node.kind_id().into(), FieldDeclarationList) {
             return;
         }
