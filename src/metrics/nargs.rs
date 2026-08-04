@@ -4681,6 +4681,23 @@ mod c_family_return_type_declarators {
                     "int g(int a, int b) { auto f = []{ return 1; }; return f(); }",
                     (0, 2),
                 ),
+                // …and the shape that makes that first step *matter*.
+                // The row above executes the early return but cannot
+                // discriminate it — perturbing the walk to begin at the
+                // last named child instead of the `declarator` field
+                // fails none of the suite, because a parameterless
+                // lambda's body has nothing carrying `parameters` down
+                // its last-child spine.
+                //
+                // A local *function declaration* does. `declaration`
+                // has a `declarator` field of its own, so a walk that
+                // starts outside the declarator chain lands on `q`'s
+                // `function_declarator` and bills its two parameters to
+                // the enclosing lambda, which declares none.
+                (
+                    "int g(int a, int b) { auto f = []{ int q(int x, int y); }; f(); return a + b; }",
+                    (0, 2),
+                ),
                 // The guard for the walk's stop condition. A lambda's
                 // `abstract_function_declarator` carries `parameters`
                 // but its `declarator` field is *optional* and absent
