@@ -774,8 +774,8 @@ for historical reference.
   own grammar node kinds and disagreed with it in both directions:
 
   - A Go or Rust `struct` declared inside a function body put the block
-    on that **function** space. Across the `serde` corpus that was 38
-    function spaces in 9 files, most of them `#[test]` functions
+    on that **function** space. Across the `serde` corpus that was 39
+    function spaces in 10 files, most of them `#[test]` functions
     declaring a local `struct`.
   - A C++ `namespace`, and any file root whose only container sat inside
     a function, carried **no** block. In the last case the counts were
@@ -789,7 +789,7 @@ for historical reference.
   Practically: every container space and every file root of a language
   with class-shaped constructs carries both blocks, and no function space
   does. In this repository's integration corpora that adds a block to
-  1,252 file roots and 1,337 C++ namespaces, and removes one from 38 Rust
+  1,214 file roots and 1,332 C++ namespaces, and removes one from 39 Rust
   function spaces.
 
   **No metric value changed.** The counts always rolled up through every

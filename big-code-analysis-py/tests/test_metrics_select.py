@@ -78,12 +78,14 @@ def test_metric_names_round_trip_through_analyze() -> None:
     """Every name in ``METRIC_NAMES`` is accepted by ``metrics=``.
 
     Class-only metrics (``npa``, ``npm``, ``wmc``) are elided from
-    a unit-level space when there is no class to attach them to —
-    use the Java fixture (which carries a class) for those so the
-    output key actually appears.
+    languages with no class-like construct. The unit root of a
+    language that has one carries all three even when the file
+    declares no class (#1203), so the Java fixture is no longer
+    required for the key to appear — it is kept so the three are
+    exercised on a root that merged a real container's counts.
 
     They are also elided from every *function* space, which is where
-    the unit root differs from a nested one (#1197); the assertion
+    the unit root differs from a nested one (#1197, #1203); the assertion
     below reads the root, and ``test_class_only_metrics_skip_function_spaces``
     pins the other half.
     """

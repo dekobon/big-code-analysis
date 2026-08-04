@@ -941,9 +941,11 @@ inside a function body is reported by the nearest enclosing container,
 or by the file root when there is none.
 
 Two things read differently. A Go file's NPA and NPM live on the `unit`
-root and nowhere else, because Go is the one supported language whose
-space tree has no container kind — `type … struct` and
-`type … interface` open no space of their own. And the CSV projection
+root and nowhere else, because Go is the one language that emits them
+without having a container kind in its space tree — `type … struct` and
+`type … interface` open no space of their own. (Bash, C, Lua, Perl,
+Tcl and iRules have no container kind either, but they emit neither
+block anywhere, so the question does not arise.) And the CSV projection
 is a fixed-column format: it writes the `npa.*` / `npm.*` columns on
 **every** row regardless of space kind, carrying the real accessor
 values rather than eliding them.
