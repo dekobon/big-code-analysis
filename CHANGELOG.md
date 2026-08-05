@@ -784,8 +784,10 @@ for historical reference.
   legitimate function returning a function pointer,
   `int (*fp(int a, int b))(int c)`, interposes a
   `parenthesized_declarator` and does not move, nor does C++
-  `operator()` — the only construct across `DeepSpeech` and `pdf.js`
-  whose source text resembles the shape, at 179 occurrences.
+  `operator()` — the one construct whose source text resembles the
+  shape, at 1,546 function spaces across the corpora, none of which
+  nests: the grammar emits a single `operator_name` with the parameter
+  list as its sibling.
 
   The space keeps the **macro's** name, so the 44 names #1208 recovered
   are unaffected: after `##` pasting the real symbol is not in the
@@ -795,7 +797,7 @@ for historical reference.
   *function*, one walk.
 
   46 function spaces change across the corpora, all in files with no
-  snapshot coverage. 26 are macro shims, fixed. The other 20 are
+  snapshot coverage. 27 are macro shims, fixed. The other 19 are
   `TF_ASSIGN_OR_RETURN(…); if (…)` statements that tree-sitter recovers
   into this same shape, where the outer "parameter list" is the `if`
   condition; recovery trees have never been inside the walk's contract

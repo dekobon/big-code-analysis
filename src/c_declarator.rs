@@ -142,7 +142,7 @@ use crate::node::Node;
 /// TensorFlow's `TF_ASSIGN_OR_RETURN(bool ok, Try(x)); if (ok) { … }` —
 /// recovers into a `function_declarator` whose `declarator` field is the
 /// macro call and whose `parameters` field is the `if` **condition**. So
-/// the rule changes the answer for 20 of the 46 corpus spaces it
+/// the rule changes the answer for 19 of the 46 corpus spaces it
 /// touches, from the macro's argument count to the condition's, neither
 /// of which is an arity. There is no fixture for it: whether the
 /// grammar recovers this way depends on where the line breaks fall,

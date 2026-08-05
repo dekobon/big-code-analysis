@@ -4683,12 +4683,14 @@ mod c_family_return_type_declarators {
                 // ends at a `qualified_identifier` rather than a bare
                 // one, which has named children of its own.
                 ("Foo &Bar::get(int a) { static Foo f; return f; }", (0, 1)),
-                // `operator()` is the only construct in `DeepSpeech`
-                // and `pdf.js` whose *source text* looks like the
-                // macro nesting #1213 gates on — 179 occurrences. It
-                // does not nest: the grammar emits one `operator_name`
-                // with the parameter list as its sibling, so the gate
-                // never fires and the arity is the operator's own.
+                // `operator()` is the one construct whose *source text*
+                // looks like the macro nesting #1213 gates on, and it is
+                // not rare: 1,546 function spaces across `DeepSpeech`,
+                // against 46 direct nestings not one of which is an
+                // operator. It does not nest — the grammar emits a
+                // single `operator_name` with the parameter list as its
+                // sibling — so the gate never fires and the arity is the
+                // operator's own.
                 (
                     "struct S { int operator()(int a, int b) const { return a; } };",
                     (0, 2),
