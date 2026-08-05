@@ -4618,12 +4618,24 @@ mod c_family_return_type_declarators {
     #[track_caller]
     fn sole_space_args(lang: LANG, source: &str) -> (u64, u64) {
         let root = space_verbatim(lang, source.as_bytes(), MetricsOptions::default());
-        let [space] = root.spaces.as_slice() else {
-            panic!(
-                "{lang:?}: fixture must open exactly one space, opened {}",
-                root.spaces.len()
-            );
-        };
+        // Descend to the *innermost* sole space, not the first one.
+        // A free function is one level down, but a conversion operator
+        // is two — its `struct` opens a container space in between,
+        // whose own counters stay at zero however badly the operator is
+        // counted. Stopping at the first level made both `operator_cast`
+        // fixtures assert about the struct and pass with the defect
+        // reinstated.
+        let mut space = &root;
+        loop {
+            let [only] = space.spaces.as_slice() else {
+                break;
+            };
+            space = only;
+        }
+        assert!(
+            !std::ptr::eq(space, &root),
+            "{lang:?}: fixture opened no space at all"
+        );
         (
             space.metrics.nargs.closure_args(),
             space.metrics.nargs.function_args(),
