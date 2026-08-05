@@ -359,6 +359,19 @@ for historical reference.
   operators in the book's *Cognitive Complexity → Per-language
   deviations* list (#1150). No behaviour change.
 
+- Documented an upstream `tree-sitter-c` limitation on the book's
+  *Supported Languages* page (#1209). A pre-ANSI (K&R) function
+  definition whose return type wraps the declarator — `int *f(a) int a;
+  { … }`, and likewise `char **`, `struct S *` or a `static` pointer
+  return — opens no function space under `C` or `Objective-C`, so it is
+  absent from `nom.functions`, `nargs` and `bca functions` while the
+  orphaned body's decisions are charged to the file's unit space. The
+  parse produces no `ERROR` node, so nothing downstream can detect it.
+  `C/C++` supports no K&R form at all. No behaviour change; the paired
+  fixture in `tests/grammars/c_grammar_metrics.rs` is a drift marker, so
+  a grammar bump that fixes the parse fails the test rather than
+  shifting metrics silently.
+
 - `bca ops` opens the same function spaces as `bca metrics`, through the
   same source-aware promote-and-classify predicate (#1130). The two
   walks each carried their own copy of the decision and the `ops` copy
