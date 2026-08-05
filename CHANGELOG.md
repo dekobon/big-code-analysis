@@ -778,11 +778,35 @@ for historical reference.
   is fixed in the same walk: it had been reporting `(int c)`, the
   return type's list, rather than its own.
 
+  A C++11 `[[…]]` attribute on a function no longer hides its
+  parameters either. `attributed_declarator` is the one declarator rule
+  that puts its declarator *first*, so
+  `int f(int a, int b) [[deprecated]]` had always reported 0. The GNU
+  `__attribute__((…))` spelling was never affected — every one of the
+  four grammars absorbs it into the `function_declarator` instead of
+  wrapping it.
+
+  A C++ conversion operator is explicitly *excluded* from the walk:
+  `operator int (*)(int x)` takes no arguments however many its target
+  type has.
+
   **Metric drift.** Serialized `nargs` rises wherever such a function
   appears — 3,336 recorded values across 276 files of the `DeepSpeech`
   corpus, and nothing falls. Since #1196 made the gate read a
   callable's own parameter count, these functions were invisible to
   `bca check --threshold nargs=N` and can now trip it.
+
+- C's `(void)` marker is no longer counted as a parameter. `int f(void)`
+  declares nothing, but the grammar emits a real `parameter_declaration`
+  for the `void` and every `nargs` filter counted it, so `f(void)` and
+  `f(int)` both reported 1. Fixed for C, C++, Mozcpp and Objective-C.
+  The distinction needs the source bytes rather than the tree — an
+  unnamed parameter is the same shape and really is one argument — so
+  `Checker` gained an `is_empty_param_marker` hook that defaults to
+  `false` and reads them.
+
+  **Metric drift.** 24 recorded values fall to 0 in the `DeepSpeech`
+  corpus, all in `pywrapfst.cc`, its only `(void)` definitions.
 
 - A comment written inside a parameter list is no longer counted as a
   parameter (#1201). tree-sitter attaches such a comment as a direct
