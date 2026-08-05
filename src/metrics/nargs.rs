@@ -4647,6 +4647,19 @@ mod c_family_return_type_declarators {
                 // ends at a `qualified_identifier` rather than a bare
                 // one, which has named children of its own.
                 ("Foo &Bar::get(int a) { static Foo f; return f; }", (0, 1)),
+                // An explicit template argument spelling a function
+                // type. `template_function` is another name form with
+                // named children, and its last one is the argument
+                // list — so the last-named-child fallback walks off the
+                // name side into `int (*)(int x, int y)` and bills that
+                // type's two parameters to a one-argument function
+                // unless `template_argument_list` is excluded. The two
+                // lists are deliberately different lengths, so the row
+                // cannot agree with the answer it rejects.
+                (
+                    "template <> void tspec<int (*)(int x, int y)>(int a) { }",
+                    (0, 1),
+                ),
                 // A conversion operator takes no arguments, however
                 // many its target *type* has. `operator_cast` is the
                 // one link whose `declarator` field leaves the name
