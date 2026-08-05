@@ -273,10 +273,16 @@ fn compute_args<T: Checker>(node: &Node, nargs: &mut usize) {
 /// numeric-suffix aliases that a `kind_id` match would have to
 /// enumerate and would silently regress on the next grammar bump.
 ///
-/// Two of the rules in the chain expose no field at all, which is why
-/// the field alone is not enough. From the pinned grammars'
-/// `node-types.json` (`tree-sitter-cpp` 0.23.4, `tree-sitter-c` 0.24.2,
-/// `tree-sitter-objc` 3.0.2, vendored `tree-sitter-mozcpp`):
+/// Three of the rules on the chain expose no field at all, which is why
+/// the field alone is not enough. Every entry below is from the pinned
+/// grammars' `node-types.json` (`tree-sitter-cpp` 0.23.4,
+/// `tree-sitter-c` 0.24.2, `tree-sitter-objc` 3.0.2, vendored
+/// `tree-sitter-mozcpp`), and the fieldless list is the complete set of
+/// `*_declarator` rules with no fields that a *function definition's*
+/// name side can reach — the rest (`variadic_declarator`,
+/// `structured_binding_declarator`, Objective-C's `keyword_declarator`
+/// and `struct_declarator`, and the `abstract_*` family) sit in
+/// parameter, binding or type position, never here.
 ///
 /// | rule | `declarator` field |
 /// | --- | --- |
@@ -285,13 +291,24 @@ fn compute_args<T: Checker>(node: &Node, nargs: &mut usize) {
 /// | `abstract_function_declarator` | **optional** |
 /// | `reference_declarator` | **absent — no fields** |
 /// | `parenthesized_declarator` | **absent — no fields** |
+/// | `attributed_declarator` | **absent — no fields** |
 ///
-/// `reference_declarator` is `seq(choice('&', '&&'), _declarator)` and
-/// `parenthesized_declarator` is `seq('(', optional(ms_call_modifier),
-/// _declarator, ')')`: in both the inner declarator is the last *named*
-/// child, so that is the fallback. Last rather than sole, so a leading
-/// `ms_call_modifier` (`int (__cdecl *f(int a))(int b)`) does not defeat
-/// it, and comment-filtered because tree-sitter admits a comment
+/// In all three fieldless rules the inner declarator is the last
+/// *named* child once attributes are set aside, so that is the
+/// fallback:
+///
+/// - `reference_declarator` is `seq(choice('&', '&&'), _declarator)`.
+/// - `parenthesized_declarator` is `seq('(',
+///   optional(ms_call_modifier), _declarator, ')')` — last rather than
+///   sole, so `int (__cdecl *f(int a))(int b)` does not defeat it.
+/// - `attributed_declarator` is `seq(_declarator,
+///   repeat1(attribute_declaration))`, the one rule that puts the
+///   declarator **first**. Excluding `attribute_declaration` — its only
+///   non-declarator child type in all four grammars — restores "last"
+///   as the right answer, and without that exclusion
+///   `int f(int a, int b) [[deprecated]]` reports 0.
+///
+/// Comments are excluded for the same reason, tree-sitter admitting one
 /// anywhere.
 ///
 /// The fallback stops at a node that already carries `parameters`,
@@ -314,13 +331,30 @@ fn declarator_params_owner<'tree, T: Checker>(node: &Node<'tree>) -> Option<Node
             None if current.child_by_field_name("parameters").is_some() => None,
             None => current
                 .children()
-                .filter(|child| child.is_named() && !T::is_comment(child))
+                .filter(|child| {
+                    child.is_named() && !T::is_comment(child) && child.kind() != ATTRIBUTE
+                })
                 .last(),
         },
     )
+    // A conversion operator's `declarator` field is the type it converts
+    // *to*, not its name side: `operator int (*)(int x)` takes no
+    // arguments, and everything from here inward describes that
+    // function-pointer type. Cutting the chain restores the 0 the
+    // pre-#1200 code reported by never finding `parameters` at all.
+    .take_while(|link| link.kind() != CONVERSION_OPERATOR)
     .filter(|link| link.child_by_field_name("parameters").is_some())
     .last()
 }
+
+/// Compared by `kind()` string rather than `kind_id`, per
+/// `.claude/rules/grammar-dispatch.md` §1: both rules carry
+/// numeric-suffix aliases across the four C-family grammars, and a
+/// `kind_id` match would have to enumerate every one of them and would
+/// regress silently on the next grammar bump. C and Objective-C simply
+/// never emit `operator_cast`.
+const CONVERSION_OPERATOR: &str = "operator_cast";
+const ATTRIBUTE: &str = "attribute_declaration";
 
 #[doc(hidden)]
 /// Per-language counting of function arguments.
@@ -4639,11 +4673,38 @@ mod c_family_return_type_declarators {
                 "int (__cdecl *w(int a, int b))(int c) { return 0; }",
                 (0, 2),
             ),
+            // The GNU attribute spelling, which all four grammars
+            // absorb *into* the `function_declarator` rather than
+            // wrapping it — so it never builds an
+            // `attributed_declarator` and was never miscounted. It is
+            // the control for the C++11 spelling below, a different
+            // tree for the same source-level idea.
+            (
+                "int gdef(int a, int b) __attribute__((deprecated)) { return a; }",
+                (0, 2),
+            ),
             // The unwrapped control: its `declarator` field already is
             // the `function_declarator`, so it passed before the fix
             // and must keep passing after it.
             ("int plain(int a, int b) { return a; }", (0, 2)),
         ])
+    }
+
+    /// The C++11 `[[…]]` attribute, which is the only spelling that
+    /// builds an `attributed_declarator` — the one fieldless rule
+    /// putting its declarator *first*, so the last-named-child fallback
+    /// lands on the attribute unless `attribute_declaration` is
+    /// excluded. Reported 0 both before #1200 and after its first cut.
+    ///
+    /// Objective-C is absent because its grammar parses `[[…]]` on a
+    /// *definition* as a `declaration` — no `function_definition`, so no
+    /// space and nothing to count. That is upstream, not a miscount of
+    /// ours; the GNU spelling above covers Objective-C's attribute path.
+    fn cpp11_attribute_shapes(lang: LANG) -> Option<&'static [(&'static str, (u64, u64))]> {
+        matches!(lang, LANG::C | LANG::Cpp | LANG::Mozcpp).then_some(&[(
+            "int attr(int a, int b) [[deprecated]] { return a; }",
+            (0, 2),
+        )])
     }
 
     /// The shapes only C++ has: `reference_declarator`, which — unlike
@@ -4665,6 +4726,23 @@ mod c_family_return_type_declarators {
                 // ends at a `qualified_identifier` rather than a bare
                 // one, which has named children of its own.
                 ("Foo &Bar::get(int a) { static Foo f; return f; }", (0, 1)),
+                // A conversion operator takes no arguments, however
+                // many its target *type* has. `operator_cast` is the
+                // one link whose `declarator` field leaves the name
+                // side, and following it billed the converted-to
+                // function-pointer type's `(int x)` to the operator —
+                // a regression the first cut of #1200 introduced and
+                // no fixture then covered.
+                (
+                    "struct S { operator int (*)(int x) { return nullptr; } };",
+                    (0, 0),
+                ),
+                // The same shape through a reference, so the fix cannot
+                // be keyed on the pointer spelling alone.
+                (
+                    "struct S { operator int (&)(int x, int y) { static int *p; return *reinterpret_cast<int (*)(int, int)>(p); } };",
+                    (0, 0),
+                ),
                 (
                     "int g() { auto f = [](int a, int b){ return a + b; }; return f(1, 2); }",
                     (2, 0),
@@ -4715,12 +4793,13 @@ mod c_family_return_type_declarators {
 
     #[test]
     fn a_wrapped_return_type_does_not_hide_the_parameter_list() {
-        let (mut shared, mut cpp_only) = (0, 0);
+        let (mut shared, mut cpp_only, mut attributed) = (0, 0, 0);
         let mut failures = Vec::new();
         for lang in LANG::into_enum_iter().filter(LANG::is_enabled) {
             for (table, counter) in [
                 (c_declarator_shapes(lang), &mut shared),
                 (cpp_only_shapes(lang), &mut cpp_only),
+                (cpp11_attribute_shapes(lang), &mut attributed),
             ] {
                 for (source, expected) in table.unwrap_or_default() {
                     *counter += 1;
@@ -4736,17 +4815,18 @@ mod c_family_return_type_declarators {
                 }
             }
         }
-        let (failed, checked) = (failures.len(), shared + cpp_only);
+        let (failed, checked) = (failures.len(), shared + cpp_only + attributed);
         assert!(
             failures.is_empty(),
             "{failed}/{checked} return-type shapes lost their parameter list: {failures:#?}"
         );
-        // Both tallies, so a renamed `LANG` variant or a feature that
+        // Every tally, so a renamed `LANG` variant or a feature that
         // stopped being enabled fails here rather than passing
         // vacuously.
         assert!(
-            shared > 0 && cpp_only > 0,
-            "no fixture ran (shared={shared}, cpp_only={cpp_only}); this test asserted nothing"
+            shared > 0 && cpp_only > 0 && attributed > 0,
+            "no fixture ran (shared={shared}, cpp_only={cpp_only}, \
+             attributed={attributed}); this test asserted nothing"
         );
     }
 
