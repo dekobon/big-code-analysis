@@ -4640,10 +4640,16 @@ mod c_family_return_type_declarators {
             // prove nothing.
             ("void A(b, c)(d)(int x, int y, int z) { }", (0, 3)),
             // A return type that nests without being a
-            // `function_declarator` at all: the outer link here is an
+            // `function_declarator` at all: the outer link is an
             // `array_declarator`, so the macro gate has nothing to fire
-            // on and `(void)` must still read 0.
-            ("int (*g(void))[4] { return 0; }", (0, 0)),
+            // on and the chain must still reach `arr`'s own list. Two
+            // arguments rather than the `(void)` this row first
+            // carried — `(0, 0)` is what a walk returning `None` for
+            // *everything* reports, so the row passed with the whole
+            // chain dead while 28 others failed
+            // (`.claude/rules/testing.md`, "Seed the state you claim to
+            // assert on").
+            ("int (*arr(int a, int b))[4] { return 0; }", (0, 2)),
         ])
     }
 
@@ -4687,10 +4693,17 @@ mod c_family_return_type_declarators {
                 // looks like the macro nesting #1213 gates on, and it is
                 // not rare: 1,546 function spaces across `DeepSpeech`,
                 // against 46 direct nestings not one of which is an
-                // operator. It does not nest — the grammar emits a
-                // single `operator_name` with the parameter list as its
-                // sibling — so the gate never fires and the arity is the
-                // operator's own.
+                // operator. The grammar emits a single `operator_name`
+                // with the parameter list as its sibling, so the gate is
+                // unreachable from here rather than merely inactive.
+                //
+                // Which is what this row guards, and it is worth being
+                // precise: no widening of the gate can fail it, because
+                // the chain already stops at this declarator. It fails
+                // if a future `tree-sitter-cpp` starts spelling
+                // `operator()` as a nested `function_declarator` — at
+                // which point the gate would silently halve the reported
+                // arity of that whole population.
                 (
                     "struct S { int operator()(int a, int b) const { return a; } };",
                     (0, 2),

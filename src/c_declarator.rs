@@ -438,10 +438,14 @@ mod space_name_tests {
         assert!(checked > 0, "no C-family language was enabled");
     }
 
-    /// A C-family function's name comes off the same declarator its
-    /// arity does (#1208).
+    /// A C-family function's name comes off the declarator walk its
+    /// arity comes off (#1208) — from the innermost declarator itself
+    /// for most shapes, and from inside the macro invocation that
+    /// declarator wraps for the three macro rows (#1213). "Same walk"
+    /// rather than "same node" is why this is not named for the
+    /// innermost declarator alone.
     #[test]
-    fn the_innermost_declarator_names_the_function_space() {
+    fn the_declarator_walk_names_the_function_space() {
         let mut failures = Vec::new();
         let mut checked = 0;
         for lang in [LANG::C, LANG::Cpp, LANG::Mozcpp, LANG::Objc]
