@@ -173,21 +173,39 @@ mod space_name_tests {
     /// which is the macro's rather than the function's, and which agrees
     /// with the single argument `nargs` reads from the same node.
     ///
-    /// The last three are controls. `g` in particular resolved
+    /// The next three are controls. `g` in particular resolved
     /// correctly *before* this change — its outer declarator is an
     /// `array_declarator`, so the old leftmost pre-order search happened
     /// to reach the right `function_declarator` — and would regress
     /// silently if the walk stopped one link too early.
-    const SHARED_SHAPES: &[(&str, &str)] = &[
-        ("int (*fp(int a, int b))(int c) { return 0; }", "fp"),
-        ("int (__cdecl *w(int a, int b))(int c) { return 0; }", "w"),
+    ///
+    /// The last row expects no name at all; its comment says why.
+    const SHARED_SHAPES: &[(&str, Option<&str>)] = &[
+        ("int (*fp(int a, int b))(int c) { return 0; }", Some("fp")),
+        (
+            "int (__cdecl *w(int a, int b))(int c) { return 0; }",
+            Some("w"),
+        ),
         (
             "void RUN_STATS_METHOD(allocate)(int a) { }",
-            "RUN_STATS_METHOD",
+            Some("RUN_STATS_METHOD"),
         ),
-        ("int (*g(void))[4] { return 0; }", "g"),
-        ("int plain(int a, int b) { return a; }", "plain"),
-        ("FILE *ptr(int a) { return 0; }", "ptr"),
+        ("int (*g(void))[4] { return 0; }", Some("g")),
+        ("int plain(int a, int b) { return a; }", Some("plain")),
+        ("FILE *ptr(int a) { return 0; }", Some("ptr")),
+        // The one row the gate must *reject*. Redundant parentheses
+        // around the name are legal C and put a
+        // `parenthesized_declarator` where every grammar's name kinds
+        // would be, so each getter's `matches!` falls through and the
+        // space stays nameless — emitting no name rather than whatever
+        // text happens to sit there is what that gate is for, and no
+        // other row reaches its `false` branch.
+        //
+        // A boundary, not a bug-lock: the shape has zero occurrences
+        // across `DeepSpeech` and `pdf.js`, so there is nothing to fix
+        // and no issue to open. Teach the walk to unwrap the
+        // parentheses and this is the row to update.
+        ("int (fp)(int a) { return a; }", None),
     ];
 
     /// C++ name forms C and Objective-C have no syntax for. None of
@@ -201,22 +219,25 @@ mod space_name_tests {
     /// conversion operator's declarator field is the type it converts
     /// *to*, so [`super::innermost_declarator`] deliberately cuts the
     /// chain there and returns `None`.
-    const CPP_ONLY_SHAPES: &[(&str, &str)] = &[
-        ("struct S { ~S() { } };", "~S"),
-        ("void Foo::bar(int a) { }", "Foo::bar"),
+    const CPP_ONLY_SHAPES: &[(&str, Option<&str>)] = &[
+        ("struct S { ~S() { } };", Some("~S")),
+        ("void Foo::bar(int a) { }", Some("Foo::bar")),
         (
             "struct S { operator int() const { return 0; } };",
-            "operator int() const",
+            Some("operator int() const"),
         ),
         (
             "struct S { int operator+(int o) const { return o; } };",
-            "operator+",
+            Some("operator+"),
         ),
         (
             "Foo &Bar::get(int a) { static Foo f; return f; }",
-            "Bar::get",
+            Some("Bar::get"),
         ),
-        ("template <typename T> T tfree(T a) { return a; }", "tfree"),
+        (
+            "template <typename T> T tfree(T a) { return a; }",
+            Some("tfree"),
+        ),
     ];
 
     /// Each fixture is padded with a leading and a trailing comment
@@ -246,12 +267,12 @@ mod space_name_tests {
         }
     }
 
-    fn check(lang: LANG, shapes: &[(&str, &str)], failures: &mut Vec<String>) {
+    fn check(lang: LANG, shapes: &[(&str, Option<&str>)], failures: &mut Vec<String>) {
         for (source, expected) in shapes {
             let root = space_verbatim(lang, pad(source).as_bytes(), MetricsOptions::default());
             let mut found = Vec::new();
             function_spaces(&root, &mut found);
-            let want = vec![(Some((*expected).to_owned()), FIXTURE_LINE, FIXTURE_LINE)];
+            let want = vec![(expected.map(str::to_owned), FIXTURE_LINE, FIXTURE_LINE)];
             if found != want {
                 failures.push(format!(
                     "{lang:?}: {source:?}\n  want {want:?}\n  got  {found:?}"
@@ -306,7 +327,7 @@ mod space_name_tests {
             LANG::C,
             &[(
                 "int plain(int a, int b) { return a; }",
-                "deliberately_wrong",
+                Some("deliberately_wrong"),
             )],
             &mut failures,
         );
