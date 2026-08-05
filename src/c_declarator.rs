@@ -3,25 +3,33 @@
 //!
 //! C declarator syntax nests outward from the declared name, so neither
 //! a function's parameter list nor its name is reliably a child of the
-//! function node itself. Both live on the same node — the innermost
-//! `function_declarator` along the chain — which is what
-//! [`innermost_declarator`] finds:
+//! function node itself. Both are found from the one node
+//! [`innermost_declarator`] returns — the innermost link on the chain
+//! that is the function's own declarator rather than its return type's:
 //!
 //! - [`crate::metrics::nargs`] reads its `parameters` field (#1200).
 //! - The `Getter::get_func_space_name` impls for C, C++, mozcpp and
-//!   Objective-C read its `declarator` field (#1208).
+//!   Objective-C read its name side through [`declarator_name`] (#1208).
 //!
 //! Keeping one walk keeps the two answers about the same function from
 //! disagreeing, which is how #1208 arose: the arity came from this
 //! chain and the name came from a leftmost pre-order search that stopped
 //! one level too early.
+//!
+//! For most shapes those two answers come off the *same* node, the
+//! `parameters` and `declarator` fields of a single
+//! `function_declarator`. An unexpanded function-like macro is the
+//! exception: the arity is the macro's own outer list and the name is
+//! spelled inside the invocation it wraps (#1213). So the invariant is
+//! one *function*, one walk — not one node.
 
 use crate::checker::Checker;
 use crate::node::Node;
 
 /// The innermost declarator along a C-family function's declarator
 /// chain: the node whose `parameters` field holds the function's *own*
-/// formal arguments, and whose `declarator` field holds its name.
+/// formal arguments. [`declarator_name`] takes the name from the same
+/// node's `declarator` field.
 ///
 /// C declarator syntax nests outward from the declared name, so a
 /// function node's `declarator` field is only the function's parameter
@@ -34,6 +42,19 @@ use crate::node::Node;
 /// innermost is what makes both of those come out right (#1200), and
 /// the same node carries the name `f` that a leftmost search misses
 /// (#1208).
+///
+/// "Innermost" has one exception, and it is the one shape where the
+/// grammar's reading and the preprocessor's disagree. An unexpanded
+/// function-like macro — `RUN_STATS_METHOD(allocate)(JNIEnv *env,
+/// jclass clazz)`, which is what every JNI shim looks like — parses as
+/// a `function_declarator` sitting in another one's `declarator` field,
+/// so the innermost list is the macro's `(allocate)` and the function's
+/// own arguments are discarded. Neither language permits that chain: a
+/// function may not return a function type (C11 6.7.6.3p1, C++
+/// `[dcl.fct]`), so every legitimate function-returning-a-function-
+/// pointer form interposes a `parenthesized_declarator` and the direct
+/// nesting can only be a macro (or an `ERROR`, below). The walk stops
+/// at the outer link there and reports the function's arity (#1213).
 ///
 /// The walk is by field name, per `.claude/rules/grammar-dispatch.md`
 /// §3, which also sidesteps §1: `PointerDeclarator2`,
@@ -119,6 +140,19 @@ use crate::node::Node;
 /// `a_parenthesised_macro_takes_the_name_of_the_function_it_annotates`
 /// pins it.
 ///
+/// Recovery also manufactures the direct `function_declarator` nesting
+/// the macro rule keys on, from source containing no macro-obscured
+/// declarator at all. A *statement* macro followed by an `if` —
+/// TensorFlow's `TF_ASSIGN_OR_RETURN(bool ok, Try(x)); if (ok) { … }` —
+/// recovers into a `function_declarator` whose `declarator` field is the
+/// macro call and whose `parameters` field is the `if` **condition**. So
+/// the rule changes the answer for 20 of the 46 corpus spaces it
+/// touches, from the macro's argument count to the condition's, neither
+/// of which is an arity. There is no fixture for it: whether the
+/// grammar recovers this way depends on where the line breaks fall,
+/// tree-sitter costing a recovery by the extent it skips, so any pinned
+/// spelling would be a claim about whitespace (#1213).
+///
 /// Whatever any strategy returns there is arbitrary, and the walk does
 /// not try to be clever about it. Measured over `DeepSpeech` and
 /// `pdf.js` (14,269 files), moving the four getters onto this walk
@@ -135,6 +169,23 @@ pub(crate) fn innermost_declarator<'tree, T: Checker>(node: &Node<'tree>) -> Opt
     std::iter::successors(
         node.child_by_field_name("declarator"),
         |current| match current.child_by_field_name("declarator") {
+            // An unexpanded function-like macro standing in for the
+            // declarator, which is the shape JNI shims take. Neither C
+            // nor C++ lets a function return a function type (C11
+            // 6.7.6.3p1, C++ `[dcl.fct]`), so a `function_declarator`
+            // directly inside another one's `declarator` field is not a
+            // declarator chain at all: the outer list is the function's
+            // own and the inner one holds the macro's arguments. Both
+            // links have to be tested — a pointer return puts a
+            // `function_declarator` in a `pointer_declarator`'s
+            // `declarator` field, and stopping *there* would end the
+            // chain on a node carrying no `parameters` and report 0
+            // (#1213).
+            Some(inner)
+                if current.kind() == FUNCTION_DECLARATOR && inner.kind() == FUNCTION_DECLARATOR =>
+            {
+                None
+            }
             Some(declarator) => Some(declarator),
             None if current.child_by_field_name("parameters").is_some() => None,
             None => current
@@ -159,21 +210,40 @@ pub(crate) fn innermost_declarator<'tree, T: Checker>(node: &Node<'tree>) -> Opt
 
 /// The node spelling a C-family function's name.
 ///
-/// It is the `declarator` field of [`innermost_declarator`] — the same
-/// node whose `parameters` field gives the arity — and it is a separate
-/// function only so the four `get_func_space_name` impls state that
-/// pairing once instead of four times. Each caller still gates the
+/// It is the `declarator` field of [`innermost_declarator`], and it is a
+/// separate function only so the four `get_func_space_name` impls state
+/// that pairing once instead of four times. Each caller still gates the
 /// result on its own grammar's identifier kinds: what counts as a name
 /// is where C, C++ and Objective-C differ (`destructor_name`,
 /// `qualified_identifier`, `operator_name`, `template_function`), and a
 /// kind this module accepted on their behalf would be a claim about
 /// four grammars made in a module that reads none of them.
+///
+/// The macro shape [`innermost_declarator`] stops at is the one place
+/// the name and the arity come off different nodes. There that
+/// `declarator` field is the macro *invocation* — itself a
+/// `function_declarator`, which no getter's identifier gate accepts — so
+/// the walk descends through it to the identifier the macro spells.
+/// `RUN_STATS_METHOD` is the only name in the source: the real
+/// `Java_…_allocate` exists only after `##` pasting, and it is the token
+/// a reader greps for. This is why the module doc states the invariant
+/// per *function* rather than per node (#1213).
 pub(crate) fn declarator_name<'tree, T: Checker>(node: &Node<'tree>) -> Option<Node<'tree>> {
-    innermost_declarator::<T>(node)?.child_by_field_name("declarator")
+    // Descending past a *run* of them rather than one: `A(b)(c)(int x)`
+    // is two nested macro invocations and the name is still `A`.
+    std::iter::successors(
+        innermost_declarator::<T>(node)?.child_by_field_name("declarator"),
+        |link| {
+            (link.kind() == FUNCTION_DECLARATOR)
+                .then(|| link.child_by_field_name("declarator"))
+                .flatten()
+        },
+    )
+    .last()
 }
 
 /// Compared by `kind()` string rather than `kind_id`, per
-/// `.claude/rules/grammar-dispatch.md` §1: both rules carry
+/// `.claude/rules/grammar-dispatch.md` §1: every rule below carries
 /// numeric-suffix aliases across the four C-family grammars, and a
 /// `kind_id` match would have to enumerate every one of them and would
 /// regress silently on the next grammar bump. C and Objective-C simply
@@ -181,6 +251,10 @@ pub(crate) fn declarator_name<'tree, T: Checker>(node: &Node<'tree>) -> Option<N
 const CONVERSION_OPERATOR: &str = "operator_cast";
 const ATTRIBUTE: &str = "attribute_declaration";
 const TEMPLATE_ARGUMENTS: &str = "template_argument_list";
+/// Carries the most aliases of the four — `FunctionDeclarator2` through
+/// `FunctionDeclarator5` in `tree-sitter-c` alone — so it is the one the
+/// `kind()`-string rule above most needs to cover.
+const FUNCTION_DECLARATOR: &str = "function_declarator";
 
 #[cfg(test)]
 mod space_name_tests {
@@ -196,10 +270,15 @@ mod space_name_tests {
     /// nameless C-family function spaces across `DeepSpeech` and
     /// `pdf.js`, clustered in TensorFlow's JNI shims — and it carries no
     /// `parenthesized_declarator` at all, so a fix keyed on that kind
-    /// would pass the first row and miss the population. `RUN_STATS_METHOD`
-    /// is the *syntactic* answer: the name the declarator chain spells,
-    /// which is the macro's rather than the function's, and which agrees
-    /// with the single argument `nargs` reads from the same node.
+    /// would pass the first row and miss the population.
+    /// `RUN_STATS_METHOD` is the macro's name, not the function's, which
+    /// after `##` pasting is not in the source at all; it is kept
+    /// because it is the token a reader greps for (#1213).
+    ///
+    /// The two macro rows after it are #1213: the arity moved to the
+    /// outer declarator there, so the name is the only thing still read
+    /// from inside the invocation, and `A` additionally pins the descent
+    /// through a *run* of nested invocations.
     ///
     /// The next three are controls. `g` in particular resolved
     /// correctly *before* this change — its outer declarator is an
@@ -218,6 +297,8 @@ mod space_name_tests {
             "void RUN_STATS_METHOD(allocate)(int a) { }",
             Some("RUN_STATS_METHOD"),
         ),
+        ("void MACRO(a, b)(int x) { }", Some("MACRO")),
+        ("void A(b, c)(d)(int x, int y, int z) { }", Some("A")),
         ("int (*g(void))[4] { return 0; }", Some("g")),
         ("int plain(int a, int b) { return a; }", Some("plain")),
         ("FILE *ptr(int a) { return 0; }", Some("ptr")),

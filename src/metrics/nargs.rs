@@ -4608,6 +4608,42 @@ mod c_family_return_type_declarators {
             // the `function_declarator`, so it passed before the fix
             // and must keep passing after it.
             ("int plain(int a, int b) { return a; }", (0, 2)),
+            // An unexpanded function-like macro in declarator position,
+            // the shape every JNI shim takes (#1213). The macro's
+            // `(name)` is the innermost list, so #1200's walk read 1
+            // where the function declares 2.
+            ("void MACRO(name)(int a, int b) { }", (0, 2)),
+            // The multi-argument spelling. A gate keyed on the inner
+            // list holding a single bare `type_identifier` — the
+            // heuristic form the report proposed — passes the row above
+            // and misses this one, which read the macro's 2 rather than
+            // the function's 1. The two lists are deliberately
+            // different lengths and in the opposite direction to the
+            // row above, so neither row can agree with the other's
+            // wrong answer.
+            ("void MACRO(a, b)(int x) { }", (0, 1)),
+            // The row that prices the *second* half of the gate. A
+            // pointer return puts the outer `function_declarator` in a
+            // `pointer_declarator`'s `declarator` field, so a gate that
+            // tested only the inner link would cut the chain at the
+            // pointer — a node carrying no `parameters` at all — and
+            // report 0.
+            ("char *MACRO(n)(int a, int b) { return 0; }", (0, 2)),
+            // Two nested invocations, so a gate that stopped one link
+            // in still reads a macro's list. Three distinct lengths
+            // because the single-nesting spelling `A(b)(c)(int x)`
+            // reads 1 both before the fix and after it, and would
+            // prove nothing.
+            ("void A(b, c)(d)(int x, int y, int z) { }", (0, 3)),
+            // The control that shape must not be confused with, and
+            // the one textual near-miss over `DeepSpeech` and `pdf.js`
+            // (179 occurrences of the C++ spelling below). A function
+            // may not return a function type (C11 6.7.6.3p1), so a
+            // legitimate function-returning-a-function-pointer always
+            // interposes a `parenthesized_declarator` — which is why
+            // the gate can key on the direct nesting rather than on
+            // the absence of a type in the inner list.
+            ("int (*g(void))[4] { return 0; }", (0, 0)),
         ])
     }
 
@@ -4647,6 +4683,16 @@ mod c_family_return_type_declarators {
                 // ends at a `qualified_identifier` rather than a bare
                 // one, which has named children of its own.
                 ("Foo &Bar::get(int a) { static Foo f; return f; }", (0, 1)),
+                // `operator()` is the only construct in `DeepSpeech`
+                // and `pdf.js` whose *source text* looks like the
+                // macro nesting #1213 gates on — 179 occurrences. It
+                // does not nest: the grammar emits one `operator_name`
+                // with the parameter list as its sibling, so the gate
+                // never fires and the arity is the operator's own.
+                (
+                    "struct S { int operator()(int a, int b) const { return a; } };",
+                    (0, 2),
+                ),
                 // An explicit template argument spelling a function
                 // type. `template_function` is another name form with
                 // named children, and its last one is the argument
