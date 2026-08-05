@@ -620,6 +620,15 @@ fn no_space_is_emitted_with_an_unknown_kind() {
     assert_fixtures_present(FIXTURES);
     for fixture in FIXTURES {
         let spaces = emitted_spaces(fixture.lang, fixture.source);
+        // The root is always emitted and is always `Unit`, so a fixture
+        // that opened no space below it would satisfy every assertion
+        // here without exercising a single classifier decision.
+        assert!(
+            spaces.len() > 1,
+            "{:?}: expected at least one space below the root, got {:?}",
+            fixture.lang,
+            summary(&spaces)
+        );
         for space in &spaces {
             // `assert!` rather than `assert_ne!`: the latter appends
             // "left: Unknown / right: Unknown" to a `!=` failure, which
