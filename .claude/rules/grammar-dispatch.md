@@ -160,6 +160,48 @@ Minimum cross-walk when you edit one:
 - `is_string` ↔ `get_op_type` operand classification of string kinds
 - `is_call` ↔ `get_op_type` operator classification of call kinds
 - `is_func_space` ↔ each metric's body walker
+- `is_func_space` ↔ `get_space_kind` — the two halves of the space
+  tree, and the pair that fails *quietly*. The three above disagree
+  into a **wrong count**, which a snapshot diff shows you. This one
+  disagrees into an **absent key**: a node the walker promoted but the
+  getter left `Unknown` is not a member scope
+  (`SpaceKind::is_member_scope`), so its space serializes no `npm` /
+  `npa` block at all — which looks exactly like a language that
+  legitimately has no containers. Nothing diffs. §6's "gate all three
+  on the same predicate" is this bullet's fix.
+
+### Cross-walk the `_with_code` spelling, not the byte-less one
+
+When a predicate feeds anything the walker also consults, reach for the
+`_with_code` variant — that is what the walk actually calls.
+`spaces::compute` promotes a node with
+`Checker::promotes_to_func_space_with_code`, labels the resulting space
+with `Getter::get_space_kind_with_code` inside `open_func_space`, and
+`note_member_scope` hands that recorded kind to `npm` / `npa`.
+
+**The trap is silent because the defaults forward.**
+`Checker::is_func_space_with_code` and `Getter::get_space_kind_with_code`
+both discard `code` and `ancestors` and call the byte-less form, so the
+two spellings compile *and behave identically* everywhere except where a
+language overrides one — which is precisely where the answer matters. A
+byte-less call site therefore reads as correct against every language
+that has no override, and is wrong only on the one that does. You cannot
+recover this from the signatures; both look total.
+
+Elixir is that language, and currently the only one overriding either
+method. `defmodule` / `def` / `defp` are not distinct grammar
+productions — they parse as `Call` nodes told apart only by their target
+identifier text (#275) — so `ElixirCode::is_func_space` lists just
+`Source | AnonymousFunction` and `ElixirCode::get_space_kind` has no
+`defmodule` arm. The byte-less pair answers `(false, Unknown)` for every
+Elixir container.
+
+This has already landed once. `ops_inner` opened spaces on the byte-less
+`is_func || is_func_space`, so `bca ops` returned a bare file-level space
+for every Elixir input while `bca metrics` returned a full
+module/function tree — no error, no wrong number, just a missing tree
+(#1130). `tests/parity/ops_metrics_space_parity.rs` exists to keep the
+two walks agreeing.
 
 ## 8. Anchor a default/fallback exclusion to the construct
 

@@ -568,6 +568,75 @@ fn the_file_root_keeps_its_rollup() {
     }
 }
 
+/// No fixture emits a space the classifier left `Unknown`.
+///
+/// A space's kind comes from `Getter::get_space_kind_with_code`, called
+/// once per promoted node by `spaces::compute::open_func_space`. So a
+/// node the walker promoted — via
+/// `Checker::promotes_to_func_space_with_code` — whose classifier
+/// answered `Unknown` becomes a space that is not a
+/// [`SpaceKind::is_member_scope`], and `note_member_scope` then records
+/// a kind that suppresses `npm` / `npa` outright. That is an *absent
+/// key*, not a wrong count: it reads the same as a language with no
+/// containers, so no snapshot diff and no value assertion can see it.
+///
+/// Asserted here on the serialized kind rather than by walking nodes and
+/// checking `is_func_space_with_code(n) ⇒ get_space_kind_with_code(n) !=
+/// Unknown` directly. `Checker` / `Getter` methods are static and
+/// monomorphised per parser type; `AstInner` hands out a `root_node` but
+/// no LANG-generic way to invoke them against it, so the node-walk form
+/// would need a new `run_*` dispatch arm on the macro — production
+/// surface grown to host a test. The promoted-but-`Unknown` space *is*
+/// that implication one step downstream, and is already observable.
+///
+/// **Coverage is bounded by [`FIXTURES`].** This can only fail for a
+/// shape some fixture exercises. It establishes nothing about languages
+/// or constructs not represented there — a partial sweep cannot show
+/// absence.
+///
+/// **What it adds over the sweeps above** is not the Elixir case. That
+/// was measured, not assumed: reverting `open_func_space` to the
+/// byte-less `get_space_kind` fails 12 lib tests, every one of them
+/// failing on Elixir — the only language overriding either method — and
+/// both [`containers_emit_npm_and_npa`] (an `Unknown`
+/// container is not a container kind) and [`function_spaces_emit_neither`]
+/// are among them. So this sweep is not uniquely responsible for that
+/// perturbation and should not be read as if it were.
+///
+/// Its own contribution is a selector hole, and specifically the
+/// *partial* form of one. [`function_spaces_emit_neither`] filters
+/// `kind == SpaceKind::Function`, so a space that *should* be a function
+/// but classifies `Unknown` drops out of the filter rather than failing
+/// the assertion; what catches the revert there is its anti-vacuity
+/// guard, and only because that perturbation degrades **every** Elixir
+/// function space at once, leaving the fixture with none. A fixture
+/// keeping one genuine function space — an `AnonymousFunction`, which
+/// the Elixir fixture happens not to have — would satisfy that guard
+/// while the rest degraded silently. This sweep filters nothing, so
+/// there is no set for a space to fall out of. (`.claude/rules/testing.md`:
+/// "review the selector as carefully as the assertion".)
+#[test]
+fn no_space_is_emitted_with_an_unknown_kind() {
+    assert_fixtures_present(FIXTURES);
+    for fixture in FIXTURES {
+        let spaces = emitted_spaces(fixture.lang, fixture.source);
+        for space in &spaces {
+            // `assert!` rather than `assert_ne!`: the latter appends
+            // "left: Unknown / right: Unknown" to a `!=` failure, which
+            // reads as a contradiction next to the real message.
+            assert!(
+                space.kind != SpaceKind::Unknown,
+                "{:?}: space {:?} was promoted to a space but classified \
+                 Unknown, so it serializes no npm/npa block; every space \
+                 was {:?}",
+                fixture.lang,
+                space.name,
+                summary(&spaces)
+            );
+        }
+    }
+}
+
 /// Every #1184 construct opens a function space that emits neither
 /// block, while a plain method beside it does the same.
 ///
