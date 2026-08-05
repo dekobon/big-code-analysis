@@ -766,6 +766,41 @@ for historical reference.
 
 ### Fixed
 
+- C, C++, Mozcpp and Objective-C functions whose declarator is obscured
+  by an unexpanded function-like macro now report their own arity rather
+  than the macro's (#1213). `RUN_STATS_METHOD(allocate)(JNIEnv *env,
+  jclass clazz)` — the JNI shim idiom — nests one `function_declarator`
+  directly inside another, and since #1200 `nargs` read the innermost,
+  so the macro's `(allocate)` was the answer and the function's own
+  arguments were discarded. TensorFlow's four `run_stats_jni.cc` shims
+  all reported 1 while declaring 2, 3, 4 and 3; `bca check --threshold
+  nargs=1` found one violation in that file and now finds five. The
+  multi-argument spelling moved the other way, `void MACRO(a, b)(int x)`
+  having reported the macro's 2 rather than the function's 1.
+
+  Neither language permits a function to return a function type (C11
+  6.7.6.3p1, C++ `[dcl.fct]`), so the direct nesting is not a declarator
+  chain and the rule is structural rather than a guess about macros: a
+  legitimate function returning a function pointer,
+  `int (*fp(int a, int b))(int c)`, interposes a
+  `parenthesized_declarator` and does not move, nor does C++
+  `operator()` — the only construct across `DeepSpeech` and `pdf.js`
+  whose source text resembles the shape, at 179 occurrences.
+
+  The space keeps the **macro's** name, so the 44 names #1208 recovered
+  are unaffected: after `##` pasting the real symbol is not in the
+  source at all, and the macro is the token a reader greps for. Arity
+  now comes off the outer declarator and the name off the invocation it
+  wraps, which retires #1208's same-*node* pairing in favour of one
+  *function*, one walk.
+
+  46 function spaces change across the corpora, all in files with no
+  snapshot coverage. 26 are macro shims, fixed. The other 20 are
+  `TF_ASSIGN_OR_RETURN(…); if (…)` statements that tree-sitter recovers
+  into this same shape, where the outer "parameter list" is the `if`
+  condition; recovery trees have never been inside the walk's contract
+  and those numbers were not arities before the change either.
+
 - C, C++, Mozcpp and Objective-C function spaces whose declared name
   sits under an extra declarator layer now carry that name instead of
   `null` (#1208). Two spellings were affected: a function returning a
@@ -773,9 +808,12 @@ for historical reference.
   macro-obscured declarator `RUN_STATS_METHOD(allocate)(JNIEnv *env)`
   that JNI shims use. Both put a `function_declarator` in the slot
   `get_func_space_name` expected an identifier in, so the name resolved
-  to nothing. The four getters now read the name off the same innermost
-  declarator `nargs` has read the arity from since #1200, so the two
-  answers about one function can no longer disagree.
+  to nothing. The four getters now take the name from the same
+  declarator walk `nargs` has taken the arity from since #1200, so the
+  two answers about one function can no longer disagree. (#1213, above,
+  then moved the macro spelling's arity to the outer declarator while
+  leaving its name where it is, so for that one shape the two answers
+  come off two nodes of the same walk rather than one.)
 
   Three surfaces change with it: `name` in the metric output, `bca
   functions`, which had been rendering these as a red `error:` line, and

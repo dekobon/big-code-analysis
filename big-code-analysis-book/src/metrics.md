@@ -746,6 +746,35 @@ language. Comments written inside the parameter list are not
 parameters, including the C++ idiom that puts one where an unused
 parameter's name would go — `void f(int /*unused*/)` is one argument.
 
+### Macro-obscured C-family declarators {#nargs-macro-declarators}
+
+C, C++, Mozcpp and Objective-C are parsed without running the
+preprocessor, so a function-like macro standing where the declared name
+belongs is still there in the tree. The idiom is the JNI shim:
+
+```c
+#define RUN_STATS_METHOD(name) JNICALL Java_org_tensorflow_RunStats_##name
+
+JNIEXPORT jlong RUN_STATS_METHOD(allocate)(JNIEnv *env, jclass clazz) { … }
+```
+
+Read as written, `RUN_STATS_METHOD(allocate)` is the declarator and
+`(JNIEnv *env, jclass clazz)` belongs to the return type — one argument.
+big-code-analysis reads it the other way and reports **two**, because
+neither language lets a function return a function type (C11 6.7.6.3p1,
+C++ `[dcl.fct]`): a declarator nested directly inside another one cannot
+be a declarator chain, so the outer list is the function's own. Every
+legitimate function-returning-a-function-pointer form —
+`int (*fp(int a, int b))(int c)` — puts parentheses in between and is
+unaffected, as is C++ `operator()`.
+
+The space is named for the **macro**, not the function. There is no
+other candidate: the real symbol is assembled by `##` token pasting and
+never appears in the source. So several shims in one file share a name,
+which `bca check` shows as several rows with the same label at different
+lines, and which `.bca-baseline.toml` disambiguates by body hash the way
+it does an overload set.
+
 ### What the threshold gate measures {#nargs-gate}
 
 `bca check --threshold nargs=N` gates each callable on **its own**
