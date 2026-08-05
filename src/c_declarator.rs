@@ -76,6 +76,19 @@ use crate::node::Node;
 ///   as the right answer, and without that exclusion
 ///   `int f(int a, int b) [[deprecated]]` reports 0.
 ///
+/// `template_argument_list` is excluded for the same reason as
+/// `attribute_declaration`, and it is the one exclusion the fallback
+/// needs beyond the three rules above. The fallback also runs on the
+/// *name* forms, which have no `declarator` field either, and two of
+/// them — `template_function` and `template_method` — put their argument
+/// list last: `void f<int (*)(int x, int y)>(int a)`. A type argument
+/// spelling a function type carries a `parameters` field of its own, so
+/// descending into it made that function read as taking two arguments
+/// and made its name resolve to nothing at all, the abstract declarator
+/// the chain landed on spelling no identifier. Excluding the argument
+/// list leaves the name itself as the last named child, which terminates
+/// the chain where it should.
+///
 /// Comments are excluded for the same reason, tree-sitter admitting one
 /// anywhere.
 ///
@@ -115,7 +128,9 @@ pub(crate) fn innermost_declarator<'tree, T: Checker>(node: &Node<'tree>) -> Opt
             None => current
                 .children()
                 .filter(|child| {
-                    child.is_named() && !T::is_comment(child) && child.kind() != ATTRIBUTE
+                    child.is_named()
+                        && !T::is_comment(child)
+                        && !matches!(child.kind(), ATTRIBUTE | TEMPLATE_ARGUMENTS)
                 })
                 .last(),
         },
@@ -153,6 +168,7 @@ pub(crate) fn declarator_name<'tree, T: Checker>(node: &Node<'tree>) -> Option<N
 /// never emit `operator_cast`.
 const CONVERSION_OPERATOR: &str = "operator_cast";
 const ATTRIBUTE: &str = "attribute_declaration";
+const TEMPLATE_ARGUMENTS: &str = "template_argument_list";
 
 #[cfg(test)]
 mod space_name_tests {
@@ -237,6 +253,28 @@ mod space_name_tests {
         (
             "template <typename T> T tfree(T a) { return a; }",
             Some("tfree"),
+        ),
+        // The two shapes the fallback's `template_argument_list`
+        // exclusion exists for. Both spell an explicit template argument
+        // of function type, so the chain would otherwise leave the name
+        // side entirely — down `template_function` into its
+        // `template_argument_list` — and settle on the argument's own
+        // `abstract_function_declarator`. That node spells no
+        // identifier, so the name came back `None`, and `nargs` read the
+        // argument's two parameters instead of the function's one.
+        //
+        // Both parse without an `ERROR` node, so neither is covered by
+        // the recovery caveat on [`super::innermost_declarator`]. The
+        // second is the more reachable of the two: an out-of-line
+        // member with explicit template arguments needs no `template <>`
+        // preamble.
+        (
+            "template <> void tspec<int (*)(int x, int y)>(int a) { }",
+            Some("tspec<int (*)(int x, int y)>"),
+        ),
+        (
+            "void Foo::tmem<int (*)(int x, int y)>(int a) { }",
+            Some("Foo::tmem<int (*)(int x, int y)>"),
         ),
     ];
 
