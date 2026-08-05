@@ -27,23 +27,23 @@ impl Getter for MozcppCode {
                 }
                 // The name is not a child of the function node — see
                 // `crate::c_declarator` (#1208).
-                if let Some(name) = declarator_name::<Self>(node) {
-                    match name.kind_id().into() {
+                if let Some(name) = declarator_name::<Self>(node)
+                    && matches!(
+                        name.kind_id().into(),
                         Mozcpp::TypeIdentifier
-                        | Mozcpp::Identifier
-                        | Mozcpp::FieldIdentifier
-                        | Mozcpp::DestructorName
-                        | Mozcpp::OperatorName
-                        | Mozcpp::QualifiedIdentifier
-                        | Mozcpp::QualifiedIdentifier2
-                        | Mozcpp::QualifiedIdentifier3
-                        | Mozcpp::QualifiedIdentifier4
-                        | Mozcpp::TemplateFunction
-                        | Mozcpp::TemplateMethod => {
-                            return node_text(code, &name);
-                        }
-                        _ => {}
-                    }
+                            | Mozcpp::Identifier
+                            | Mozcpp::FieldIdentifier
+                            | Mozcpp::DestructorName
+                            | Mozcpp::OperatorName
+                            | Mozcpp::QualifiedIdentifier
+                            | Mozcpp::QualifiedIdentifier2
+                            | Mozcpp::QualifiedIdentifier3
+                            | Mozcpp::QualifiedIdentifier4
+                            | Mozcpp::TemplateFunction
+                            | Mozcpp::TemplateMethod
+                    )
+                {
+                    return node_text(code, &name);
                 }
             }
             _ => {

@@ -19,13 +19,13 @@ impl Getter for CCode {
             C::FunctionDefinition | C::FunctionDefinition2 => {
                 // The name is not a child of the function node — see
                 // `crate::c_declarator` (#1208).
-                if let Some(name) = declarator_name::<Self>(node) {
-                    match name.kind_id().into() {
-                        C::TypeIdentifier | C::Identifier | C::FieldIdentifier => {
-                            return node_text(code, &name);
-                        }
-                        _ => {}
-                    }
+                if let Some(name) = declarator_name::<Self>(node)
+                    && matches!(
+                        name.kind_id().into(),
+                        C::TypeIdentifier | C::Identifier | C::FieldIdentifier
+                    )
+                {
+                    return node_text(code, &name);
                 }
             }
             _ => {

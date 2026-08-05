@@ -27,23 +27,23 @@ impl Getter for CppCode {
                 }
                 // The name is not a child of the function node — see
                 // `crate::c_declarator` (#1208).
-                if let Some(name) = declarator_name::<Self>(node) {
-                    match name.kind_id().into() {
+                if let Some(name) = declarator_name::<Self>(node)
+                    && matches!(
+                        name.kind_id().into(),
                         Cpp::TypeIdentifier
-                        | Cpp::Identifier
-                        | Cpp::FieldIdentifier
-                        | Cpp::DestructorName
-                        | Cpp::OperatorName
-                        | Cpp::QualifiedIdentifier
-                        | Cpp::QualifiedIdentifier2
-                        | Cpp::QualifiedIdentifier3
-                        | Cpp::QualifiedIdentifier4
-                        | Cpp::TemplateFunction
-                        | Cpp::TemplateMethod => {
-                            return node_text(code, &name);
-                        }
-                        _ => {}
-                    }
+                            | Cpp::Identifier
+                            | Cpp::FieldIdentifier
+                            | Cpp::DestructorName
+                            | Cpp::OperatorName
+                            | Cpp::QualifiedIdentifier
+                            | Cpp::QualifiedIdentifier2
+                            | Cpp::QualifiedIdentifier3
+                            | Cpp::QualifiedIdentifier4
+                            | Cpp::TemplateFunction
+                            | Cpp::TemplateMethod
+                    )
+                {
+                    return node_text(code, &name);
                 }
             }
             _ => {

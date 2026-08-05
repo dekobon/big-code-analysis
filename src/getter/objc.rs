@@ -22,13 +22,13 @@ impl Getter for ObjcCode {
             Objc::FunctionDefinition | Objc::FunctionDefinition2 => {
                 // The name is not a child of the function node — see
                 // `crate::c_declarator` (#1208).
-                if let Some(name) = declarator_name::<Self>(node) {
-                    match name.kind_id().into() {
-                        Objc::TypeIdentifier | Objc::Identifier | Objc::FieldIdentifier => {
-                            return node_text(code, &name);
-                        }
-                        _ => {}
-                    }
+                if let Some(name) = declarator_name::<Self>(node)
+                    && matches!(
+                        name.kind_id().into(),
+                        Objc::TypeIdentifier | Objc::Identifier | Objc::FieldIdentifier
+                    )
+                {
+                    return node_text(code, &name);
                 }
             }
             Objc::MethodDefinition
