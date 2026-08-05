@@ -130,6 +130,21 @@ pub(crate) fn innermost_declarator<'tree, T: Checker>(node: &Node<'tree>) -> Opt
     .last()
 }
 
+/// The node spelling a C-family function's name.
+///
+/// It is the `declarator` field of [`innermost_declarator`] — the same
+/// node whose `parameters` field gives the arity — and it is a separate
+/// function only so the four `get_func_space_name` impls state that
+/// pairing once instead of four times. Each caller still gates the
+/// result on its own grammar's identifier kinds: what counts as a name
+/// is where C, C++ and Objective-C differ (`destructor_name`,
+/// `qualified_identifier`, `operator_name`, `template_function`), and a
+/// kind this module accepted on their behalf would be a claim about
+/// four grammars made in a module that reads none of them.
+pub(crate) fn declarator_name<'tree, T: Checker>(node: &Node<'tree>) -> Option<Node<'tree>> {
+    innermost_declarator::<T>(node)?.child_by_field_name("declarator")
+}
+
 /// Compared by `kind()` string rather than `kind_id`, per
 /// `.claude/rules/grammar-dispatch.md` §1: both rules carry
 /// numeric-suffix aliases across the four C-family grammars, and a

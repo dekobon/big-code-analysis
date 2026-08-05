@@ -76,12 +76,14 @@ pub(crate) trait ParserTrait {
 }
 
 pub(crate) trait Search<'a> {
-    /// Kept, and allowed, pending #1212: #1208 moved the four C-family
-    /// `get_func_space_name` impls — its only production callers — onto
-    /// the shared declarator walk in [`crate::c_declarator`], and the
-    /// tests in `src/node.rs` are all that reach it now. Whether to
-    /// remove it or to state a reason for keeping it is a decision of
-    /// its own, not a rider on a name-resolution bug fix.
+    /// Finds the first node of the subtree, in pre-order, whose
+    /// `kind_id` satisfies `pred`.
+    // Kept, and allowed, pending #1212: #1208 moved the four C-family
+    // `get_func_space_name` impls — its only production callers — onto
+    // the shared declarator walk in `crate::c_declarator`, and the tests
+    // in `src/node.rs` are all that reach it now. Whether to remove it
+    // or to state a reason for keeping it is a decision of its own, not
+    // a rider on a name-resolution bug fix.
     #[allow(dead_code)]
     fn first_occurrence(&self, pred: fn(u16) -> bool) -> Option<Node<'a>>;
     /// Visits every node of the subtree in source order, handing the
