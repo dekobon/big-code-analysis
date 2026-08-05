@@ -2,7 +2,7 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
-use crate::c_declarator::innermost_declarator;
+use crate::c_declarator::declarator_name;
 
 impl Getter for ObjcCode {
     fn get_func_space_name<'a, 'tree>(
@@ -20,13 +20,9 @@ impl Getter for ObjcCode {
         // class / protocol name, or a method's first selector keyword.
         match node.kind_id().into() {
             Objc::FunctionDefinition | Objc::FunctionDefinition2 => {
-                // The name sits on the *innermost* declarator, which is
-                // the one whose `parameters` field the arity metric
-                // reads — see `crate::c_declarator` for why neither is a
-                // child of the function node (#1208).
-                if let Some(owner) = innermost_declarator::<Self>(node)
-                    && let Some(name) = owner.child_by_field_name("declarator")
-                {
+                // The name is not a child of the function node — see
+                // `crate::c_declarator` (#1208).
+                if let Some(name) = declarator_name::<Self>(node) {
                     match name.kind_id().into() {
                         Objc::TypeIdentifier | Objc::Identifier | Objc::FieldIdentifier => {
                             return node_text(code, &name);
