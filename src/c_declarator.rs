@@ -313,9 +313,15 @@ mod space_name_tests {
         let [only] = failures.as_slice() else {
             panic!("one wrong expectation must produce one failure, got {failures:?}");
         };
+        // `Some("plain")` rather than a bare `plain`: the message echoes
+        // the fixture source, which contains the word too, so the bare
+        // substring passes even when the selector found *nothing* —
+        // measured, by filtering `function_spaces` on `SpaceKind::Class`.
+        // Matching the rendered `Option` is what ties the assertion to
+        // the space rather than to the input.
         assert!(
-            only.contains("deliberately_wrong") && only.contains("plain"),
-            "the failure must name both the expectation and what was found: {only}"
+            only.contains("deliberately_wrong") && only.contains("Some(\"plain\")"),
+            "the failure must name both the expectation and the space found: {only}"
         );
     }
 }
