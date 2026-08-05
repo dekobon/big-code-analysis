@@ -766,6 +766,24 @@ for historical reference.
 
 ### Fixed
 
+- C, C++, Mozcpp and Objective-C function spaces whose declared name
+  sits under an extra declarator layer now carry that name instead of
+  `null` (#1208). Two spellings were affected: a function returning a
+  function pointer, `int (*fp(int a, int b))(int c)`, and the
+  macro-obscured declarator `RUN_STATS_METHOD(allocate)(JNIEnv *env)`
+  that JNI shims use. Both put a `function_declarator` in the slot
+  `get_func_space_name` expected an identifier in, so the name resolved
+  to nothing. The four getters now read the name off the same innermost
+  declarator `nargs` has read the arity from since #1200, so the two
+  answers about one function can no longer disagree.
+
+  Three surfaces change with it: `name` in the metric output, `bca
+  functions`, which had been rendering these as a red `error:` line, and
+  the `bca check` / `.bca-baseline.toml` offender key, which had been
+  the line-dependent `<anon@L…>`. A C-family baseline holding such an
+  entry needs one refresh, after which the key is stable across line
+  drift like any other named function.
+
 - C, C++, Mozcpp and Objective-C functions whose return type is a
   pointer or a reference now report their real arity instead of 0
   (#1200). C declarator syntax nests outward from the declared name, so

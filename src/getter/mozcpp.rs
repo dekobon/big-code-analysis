@@ -2,6 +2,7 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
+use crate::c_declarator::innermost_declarator;
 
 impl Getter for MozcppCode {
     fn get_func_space_name<'a, 'tree>(
@@ -24,31 +25,28 @@ impl Getter for MozcppCode {
                 if let Some(op_cast) = node.first_child(|id| Mozcpp::OperatorCast == id) {
                     return node_text(code, &op_cast);
                 }
-                // we're in a function_definition so need to get the declarator
-                if let Some(declarator) = node.child_by_field_name("declarator") {
-                    let declarator_node = declarator;
-                    if let Some(fd) = declarator_node.first_occurrence(|id| {
-                        Mozcpp::FunctionDeclarator == id
-                            || Mozcpp::FunctionDeclarator2 == id
-                            || Mozcpp::FunctionDeclarator3 == id
-                    }) && let Some(first) = fd.child(0)
-                    {
-                        match first.kind_id().into() {
-                            Mozcpp::TypeIdentifier
-                            | Mozcpp::Identifier
-                            | Mozcpp::FieldIdentifier
-                            | Mozcpp::DestructorName
-                            | Mozcpp::OperatorName
-                            | Mozcpp::QualifiedIdentifier
-                            | Mozcpp::QualifiedIdentifier2
-                            | Mozcpp::QualifiedIdentifier3
-                            | Mozcpp::QualifiedIdentifier4
-                            | Mozcpp::TemplateFunction
-                            | Mozcpp::TemplateMethod => {
-                                return node_text(code, &first);
-                            }
-                            _ => {}
+                // The name sits on the *innermost* declarator, which
+                // is the one whose `parameters` field the arity metric
+                // reads — see `crate::c_declarator` for why neither is
+                // a child of the function node (#1208).
+                if let Some(owner) = innermost_declarator::<Self>(node)
+                    && let Some(name) = owner.child_by_field_name("declarator")
+                {
+                    match name.kind_id().into() {
+                        Mozcpp::TypeIdentifier
+                        | Mozcpp::Identifier
+                        | Mozcpp::FieldIdentifier
+                        | Mozcpp::DestructorName
+                        | Mozcpp::OperatorName
+                        | Mozcpp::QualifiedIdentifier
+                        | Mozcpp::QualifiedIdentifier2
+                        | Mozcpp::QualifiedIdentifier3
+                        | Mozcpp::QualifiedIdentifier4
+                        | Mozcpp::TemplateFunction
+                        | Mozcpp::TemplateMethod => {
+                            return node_text(code, &name);
                         }
+                        _ => {}
                     }
                 }
             }

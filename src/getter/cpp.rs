@@ -2,6 +2,7 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
+use crate::c_declarator::innermost_declarator;
 
 impl Getter for CppCode {
     fn get_func_space_name<'a, 'tree>(
@@ -24,31 +25,28 @@ impl Getter for CppCode {
                 if let Some(op_cast) = node.first_child(|id| Cpp::OperatorCast == id) {
                     return node_text(code, &op_cast);
                 }
-                // we're in a function_definition so need to get the declarator
-                if let Some(declarator) = node.child_by_field_name("declarator") {
-                    let declarator_node = declarator;
-                    if let Some(fd) = declarator_node.first_occurrence(|id| {
-                        Cpp::FunctionDeclarator == id
-                            || Cpp::FunctionDeclarator2 == id
-                            || Cpp::FunctionDeclarator3 == id
-                    }) && let Some(first) = fd.child(0)
-                    {
-                        match first.kind_id().into() {
-                            Cpp::TypeIdentifier
-                            | Cpp::Identifier
-                            | Cpp::FieldIdentifier
-                            | Cpp::DestructorName
-                            | Cpp::OperatorName
-                            | Cpp::QualifiedIdentifier
-                            | Cpp::QualifiedIdentifier2
-                            | Cpp::QualifiedIdentifier3
-                            | Cpp::QualifiedIdentifier4
-                            | Cpp::TemplateFunction
-                            | Cpp::TemplateMethod => {
-                                return node_text(code, &first);
-                            }
-                            _ => {}
+                // The name sits on the *innermost* declarator, which
+                // is the one whose `parameters` field the arity metric
+                // reads — see `crate::c_declarator` for why neither is
+                // a child of the function node (#1208).
+                if let Some(owner) = innermost_declarator::<Self>(node)
+                    && let Some(name) = owner.child_by_field_name("declarator")
+                {
+                    match name.kind_id().into() {
+                        Cpp::TypeIdentifier
+                        | Cpp::Identifier
+                        | Cpp::FieldIdentifier
+                        | Cpp::DestructorName
+                        | Cpp::OperatorName
+                        | Cpp::QualifiedIdentifier
+                        | Cpp::QualifiedIdentifier2
+                        | Cpp::QualifiedIdentifier3
+                        | Cpp::QualifiedIdentifier4
+                        | Cpp::TemplateFunction
+                        | Cpp::TemplateMethod => {
+                            return node_text(code, &name);
                         }
+                        _ => {}
                     }
                 }
             }

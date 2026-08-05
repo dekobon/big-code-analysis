@@ -121,6 +121,7 @@
 #![allow(clippy::upper_case_acronyms)]
 
 // Internal-only modules. Nothing is re-exported from these.
+mod c_declarator;
 mod c_langs_macros;
 mod c_macro;
 mod cfg_predicate;
