@@ -784,6 +784,18 @@ for historical reference.
   entry needs one refresh, after which the key is stable across line
   drift like any other named function.
 
+  Six spaces move the other way, all of them inside `ERROR`-recovery
+  subtrees, where no declarator rule holds and any strategy's answer is
+  arbitrary: two lose a name they had (one of which had been reporting
+  an `if` statement's callee as a function name) and four are renamed.
+  One of the renames is a regression to weigh when refreshing a
+  baseline: an annotation macro carrying an argument —
+  `T *f() TF_LOCKS_EXCLUDED(mu_)`, the TensorFlow / Abseil idiom — now
+  names the space after the macro, so two members of one class sharing
+  an annotation share one offender key. Measured over `DeepSpeech` and
+  `pdf.js` (14,269 files): 46 spaces named, 2 un-named, 4 renamed, for a
+  net 44 fewer nameless spaces.
+
 - C, C++, Mozcpp and Objective-C functions whose return type is a
   pointer or a reference now report their real arity instead of 0
   (#1200). C declarator syntax nests outward from the declared name, so

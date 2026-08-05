@@ -109,12 +109,24 @@ use crate::node::Node;
 /// `function_declarator` inside an `ERROR` node and leaves the macro's
 /// `field_identifier` as the `pointer_declarator`'s last named child,
 /// so the fallback follows the macro and the walk answers `None`.
+///
+/// Give that macro an argument — `T *f() TF_LOCKS_EXCLUDED(mu_) { … }`,
+/// which is the spelling the TensorFlow / Abseil annotations actually
+/// take — and it is a `function_declarator` carrying `parameters`, so
+/// the walk answers with the *macro's* name rather than with nothing.
+/// That is the one shape this change made worse: the leftmost pre-order
+/// search it replaced descended into the `ERROR` and got `f` right.
+/// `a_parenthesised_macro_takes_the_name_of_the_function_it_annotates`
+/// pins it.
+///
 /// Whatever any strategy returns there is arbitrary, and the walk does
-/// not try to be clever about it: measured over `DeepSpeech` and
+/// not try to be clever about it. Measured over `DeepSpeech` and
 /// `pdf.js` (14,269 files), moving the four getters onto this walk
-/// named 44 previously-nameless function spaces and un-named 2, both of
-/// the latter inside recovery subtrees — one of which had been
-/// reporting an `if` statement's callee as a function name (#1208).
+/// named 46 previously-nameless function spaces, un-named 2 and renamed
+/// 4 — 354 nameless spaces down to 310, a net 44. All six of the latter
+/// sit inside recovery subtrees: one of the un-named had been reporting
+/// an `if` statement's callee as a function name, and one of the renamed
+/// is the `TF_LOCKS_EXCLUDED` case above (#1208).
 pub(crate) fn innermost_declarator<'tree, T: Checker>(node: &Node<'tree>) -> Option<Node<'tree>> {
     // The chain starts at the `declarator` field rather than at `node`
     // so the last-named-child fallback can never fire on the function
@@ -462,6 +474,60 @@ mod space_name_tests {
             &failures,
             checked,
             "grammars disagreed about the recovery shape",
+        );
+    }
+
+    /// The same macro carrying an argument, which is the spelling the
+    /// annotation idiom actually takes — `TF_LOCKS_EXCLUDED(mu_)`,
+    /// `TF_GUARDED_BY(mu_)`, `ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_)`.
+    ///
+    /// Where the grammar recovers, it is worse than the parameterless
+    /// spelling above rather than the same. A bare trailing identifier
+    /// carries no `parameters`, so the chain dead-ends and the space
+    /// merely goes nameless; a parenthesised one is a
+    /// `function_declarator` that *does*, so it becomes the walk's
+    /// answer and the space is named after the macro. `nargs` reads the
+    /// macro's argument off the same node, and two members of one class
+    /// sharing an annotation collapse onto a single `bca check` offender
+    /// key (`K::TF_LOCKS_EXCLUDED` twice).
+    ///
+    /// This is the one shape #1208 made worse: the leftmost pre-order
+    /// search it replaced descended into the `ERROR` and got `f` right.
+    /// One corpus space is affected — `resource()` in TensorFlow's
+    /// `resource_op_kernel_test.cc`, which #1208 renamed to
+    /// `TF_LOCKS_EXCLUDED`. Pinned rather than fixed, like its sibling
+    /// above: reaching into a recovery subtree is a strategy decision of
+    /// its own, and every rule the walk follows is void inside an
+    /// `ERROR`. Teach the walk to unwrap one and this is a row to
+    /// update, not a row to delete.
+    #[test]
+    fn a_parenthesised_macro_takes_the_name_of_the_function_it_annotates() {
+        const SOURCE: &str = "int *f() TF_LOCKS_EXCLUDED(mu_) { return 0; }";
+
+        let mut failures = Vec::new();
+        let mut checked = 0;
+        for lang in [LANG::C, LANG::Cpp, LANG::Mozcpp, LANG::Objc]
+            .into_iter()
+            .filter(LANG::is_enabled)
+        {
+            // Only C parses this cleanly, and there the chain follows a
+            // real `declarator` field past the macro to `f`. The split
+            // is *not* the two-two of the parameterless spelling:
+            // mozcpp sides with C there and with C++ here, so a fixture
+            // in either spelling alone would misreport what the other
+            // does.
+            let expected = if lang == LANG::C {
+                "f"
+            } else {
+                "TF_LOCKS_EXCLUDED"
+            };
+            check(lang, &[(SOURCE, Some(expected))], &mut failures);
+            checked += 1;
+        }
+        assert_all_matched(
+            &failures,
+            checked,
+            "grammars disagreed about the annotated recovery shape",
         );
     }
 }
