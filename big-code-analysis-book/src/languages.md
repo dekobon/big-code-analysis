@@ -57,6 +57,34 @@ variant's slug is
 its `LANG::name`, lowercase and punctuation-free so it round-trips
 through `FromStr`.
 
+## K&R definitions with a wrapped return type {#kr-wrapped-return-type}
+
+A pre-ANSI (K&R) function definition opens no function space under `C`
+or `Objective-C` when its return type wraps the declarator — `int *`,
+`char **`, `struct S *`, or a `static` pointer return all reproduce it:
+
+```c
+int *krptr(a, b) int a; int b; { if (a) { return 0; } return 1; }
+```
+
+`tree-sitter-c` 0.24.2 builds its old-style function definition from a
+declarator nested *inside* the old-style declarator, so an outer
+`pointer_declarator` is unreachable and the parser prefers a plain
+`declaration` that swallows the first parameter declaration, orphaning
+the body as a bare `compound_statement`. No `ERROR` node is produced —
+the parse silently succeeds wrongly, and there is no dispatch arm
+missing on our side.
+
+The consequence is that the body's decisions are charged to the file's
+unit space: the line above reports `cyclomatic.sum` 2 and
+`nom.functions` 0, a file-level count no function-level row accounts
+for. A K&R definition whose return type does not wrap the declarator
+(`int krplain(a, b) int a; int b; { … }`) is unaffected, as is any ANSI
+definition. `C/C++` and `Mozcpp` open no space for *either* K&R form,
+because `tree-sitter-cpp` has no rule for the syntax at all. This is an
+upstream grammar limitation, tracked here as
+[#1209](https://github.com/dekobon/big-code-analysis/issues/1209).
+
 ## Internal helper variants
 
 The following `LANG` variants are not user-facing languages — they

@@ -85,6 +85,51 @@ mod c_metrics {
         assert_eq!(m.cognitive.cognitive_sum(), 4, "cognitive");
     }
 
+    /// Upstream-grammar limitation, deliberately pinned (#1209): in
+    /// `tree-sitter-c` 0.24.2 the old-style (K&R) function definition
+    /// nests its declarator *inside* the old-style declarator, so an
+    /// outer `pointer_declarator` is unreachable. A K&R definition whose
+    /// return type wraps the declarator therefore parses as a plain
+    /// `declaration` that swallows the first parameter declaration, with
+    /// the body orphaned as a bare `compound_statement` sibling — no
+    /// `ERROR` node, no `function_definition`, so `is_func` never sees a
+    /// node to match. `LANG::Objc` shares the defect and `Cpp` / `Mozcpp`
+    /// open no space for either form (no K&R rule at all); both are
+    /// recorded in the book's Supported Languages page rather than here,
+    /// since this suite drives `LANG::C` only.
+    ///
+    /// The `krptr` values below are a bug-lock, not an endorsement: an
+    /// issue is open on this and the pinned numbers record only where
+    /// the decisions land *today* (on the file's unit space). A grammar
+    /// bump that parses the form correctly must fail this test rather
+    /// than shift metrics silently. `krplain` is the control — the
+    /// unwrapped K&R form works and must keep working, which is what
+    /// makes the contrast attributable to the wrapping declarator.
+    #[test]
+    fn c_knr_wrapped_return_type_opens_no_function_space() {
+        let plain = c_space("int krplain(a, b) int a; int b; { if (a) { return 0; } return 1; }");
+        assert_eq!(plain.spaces.len(), 1, "one space for the plain K&R form");
+        assert_eq!(plain.spaces[0].kind, SpaceKind::Function, "space kind");
+        assert_eq!(plain.spaces[0].name.as_deref(), Some("krplain"), "name");
+        assert_eq!(plain.metrics.nargs.function_args_sum(), 2, "K&R args");
+        // unit(1) + fn(1) + if(1) = 3.
+        assert_eq!(plain.metrics.cyclomatic.cyclomatic_sum(), 3, "cyclomatic");
+
+        let wrapped = c_space("int *krptr(a, b) int a; int b; { if (a) { return 0; } return 1; }");
+        assert!(
+            wrapped.spaces.is_empty(),
+            "#1209: the wrapped return type currently opens no space; a \
+             grammar fix makes this fail, which is the point"
+        );
+        assert_eq!(wrapped.metrics.nom.functions_sum(), 0, "no function");
+        // The orphaned body's `if` is charged to the unit: unit(1) + if(1).
+        assert_eq!(
+            wrapped.metrics.cyclomatic.cyclomatic_sum(),
+            2,
+            "the stray decision lands on the file's unit space"
+        );
+    }
+
     /// C has no classes/methods/attributes, so `npm` / `npa` / `wmc` are
     /// no-op impls (decision-log #9) and no `Class` space is ever produced
     /// — a `struct` is a data aggregate, not a function space.
