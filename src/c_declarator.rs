@@ -14,14 +14,10 @@
 //! Keeping one walk keeps the two answers about the same function from
 //! disagreeing, which is how #1208 arose: the arity came from this
 //! chain and the name came from a leftmost pre-order search that stopped
-//! one level too early.
-//!
-//! For most shapes those two answers come off the *same* node, the
-//! `parameters` and `declarator` fields of a single
-//! `function_declarator`. An unexpanded function-like macro is the
-//! exception: the arity is the macro's own outer list and the name is
-//! spelled inside the invocation it wraps (#1213). So the invariant is
-//! one *function*, one walk — not one node.
+//! one level too early. The invariant is one *function*, one walk —
+//! not one node: an unexpanded function-like macro puts the arity and
+//! the name on two links of the chain, which each function's own doc
+//! below explains (#1213).
 
 use crate::checker::Checker;
 use crate::node::Node;
@@ -51,8 +47,8 @@ use crate::node::Node;
 /// so the innermost list is the macro's `(allocate)` and the function's
 /// own arguments are discarded. Neither language permits that chain: a
 /// function may not return a function type (C11 6.7.6.3p1, C++
-/// `[dcl.fct]`), so every legitimate function-returning-a-function-
-/// pointer form interposes a `parenthesized_declarator` and the direct
+/// `[dcl.fct]`), so a legitimate function returning a function pointer
+/// always interposes a `parenthesized_declarator`, and the direct
 /// nesting can only be a macro (or an `ERROR`, below). The walk stops
 /// at the outer link there and reports the function's arity (#1213).
 ///
@@ -229,17 +225,15 @@ pub(crate) fn innermost_declarator<'tree, T: Checker>(node: &Node<'tree>) -> Opt
 /// a reader greps for. This is why the module doc states the invariant
 /// per *function* rather than per node (#1213).
 pub(crate) fn declarator_name<'tree, T: Checker>(node: &Node<'tree>) -> Option<Node<'tree>> {
-    // Descending past a *run* of them rather than one: `A(b)(c)(int x)`
-    // is two nested macro invocations and the name is still `A`.
-    std::iter::successors(
-        innermost_declarator::<T>(node)?.child_by_field_name("declarator"),
-        |link| {
-            (link.kind() == FUNCTION_DECLARATOR)
-                .then(|| link.child_by_field_name("declarator"))
-                .flatten()
-        },
-    )
-    .last()
+    // A run of them rather than one: `A(b)(c)(int x)` is two nested
+    // invocations and the name is still `A`. Each step descends a finite
+    // tree, so the loop terminates for the same reason the walk above
+    // does.
+    let mut name = innermost_declarator::<T>(node)?.child_by_field_name("declarator")?;
+    while name.kind() == FUNCTION_DECLARATOR {
+        name = name.child_by_field_name("declarator")?;
+    }
+    Some(name)
 }
 
 /// Compared by `kind()` string rather than `kind_id`, per
