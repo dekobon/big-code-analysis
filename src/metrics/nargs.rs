@@ -4622,12 +4622,16 @@ mod c_family_return_type_declarators {
             // row above, so neither row can agree with the other's
             // wrong answer.
             ("void MACRO(a, b)(int x) { }", (0, 1)),
-            // The row that prices the *second* half of the gate. A
-            // pointer return puts the outer `function_declarator` in a
-            // `pointer_declarator`'s `declarator` field, so a gate that
-            // tested only the inner link would cut the chain at the
-            // pointer — a node carrying no `parameters` at all — and
-            // report 0.
+            // The two mechanisms composed: a return type to step
+            // through *and* a macro to stop at, so this is the only row
+            // where the gate fires at a link the chain reached rather
+            // than at the one it started from. It is also why the gate
+            // tests `current`'s kind and not just the inner link's — a
+            // `pointer_declarator`'s `declarator` field is a
+            // `function_declarator` too, and stopping there lands on a
+            // node with no `parameters`. That half is not exclusively
+            // this row's to guard, though: dropping it also regresses
+            // #1200's own `FILE *f(…)` and `int **g(…)` rows to 0.
             ("char *MACRO(n)(int a, int b) { return 0; }", (0, 2)),
             // Two nested invocations, so a gate that stopped one link
             // in still reads a macro's list. Three distinct lengths
@@ -4635,14 +4639,10 @@ mod c_family_return_type_declarators {
             // reads 1 both before the fix and after it, and would
             // prove nothing.
             ("void A(b, c)(d)(int x, int y, int z) { }", (0, 3)),
-            // The control that shape must not be confused with, and
-            // the one textual near-miss over `DeepSpeech` and `pdf.js`
-            // (179 occurrences of the C++ spelling below). A function
-            // may not return a function type (C11 6.7.6.3p1), so a
-            // legitimate function-returning-a-function-pointer always
-            // interposes a `parenthesized_declarator` — which is why
-            // the gate can key on the direct nesting rather than on
-            // the absence of a type in the inner list.
+            // A return type that nests without being a
+            // `function_declarator` at all: the outer link here is an
+            // `array_declarator`, so the macro gate has nothing to fire
+            // on and `(void)` must still read 0.
             ("int (*g(void))[4] { return 0; }", (0, 0)),
         ])
     }
