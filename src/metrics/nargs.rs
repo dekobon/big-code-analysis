@@ -19,6 +19,7 @@
 
 use std::fmt;
 
+use crate::c_declarator::innermost_declarator;
 use crate::checker::Checker;
 use crate::macros::implement_metric_trait;
 use crate::*;
@@ -256,108 +257,6 @@ fn compute_args<T: Checker>(node: &Node, code: &[u8], nargs: &mut usize) {
     }
 }
 
-/// The node whose `parameters` field holds a C-family function's *own*
-/// formal arguments: the **innermost** one along the declarator chain.
-///
-/// C declarator syntax nests outward from the declared name, so a
-/// function node's `declarator` field is only the function's parameter
-/// list when the return type is plain. Anything the return type
-/// contributes — a `*`, a `&`, a parenthesised group — wraps the
-/// `function_declarator` that owns the real list, and the outermost
-/// `parameters` a chain carries can belong to the *return type* rather
-/// than to the function (`int (*f(int a))(int b)` returns a pointer to a
-/// one-argument function and itself takes one argument). Taking the
-/// innermost is what makes both of those come out right (#1200).
-///
-/// The walk is by field name, per `.claude/rules/grammar-dispatch.md`
-/// §3, which also sidesteps §1: `PointerDeclarator2`,
-/// `FunctionDeclarator2`/`3` and `ReferenceDeclarator2`/`3`/`4` are
-/// numeric-suffix aliases that a `kind_id` match would have to
-/// enumerate and would silently regress on the next grammar bump.
-///
-/// Three of the rules on the chain expose no field at all, which is why
-/// the field alone is not enough. Every entry below is from the pinned
-/// grammars' `node-types.json` (`tree-sitter-cpp` 0.23.4,
-/// `tree-sitter-c` 0.24.2, `tree-sitter-objc` 3.0.2, vendored
-/// `tree-sitter-mozcpp`), and the fieldless list is the complete set of
-/// `*_declarator` rules with no fields that a *function definition's*
-/// name side can reach — the rest (`variadic_declarator`,
-/// `structured_binding_declarator`, Objective-C's `keyword_declarator`
-/// and `struct_declarator`, and the `abstract_*` family) sit in
-/// parameter, binding or type position, never here.
-///
-/// | rule | `declarator` field |
-/// | --- | --- |
-/// | `pointer_declarator` | required |
-/// | `function_declarator` | required |
-/// | `abstract_function_declarator` | **optional** |
-/// | `reference_declarator` | **absent — no fields** |
-/// | `parenthesized_declarator` | **absent — no fields** |
-/// | `attributed_declarator` | **absent — no fields** |
-///
-/// In all three fieldless rules the inner declarator is the last
-/// *named* child once attributes are set aside, so that is the
-/// fallback:
-///
-/// - `reference_declarator` is `seq(choice('&', '&&'), _declarator)`.
-/// - `parenthesized_declarator` is `seq('(',
-///   optional(ms_call_modifier), _declarator, ')')` — last rather than
-///   sole, so `int (__cdecl *f(int a))(int b)` does not defeat it.
-/// - `attributed_declarator` is `seq(_declarator,
-///   repeat1(attribute_declaration))`, the one rule that puts the
-///   declarator **first**. Excluding `attribute_declaration` — its only
-///   non-declarator child type in all four grammars — restores "last"
-///   as the right answer, and without that exclusion
-///   `int f(int a, int b) [[deprecated]]` reports 0.
-///
-/// Comments are excluded for the same reason, tree-sitter admitting one
-/// anywhere.
-///
-/// The fallback stops at a node that already carries `parameters`,
-/// which is the C++ lambda: `abstract_function_declarator`'s
-/// `declarator` field is optional, so `[](int a, int (*cb)(int x))`
-/// would otherwise descend into the `parameter_list` and return `cb`'s
-/// `(int x)` — one argument instead of two.
-///
-/// Every step strictly descends a finite tree, so the walk terminates
-/// without a depth cap.
-fn declarator_params_owner<'tree, T: Checker>(node: &Node<'tree>) -> Option<Node<'tree>> {
-    // The chain starts at the `declarator` field rather than at `node`
-    // so the last-named-child fallback can never fire on the function
-    // node itself and walk into its body. The walk runs outside-in, so
-    // the innermost qualifying link is the last one it yields.
-    std::iter::successors(
-        node.child_by_field_name("declarator"),
-        |current| match current.child_by_field_name("declarator") {
-            Some(declarator) => Some(declarator),
-            None if current.child_by_field_name("parameters").is_some() => None,
-            None => current
-                .children()
-                .filter(|child| {
-                    child.is_named() && !T::is_comment(child) && child.kind() != ATTRIBUTE
-                })
-                .last(),
-        },
-    )
-    // A conversion operator's `declarator` field is the type it converts
-    // *to*, not its name side: `operator int (*)(int x)` takes no
-    // arguments, and everything from here inward describes that
-    // function-pointer type. Cutting the chain restores the 0 the
-    // pre-#1200 code reported by never finding `parameters` at all.
-    .take_while(|link| link.kind() != CONVERSION_OPERATOR)
-    .filter(|link| link.child_by_field_name("parameters").is_some())
-    .last()
-}
-
-/// Compared by `kind()` string rather than `kind_id`, per
-/// `.claude/rules/grammar-dispatch.md` §1: both rules carry
-/// numeric-suffix aliases across the four C-family grammars, and a
-/// `kind_id` match would have to enumerate every one of them and would
-/// regress silently on the next grammar bump. C and Objective-C simply
-/// never emit `operator_cast`.
-const CONVERSION_OPERATOR: &str = "operator_cast";
-const ATTRIBUTE: &str = "attribute_declaration";
-
 #[doc(hidden)]
 /// Per-language counting of function arguments.
 pub(crate) trait NArgs
@@ -432,19 +331,19 @@ where
 // merely unused.
 impl NArgs for CppCode {
     fn params_owner<'tree>(node: &Node<'tree>, _ancestors: Ancestors<'tree, '_>) -> Node<'tree> {
-        declarator_params_owner::<Self>(node).unwrap_or(*node)
+        innermost_declarator::<Self>(node).unwrap_or(*node)
     }
 }
 
 impl NArgs for CCode {
     fn params_owner<'tree>(node: &Node<'tree>, _ancestors: Ancestors<'tree, '_>) -> Node<'tree> {
-        declarator_params_owner::<Self>(node).unwrap_or(*node)
+        innermost_declarator::<Self>(node).unwrap_or(*node)
     }
 }
 
 impl NArgs for MozcppCode {
     fn params_owner<'tree>(node: &Node<'tree>, _ancestors: Ancestors<'tree, '_>) -> Node<'tree> {
-        declarator_params_owner::<Self>(node).unwrap_or(*node)
+        innermost_declarator::<Self>(node).unwrap_or(*node)
     }
 }
 
@@ -464,7 +363,7 @@ impl NArgs for ObjcCode {
                 // The same declarator walk C and C++ use: Objective-C
                 // inherits C's declarator syntax, so `FILE *f(int a)`
                 // buries the parameter list one level down (#1200).
-                if let Some(owner) = declarator_params_owner::<Self>(node) {
+                if let Some(owner) = innermost_declarator::<Self>(node) {
                     compute_args::<Self>(&owner, code, &mut stats.fn_nargs);
                 }
             }
@@ -4852,48 +4751,8 @@ mod c_family_return_type_declarators {
         );
     }
 
-    /// FIXME(#1208): the arity of a function returning a function
-    /// pointer is right after #1200; its **name** is not.
-    ///
-    /// `get_func_space_name` reaches the declarator through
-    /// `first_occurrence`, which stops at the *outer*
-    /// `function_declarator` — the return type's — whose `child(0)` is a
-    /// `parenthesized_declarator` and matches none of the identifier
-    /// kinds, so the arm falls through to `None`. That is a getter bug
-    /// in a different metric surface, tracked separately.
-    ///
-    /// Pinned here rather than left in the tracker so the gap fails in
-    /// CI the day it is fixed, per `.claude/rules/grammar-dispatch.md`.
-    /// When #1208 lands, this test inverts: assert `Some("fp")`.
-    #[test]
-    fn a_parenthesised_declarator_still_loses_its_space_name() {
-        for lang in [LANG::C, LANG::Cpp, LANG::Mozcpp, LANG::Objc]
-            .into_iter()
-            .filter(LANG::is_enabled)
-        {
-            let root = space_verbatim(
-                lang,
-                b"int (*fp(int a, int b))(int c) { return 0; }",
-                MetricsOptions::default(),
-            );
-            let [space] = root.spaces.as_slice() else {
-                panic!("{lang:?}: fixture must open exactly one space");
-            };
-            assert_eq!(
-                space.name, None,
-                "{lang:?}: #1208 appears to be fixed — invert this test to assert Some(\"fp\")"
-            );
-            // The control, so a regression that lost *every* space name
-            // would not read as #1208 merely still being open.
-            let named = space_verbatim(
-                lang,
-                b"int plain(int a, int b) { return a; }",
-                MetricsOptions::default(),
-            );
-            let [space] = named.spaces.as_slice() else {
-                panic!("{lang:?}: control must open exactly one space");
-            };
-            assert_eq!(space.name.as_deref(), Some("plain"), "{lang:?}");
-        }
-    }
+    // The #1208 bug-lock that stood here — asserting these shapes lost
+    // their space *name* while keeping their arity — was retired when
+    // #1208 landed. The name half now lives beside the walk it shares
+    // with this module, in `crate::c_declarator`.
 }

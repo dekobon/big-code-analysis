@@ -1640,10 +1640,11 @@ mod tests {
     /// the subtree matches, rather than falling back to the root or the
     /// last node it looked at.
     ///
-    /// Every caller in the crate — the C / C++ / Objective-C / Mozcpp
-    /// getters — uses it to find a declarator that the surrounding
-    /// grammar guarantees is there, so the whole suite only ever
-    /// exercised the hit path.
+    /// The four C-family getters that used to be its only callers each
+    /// looked for a declarator the surrounding grammar guaranteed was
+    /// there, so the whole suite only ever exercised the hit path. They
+    /// moved onto [`crate::c_declarator`] in #1208; this test and its
+    /// sibling below are what is left (#1212).
     #[test]
     fn first_occurrence_answers_none_when_nothing_matches() {
         let tree = Tree::new::<crate::langs::CCode>(b"int main() { int a; }");
@@ -1673,10 +1674,16 @@ mod tests {
     /// it: its match-everything predicate hits the root before any child
     /// is pushed, so the child order never comes into play.
     ///
-    /// The order is load-bearing rather than incidental — the C, C++,
-    /// Objective-C and mozcpp `get_func_space_name` declarator searches
-    /// are `first_occurrence` calls, and a reversed sibling order
-    /// changes *which* declarator names a function space.
+    /// The order was load-bearing while the C, C++, Objective-C and
+    /// mozcpp `get_func_space_name` declarator searches were
+    /// `first_occurrence` calls: a reversed sibling order changed
+    /// *which* declarator named a function space. Those four moved onto
+    /// [`crate::c_declarator`] in #1208 — which is also what fixed the
+    /// shapes where leftmost was the wrong answer — so no production
+    /// code depends on the order today, and #1212 asks whether the
+    /// method should survive at all. Until it is answered the contract
+    /// stays pinned, because an unpinned one is how it went unguarded
+    /// the first time.
     ///
     /// Measured on this fixture: `"main"` as written, `"b"` with the
     /// reversal removed.

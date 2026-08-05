@@ -2,6 +2,7 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
+use crate::c_declarator::innermost_declarator;
 
 impl Getter for CCode {
     fn get_func_space_name<'a, 'tree>(
@@ -16,21 +17,18 @@ impl Getter for CCode {
         // / template names), so the declarator name is a plain identifier.
         match node.kind_id().into() {
             C::FunctionDefinition | C::FunctionDefinition2 => {
-                // we're in a function_definition so need to get the declarator
-                if let Some(declarator) = node.child_by_field_name("declarator") {
-                    let declarator_node = declarator;
-                    if let Some(fd) = declarator_node.first_occurrence(|id| {
-                        C::FunctionDeclarator == id
-                            || C::FunctionDeclarator2 == id
-                            || C::FunctionDeclarator3 == id
-                    }) && let Some(first) = fd.child(0)
-                    {
-                        match first.kind_id().into() {
-                            C::TypeIdentifier | C::Identifier | C::FieldIdentifier => {
-                                return node_text(code, &first);
-                            }
-                            _ => {}
+                // The name sits on the *innermost* declarator, which is
+                // the one whose `parameters` field the arity metric
+                // reads — see `crate::c_declarator` for why neither is
+                // a child of the function node (#1208).
+                if let Some(owner) = innermost_declarator::<Self>(node)
+                    && let Some(name) = owner.child_by_field_name("declarator")
+                {
+                    match name.kind_id().into() {
+                        C::TypeIdentifier | C::Identifier | C::FieldIdentifier => {
+                            return node_text(code, &name);
                         }
+                        _ => {}
                     }
                 }
             }
