@@ -209,6 +209,19 @@ mod space_name_tests {
         ("int (*g(void))[4] { return 0; }", Some("g")),
         ("int plain(int a, int b) { return a; }", Some("plain")),
         ("FILE *ptr(int a) { return 0; }", Some("ptr")),
+        // Why the fallback may not simply require each link to be a
+        // `*_declarator`, which is the tidier-looking rule. Every
+        // grammar recovers this TensorFlow C-API signature into a
+        // `qualified_identifier` holding a **zero-width** `::` and the
+        // real `pointer_type_declarator`, so the chain has to descend
+        // through a link that is not a declarator at all to reach the
+        // name. Gating the fallback on the kind suffix loses this and
+        // two more names in the corpora: a non-declarator link is not
+        // always a name.
+        (
+            "TF_CAPI_EXPORT extern TF_ConcreteFunction* TF_GetFn(TF_SavedModel* m) { return 0; }",
+            Some("TF_GetFn"),
+        ),
         // The one row the gate must *reject*. Redundant parentheses
         // around the name are legal C and put a
         // `parenthesized_declarator` where every grammar's name kinds
@@ -319,6 +332,25 @@ mod space_name_tests {
         }
     }
 
+    /// Fail with every mismatched row, and fail *differently* when a
+    /// feature set left the loop empty.
+    ///
+    /// Shared so the failure formatting exists once: it is by
+    /// construction unreachable while the suite is green, so a second
+    /// copy is coverage the tests can never earn.
+    #[track_caller]
+    fn assert_all_matched(failures: &[String], checked: usize, what: &str) {
+        assert!(
+            failures.is_empty(),
+            "{}/{checked} {what}:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+        // Non-vacuity: a feature set that disabled all four languages
+        // would otherwise leave every assertion above unrun.
+        assert!(checked > 0, "no C-family language was enabled");
+    }
+
     /// A C-family function's name comes off the same declarator its
     /// arity does (#1208).
     #[test]
@@ -336,15 +368,11 @@ mod space_name_tests {
                 checked += CPP_ONLY_SHAPES.len();
             }
         }
-        assert!(
-            failures.is_empty(),
-            "{}/{checked} declarator shapes named the wrong space:\n{}",
-            failures.len(),
-            failures.join("\n")
+        assert_all_matched(
+            &failures,
+            checked,
+            "declarator shapes named the wrong space",
         );
-        // Non-vacuity: a feature set that disabled all four languages
-        // would otherwise leave every assertion above unrun.
-        assert!(checked > 0, "no C-family language was enabled");
     }
 
     /// [`check`] must be *able* to fail.
@@ -381,6 +409,59 @@ mod space_name_tests {
         assert!(
             only.contains("deliberately_wrong") && only.contains("Some(\"plain\")"),
             "the failure must name both the expectation and the space found: {only}"
+        );
+    }
+
+    /// An unexpanded macro where a trailing attribute belongs, which is
+    /// the one input in this module that reaches
+    /// [`super::declarator_name`]'s `?` — the arm taken when *no* link
+    /// on the chain carries a `parameters` field, so there is no
+    /// declarator to read a name from at all. Every other row resolves
+    /// an owner and is answered by the identifier-kind gate instead.
+    ///
+    /// The grammars split two-two on it, which is the reason this is its
+    /// own test rather than a table row — and the split is not the one
+    /// the language families would suggest:
+    ///
+    /// | grammar | parse | name |
+    /// | --- | --- | --- |
+    /// | C, **mozcpp** | clean — `function_declarator` admits the trailing identifier | `f` |
+    /// | C++, Objective-C | `ERROR` around the declarator | none |
+    ///
+    /// Where the parse is clean the chain follows a real `declarator`
+    /// field and the name resolves. Where it is not, the declarator sits
+    /// inside an `ERROR` and the macro is left as the
+    /// `pointer_declarator`'s last named child, so the fallback follows
+    /// the macro into a dead end.
+    ///
+    /// mozcpp siding with C rather than with the upstream `tree-sitter-cpp`
+    /// it forked from is the finding worth keeping here: it owns no file
+    /// extension, so nothing routes to it and only a unit test can see
+    /// it at all (`.claude/rules/grammar-dispatch.md`, "when you fix one
+    /// language, sweep the rest").
+    ///
+    /// Recovery trees are outside the walk's contract — see
+    /// [`super::innermost_declarator`], which measured this exact shape
+    /// as one of the two corpus spaces #1208 un-named. This pins what
+    /// the walk does there, not a claim that it is the right answer.
+    #[test]
+    fn a_macro_where_an_attribute_belongs_divides_the_grammars() {
+        const SOURCE: &str = "int *f() TF_ATTRIBUTE_NOINLINE { return 0; }";
+
+        let mut failures = Vec::new();
+        let mut checked = 0;
+        for lang in [LANG::C, LANG::Cpp, LANG::Mozcpp, LANG::Objc]
+            .into_iter()
+            .filter(LANG::is_enabled)
+        {
+            let expected = matches!(lang, LANG::C | LANG::Mozcpp).then_some("f");
+            check(lang, &[(SOURCE, expected)], &mut failures);
+            checked += 1;
+        }
+        assert_all_matched(
+            &failures,
+            checked,
+            "grammars disagreed about the recovery shape",
         );
     }
 }
