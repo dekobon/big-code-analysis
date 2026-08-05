@@ -227,15 +227,17 @@ impl Stats {
 /// Elixir and Kotlin lambdas reach their parameter list by three routes
 /// `compute_args` cannot express, so they call this directly.
 #[inline]
-fn count_args<T: Checker>(params: &Node) -> usize {
+fn count_args<T: Checker>(params: &Node, code: &[u8]) -> usize {
     params
         .children()
-        .filter(|child| !T::is_non_arg(child) && !T::is_comment(child))
+        .filter(|child| {
+            !T::is_non_arg(child) && !T::is_comment(child) && !T::is_empty_param_marker(child, code)
+        })
         .count()
 }
 
 #[inline]
-fn compute_args<T: Checker>(node: &Node, nargs: &mut usize) {
+fn compute_args<T: Checker>(node: &Node, code: &[u8], nargs: &mut usize) {
     if let Some(params) = node.child_by_field_name("parameters") {
         // The field can hold a lone parameter rather than a list, in
         // which case there are no children to walk and `count_args`
@@ -244,7 +246,7 @@ fn compute_args<T: Checker>(node: &Node, nargs: &mut usize) {
             *nargs += 1;
             return;
         }
-        *nargs += count_args::<T>(&params);
+        *nargs += count_args::<T>(&params, code);
     } else if node.child_by_field_name("parameter").is_some() {
         // JS/TS/TSX/MozJS arrow functions with a bare identifier parameter
         // (`x => …`) use the singular `parameter` field instead of the plural
@@ -375,13 +377,18 @@ where
     /// silently report 0 here (#1142).
     fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         if Self::is_func_with_code(node, code, ancestors) {
-            compute_args::<Self>(&Self::params_owner(node, ancestors), &mut stats.fn_nargs);
+            compute_args::<Self>(
+                &Self::params_owner(node, ancestors),
+                code,
+                &mut stats.fn_nargs,
+            );
             return;
         }
 
         if Self::is_closure(node, ancestors) {
             compute_args::<Self>(
                 &Self::params_owner(node, ancestors),
+                code,
                 &mut stats.closure_nargs,
             );
         }
@@ -451,19 +458,14 @@ impl NArgs for MozcppCode {
 //   * a block `^(int x){ … }` holds its params in a `parameter_list`
 //     child rather than under a `parameters` field.
 impl NArgs for ObjcCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        _code: &[u8],
-        _ancestors: Ancestors<'a, '_>,
-        stats: &mut Stats,
-    ) {
+    fn compute<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         match node.kind_id().into() {
             Objc::FunctionDefinition | Objc::FunctionDefinition2 => {
                 // The same declarator walk C and C++ use: Objective-C
                 // inherits C's declarator syntax, so `FILE *f(int a)`
                 // buries the parameter list one level down (#1200).
                 if let Some(owner) = declarator_params_owner::<Self>(node) {
-                    compute_args::<Self>(&owner, &mut stats.fn_nargs);
+                    compute_args::<Self>(&owner, code, &mut stats.fn_nargs);
                 }
             }
             Objc::MethodDefinition => {
@@ -546,7 +548,7 @@ fn compute_kotlin_func_args(node: &Node, nargs: &mut usize) {
     }
 }
 
-fn compute_kotlin_lambda_args(node: &Node, nargs: &mut usize) {
+fn compute_kotlin_lambda_args(node: &Node, code: &[u8], nargs: &mut usize) {
     // Lambda parameters are plain identifiers or destructuring patterns separated
     // by commas; there is no typed `Parameter` wrapper node (unlike function
     // value parameters), so a negative filter is the correct predicate here — the
@@ -559,12 +561,12 @@ fn compute_kotlin_lambda_args(node: &Node, nargs: &mut usize) {
         .children()
         .find(|c| c.kind_id() == Kotlin::LambdaParameters)
     {
-        *nargs += count_args::<KotlinCode>(&params);
+        *nargs += count_args::<KotlinCode>(&params, code);
     }
 }
 
 impl NArgs for KotlinCode {
-    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         if Self::is_func(node, ancestors) {
             compute_kotlin_func_args(node, &mut stats.fn_nargs);
             return;
@@ -572,7 +574,7 @@ impl NArgs for KotlinCode {
 
         if Self::is_closure(node, ancestors) {
             if node.kind_id() == Kotlin::LambdaLiteral {
-                compute_kotlin_lambda_args(node, &mut stats.closure_nargs);
+                compute_kotlin_lambda_args(node, code, &mut stats.closure_nargs);
             } else {
                 compute_kotlin_func_args(node, &mut stats.closure_nargs);
             }
@@ -681,17 +683,17 @@ fn perl_signature<'a>(node: &Node<'a>) -> Option<Node<'a>> {
 // `function_signature`. Perl carried that exclusion inline for years
 // before #1201 found the same hole in every other language and moved it
 // into the shared predicate.
-fn compute_perl_args(node: &Node, nargs: &mut usize) {
+fn compute_perl_args(node: &Node, code: &[u8], nargs: &mut usize) {
     let Some(signature) = perl_signature(node) else {
         return;
     };
-    *nargs += count_args::<PerlCode>(&signature);
+    *nargs += count_args::<PerlCode>(&signature, code);
 }
 
 impl NArgs for PerlCode {
-    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         if Self::is_func(node, ancestors) {
-            compute_perl_args(node, &mut stats.fn_nargs);
+            compute_perl_args(node, code, &mut stats.fn_nargs);
             return;
         }
 
@@ -705,7 +707,7 @@ impl NArgs for PerlCode {
         // `perl_anonymous_sub_signature_is_zero`) rather than passing
         // silently; revisit at the next `recreate-grammars.sh` bump.
         if Self::is_closure(node, ancestors) {
-            compute_perl_args(node, &mut stats.closure_nargs);
+            compute_perl_args(node, code, &mut stats.closure_nargs);
         }
     }
 }
@@ -737,7 +739,7 @@ fn elixir_declared_args(node: &Node, code: &[u8]) -> usize {
     };
     let head = elixir_unwrap_guard(&head, code);
     match head.kind_id().into() {
-        Elixir::Call => elixir_arguments(&head).map_or(0, |p| count_args::<ElixirCode>(&p)),
+        Elixir::Call => elixir_arguments(&head).map_or(0, |p| count_args::<ElixirCode>(&p, code)),
         Elixir::BinaryOperator => 2,
         Elixir::UnaryOperator => 1,
         _ => 0,
@@ -789,7 +791,8 @@ impl NArgs for ElixirCode {
             && let Some(clause) = node.first_child(|id| id == Elixir::StabClause)
             && let Some(params) = clause.child_by_field_name("left")
         {
-            stats.closure_nargs += count_args::<ElixirCode>(&elixir_unwrap_guard(&params, code));
+            stats.closure_nargs +=
+                count_args::<ElixirCode>(&elixir_unwrap_guard(&params, code), code);
         }
     }
 }
@@ -854,11 +857,11 @@ impl NArgs for JavaCode {
 // for a `parameters` field) misses them. Match the closure_parameters
 // child directly and count its `closure_parameter` grand-children.
 impl NArgs for GroovyCode {
-    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         use crate::languages::language_groovy::Groovy;
 
         if Self::is_func(node, ancestors) {
-            compute_args::<Self>(node, &mut stats.fn_nargs);
+            compute_args::<Self>(node, code, &mut stats.fn_nargs);
             return;
         }
 
@@ -4695,6 +4698,17 @@ mod c_family_return_type_declarators {
                 "int gdef(int a, int b) __attribute__((deprecated)) { return a; }",
                 (0, 2),
             ),
+            // C's `(void)` marker declares *no* parameters, but the
+            // grammar emits a real `parameter_declaration` for it, so
+            // every negative filter counted it as one.
+            ("int none(void) { return 0; }", (0, 0)),
+            // The two shapes `(void)` must not be confused with. An
+            // unnamed parameter is structurally identical — a bare type
+            // with no declarator — and really is one argument, so only
+            // the bytes separate them. `void *` carries a declarator
+            // and is likewise a real parameter.
+            ("int unnamed(int) { return 0; }", (0, 1)),
+            ("int ptr(void *p, int a) { return 0; }", (0, 2)),
             // The unwrapped control: its `declarator` field already is
             // the `function_declarator`, so it passed before the fix
             // and must keep passing after it.

@@ -60,6 +60,11 @@ impl Checker for ObjcCode {
         )
     }
 
+    // C's `(void)` marker, shared with C++, Mozcpp and Objective-C.
+    fn is_empty_param_marker(param: &Node, code: &[u8]) -> bool {
+        c_family_void_parameter(param, code)
+    }
+
     fn is_non_arg(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),

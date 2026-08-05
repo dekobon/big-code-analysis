@@ -362,6 +362,24 @@ pub(crate) trait Checker {
     fn is_non_arg(_: &Node) -> bool {
         false
     }
+    /// Whether `param` is a language's way of spelling *"this function
+    /// takes nothing"* inside an otherwise ordinary parameter list.
+    ///
+    /// C's `int f(void)` declares zero parameters, but the grammar
+    /// emits a real `parameter_declaration` for the `void`, so the
+    /// negative filters in [`crate::nargs`] counted it as one — `f` and
+    /// `int f(int)` both reported 1 despite one of them taking no
+    /// argument at all.
+    ///
+    /// It takes `code` because the question is not structural: a
+    /// `parameter_declaration` holding a bare `primitive_type` and no
+    /// declarator is *also* how an unnamed parameter is spelled, and
+    /// `void f(int)` really does take one. Only the bytes tell them
+    /// apart — `.claude/rules/grammar-dispatch.md` §10.
+    #[inline]
+    fn is_empty_param_marker(_param: &Node, _code: &[u8]) -> bool {
+        false
+    }
     /// Whether `node` — the value of a function's `parameters` field —
     /// is itself a *single formal parameter* rather than a parameter
     /// *list*.
@@ -546,6 +564,25 @@ pub(crate) fn csharp_accessor_count(node: &Node) -> usize {
 /// accessor-less expression-bodied form (#464 indexer, #472 property).
 pub(crate) fn csharp_member_has_accessors(node: &Node) -> bool {
     csharp_accessor_count(node) > 0
+}
+
+/// Whether `param` is C's `(void)` marker — the spelling for an empty
+/// parameter list — rather than a parameter.
+///
+/// Shared by C, C++, Mozcpp and Objective-C, which all inherit the
+/// idiom and all emit a real `parameter_declaration` for it.
+///
+/// The declarator check is what separates the marker from `void *p`,
+/// which is an ordinary parameter of type `void *`, and the byte
+/// comparison is what separates it from an unnamed parameter of any
+/// other type: `f(int)` and `f(void)` are the same shape and different
+/// arities.
+pub(crate) fn c_family_void_parameter(param: &Node, code: &[u8]) -> bool {
+    param.child_by_field_name("declarator").is_none()
+        && param
+            .child_by_field_name("type")
+            .and_then(|ty| code.get(ty.start_byte()..ty.end_byte()))
+            == Some(b"void".as_slice())
 }
 
 /// Strip the `#` / `#!` marker plus the `[...]` brackets from a
