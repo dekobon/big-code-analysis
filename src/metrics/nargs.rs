@@ -4629,16 +4629,12 @@ mod c_family_return_type_declarators {
         // fixtures assert about the struct and pass with the defect
         // reinstated.
         let mut space = &root;
-        loop {
-            let [only] = space.spaces.as_slice() else {
-                break;
-            };
+        let mut depth = 0;
+        while let [only] = space.spaces.as_slice() {
             space = only;
+            depth += 1;
         }
-        assert!(
-            !std::ptr::eq(space, &root),
-            "{lang:?}: fixture opened no space at all"
-        );
+        assert!(depth > 0, "{lang:?}: fixture opened no space at all");
         (
             space.metrics.nargs.closure_args(),
             space.metrics.nargs.function_args(),
