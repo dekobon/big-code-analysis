@@ -49,7 +49,6 @@ fn cpp_function_definition_is_classified_as_function() {
     use crate::checker::Checker;
     use crate::getter::Getter;
     use crate::langs::CppCode;
-    use crate::traits::Search;
 
     let source = "int the_func(int x) { return x; }\n";
     let path = std::path::PathBuf::from("fd.cc");
@@ -60,7 +59,9 @@ fn cpp_function_definition_is_classified_as_function() {
     // so the test stays valid if a future grammar bump starts
     // emitting one of the higher-numbered aliases.
     let fn_node = root
-        .first_occurrence(|id| {
+        .preorder()
+        .find(|node| {
+            let id = node.kind_id();
             Cpp::FunctionDefinition == id
                 || Cpp::FunctionDefinition2 == id
                 || Cpp::FunctionDefinition3 == id

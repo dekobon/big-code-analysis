@@ -330,14 +330,14 @@ The predicates are a rounding error; one scan was not. Python's
 instance-attribute walk in `metrics::npa::python` visits every node of
 every method body, and was 381 k of that language's 417 k child scans —
 92 % of them. The metric walk's other per-node `children` consumers are
-`Preorder` and the suppression DFS. Crate-wide there are three more —
-`Search::first_occurrence`, `Search::act_on_node`, and `output::dump`'s
-tree renderer — none of which a `metrics()` call runs, so they are
-absent from the figures above.
+`Preorder` and the suppression DFS. Crate-wide there are two more —
+`Search::act_on_node` and `output::dump`'s tree renderer — neither of
+which a `metrics()` call runs, so they are absent from the figures
+above.
 
-`Node::children_with` lets all six hoist one cursor out of their loop,
+`Node::children_with` lets all five hoist one cursor out of their loop,
 and the counter `child_scan_cursors` in `src/node.rs` is what keeps
-them there, since the change moves no metric value. All six are
+them there, since the change moves no metric value. All five are
 asserted: the walks reachable from `node.rs` in
 `the_converted_traversals_scan_a_tree_on_one_cursor`, and the renderer
 in `output::dump`'s own `dump_holds_one_cursor_for_the_whole_tree`.
@@ -345,8 +345,7 @@ The counter records in `Node::children` — the allocating form — so a
 hoisted cursor records **zero** and a per-node one records once per
 interior node; each assertion pins the exact zero, and each was
 verified by reverting its call site and watching that test alone fail
-(50 cursors over 50 nodes for the two `Search` walks, 12 over 34 for
-the dump).
+(50 cursors over 50 nodes for `act_on_node`, 12 over 34 for the dump).
 
 Measured on 400 Python corpus files (694 k nodes), interleaved
 best-of-nine: **414 620 cursor allocations down to 33 328 (−92 %), walk
