@@ -227,13 +227,24 @@ pub(crate) fn innermost_declarator<'tree, T: Checker>(node: &Node<'tree>) -> Opt
 pub(crate) fn declarator_name<'tree, T: Checker>(node: &Node<'tree>) -> Option<Node<'tree>> {
     // A run of them rather than one: `A(b)(c)(int x)` is two nested
     // invocations and the name is still `A`. Each step descends a finite
-    // tree, so the loop terminates for the same reason the walk above
-    // does.
-    let mut name = innermost_declarator::<T>(node)?.child_by_field_name("declarator")?;
-    while name.kind() == FUNCTION_DECLARATOR {
-        name = name.child_by_field_name("declarator")?;
-    }
-    Some(name)
+    // tree, so this terminates for the same reason the walk above does.
+    //
+    // Written as a chain rather than a `while` with `?` inside it
+    // deliberately. The loop form needs an early return for "this
+    // `function_declarator` has no `declarator` field", which the
+    // grammars declare required and only an `ERROR` could violate — two
+    // arms no test can reach, and coverage counts them.
+    std::iter::successors(
+        innermost_declarator::<T>(node)?.child_by_field_name("declarator"),
+        |link| {
+            if link.kind() == FUNCTION_DECLARATOR {
+                link.child_by_field_name("declarator")
+            } else {
+                None
+            }
+        },
+    )
+    .last()
 }
 
 /// Compared by `kind()` string rather than `kind_id`, per
