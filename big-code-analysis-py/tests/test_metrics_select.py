@@ -431,7 +431,7 @@ def test_metrics_kwarg_is_keyword_only() -> None:
     """``analyze(path, metrics)`` (positional) must raise ``TypeError``."""
     with pytest.raises(TypeError):
         # PyO3 enforces the ``/, *`` boundary in the signature.
-        bca.analyze(FIXTURES / "hello.py", ["loc"])  # type: ignore[misc, arg-type]
+        bca.analyze(FIXTURES / "hello.py", ["loc"])  # type: ignore[call-arg, arg-type]
 
 
 def test_metrics_tuple_is_accepted() -> None:
