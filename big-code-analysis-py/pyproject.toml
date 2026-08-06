@@ -59,7 +59,15 @@ environments = ["sys_platform != 'emscripten' and python_full_version < '3.15'"]
 dev = [
   "pytest>=8.0",
   "pytest-cov>=5.0",
-  "mypy>=1.10",
+  # Floor is 2.3, not the historical 1.10, because the suite carries
+  # `type: ignore[<code>]` comments and `--strict` turns on
+  # `warn_unused_ignores`, which makes a stale code an *error* rather
+  # than a silently-tolerated no-op. mypy 2.3 reclassified "too many
+  # positional arguments" from `misc` to `call-arg`, so a 2.2-or-older
+  # run now fails on `tests/test_metrics_select.py`. The floor was
+  # already fiction before this — the previous `[misc]` spelling was
+  # just as version-specific — so this states what was always true.
+  "mypy>=2.3",
   "ruff>=0.6,<0.16",
   "pyright>=1.1.380",
   "maturin>=1.7,<2.0",
