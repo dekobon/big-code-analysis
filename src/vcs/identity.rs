@@ -22,7 +22,10 @@
 //! digest becomes an HMAC the attacker cannot reproduce without the key.
 //! See [`AuthorId::emit_hashed`].
 
-use hmac::{Hmac, Mac};
+// `KeyInit` carries `new_from_slice`. It was reachable through `Mac`
+// under hmac 0.12 / digest 0.10; the 0.13 / 0.11 trait split makes it a
+// separate import.
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::{Digest, Sha256};
 
 use regex::Regex;

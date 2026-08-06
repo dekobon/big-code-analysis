@@ -11,7 +11,7 @@ publish = false
 # feed freshly-formatted subcommand names (e.g. `bca-strip-comments`) to
 # `Command::name` without a `Box::leak` to forge a `'static` string.
 clap = { version = "4", features = ["derive", "string"] }
-clap_mangen = "0.2"
+clap_mangen = "0.3"
 big-code-analysis-cli = { path = "../big-code-analysis-cli" }
 big-code-analysis-web = { path = "../big-code-analysis-web" }
 

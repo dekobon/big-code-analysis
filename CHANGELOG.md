@@ -183,6 +183,22 @@ for historical reference.
 
 ### Changed
 
+- Dependencies advanced past the semver-major line Dependabot is
+  configured to ignore: `gix` 0.83 → 0.86, `sha2` 0.10.9 → 0.11.0,
+  `hmac` 0.12.1 → 0.13.0, `num-derive` 0.4 → 0.5, `clap_mangen` 0.2 →
+  0.3, and `jsonschema` 0.46 → 0.49 (dev only), alongside a full
+  lockfile refresh in the root workspace and in each of the six
+  excluded crates. No behaviour change and no public-API change — no
+  `gix` or RustCrypto type appears in a public signature, so
+  `STABILITY.md` is unaffected. Two consequences are worth recording.
+  `sha2` and `hmac` now sit on the RustCrypto `digest` 0.11 trait
+  family, which `actix-http` already pulled in via `sha1` 0.11; the
+  Code Climate fingerprints and `--author-hash-key` digests are
+  unchanged, since only the trait plumbing moved and not SHA-256
+  itself. And `clap_mangen` 0.3 renders a required option after the
+  optional ones in the SYNOPSIS, which moves `<-t|--type>` in
+  `man/bca-count.1` and `man/bca-find.1`.
+
 - Severity prefixes moved off the message producers and onto the layer
   that presents them (#609, #1199). `PreprocDiagnostic`'s `Display` now
   renders the **bare message, with no severity prefix at all**: `bca
