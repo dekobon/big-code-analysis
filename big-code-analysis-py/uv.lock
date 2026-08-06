@@ -227,7 +227,7 @@ requires-dist = [
     { name = "matplotlib", marker = "extra == 'examples'", specifier = ">=3.7" },
     { name = "maturin", marker = "extra == 'dev'", specifier = ">=1.7,<2.0" },
     { name = "maturin", marker = "extra == 'examples'", specifier = ">=1.7,<2.0" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=2.3" },
     { name = "nbconvert", marker = "extra == 'examples'", specifier = ">=7.0" },
     { name = "pandas", marker = "extra == 'examples'", specifier = ">=2.0" },
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1.380" },
