@@ -159,6 +159,106 @@ class ScanTextNonOffenders(unittest.TestCase):
         text = 'Ruby::R => "r",\neprintln!("Error: x");\n'
         self.assertEqual([(2, "Error")], [(n, w) for n, w, _ in GATE.scan_text(text)])
 
+    def test_a_string_ending_in_r_does_not_open_a_raw_string(self) -> None:
+        # `"dir/r"` closes an ordinary string, but its final `r"` is a
+        # textbook raw-string opener and `/` is a legitimate context for
+        # one, so the old regex read it as opening a multi-line raw
+        # string and skipped everything to the next quote (#1219). No
+        # lookbehind can express the difference — what distinguishes this
+        # case is that the `"` *closes* a literal, which is state.
+        text = 'let p = "dir/r";\neprintln!("Warning: hidden");\n'
+        self.assertEqual([(2, "Warning")], [(n, w) for n, w, _ in GATE.scan_text(text)])
+
+    def test_a_string_ending_in_a_plain_letter_is_the_control(self) -> None:
+        # The near miss that discriminates. It passes against the old
+        # scanner too — that is the point: it is what stops the case
+        # above from being satisfied by a gate that had simply given up
+        # on raw strings altogether, which would "fix" #1219 by removing
+        # the skip that the multi-line-fixture rule depends on.
+        text = 'let p = "dir/x";\neprintln!("Warning: hidden");\n'
+        self.assertEqual([(2, "Warning")], [(n, w) for n, w, _ in GATE.scan_text(text)])
+
+    def test_a_trailing_line_comment_cannot_open_a_raw_string(self) -> None:
+        # The old scanner skipped a line only when the *whole* line was a
+        # comment, so an unterminated `r"` in a trailing one opened a
+        # phantom span (#1219). Stripping comments by regex first is not
+        # the fix — see the `http://` case below.
+        text = 'let x = 1; // e.g. r"foo\neprintln!("Warning: hidden");\n'
+        self.assertEqual([(2, "Warning")], [(n, w) for n, w, _ in GATE.scan_text(text)])
+
+    def test_a_block_comment_cannot_open_a_raw_string(self) -> None:
+        # The third window of the same class, which the issue did not
+        # name: block comments were invisible to the line-oriented
+        # scanner in either position, whole-line or trailing.
+        text = 'let x = 1; /* r"foo */\neprintln!("Warning: hidden");\n'
+        self.assertEqual([(2, "Warning")], [(n, w) for n, w, _ in GATE.scan_text(text)])
+
+    def test_a_url_in_a_literal_is_not_read_as_a_comment(self) -> None:
+        # Passes against the old scanner as well; it guards the *fix*
+        # rather than the bug. The cheap route to #1219's window 2 is to
+        # strip trailing comments with a regex, and that route cuts
+        # `"http://x"` mid-literal, leaving an unbalanced quote that
+        # opens a phantom span of its own — one false-clean window traded
+        # for another. This fails the moment anyone reaches for it.
+        text = 'let u = "http://x";\neprintln!("Error: y");\n'
+        self.assertEqual([(2, "Error")], [(n, w) for n, w, _ in GATE.scan_text(text)])
+
+    def test_a_char_literal_holding_a_quote_does_not_open_a_string(self) -> None:
+        # Inherited from the ported lexer rather than fixed here: the
+        # old scanner passed this too, having no notion of a char literal
+        # but also no string-span tracking for one to corrupt. Pinned
+        # because the port *introduced* the machinery that can get it
+        # wrong — `b'"'` holds an unpaired double quote, and #1192 is the
+        # sibling gate shipping exactly that bug.
+        text = "let q = b'\"';\neprintln!(\"Error: z\");\n"
+        self.assertEqual([(2, "Error")], [(n, w) for n, w, _ in GATE.scan_text(text)])
+
+    def test_a_lifetime_does_not_open_a_char_span(self) -> None:
+        # The other half of #1192's char-literal rule, and likewise a
+        # pin on the new machinery rather than a #1219 regression guard:
+        # a lifetime has the opening quote and no terminator, so reading
+        # it as a literal swallows the rest of the file the other way.
+        #
+        # Three lifetimes, not two, and a real char literal after the
+        # offender — the quote count before it is the whole discriminator.
+        # A greedy variant that scans from one `'` to the next pairs them
+        # off, so with an *even* number ahead of the offender every bogus
+        # span closes before reaching it and the test passes against the
+        # bug it names. With three, the last pairs with the `'z'` below
+        # and the span swallows the offender. Copied deliberately from
+        # `check-snapshot-anchors-test.py`, whose version of this test
+        # records the same trap.
+        text = (
+            "fn f<'a>(x: &'a str, y: &'a str) {\n"
+            '    eprintln!("Error: w");\n'
+            "    let c = 'z';\n"
+            "}\n"
+        )
+        self.assertEqual([(2, "Error")], [(n, w) for n, w, _ in GATE.scan_text(text)])
+
+    def test_an_escaped_quote_does_not_hide_a_later_literal(self) -> None:
+        # `regular_string_end` consumes `\"` as one escaped character, so
+        # `"a\"b"` is a single span. Without that branch the span closes
+        # at the inner quote and the *next* one reopens it, swallowing
+        # everything to the following quote — a false clean of the same
+        # class as #1219's windows. The obvious candidate for this
+        # coverage, `test_escaped_inner_quote_is_prose_not_a_prefix`,
+        # does not provide it: under the perturbation its input merely
+        # splits into two spans that also yield no hit.
+        text = 'let s = "a\\"b";\neprintln!("Error: real");\n'
+        self.assertEqual([(2, "Error")], [(n, w) for n, w, _ in GATE.scan_text(text)])
+
+    def test_severity_inside_a_trailing_comment_is_not_a_prefix(self) -> None:
+        # A widening the lexer brings with it: before, only a *whole-line*
+        # comment was skipped, so a severity quoted in a trailing one was
+        # reported and needed a `diag-prefix-ok` marker. A comment is
+        # never a diagnostic, so this is the same direction the whole-line
+        # rule already took.
+        self.assertEqual(GATE.scan_text('let x = 1; // never write "Warning: x"\n'), [])
+
+    def test_severity_inside_a_block_comment_is_not_a_prefix(self) -> None:
+        self.assertEqual(GATE.scan_text('/* never write "Warning: x" */\n'), [])
+
     def test_hash_count_must_match_to_close_a_raw_string(self) -> None:
         # A bare `"#` inside an `r##"…"##` fixture does not terminate it,
         # so the lines after it are still fixture data.
@@ -196,6 +296,79 @@ class ScanTextNonOffenders(unittest.TestCase):
     def test_blank_line_breaks_the_comment_block(self) -> None:
         text = "// diag-prefix-ok\n\neprintln!(\"Error: x\");\n"
         self.assertEqual(len(GATE.scan_text(text)), 1)
+
+
+class PortedLexerHelpers(unittest.TestCase):
+    """Direct tests on the three helpers ported from check-snapshot-anchors.
+
+    ``_scan_literals``' docstring tells the next reader to fix a lexing
+    bug in one gate and check the other. That instruction needs something
+    behind it: end-to-end ``scan_text`` cases do not fail when block-comment
+    nesting, the unterminated-raw rule, or the lifetime rejection is
+    perturbed in *this* copy, because no current input distinguishes them.
+    These mirror the donor's ``CharLiteralEndTest`` / ``RawStringEndTest``
+    so a divergence introduced here is caught here.
+    """
+
+    def test_char_literal_end_accepts_real_literals(self) -> None:
+        for source, expected in (
+            ("'a'", 3),
+            ("'\"'", 3),
+            ("'\\''", 4),
+            ("'\\\\'", 4),
+            ("'\\n'", 4),
+            ("'\\x41'", 6),
+            ("'\\u{1F600}'", 11),
+        ):
+            with self.subTest(source=source):
+                self.assertEqual(GATE.char_literal_end(source, 0), expected)
+
+    def test_char_literal_end_rejects_lifetimes_and_labels(self) -> None:
+        # Returning None is what stops a lifetime opening a span that
+        # swallows the rest of the file (#1192).
+        for source in ("'a>", "'_,", "'outer:", "'static ", "'"):
+            with self.subTest(source=source):
+                self.assertIsNone(GATE.char_literal_end(source, 0))
+
+    def test_raw_string_end_covers_every_spelling(self) -> None:
+        for source, expected in (
+            ('r"x"', 4),
+            ('r#"x"#', 6),
+            ('r##"x"##', 8),
+            ('br"x"', 5),
+            ('br##"x"##', 9),
+            # A `"##` inside an `r###"…"###` does not close it.
+            ('r###"a "## b"###', 16),
+        ):
+            with self.subTest(source=source):
+                self.assertEqual(GATE.raw_string_end(source, 0), expected)
+
+    def test_raw_string_end_rejects_non_raw_openers(self) -> None:
+        for source in ('b"x"', "rust", "bar", "r", "r#"):
+            with self.subTest(source=source):
+                self.assertIsNone(GATE.raw_string_end(source, 0))
+
+    def test_raw_string_end_runs_to_eof_when_unterminated(self) -> None:
+        # The deliberate "skip to the close" behaviour the line-oriented
+        # scanner had, now reachable only from real code position.
+        source = 'r#"never closed'
+        self.assertEqual(GATE.raw_string_end(source, 0), len(source))
+
+    def test_regular_string_end_consumes_escapes(self) -> None:
+        for source, expected in (
+            ('"x"', 3),
+            ('"a\\"b"', 6),
+            ('"a\\\\"', 5),
+            ('"\\n"', 4),
+        ):
+            with self.subTest(source=source):
+                self.assertEqual(GATE.regular_string_end(source, 0), expected)
+
+    def test_block_comments_nest(self) -> None:
+        # Rust allows nesting; stopping at the first `*/` would leave the
+        # trailing ` */` as code and a stray quote in it could open a span.
+        text = '/* outer /* inner */ still comment "Error: x" */\neprintln!("Error: y");\n'
+        self.assertEqual([(2, "Error")], [(n, w) for n, w, _ in GATE.scan_text(text)])
 
 
 class MainOverSyntheticRoot(unittest.TestCase):
