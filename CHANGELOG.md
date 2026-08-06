@@ -192,12 +192,27 @@ for historical reference.
   `gix` or RustCrypto type appears in a public signature, so
   `STABILITY.md` is unaffected. Two consequences are worth recording.
   `sha2` and `hmac` now sit on the RustCrypto `digest` 0.11 trait
-  family, which `actix-http` already pulled in via `sha1` 0.11; the
-  Code Climate fingerprints and `--author-hash-key` digests are
-  unchanged, since only the trait plumbing moved and not SHA-256
-  itself. And `clap_mangen` 0.3 renders a required option after the
-  optional ones in the SYNOPSIS, which moves `<-t|--type>` in
+  family, which `actix-http` already pulled in via `sha1` 0.11. Only
+  the trait plumbing moved, so every emitted digest is byte-identical:
+  the Code Climate fingerprints were already pinned to literal values,
+  and the author-identity digests are pinned for the first time by the
+  entry below. And `clap_mangen` 0.3 renders a required option after
+  the optional ones in the SYNOPSIS, which moves `<-t|--type>` in
   `man/bca-count.1` and `man/bca-find.1`.
+
+- `AuthorId::hashed` and `AuthorHashKey::apply` are now pinned to
+  absolute digest values, derived independently from Python's
+  `hashlib` / `hmac` so the assertions check conformance to SHA-256 and
+  RFC 2104 rather than agreement with our own implementation. Every
+  prior assertion on these two was relational — comparing one digest
+  against another produced by the same build — and so held whatever the
+  hash library emitted. That is the wrong shape for a *stored* value:
+  `src/vcs/cache.rs` writes unkeyed digests to disk and honours them
+  across version boundaries (`CACHE_SCHEMA_VERSION` tracks the on-disk
+  format, not the hash implementation), and `AuthorId::hashed`
+  documents the emitted digests as stable cross-report pseudonyms.
+  Perturbing either pre-image fails the two new tests and nothing
+  else, which is what the gap looked like from the inside.
 
 - Severity prefixes moved off the message producers and onto the layer
   that presents them (#609, #1199). `PreprocDiagnostic`'s `Display` now
