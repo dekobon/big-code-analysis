@@ -234,6 +234,24 @@ pub(crate) fn declarator_name<'tree, T: Checker>(node: &Node<'tree>) -> Option<N
     // `function_declarator` has no `declarator` field", which the
     // grammars declare required and only an `ERROR` could violate — two
     // arms no test can reach, and coverage counts them.
+    //
+    // The two forms are not identical on that unreachable input, which is
+    // worth stating rather than leaving for the next reader to rediscover
+    // (#1220). On an `ERROR` tree where a `function_declarator` lacks its
+    // `declarator` field, the loop returned `None` and this chain yields
+    // that `function_declarator` itself — the whole declarator span in
+    // place of a name.
+    //
+    // Nothing observes the difference, and the reason is external to this
+    // module: every caller gates the result on its own grammar's
+    // identifier kinds (`TypeIdentifier | Identifier | FieldIdentifier`,
+    // plus the C++ name forms in `getter/cpp.rs` and `getter/mozcpp.rs`),
+    // and `function_declarator` is in none of those lists. The `matches!`
+    // falls through and `get_func_space_name` returns `None` — the same
+    // answer the loop gave. That dependency is the thing to preserve: a
+    // getter that widened its gate to accept `function_declarator` would
+    // start naming functions after their whole declarator span on
+    // malformed input, and this comment is the only place that says so.
     std::iter::successors(
         innermost_declarator::<T>(node)?.child_by_field_name("declarator"),
         |link| {

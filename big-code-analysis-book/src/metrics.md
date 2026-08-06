@@ -950,10 +950,12 @@ counts as "attribute" rather than "method".
 
 ### Which spaces carry NPA, NPM and WMC {#oop-emission-scope}
 
-The three object-oriented blocks are emitted on **container spaces** —
-`class`, `struct`, `trait`, `impl`, `namespace`, `interface` — and on
-the whole-file `unit` root, which carries the roll-up across every
-container in the file. A **function space does not carry them**: a
+NPA and NPM are emitted on **container spaces** — `class`, `struct`,
+`trait`, `impl`, `namespace`, `interface` — and on the whole-file `unit`
+root, which carries the roll-up across every container in the file. WMC
+follows the same rule wherever it is computed at all, which is narrower
+in two ways set out below. A **function space does not carry any of
+them**: a
 method owns no methods or attributes of its own, so the block would be
 all zeros. Before big-code-analysis 2.1.0, NPA and NPM did emit that
 all-zero block on function spaces in C#, JavaScript, MozJS, TypeScript,
@@ -971,12 +973,25 @@ roll up through every enclosing space regardless. So a type declared
 inside a function body is reported by the nearest enclosing container,
 or by the file root when there is none.
 
-Two things read differently. A Go file's NPA and NPM live on the `unit`
+Four things read differently. A Go file's NPA and NPM live on the `unit`
 root and nowhere else, because Go is the one language that emits them
 without having a container kind in its space tree — `type … struct` and
 `type … interface` open no space of their own. (Bash, C, Lua, Perl,
 Tcl and iRules have no container kind either, but they emit neither
-block anywhere, so the question does not arise.) And the CSV projection
+block anywhere, so the question does not arise.)
+
+The two WMC narrowings are both language-level rather than space-kind
+deviations, which is why the rule above still holds as stated for NPA
+and NPM. **Go emits no `wmc` block at all**, on any space including the
+`unit` root, because its flat space model cannot attribute a method to a
+receiver class — so a Go file carries `npa` and `npm` at the root and
+`wmc` nowhere. And a **C++ or Objective-C `namespace` space carries
+`npa` and `npm` but no `wmc`**: a namespace's member functions are free
+functions, not methods of a class, so there is no per-class complexity
+to weight. The class *inside* that namespace carries all three, and so
+does the file root.
+
+Finally, the CSV projection
 is a fixed-column format: it writes the `npa.*` / `npm.*` columns on
 **every** row regardless of space kind, carrying the real accessor
 values rather than eliding them.
