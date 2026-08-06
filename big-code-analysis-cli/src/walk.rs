@@ -197,11 +197,11 @@ impl WalkFilters<'_> {
         // for every caller standing anywhere but the project root, which
         // is exactly when the override it announces happens (#1164).
         if let Some(glob) = self.excludes.first_match(seed, cwd_form) {
-            eprintln!(
-                "bca: warning: {} matches an exclude pattern ({glob}) \
+            warn(format_args!(
+                "{} matches an exclude pattern ({glob}) \
                  but was named explicitly; analyzing anyway",
                 seed.display()
-            );
+            ));
         }
     }
 }
@@ -454,10 +454,10 @@ fn visit_walk_entry(
     let entry = match entry {
         Ok(entry) => entry,
         Err(e) => {
-            eprintln!(
-                "bca: warning: skipping walk entry in {}: {e}",
+            warn(format_args!(
+                "skipping walk entry in {}: {e}",
                 seed.display()
-            );
+            ));
             // Every variant warns; only an I/O-backed one is tallied, because
             // only that one means the walk lost files it should have seen
             // (#1131). See [`WalkErrors`] for why the rest stay non-fatal.
