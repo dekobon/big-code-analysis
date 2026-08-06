@@ -935,3 +935,60 @@ fn preproc_diagnostic_display_lists_every_cycle_member() {
         "an empty member list still renders the header and nothing else"
     );
 }
+
+/// A [`std::fmt::Write`] sink that accepts `budget` writes and then
+/// fails, so a `Display` impl can be driven to its error path at any
+/// point in its output.
+struct FailingSink {
+    budget: usize,
+    writes: usize,
+}
+
+impl std::fmt::Write for FailingSink {
+    fn write_str(&mut self, _s: &str) -> std::fmt::Result {
+        if self.budget == 0 {
+            return Err(std::fmt::Error);
+        }
+        self.budget -= 1;
+        self.writes += 1;
+        Ok(())
+    }
+}
+
+/// `IncludeCycle` is the only variant that writes more than once, so it
+/// is the only one that can swallow a formatter error: a `let _ =` in
+/// place of either `?` leaves the header (or an earlier member) on the
+/// wire and reports success. `to_string()` cannot catch that — a
+/// `String` sink never fails — which is why this drives the impl
+/// through a sink that does.
+///
+/// The write count is *measured* rather than hardcoded, so the loop
+/// still asserts exactly "no write error is swallowed" if the impl is
+/// later rewritten to emit a different number of writes.
+#[test]
+fn preproc_diagnostic_display_propagates_every_formatter_error() {
+    use std::fmt::Write as _;
+
+    let cycle = PreprocDiagnostic::IncludeCycle {
+        members: vec!["a.h".to_owned(), "b.h".to_owned()],
+    };
+
+    let mut counter = FailingSink {
+        budget: usize::MAX,
+        writes: 0,
+    };
+    write!(counter, "{cycle}").expect("an unlimited sink never fails");
+    let total = counter.writes;
+    assert!(
+        total > 1,
+        "a single-write rendering could not test propagation"
+    );
+
+    for budget in 0..total {
+        let mut sink = FailingSink { budget, writes: 0 };
+        assert!(
+            write!(sink, "{cycle}").is_err(),
+            "a sink failing on write {budget} must surface as an error"
+        );
+    }
+}

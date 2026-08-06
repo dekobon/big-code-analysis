@@ -742,6 +742,23 @@ mod tests {
     }
 
     #[test]
+    fn offender_whose_path_normalises_to_empty_is_dropped_from_the_report() {
+        // The unit test above pins `normalize_path`; this pins what the
+        // *writer* does with its `None` — skip that finding and carry
+        // on, rather than abandoning the document or emitting a finding
+        // with an empty `location.path` (which Code Climate consumers
+        // key on). Only a second, well-formed offender can tell those
+        // apart, so the good record is what makes the assertion sharp.
+        let v = render_value(&[
+            rec("./", "cyclomatic", 17.0, 15.0),
+            rec("src/good.rs", "cognitive", 20.0, 15.0),
+        ]);
+        let findings = v.as_array().expect("an array of findings");
+        assert_eq!(findings.len(), 1, "the empty-path offender is skipped: {v}");
+        assert_eq!(findings[0]["location"]["path"], "src/good.rs");
+    }
+
+    #[test]
     fn start_line_zero_is_clamped_to_one() {
         let mut r = rec("a.rs", "cyclomatic", 17.0, 15.0);
         r.start_line = 0;
