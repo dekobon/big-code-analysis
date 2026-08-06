@@ -4335,11 +4335,19 @@ mod lambda_parenthesisation_parity {
 /// which already excluded comments and is here as a no-change guard on
 /// its collapse onto the shared `count_args`.
 ///
-/// Go, Lua, Objective-C methods and blocks, Kotlin *functions* and
-/// Groovy *closures* were already correct — each filters positively for
-/// its parameter kind — and are swept anyway, because "this one is a
+/// Go, Lua, Objective-C *methods*, Kotlin *functions* and Groovy
+/// *closures* were already correct — each filters positively for its
+/// parameter kind — and are swept anyway, because "this one is a
 /// positive filter" is the reasoning that has to hold for a grammar
 /// bump, not just for today.
+///
+/// Objective-C *blocks* were on that list until #1218 and are not any
+/// more: their arm now routes through the shared `count_args`, so what
+/// keeps a comment out of a block's count is the same negative filter
+/// the repaired languages rely on, not a positive parameter-kind match.
+/// Their fixture is `objc_block_comment_is_not_a_parameter`, which sits
+/// in the module above beside the `^(void)` case that motivated the
+/// move rather than in the table below.
 #[cfg(test)]
 mod comments_in_parameter_lists {
     use crate::test_support::metrics_verbatim;
