@@ -184,36 +184,32 @@ for historical reference.
 ### Changed
 
 - Severity prefixes moved off the message producers and onto the layer
-  that presents them (#1199). `PreprocDiagnostic`'s `Display` now
-  renders the bare message: `bca preproc` prints it through the CLI's
-  `warn` helper instead of a bare `eprintln!`, so `warning:` is written
-  in one place rather than baked into five variants. Per
-  `STABILITY.md`, `Display` impls are stable but their exact wording is
-  not. Two user-visible consequences, both intended: the `IncludeCycle`
-  block no longer ends in a newline, so it is no longer followed by a
-  blank line; and the CSV writer's non-UTF-8 path warning now reads
+  that presents them (#609, #1199). `PreprocDiagnostic`'s `Display` now
+  renders the **bare message, with no severity prefix at all**: `bca
+  preproc` prints it through the CLI's `warn` helper instead of a bare
+  `eprintln!`, so `warning:` is written in one place rather than baked
+  into five variants. Embedders that captured these and printed them
+  verbatim must add their own prefix. (Previously the five variants
+  disagreed among themselves: `SelfInclusion`, `IncludeCycle` and
+  `NotPreprocessed` capitalised `Warning:` while the two non-UTF-8
+  variants did not, and neither spelling matched any other CLI
+  diagnostic, since `warn()` has printed lowercase `warning:` since
+  #609.) Per `STABILITY.md`, `Display` impls are stable but their exact
+  wording is not, so this is not a breaking change. Two further
+  user-visible consequences, both intended: the `IncludeCycle` block no
+  longer ends in a newline, so it is no longer followed by a blank
+  line; and the CSV writer's non-UTF-8 path warning now reads
   `warning: skipping non-UTF-8 path in CSV output: …`, having moved
   onto the shared helper that already words the other five formats'
   (dropping its capitalised prefix and its lone use of "source path").
   The remaining capitalised warnings in the library — the code-climate
   empty-path skip and the walker's non-regular-file skip — are
-  lowercase for the same reason. `make check-diagnostic-prefix`
+  lowercase for the same reason, as are the walk seam's two
+  explicit-path notices, which shed the redundant `bca: warning:`
+  double prefix #609 removed elsewhere. `make check-diagnostic-prefix`
   (`utils/check-diagnostic-prefix.py`, wired into `make lint`,
-  `make pre-commit`, `make ci` and pre-commit) blocks a seventh site
+  `make pre-commit`, `make ci` and pre-commit) blocks a further site
   from reappearing.
-
-- `PreprocDiagnostic`'s `Display` output now uses a lowercase
-  `warning:` prefix for all five variants. `SelfInclusion`,
-  `IncludeCycle` and `NotPreprocessed` previously capitalised it while
-  the two non-UTF-8 variants did not, so `bca preproc` emitted both
-  spellings — and the capitalised three matched no other CLI
-  diagnostic, since `warn()` has printed lowercase `warning:` since
-  #609. Per `STABILITY.md`, `Display` impls are stable but their exact
-  wording is not, so this is not a breaking change. It is also
-  deliberately byte-compatible with routing these through `warn()`
-  later: `warn(msg)` renders `warning: {msg}`, so moving the prefix out
-  of `Display` will produce identical output rather than a second
-  user-visible change.
 
 - This project's own `nargs` limit converges from 7 to the shipped
   default of 5 (#1183). Repository configuration only — no library or CLI

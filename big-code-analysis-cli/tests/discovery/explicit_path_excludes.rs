@@ -82,9 +82,14 @@ fn explicit_path_overrides_manifest_exclude_and_warns_naming_the_glob() {
         .code(2)
         .stdout(predicate::str::contains("skipme_offender"))
         .stderr(predicate::str::contains(
-            "bca: warning: skipme/a.rs matches an exclude pattern (./skipme/**) \
+            "warning: skipme/a.rs matches an exclude pattern (./skipme/**) \
              but was named explicitly; analyzing anyway",
-        ));
+        ))
+        // #609/#1199: the notice goes through `diag::warn` like every
+        // other CLI diagnostic, so it carries the bare lowercase prefix
+        // — not the redundant `bca: warning:` double prefix this seam
+        // kept after #609 unified the rest.
+        .stderr(predicate::str::contains("bca: warning:").not());
 }
 
 /// The counterpart: the same manifest, reached through the *walk*,
@@ -320,7 +325,7 @@ fn override_warning_survives_a_mixed_case_extension() {
         // the unannounced override was a live one.
         .stdout(predicate::str::contains("upper_offender"))
         .stderr(predicate::str::contains(
-            "bca: warning: skipme/B.RS matches an exclude pattern (./skipme/**) \
+            "warning: skipme/B.RS matches an exclude pattern (./skipme/**) \
              but was named explicitly; analyzing anyway",
         ))
         .stderr(predicate::str::contains("skipme/a.rs matches an exclude"));
@@ -547,7 +552,7 @@ fn override_warning_fires_from_a_subdirectory() {
         .code(2)
         .stdout(predicate::str::contains("skipme_offender"))
         .stderr(predicate::str::contains(
-            "bca: warning: a.rs matches an exclude pattern (./skipme/**) \
+            "warning: a.rs matches an exclude pattern (./skipme/**) \
              but was named explicitly; analyzing anyway",
         ));
 }

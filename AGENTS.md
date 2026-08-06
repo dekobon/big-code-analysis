@@ -221,7 +221,11 @@ and `cargo run -p big-code-analysis-web --`.
   literal — including in a `Display` impl, whose renderings are prefixed
   by whichever layer presents them (#609, #1199).
   `make check-diagnostic-prefix` blocks the capitalised spellings; the
-  lowercase ones are convention, not gated.
+  lowercase ones are convention, not gated — so `bca: warning:` and a
+  hand-rolled `warning:` are on you to catch in review. Informational
+  `bca: …` lines (`bca: wrote N baseline entries`) are a separate,
+  severity-free family and stay as they are; a severity word after that
+  namespace is the redundant double prefix #609 removed.
 - Edition is 2024 — `let-else`, let-chains, and other 2024 features are
   available.
 

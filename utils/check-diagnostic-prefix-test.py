@@ -94,6 +94,28 @@ class ScanTextOffenders(unittest.TestCase):
         text = 'let a = "Warning: one";\nlet b = "Error: two";\n'
         self.assertEqual([(1, "Warning"), (2, "Error")], [(n, w) for n, w, _ in GATE.scan_text(text)])
 
+    def test_both_offenders_on_one_line_are_reported(self) -> None:
+        # `re.search` stops at the first match, so the author fixes the
+        # one named, re-runs the gate, and it fails again on the same
+        # line — with a header that had undercounted.
+        text = 'let a = "Warning: one"; let b = "Error: two";\n'
+        self.assertEqual(
+            [(1, "Warning"), (1, "Error")], [(n, w) for n, w, _ in GATE.scan_text(text)]
+        )
+
+    def test_a_single_line_raw_string_is_still_scanned(self) -> None:
+        # Only the *interior* of a multi-line raw string is skipped: a
+        # one-line `r#"…"#` is as plausible a diagnostic as any other
+        # literal, so the fixture carve-out must not swallow it.
+        self.assertEqual(
+            [(1, "Error")],
+            [(n, w) for n, w, _ in GATE.scan_text('die(r#"Error: x"#);\n')],
+        )
+
+    def test_scanning_resumes_after_a_raw_string_closes(self) -> None:
+        text = 'let f = r#"\n  int x;\n"#; eprintln!("Error: real");\n'
+        self.assertEqual([(3, "Error")], [(n, w) for n, w, _ in GATE.scan_text(text)])
+
 
 class ScanTextNonOffenders(unittest.TestCase):
     """Shapes that must not be reported."""
@@ -108,6 +130,40 @@ class ScanTextNonOffenders(unittest.TestCase):
 
     def test_word_without_colon_is_not_a_prefix(self) -> None:
         self.assertEqual(GATE.scan_text('let m = "Warning about x";\n'), [])
+
+    def test_escaped_inner_quote_is_prose_not_a_prefix(self) -> None:
+        # An escaped quote never *starts* a literal, so what follows it
+        # is prose. Anchoring on any `"` reported this as an offender
+        # with no correct remediation.
+        self.assertEqual(GATE.scan_text('let m = "he said \\"Error: no\\"";\n'), [])
+
+    def test_multiline_raw_string_fixture_is_skipped(self) -> None:
+        # The embedded-source-fixture shape this workspace is built on.
+        # Neither opt-out position is reachable inside a raw string — both
+        # would land in the fixture and change what the metric test
+        # measures — so flagging it left no correct remediation.
+        text = 'let src = r#"\n    std::cerr << "Warning: low memory";\n"#;\n'
+        self.assertEqual(GATE.scan_text(text), [])
+
+    def test_an_escaped_cr_does_not_open_a_raw_string(self) -> None:
+        # `\r"` and `"r"` both end in the raw-string opener's characters
+        # without being one. Reading either as an open skips every line
+        # until the next quote, and the offender hiding in there is a
+        # false *clean* — the one outcome this gate exists to prevent.
+        # Both shapes are live in this tree (`src/tools.rs:409`,
+        # `src/languages/language_ruby.rs:481`).
+        text = 'let l = s.strip_suffix(b"\\r").unwrap_or(s);\neprintln!("Error: x");\n'
+        self.assertEqual([(2, "Error")], [(n, w) for n, w, _ in GATE.scan_text(text)])
+
+    def test_a_string_holding_only_r_does_not_open_a_raw_string(self) -> None:
+        text = 'Ruby::R => "r",\neprintln!("Error: x");\n'
+        self.assertEqual([(2, "Error")], [(n, w) for n, w, _ in GATE.scan_text(text)])
+
+    def test_hash_count_must_match_to_close_a_raw_string(self) -> None:
+        # A bare `"#` inside an `r##"…"##` fixture does not terminate it,
+        # so the lines after it are still fixture data.
+        text = 'let src = r##"\n  let a = "#;\n  eprintln!("Warning: fixture");\n"##;\n'
+        self.assertEqual(GATE.scan_text(text), [])
 
     def test_comment_lines_are_skipped(self) -> None:
         # This gate's own explanatory comments quote the banned shape;
