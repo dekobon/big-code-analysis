@@ -897,14 +897,21 @@ for historical reference.
 - C's `(void)` marker is no longer counted as a parameter. `int f(void)`
   declares nothing, but the grammar emits a real `parameter_declaration`
   for the `void` and every `nargs` filter counted it, so `f(void)` and
-  `f(int)` both reported 1. Fixed for C, C++, Mozcpp and Objective-C.
+  `f(int)` both reported 1. Fixed for C, C++, Mozcpp and Objective-C,
+  in both the function and the closure channel — an Objective-C block
+  literal `^(void){ … }` counted the marker too, because its arm
+  matched parameter kinds positively instead of routing through the
+  shared `count_args` helper, and so never consulted the hook (#1218).
   The distinction needs the source bytes rather than the tree — an
   unnamed parameter is the same shape and really is one argument — so
   `Checker` gained an `is_empty_param_marker` hook that defaults to
   `false` and reads them.
 
   **Metric drift.** 24 recorded values fall to 0 in the `DeepSpeech`
-  corpus, all in `pywrapfst.cc`, its only `(void)` definitions.
+  corpus, all in `pywrapfst.cc`, its only `(void)` definitions. The
+  block-literal half moves nothing recorded: `^(void)` appears in two
+  corpus files, both `.mm`, which route to C++ — where blocks are not a
+  construct.
 
 - A comment written inside a parameter list is no longer counted as a
   parameter (#1201). tree-sitter attaches such a comment as a direct
@@ -916,8 +923,12 @@ for historical reference.
   TypeScript, TSX, Python, Rust, Java, C#, PHP, Ruby, Groovy, Elixir and
   Kotlin lambdas in one shared predicate. Go, Lua, Tcl, iRules,
   Objective-C methods and blocks, Kotlin functions and Groovy closures
-  were already correct and are unchanged; Perl had carried the exclusion
-  privately since its signature support landed.
+  already reported the right count here and needed no fix; Perl had
+  carried the exclusion privately since its signature support landed.
+  Objective-C blocks were correct only incidentally — their arm listed
+  the parameter kinds it wanted rather than excluding comments, and
+  nothing asserted it — so #1218 routed them through the shared
+  predicate and added the fixture.
 
   **Metric drift.** Serialized `nargs` falls wherever a signature
   carries a comment — across the `DeepSpeech` corpus, 854 recorded
@@ -1061,6 +1072,35 @@ for historical reference.
   that hid every later snapshot call, and the scan was non-recursive so
   the 126 files under the per-language subdirectories were never checked.
   Latent — no live count changed.
+
+- `utils/check-diagnostic-prefix.py` decides string and comment state
+  with a lexer rather than a per-line regex (#1219). Three inputs made
+  it read a raw-string open where there was none — a plain string whose
+  closing quote follows `r` (`"dir/r"`), and an unterminated `r"` in a
+  trailing `//` or a `/* … */` comment — after which every line to the
+  next quote was skipped and any severity literal in between was a
+  false clean. Neither cheap fix works: no lookbehind can express the
+  first, since what distinguishes it is that the quote *closes* a
+  literal, and stripping comments by regex would truncate `"http://x"`
+  mid-literal and open a phantom span of its own. The walk is ported
+  from `check-snapshot-anchors.py`, which needed the identical machine;
+  both sides now name the other. One deliberate widening: a severity
+  quoted inside any comment is skipped, where before only a whole-line
+  comment was. Latent — no live count changed, verified by diffing both
+  scanners over all 559 tracked Rust files.
+
+- The book and [`STABILITY.md`](./STABILITY.md) scope the
+  object-oriented emission rule to `npm` and `npa` (#1220). Both said
+  all three blocks follow the space's kind with no grammar deviating in
+  either direction; that holds for `npm` / `npa`, which are gated
+  centrally by kind, and not for `wmc`, which is decided per language.
+  Go emits no `wmc` block on any space including the file root while its
+  `npa` / `npm` do appear there, and a C++ namespace carries `npm` /
+  `npa` but no `wmc` because its member functions are free functions
+  rather than methods of a class. Both narrowings are now asserted in
+  `container_scope_tests.rs`, which previously tracked only `npm` and
+  `npa` — nothing pinned `wmc`'s scope, which is how one rule came to
+  describe three blocks.
 
 - **Metric values move.** A Java record's compact constructor
   (`record R(int a) { R { … } }`) now opens its own function space
