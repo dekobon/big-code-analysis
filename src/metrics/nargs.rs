@@ -383,15 +383,31 @@ impl NArgs for ObjcCode {
                 });
             }
             Objc::BlockLiteral => {
+                // Through `count_args`, so the block channel gets the same
+                // three exclusions `compute_args` gives the function
+                // channel. Counting `ParameterDeclaration |
+                // VariadicParameter` positively could not consult
+                // `Checker::is_empty_param_marker`, so `^(void){ … }` —
+                // whose `parameter_list` holds a real
+                // `parameter_declaration` for the `void`, exactly as
+                // `int f(void)` does — reported one parameter (#1218).
+                //
+                // It inherits the shared rule's *inclusions* too, which the
+                // narrower positive match had excluded by construction: on
+                // invalid source an `ERROR` child (`^(int a,,)`) or a
+                // `compound_statement` one (`^({ int x; })`) now counts.
+                // That is the point rather than a regression — those are
+                // the numbers `int f(int a,,)` already reported through
+                // `count_args`, so the block arm stopped being the one
+                // caller that answered differently.
+                //
+                // `ParameterList2` is deliberately not matched: it is the
+                // alias for the hidden `_old_style_parameter_list`, and
+                // `block_literal` cannot produce it — even a K&R function
+                // definition emits `ParameterList`. Marked rather than
+                // silently omitted per `grammar-dispatch.md` §1/§2.
                 if let Some(params) = node.first_child(|id| Objc::ParameterList == id) {
-                    params.act_on_child(&mut |n| {
-                        if matches!(
-                            n.kind_id().into(),
-                            Objc::ParameterDeclaration | Objc::VariadicParameter
-                        ) {
-                            stats.closure_nargs += 1;
-                        }
-                    });
+                    stats.closure_nargs += count_args::<Self>(&params, code);
                 }
             }
             _ => {}
@@ -4027,6 +4043,122 @@ when HTTP_REQUEST { log local0. \"hit\" }
         );
     }
 
+    /// A block's `(void)` marker declares nothing, so `^(void){ … }` is a
+    /// closure of zero parameters (#1218).
+    ///
+    /// The objc grammar reuses C's `parameter_list` rule, so `^(void)`
+    /// emits a real `parameter_declaration` for the `void` — the same
+    /// shape `int f(void)` produces, and the reason
+    /// `Checker::is_empty_param_marker` reads the source bytes rather
+    /// than the tree. The block arm counted it until it began routing
+    /// through `count_args`, while the function channel beside it was
+    /// already correct: `host` below reports 0 either way, which is what
+    /// makes this a test of the block channel specifically.
+    #[test]
+    fn objc_block_void_marker_is_not_a_parameter() {
+        check_metrics::<ObjcParser>(
+            "void host(void) {
+    void (^empty)(void) = ^(void){ };
+    empty();
+}
+",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.nargs.closure_args_sum(), 0);
+                assert_eq!(metric.nargs.function_args_sum(), 0);
+                insta::assert_json_snapshot!(metric.nargs, @r#"
+                {
+                  "function_args": 0,
+                  "closure_args": 0,
+                  "function_args_average": 0.0,
+                  "closure_args_average": 0.0,
+                  "total": 0,
+                  "average": 0.0,
+                  "function_args_min": 0,
+                  "function_args_max": 0,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
+                }
+                "#);
+            },
+        );
+    }
+
+    /// A comment inside a block's parameter list is not a parameter, so
+    /// `^(int a /* c */, int b){ … }` is 2 (#1201, #1218).
+    ///
+    /// **This fixture cannot fail by reverting the block arm.** The
+    /// positive `matches!(ParameterDeclaration | VariadicParameter)` the
+    /// arm used before #1218 already ignored a `comment` child, so the
+    /// count was correct for the wrong reason — nothing asserted it, and
+    /// the #1201 changelog claimed Objective-C blocks were swept when
+    /// only the method fixture existed. It became load-bearing when the
+    /// arm switched to `count_args`, whose *negative* filtering is what
+    /// now makes `Checker::is_comment` live on this path. Perturb it by
+    /// dropping `is_comment` from `count_args`, not by reverting the arm.
+    #[test]
+    fn objc_block_comment_is_not_a_parameter() {
+        check_metrics::<ObjcParser>(
+            "void host(void) {
+    void (^two)(int, int) = ^(int a /* c */, int b){ };
+    two(1, 2);
+}
+",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.nargs.closure_args_sum(), 2);
+                assert_eq!(metric.nargs.function_args_sum(), 0);
+            },
+        );
+    }
+
+    /// A variadic block keeps its `...` counted: `^(int a, ...){ … }` is 2.
+    ///
+    /// The guard against #1218's fix, not against #1218. Swapping the
+    /// arm's positive `matches!` for `count_args`' negative filters is
+    /// what could silently drop `variadic_parameter` — it is named in the
+    /// old match and in none of the new filters, so only a fixture says
+    /// whether it survived. `ObjcCode::is_non_arg` covers the list's
+    /// punctuation (`(`, `,`, `)`) and nothing else, so it does.
+    #[test]
+    fn objc_block_variadic_parameter_still_counts() {
+        check_metrics::<ObjcParser>(
+            "void host(void) {
+    void (^var)(int, ...) = ^(int a, ...){ };
+    var(1);
+}
+",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.nargs.closure_args_sum(), 2);
+                assert_eq!(metric.nargs.function_args_sum(), 0);
+            },
+        );
+    }
+
+    /// A block written without a parameter list at all is 0.
+    ///
+    /// `^{ }` has no `parameter_list` child, so the arm's
+    /// `first_child(ParameterList)` guard short-circuits before
+    /// `count_args` is reached. Pinned beside the `^(void)` case because
+    /// the two spellings mean the same thing and only one of them ever
+    /// went through the counting path.
+    #[test]
+    fn objc_block_without_a_parameter_list_is_zero() {
+        check_metrics::<ObjcParser>(
+            "void host(void) {
+    void (^none)(void) = ^{ };
+    none();
+}
+",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.nargs.closure_args_sum(), 0);
+                assert_eq!(metric.nargs.function_args_sum(), 0);
+            },
+        );
+    }
+
     /// Regression for #782: the textual `Display` headline must report
     /// the cross-space *sum* (`function_args_sum`/`closure_args_sum`),
     /// matching the JSON/YAML/TOML/CBOR serializers, not the per-space
@@ -4436,19 +4568,53 @@ mod comments_in_parameter_lists {
     /// `compute_tcl_args` never needed the exclusion the other
     /// languages did. Issue #1201 cited Tcl as the language that had
     /// already solved this; it had not — it has no problem to solve.
+    ///
+    /// **Both rows assert parity over a non-problem, not a defence.**
+    /// Neither language has an exclusion here that a regression could
+    /// remove; what these pin is that the *shape* stays the one described
+    /// above, so a grammar bump that started emitting a comment node
+    /// would surface as a count change rather than silently. The iRules
+    /// row is the second half of a claim this doc and the #1201 changelog
+    /// entry both made while only Tcl was exercised (#1218). It is a
+    /// separate dialect grammar, and dialect grammars do diverge on leaf
+    /// naming — its `argument` is kind 137 against Tcl's 93 — so it was
+    /// dumped rather than assumed: `proc h {a\n# c\n b}` yields four
+    /// `argument` nodes and no comment node under both.
+    // Gated on the fixtures' own features for the reason #1220 names: the
+    // case list is two languages wide and the loop below asserts it ran, so
+    // a feature set enabling neither — `--no-default-features --features
+    // rust` — would fail here and read as a defect in whatever was being
+    // changed. The gate makes the test absent rather than vacuous; the
+    // `ran > 0` assertion then covers the narrower case where `is_enabled`
+    // stops agreeing with the feature it is compiled under.
     #[test]
+    #[cfg(any(feature = "tcl", feature = "irules"))]
     fn tcl_has_no_comment_inside_a_parameter_list() {
-        if !LANG::Tcl.is_enabled() {
-            return;
+        // Guarded per language rather than once: the two features are
+        // independent, so a build with only one enabled must still run
+        // that one's row.
+        let mut ran = 0;
+        for lang in [LANG::Tcl, LANG::Irules] {
+            if !lang.is_enabled() {
+                continue;
+            }
+            ran += 1;
+            assert_eq!(
+                args(lang, "proc h {a\n  # c\n  b} { return $a }"),
+                (0, 4),
+                "{lang:?}: a `#` in an argument list is an argument named `#`, not a comment"
+            );
+            // The uncommented control, so a regression that zeroed the
+            // whole count would not read as this rule holding.
+            assert_eq!(args(lang, "proc h {a b} { return $a }"), (0, 2), "{lang:?}");
         }
-        assert_eq!(
-            args(LANG::Tcl, "proc h {a\n  # c\n  b} { return $a }"),
-            (0, 4),
-            "a `#` in a Tcl argument list is an argument named `#`, not a comment"
+        // A feature set enabling neither leaves a loop of zero iterations
+        // and a test that passes having asserted nothing — the shape
+        // `assert_fixtures_present` exists to make loud (#1220).
+        assert!(
+            ran > 0,
+            "neither tcl nor irules is enabled; this test asserted nothing"
         );
-        // The uncommented control, so a regression that zeroed the whole
-        // count would not read as this rule holding.
-        assert_eq!(args(LANG::Tcl, "proc h {a b} { return $a }"), (0, 2));
     }
 
     /// The one path `count_args` never runs on: `Checker::is_bare_param`
