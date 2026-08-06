@@ -980,16 +980,19 @@ without having a container kind in its space tree — `type … struct` and
 Tcl and iRules have no container kind either, but they emit neither
 block anywhere, so the question does not arise.)
 
-The two WMC narrowings are both language-level rather than space-kind
-deviations, which is why the rule above still holds as stated for NPA
-and NPM. **Go emits no `wmc` block at all**, on any space including the
-`unit` root, because its flat space model cannot attribute a method to a
-receiver class — so a Go file carries `npa` and `npm` at the root and
-`wmc` nowhere. And a **C++ or Objective-C `namespace` space carries
-`npa` and `npm` but no `wmc`**: a namespace's member functions are free
-functions, not methods of a class, so there is no per-class complexity
-to weight. The class *inside* that namespace carries all three, and so
-does the file root.
+Neither WMC narrowing moves NPA or NPM, which is why the rule above
+still holds as stated for those two. The first is language-level: **Go
+emits no `wmc` block at all**, on any space including the `unit` root,
+because its flat space model cannot attribute a method to a receiver
+class — so a Go file carries `npa` and `npm` at the root and `wmc`
+nowhere. The second is space-kind-level: a **`namespace` space carries
+`npa` and `npm` but no `wmc`**, because a namespace's member functions
+are free functions rather than methods of a class, so there is no
+per-class complexity to weight. That covers every construct mapping to
+`SpaceKind::Namespace` — a C++ or Mozcpp `namespace`, and a Ruby
+`module` — not just the C++ spelling. Objective-C has no namespace
+construct of its own, so the case does not arise there. The class
+*inside* the namespace carries all three, and so does the file root.
 
 Finally, the CSV projection
 is a fixed-column format: it writes the `npa.*` / `npm.*` columns on

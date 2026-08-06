@@ -859,6 +859,40 @@ fn a_cpp_namespace_is_a_member_scope() {
     );
 }
 
+/// Ruby's `module` is the second construct reaching the `namespace`
+/// narrowing, so the rule is space-kind-level rather than a C++ quirk.
+///
+/// `Getter::get_space_kind` maps `Module` to `SpaceKind::Namespace` for
+/// Ruby exactly as it maps `NamespaceDefinition` for C++ and Mozcpp, and
+/// `class_interface_compute` drops that kind for every language, so all
+/// three spell the same rule. Pinned beside the C++ case because a doc
+/// that names only C++ here reads as a language deviation and sends the
+/// next reader looking for a `CppCode` special case that does not exist.
+#[test]
+#[cfg(feature = "ruby")]
+fn a_ruby_module_is_a_namespace_without_wmc() {
+    let spaces = emitted_spaces(LANG::Ruby, fixture_source(LANG::Ruby));
+    let module = only_space(LANG::Ruby, &spaces, "M");
+    assert_eq!(module.kind, SpaceKind::Namespace);
+    assert!(
+        module.has_npm && module.has_npa && !module.has_wmc,
+        "a Ruby module carries npm/npa and no wmc \
+         (npm={}, npa={}, wmc={})",
+        module.has_npm,
+        module.has_npa,
+        module.has_wmc
+    );
+    let class = only_space(LANG::Ruby, &spaces, "C");
+    assert!(
+        class.has_wmc && class.has_npm && class.has_npa,
+        "the class inside the module carries all three \
+         (wmc={}, npm={}, npa={})",
+        class.has_wmc,
+        class.has_npm,
+        class.has_npa
+    );
+}
+
 /// Go emits no `wmc` block on any space, including the file root, while
 /// its `npa` and `npm` do appear there (#1220).
 ///

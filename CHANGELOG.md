@@ -1095,9 +1095,10 @@ for historical reference.
   either direction; that holds for `npm` / `npa`, which are gated
   centrally by kind, and not for `wmc`, which is decided per language.
   Go emits no `wmc` block on any space including the file root while its
-  `npa` / `npm` do appear there, and a C++ namespace carries `npm` /
-  `npa` but no `wmc` because its member functions are free functions
-  rather than methods of a class. Both narrowings are now asserted in
+  `npa` / `npm` do appear there, and a `namespace` space — a C++ or
+  Mozcpp `namespace`, or a Ruby `module` — carries `npm` / `npa` but no
+  `wmc` because its member functions are free functions rather than
+  methods of a class. Both narrowings are now asserted in
   `container_scope_tests.rs`, which previously tracked only `npm` and
   `npa` — nothing pinned `wmc`'s scope, which is how one rule came to
   describe three blocks.
