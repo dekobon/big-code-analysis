@@ -187,3 +187,50 @@ fn invalid_bot_pattern_is_rejected() {
         Err(Error::InvalidBotPattern(_))
     ));
 }
+
+// The two digests below are pinned to absolute values rather than to
+// properties of each other. Every other digest assertion in this file —
+// and `vcs_author_hash_key_hardens_the_emitted_ids` in the CLI suite —
+// is self-referential: it compares one digest against another produced
+// by the same build, so it holds whatever the hash library emits.
+//
+// That shape is wrong for these two functions, because their output is a
+// *stored* value with cross-version contracts on both sides.
+// `src/vcs/cache.rs` writes unkeyed digests to disk and honours them
+// across version boundaries — `CACHE_SCHEMA_VERSION` tracks the on-disk
+// format, not the hash implementation, so a dependency bump does not
+// invalidate an existing cache — and `AuthorId::hashed` documents the
+// emitted digests as stable cross-report pseudonyms. A crypto bump that
+// changed either output would break both contracts with nothing red.
+//
+// The expected values are derived independently, from Python's
+// `hashlib` / `hmac`, so these assert conformance to SHA-256 and
+// RFC 2104 rather than agreement with our own implementation:
+//
+//   d = hashlib.sha256(b"ada@example.com").hexdigest()
+//   hmac.new(b"team-secret", d.encode(), hashlib.sha256).hexdigest()
+
+/// SHA-256 of the canonical (trimmed, lowercased) email key.
+const ADA_DIGEST: &str = "b5fc85e55755f9e0d030a10ab4429b6b2944855f9a0d60077fe832becbc41d72";
+
+/// `HMAC-SHA256("team-secret", ADA_DIGEST)`. Note the pre-image is the
+/// 64-character *hex string*, not the raw digest bytes.
+const ADA_KEYED_DIGEST: &str = "a833c93dba4cf0558e69d3410d91fd7d09b3809dd22810b6c424a920df2195df";
+
+#[test]
+fn hashed_pins_the_exact_sha256_digest() {
+    let ada = AuthorId::new(b"Ada Lovelace", b"Ada@Example.COM");
+    assert_eq!(ada.hashed(), ADA_DIGEST);
+    // The unkeyed emit path yields the same bytes, which is what lets a
+    // cache written by one build replay bit-for-bit under another.
+    assert_eq!(ada.emit_hashed(None), ADA_DIGEST);
+}
+
+#[test]
+fn keyed_hashing_pins_the_exact_hmac_sha256_digest() {
+    let ada = AuthorId::new(b"Ada Lovelace", b"Ada@Example.COM");
+    let key = AuthorHashKey::new(b"team-secret".to_vec()).expect("the key is non-empty");
+    assert_eq!(key.apply(ADA_DIGEST), ADA_KEYED_DIGEST);
+    // `emit_hashed` composes the two: HMAC over the unkeyed hex digest.
+    assert_eq!(ada.emit_hashed(Some(&key)), ADA_KEYED_DIGEST);
+}
