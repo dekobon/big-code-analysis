@@ -78,9 +78,13 @@ pub(crate) fn run_command_preproc(globals: GlobalOpts, args: PreprocArgs) {
     let mut data = into_preproc_data(preproc_lock);
     // Include-resolution diagnostics (self-inclusion, cycles, non-UTF-8
     // paths, un-preprocessed files) are returned rather than written to
-    // stderr by the library, so the CLI surfaces them here.
+    // stderr by the library, so the CLI surfaces them here — through
+    // `warn` rather than a bare `eprintln!`, so the `warning:` prefix
+    // comes from the severity ladder like every other CLI diagnostic
+    // (#1199). The multi-line `IncludeCycle` variant is prefixed on its
+    // header line only, leaving its member list indented beneath.
     for diagnostic in fix_includes(&mut data.files, &all_files) {
-        eprintln!("{diagnostic}");
+        warn(diagnostic);
     }
 
     let serialized = serde_json::to_string(&data)

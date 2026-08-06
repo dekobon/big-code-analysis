@@ -44,6 +44,7 @@ use std::io::{self, Write};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
+use crate::diag::warn;
 use crate::metric_catalog::lookup;
 use crate::output::offenders::{OffenderRecord, Severity, TOOL_ID, warn_non_utf8_path};
 
@@ -90,10 +91,10 @@ pub fn write_code_climate<W: Write>(offenders: &[OffenderRecord], mut writer: W)
             continue;
         };
         let Some(path) = normalize_path(path_raw) else {
-            eprintln!(
-                "Warning: skipping empty repo-relative path in code-climate output: {}",
+            warn(format_args!(
+                "skipping empty repo-relative path in code-climate output: {}",
                 record.path.display()
-            );
+            ));
             continue;
         };
         let start_line = record.start_line.max(1);

@@ -246,6 +246,12 @@ pub mod wire;
 #[cfg_attr(docsrs, doc(cfg(feature = "vcs-git")))]
 pub mod vcs;
 
+// --- Diagnostics ---
+//
+// The single place the library writes a `warning:` prefix; the CLI has
+// its own severity ladder in `big-code-analysis-cli/src/diag.rs`.
+mod diag;
+
 // --- Errors ---
 mod error;
 pub use crate::error::{FromPathError, MetricsError};

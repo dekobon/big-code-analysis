@@ -25,6 +25,7 @@ use std::path::Path;
 
 use crate::output::funcspace_row::{IDENTITY_COLUMNS, METRIC_COUNT, metric_values};
 use crate::output::numfmt::CellMetric;
+use crate::output::offenders::warn_non_utf8_path;
 use crate::spaces::FuncSpace;
 
 // Compile-time guarantee that the metric tuple matches CSV_HEADER —
@@ -189,11 +190,7 @@ pub fn write_csv<W: Write>(space: &FuncSpace, source_path: &Path, writer: W) -> 
 
     wtr.write_record(CSV_HEADER).map_err(csv_err)?;
 
-    let Some(path_str) = source_path.to_str() else {
-        eprintln!(
-            "Warning: skipping non-UTF-8 source path in CSV output: {}",
-            source_path.display()
-        );
+    let Some(path_str) = warn_non_utf8_path("CSV", source_path) else {
         return wtr.flush();
     };
 
@@ -224,11 +221,7 @@ where
         .from_writer(writer);
     wtr.write_record(CSV_HEADER).map_err(csv_err)?;
     for (space, source_path) in spaces {
-        let Some(path_str) = source_path.to_str() else {
-            eprintln!(
-                "Warning: skipping non-UTF-8 source path in CSV output: {}",
-                source_path.display()
-            );
+        let Some(path_str) = warn_non_utf8_path("CSV", source_path) else {
             continue;
         };
         write_space_rows(&mut wtr, path_str, space)?;
@@ -653,23 +646,54 @@ d""#
         assert_eq!(defang_formula("café"), "café");
     }
 
-    #[test]
-    fn non_utf8_path_skips_data_rows() {
-        #[cfg(unix)]
-        {
-            use std::ffi::OsStr;
-            use std::os::unix::ffi::OsStrExt;
-            use std::path::PathBuf;
+    /// A path with no UTF-8 rendering, constructible only on Unix.
+    ///
+    /// `#[cfg]` sits on the callers' `fn`, not around a test body: an
+    /// empty `#[test]` body is a *passing* test, so the inner-block form
+    /// reports green on Windows having asserted nothing
+    /// (`.claude/rules/testing.md`).
+    #[cfg(unix)]
+    fn non_utf8_path() -> std::path::PathBuf {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
 
-            let bad = PathBuf::from(OsStr::from_bytes(b"\xff\xfe.rs"));
-            let space = empty_space("root", SpaceKind::Unit, 1, 1);
-            let out = render(&space, &bad);
-            assert_eq!(
-                out.lines().count(),
-                1,
-                "header should be the only line, got:\n{out}"
-            );
-        }
+        std::path::PathBuf::from(OsStr::from_bytes(b"\xff\xfe.rs"))
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn non_utf8_path_skips_data_rows() {
+        let space = empty_space("root", SpaceKind::Unit, 1, 1);
+        let out = render(&space, &non_utf8_path());
+        assert_eq!(
+            out.lines().count(),
+            1,
+            "header should be the only line, got:\n{out}"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn aggregate_skips_only_the_non_utf8_file() {
+        // The aggregate path `continue`s past an undecodable path rather
+        // than abandoning the document, so the *other* files' rows must
+        // still be there — a check `non_utf8_path_skips_data_rows`
+        // cannot make, since a single-file document that skips its only
+        // file and one that bails outright are the same bytes.
+        let bad = non_utf8_path();
+        let good = empty_space("good", SpaceKind::Unit, 1, 1);
+        let skipped = empty_space("skipped", SpaceKind::Unit, 1, 1);
+        let spaces: Vec<(FuncSpace, &Path)> =
+            vec![(skipped, bad.as_path()), (good, Path::new("good.rs"))];
+
+        let mut buf = Vec::new();
+        write_csv_aggregate(spaces.iter().map(|(s, p)| (s, *p)), &mut buf)
+            .expect("writing to Vec is infallible");
+        let out = String::from_utf8(buf).expect("output is UTF-8");
+
+        assert_eq!(out.lines().count(), 2, "header + the one good row:\n{out}");
+        let row = out.lines().nth(1).expect("data row");
+        assert!(row.starts_with("good.rs,"), "row was: {row}");
     }
 
     #[test]

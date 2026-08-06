@@ -792,12 +792,6 @@ metric = "halstead.effort"
 value = 64170.027458982564
 
 [[entry]]
-path = "src/getter/cpp.rs"
-qualified = "CppCode::get_func_space_name"
-metric = "cognitive"
-value = 15.0
-
-[[entry]]
 path = "src/getter/elixir.rs"
 qualified = "ElixirCode::get_op_type"
 metric = "halstead.effort"
@@ -808,12 +802,6 @@ path = "src/getter/irules.rs"
 qualified = "IrulesCode::get_op_type"
 metric = "halstead.effort"
 value = 53163.06867422894
-
-[[entry]]
-path = "src/getter/mozcpp.rs"
-qualified = "MozcppCode::get_func_space_name"
-metric = "cognitive"
-value = 15.0
 
 [[entry]]
 path = "src/getter/perl.rs"
@@ -1026,12 +1014,6 @@ metric = "nargs"
 value = 5.0
 
 [[entry]]
-path = "src/metrics/nargs.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 536.0
-
-[[entry]]
 path = "src/metrics/npa/python.rs"
 qualified = "python_self_attr_name_bytes"
 metric = "nexits"
@@ -1059,7 +1041,7 @@ value = 7.0
 path = "src/output/code_climate.rs"
 qualified = "write_code_climate"
 metric = "halstead.effort"
-value = 60471.77938561803
+value = 60596.13916454601
 
 [[entry]]
 path = "src/output/dump.rs"

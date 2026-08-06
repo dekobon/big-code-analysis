@@ -38,7 +38,13 @@ use crate::traits::*;
 /// that cannot be decoded as UTF-8, and files referenced but never
 /// preprocessed are all reported here rather than written to `stderr`,
 /// so an embedder (e.g. `bca-web`) can capture, suppress, or surface
-/// them as it sees fit. The CLI prints them to `stderr`.
+/// them as it sees fit. The CLI prints them to `stderr` through its
+/// `warning:` helper.
+///
+/// [`Display`](std::fmt::Display) renders the bare message with no
+/// severity prefix and no trailing newline; prefixing is the presenting
+/// layer's job, so the prefix is written in exactly one place per crate
+/// (#1199).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum PreprocDiagnostic {
     /// A file's `#include` resolved back to the file itself; the
@@ -77,31 +83,33 @@ impl std::fmt::Display for PreprocDiagnostic {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::SelfInclusion { file } => {
-                write!(f, "warning: possible self inclusion {}", file.display())
+                write!(f, "possible self inclusion {}", file.display())
             }
             Self::IncludeCycle { members } => {
-                writeln!(f, "warning: possible include cycle:")?;
+                write!(f, "possible include cycle:")?;
                 for member in members {
                     // Explicit quotes preserve whitespace visibility for
                     // paths that contain spaces — important when the cycle
                     // warning is the only signal a user gets.
-                    writeln!(f, "  - \"{member}\"")?;
+                    //
+                    // The newline leads rather than trails so the rendered
+                    // block carries no trailing newline of its own: a
+                    // `Display` that ends in one stacks with the caller's
+                    // `println!`/`warn` and prints a stray blank line
+                    // (#1199).
+                    write!(f, "\n  - \"{member}\"")?;
                 }
                 Ok(())
             }
             Self::NonUtf8CyclePath { path } => {
-                write!(
-                    f,
-                    "warning: skipping non-UTF-8 path in include cycle: {path}"
-                )
+                write!(f, "skipping non-UTF-8 path in include cycle: {path}")
             }
-            Self::NonUtf8IndirectInclude { path } => write!(
-                f,
-                "warning: skipping non-UTF-8 indirect include path: {path}"
-            ),
+            Self::NonUtf8IndirectInclude { path } => {
+                write!(f, "skipping non-UTF-8 indirect include path: {path}")
+            }
             Self::NotPreprocessed { file } => write!(
                 f,
-                "warning: included file which has not been preprocessed: {}",
+                "included file which has not been preprocessed: {}",
                 file.display()
             ),
         }

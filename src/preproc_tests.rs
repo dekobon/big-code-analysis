@@ -859,14 +859,15 @@ fn preprocess_truncated_include_does_not_panic() {
 /// `preproc_diagnostic_display_lists_every_cycle_member` below, which
 /// needs a different assertion shape.
 ///
-/// All five variants use the lowercase `warning:` prefix, matching the
-/// CLI's own severity ladder in `big-code-analysis-cli/src/diag.rs`
-/// (#609). That is load-bearing rather than cosmetic: `warn(msg)` is
-/// `eprintln!("warning: {msg}")`, and `bca preproc` currently emits
-/// these through a bare `eprintln!("{diagnostic}")`, so the two
-/// spellings now produce identical bytes. Moving the prefix out of
-/// `Display` and onto `warn()` is therefore a pure refactor — these
-/// assertions are what will prove it emitted nothing new.
+/// No variant carries a severity prefix: `warning:` is written once, by
+/// the presenting layer's `warn` helper (#1199 —
+/// `big-code-analysis-cli/src/diag.rs` for the CLI,
+/// `src/diag.rs` for the library). These assertions are the half of that
+/// contract that pins the *message*; the rendered stderr line is pinned
+/// by `preproc_diagnostics_render_under_the_warning_prefix` in the
+/// CLI's `cli_ux` suite. Neither half is sufficient alone — without the
+/// CLI test nothing guards the prefix, and without this one nothing
+/// guards the wording.
 #[test]
 fn preproc_diagnostic_display_renders_each_single_line_variant() {
     assert_eq!(
@@ -874,7 +875,7 @@ fn preproc_diagnostic_display_renders_each_single_line_variant() {
             file: PathBuf::from("inc/self ref.h"),
         }
         .to_string(),
-        "warning: possible self inclusion inc/self ref.h",
+        "possible self inclusion inc/self ref.h",
     );
 
     assert_eq!(
@@ -882,7 +883,7 @@ fn preproc_diagnostic_display_renders_each_single_line_variant() {
             path: "bad/\u{fffd}.h".to_owned(),
         }
         .to_string(),
-        "warning: skipping non-UTF-8 path in include cycle: bad/\u{fffd}.h",
+        "skipping non-UTF-8 path in include cycle: bad/\u{fffd}.h",
     );
 
     assert_eq!(
@@ -890,7 +891,7 @@ fn preproc_diagnostic_display_renders_each_single_line_variant() {
             path: "bad/\u{fffd}.h".to_owned(),
         }
         .to_string(),
-        "warning: skipping non-UTF-8 indirect include path: bad/\u{fffd}.h",
+        "skipping non-UTF-8 indirect include path: bad/\u{fffd}.h",
     );
 
     assert_eq!(
@@ -898,16 +899,22 @@ fn preproc_diagnostic_display_renders_each_single_line_variant() {
             file: PathBuf::from("vendor/unseen.h"),
         }
         .to_string(),
-        "warning: included file which has not been preprocessed: vendor/unseen.h",
+        "included file which has not been preprocessed: vendor/unseen.h",
     );
 }
 
 /// `IncludeCycle` is the only multi-line variant: a header line plus one
-/// quoted line per member, each newline-terminated. The member list here
-/// is deliberately unsorted and contains a path with a space — the
-/// quoting exists precisely so that whitespace stays visible, and a
-/// member set of one could not distinguish "prints every member" from
-/// "prints the first".
+/// quoted line per member, newline-*separated*. The member list here is
+/// deliberately unsorted and contains a path with a space — the quoting
+/// exists precisely so that whitespace stays visible, and a member set
+/// of one could not distinguish "prints every member" from "prints the
+/// first".
+///
+/// The expected string ends at the last member's closing quote, and
+/// that is load-bearing: before #1199 each member line was
+/// `writeln!`-terminated, so `warn`/`println!` added a second newline
+/// and every cycle block printed followed by a blank line. Restoring
+/// the `writeln!` fails this assertion (verified by perturbation).
 #[test]
 fn preproc_diagnostic_display_lists_every_cycle_member() {
     let rendered = PreprocDiagnostic::IncludeCycle {
@@ -917,15 +924,14 @@ fn preproc_diagnostic_display_lists_every_cycle_member() {
 
     assert_eq!(
         rendered,
-        "warning: possible include cycle:\n  - \"z.h\"\n  - \"a b.h\"\n  - \"m.h\"\n",
+        "possible include cycle:\n  - \"z.h\"\n  - \"a b.h\"\n  - \"m.h\"",
     );
-
     let empty = PreprocDiagnostic::IncludeCycle {
         members: Vec::new(),
     }
     .to_string();
     assert_eq!(
-        empty, "warning: possible include cycle:\n",
+        empty, "possible include cycle:",
         "an empty member list still renders the header and nothing else"
     );
 }

@@ -285,6 +285,30 @@ repos:
         entry: python3 utils/check-manpage-assets.py
         pass_filenames: false
 
+      # Diagnostic-prefix gate — every severity prefix the workspace
+      # prints is lowercase and written by one `diag.rs` helper per
+      # crate, so no string literal may start with `Warning:` /
+      # `Error:` / `Note:`. Guards the #1199 bug class: six such sites
+      # accumulated across two crates because each reads as correct
+      # in isolation. See #609, #1199.
+      - id: check-diagnostic-prefix
+        name: check-diagnostic-prefix
+        language: system
+        files: '^(.*\.rs|utils/check-diagnostic-prefix\.py)$'
+        entry: python3 utils/check-diagnostic-prefix.py
+        pass_filenames: false
+
+      # Self-tests for the diagnostic-prefix gate. A source-scanning
+      # gate that stops matching reports a clean tree, so its own
+      # tests are the only thing standing between a broken regex and
+      # a silently disabled check.
+      - id: check-diagnostic-prefix-test
+        name: check-diagnostic-prefix-test
+        language: system
+        files: '^utils/check-diagnostic-prefix(-test)?\.py$'
+        entry: python3 -m unittest -q utils/check-diagnostic-prefix-test.py
+        pass_filenames: false
+
       # The `enums/` crate is workspace-excluded, so the workspace
       # clippy/test hooks above never touch it. Add a dedicated check
       # so warnings here cannot drift (see #164).
