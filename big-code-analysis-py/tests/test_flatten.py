@@ -15,9 +15,9 @@ from __future__ import annotations
 
 import inspect
 import sys
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import big_code_analysis as bca
 import pytest
@@ -161,10 +161,12 @@ def test_iterator_is_lazy_and_single_use() -> None:
 
     assert inspect.isgenerator(gen)
     # `inspect.isgenerator` is typed `TypeIs[GeneratorType[Any, Any, Any]]`,
-    # which narrows `gen` to `Never` (the ABC `Generator` and concrete
-    # `GeneratorType` are treated as disjoint), losing the element type.
-    # Annotate to restore the true element type for the type checkers.
-    first_pass: list[dict[str, Any]] = list(gen)
+    # which narrows `gen` to `GeneratorType[object, Never, object]` (the ABC
+    # `Generator` and concrete `GeneratorType` are treated as disjoint),
+    # losing the element type. An annotation on the target alone stopped
+    # recovering it in mypy 2.3, which now checks `list()`'s argument against
+    # the narrowed type; cast the iterable back to its true element type.
+    first_pass: list[dict[str, Any]] = list(cast("Iterable[dict[str, Any]]", gen))
     assert first_pass, "generator must yield at least the unit record"
     # Second consumption is empty (single-use semantics).
     assert list(gen) == []
