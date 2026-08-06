@@ -4,6 +4,16 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Manual re-run, matching every other workflow in this directory. The
+  # `coverage` job is the reason: Codecov compares a PR against the most
+  # recent *ancestor that has a report*, so a push to main that produces
+  # no run leaves every later PR silently baselined against an older
+  # commit — the diff table then attributes those intervening commits'
+  # coverage to whichever PR is open. That happened at d818e306, which
+  # carries zero check-runs, and left PR #1223 compared against a base
+  # eight commits behind. Without a dispatch trigger the only remedy is
+  # to land another commit on main.
+  workflow_dispatch:
 
 # Default to read-only; jobs that need more escalate explicitly.
 permissions:
