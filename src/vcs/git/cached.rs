@@ -20,6 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use super::{OBJECT_CACHE_BYTES, current_unix_seconds, history, repo, walk_err};
+use crate::diag::warn;
 use crate::vcs::HistoryIndex;
 use crate::vcs::cache::{self, CacheConfig, CommitEvent, HistoryCache};
 use crate::vcs::error::Error;
@@ -281,6 +282,6 @@ fn persist(
         events: events.to_vec(),
     };
     if let Err(e) = cache::write_atomic(path, &entry) {
-        eprintln!("warning: failed to write VCS history cache: {e}");
+        warn(format_args!("failed to write VCS history cache: {e}"));
     }
 }

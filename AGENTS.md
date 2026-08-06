@@ -60,7 +60,7 @@ and `cargo run -p big-code-analysis-web --`.
 - `utils/` — repo-maintenance helper scripts, including the gates run
   by `make pre-commit` / `make ci`: `check-versions.py`,
   `check-snapshot-anchors.py`, `check-rustfmt-bail.py`,
-  `check-manpage-assets.py`,
+  `check-manpage-assets.py`, `check-diagnostic-prefix.py`,
   `check-grammar-marker-sync.py`, `check-enums-codegen-drift.sh`,
   `check-grammar-crate.py`, `check-grammars-crates.sh`,
   `check-excluded-manifests.py`, `verify-name-only-churn.py`, and each
@@ -214,6 +214,14 @@ and `cargo run -p big-code-analysis-web --`.
 - Never use `to_string_lossy()` on paths used as identifiers (map keys,
   JSON output, error correlation). Use `to_str()` with explicit error
   handling. `path.display()` is fine for log output only.
+- Stderr diagnostics carry a **lowercase** severity prefix, written in
+  one place per crate: `warn` / `die` / `note` in
+  `big-code-analysis-cli/src/diag.rs`, `warn` in `src/diag.rs`. Pass the
+  bare message and never spell `warning:` / `error:` / `Warning:` in a
+  literal — including in a `Display` impl, whose renderings are prefixed
+  by whichever layer presents them (#609, #1199).
+  `make check-diagnostic-prefix` blocks the capitalised spellings; the
+  lowercase ones are convention, not gated.
 - Edition is 2024 — `let-else`, let-chains, and other 2024 features are
   available.
 
@@ -242,7 +250,10 @@ cannot run), `cargo doc --no-deps --workspace
 `cargo +nightly udeps`, the markdown /
 TOML / shell / Makefile / GitHub Actions lint families, the man-page
 drift gate (`cargo xtask` + `git diff --exit-code -- man/`, mirroring
-the `manpage` CI job), the bca self-scan threshold gate at both
+the `manpage` CI job), the diagnostic-prefix gate
+(`make check-diagnostic-prefix`, which blocks a capitalised
+`Warning:` / `Error:` / `Note:` string literal — see "Rust
+conventions"), the bca self-scan threshold gate at both
 tiers (`make self-scan` mirroring the `Threshold gate` step in
 `.github/workflows/pages.yml`, plus `make self-scan-headroom`
 which scales every limit by `BCA_HEADROOM` — default `0.95` — so

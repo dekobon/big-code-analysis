@@ -20,6 +20,8 @@ type BoxedCause = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 use crossbeam::channel::{Receiver, Sender, unbounded};
 
+use crate::diag::warn;
+
 type ProcFilesFunction<Config> = dyn Fn(PathBuf, &Config) -> std::io::Result<()> + Send + Sync;
 
 #[derive(Debug)]
@@ -224,7 +226,10 @@ fn explore<Config: 'static + Send + Sync>(
         // classified every entry (#1114) — see
         // [`ConcurrentRunner::without_path_verification`].
         if verify_paths && !path.is_file() {
-            eprintln!("Warning: not a regular file, skipping: {}", path.display());
+            warn(format_args!(
+                "not a regular file, skipping: {}",
+                path.display()
+            ));
             continue;
         }
         send_file(path, cfg, sender)?;

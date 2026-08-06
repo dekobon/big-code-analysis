@@ -377,6 +377,77 @@ fn preproc_resolves_cross_file_include_across_directory() {
     );
 }
 
+/// The presentation half of the diagnostic-prefix contract (#1199): the
+/// library's `PreprocDiagnostic::Display` renders a bare message, and
+/// the CLI is what adds `warning:` — via `diag::warn`, the same helper
+/// every other CLI diagnostic goes through. `src/preproc_tests.rs` pins
+/// the bare messages; only an end-to-end run can pin what a user reads,
+/// and without this half the prefix is guarded nowhere.
+///
+/// The fixture produces two of the five variants: a header-only
+/// `SelfInclusion` and the multi-line `IncludeCycle`, which is the one
+/// with a shape to get wrong. `warn` prefixes its header line only and
+/// leaves the member lines indented beneath, and — since #1199 dropped
+/// the `writeln!` that terminated the last member — the block is no
+/// longer followed by a blank line.
+#[test]
+fn preproc_diagnostics_render_under_the_warning_prefix() {
+    let dir = TempDir::new().unwrap();
+    let self_h = dir.path().join("self.h");
+    let a_h = dir.path().join("a.h");
+    let b_h = dir.path().join("b.h");
+    std::fs::write(&self_h, "#include \"self.h\"\nint s;\n").unwrap();
+    std::fs::write(&a_h, "#include \"b.h\"\nint a;\n").unwrap();
+    std::fs::write(&b_h, "#include \"a.h\"\nint b;\n").unwrap();
+
+    let output = cli()
+        .args(["preproc", "--paths", dir.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "preproc should succeed");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let lines: Vec<&str> = stderr.lines().collect();
+
+    // Diagnostics are emitted in `PreprocResults::files` (a `HashMap`)
+    // order, so assert per-line rather than pinning the whole block.
+    let self_line = format!("warning: possible self inclusion {}", self_h.display());
+    assert!(
+        lines.contains(&self_line.as_str()),
+        "expected {self_line:?} among {lines:?}"
+    );
+
+    let header = lines
+        .iter()
+        .position(|l| *l == "warning: possible include cycle:")
+        .unwrap_or_else(|| panic!("no cycle header in {lines:?}"));
+    let mut members = lines
+        .get(header + 1..header + 3)
+        .unwrap_or_else(|| panic!("cycle header not followed by two members: {lines:?}"))
+        .to_vec();
+    members.sort_unstable();
+    assert_eq!(
+        members,
+        vec![
+            format!("  - \"{}\"", a_h.display()),
+            format!("  - \"{}\"", b_h.display()),
+        ],
+        "the cycle members are indented under the prefixed header, unprefixed"
+    );
+
+    // A `Display` ending in a newline would stack with `warn`'s own and
+    // leave a blank line after the block — the pre-#1199 output.
+    assert!(
+        !stderr.contains("\n\n"),
+        "no diagnostic block is followed by a blank line: {stderr:?}"
+    );
+    assert!(
+        lines
+            .iter()
+            .all(|l| l.starts_with("warning: ") || l.starts_with("  - \"")),
+        "every stderr line is either a prefixed diagnostic or a cycle member: {lines:?}"
+    );
+}
+
 /// Recursively yield files under `dir` whose extension equals `ext`.
 fn walkdir_entries(dir: &std::path::Path, ext: &str) -> impl Iterator<Item = std::path::PathBuf> {
     fn visit(dir: &std::path::Path, ext: &str, found: &mut Vec<std::path::PathBuf>) {

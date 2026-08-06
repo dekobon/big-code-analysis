@@ -369,6 +369,8 @@ fn check_with_no_matching_files_exits_one() {
         // `error:` prefix (matching clap's own usage errors), never the
         // old capitalized `Error:`.
         .stderr(predicate::str::contains("error: no input files matched"))
+        // diag-prefix-ok: the capitalised spelling is the thing asserted
+        // absent here, not a prefix this test emits (#1199).
         .stderr(predicate::str::contains("Error:").not());
 }
 

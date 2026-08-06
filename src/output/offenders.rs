@@ -13,6 +13,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::diag::warn;
 use crate::metric_catalog::{Direction, lookup};
 use crate::output::numfmt::MessageMetric;
 
@@ -23,18 +24,20 @@ use crate::output::numfmt::MessageMetric;
 pub const TOOL_ID: &str = "big-code-analysis";
 
 /// `path.to_str()`, or emit a stderr warning and return `None`. Used
-/// by every output format that turns offender paths into UTF-8
-/// identifiers (Checkstyle attribute, SARIF URI, warning-line column,
-/// HTML / CSV cell). Centralizing the warning text keeps the
-/// `format` label consistent across formats.
+/// by every output format that turns paths into UTF-8 identifiers
+/// (Checkstyle attribute, SARIF URI, Code Climate path, clang/MSVC
+/// warning-line column, CSV cell). Centralizing the warning text keeps
+/// the `format` label consistent across formats, and routing the prefix
+/// through [`crate::diag::warn`] keeps `warning:` written in one place
+/// (#1199).
 pub(crate) fn warn_non_utf8_path<'a>(format: &str, path: &'a Path) -> Option<&'a str> {
     if let Some(s) = path.to_str() {
         Some(s)
     } else {
-        eprintln!(
-            "Warning: skipping non-UTF-8 path in {format} output: {}",
+        warn(format_args!(
+            "skipping non-UTF-8 path in {format} output: {}",
             path.display()
-        );
+        ));
         None
     }
 }

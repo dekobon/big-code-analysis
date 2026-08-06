@@ -9,6 +9,7 @@
 use std::hash::BuildHasherDefault;
 
 use super::*;
+use crate::diag::warn;
 
 /// Derives the two metrics that read from a space's *complete* state:
 /// Halstead's `Stats` from the accumulated occurrence maps, and MI from
@@ -426,11 +427,11 @@ fn apply_comment_suppression(
             // The `+ 1` converts tree-sitter's 0-based rows to the
             // 1-based line numbers `FuncSpace::start_line` and the
             // rest of this module report.
-            eprintln!(
-                "warning: {}:{}: {diagnostic}",
+            warn(format_args!(
+                "{}:{}: {diagnostic}",
                 diagnostic_path,
                 node.start_row() + 1
-            );
+            ));
         }
         if let Some(suppression) = &scan.suppression {
             apply_suppression(state_stack, suppression);
