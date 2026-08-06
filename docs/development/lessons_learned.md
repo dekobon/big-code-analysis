@@ -132,6 +132,7 @@ number and the higher number stays as a redirect.
 | [86](#86-a-test-helper-that-normalizes-the-value-under-test-blinds-every-caller-at-once) | A helper normalising the observation blinds every caller |
 | [87](#87-an-assertion-can-be-correct-and-still-be-about-the-wrong-rows) | An assertion can be about the wrong rows |
 | [88](#88-a-text-scan-that-does-not-lex-the-language-measures-noise) | A text scan that does not lex the language measures noise |
+| [89](#89-a-positive-enumeration-and-a-negative-filter-differ-on-what-neither-names) | A positive enumeration and a negative filter differ on what neither names |
 
 ---
 
@@ -3202,7 +3203,10 @@ model the language's lexical structure — strings, raw strings, comments,
 not report a wrong number occasionally; it reports a confident, uniform,
 plausible one every run, which is then quoted as fact. Give the scanner
 its own tests, and pin **both** directions: the under-lex that misses
-constructs and the over-lex that swallows them.
+constructs and the over-lex that swallows them. **Do not try to buy the
+distinction back with a sharper pattern.** Whether a quote opens or
+closes a literal is *state*, and a regex sees only the characters around
+it, so no lookbehind can separate the two cases.
 
 The remedy for a wrong claim is normally "run the measurement" (lesson
 84). That does not help here, because the measurement *was* run. When
@@ -3237,5 +3241,69 @@ because no file under `src/metrics/` spells one. Lifting the fix's
 `char_literal_end()` — which must return `None` for a lifetime, since
 `'a` has no closing quote and treating it as a literal swallows the file
 the other way — closes both.
+
+**The third gate in the family, and the proof no pattern would have
+done** (#1219, PR #1221). `utils/check-diagnostic-prefix.py` matched
+raw-string opens with a regex and skipped to the next quote, so three
+shapes opened a span that hid every severity literal until it closed:
+`let p = "dir/r";`, where the closing quote of an ordinary string
+follows an `r`; and an unterminated `r"` inside a trailing `//` or a
+`/* … */` comment, neither of which a scanner that only skips
+*whole-line* comments can see. The first is the one that settles the
+approach — `/` is a legitimate raw-open context, so the character before
+`r` carries no information; what differs is that the `"` **closes** a
+literal. Stripping comments first fails the same way, because
+`"http://x"` truncates mid-literal and opens a phantom span of its own.
+Finding where a comment starts already requires knowing whether you are
+inside a string, which is the lexer. All three were latent: replaying
+both scanners over all 559 tracked Rust files gave identical output.
+
+**Porting a lexer without porting the shape that makes its tests
+discriminate** (#1219). The port's lifetime fixture used an *even* number
+of lifetimes, so a greedy `char_literal_end` pairs them off, every bogus
+span closes before the offender, and the test passes against the exact
+bug it names. The donor's suite had recorded that trap — "Three
+lifetimes, not two, and a real char literal after the call" — and the
+copy dropped it. When you lift a scanner, lift its fixtures' arithmetic,
+not just its assertions.
+
+---
+
+## 89. A positive enumeration and a negative filter differ on what neither names
+
+**Lesson:** Replacing a bespoke `matches!(A | B)` with a shared
+`!is_x && !is_y` predicate does not just move the rule — it changes the
+set. The two agree on every kind either one names and disagree on
+everything else, so the inputs that move are exactly the ones no one
+enumerated and no test covers. Before consolidating, enumerate the node
+kinds the container can actually hold, and decide the leftovers
+deliberately: adopting the shared answer is usually right, but it is a
+decision, not a refactor. (cf. lesson 59 for why you are consolidating,
+and lesson 65 for the structural inverse.)
+
+The direction of the change is what hides it. A positive filter is
+closed — a grammar that starts emitting a new kind silently scores zero,
+which is lesson 19. A negative filter is open, so the same grammar
+change silently scores *one*, and neither shows up as a diff in the
+snapshot suite unless a fixture happens to hold the construct. Both
+forms read as "the obvious thing" at the call site.
+
+**The Objective-C block arm inherited three exclusions and two
+inclusions** (#1218, PR #1221). The `Objc::BlockLiteral` `nargs` arm
+counted `matches!(ParameterDeclaration | VariadicParameter)`, which
+bypassed the shared `count_args` and therefore
+`Checker::is_empty_param_marker`, so `^(void){ … }` reported one
+parameter where zero belongs. Routing it through `count_args` fixed
+that and put the comment and punctuation rules on the shared footing
+too — those had *happened* to be right, since a `comment` child is not
+a `ParameterDeclaration` either, but for a reason no test asserted. It
+also changed two shapes nobody had considered: on invalid source
+`^(int a,,)` went 1 → 2 as an `ERROR` child began counting, and
+`^({ int x; })` went 0 → 1 for a `compound_statement` child. Both were
+kept, because both are what the function channel already reported
+through the same helper — `int f(int a,,)` gives 2 and
+`int g({ int x; })` gives 1 — so the block arm had been the one caller
+answering differently. Recording that in the arm's comment is what
+stops the next reader from filing it as a regression.
 
 ---
