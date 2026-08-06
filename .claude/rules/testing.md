@@ -46,6 +46,28 @@ work, do one of:
 - when a partial revert would not build, patch the production line to
   a no-op in place instead (the approach used in the #615 fix session).
 
+**A sweep of several perturbations needs a script, not a shell loop.**
+The inverse-edit advice above does not scale past one or two: a loop
+that perturbs, tests, and restores is where `git checkout -- <file>`
+gets reached for, and it destroyed an entire uncommitted rewrite a third
+time during #1219. Read the file once into a variable, write each
+perturbation from that string, and restore from it in a `finally` — the
+backup then lives in memory and cannot be defeated by the working tree
+changing underneath. Put the driver in a file rather than nesting quotes
+through zsh into `python3 -c`, which is how those edits came to be
+applied inconsistently in the first place.
+
+**A broken harness reports a plausible failure count, not an error.**
+In that same sweep the restore silently reverted the gate to its `main`
+version, so every subsequent perturbation ran the *new* test suite
+against the *old* implementation and reported an identical 34 — six
+failures and twenty-eight errors, reproducible today by checking out
+either side alone. Three perturbations in a row returning the same
+number reads as "well covered"; it meant the file under test was no
+longer the file being edited. Before believing any perturbation result,
+confirm the subject still contains the change: `rg -c <new symbol>` on
+the file, or a `git diff --stat` that shows what you expect.
+
 After restoring, `git status` / `git diff --stat` must show exactly
 the edits you intend — nothing extra, nothing missing.
 
@@ -291,3 +313,40 @@ executable name, a path separator, a line ending — in one OS's spelling.
 `.exe` on Windows: green on Linux and macOS, failing only on the Windows
 leg. Mirror the production code's platform logic in the fixture
 (`bca{EXE}`) rather than hardcoding one OS's form.
+
+## Gate a feature-gated fixture table on the union of its rows
+
+A test whose case list is built from `#[cfg(feature = …)]` rows has two
+failure modes, and fixing one reintroduces the other. Left ungated, a
+feature set that enables none of the rows leaves an empty list, a loop
+of zero iterations, and a test that passes having asserted nothing —
+which is why `assert_fixtures_present` (`src/test_support.rs`) exists to
+make that state loud. But loudness alone turns the same build into a
+spurious *failure* that reads as a defect in whatever was being changed.
+
+Both halves are required:
+
+- `#[cfg(any(feature = "a", feature = "b", …))]` on the **`fn`**, naming
+  the union of the features its rows use, so the test is *absent* rather
+  than failing when none is enabled.
+- The non-vacuity assertion (`assert_fixtures_present`, or a `ran > 0`
+  counter for a hand-rolled loop) inside it, covering the residual case
+  where a runtime `is_enabled()` check stops agreeing with the feature
+  it compiled under.
+
+This bit twice in one batch (#1220, PR #1221).
+`the_1184_constructs_open_quiet_function_spaces` had the assertion and
+no gate, so `--no-default-features --features rust` failed with "at
+least one language feature must be enabled for this test to mean
+anything"; its two siblings had been gated in an earlier fix and it was
+missed. Then the fix for #1218
+rewrote a Tcl/iRules parity test as a loop, added a `ran > 0` guard, and
+reproduced the identical false failure in a second file.
+
+Verify against a subset that enables **none** of the named features.
+`rust,typescript` — the canonical minimal-langs configuration — is not
+such a subset for any table containing a TypeScript or TSX row, so a
+single non-listed language (`--features go`) is the reproducer.
+
+Note the union is over *features*, not languages: `LANG::Tsx` rides
+`feature = "typescript"`, so a seven-row table can need only six.
