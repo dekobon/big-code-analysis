@@ -4602,10 +4602,10 @@ mod comments_in_parameter_lists {
         // independent, so a build with only one enabled must still run
         // that one's row.
         let mut ran = 0;
-        for lang in [LANG::Tcl, LANG::Irules] {
-            if !lang.is_enabled() {
-                continue;
-            }
+        for lang in [LANG::Tcl, LANG::Irules]
+            .into_iter()
+            .filter(LANG::is_enabled)
+        {
             ran += 1;
             assert_eq!(
                 args(lang, "proc h {a\n  # c\n  b} { return $a }"),
