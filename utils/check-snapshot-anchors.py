@@ -246,6 +246,15 @@ def scan_ignore_spans(source: str) -> IgnoreSpans:
     report zero for a file that really does carry a bare snapshot — the
     exact "reads as clean" failure it exists to prevent, which must not
     be its own failure mode.
+
+    ``check-diagnostic-prefix.py`` carries a port of this walk, for the
+    same reason and against the same failure (#1219). The two are
+    siblings rather than one shared module because every gate under
+    ``utils/`` is a standalone hyphen-named script resolving the
+    repository root from its own location, and each self-test loads its
+    subject through a ``_load_module()`` shim — a shared import target
+    grows that concern on four sides. Fix a lexing bug here and check
+    there.
     """
     spans = IgnoreSpans()
     i = 0
