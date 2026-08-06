@@ -50,6 +50,11 @@ struct Emitted {
     name: Option<String>,
     has_npm: bool,
     has_npa: bool,
+    /// Tracked alongside the other two because `wmc`'s emission is
+    /// *narrower* than theirs in two language-level ways, and nothing
+    /// pinned that until #1220 — which is how the book and STABILITY.md
+    /// came to describe all three blocks with one rule.
+    has_wmc: bool,
 }
 
 /// Analyses `source` and flattens every space in the serialized tree,
@@ -81,6 +86,7 @@ fn flatten(value: &Value, out: &mut Vec<Emitted>) {
         name: value["name"].as_str().map(str::to_owned),
         has_npm: metrics.contains_key("npm"),
         has_npa: metrics.contains_key("npa"),
+        has_wmc: metrics.contains_key("wmc"),
     });
     for child in value["spaces"].as_array().into_iter().flatten() {
         flatten(child, out);
@@ -652,7 +658,24 @@ fn no_space_is_emitted_with_an_unknown_kind() {
 /// [`function_spaces_emit_neither`] would still pass if a
 /// grammar stopped opening these spaces at all; naming them pins that
 /// they exist *and* stay quiet.
+// Gated on the fixtures' own features for the reason its two siblings
+// below already are (9d71de34): the case list is six languages wide and
+// every row carries its own `cfg`, so a feature set enabling none of
+// them leaves an empty list and trips `assert_fixtures_present` — a
+// failure that reads as a defect in whatever was being changed rather
+// than as an unrelated build configuration. `--no-default-features
+// --features rust` is one such set; the canonical minimal-langs
+// configuration `rust,typescript` is not, since `typescript` supplies
+// two rows (#1220).
 #[test]
+#[cfg(any(
+    feature = "kotlin",
+    feature = "java",
+    feature = "groovy",
+    feature = "javascript",
+    feature = "mozjs",
+    feature = "typescript"
+))]
 fn the_1184_constructs_open_quiet_function_spaces() {
     let cases: &[(LANG, &[&str])] = &[
         #[cfg(feature = "kotlin")]
@@ -813,6 +836,55 @@ fn a_cpp_namespace_is_a_member_scope() {
          (npm={}, npa={})",
         namespace.has_npm,
         namespace.has_npa
+    );
+    // The narrowing #1220 found: `wmc` does *not* follow npm/npa here.
+    // A namespace's member functions are free functions rather than
+    // methods of a class, so `CppCode::compute` drops `SpaceKind::
+    // Namespace` and the space records no kind, leaving the block
+    // unserialized. The class inside the namespace still carries all
+    // three — asserted below so this reads as a scope rule rather than
+    // as wmc being absent from the file.
+    assert!(
+        !namespace.has_wmc,
+        "a namespace weights no per-class complexity and must carry no wmc"
+    );
+    let class = only_space(LANG::Cpp, &spaces, "C");
+    assert!(
+        class.has_wmc && class.has_npm && class.has_npa,
+        "the class inside the namespace carries all three \
+         (wmc={}, npm={}, npa={})",
+        class.has_wmc,
+        class.has_npm,
+        class.has_npa
+    );
+}
+
+/// Go emits no `wmc` block on any space, including the file root, while
+/// its `npa` and `npm` do appear there (#1220).
+///
+/// `GoCode` sits in the `Wmc` no-op list rather than deviating on space
+/// kind: Go's flat space model cannot attribute a method to a receiver
+/// class, so there is no per-class complexity to weight. It is the one
+/// language where the `Wmc` and `Npa` no-op sets differ, which is why
+/// the book and STABILITY.md now scope the three-blocks rule to npm/npa
+/// and describe wmc's two narrowings separately. Asserting the npa/npm
+/// half in the same test is what keeps this from passing for a Go file
+/// that had simply stopped emitting anything.
+#[test]
+#[cfg(feature = "go")]
+fn go_emits_npa_and_npm_but_never_wmc() {
+    let spaces = emitted_spaces(LANG::Go, fixture_source(LANG::Go));
+    let root = &spaces[0];
+    assert_eq!(root.kind, SpaceKind::Unit);
+    assert!(
+        root.has_npm && root.has_npa,
+        "Go's root carries npa/npm (npm={}, npa={})",
+        root.has_npm,
+        root.has_npa
+    );
+    assert!(
+        !spaces.iter().any(|space| space.has_wmc),
+        "no Go space may carry a wmc block, including the unit root"
     );
 }
 
