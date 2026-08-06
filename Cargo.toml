@@ -95,7 +95,7 @@ tree-sitter-tcl = { package = "bca-tree-sitter-tcl", path = "./tree-sitter-tcl",
 # PyO3 powers the `big-code-analysis-py` cdylib. Pinned to a major
 # series; bumping is a deliberate, separate change because the Bound
 # API shape changed across minors.
-pyo3 = "=0.29.0"
+pyo3 = "=0.29.2"
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
 csv = "=1.4.0"
@@ -172,7 +172,7 @@ csv.workspace = true
 # refactor that decouples them (the walk itself is tree-to-tree and does
 # not read the index/worktree). `sha1` (see below). Gated behind
 # `vcs-git`.
-gix = { version = "^0.83", default-features = false, features = [
+gix = { version = "^0.86", default-features = false, features = [
   "max-performance-safe",
   "blob-diff",
   "mailmap",
@@ -185,7 +185,7 @@ gix = { version = "^0.83", default-features = false, features = [
   # listed explicitly or `gix-hash::Kind` compiles with no variants.
   "sha1",
 ], optional = true }
-num-derive = "^0.4"
+num-derive = "^0.5"
 num-format = "^0.4"
 num-traits = "^0.2"
 petgraph = "^0.8"
@@ -202,14 +202,17 @@ serde.workspace = true
 # (#674) therefore renders fields in serde_json's default sorted-key order,
 # which is deterministic and gives the uniform field set #674 requires.
 serde_json = { workspace = true, features = ["float_roundtrip"] }
-# Pinned to match the version already locked transitively via grammar
-# crates (Cargo.lock). Used by the GitLab Code Climate writer to
-# compute stable per-violation fingerprints.
-sha2 = "=0.10.9"
+# Used by the GitLab Code Climate writer to compute stable
+# per-violation fingerprints. Exact-pinned so the hash implementation
+# behind a frozen output contract only ever moves deliberately.
+sha2 = "=0.11.0"
 # HMAC-SHA256 for the opt-in keyed author-identity hashing
-# (`--author-hash-key`, #956). Shares the RustCrypto `digest` 0.10 trait
-# family with `sha2`, so it adds no new transitive trait version.
-hmac = "=0.12.1"
+# (`--author-hash-key`, #956). Kept in lockstep with `sha2`: both sit on
+# the RustCrypto `digest` 0.11 trait family, which `actix-http` already
+# pulls in via `sha1` 0.11, so the pair adds no trait version the
+# workspace was not already building. `digest` 0.10 remains in the graph
+# regardless — `gix-hash` reaches it through `sha1-checked`.
+hmac = "=0.13.0"
 termcolor = "^1.2"
 
 tree-sitter.workspace = true
@@ -356,7 +359,7 @@ workspace = true
 
 [dev-dependencies]
 insta = { version = "1.29.0", features = ["yaml", "json", "redactions"] }
-jsonschema = "^0.46"
+jsonschema = "^0.49"
 tempfile.workspace = true
 pretty_assertions = "^1.3"
 quick-xml = "^0.41"
