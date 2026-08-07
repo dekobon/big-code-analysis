@@ -72,7 +72,13 @@ for historical reference.
   costs nothing today and fails CI on the first production `unwrap()`
   added. `clippy::expect_used` is deliberately **not** enabled — all 37
   production `expect` sites already name their invariant in the message,
-  the form `AGENTS.md` sanctions (#1227).
+  the form `AGENTS.md` sanctions. The workspace-excluded `enums` codegen
+  crate carries the same gate: it is CI-linted by `make enums-check` but
+  invisible to `cargo clippy --workspace`, so its 7 production
+  `unwrap()` calls were outside the original count. One was a live
+  latent panic — `names.iter().map(..).max().unwrap()` in the Go
+  generator panics on a token-less grammar — and the rest now propagate
+  onto the `io::Result` each generator already returned (#1227).
 
 ## [2.1.0] - 2026-08-06
 

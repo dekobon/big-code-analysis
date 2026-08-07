@@ -24,7 +24,10 @@ pub fn generate_go(output: &Path, file_template: &str) -> std::io::Result<()> {
         let mut file = File::create(path)?;
 
         let mut names = get_token_names(&language, false);
-        let max_len = names.iter().map(|x| x.0.len()).max().unwrap();
+        // `unwrap_or(0)` is the identity, not a swallowed error: with no
+        // names the `map` below yields nothing, so the padding width is
+        // never read. `unwrap()` here panicked on a token-less grammar.
+        let max_len = names.iter().map(|x| x.0.len()).max().unwrap_or(0);
         let names: Vec<_> = names
             .drain(..)
             .map(move |(n, d, t)| (n.clone(), d, t, format!("{: <width$}", n, width = max_len)))
@@ -32,7 +35,7 @@ pub fn generate_go(output: &Path, file_template: &str) -> std::io::Result<()> {
 
         let args = GoTemplate { c_name, names };
 
-        file.write_all(args.render().unwrap().as_bytes())?;
+        file.write_all(args.render().map_err(render_error)?.as_bytes())?;
     }
 
     Ok(())

@@ -2,6 +2,17 @@ use std::collections::BTreeMap;
 use std::collections::hash_map::{Entry, HashMap};
 use tree_sitter::Language;
 
+/// Lifts an `askama` render failure onto the `io::Result` channel every
+/// generator already returns.
+///
+/// The templates are compile-time checked, so a render failure means a
+/// formatting error rather than a malformed template — but "unlikely"
+/// is not "impossible", and each caller is three lines from an `Err`
+/// it can return (#1227).
+pub fn render_error(err: askama::Error) -> std::io::Error {
+    std::io::Error::other(err)
+}
+
 pub fn sanitize_identifier(name: &str) -> String {
     // Match both the canonical U+FEFF (a UTF-8-decoded BOM token, the
     // shape tree-sitter actually produces from `node_kind_for_id`) and
@@ -181,6 +192,29 @@ pub fn get_token_names(language: &Language, escape: bool) -> Vec<(String, bool, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A render failure reaches the caller as an `io::Error` that still
+    /// carries the `askama` cause, rather than panicking (#1227).
+    ///
+    /// Unreachable through the generators — the templates are
+    /// compile-time checked, so `render` only fails on a formatting
+    /// error — which is exactly why this asserts on the lift directly
+    /// instead of through `generate_rust`.
+    #[test]
+    fn a_render_failure_becomes_an_io_error_carrying_its_cause() {
+        let err = render_error(askama::Error::Fmt);
+
+        // `other` rather than a more specific kind: a template that
+        // failed to format is not bad *input*, and the generators have
+        // no kind of their own to claim.
+        assert_eq!(err.kind(), std::io::ErrorKind::Other);
+        assert!(
+            err.get_ref()
+                .and_then(|inner| inner.downcast_ref::<askama::Error>())
+                .is_some(),
+            "the askama::Error must be retrievable, not stringified"
+        );
+    }
 
     // Issue #345: the previous `"ï»¿"` literal was the three-codepoint
     // mojibake form (U+00EF U+00BB U+00BF) — the three UTF-8 BOM bytes
