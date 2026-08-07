@@ -195,6 +195,15 @@ reviewable commit). Resolve `uv.lock` rebase conflicts by re-running
 --require-hashes -r …` in the workflows), so a `uv.lock` change and
 its regenerated exports must land in the same commit.
 
+Note that `make py-relock` re-resolves but does not *upgrade*: `uv
+lock` keeps a package at its locked version as long as that version
+still satisfies the requirement, so widening a bound alone changes
+nothing. Adopting a newer release is a second, explicit step —
+`uv lock --upgrade-package <name>` from `big-code-analysis-py`,
+followed by the two `uv export` commands `py-relock` runs. #1222
+raised ruff's ceiling to `<0.17` and would have shipped a still-locked
+0.15.22 without it.
+
 Alternative install paths (`mise install` via `mise.toml`, direct
 `pipx install ruff/mypy/pyright/maturin`, `python -m venv .venv &&
 pip install -e ".[dev]"`) still work but bypass `uv.lock`; resolved

@@ -13,10 +13,12 @@ repos:
     hooks:
       - id: taskcluster_yml
 -   repo: https://github.com/astral-sh/ruff-pre-commit
-    # Bump in lockstep with the big-code-analysis-py/pyproject.toml
-    # `ruff>=0.6,<0.16` floor. `ruff-check` and `ruff-format` are the
+    # Bump in lockstep with the ruff version `uv.lock` resolves under
+    # the big-code-analysis-py/pyproject.toml `ruff>=0.13,<0.17` bound
+    # (`rg '^ruff==' big-code-analysis-py/requirements/dev.txt`), which
+    # is also what CI installs. `ruff-check` and `ruff-format` are the
     # current hook IDs (the legacy `ruff` alias is deprecated).
-    rev: v0.15.14
+    rev: v0.16.2
     hooks:
     -   id: ruff-check
         args: [--fix]

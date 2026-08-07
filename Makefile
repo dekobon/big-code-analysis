@@ -780,7 +780,7 @@ py-relock:
 # dir's own `extend-exclude` (e.g. `_native.pyi`) against the wrong base and
 # spuriously flag excluded files. The smoke dir has nothing to exclude, so
 # pointing `--config` at the bindings pyproject just gives it the same
-# ruleset (line-length 100, the extend-select set) (#995).
+# ruleset (line-length 100, the `[tool.ruff.lint] select` set) (#995).
 py-fmt:
 	@if command -v ruff >/dev/null 2>&1; then \
 	  echo "Formatting Python sources..."; \

@@ -68,7 +68,17 @@ dev = [
   # already fiction before this — the previous `[misc]` spelling was
   # just as version-specific — so this states what was always true.
   "mypy>=2.3",
-  "ruff>=0.6,<0.16",
+  # Floor is 0.13, not the historical 0.6, because `UP038`
+  # (non-pep604-isinstance) was removed from ruff's stable set in 0.13
+  # and this tree has five `isinstance(x, (A, B))` call sites that any
+  # 0.6-0.12.12 run flags. Measured: 0.6.0, 0.9.0, 0.12.0 and 0.12.12
+  # all report the same five, 0.13.0 onward report none — under the
+  # pre-#1222 `extend-select` config identically, so the floor was
+  # already fiction and this states what was always true. The ceiling
+  # is exclusive-of-0.17 rather than open because ruff moves its
+  # *defaults* on minor bumps; `[tool.ruff.lint] select` below makes
+  # that harmless for the rule set, but formatter output still shifts.
+  "ruff>=0.13,<0.17",
   "pyright>=1.1.380",
   "maturin>=1.7,<2.0",
 ]
@@ -142,8 +152,9 @@ no-default-features = true
 # ---------------------------------------------------------------------------
 # Linting and formatting (ruff). Config is intentionally nested under
 # [tool.ruff.lint] — ruff 0.2+ requires the nested form and emits a
-# deprecation warning on top-level `extend-select` / `ignore` (gone
-# entirely in 0.6+).
+# deprecation warning on top-level `select` / `ignore` (gone entirely
+# in 0.6+, so below this crate's `ruff>=0.13` floor; kept because it
+# explains why the nested form is not incidental).
 # ---------------------------------------------------------------------------
 [tool.ruff]
 target-version = "py312"
@@ -160,7 +171,18 @@ extend-exclude = ["target", "python/big_code_analysis/_native.pyi"]
 # style. Full `PL` (Pylint) is deliberately omitted — its design rules
 # (PLR0913 too-many-arguments, PLR0915 too-many-statements) would
 # force test-suite refactors that belong in a follow-up issue.
-extend-select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PERF", "PT"]
+#
+# `select`, not `extend-select`, so the set is absolute rather than
+# relative to whatever ruff currently ships as its default. That
+# distinction is not cosmetic: ruff 0.16.0 grew its defaults from 59
+# rules to 413, which under `extend-select` took this config from 265
+# enabled rules to 501 and silently enabled 28 families it never asked
+# for — `PLC` / `PLE` / `PLR` / `PLW` among them, overriding the
+# deliberate Pylint omission stated just above (#1222). The same
+# release *dropped* 18 opinionated `E` / `F` rules from the defaults,
+# which a defaults-relative config would have lost just as quietly.
+# Adding a family here is how the set grows; a ruff upgrade is not.
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PERF", "PT"]
 
 [tool.ruff.lint.flake8-pytest-style]
 # Existing tests use the tuple form for parametrize names
