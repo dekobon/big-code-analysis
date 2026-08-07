@@ -81,6 +81,32 @@ for historical reference.
   reachable crash: every one rests on an invariant as solid as the 37
   `expect` sites left alone. The difference is that an `unwrap()` states
   no invariant, which is the whole basis for gating it (#1227).
+- The Python bindings' ruff config states its rule set absolutely
+  (`select`) instead of relative to ruff's defaults (`extend-select`),
+  and the dev-extra bound moves to `ruff>=0.13,<0.17` with `uv.lock`
+  and the `requirements/` exports resolving 0.16.2. ruff 0.16.0 grew its
+  default rule set from 59 rules to 413, which under `extend-select`
+  took this config from 265 enabled rules to 501 and pulled in 28
+  families it never selected — `PLC` / `PLE` / `PLR` / `PLW` among
+  them, silently overriding the deliberate omission of Pylint's design
+  rules that the config comment states. The same release *dropped* 18
+  opinionated `E` / `F` rules from the defaults, which a
+  defaults-relative config would have lost just as quietly. Under
+  `select` the count is 265 on 0.15.22 (unchanged, so nothing was lost
+  by dropping the implicit defaults) and 268 on 0.16.2, the three
+  additions being new `RUF` rules in an already-selected family.
+  `ruff check` passes on 0.15.22 and 0.16.2 with no `noqa`, no
+  suppressions, and no source changes; the three diagnostics 0.16
+  reported (`DTZ001`, `BLE001`, `PYI044`) were all in families this
+  config never asked for. The `ruff-pre-commit` `rev:` in
+  `.pre-commit-config.yaml` moves to `v0.16.2` to match what `uv.lock`
+  resolves (it had drifted to `v0.15.14` against a locked 0.15.22).
+  The floor moves off `0.6` in the same breath because it was already
+  fiction: `UP038` left ruff's stable set in 0.13, and every release
+  from 0.6.0 through 0.12.12 flags the same five
+  `isinstance(x, (A, B))` sites here — under the old `extend-select`
+  config identically, so this states what was always true rather than
+  changing anything (#1222).
 
 ## [2.1.0] - 2026-08-06
 
