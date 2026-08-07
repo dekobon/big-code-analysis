@@ -374,7 +374,7 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "bca-tree-sitter-ccomment"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "cc",
  "tree-sitter-language",
@@ -382,7 +382,7 @@ dependencies = [
 
 [[package]]
 name = "bca-tree-sitter-mozcpp"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "cc",
  "tree-sitter-cpp",
@@ -391,7 +391,7 @@ dependencies = [
 
 [[package]]
 name = "bca-tree-sitter-mozjs"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "cc",
  "tree-sitter-javascript",
@@ -400,7 +400,7 @@ dependencies = [
 
 [[package]]
 name = "bca-tree-sitter-preproc"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "cc",
  "tree-sitter-language",
@@ -408,7 +408,7 @@ dependencies = [
 
 [[package]]
 name = "bca-tree-sitter-tcl"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "cc",
  "tree-sitter-language",
@@ -416,7 +416,7 @@ dependencies = [
 
 [[package]]
 name = "big-code-analysis"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "aho-corasick",
  "bca-tree-sitter-ccomment",
@@ -472,7 +472,7 @@ dependencies = [
 
 [[package]]
 name = "big-code-analysis-bench"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "big-code-analysis",
  "criterion",
@@ -481,7 +481,7 @@ dependencies = [
 
 [[package]]
 name = "big-code-analysis-cli"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "assert_cmd",
  "big-code-analysis",
@@ -504,7 +504,7 @@ dependencies = [
 
 [[package]]
 name = "big-code-analysis-py"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "big-code-analysis",
  "globset",
@@ -518,7 +518,7 @@ dependencies = [
 
 [[package]]
 name = "big-code-analysis-web"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "actix-rt",
  "actix-web",
@@ -5060,7 +5060,7 @@ checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
 name = "xtask"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "big-code-analysis-cli",
  "big-code-analysis-web",
