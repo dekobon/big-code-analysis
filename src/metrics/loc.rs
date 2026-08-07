@@ -72,10 +72,11 @@ fn min_or_zero(v: usize) -> u64 {
 /// single node's own span. The `debug_assert` pins that in tests; the
 /// `saturating_sub` decides what release does if it is ever violated
 /// anyway. Zero is the right answer there — an inverted span covers no
-/// rows — and it is emphatically better than wrapping, because the only
-/// consumer is `Sloc::excluded_lines`, which is later *subtracted* from
-/// a row count: a wrapped `usize::MAX` would propagate into SLOC and MI
-/// as garbage far from its cause, which is precisely how #1051 surfaced.
+/// rows. Note what this does *not* buy: `sloc()` already clamps with
+/// `saturating_sub`, so a wrapped value could not have escaped as
+/// `usize::MAX` either. It would have escaped as `sloc: 0` for a
+/// non-empty file, and on into MI's SLOC term — a wrong number surfacing
+/// far from its cause, which is how #1051 was reported.
 #[inline]
 fn span_rows(start_row: usize, end_line: usize) -> usize {
     debug_assert!(

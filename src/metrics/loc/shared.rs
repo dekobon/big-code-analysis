@@ -88,10 +88,14 @@ pub(crate) fn init(node: &Node, stats: &mut Stats, is_func_space: bool) -> (usiz
 // satisfies `end >= start`. The real guard against that is refusing to
 // underflow in the first place, at the site that adjusts the span.
 //
-// What the assert does not cover, the `saturating_sub` below does:
-// an inverted span yields a zero-row comment rather than wrapping to
-// `usize::MAX` and reaching `add_only_comment_lines` as a span that
-// `LineSet::insert_range` would then have to reject (#1152).
+// The `saturating_sub` below narrows what release does with an
+// inverted span, and the effect is smaller than it looks: `comment_diff`
+// feeds only the two branch tests, never a row index, so both branches
+// already hand `add_only_comment_lines` the raw `start`/`end` and
+// `LineSet::insert_range` already rejects the inversion. What changes is
+// which branch runs — `0` instead of a wrapped `usize::MAX` keeps a
+// comment sharing a code line in the `== 0` arm, where it belongs,
+// rather than the block-comment arm it wrapped into (#1152).
 pub(crate) fn add_cloc_lines(stats: &mut Stats, start: usize, end: usize) {
     debug_assert!(end >= start, "add_cloc_lines: end {end} < start {start}");
     let comment_diff = end.saturating_sub(start);
