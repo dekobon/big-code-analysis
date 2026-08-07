@@ -85,8 +85,9 @@ impl ParseError {
     /// closure onto the existing `500` path, logging the cause
     /// server-side and leaking nothing to the client.
     ///
-    /// Replaces `.expect(FEATURES_PINNED)` at all seven handler call
-    /// sites (#1152). The crate pins `all-languages`, so
+    /// Reached through [`run_parse_fallible`], which replaced
+    /// `.expect(FEATURES_PINNED)` at all seven handler call sites
+    /// (#1152). The crate pins `all-languages`, so
     /// `LanguageDisabled` is unreachable today — but `MetricsError` is
     /// `#[non_exhaustive]` and documents that variants may be added in a
     /// *minor* release, which made the `expect` a panic scheduled
