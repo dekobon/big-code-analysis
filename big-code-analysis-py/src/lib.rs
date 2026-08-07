@@ -7,6 +7,10 @@
 //! without spinning up a Python interpreter.
 
 #![allow(unsafe_op_in_unsafe_fn)]
+// Production-only `unwrap()` ban. See `[workspace.lints.clippy]` in the
+// root `Cargo.toml` for why this is a per-root attribute and not a
+// Cargo lint (#1227).
+#![cfg_attr(not(test), warn(clippy::unwrap_used))]
 // The `#[pymodule]` macro expands to an `extern "C"` init function
 // that PyO3 marks `#[unsafe(no_mangle)]`. The expansion contains
 // unsafe FFI shims that the macro itself wraps in `unsafe { ... }`;

@@ -7,6 +7,10 @@
 //! re-running `cargo xtask` fails the manpage job.
 #![allow(missing_docs)]
 #![allow(clippy::pedantic)]
+// Production-only `unwrap()` ban. See `[workspace.lints.clippy]` in the
+// root `Cargo.toml` for why this is a per-root attribute and not a
+// Cargo lint (#1227).
+#![cfg_attr(not(test), warn(clippy::unwrap_used))]
 
 use std::{
     env,
