@@ -138,11 +138,10 @@ pub(crate) async fn ast_parser(
             comment: payload.comment,
             span: payload.span,
         };
-        let result = run_parse(&config, &payload_id, move || {
+        let result = run_parse_fallible(&config, &payload_id, move || {
             Ast::parse(Source::from_bytes(language, buf)).map(|ast| ast.dump(cfg))
         })
-        .await?
-        .map_err(|err| ParseError::from_metrics(&payload_id, err))?;
+        .await?;
         // `root == None` previously surfaced as a `200` carrying
         // `root: null` (an error signalled inside a success body); map it
         // to an explicit `500` with an error body instead (issue #517).
@@ -187,11 +186,10 @@ pub(crate) async fn comment_removal_json(
             language: language.name().to_string(),
         };
         let language = comment_language(language);
-        let result = run_parse(&config, &payload_id, move || {
+        let result = run_parse_fallible(&config, &payload_id, move || {
             strip_comments(language, buf, cfg)
         })
-        .await?
-        .map_err(|err| ParseError::from_metrics(&payload_id, err))?;
+        .await?;
         // The JSON variant returns `code` as a string (#629). The request
         // `code` arrived as a JSON string and comment removal only deletes
         // byte ranges, so the stripped source stays valid UTF-8; a decode
@@ -233,9 +231,8 @@ pub(crate) async fn comment_removal_plain(
         let language = comment_language(language);
         // The octet-stream variants carry no request id in the body, so log
         // correlation falls back to the `TracingLogger` request span.
-        let res = run_parse(&config, "", move || strip_comments(language, buf, cfg))
-            .await?
-            .map_err(|err| ParseError::from_metrics("", err))?;
+        let res =
+            run_parse_fallible(&config, "", move || strip_comments(language, buf, cfg)).await?;
         // The "no comments to strip" outcome is the empty byte
         // sequence; both content types report it as `200` with an empty
         // payload rather than the JSON variant `200` diverging from a
@@ -270,11 +267,10 @@ pub(crate) async fn metrics_json(
         // request payload and chain `.with_exclude_tests(...)` here.
         let payload_id = payload.id.clone();
         let cfg = WebMetricsCfg::new(payload.id, path, payload.scope, name.to_string());
-        let response = run_parse(&config, &payload_id, move || {
+        let response = run_parse_fallible(&config, &payload_id, move || {
             compute_metrics(language, buf, cfg)
         })
-        .await?
-        .map_err(|err| ParseError::from_metrics(&payload_id, err))?;
+        .await?;
         // `None` means metric computation failed: answer with an explicit
         // `500` instead of the former `200`-with-`spaces: null` (issue #517).
         match response {
@@ -383,9 +379,8 @@ pub(crate) async fn metrics_plain(
     if let Some(language) = language {
         // Same `exclude_tests` rationale as the JSON variant above.
         let cfg = WebMetricsCfg::new(String::new(), path, scope, name.to_string());
-        let response = run_parse(&config, "", move || compute_metrics(language, buf, cfg))
-            .await?
-            .map_err(|err| ParseError::from_metrics("", err))?;
+        let response =
+            run_parse_fallible(&config, "", move || compute_metrics(language, buf, cfg)).await?;
         // Same error mapping as the JSON variant (issue #517); errors use
         // the uniform JSON body even on the octet-stream endpoint (#541).
         match response {
@@ -419,11 +414,10 @@ pub(crate) async fn function_json(
             id: payload.id,
             language: language.name().to_string(),
         };
-        let result = run_parse(&config, &payload_id, move || {
+        let result = run_parse_fallible(&config, &payload_id, move || {
             function_spans(language, buf, cfg)
         })
-        .await?
-        .map_err(|err| ParseError::from_metrics(&payload_id, err))?;
+        .await?;
         // `function_spans` returns a `serde_json::Value`, so the echoed
         // correlation id comes from the request, not the response body.
         Ok(negotiated_ok(&req, &result, payload_id))
@@ -447,9 +441,8 @@ pub(crate) async fn function_plain(
             id: String::new(),
             language: language.name().to_string(),
         };
-        let result = run_parse(&config, "", move || function_spans(language, buf, cfg))
-            .await?
-            .map_err(|err| ParseError::from_metrics("", err))?;
+        let result =
+            run_parse_fallible(&config, "", move || function_spans(language, buf, cfg)).await?;
         Ok(negotiated_ok(&req, &result, String::new()))
     } else {
         Ok(unsupported_language(String::new()))

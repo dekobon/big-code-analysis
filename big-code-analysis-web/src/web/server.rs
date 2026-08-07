@@ -47,6 +47,8 @@ use handlers::*;
 #[allow(clippy::wildcard_imports)]
 use routing::*;
 
+use big_code_analysis::MetricsError;
+
 struct ParseConfig {
     /// `None` means no timeout (`parse_timeout_secs = 0`).
     timeout: Option<Duration>,
@@ -80,6 +82,24 @@ const MAX_BODY_SIZE: usize = 1_024 * 1_024 * 4;
 /// with `tracing-actix-web`'s own span-level `request_id` (a per-request
 /// UUID), and it is echoed back in the `{error, id}` body of the typed
 /// [`ParseError`] returned on every failure (#639).
+/// [`run_parse`] for a closure that can itself fail.
+///
+/// The library entry points the handlers call all return
+/// `Result<_, MetricsError>`, so without this every call site repeats
+/// the same `.await?.map_err(ParseError::from_metrics)?` pair — seven
+/// chances to reach for `expect` instead, which is what #1152 was
+/// cleaning up. Folding it here leaves each handler with a single `?`
+/// and makes propagation the path of least resistance.
+async fn run_parse_fallible<T: Send + 'static>(
+    config: &web::Data<ParseConfig>,
+    payload_id: &str,
+    f: impl FnOnce() -> Result<T, MetricsError> + Send + 'static,
+) -> Result<T, ParseError> {
+    run_parse(config, payload_id, f)
+        .await?
+        .map_err(|err| ParseError::from_metrics(payload_id, err))
+}
+
 async fn run_parse<T: Send + 'static>(
     config: &web::Data<ParseConfig>,
     payload_id: &str,
