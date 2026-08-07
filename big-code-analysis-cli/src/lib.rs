@@ -109,18 +109,6 @@ use big_code_analysis::{
 };
 use big_code_analysis::{FuncSpace, Ops, get_from_ext, get_language_for_file, read_file};
 
-/// `expect` message used at every `action::<_>` call site inside the
-/// extracted `dispatch` module. Kept in `lib.rs` so any module that
-/// terminates with `expect(FEATURES_PINNED)` can import the same
-/// string and the invariant lives in one place.
-///
-/// The CLI pins `big-code-analysis` with `features = ["all-languages"]`,
-/// so a `LANG` value that reached this point must be enabled at compile
-/// time. Any future caller that loosens the feature pin must change
-/// this invariant explicitly.
-pub(crate) const FEATURES_PINNED: &str =
-    "CLI pins big-code-analysis features = [\"all-languages\"]";
-
 /// Process exit code for tool errors — bad flags/values, unreadable
 /// input, I/O failures. Distinct from [`EXIT_GATE_BREACH`] so CI can
 /// tell a broken invocation from a failed metric gate (#594); the full

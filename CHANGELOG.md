@@ -24,6 +24,44 @@ for historical reference.
 
 ## [Unreleased]
 
+### Fixed
+
+- The CLI and web crates no longer terminate on a library parse error.
+  All sixteen `.expect(FEATURES_PINNED)` call sites — eight in `bca`'s
+  dispatch helpers, seven in `bca-web`'s handlers, plus the constant
+  itself in each crate — now propagate onto the error channel each
+  caller already had: an `io::Error` of kind `InvalidData` that the
+  concurrent runner reports per file and continues past, and the
+  existing sanitized `500` that logs the cause server-side. The pinned
+  `all-languages` feature does make `MetricsError::LanguageDisabled`
+  unreachable, but `MetricsError` is `#[non_exhaustive]` and documents
+  that variants may be added in a *minor* release, so the `expect` was a
+  panic scheduled against a routine dependency bump rather than an
+  invariant. No behaviour changes today: the only reachable outcome is
+  still success (#1152).
+
+### Changed
+
+- `clippy::arithmetic_side_effects` is enforced on the `loc` metric
+  module, and the span arithmetic there is now explicitly saturating.
+  `Loc` is the one metric computing on tree-sitter row coordinates, and
+  #1051 was a `usize` underflow of exactly that shape — a Rust doc
+  comment at EOF drove `end - 1` below zero from an input as small as
+  `/// x`, panicking in debug and wrapping to `usize::MAX` in release.
+  Validated by replaying the lint against the pre-#1051 tree, where it
+  flags both reported panic sites. Metric values are unchanged: a
+  saturating operation is identical to the plain one unless it would
+  have overflowed, and none does (#1152).
+- `clippy::indexing_slicing` is enforced on `src/c_macro.rs`, the C/C++
+  macro-masking byte lexer, with nine per-function carve-outs each
+  naming the bound that makes its indexing safe. Validated by replaying
+  it against the pre-#126 tree, where it flags the `&DOLLARS[..]` slices
+  that panicked on macro identifiers longer than 2048 bytes. The one
+  slice whose bound is established in a *different* function —
+  `step_raw_string`'s delimiter comparison, carried through
+  `LexState::RawString` — is hardened with `get` rather than allowed
+  (#1152).
+
 ## [2.1.0] - 2026-08-06
 
 A feature and correctness release on the `2.x` line, and the first to

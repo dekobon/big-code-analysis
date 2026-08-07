@@ -1,3 +1,19 @@
+// This file is a hand-rolled byte lexer over attacker-controlled input:
+// `code` is whatever bytes a caller handed `bca` or `bca-web`, and every
+// index into it is computed rather than iterated. #126 was exactly that
+// shape — `&DOLLARS[..(i - start)]` sliced a fixed 2048-byte array with
+// an identifier length, so a 2049-byte macro name panicked the library.
+// Enabling the lint here was validated by replaying it against the
+// pre-#126 tree, where it flags both `DOLLARS` slices (#1152).
+//
+// The carve-outs below are per *function*, never file-wide, so a newly
+// added function is covered by default — that, rather than the existing
+// sites, is what the lint is here to guard. Each names the invariant
+// that makes its indexing safe; a site whose bound is established in a
+// *different* function is hardened with `get` instead of allowed, since
+// that is the #126 shape and the one a reader cannot check locally.
+#![warn(clippy::indexing_slicing)]
+
 use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::hash::Hash;
@@ -41,6 +57,9 @@ fn is_identifier_starter(c: u8) -> bool {
 /// numeric runs, so `in_number` is false and the literal still opens
 /// Char correctly.
 #[inline]
+// `i > 0` and `i + 1 < code.len()` are the two conjuncts immediately
+// left of each index, and `&&` short-circuits.
+#[allow(clippy::indexing_slicing)]
 fn is_digit_separator(code: &[u8], i: usize, in_number: bool) -> bool {
     in_number
         && i > 0
@@ -59,6 +78,9 @@ fn is_digit_separator(code: &[u8], i: usize, in_number: bool) -> bool {
 /// for the separator keeps the separator `'` from reaching the
 /// char-literal opener path.
 #[inline]
+// `i < code.len()` for every call: `replace`'s driver loop is the sole
+// caller of `step_normal`, which is the sole caller of this.
+#[allow(clippy::indexing_slicing)]
 fn track_numeric_run(code: &[u8], i: usize, k_start: usize, in_number: &mut bool) -> bool {
     let c = code[i];
     if c == b'\'' && is_digit_separator(code, i, *in_number) {
@@ -116,6 +138,11 @@ struct MaskState {
     new_code: Vec<u8>,
 }
 
+// `i < code.len()` from `replace`'s driver loop, its only caller. The
+// two lookaheads are each guarded by `i + 1 < code.len()`, and the
+// `code[start..i]` slices run from `k_start - 1`, a cursor this
+// function set from an earlier iteration of that same loop.
+#[allow(clippy::indexing_slicing)]
 fn step_normal<K: MacroName, S: ::std::hash::BuildHasher>(
     code: &[u8],
     i: usize,
@@ -196,6 +223,10 @@ fn step_normal<K: MacroName, S: ::std::hash::BuildHasher>(
 /// delimiter (bytes between `"` and `(`) and transition to
 /// `RawString`. Returns the number of bytes consumed up to and
 /// including the `(`.
+// `i` is the driver loop's cursor. `delim_end` is only dereferenced
+// inside `delim_end < code.len()`, and the `>= code.len()` bail below
+// covers the post-loop read.
+#[allow(clippy::indexing_slicing)]
 fn enter_raw_string(code: &[u8], i: usize, state: &mut LexState) -> usize {
     debug_assert_eq!(code[i], b'"');
     let delim_start = i + 1;
@@ -231,6 +262,9 @@ fn is_raw_string_prefix(ident: &[u8]) -> bool {
 /// Step inside a `"..."` string or `'.'` char literal. `quote` is the
 /// terminating byte; backslash-escapes (including line continuations)
 /// are consumed in one step so `\"` / `\'` do not exit the literal.
+// `i < code.len()` from the driver loop; the lookahead is guarded by
+// `i + 1 < code.len()`.
+#[allow(clippy::indexing_slicing)]
 fn step_quoted(code: &[u8], i: usize, quote: u8, state: &mut LexState) -> usize {
     let c = code[i];
     if c == b'\\' && i + 1 < code.len() {
@@ -242,6 +276,9 @@ fn step_quoted(code: &[u8], i: usize, quote: u8, state: &mut LexState) -> usize 
     1
 }
 
+// `i < code.len()` from the driver loop; the lookahead is guarded by
+// `i + 1 < code.len()`.
+#[allow(clippy::indexing_slicing)]
 fn step_line_comment(code: &[u8], i: usize, state: &mut LexState) -> usize {
     let c = code[i];
     if c == b'\\' && i + 1 < code.len() && code[i + 1] == b'\n' {
@@ -255,6 +292,9 @@ fn step_line_comment(code: &[u8], i: usize, state: &mut LexState) -> usize {
     1
 }
 
+// `i < code.len()` from the driver loop; the lookahead is guarded by
+// `i + 1 < code.len()`.
+#[allow(clippy::indexing_slicing)]
 fn step_block_comment(code: &[u8], i: usize, state: &mut LexState) -> usize {
     if code[i] == b'*' && i + 1 < code.len() && code[i + 1] == b'/' {
         *state = LexState::Normal;
@@ -263,6 +303,10 @@ fn step_block_comment(code: &[u8], i: usize, state: &mut LexState) -> usize {
     1
 }
 
+// `i < code.len()` from the driver loop. The delimiter comparison is
+// deliberately *not* covered by this allow — see the `get` calls in the
+// body and the comment on them.
+#[allow(clippy::indexing_slicing)]
 fn step_raw_string(
     code: &[u8],
     i: usize,
@@ -274,9 +318,15 @@ fn step_raw_string(
     // happens inside, so this is a literal match.
     if code[i] == b')' {
         let close_quote = i + 1 + delim_len;
-        if close_quote < code.len()
-            && code[close_quote] == b'"'
-            && code[i + 1..close_quote] == code[delim_start..delim_start + delim_len]
+        // `delim_start` / `delim_len` were computed by `enter_raw_string`
+        // and carried here through `LexState::RawString`, so unlike every
+        // other bound in this file theirs cannot be checked by reading
+        // this function — the #126 shape. `get` rather than a slice index
+        // keeps a drifted delimiter a missed close rather than a panic.
+        // The `Some(&b'"')` test also proves the `i + 1..close_quote`
+        // lookup is in range, so the two `None`s can never compare equal.
+        if code.get(close_quote) == Some(&b'"')
+            && code.get(i + 1..close_quote) == code.get(delim_start..delim_start + delim_len)
         {
             *state = LexState::Normal;
             return close_quote - i + 1;
@@ -285,6 +335,12 @@ fn step_raw_string(
     1
 }
 
+// The trailing-identifier block slices `start..end` where `end` is
+// `code.len()` and `start` is `k_start - 1`, a cursor `step_normal`
+// only ever sets to an index it has already read. `code_start` is
+// likewise a position reached by the loop, so `code[code_start..]` is
+// in range, and empty rather than out of bounds at `code.len()`.
+#[allow(clippy::indexing_slicing)]
 pub(crate) fn replace<K: MacroName, S: ::std::hash::BuildHasher>(
     code: &[u8],
     macros: &HashSet<K, S>,

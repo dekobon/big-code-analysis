@@ -5,6 +5,7 @@
 #![allow(clippy::wildcard_imports)]
 
 use super::*;
+use big_code_analysis::MetricsError;
 
 /// `error` message returned when the submitted `file_name` (and content
 /// sniffing) cannot be mapped to a supported language.
@@ -80,6 +81,29 @@ pub(crate) enum ParseError {
 }
 
 impl ParseError {
+    /// Maps a library [`MetricsError`] returned out of a `run_parse`
+    /// closure onto the existing `500` path, logging the cause
+    /// server-side and leaking nothing to the client.
+    ///
+    /// Replaces `.expect(FEATURES_PINNED)` at all seven handler call
+    /// sites (#1152). The crate pins `all-languages`, so
+    /// `LanguageDisabled` is unreachable today — but `MetricsError` is
+    /// `#[non_exhaustive]` and documents that variants may be added in a
+    /// *minor* release, which made the `expect` a panic scheduled
+    /// against a routine dependency bump.
+    ///
+    /// The client-visible status does not change: unwinding inside
+    /// `spawn_blocking` already arrived here as [`ParseError::Internal`]
+    /// via the `JoinError` arm. What changes is that the log names the
+    /// real cause instead of "task panicked", and no worker thread
+    /// unwinds to produce it.
+    pub(crate) fn from_metrics(payload_id: &str, err: MetricsError) -> Self {
+        tracing::error!(payload_id = %payload_id, error = %err, "Parse failed");
+        ParseError::Internal {
+            id: payload_id.to_owned(),
+        }
+    }
+
     fn id(&self) -> &str {
         match self {
             ParseError::Saturated { id }

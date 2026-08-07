@@ -33,7 +33,7 @@ impl Loc for KotlinCode {
             ForStatement | WhileStatement | DoWhileStatement | IfExpression | WhenExpression
             | TryExpression | ThrowExpression | ReturnExpression | Assignment
             | PropertyDeclaration => {
-                stats.lloc.logical_lines += 1;
+                stats.lloc.count_logical_line();
             }
             // Bare expression statements (e.g. `println(x)`) have no
             // ExpressionStatement wrapper in tree-sitter-kotlin-ng. Count
@@ -47,7 +47,7 @@ impl Loc for KotlinCode {
                         Block | FunctionBody | SourceFile | CatchBlock | FinallyBlock
                     )
                 {
-                    stats.lloc.logical_lines += 1;
+                    stats.lloc.count_logical_line();
                 } else {
                     check_comment_ends_on_code_line(stats, start);
                     stats.ploc.lines.insert(start);

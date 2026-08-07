@@ -54,7 +54,7 @@ impl Loc for PythonCode {
                         check_comment_ends_on_code_line(stats, start);
                         stats.ploc.lines.insert(start);
                     }
-                    (start + 1..=end).for_each(|line| {
+                    (start.saturating_add(1)..=end).for_each(|line| {
                         stats.ploc.lines.insert(line);
                     });
                 }
@@ -93,7 +93,7 @@ impl Loc for PythonCode {
             | NonlocalStatement
             | ExecStatement
             | ExpressionStatement => {
-                stats.lloc.logical_lines += 1;
+                stats.lloc.count_logical_line();
             }
             _ => {
                 check_comment_ends_on_code_line(stats, start);

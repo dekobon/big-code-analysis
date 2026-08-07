@@ -73,7 +73,7 @@ impl Loc for PerlCode {
             | P::UseParentStatement
             | P::UseNoVersion
             | P::EllipsisStatement => {
-                stats.lloc.logical_lines += 1;
+                stats.lloc.count_logical_line();
             }
             P::SEMI => {
                 // A `;` at top of `source_file` / a function `block` ends a
@@ -84,7 +84,7 @@ impl Loc for PerlCode {
                 if let Some(parent) = ancestors.parent(node)
                     && matches!(parent.kind_id().into(), P::SourceFile | P::Block)
                 {
-                    stats.lloc.logical_lines += 1;
+                    stats.lloc.count_logical_line();
                 }
                 check_comment_ends_on_code_line(stats, start);
                 stats.ploc.lines.insert(start);

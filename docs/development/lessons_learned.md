@@ -1065,10 +1065,9 @@ making it look deliberate.
 cannot be feature-gated without widening the return to a `Result` (or
 another error-carrying shape). Plan the widening into the same change as
 the feature flag — splitting into separate PRs costs an unbuildable
-intermediate state. Always-pinned downstream callers can carry the
-invariant with a single `const FEATURES_PINNED: &str` plus
-`.expect(FEATURES_PINNED)` at every call site; defining the invariant
-once is more honest than scattering identical panic literals.
+intermediate state. Do **not** discharge the widened `Result` at the
+call site with an `expect`, however well the invariant is documented:
+propagate it onto whatever error channel the caller already has.
 
 When per-language features remove `LANG` variants from the build, the
 dispatch macro must still match every variant of the always-defined
@@ -1085,6 +1084,24 @@ widened to `Result<_, MetricsError>`. This rippled into the CLI and web
 crates, where every call site became `.expect(FEATURES_PINNED)` because
 both pin `features = ["all-languages"]` and the disabled arm is provably
 unreachable. Recorded in `CHANGELOG.md` and `STABILITY.md`.
+
+**The `expect` half of that was wrong, and #1152 removed all sixteen
+call sites.** The invariant it named was real — the feature pin does
+make `LanguageDisabled` unreachable — but it was the wrong invariant to
+rest a panic on. `MetricsError` is `#[non_exhaustive]`, and its own
+documentation reserves the right to add variants in a *minor* release,
+so "provably unreachable" held only for the variants that existed on the
+day it was written. A future variant would have turned a routine
+dependency bump into a panic, in a library whose input is
+attacker-controlled source. Naming an invariant once does not make it
+load-bearing; what makes it safe is that violating it cannot panic.
+
+Both crates already had an error channel to propagate onto, which is the
+tell that the `expect` was never necessary: the CLI's dispatch helpers
+return `std::io::Result<()>` and its runner prints a per-file line and
+continues, and the web handlers return `Result<HttpResponse, Error>`
+with an existing sanitized `500`. Neither needed a new failure mode —
+only for the existing one to be used.
 
 ---
 

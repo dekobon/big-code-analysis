@@ -62,7 +62,7 @@ impl Loc for ElixirCode {
                         )
                     })
                 {
-                    stats.lloc.logical_lines += 1;
+                    stats.lloc.count_logical_line();
                 }
                 if node.child_count() == 0 {
                     check_comment_ends_on_code_line(stats, start);

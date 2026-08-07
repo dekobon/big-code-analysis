@@ -55,7 +55,7 @@ impl Loc for IrulesCode {
             | Irules::Try
             | Irules::Catch
             | Irules::Regexp => {
-                stats.lloc.logical_lines += 1;
+                stats.lloc.count_logical_line();
             }
 
             // `expr` and a bare command are logical lines at statement
@@ -70,7 +70,7 @@ impl Loc for IrulesCode {
                     .parent(node)
                     .is_none_or(|p| p.kind_id() != Irules::CommandSubstitution) =>
             {
-                stats.lloc.logical_lines += 1;
+                stats.lloc.count_logical_line();
             }
 
             _ => {

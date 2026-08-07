@@ -51,8 +51,12 @@ impl Loc for RustCode {
                 //
                 // Cheap operand first: `end > start` is false for every plain
                 // line comment, short-circuiting `is_child`'s child walk.
+                //
+                // `saturating_sub` is exact under that guard — `end > start`
+                // and `start >= 0` give `end >= 1` — and is belt-and-braces
+                // on the one line in this crate known to have underflowed.
                 let end = if end > start && node.is_child(DocComment as u16) {
-                    end - 1
+                    end.saturating_sub(1)
                 } else {
                     end
                 };
@@ -64,7 +68,7 @@ impl Loc for RustCode {
             | LetDeclaration
             | AssignmentExpression
             | CompoundAssignmentExpr => {
-                stats.lloc.logical_lines += 1;
+                stats.lloc.count_logical_line();
             }
             _ => {
                 check_comment_ends_on_code_line(stats, start);

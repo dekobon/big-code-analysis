@@ -36,7 +36,7 @@ impl Loc for JavaCode {
             | EnhancedForStatement | ExpressionStatement | ForStatement | IfStatement
             | ReturnStatement | SwitchExpression | ThrowStatement | TryStatement
             | WhileStatement => {
-                stats.lloc.logical_lines += 1;
+                stats.lloc.count_logical_line();
             }
             LocalVariableDeclaration => {
                 if node.count_specific_ancestors::<JavaCode>(
@@ -48,7 +48,7 @@ impl Loc for JavaCode {
                     // The initializer, condition, and increment in a for loop are expressions.
                     // Don't count the variable declaration if in a ForStatement.
                     // https://docs.oracle.com/javase/tutorial/java/nutsandbolts/for.html
-                    stats.lloc.logical_lines += 1;
+                    stats.lloc.count_logical_line();
                 }
             }
             _ => {

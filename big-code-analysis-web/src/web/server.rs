@@ -47,14 +47,6 @@ use handlers::*;
 #[allow(clippy::wildcard_imports)]
 use routing::*;
 
-/// `expect` message used at every `action::<_>` call site below.
-///
-/// The web crate pins `big-code-analysis` with `features =
-/// ["all-languages"]`, so a `LANG` value that reached this point must
-/// be enabled at compile time. Any future caller that loosens the
-/// feature pin must change this invariant explicitly.
-const FEATURES_PINNED: &str = "web crate pins big-code-analysis features = [\"all-languages\"]";
-
 struct ParseConfig {
     /// `None` means no timeout (`parse_timeout_secs = 0`).
     timeout: Option<Duration>,

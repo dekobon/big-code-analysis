@@ -34,7 +34,7 @@ impl Loc for CppCode {
             | ReturnStatement | BreakStatement | ContinueStatement | GotoStatement
             | ThrowStatement | TryStatement | TryStatement2 | ExpressionStatement
             | ExpressionStatement2 | LabeledStatement | StatementIdentifier => {
-                stats.lloc.logical_lines += 1;
+                stats.lloc.count_logical_line();
             }
             Declaration => {
                 if node.count_specific_ancestors::<CppCode>(
@@ -48,7 +48,7 @@ impl Loc for CppCode {
                     |node| node.kind_id() == CompoundStatement,
                 ) == 0
                 {
-                    stats.lloc.logical_lines += 1;
+                    stats.lloc.count_logical_line();
                 }
             }
             _ => {
@@ -59,7 +59,7 @@ impl Loc for CppCode {
                 // `tree-sitter-cpp` doesn't expand macros, providing a single `PreprocArg` node for the entire macro argument.
                 // Therefore, all lines from `start_row` to `end_row` must be added to PLOC to account for the unexpanded macro content
                 if let PreprocArg = node.kind_id().into() {
-                    (node.start_row() + 1..=node.end_row()).for_each(|line| {
+                    (node.start_row().saturating_add(1)..=node.end_row()).for_each(|line| {
                         stats.ploc.lines.insert(line);
                     });
                 }
