@@ -61,6 +61,18 @@ for historical reference.
   `step_raw_string`'s delimiter comparison, carried through
   `LexState::RawString` — is hardened with `get` rather than allowed
   (#1152).
+- `clippy::unwrap_used` is enforced on production code across every
+  crate, as `#![cfg_attr(not(test), warn(...))]` at each of the eight
+  lib/bin roots rather than a `[workspace.lints]` entry: a Cargo lint
+  applies to every target of its package, and the ban is a production
+  rule — this workspace has **0** production `unwrap()` calls against
+  1,023 legitimate ones in test targets. `cfg(test)` is set for
+  integration-test crates as well as the unit-test target, so the gate
+  needs no per-file carve-out and carries zero `#[allow]`s. Adopting it
+  costs nothing today and fails CI on the first production `unwrap()`
+  added. `clippy::expect_used` is deliberately **not** enabled — all 37
+  production `expect` sites already name their invariant in the message,
+  the form `AGENTS.md` sanctions (#1227).
 
 ## [2.1.0] - 2026-08-06
 

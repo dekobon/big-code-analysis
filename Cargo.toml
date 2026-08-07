@@ -118,6 +118,25 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(chain_audit)'] }
 pedantic = { level = "warn", priority = -1 }
 module_name_repetitions = "allow"
 
+# `clippy::unwrap_used` is deliberately NOT declared here. It is set as
+# `#![cfg_attr(not(test), warn(clippy::unwrap_used))]` at each production
+# crate root instead (the eight lib/bin roots), because a Cargo lint
+# applies to every target of its package and the `unwrap` ban is a
+# production rule: this workspace's test targets hold 1_023 legitimate
+# `unwrap()` calls, against 0 in production. `cfg(test)` is set for
+# integration-test crates as well as for the unit-test target, so the
+# per-root form needs no per-file carve-out and carries zero `#[allow]`s.
+#
+# `clippy::expect_used` is not enabled at all. All 37 production `expect`
+# sites already name their invariant in the message, which is the form
+# `AGENTS.md` sanctions, so gating it would buy 37 annotations that each
+# restate the line above them. The distinction that matters is not
+# `expect`-vs-`unwrap` but *what can invalidate the invariant*: the
+# `FEATURES_PINNED` sites removed in #1152 rested on a `#[non_exhaustive]`
+# enum a dependency bump could change underneath them, whereas these 37
+# rest on facts local to this repository, which review and tests cover.
+# See #1227 for the full triage.
+
 [package]
 name = "big-code-analysis"
 version.workspace = true

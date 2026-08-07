@@ -3,6 +3,10 @@
 // The deeply nested `json!` literals in server.rs tests exceed the default
 // recursion limit (128) during `json_internal!` macro expansion.
 #![recursion_limit = "256"]
+// Production-only `unwrap()` ban. See `[workspace.lints.clippy]` in the
+// root `Cargo.toml` for why this is a per-root attribute and not a
+// Cargo lint (#1227).
+#![cfg_attr(not(test), warn(clippy::unwrap_used))]
 
 /// HTTP endpoints and request handlers.
 pub mod web;
