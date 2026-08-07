@@ -24,6 +24,19 @@ for historical reference.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-08-06
+
+A feature and correctness release on the `2.x` line, and the first to
+carry a deliberate exception to the stability contract. `FuncSpace`,
+`Ops`, `AstNode`, `wire::FuncSpace` and `wire::Ops` gained an explicit
+`Drop` impl (#1056): a source-level break (`E0509` on a by-value field
+move, fixed at each call site with a `.clone()` or a borrow) landed
+under a minor because the compiler-generated drop glue recursed once
+per nesting level and aborted the process on a deep tree — reachable
+remotely through `bca-web`'s 4 MiB body cap. Its **(breaking)** entry
+under *Changed* below carries the full rationale. Everything else in
+this release is additive or a fix.
+
 ### Added
 
 - `bca check --print-effective-config` reports which exclude globs are
@@ -7622,7 +7635,8 @@ Halstead scores, and MI stay `f64`. No value changes — only the type.
 [Unreleased] link to `vX.Y.Z...HEAD` and add a `[X.Y.Z]:` line
 pointing at `<prev-tag>...vX.Y.Z`. -->
 
-[Unreleased]: https://github.com/dekobon/big-code-analysis/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/dekobon/big-code-analysis/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/dekobon/big-code-analysis/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/dekobon/big-code-analysis/compare/v1.1.0...v2.0.0
 [1.1.0]: https://github.com/dekobon/big-code-analysis/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/dekobon/big-code-analysis/compare/007ee15...v1.0.0
