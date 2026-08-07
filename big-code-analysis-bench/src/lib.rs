@@ -1,9 +1,4 @@
 //! Benchmark harness for the `big-code-analysis` metric walk (#1068).
-
-// Production-only `unwrap()` ban. See `[workspace.lints.clippy]` in the
-// root `Cargo.toml` for why this is a per-root attribute and not a
-// Cargo lint (#1227).
-#![cfg_attr(not(test), warn(clippy::unwrap_used))]
 //!
 //! The crate is split three ways:
 //!
@@ -24,6 +19,11 @@
 //!
 //! See `docs/development/benchmarking.md` for invocation and for the
 //! measurement traps this harness exists to prevent.
+
+// Production-only `unwrap()` ban. See `[workspace.lints.clippy]` in the
+// root `Cargo.toml` for why this is a per-root attribute and not a
+// Cargo lint (#1227).
+#![cfg_attr(not(test), warn(clippy::unwrap_used))]
 
 pub mod cli;
 pub mod corpus;
