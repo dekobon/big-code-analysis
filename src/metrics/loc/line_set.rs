@@ -49,6 +49,24 @@
 //! place of a probe per row per nesting level) is paid for by every
 //! space.
 
+// The enclosing module warns on `arithmetic_side_effects` because its
+// arithmetic is on tree-sitter span coordinates (#1051, #1152). This
+// file is the deliberate carve-out: its arithmetic is on *word indices
+// into `words`*, and every site is bounds-established at the point of
+// use rather than by a property of the input — `reserve` runs before
+// each subtraction in `insert`/`insert_range`/`union_with`, `slot` and
+// `word` already use `checked_sub`, and `insert_range` returns early on
+// an inverted span.
+//
+// Making these saturating would be actively worse than leaving them
+// checked. `self.words[word - self.first_word]` saturating to index 0
+// reads or writes *the wrong row's word* and silently miscounts the
+// metric; the current form panics on a corrupt offset, which is how
+// `intersection_len`'s comment says it is meant to fail. Prevention and
+// masking point in opposite directions here, so the lint is off rather
+// than satisfied.
+#![allow(clippy::arithmetic_side_effects)]
+
 use std::fmt;
 
 /// Bits per element of [`LineSet::words`].

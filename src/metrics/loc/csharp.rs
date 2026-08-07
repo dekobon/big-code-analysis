@@ -35,7 +35,7 @@ impl Loc for CsharpCode {
             | GotoStatement | IfStatement | LabeledStatement | LockStatement | ReturnStatement
             | SwitchStatement | ThrowStatement | TryStatement | UnsafeStatement
             | UsingStatement | WhileStatement | YieldStatement => {
-                stats.lloc.logical_lines += 1;
+                stats.lloc.count_logical_line();
             }
             LocalDeclarationStatement => {
                 // Variable declarations inside a `for_statement` init/condition/update
@@ -47,7 +47,7 @@ impl Loc for CsharpCode {
                     |n| n.kind_id() == Block,
                 ) == 0
                 {
-                    stats.lloc.logical_lines += 1;
+                    stats.lloc.count_logical_line();
                 }
             }
             _ => {

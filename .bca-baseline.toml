@@ -169,9 +169,21 @@ value = 5.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/dispatch.rs"
+qualified = "dispatch_exemptions"
+metric = "nexits"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/dispatch.rs"
 qualified = "dispatch_find"
 metric = "nargs"
 value = 6.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/dispatch.rs"
+qualified = "dispatch_find"
+metric = "nexits"
+value = 5.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/dispatch.rs"
@@ -1005,7 +1017,7 @@ value = 5.0
 path = "src/metrics/loc/perl.rs"
 qualified = "PerlCode::compute"
 metric = "halstead.effort"
-value = 55025.91689557041
+value = 52134.594881912846
 
 [[entry]]
 path = "src/metrics/loc/shared.rs"

@@ -87,9 +87,14 @@ pub(crate) fn init(node: &Node, stats: &mut Stats, is_func_space: bool) -> (usiz
 // whose own arithmetic already wrapped, because `(0, usize::MAX)`
 // satisfies `end >= start`. The real guard against that is refusing to
 // underflow in the first place, at the site that adjusts the span.
+//
+// What the assert does not cover, the `saturating_sub` below does:
+// an inverted span yields a zero-row comment rather than wrapping to
+// `usize::MAX` and reaching `add_only_comment_lines` as a span that
+// `LineSet::insert_range` would then have to reject (#1152).
 pub(crate) fn add_cloc_lines(stats: &mut Stats, start: usize, end: usize) {
     debug_assert!(end >= start, "add_cloc_lines: end {end} < start {start}");
-    let comment_diff = end - start;
+    let comment_diff = end.saturating_sub(start);
     let is_comment_after_code_line = stats.ploc.lines.contains(start);
     if is_comment_after_code_line && comment_diff == 0 {
         // A comment is *entirely* next to a code line
@@ -98,7 +103,7 @@ pub(crate) fn add_cloc_lines(stats: &mut Stats, start: usize, end: usize) {
         // A block comment that starts next to a code line and ends on
         // independent lines.
         add_code_comment_line(stats, start);
-        add_only_comment_lines(stats, start + 1, end);
+        add_only_comment_lines(stats, start.saturating_add(1), end);
     } else {
         // A comment on an independent line AND
         // a block comment on independent lines OR
@@ -182,7 +187,7 @@ pub(crate) fn add_multiline_string_ploc(
         check_comment_ends_on_code_line(stats, start);
         stats.ploc.lines.insert(start);
     }
-    (start + 1..=end).for_each(|line| {
+    (start.saturating_add(1)..=end).for_each(|line| {
         stats.ploc.lines.insert(line);
     });
 }

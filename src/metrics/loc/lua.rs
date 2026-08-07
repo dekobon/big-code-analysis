@@ -57,7 +57,7 @@ impl Loc for LuaCode {
                     )
                 }) =>
             {
-                stats.lloc.logical_lines += 1;
+                stats.lloc.count_logical_line();
             }
 
             Lua::IfStatement
@@ -75,7 +75,7 @@ impl Loc for LuaCode {
             | Lua::FunctionDeclaration
             | Lua::FunctionDeclaration2
             | Lua::FunctionDeclaration3 => {
-                stats.lloc.logical_lines += 1;
+                stats.lloc.count_logical_line();
             }
 
             _ => {

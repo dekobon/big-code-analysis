@@ -29,7 +29,7 @@ use big_code_analysis::{
 use crate::exemptions::FileMarkers;
 use crate::formats::{MetricsDispatch, MetricsFormat, dump_csv};
 use crate::markdown_report::extract_summaries;
-use crate::{Action, Config, FEATURES_PINNED, note, warn};
+use crate::{Action, Config, note, warn};
 
 /// Analyze one already-read file via the explicit-name [`Source`] seam.
 ///
@@ -64,6 +64,42 @@ fn parse_ast(
             .with_preproc_path(Some(path))
             .with_preproc(pr),
     )
+}
+
+/// [`parse_ast`], with the library error mapped onto the `io::Result`
+/// channel every dispatch helper already returns.
+///
+/// This replaces `.expect(FEATURES_PINNED)` at all eight dispatch call
+/// sites (#1152). The feature pin does make [`MetricsError`]'s only
+/// reachable variant, `LanguageDisabled`, unreachable here — but
+/// `MetricsError` is `#[non_exhaustive]` and its own documentation
+/// reserves the right to add variants in a *minor* release, so the
+/// `expect` was a panic scheduled against a routine dependency bump
+/// rather than an invariant. `ErrorKind::InvalidData` is the honest
+/// classification: whatever a future variant turns out to mean, it
+/// means this file's bytes did not yield a tree.
+///
+/// The failure is per-file. `act_on_file` returns this to the
+/// concurrent runner, which prints a per-file error line and carries
+/// on — so an unparseable file costs that file, where the `expect`
+/// unwound a worker mid-walk and took the rest of the run with it.
+fn parse_ast_io(
+    language: LANG,
+    source: Vec<u8>,
+    path: &Path,
+    pr: Option<Arc<PreprocResults>>,
+) -> std::io::Result<Ast> {
+    parse_ast(language, source, path, pr).map_err(parse_error_to_io)
+}
+
+/// Lifts a [`MetricsError`] into the `io::Error` channel.
+///
+/// Split out of [`parse_ast_io`] so the mapping is reachable from a
+/// test: the CLI's feature pin makes every current `MetricsError`
+/// variant unreachable through `parse_ast_io` itself, so the branch has
+/// no end-to-end trigger and would otherwise ship uncovered.
+fn parse_error_to_io(err: MetricsError) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, err)
 }
 
 pub(crate) fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
@@ -205,7 +241,7 @@ fn dispatch_dump(
     // The CLI pins the library's `all-languages` feature, so
     // `LanguageDisabled` from `Ast::parse` is unreachable; the `expect`
     // documents that invariant.
-    let ast = parse_ast(language, source, &path, pr).expect(FEATURES_PINNED);
+    let ast = parse_ast_io(language, source, &path, pr)?;
     // Per-file banner so a multi-file dump is attributable: the parallel
     // walk interleaves trees by worker scheduling, and without a header
     // which tree belongs to which file is unrecoverable (#690).
@@ -281,10 +317,7 @@ fn dispatch_metrics(
         // Human-readable metric dump: parse once, then render the tree.
         // A walker error degrades to no output (matching the prior
         // `Metrics` callback), never an `Err`.
-        match parse_ast(language, source, &path, pr)
-            .expect(FEATURES_PINNED)
-            .metrics(cfg.metrics_options())
-        {
+        match parse_ast_io(language, source, &path, pr)?.metrics(cfg.metrics_options()) {
             Ok(space) => dump_root_with_color(&space, cfg.color),
             Err(_) => Ok(()),
         }
@@ -323,10 +356,7 @@ fn dispatch_ops(
     } else {
         // Human-readable ops dump: a walker error degrades to no output
         // (matching the prior `OpsCode` callback), never an `Err`.
-        match parse_ast(language, source, &path, pr)
-            .expect(FEATURES_PINNED)
-            .ops()
-        {
+        match parse_ast_io(language, source, &path, pr)?.ops() {
             Ok(ops) => dump_ops_with_color(&ops, cfg.color),
             Err(_) => Ok(()),
         }
@@ -349,7 +379,7 @@ fn dispatch_strip_comments(
     } else {
         language
     };
-    let ast = parse_ast(lang, source, &path, pr).expect(FEATURES_PINNED);
+    let ast = parse_ast_io(lang, source, &path, pr)?;
     if let Some(new_source) = ast.strip_comments() {
         if in_place {
             write_file(&path, &new_source)?;
@@ -390,7 +420,7 @@ fn dispatch_functions(
     pr: Option<Arc<PreprocResults>>,
     cfg: &Config,
 ) -> std::io::Result<()> {
-    let ast = parse_ast(language, source, &path, pr).expect(FEATURES_PINNED);
+    let ast = parse_ast_io(language, source, &path, pr)?;
     dump_function_spans_with_color(ast.functions(), &path, cfg.color)
 }
 
@@ -402,7 +432,7 @@ fn dispatch_find(
     cfg: &Config,
     filters: &Arc<[String]>,
 ) -> std::io::Result<()> {
-    let ast = parse_ast(language, source, &path, pr).expect(FEATURES_PINNED);
+    let ast = parse_ast_io(language, source, &path, pr)?;
     // A walker error degrades to no output, matching `dispatch_metrics`
     // / `dispatch_ops`. `Ast::find` is infallible today, but its `Result`
     // is contracted to become fallible under a future strict-parsing mode
@@ -449,9 +479,7 @@ fn dispatch_count(
         .count_lock
         .clone()
         .expect("Count handler initializes count_lock before dispatch");
-    let (good, total) = parse_ast(language, source, &path, pr)
-        .expect(FEATURES_PINNED)
-        .count(&filters[..]);
+    let (good, total) = parse_ast_io(language, source, &path, pr)?.count(&filters[..]);
     stats.add(good, total);
     Ok(())
 }
@@ -606,9 +634,7 @@ fn dispatch_exemptions(
         }
         return Ok(());
     };
-    let markers = parse_ast(language, source, &path, pr)
-        .expect(FEATURES_PINNED)
-        .suppressions();
+    let markers = parse_ast_io(language, source, &path, pr)?.suppressions();
     // Empty files are the dominant case (most source carries no
     // markers); skip the channel send and the per-file allocation when
     // there is nothing to report.
@@ -654,6 +680,39 @@ mod tests {
     use big_code_analysis::SuppressionPolicy;
     use std::sync::Mutex;
     use std::sync::atomic::AtomicUsize;
+
+    /// The dispatch helpers propagate a library parse failure instead of
+    /// panicking through `expect(FEATURES_PINNED)` (#1152).
+    ///
+    /// Unreachable end-to-end by construction: the CLI pins
+    /// `all-languages`, so `LanguageDisabled` cannot be produced here,
+    /// and `MetricsError` is `#[non_exhaustive]` precisely so that a
+    /// *future* variant can be. That is the whole reason the `expect`
+    /// was wrong, and it is why this asserts on the mapping directly
+    /// rather than through a `bca` invocation.
+    ///
+    /// `InvalidData` is load-bearing: `act_on_file`'s caller reports the
+    /// per-file line and continues, and `BrokenPipe` is the one kind it
+    /// treats specially, so a mapping that reached for that would
+    /// silently swallow the failure.
+    #[test]
+    fn a_library_parse_error_becomes_an_invalid_data_io_error() {
+        let err = parse_error_to_io(MetricsError::LanguageDisabled(LANG::Rust));
+
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        // The cause survives the lift rather than being flattened to a
+        // generic string, so the per-file line names the language.
+        assert!(
+            err.to_string().contains("rust"),
+            "the io::Error must carry the library message, got {err}"
+        );
+        assert!(
+            err.get_ref()
+                .and_then(|inner| inner.downcast_ref::<MetricsError>())
+                .is_some(),
+            "the MetricsError must be retrievable, not stringified"
+        );
+    }
 
     // Minimal `Config` for exercising `dispatch_preproc` in isolation.
     // Only `preproc_lock` and `warning` are load-bearing here; every

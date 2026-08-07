@@ -43,7 +43,7 @@ impl Loc for MozjsCode {
             | TryStatement | WithStatement | BreakStatement | ContinueStatement
             | DebuggerStatement | ReturnStatement | ThrowStatement | EmptyStatement
             | StatementIdentifier => {
-                stats.lloc.logical_lines += 1;
+                stats.lloc.count_logical_line();
             }
             _ => {
                 check_comment_ends_on_code_line(stats, start);

@@ -21,6 +21,20 @@
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss
 )]
+// `Loc` is the one metric that computes on tree-sitter *span
+// coordinates* rather than on its own accumulators, and a row index
+// arriving from a parse is attacker-controlled through the source
+// layout. #1051 was a `usize` underflow of exactly this shape — a Rust
+// doc comment at EOF drove `end - 1` below zero, panicking in debug and
+// wrapping to `usize::MAX` in release, from an input as small as
+// `/// x`. Warning here forces every span adjustment to be explicitly
+// saturating, checked, or annotated, rather than relying on a bound
+// that holds only until a grammar changes shape.
+//
+// Deliberately scoped to `loc` rather than to `src/metrics/`: the other
+// metrics contribute 244 hits, all of them `+=` on their own counters,
+// which is not this bug class and would bury it (#1152).
+#![warn(clippy::arithmetic_side_effects)]
 
 use crate::checker::Checker;
 use crate::metrics::npa::python_is_block;
@@ -55,10 +69,20 @@ fn min_or_zero(v: usize) -> u64 {
 /// does (false for Perl, whose last `sub` gained one).
 ///
 /// Requires `end_line >= start_row`, which tree-sitter guarantees for a
-/// single node's own span.
+/// single node's own span. The `debug_assert` pins that in tests; the
+/// `saturating_sub` decides what release does if it is ever violated
+/// anyway. Zero is the right answer there — an inverted span covers no
+/// rows — and it is emphatically better than wrapping, because the only
+/// consumer is `Sloc::excluded_lines`, which is later *subtracted* from
+/// a row count: a wrapped `usize::MAX` would propagate into SLOC and MI
+/// as garbage far from its cause, which is precisely how #1051 surfaced.
 #[inline]
 fn span_rows(start_row: usize, end_line: usize) -> usize {
-    end_line - start_row
+    debug_assert!(
+        end_line >= start_row,
+        "span_rows: end_line {end_line} < start_row {start_row}"
+    );
+    end_line.saturating_sub(start_row)
 }
 
 mod line_set;
@@ -128,7 +152,9 @@ impl Sloc {
     /// without an interval merge (issue #722).
     #[inline]
     pub(crate) fn exclude_span(&mut self, start_row: usize, end_line: usize) {
-        self.excluded_lines += span_rows(start_row, end_line);
+        self.excluded_lines = self
+            .excluded_lines
+            .saturating_add(span_rows(start_row, end_line));
     }
 
     /// The `Sloc` metric minimum value. See `min_or_zero` for the
@@ -170,7 +196,7 @@ impl Sloc {
         // double-count: pruned subtrees never descend, so a nested pruned
         // item is recorded on a single space and folded up one altitude at
         // a time.
-        self.excluded_lines += other.excluded_lines;
+        self.excluded_lines = self.excluded_lines.saturating_add(other.excluded_lines);
     }
 
     #[inline]
@@ -392,11 +418,25 @@ impl Lloc {
         self.lloc_max as u64
     }
 
+    /// Records one logical statement.
+    ///
+    /// Exists so the 23 per-language `Loc` impls name the operation
+    /// instead of each reaching into a private field, which also keeps
+    /// the module's `arithmetic_side_effects` carve-out to this one
+    /// line rather than 36 of them (#1152). Saturating is unreachable —
+    /// the count is bounded by the AST's node count — and is the right
+    /// answer if it ever were: a pinned `usize::MAX` is a visibly broken
+    /// LLOC, where a wrap to 0 reads as a legitimately empty space.
+    #[inline]
+    pub(crate) fn count_logical_line(&mut self) {
+        self.logical_lines = self.logical_lines.saturating_add(1);
+    }
+
     /// Folds `other` into `self`, summing statement counts and updating min/max.
     #[inline]
     pub fn merge(&mut self, other: &Lloc) {
         // Merge lloc lines
-        self.logical_lines += other.logical_lines;
+        self.logical_lines = self.logical_lines.saturating_add(other.logical_lines);
         // Fold the child's own min/max so nested spaces propagate (#437).
         self.lloc_min = self.lloc_min.min(other.lloc_min);
         self.lloc_max = self.lloc_max.max(other.lloc_max);
@@ -479,20 +519,24 @@ impl Stats {
         stats.sloc.start = 0;
         // `end_row + 1`: the synthetic span models a real one ending
         // mid-line, so the final row counts and `sloc == sloc_end_row + 1`.
-        stats.sloc.end_line = sloc_end_row + 1;
+        stats.sloc.end_line = sloc_end_row.saturating_add(1);
         // Inject `code_comment_lines` distinct synthetic code-comment
         // rows. An offset past `sloc_end_row` keeps them disjoint from
         // any real span row, so `cloc()` (the set's cardinality) equals
         // the requested count without colliding with sloc attribution.
         if code_comment_lines > 0 {
-            let synthetic_base = sloc_end_row + 1;
+            let synthetic_base = sloc_end_row.saturating_add(1);
             // Explicit rather than leaning on `insert_range`'s inverted-span
             // guard: that guard exists to survive a bug, not to serve as a
-            // caller's empty case.
+            // caller's empty case. The `- 1` is exact under the `> 0` test
+            // above, which is also what makes the inclusive end well-formed.
+            let synthetic_end = synthetic_base
+                .saturating_add(code_comment_lines)
+                .saturating_sub(1);
             stats
                 .cloc
                 .code_comment_line_starts
-                .insert_range(synthetic_base, synthetic_base + code_comment_lines - 1);
+                .insert_range(synthetic_base, synthetic_end);
         }
         stats
     }
@@ -505,7 +549,7 @@ impl Stats {
         self.lloc.merge(&other.lloc);
 
         // Count spaces
-        self.space_count += other.space_count;
+        self.space_count = self.space_count.saturating_add(other.space_count);
 
         // Fold the child's own min/max so nested spaces propagate (#437).
         self.blank_min = self.blank_min.min(other.blank_min);

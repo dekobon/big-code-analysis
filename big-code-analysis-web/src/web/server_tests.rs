@@ -12,6 +12,7 @@ use serde_json::value::Value;
 use tracing_test::traced_test;
 
 use super::*;
+use big_code_analysis::MetricsError;
 
 /// Generous body limit for tests that are not exercising the 413 path.
 const TEST_MAX_BODY_SIZE: usize = 1_024 * 1_024 * 4;
@@ -4348,4 +4349,48 @@ async fn test_cors_allow_list_same_origin_request_gets_no_headers() {
         "Origin",
         "a same-origin allow-list response must still carry Vary: Origin"
     );
+}
+
+/// A library parse failure escaping a `run_parse` closure becomes the
+/// existing sanitized `500` rather than an `expect(FEATURES_PINNED)`
+/// panic (#1152).
+///
+/// Unreachable end-to-end by construction — the web crate pins
+/// `all-languages`, so `LanguageDisabled` cannot be produced by a
+/// request, and `MetricsError` is `#[non_exhaustive]` exactly so that a
+/// future variant can be. That is why the `expect` was wrong and why
+/// this asserts on the mapping directly.
+///
+/// The correlation id must survive (ops correlate the 500 to the
+/// request) while the cause must not (it is logged, never returned) —
+/// the same split `assert_error_sanitized` pins for the other variants.
+#[traced_test]
+#[actix_web::test]
+async fn a_library_metrics_error_maps_to_a_sanitized_internal_error() {
+    let err = ParseError::from_metrics("id-1152", MetricsError::LanguageDisabled(LANG::Rust));
+
+    assert!(
+        matches!(&err, ParseError::Internal { id } if id == "id-1152"),
+        "the correlation id must survive the mapping, got {err:?}",
+    );
+
+    let response = err.error_response();
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+    let body = actix_web::body::to_bytes(response.into_body())
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["id"], json!("id-1152"));
+    assert_eq!(json["error_kind"], json!("internal_error"));
+    assert_eq!(
+        json["error"],
+        json!(INTERNAL_SERVER_ERROR),
+        "the client body must stay generic and never name the language",
+    );
+
+    // The cause is logged server-side instead, so ops can tell this 500
+    // apart from a panicked task without it reaching the client.
+    assert!(logs_contain("Parse failed"));
+    assert!(logs_contain("id-1152"));
 }

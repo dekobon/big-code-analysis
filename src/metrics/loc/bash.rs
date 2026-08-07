@@ -30,7 +30,7 @@ impl Loc for BashCode {
             Command | VariableAssignment | DeclarationCommand | UnsetCommand | IfStatement
             | ForStatement | CStyleForStatement | WhileStatement | CaseStatement
             | FunctionDefinition => {
-                stats.lloc.logical_lines += 1;
+                stats.lloc.count_logical_line();
             }
             _ => {
                 if node.child_count() == 0 {

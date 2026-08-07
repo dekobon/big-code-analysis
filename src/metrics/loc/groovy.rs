@@ -59,7 +59,7 @@ impl Loc for GroovyCode {
             | DoWhileStatement | ExpressionStatement | ForInStatement | ForStatement
             | IfStatement | PipelineStatement | ReturnStatement | SwitchExpression
             | ThrowStatement | TryStatement | WhileStatement | YieldStatement => {
-                stats.lloc.logical_lines += 1;
+                stats.lloc.count_logical_line();
             }
             LocalVariableDeclaration => {
                 if node.count_specific_ancestors::<GroovyCode>(
@@ -70,7 +70,7 @@ impl Loc for GroovyCode {
                 {
                     // Skip the initializer slot of a classic `for` loop —
                     // same reason as Java's impl.
-                    stats.lloc.logical_lines += 1;
+                    stats.lloc.count_logical_line();
                 }
             }
             _ => {

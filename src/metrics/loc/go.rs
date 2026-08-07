@@ -45,7 +45,7 @@ impl Loc for GoCode {
             | G::TypeSwitchStatement
             | G::SelectStatement
             | G::LabeledStatement => {
-                stats.lloc.logical_lines += 1;
+                stats.lloc.count_logical_line();
             }
             G::ExpressionStatement
             | G::SendStatement
@@ -65,7 +65,7 @@ impl Loc for GoCode {
                     |n| n.kind_id() == G::Block,
                 ) == 0
                 {
-                    stats.lloc.logical_lines += 1;
+                    stats.lloc.count_logical_line();
                 }
             }
             _ => {

@@ -42,7 +42,7 @@ impl Loc for TclCode {
             | Tcl::Try
             | Tcl::Catch
             | Tcl::Regexp => {
-                stats.lloc.logical_lines += 1;
+                stats.lloc.count_logical_line();
             }
 
             // `expr` and a bare command are logical lines at statement
@@ -57,7 +57,7 @@ impl Loc for TclCode {
                     .parent(node)
                     .is_none_or(|p| p.kind_id() != Tcl::CommandSubstitution) =>
             {
-                stats.lloc.logical_lines += 1;
+                stats.lloc.count_logical_line();
             }
 
             _ => {
