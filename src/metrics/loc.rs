@@ -10321,6 +10321,47 @@ class A {
         }
     }
 
+    /// A backslash-continued `#define` body is one `PreprocArg` node
+    /// spanning every continuation row, so each of those rows is PLOC.
+    ///
+    /// The four C-family `Loc` impls carry an identical arm for this
+    /// (`tree-sitter-cpp` does not expand macros — see the comment at
+    /// each site), and until #1229 only C++'s copy was exercised: the
+    /// other three were the sole uncovered lines in that PR. They are
+    /// deliberate clones, so a fixture for one is a fixture for all
+    /// four, and `Mozcpp` in particular owns no file extension and can
+    /// only be reached by naming the language.
+    ///
+    /// Measured, and confirmed discriminating by deleting the arm from
+    /// all four modules: `ploc` is 4 with it and 3 without, the lost row
+    /// being the macro's last continuation line. `sloc` is 5 (three
+    /// macro rows, one blank, one `main`) and `lloc` is 1 — the single
+    /// `return` statement — since a `#define` declares no statement.
+    #[test]
+    fn a_continued_macro_body_counts_every_row_it_spans() {
+        // Rows: 0-2 are the macro, 3 is blank, 4 is `main`.
+        const CONTINUED_MACRO: &[u8] =
+            b"#define SUM(a, b) \\\n    ((a) + \\\n     (b))\n\nint main(void) { return SUM(1, 2); }\n";
+
+        for lang in [
+            crate::LANG::C,
+            crate::LANG::Cpp,
+            crate::LANG::Mozcpp,
+            crate::LANG::Objc,
+        ] {
+            let loc = metrics_verbatim(lang, CONTINUED_MACRO, MetricsOptions::default()).loc;
+            assert_eq!(
+                loc.ploc(),
+                4,
+                "{lang:?}: every continuation row of the macro body is code"
+            );
+            assert_eq!(loc.sloc(), 5, "{lang:?} sloc");
+            assert_eq!(loc.lloc(), 1, "{lang:?} lloc");
+            assert_eq!(loc.cloc(), 0, "{lang:?} cloc");
+            assert_eq!(loc.blank(), 1, "{lang:?} blank");
+        }
+    }
+
     /// Whether the last line ends in a newline is a formatting detail, not
     /// a property of the code — no LOC sub-metric, and therefore no MI
     /// value, may depend on it. This is the invariant #1067 violated, and
