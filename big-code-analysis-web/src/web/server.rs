@@ -74,15 +74,7 @@ pub const DEFAULT_PARSE_TIMEOUT_SECS: u64 = 30;
 /// the same `413` JSON body (#639).
 const MAX_BODY_SIZE: usize = 1_024 * 1_024 * 4;
 
-/// Runs `f` on the blocking pool under the timeout / orphan-pool policy.
-///
-/// `payload_id` is the client-supplied request id from the JSON payload
-/// (empty for the octet-stream endpoints, which carry none). It is logged
-/// on the failure path under a distinct field name so it does not collide
-/// with `tracing-actix-web`'s own span-level `request_id` (a per-request
-/// UUID), and it is echoed back in the `{error, id}` body of the typed
-/// [`ParseError`] returned on every failure (#639).
-/// [`run_parse`] for a closure that can itself fail.
+/// Like [`run_parse`], but for a closure that can itself fail.
 ///
 /// The library entry points the handlers call all return
 /// `Result<_, MetricsError>`, so without this every call site repeats
@@ -100,6 +92,14 @@ async fn run_parse_fallible<T: Send + 'static>(
         .map_err(|err| ParseError::from_metrics(payload_id, err))
 }
 
+/// Runs `f` on the blocking pool under the timeout / orphan-pool policy.
+///
+/// `payload_id` is the client-supplied request id from the JSON payload
+/// (empty for the octet-stream endpoints, which carry none). It is logged
+/// on the failure path under a distinct field name so it does not collide
+/// with `tracing-actix-web`'s own span-level `request_id` (a per-request
+/// UUID), and it is echoed back in the `{error, id}` body of the typed
+/// [`ParseError`] returned on every failure (#639).
 async fn run_parse<T: Send + 'static>(
     config: &web::Data<ParseConfig>,
     payload_id: &str,

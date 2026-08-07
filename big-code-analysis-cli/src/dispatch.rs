@@ -239,8 +239,8 @@ fn dispatch_dump(
     cfg: &Config,
 ) -> std::io::Result<()> {
     // The CLI pins the library's `all-languages` feature, so
-    // `LanguageDisabled` from `Ast::parse` is unreachable; the `expect`
-    // documents that invariant.
+    // `LanguageDisabled` from `Ast::parse` is unreachable here; a future
+    // variant surfaces as a per-file `io::Error` instead (#1152).
     let ast = parse_ast_io(language, source, &path, pr)?;
     // Per-file banner so a multi-file dump is attributable: the parallel
     // walk interleaves trees by worker scheduling, and without a header
