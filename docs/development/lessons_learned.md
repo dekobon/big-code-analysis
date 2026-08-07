@@ -1085,7 +1085,7 @@ crates, where every call site became `.expect(FEATURES_PINNED)` because
 both pin `features = ["all-languages"]` and the disabled arm is provably
 unreachable. Recorded in `CHANGELOG.md` and `STABILITY.md`.
 
-**The `expect` half of that was wrong, and #1152 removed all sixteen
+**The `expect` half of that was wrong, and #1152 removed all fifteen
 call sites.** The invariant it named was real — the feature pin does
 make `LanguageDisabled` unreachable — but it was the wrong invariant to
 rest a panic on. `MetricsError` is `#[non_exhaustive]`, and its own

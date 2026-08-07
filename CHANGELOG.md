@@ -27,7 +27,7 @@ for historical reference.
 ### Fixed
 
 - The CLI and web crates no longer terminate on a library parse error.
-  All sixteen `.expect(FEATURES_PINNED)` call sites — eight in `bca`'s
+  All fifteen `.expect(FEATURES_PINNED)` call sites — eight in `bca`'s
   dispatch helpers, seven in `bca-web`'s handlers, plus the constant
   itself in each crate — now propagate onto the error channel each
   caller already had: an `io::Error` of kind `InvalidData` that the
