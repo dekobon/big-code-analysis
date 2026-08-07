@@ -28,7 +28,8 @@ pub fn generate_rust(output: &Path, file_template: &str) -> std::io::Result<()> 
         let path = output.join(file_name);
         let mut file = File::create(path)?;
 
-        file.write_all(build_rust_template(&lang).render().unwrap().as_bytes())?;
+        let rendered = build_rust_template(&lang).render().map_err(render_error)?;
+        file.write_all(rendered.as_bytes())?;
     }
 
     Ok(())
@@ -70,7 +71,7 @@ pub fn generate_macros(output: &Path) -> std::io::Result<()> {
 fn create_macros_file(output: &Path, filename: &str, u_name: &str) -> std::io::Result<()> {
     let mut macro_file = File::open(Path::new(&format!(
         "{}/{}/{}.txt",
-        env::var("CARGO_MANIFEST_DIR").unwrap(),
+        env!("CARGO_MANIFEST_DIR"),
         MACROS_DEFINITION_DIR,
         filename
     )))?;
@@ -79,7 +80,9 @@ fn create_macros_file(output: &Path, filename: &str, u_name: &str) -> std::io::R
 
     let mut names = Vec::new();
     for tok in data.split(|c| *c == b'\n') {
-        let tok = std::str::from_utf8(tok).unwrap().trim();
+        let tok = std::str::from_utf8(tok)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?
+            .trim();
         if !tok.is_empty() {
             names.push(tok.to_owned());
         }
@@ -104,7 +107,7 @@ fn create_macros_file(output: &Path, filename: &str, u_name: &str) -> std::io::R
         names,
     };
 
-    file.write_all(args.render().unwrap().as_bytes())
+    file.write_all(args.render().map_err(render_error)?.as_bytes())
 }
 
 #[cfg(test)]

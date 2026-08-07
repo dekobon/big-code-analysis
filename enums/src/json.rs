@@ -36,7 +36,7 @@ pub fn generate_json(output: &Path, file_template: &str) -> std::io::Result<()> 
 
         let args = JsonTemplate { names };
 
-        file.write_all(args.render().unwrap().as_bytes())?;
+        file.write_all(args.render().map_err(render_error)?.as_bytes())?;
     }
 
     Ok(())
