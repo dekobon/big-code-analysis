@@ -75,10 +75,12 @@ for historical reference.
   the form `AGENTS.md` sanctions. The workspace-excluded `enums` codegen
   crate carries the same gate: it is CI-linted by `make enums-check` but
   invisible to `cargo clippy --workspace`, so its 7 production
-  `unwrap()` calls were outside the original count. One was a live
-  latent panic — `names.iter().map(..).max().unwrap()` in the Go
-  generator panics on a token-less grammar — and the rest now propagate
-  onto the `io::Result` each generator already returned (#1227).
+  `unwrap()` calls were outside the original count. They now propagate
+  onto the `io::Result` each generator already returned, except the Go
+  generator's `max()` width, which becomes `unwrap_or(0)`. None was a
+  reachable crash: every one rests on an invariant as solid as the 37
+  `expect` sites left alone. The difference is that an `unwrap()` states
+  no invariant, which is the whole basis for gating it (#1227).
 
 ## [2.1.0] - 2026-08-06
 

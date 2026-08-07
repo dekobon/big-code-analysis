@@ -26,7 +26,11 @@ pub fn generate_go(output: &Path, file_template: &str) -> std::io::Result<()> {
         let mut names = get_token_names(&language, false);
         // `unwrap_or(0)` is the identity, not a swallowed error: with no
         // names the `map` below yields nothing, so the padding width is
-        // never read. `unwrap()` here panicked on a token-less grammar.
+        // never read. The empty case is unreachable — `get_token_names`
+        // walks `0..node_kind_count()` and every real grammar has at
+        // least the ERROR sentinel — so this is correct-by-construction
+        // hardening, not a fixed crash. It is converted rather than left
+        // alone because an `unwrap()` states no invariant at all (#1227).
         let max_len = names.iter().map(|x| x.0.len()).max().unwrap_or(0);
         let names: Vec<_> = names
             .drain(..)
