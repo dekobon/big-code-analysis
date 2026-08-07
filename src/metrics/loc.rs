@@ -428,7 +428,7 @@ impl Lloc {
     /// answer if it ever were: a pinned `usize::MAX` is a visibly broken
     /// LLOC, where a wrap to 0 reads as a legitimately empty space.
     #[inline]
-    pub(crate) fn count_logical_line(&mut self) {
+    fn count_logical_line(&mut self) {
         self.logical_lines = self.logical_lines.saturating_add(1);
     }
 
