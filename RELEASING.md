@@ -737,13 +737,33 @@ Before tagging, on `main`:
       `ENABLE_HOMEBREW_TAP`, `ENABLE_SCOOP_BUCKET`) are set to the
       intended state for this release.
 
-Commit and push these changes. The final commit on `main` before
-tagging should be the release-prep commit.
+Then commit, gate, and tag, in that order:
+
+1. **Commit** the release-prep changes. This is the last commit on
+   `main` before the tag.
+2. **Run `make release-check VERSION=x.y.z`.** This is the pre-tag
+   gate: license and advisory policy, the two `THIRD-PARTY-LICENSES`
+   renders, a real `cargo publish --dry-run` of the five vendored
+   grammar leaves, and the publish-metadata and changelog checks
+   above. It only works on a committed tree, because those dry-runs
+   are `cargo publish`, which refuses to package a directory holding
+   uncommitted changes, and the release-prep commit always touches
+   all five leaves (each carries the version and the install
+   snippet). If the gate fails, amend the commit and re-run. Do not
+   reach for the `--allow-dirty` that cargo's error suggests: it
+   would gate content the tag will not carry.
+3. **Push, then tag**
+   ([Cutting a stable release](#cutting-a-stable-release)). The gate
+   is entirely local, so the push can happen on either side of
+   step 2.
 
 ## Cutting a stable release
 
 Pick a semver version (e.g. `1.2.0`). The tag is the version prefixed
-with `v`.
+with `v`. Work through the
+[Pre-release checklist](#pre-release-checklist) first:
+`make release-check VERSION=1.2.0` runs there, against the
+release-prep commit and before this tag.
 
 ```bash
 # From a clean main checkout at the release-prep commit:
