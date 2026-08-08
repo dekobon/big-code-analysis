@@ -161,22 +161,57 @@ only resolve once each leaf is on crates.io. The sparse-index
 existence check in each step makes the job idempotent across re-runs
 of the same tag.
 
-**Bootstrap on the very first release.** The parent's
-`cargo publish --dry-run -p big-code-analysis` cannot resolve until
-the five leaves are on crates.io. The preflight job in `release.yml`
-handles this automatically: it queries the sparse index for
-`bca-tree-sitter-ccomment` at the workspace-pinned version, and only
-runs the parent dry-run if that leaf is already published. On the
-first tag with `ENABLE_CRATES_PUBLISH=true`, the parent dry-run is
-skipped with a `::notice::` and the `publish-crates` job uploads the
-five leaves *first*, then `big-code-analysis`, then the binaries (in
-one workflow run, no manual intervention). From the second tag
-onwards the parent dry-run becomes a hard gate.
+**The three top-level crates cannot be dry-run before the tag.**
+`big-code-analysis` pins each leaf at `bca-tree-sitter-<lang> =
+"=<version>"`, and `big-code-analysis-cli` / `big-code-analysis-web`
+pin `big-code-analysis` the same way. Packaging resolves those
+requirements against the registry, and the Lockstep version policy
+below makes the pinned version the one this tag is releasing — which
+is, by definition, not yet published. So it fails, every time, not
+only on a first release:
 
-`make release-check VERSION=…` mirrors the same logic: it
-unconditionally dry-runs the five leaves, then wraps the parent
-dry-run in a warning that points back to this section if the
-bootstrap state is detected.
+```console
+$ cargo package -p big-code-analysis --allow-dirty --no-verify
+error: failed to select a version for the requirement
+  `bca-tree-sitter-ccomment = "=2.1.1"`
+candidate versions found which didn't match: 2.1.0, 2.0.0, 1.1.0, ...
+```
+
+Until [#1224](https://github.com/dekobon/big-code-analysis/issues/1224)
+both `release.yml` and `make release-check` wrapped the parent dry-run
+in a sparse-index probe for that same version and described the skip
+as a first-release bootstrap. Because the probed version is always the
+version being released, the probe never hit and the dry-run never ran
+ahead of an upload. This page said the opposite.
+
+What runs in its place is `make check-publish-metadata`
+(`utils/check-publish-metadata.py`), which needs nothing on the
+registry. For every publishable crate it asserts that `description`,
+`readme`, `repository`, and `license` (or `license-file`) are present
+and non-empty; that a crate rooted at the workspace root carries a
+non-empty `[package].include`; and that the files `cargo package
+--list` reports — the one packaging step that does not resolve
+dependencies — total under 32 MiB. Dropping the `include` block
+currently yields 445 MiB across 33,398 files, so the bound is not a
+close call. It does not compile anything, so a feature-resolution or
+build error in the packaged crate is still only caught by the real
+`cargo publish`.
+
+Running `--list` also validates `readme` and `license-file` for free:
+cargo fails outright on a path that does not exist, and packages one
+that `include` does not cover rather than dropping it. That is why the
+gate does not check either itself.
+
+It runs in `make lint`, `make pre-commit`, `make ci`, `make
+release-check`, and the `preflight` job of `release.yml`. The five
+vendored leaves are not in its scope: they carry no internal pins, so
+`release-check` and `preflight` dry-run them for real.
+
+**The leaves still publish first.** That ordering is what lets the
+parent resolve during `publish-crates`, and it is unchanged. It also
+means a metadata regression in the parent or the binaries would fail
+*after* the five leaves are irrevocably on crates.io — the split
+release the gate above exists to make unreachable.
 
 **Lockstep version policy.** Every crate in this repository (the
 library, the CLI, the web crate, the Python crate, the `enums` /
@@ -371,12 +406,22 @@ registered, so the very first publish has to be a hand-rolled
    useful error message. Verify before the first publish:
 
    ```bash
-   cargo package -p big-code-analysis --allow-dirty --no-verify
-   ls -lh target/package/big-code-analysis-*.crate    # expect ≲ 1 MiB
+   make check-publish-metadata
    ```
 
-   If the `.crate` is larger than a few MiB, fix the `include`
-   block before continuing.
+   Do **not** reach for `cargo package --no-verify` here: it resolves
+   the `=<version>` leaf pins against the registry and fails before it
+   measures anything (see
+   [Vendored tree-sitter grammar publishability](#vendored-tree-sitter-grammar-publishability)).
+   The gate above uses `cargo package --list`, which does not. To see
+   the file list yourself:
+
+   ```bash
+   cargo package -p big-code-analysis --allow-dirty --list | wc -l
+   # ~1.3k entries, all under src/ plus Cargo.toml, README.md,
+   # LICENSE, CHANGELOG.md. A count in the tens of thousands means
+   # `include` has regressed and tests/repositories/ is being packaged.
+   ```
 
 3. **Publish leaf-first, with rate-limit pacing.** crates.io
    rate-limits **new** crates at roughly one per ten minutes after
@@ -682,13 +727,12 @@ Before tagging, on `main`:
 - [ ] `minisign.pub` is a real key (run
       `grep '^untrusted comment: placeholder' minisign.pub`; it
       should print nothing).
-- [ ] Parent crate packages to a sane size: `cargo package -p
-      big-code-analysis --allow-dirty --no-verify` followed by
-      `ls -lh target/package/big-code-analysis-*.crate` should show
-      well under 10 MiB (the crates.io upload ceiling). If it
-      balloons, the `[package].include` block has regressed or a
-      newly-added directory needs to be excluded; see
-      [crates.io ownership](#cratesio-ownership).
+- [ ] `make check-publish-metadata` passes. It is the only pre-tag
+      gate on the three top-level crates' publish metadata — none of
+      them can be `cargo publish --dry-run`-ed before the tag — and it
+      is what catches an `[package].include` block that has regressed
+      or stopped covering a newly-added directory. See
+      [Vendored tree-sitter grammar publishability](#vendored-tree-sitter-grammar-publishability).
 - [ ] The defer-and-gate variables (`ENABLE_CRATES_PUBLISH`,
       `ENABLE_HOMEBREW_TAP`, `ENABLE_SCOOP_BUCKET`) are set to the
       intended state for this release.
