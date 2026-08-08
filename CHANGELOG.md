@@ -41,6 +41,17 @@ for historical reference.
 
 ### Fixed
 
+- The `LANG::C` arm of the preprocessor macro-replacement pass had no
+  test that could observe it. `parse_then_metrics_c_with_preproc_…` was
+  added by #721 to give that arm "direct coverage", but its only
+  assertion is a `cyclomatic_sum`, and `DBG ? x : 0` and `$$$ ? x : 0`
+  have the same complexity — so it passed unchanged with the whole
+  `LANG::C | LANG::Cpp | LANG::Mozcpp` arm of `get_fake_code` disabled,
+  which is how this was measured. It now asserts the rewritten bytes.
+  The `Cpp` sibling has the same blind spot but is separately covered by
+  `cpp_ast_source_reflects_preproc_expansion`; the `C` arm had nothing.
+  Found while verifying that the new `preproc_macro` fuzz target is not
+  vacuous (#1154).
 - The pre-tag `cargo publish --dry-run` for `big-code-analysis` was skipped
   on every release, not only the first. It was gated on a crates.io sparse
   index probe for a leaf version that the Lockstep policy guarantees is the

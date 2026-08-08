@@ -129,6 +129,16 @@ fn parse_then_metrics_cpp_with_preproc_matches_hand_computed_values() {
 /// dialects — a `#define`d identifier is substituted before the C parser
 /// sees the source. This mirrors the `Cpp` preproc test above so the new
 /// C arm of that `match` has direct coverage.
+///
+/// The `cyclomatic_sum` assertion alone does *not* provide that
+/// coverage, which is why the source-bytes assertion below exists.
+/// `DBG ? x : 0` and `$$$ ? x : 0` have the same complexity, so the
+/// metric holds whether or not the arm ran: measured by disabling the
+/// `LANG::C | LANG::Cpp | LANG::Mozcpp` arm in `get_fake_code`, against
+/// which this test passed unchanged while
+/// `cpp_ast_source_reflects_preproc_expansion` correctly failed. The
+/// `Cpp` sibling above has the same blind spot but is covered by that
+/// test; the `C` arm had nothing (#1154).
 #[cfg(feature = "c")]
 #[test]
 fn parse_then_metrics_c_with_preproc_matches_hand_computed_values() {
@@ -146,15 +156,21 @@ fn parse_then_metrics_c_with_preproc_matches_hand_computed_values() {
     let files = HashMap::from([(path.clone(), PreprocFile::new_macros(&["DBG"]))]);
     let pr = Arc::new(PreprocResults { files });
 
-    let space = Ast::parse(
+    let ast = Ast::parse(
         Source::new(LANG::C, source)
             .with_name(Some("foo.c".to_owned()))
             .with_preproc_path(Some(&path))
             .with_preproc(Some(pr)),
     )
-    .expect("c feature enabled")
-    .metrics(MetricsOptions::default())
-    .expect("walker succeeds");
+    .expect("c feature enabled");
+
+    // The discriminating assertion: the C arm ran and rewrote the bytes.
+    assert!(ast.source().windows(3).any(|w| w == b"$$$"));
+    assert!(!ast.source().windows(3).any(|w| w == b"DBG"));
+
+    let space = ast
+        .metrics(MetricsOptions::default())
+        .expect("walker succeeds");
 
     assert_eq!(space.name.as_deref(), Some("foo.c"));
     assert_eq!(space.metrics.cyclomatic.cyclomatic_sum(), 3);
@@ -608,4 +624,65 @@ fn suppressions_collects_in_source_markers() {
     };
     assert_eq!(metrics.len(), 1);
     assert!(metrics.contains(&Metric::Cyclomatic));
+}
+
+/// The public preprocessor pipeline, end to end: `preprocess` harvests
+/// `#define`s from a buffer, and attaching the result to a `Source`
+/// routes the *same* buffer through the macro-masking pass so a defined
+/// identifier is replaced by `$$$` before the parser ever sees it.
+///
+/// The sibling `..._with_preproc_...` tests above hand-build a
+/// `PreprocFile::new_macros(&["DBG"])`, so they pin the masking half
+/// while leaving the harvest half — and the join between them — with no
+/// end-to-end coverage. Nothing else in the workspace chains
+/// `preprocess` into `Ast::parse`.
+///
+/// This is also the exact chain the `preproc_macro` fuzz target walks
+/// (#1154), and the only route by which `c_macro::replace`'s nine
+/// `#[allow(clippy::indexing_slicing)]` sites are reachable. Verified by
+/// perturbation: a `panic!` at the top of `replace` fires for this
+/// construction and does *not* fire for the same bytes parsed without
+/// preprocessor results attached, which is the second assertion below.
+#[cfg(feature = "cpp")]
+#[test]
+fn preprocess_harvest_feeds_the_macro_masking_pass() {
+    use std::sync::Arc;
+
+    use big_code_analysis::{PreprocResults, preprocess};
+
+    // `DBG` appears twice: in the directive that defines it and in the
+    // body that uses it. Masking rewrites both, so asserting its total
+    // absence below cannot pass on a partial substitution.
+    let source = b"#define DBG 1\nint f(int x) { return DBG ? x : 0; }\n".as_slice();
+    let path = PathBuf::from("foo.cpp");
+
+    let mut results = PreprocResults::default();
+    preprocess(source.to_vec(), &path, &mut results);
+
+    // Harvest half: the directive was recognised and recorded under the
+    // key the lookup will use.
+    let harvested = results
+        .files
+        .get(&path)
+        .expect("preprocess records the file it was handed");
+    assert!(harvested.macros.contains("DBG"));
+
+    // Masking half: the expanded bytes carry `$$$` and no longer carry
+    // the identifier.
+    let masked = Ast::parse(
+        Source::from_bytes(LANG::Cpp, source.to_vec())
+            .with_preproc_path(Some(&path))
+            .with_preproc(Some(Arc::new(results))),
+    )
+    .expect("cpp feature enabled");
+    assert!(masked.source().windows(3).any(|w| w == b"$$$"));
+    assert!(!masked.source().windows(3).any(|w| w == b"DBG"));
+
+    // The negative half, which is what makes the two-line assertion
+    // above a claim about the preprocessor rather than about `$$$`
+    // appearing for some unrelated reason: with no results attached the
+    // very same bytes reach the parser untouched.
+    let untouched =
+        Ast::parse(Source::from_bytes(LANG::Cpp, source.to_vec())).expect("cpp feature enabled");
+    assert_eq!(untouched.source(), source);
 }
