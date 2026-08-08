@@ -5,7 +5,7 @@ Invariants for the root manifest and for the crates listed in its
 ``[workspace] exclude`` array — the five vendored ``tree-sitter-*``
 grammars and the ``enums`` codegen helper.
 
-Two invariants are checked.
+Three invariants are checked.
 
 **Every excluded crate must root its own workspace.** ``exclude``
 denies workspace membership but does **not** terminate cargo's upward
@@ -25,6 +25,18 @@ tables; member crates take their grammars through ``workspace = true``
 and so carry no requirement of their own. Non-grammar dependencies
 (``cc``, ``clap``, ``askama``) are out of scope; the rule is about
 grammars.
+
+**Every excluded crate must declare its own ``[lints]``, or be listed
+as exempt.** ``[workspace.lints]`` reaches members through
+``lints.workspace = true``; an excluded crate is not a member, so it
+silently gets rustc's and clippy's defaults instead. ``enums`` was
+gated by ``make enums-check`` at ``-D warnings`` for two years against
+a lint set 38 findings smaller than every shipping crate's, which reads
+as "fully linted" and is not (#1228). The five vendored
+``tree-sitter-*`` grammars are exempt by decision, recorded in
+:data:`LINTS_EXEMPT_CRATES`; the point of checking the rest is that the
+*next* crate added to ``exclude`` forces the same decision instead of
+inheriting silence.
 
 Manifests are parsed with ``tomllib`` rather than matched with regexes.
 The regex version of this gate silently skipped TOML literal strings
@@ -76,6 +88,28 @@ NON_CRATE_EXCLUDES = frozenset({".claude/worktrees"})
 # `^tree-sitter` anchor left it — and any future `bca-tree-sitter-*` —
 # unchecked.
 GRAMMAR_DEP_SUBSTRING = "tree-sitter"
+
+# Excluded crates deliberately exempt from carrying a `[lints]` table.
+#
+# The five vendored grammar forks hold ~60 lines of Rust each, and none
+# of it is ours: `bindings/rust/lib.rs` and `build.rs` come out of
+# `tree-sitter generate` from the upstream binding templates, and are
+# replaced wholesale when a grammar is regenerated. Applying the
+# workspace's `pedantic` + `missing_docs` posture there would buy
+# annotations on generated code that the next regeneration discards,
+# against a body of code with no branching to get wrong. Nothing lints
+# them today either — they are path dependencies rather than members, and
+# clippy does not lint dependencies — so this exemption records a
+# decision rather than describing a gate that exists (#1228).
+LINTS_EXEMPT_CRATES = frozenset(
+    {
+        "tree-sitter-ccomment",
+        "tree-sitter-mozcpp",
+        "tree-sitter-mozjs",
+        "tree-sitter-preproc",
+        "tree-sitter-tcl",
+    }
+)
 
 # `tree-sitter` dependencies that must NOT carry an `=` pin.
 #
@@ -183,6 +217,37 @@ def missing_workspace_table(crates: list[str], root: pathlib.Path) -> list[str]:
     return offenders
 
 
+def lints_table_problem(manifest_text: str, label: str) -> str | None:
+    """Describe why ``label``'s ``[lints]`` table is unusable, or ``None``.
+
+    Two ways to fail. An absent or empty table leaves the crate on
+    compiler defaults. A ``workspace = true`` table is worse than absent:
+    it is the spelling every *member* crate uses, so it looks right, but
+    an excluded crate roots its own workspace and inherits nothing from
+    the repository root's ``[workspace.lints]``.
+    """
+    lints = parse_manifest(manifest_text, label).get("lints")
+    if not isinstance(lints, dict) or not lints:
+        return "no [lints] table"
+    if "workspace" in lints:
+        return "[lints] workspace = true, which inherits nothing here"
+    return None
+
+
+def unlinted_crates(crates: list[str], root: pathlib.Path) -> list[tuple[str, str]]:
+    """Return ``(crate, problem)`` for excluded crates declaring no lints."""
+    offenders = []
+    for crate in crates:
+        if crate in LINTS_EXEMPT_CRATES:
+            continue
+        label = f"{crate}/Cargo.toml"
+        text = (root / crate / "Cargo.toml").read_text(encoding="utf-8")
+        problem = lints_table_problem(text, label)
+        if problem is not None:
+            offenders.append((crate, problem))
+    return offenders
+
+
 def _dependency_entries(
     data: Any, depth: int = 0, in_dep_table: bool = False
 ) -> Iterator[tuple[str, Any]]:
@@ -259,6 +324,20 @@ def _report_missing_workspace(offenders: list[str]) -> None:
     )
 
 
+def _report_unlinted(offenders: list[tuple[str, str]]) -> None:
+    print(
+        "error: excluded crates not declaring their own lint set:\n"
+        + "\n".join(f"  {crate}/Cargo.toml: {problem}" for crate, problem in offenders)
+        + "\n\n[workspace.lints] in the root Cargo.toml reaches members only.\n"
+        "An excluded crate roots its own workspace, so without a [lints]\n"
+        "table of its own it builds on compiler defaults while any gate\n"
+        "over it still reads as complete (#1228). Copy the root's\n"
+        "[lints.rust] / [lints.clippy] tables into the manifest, or add\n"
+        "the crate to LINTS_EXEMPT_CRATES with the reason.",
+        file=sys.stderr,
+    )
+
+
 def _report_unpinned(drifted: list[tuple[str, str, str]]) -> None:
     print(
         "error: tree-sitter dependencies without an `=X.Y.Z` pin:\n"
@@ -282,6 +361,14 @@ def main() -> int:
         _report_missing_workspace(offenders)
         return 1
 
+    # Ordered after the workspace-table check so a crate with no manifest
+    # at all is reported by that one's explicit hard error rather than as
+    # a read failure here.
+    unlinted = unlinted_crates(crates, REPO_ROOT)
+    if unlinted:
+        _report_unlinted(unlinted)
+        return 1
+
     # The root manifest is checked alongside the excluded crates: its
     # `[workspace.dependencies]` block holds ~20 grammar pins, and
     # AGENTS.md claims this gate enforces them.
@@ -301,9 +388,11 @@ def main() -> int:
         _report_unpinned(drifted)
         return 1
 
+    linted = len(crates) - len(LINTS_EXEMPT_CRATES.intersection(crates))
     print(
         f"Excluded manifests OK ({len(crates)} crates checked, "
-        f"{len(manifests)} manifests pin-checked)."
+        f"{len(manifests)} manifests pin-checked, "
+        f"{linted} lint-checked)."
     )
     return 0
 

@@ -3,8 +3,8 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
-use crate::common::*;
-use crate::languages::*;
+use crate::common::{camel_case, get_token_names, render_error};
+use crate::languages::{Lang, get_language, get_language_name};
 
 const MACROS_DEFINITION_DIR: &str = "data";
 
@@ -20,9 +20,18 @@ struct RustTemplate {
     error_sentinel: String,
 }
 
+/// Writes one Rust token-kind module per [`Lang`] into `output`.
+///
+/// `file_template` is the file stem with `$` standing in for the
+/// lowercased language name, so `language_$` yields `language_rust.rs`.
+///
+/// # Errors
+///
+/// Returns the underlying [`std::io::Error`] when a destination file
+/// cannot be created or written, or when a template fails to render.
 pub fn generate_rust(output: &Path, file_template: &str) -> std::io::Result<()> {
     for lang in Lang::into_enum_iter() {
-        let c_name = camel_case(get_language_name(&lang).to_string());
+        let c_name = camel_case(get_language_name(&lang));
         let file_name = format!("{}.rs", file_template.replace('$', &c_name.to_lowercase()));
         let path = output.join(file_name);
         let mut file = File::create(path)?;
@@ -35,7 +44,7 @@ pub fn generate_rust(output: &Path, file_template: &str) -> std::io::Result<()> 
 }
 
 fn build_rust_template(lang: &Lang) -> RustTemplate {
-    let c_name = camel_case(get_language_name(lang).to_string());
+    let c_name = camel_case(get_language_name(lang));
     let names = get_token_names(&get_language(lang), false);
 
     // `get_token_names` always appends the tree-sitter ERROR sentinel last
@@ -62,6 +71,14 @@ struct CMacrosTemplate {
     names: Vec<String>,
 }
 
+/// Writes the C predefined-macro and special-identifier tables into
+/// `output`, read from the checked-in lists under `data/`.
+///
+/// # Errors
+///
+/// Returns the underlying [`std::io::Error`] when a source list cannot
+/// be read, holds non-UTF-8 bytes, or a destination file cannot be
+/// created or written.
 pub fn generate_macros(output: &Path) -> std::io::Result<()> {
     create_macros_file(output, "c_macros", "PREDEFINED_MACROS")?;
     create_macros_file(output, "c_specials", "SPECIALS")
@@ -96,7 +113,7 @@ fn create_macros_file(output: &Path, filename: &str, u_name: &str) -> std::io::R
     names.dedup();
     let l_name = u_name.to_lowercase();
 
-    let path = output.join(format!("{}.rs", filename));
+    let path = output.join(format!("{filename}.rs"));
 
     let mut file = File::create(&path)?;
 

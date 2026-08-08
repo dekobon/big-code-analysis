@@ -1,12 +1,15 @@
 macro_rules! mk_enum {
     ( $( $camel:ident ),* ) => {
+        /// Every grammar the generator emits token-kind enums for.
         #[derive(Clone, Debug, PartialEq)]
         pub enum Lang {
             $(
+                #[doc = concat!("The `", stringify!($camel), "` grammar.")]
                 $camel,
             )*
         }
         impl Lang {
+            /// Iterates every variant, in the order `mk_langs!` lists them.
             pub fn into_enum_iter() -> impl Iterator<Item=Lang> {
                 use Lang::*;
                 [$( $camel, )*].into_iter()
@@ -22,6 +25,7 @@ macro_rules! mk_enum {
 // is hand-written and exhaustiveness-checked by the compiler. See #867.
 macro_rules! mk_get_language {
     () => {
+        /// Loads the tree-sitter grammar backing `lang`.
         pub fn get_language(lang: &Lang) -> Language {
             match lang {
                 Lang::Kotlin => tree_sitter_kotlin_ng::LANGUAGE.into(),
@@ -56,6 +60,8 @@ macro_rules! mk_get_language {
 
 macro_rules! mk_get_language_name {
     ( $( $camel:ident ),* ) => {
+        /// Returns `lang`'s variant name, the stem every generated file
+        /// and `CamelCase` type name is derived from.
         pub fn get_language_name(lang: &Lang) -> &'static str {
             match lang {
                 $(

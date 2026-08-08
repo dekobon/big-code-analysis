@@ -1,3 +1,7 @@
+//! Command-line front end for the token-kind enum generator: picks an
+//! output language and a destination directory, then delegates to the
+//! matching `generate_*` entry point in the library half of this crate.
+
 // Production-only `unwrap()` ban. See `[workspace.lints.clippy]` in the
 // root `Cargo.toml` for why this is a per-root attribute and not a
 // Cargo lint (#1227). `enums` is excluded from that workspace, so it
@@ -8,7 +12,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
 
-use enums::*;
+use enums::{generate_go, generate_json, generate_macros, generate_rust};
 
 // `ValueEnum` is the single source of truth for the `--language` values:
 // clap both restricts input to these variants and constructs the enum

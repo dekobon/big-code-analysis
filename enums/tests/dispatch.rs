@@ -27,38 +27,38 @@ use tree_sitter::Language;
 // under test. We deliberately repeat the `LANGUAGE.into()` call here
 // rather than reuse `get_language` — comparing `get_language(...)` to
 // itself would be a tautology and would not catch macro-arm drift.
-fn assert_dispatch(lang: Lang, name: &'static str, expected: Language) {
-    assert_eq!(get_language(&lang), expected, "{name} grammar mismatch");
-    assert_eq!(get_language_name(&lang), name, "{name} name mismatch");
+fn assert_dispatch(lang: &Lang, name: &'static str, expected: &Language) {
+    assert_eq!(&get_language(lang), expected, "{name} grammar mismatch");
+    assert_eq!(get_language_name(lang), name, "{name} name mismatch");
 }
 
 #[test]
 fn lang_kotlin_resolves_to_tree_sitter_kotlin_ng() {
     assert_dispatch(
-        Lang::Kotlin,
+        &Lang::Kotlin,
         "Kotlin",
-        tree_sitter_kotlin_ng::LANGUAGE.into(),
+        &tree_sitter_kotlin_ng::LANGUAGE.into(),
     );
 }
 
 #[test]
 fn lang_lua_resolves_to_tree_sitter_lua() {
-    assert_dispatch(Lang::Lua, "Lua", tree_sitter_lua::LANGUAGE.into());
+    assert_dispatch(&Lang::Lua, "Lua", &tree_sitter_lua::LANGUAGE.into());
 }
 
 #[test]
 fn lang_java_resolves_to_tree_sitter_java() {
-    assert_dispatch(Lang::Java, "Java", tree_sitter_java::LANGUAGE.into());
+    assert_dispatch(&Lang::Java, "Java", &tree_sitter_java::LANGUAGE.into());
 }
 
 #[test]
 fn lang_go_resolves_to_tree_sitter_go() {
-    assert_dispatch(Lang::Go, "Go", tree_sitter_go::LANGUAGE.into());
+    assert_dispatch(&Lang::Go, "Go", &tree_sitter_go::LANGUAGE.into());
 }
 
 #[test]
 fn lang_rust_resolves_to_tree_sitter_rust() {
-    assert_dispatch(Lang::Rust, "Rust", tree_sitter_rust::LANGUAGE.into());
+    assert_dispatch(&Lang::Rust, "Rust", &tree_sitter_rust::LANGUAGE.into());
 }
 
 // Tcl is backed by the vendored `bca-tree-sitter-tcl` fork; the
@@ -66,14 +66,18 @@ fn lang_rust_resolves_to_tree_sitter_rust() {
 // import path. See enums/Cargo.toml.
 #[test]
 fn lang_tcl_resolves_to_vendored_tcl() {
-    assert_dispatch(Lang::Tcl, "Tcl", tree_sitter_tcl::LANGUAGE.into());
+    assert_dispatch(&Lang::Tcl, "Tcl", &tree_sitter_tcl::LANGUAGE.into());
 }
 
 // iRules (an F5 Tcl dialect) is a crates.io grammar, not a vendored fork,
 // so it dispatches through the plain `tree_sitter_irules::LANGUAGE`.
 #[test]
 fn lang_irules_resolves_to_tree_sitter_irules() {
-    assert_dispatch(Lang::Irules, "Irules", tree_sitter_irules::LANGUAGE.into());
+    assert_dispatch(
+        &Lang::Irules,
+        "Irules",
+        &tree_sitter_irules::LANGUAGE.into(),
+    );
 }
 
 // The Cpp -> mozcpp swap is the original drift bug this test file
@@ -83,30 +87,38 @@ fn lang_irules_resolves_to_tree_sitter_irules() {
 fn lang_cpp_resolves_to_upstream_tree_sitter_cpp() {
     // Since #720 `Lang::Cpp` is backed by the upstream community
     // grammar; the Mozilla fork moved to `Lang::Mozcpp` below.
-    assert_dispatch(Lang::Cpp, "Cpp", tree_sitter_cpp::LANGUAGE.into());
+    assert_dispatch(&Lang::Cpp, "Cpp", &tree_sitter_cpp::LANGUAGE.into());
 }
 
 #[test]
 fn lang_c_resolves_to_tree_sitter_c() {
     // Dedicated C language added in #721 (upstream `tree-sitter-c`).
-    assert_dispatch(Lang::C, "C", tree_sitter_c::LANGUAGE.into());
+    assert_dispatch(&Lang::C, "C", &tree_sitter_c::LANGUAGE.into());
 }
 
 #[test]
 fn lang_mozcpp_resolves_to_vendored_mozcpp() {
-    assert_dispatch(Lang::Mozcpp, "Mozcpp", tree_sitter_mozcpp::LANGUAGE.into());
+    assert_dispatch(
+        &Lang::Mozcpp,
+        "Mozcpp",
+        &tree_sitter_mozcpp::LANGUAGE.into(),
+    );
 }
 
 #[test]
 fn lang_objc_resolves_to_tree_sitter_objc() {
     // Dedicated Objective-C language added in #724 (upstream
     // `tree-sitter-objc`). `.mm` Objective-C++ stays on `Lang::Cpp`.
-    assert_dispatch(Lang::Objc, "Objc", tree_sitter_objc::LANGUAGE.into());
+    assert_dispatch(&Lang::Objc, "Objc", &tree_sitter_objc::LANGUAGE.into());
 }
 
 #[test]
 fn lang_python_resolves_to_tree_sitter_python() {
-    assert_dispatch(Lang::Python, "Python", tree_sitter_python::LANGUAGE.into());
+    assert_dispatch(
+        &Lang::Python,
+        "Python",
+        &tree_sitter_python::LANGUAGE.into(),
+    );
 }
 
 // Both Tsx and Typescript share the `tree_sitter_typescript` crate
@@ -115,45 +127,53 @@ fn lang_python_resolves_to_tree_sitter_python() {
 #[test]
 fn lang_tsx_resolves_to_typescript_tsx() {
     assert_dispatch(
-        Lang::Tsx,
+        &Lang::Tsx,
         "Tsx",
-        tree_sitter_typescript::LANGUAGE_TSX.into(),
+        &tree_sitter_typescript::LANGUAGE_TSX.into(),
     );
 }
 
 #[test]
 fn lang_typescript_resolves_to_typescript_typescript() {
     assert_dispatch(
-        Lang::Typescript,
+        &Lang::Typescript,
         "Typescript",
-        tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+        &tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
     );
 }
 
 #[test]
 fn lang_bash_resolves_to_tree_sitter_bash() {
-    assert_dispatch(Lang::Bash, "Bash", tree_sitter_bash::LANGUAGE.into());
+    assert_dispatch(&Lang::Bash, "Bash", &tree_sitter_bash::LANGUAGE.into());
 }
 
 // The Csharp variant uses the `tree_sitter_c_sharp` crate (note the
 // underscore-separated import name vs the camel-cased enum variant).
 #[test]
 fn lang_csharp_resolves_to_tree_sitter_c_sharp() {
-    assert_dispatch(Lang::Csharp, "Csharp", tree_sitter_c_sharp::LANGUAGE.into());
+    assert_dispatch(
+        &Lang::Csharp,
+        "Csharp",
+        &tree_sitter_c_sharp::LANGUAGE.into(),
+    );
 }
 
 #[test]
 fn lang_elixir_resolves_to_tree_sitter_elixir() {
-    assert_dispatch(Lang::Elixir, "Elixir", tree_sitter_elixir::LANGUAGE.into());
+    assert_dispatch(
+        &Lang::Elixir,
+        "Elixir",
+        &tree_sitter_elixir::LANGUAGE.into(),
+    );
 }
 
 // Vendored fork: bca-tree-sitter-ccomment.
 #[test]
 fn lang_ccomment_resolves_to_vendored_ccomment() {
     assert_dispatch(
-        Lang::Ccomment,
+        &Lang::Ccomment,
         "Ccomment",
-        tree_sitter_ccomment::LANGUAGE.into(),
+        &tree_sitter_ccomment::LANGUAGE.into(),
     );
 }
 
@@ -161,30 +181,30 @@ fn lang_ccomment_resolves_to_vendored_ccomment() {
 #[test]
 fn lang_preproc_resolves_to_vendored_preproc() {
     assert_dispatch(
-        Lang::Preproc,
+        &Lang::Preproc,
         "Preproc",
-        tree_sitter_preproc::LANGUAGE.into(),
+        &tree_sitter_preproc::LANGUAGE.into(),
     );
 }
 
 // Vendored Mozilla JS grammar fork: bca-tree-sitter-mozjs.
 #[test]
 fn lang_mozjs_resolves_to_vendored_mozjs() {
-    assert_dispatch(Lang::Mozjs, "Mozjs", tree_sitter_mozjs::LANGUAGE.into());
+    assert_dispatch(&Lang::Mozjs, "Mozjs", &tree_sitter_mozjs::LANGUAGE.into());
 }
 
 #[test]
 fn lang_javascript_resolves_to_tree_sitter_javascript() {
     assert_dispatch(
-        Lang::Javascript,
+        &Lang::Javascript,
         "Javascript",
-        tree_sitter_javascript::LANGUAGE.into(),
+        &tree_sitter_javascript::LANGUAGE.into(),
     );
 }
 
 #[test]
 fn lang_perl_resolves_to_tree_sitter_perl() {
-    assert_dispatch(Lang::Perl, "Perl", tree_sitter_perl::LANGUAGE.into());
+    assert_dispatch(&Lang::Perl, "Perl", &tree_sitter_perl::LANGUAGE.into());
 }
 
 // PHP uses `LANGUAGE_PHP` (not the bare `LANGUAGE`), since the crate
@@ -192,12 +212,12 @@ fn lang_perl_resolves_to_tree_sitter_perl() {
 // against a macro arm flipping between them.
 #[test]
 fn lang_php_resolves_to_tree_sitter_php_language_php() {
-    assert_dispatch(Lang::Php, "Php", tree_sitter_php::LANGUAGE_PHP.into());
+    assert_dispatch(&Lang::Php, "Php", &tree_sitter_php::LANGUAGE_PHP.into());
 }
 
 #[test]
 fn lang_ruby_resolves_to_tree_sitter_ruby() {
-    assert_dispatch(Lang::Ruby, "Ruby", tree_sitter_ruby::LANGUAGE.into());
+    assert_dispatch(&Lang::Ruby, "Ruby", &tree_sitter_ruby::LANGUAGE.into());
 }
 
 // Groovy is backed by the `dekobon-tree-sitter-groovy` crate (not
@@ -206,9 +226,9 @@ fn lang_ruby_resolves_to_tree_sitter_ruby() {
 #[test]
 fn lang_groovy_resolves_to_dekobon_tree_sitter_groovy() {
     assert_dispatch(
-        Lang::Groovy,
+        &Lang::Groovy,
         "Groovy",
-        dekobon_tree_sitter_groovy::LANGUAGE.into(),
+        &dekobon_tree_sitter_groovy::LANGUAGE.into(),
     );
 }
 

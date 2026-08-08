@@ -6,7 +6,8 @@ Three kinds of test, matching the check-versions-test.py pattern:
 * Unit tests against synthetic manifests, weighted toward the legal
   TOML shapes the gate's regex predecessor mis-read: literal strings,
   commented-out entries, inline arrays, indented keys, and the text
-  ``[workspace]`` inside a multi-line string.
+  ``[workspace]`` inside a multi-line string, plus the ``[lints]``-table
+  rule's shapes (absent, empty, ``workspace = true``, exempt).
 * ``main()`` tests over a synthetic repository root, covering both
   error branches and the remediation text they print.
 * A smoke test running the real gate against the real repository,
@@ -58,6 +59,22 @@ exclude = [
 [workspace.package]
 version = "2.1.0"
 """
+
+
+def excluded_crate(extra_table: str = "", name: str = "a") -> str:
+    """A minimal excluded-crate manifest that clears every check.
+
+    It roots its own workspace (#1145) and declares its own lint set
+    (#1228), so a `main()` test can splice in `extra_table` as the one
+    defect it is actually about. Passed as a whole table block, since a
+    bare key appended after `[lints.clippy]` would land inside it.
+    """
+    return (
+        f'[package]\nname = "{name}"\n'
+        f"{extra_table}"
+        "\n[workspace]\n"
+        '\n[lints.clippy]\npedantic = { level = "warn", priority = -1 }\n'
+    )
 
 
 class ReadExcludedCratesTest(unittest.TestCase):
@@ -176,6 +193,92 @@ class MissingWorkspaceTableTest(unittest.TestCase):
         root = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         with self.assertRaises(SystemExit):
             GATE.missing_workspace_table(["absent"], root)
+
+
+class LintsTableTest(unittest.TestCase):
+    """The `[lints]`-table invariant (#1228).
+
+    `[workspace.lints]` reaches members only, so an excluded crate that
+    omits the table builds on compiler defaults while `make enums-check`
+    still runs it at `-D warnings` — a gate that reads as complete and
+    is not.
+    """
+
+    def _root_with(self, crates: dict[str, str]) -> pathlib.Path:
+        root = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        for name, body in crates.items():
+            (root / name).mkdir(parents=True)
+            (root / name / "Cargo.toml").write_text(body, encoding="utf-8")
+        return root
+
+    def test_a_clippy_table_satisfies_the_rule(self) -> None:
+        self.assertIsNone(
+            GATE.lints_table_problem(
+                '[package]\nname = "g"\n\n[lints.clippy]\npedantic = "warn"\n',
+                "g/Cargo.toml",
+            )
+        )
+
+    def test_a_rust_only_table_satisfies_the_rule(self) -> None:
+        # `[lints.rust]` alone is a real posture (the crate may have no
+        # clippy carve-outs); the gate asserts a declared lint set, not a
+        # particular one.
+        self.assertIsNone(
+            GATE.lints_table_problem(
+                '[package]\nname = "g"\n\n[lints.rust]\nmissing_docs = "warn"\n',
+                "g/Cargo.toml",
+            )
+        )
+
+    def test_no_table_at_all_is_reported(self) -> None:
+        self.assertEqual(
+            GATE.lints_table_problem('[package]\nname = "g"\n', "g/Cargo.toml"),
+            "no [lints] table",
+        )
+
+    def test_an_empty_table_is_reported(self) -> None:
+        # `[lints]` with nothing under it changes no lint level, so it
+        # must not buy the crate a pass.
+        self.assertEqual(
+            GATE.lints_table_problem(
+                '[package]\nname = "g"\n\n[lints]\n', "g/Cargo.toml"
+            ),
+            "no [lints] table",
+        )
+
+    def test_workspace_inheritance_is_reported_distinctly(self) -> None:
+        # The spelling every member crate uses, and the one most likely
+        # to be copied in. An excluded crate roots its own workspace, so
+        # it inherits nothing from the repository root.
+        problem = GATE.lints_table_problem(
+            '[package]\nname = "g"\n\n[lints]\nworkspace = true\n', "g/Cargo.toml"
+        )
+        self.assertIsNotNone(problem)
+        assert problem is not None
+        self.assertIn("workspace = true", problem)
+
+    def test_a_non_exempt_crate_without_a_table_is_collected(self) -> None:
+        root = self._root_with({"a": '[package]\nname = "a"\n'})
+        self.assertEqual(GATE.unlinted_crates(["a"], root), [("a", "no [lints] table")])
+
+    def test_an_exempt_vendored_grammar_is_skipped(self) -> None:
+        # The five vendored forks hold generated binding boilerplate that
+        # a regeneration replaces wholesale; the exemption is a recorded
+        # decision, not an oversight.
+        exempt = sorted(GATE.LINTS_EXEMPT_CRATES)[0]
+        root = self._root_with({exempt: f'[package]\nname = "{exempt}"\n'})
+        self.assertEqual(GATE.unlinted_crates([exempt], root), [])
+
+    def test_the_exempt_set_names_only_the_vendored_grammars(self) -> None:
+        # Non-vacuity guard: the rule would also "pass" if every excluded
+        # crate were exempt. Pin that `enums` — the crate #1228 is about
+        # — is the one the real repository actually checks.
+        crates = GATE.read_excluded_crates(
+            (REPO_ROOT / "Cargo.toml").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            [c for c in crates if c not in GATE.LINTS_EXEMPT_CRATES], ["enums"]
+        )
 
 
 class UnpinnedGrammarDepsTest(unittest.TestCase):
@@ -367,7 +470,38 @@ class MainTest(unittest.TestCase):
         self._repo(
             '[workspace]\nexclude = ["a"]\n\n'
             '[workspace.dependencies]\ntree-sitter-cpp = "=0.23.4"\n',
+            {"a": excluded_crate()},
+        )
+        code, err = self._run()
+        self.assertEqual(code, 0, err)
+
+    def test_an_excluded_crate_without_a_lints_table_is_reported(self) -> None:
+        self._repo(
+            '[workspace]\nexclude = ["a"]\n',
             {"a": '[package]\nname = "a"\n\n[workspace]\n'},
+        )
+        code, err = self._run()
+        self.assertEqual(code, 1)
+        self.assertIn("a/Cargo.toml: no [lints] table", err)
+        self.assertIn("#1228", err)
+
+    def test_a_lints_workspace_true_in_an_excluded_crate_is_reported(self) -> None:
+        # Inheriting is what a *member* does; here it resolves to nothing.
+        self._repo(
+            '[workspace]\nexclude = ["a"]\n',
+            {
+                "a": '[package]\nname = "a"\n\n[workspace]\n\n[lints]\nworkspace = true\n'
+            },
+        )
+        code, err = self._run()
+        self.assertEqual(code, 1)
+        self.assertIn("workspace = true", err)
+
+    def test_an_exempt_crate_needs_no_lints_table(self) -> None:
+        exempt = sorted(GATE.LINTS_EXEMPT_CRATES)[0]
+        self._repo(
+            f'[workspace]\nexclude = ["{exempt}"]\n',
+            {exempt: f'[package]\nname = "{exempt}"\n\n[workspace]\n'},
         )
         code, err = self._run()
         self.assertEqual(code, 0, err)
@@ -389,10 +523,7 @@ class MainTest(unittest.TestCase):
     def test_an_unpinned_grammar_in_an_excluded_crate_is_reported(self) -> None:
         self._repo(
             '[workspace]\nexclude = ["a"]\n',
-            {
-                "a": '[package]\nname = "a"\n\n[dependencies]\n'
-                'tree-sitter-cpp = "0.23.4"\n\n[workspace]\n'
-            },
+            {"a": excluded_crate('\n[dependencies]\ntree-sitter-cpp = "0.23.4"\n')},
         )
         code, err = self._run()
         self.assertEqual(code, 1)
@@ -406,7 +537,7 @@ class MainTest(unittest.TestCase):
         self._repo(
             '[workspace]\nexclude = ["a"]\n\n'
             '[workspace.dependencies]\ntree-sitter-python = "^0.25.0"\n',
-            {"a": '[package]\nname = "a"\n\n[workspace]\n'},
+            {"a": excluded_crate()},
         )
         code, err = self._run()
         self.assertEqual(code, 1)
@@ -417,7 +548,7 @@ class MainTest(unittest.TestCase):
         self._repo(
             '[workspace]\nexclude = ["a"]\n\n'
             '[workspace.dependencies]\ntree-sitter-go = ">=0.23, <0.24"\n',
-            {"a": '[package]\nname = "a"\n\n[workspace]\n'},
+            {"a": excluded_crate()},
         )
         code, err = self._run()
         self.assertEqual(code, 1)
@@ -435,6 +566,9 @@ class RealRepositoryTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Excluded manifests OK", result.stdout)
+        # The lint-checked tally is what distinguishes a real pass from
+        # one where every excluded crate happened to be exempt.
+        self.assertIn("1 lint-checked", result.stdout)
 
 
 if __name__ == "__main__":

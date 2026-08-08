@@ -3,8 +3,8 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
-use crate::common::*;
-use crate::languages::*;
+use crate::common::{camel_case, get_token_names, render_error};
+use crate::languages::{Lang, get_language, get_language_name};
 
 #[derive(Debug, Template)]
 #[template(path = "go.go", escape = "none")]
@@ -13,17 +13,25 @@ struct GoTemplate {
     names: Vec<(String, bool, String, String)>,
 }
 
+/// Writes one Go token-kind package per [`Lang`] into `output`.
+///
+/// `file_template` is the file stem with `$` standing in for the
+/// lowercased language name, so `language_$` yields `language_rust.go`.
+///
+/// # Errors
+///
+/// Returns the underlying [`std::io::Error`] when a destination file
+/// cannot be created or written, or when a template fails to render.
 pub fn generate_go(output: &Path, file_template: &str) -> std::io::Result<()> {
     for lang in Lang::into_enum_iter() {
         let language = get_language(&lang);
-        let name = get_language_name(&lang);
-        let c_name = camel_case(name.to_string());
+        let c_name = camel_case(get_language_name(&lang));
 
         let file_name = format!("{}.go", file_template.replace('$', &c_name.to_lowercase()));
         let path = output.join(file_name);
         let mut file = File::create(path)?;
 
-        let mut names = get_token_names(&language, false);
+        let names = get_token_names(&language, false);
         // `unwrap_or(0)` is the identity, not a swallowed error: with no
         // names the `map` below yields nothing, so the padding width is
         // never read. The empty case is unreachable — `get_token_names`
@@ -33,8 +41,11 @@ pub fn generate_go(output: &Path, file_template: &str) -> std::io::Result<()> {
         // alone because an `unwrap()` states no invariant at all (#1227).
         let max_len = names.iter().map(|x| x.0.len()).max().unwrap_or(0);
         let names: Vec<_> = names
-            .drain(..)
-            .map(move |(n, d, t)| (n.clone(), d, t, format!("{: <width$}", n, width = max_len)))
+            .into_iter()
+            .map(|(n, d, t)| {
+                let padded = format!("{n: <max_len$}");
+                (n, d, t, padded)
+            })
             .collect();
 
         let args = GoTemplate { c_name, names };
