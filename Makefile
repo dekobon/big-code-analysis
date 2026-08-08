@@ -88,7 +88,7 @@ find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name 
 NEXTEST        := $(shell command -v cargo-nextest 2>/dev/null)
 TEST_CMD       = $(if $(NEXTEST),$(NEXTEST) nextest run --workspace --all-features,cargo test --workspace --all-features --lib --bins --tests)
 
-.PHONY: help check-tools worktree-setup worktree-setup-test build build-release check test test-doc chain-audit fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors snapshot-anchors-test rustfmt-bail rustfmt-bail-test grammar-marker-sync grammar-marker-sync-test check-versions check-excluded-manifests check-excluded-manifests-test check-ruff-lockstep check-ruff-lockstep-test check-publish-metadata check-publish-metadata-test check-manpage-assets check-diagnostic-prefix check-diagnostic-prefix-test gate-status-test check-tools-test enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-pot book-po-update book-ja book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib bench bench-scaling bench-walk fuzz-check fuzz-smoke fuzz-run _check-find _pc-all _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-ruff-lockstep _pc-check-ruff-lockstep-test _pc-check-publish-metadata _pc-check-publish-metadata-test _pc-check-manpage-assets _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-all _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
+.PHONY: help check-tools worktree-setup worktree-setup-test build build-release check test test-doc chain-audit fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors snapshot-anchors-test rustfmt-bail rustfmt-bail-test grammar-marker-sync grammar-marker-sync-test check-versions check-excluded-manifests check-excluded-manifests-test check-ruff-lockstep check-ruff-lockstep-test check-publish-metadata check-publish-metadata-test check-manpage-assets check-diagnostic-prefix check-diagnostic-prefix-test gate-status-test check-tools-test enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-pot book-po-update book-ja book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib bench bench-scaling bench-walk fuzz-check fuzz-smoke fuzz-run fuzz-tmin _check-find _pc-all _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-ruff-lockstep _pc-check-ruff-lockstep-test _pc-check-publish-metadata _pc-check-publish-metadata-test _pc-check-manpage-assets _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-all _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
 
 # Default target
 help:
@@ -162,6 +162,7 @@ help:
 	@echo "  fuzz-check                           Lint, test + build the cargo-fuzz targets (out-of-band)"
 	@echo "  fuzz-smoke                           Short bounded fuzz run over the committed corpora"
 	@echo "  fuzz-run                             One target, FUZZ_RUNS iterations (FUZZ_TARGET=name)"
+	@echo "  fuzz-tmin                            Minimise a crash artifact (FUZZ_TARGET, FUZZ_INPUT)"
 	@echo "  lint                                 Run all linters"
 	@echo ""
 	@echo "Python bindings (big-code-analysis-py):"
@@ -1048,24 +1049,36 @@ bench-walk:
 # The workflow calls these targets rather than `cargo fuzz` directly, so
 # the sanitizer plumbing below has exactly one definition.
 #
-#   fuzz-check  clippy, test, and build every target. This is the
-#               crate's only lint *and* test gate: `fuzz` is
-#               workspace-excluded, so neither
-#               `cargo clippy --workspace` nor `cargo test --workspace`
+#   fuzz-check  fmt, clippy, test, and build every target. This is the
+#               crate's only format, lint *and* test gate: `fuzz` is
+#               workspace-excluded, so none of `cargo fmt --all`,
+#               `cargo clippy --workspace` or `cargo test --workspace`
 #               can see it (the #164 / #1228 blind spot). The tests it
 #               runs are the ones pinning that the depth generator
 #               actually exceeds the serialization bounds it exists to
 #               reach — without them a generator that quietly stopped
 #               nesting would still run, and still look like coverage.
+#               The fmt stage runs outside the nightly/cargo-fuzz guard
+#               below, because it needs neither and is the stage most
+#               likely to drift unnoticed.
 #   fuzz-smoke  replay the committed corpora with a short iteration
 #               bound. Bounded by `-runs`, never `-max_total_time`: a
 #               wall-clock bound makes a failure non-reproducible across
 #               runners of different speeds.
 #   fuzz-run    one target for FUZZ_RUNS iterations, e.g.
 #               `make fuzz-run FUZZ_TARGET=preproc_macro FUZZ_RUNS=1000000`.
+#               With FUZZ_INPUT set it replays that one file instead —
+#               the reproduce step for a crash artifact. Go through the
+#               target rather than calling `cargo fuzz run` by hand: the
+#               sanitizer env below is what instruments the tree-sitter
+#               C scanners, and `cc` emits `rerun-if-env-changed` for
+#               those variables, so a bare invocation silently *rebuilds*
+#               the grammars without ASan and reproduces a C-scanner
+#               crash weakly or not at all.
 FUZZ_RUNS ?= 100000
 FUZZ_TIMEOUT ?= 10
 FUZZ_TARGET ?= parse_cpp
+FUZZ_INPUT ?=
 
 # ASan on the Rust side is cargo-fuzz's own doing. The tree-sitter
 # grammars are C, compiled by build scripts through the `cc` crate, and
@@ -1106,6 +1119,9 @@ FUZZ_RUN_ENV = LSAN_OPTIONS=suppressions=$(BASE_DIR)fuzz/lsan-suppressions.txt
 FUZZ_WORK = $(BASE_DIR)fuzz/corpus-work
 
 fuzz-check:
+	@echo "Checking formatting of workspace-excluded fuzz crate..."
+	@cargo fmt --manifest-path $(BASE_DIR)fuzz/Cargo.toml --check || \
+	  { echo "fuzz crate is not formatted (run 'cargo fmt --manifest-path fuzz/Cargo.toml')"; exit 1; }
 	@if rustup toolchain list 2>/dev/null | grep -q '^nightly' && \
 	    command -v cargo-fuzz >/dev/null 2>&1; then \
 	  echo "Linting workspace-excluded fuzz crate..."; \
@@ -1139,13 +1155,33 @@ fuzz-smoke:
 fuzz-run:
 	@if rustup toolchain list 2>/dev/null | grep -q '^nightly' && \
 	    command -v cargo-fuzz >/dev/null 2>&1; then \
-	  echo "Fuzzing $(FUZZ_TARGET) for $(FUZZ_RUNS) runs..."; \
-	  mkdir -p $(FUZZ_WORK)/$(FUZZ_TARGET); \
-	  $(FUZZ_CC_ENV) $(FUZZ_RUN_ENV) cargo +nightly fuzz run $(FUZZ_TARGET) \
-	    $(FUZZ_WORK)/$(FUZZ_TARGET) $(BASE_DIR)fuzz/corpus/$(FUZZ_TARGET) \
-	    -- -runs=$(FUZZ_RUNS) -timeout=$(FUZZ_TIMEOUT); \
+	  if [ -n "$(FUZZ_INPUT)" ]; then \
+	    echo "Replaying $(FUZZ_TARGET) against $(FUZZ_INPUT)..."; \
+	    $(FUZZ_CC_ENV) $(FUZZ_RUN_ENV) cargo +nightly fuzz run $(FUZZ_TARGET) \
+	      "$(FUZZ_INPUT)" -- -timeout=$(FUZZ_TIMEOUT); \
+	  else \
+	    echo "Fuzzing $(FUZZ_TARGET) for $(FUZZ_RUNS) runs..."; \
+	    mkdir -p $(FUZZ_WORK)/$(FUZZ_TARGET); \
+	    $(FUZZ_CC_ENV) $(FUZZ_RUN_ENV) cargo +nightly fuzz run $(FUZZ_TARGET) \
+	      $(FUZZ_WORK)/$(FUZZ_TARGET) $(BASE_DIR)fuzz/corpus/$(FUZZ_TARGET) \
+	      -- -runs=$(FUZZ_RUNS) -timeout=$(FUZZ_TIMEOUT); \
+	  fi; \
 	else \
 	  echo "nightly toolchain or cargo-fuzz not found; skipping fuzz-run"; \
+	fi
+
+fuzz-tmin:
+	@if [ -z "$(FUZZ_INPUT)" ]; then \
+	  echo "fuzz-tmin needs FUZZ_INPUT=<path to a crash artifact>"; \
+	  exit 2; \
+	fi
+	@if rustup toolchain list 2>/dev/null | grep -q '^nightly' && \
+	    command -v cargo-fuzz >/dev/null 2>&1; then \
+	  echo "Minimising $(FUZZ_INPUT) for $(FUZZ_TARGET)..."; \
+	  $(FUZZ_CC_ENV) $(FUZZ_RUN_ENV) cargo +nightly fuzz tmin $(FUZZ_TARGET) \
+	    "$(FUZZ_INPUT)" -- -timeout=$(FUZZ_TIMEOUT); \
+	else \
+	  echo "nightly toolchain or cargo-fuzz not found; skipping fuzz-tmin"; \
 	fi
 
 # ---------------------------------------------------------------------------

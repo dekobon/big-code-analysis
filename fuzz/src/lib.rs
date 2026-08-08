@@ -104,10 +104,17 @@ pub fn walk_parsed(ast: &Ast) {
 
     black_box(ast.strip_comments());
 
+    // `AstCfg::comment` is a *suppression* flag — `true` means "nodes
+    // representing comments are ignored" — so `false` is what keeps
+    // comment nodes in the dump and runs the alterator's span and text
+    // extraction over them. Every per-language seed carries a comment
+    // precisely for that path, and #1051 was span arithmetic on a Rust
+    // doc comment. `Checker::is_comment` is still exercised, through the
+    // `"comment"` entry in `FILTERS`.
     let dump = ast.dump(AstCfg {
         id: String::new(),
         language: ast.language().name().to_owned(),
-        comment: true,
+        comment: false,
         span: true,
     });
     let _ = black_box(serde_json::to_vec(&dump));

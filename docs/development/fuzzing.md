@@ -112,10 +112,15 @@ cargo install cargo-fuzz --locked
 Then:
 
 ```bash
-make fuzz-check                                   # clippy + build all targets
+make fuzz-check                                   # fmt + clippy + test + build
 make fuzz-smoke                                   # every target, FUZZ_RUNS each
 make fuzz-run FUZZ_TARGET=preproc_macro FUZZ_RUNS=1000000
+make fuzz-run FUZZ_TARGET=parse_cpp FUZZ_INPUT=fuzz/artifacts/parse_cpp/<file>
+make fuzz-tmin FUZZ_TARGET=parse_cpp FUZZ_INPUT=fuzz/artifacts/parse_cpp/<file>
 ```
+
+`fuzz-check` is also the crate's only `cargo fmt` gate: `cargo fmt
+--all` stops at the workspace, and `fuzz/` is excluded from it.
 
 Both run targets take `FUZZ_RUNS` (default 100 000) and `FUZZ_TIMEOUT`
 (default 10 seconds per input). Every recipe skips with a printed reason
@@ -180,13 +185,22 @@ libFuzzer writes the offending input to `fuzz/artifacts/<target>/`. The
 CI workflow uploads that directory as the `fuzz-artifacts` artifact, and
 the quarterly cron opens an issue.
 
-1. Reproduce: `cargo +nightly fuzz run <target> fuzz/artifacts/<target>/<file>`.
-2. Minimise: `cargo +nightly fuzz tmin <target> fuzz/artifacts/<target>/<file>`.
+1. Reproduce:
+   `make fuzz-run FUZZ_TARGET=<target> FUZZ_INPUT=fuzz/artifacts/<target>/<file>`.
+2. Minimise:
+   `make fuzz-tmin FUZZ_TARGET=<target> FUZZ_INPUT=fuzz/artifacts/<target>/<file>`.
 3. Fix the defect.
 4. **Commit the minimised input as a corpus seed *and* write a normal
    `#[test]`.** The test is the durable half: it enforces the regression
    on every `cargo test`, without anyone running the fuzzer again. Put it
    next to the code that broke, with the bytes inlined as a literal.
+
+Go through the make targets rather than calling `cargo +nightly fuzz
+run` / `tmin` directly. They carry the `CFLAGS_<host-triple>` /
+`CXXFLAGS_<host-triple>` settings described above, and `cc` emits
+`cargo:rerun-if-env-changed` for those variables — so a bare invocation
+rebuilds every tree-sitter grammar *without* ASan, which is precisely
+the instrumentation that found the C-scanner class in the first place.
 
 Step 4 does not fit every finding, and the exception is worth naming: a
 *leak* is invisible to `cargo test`, because nothing outside a sanitizer
