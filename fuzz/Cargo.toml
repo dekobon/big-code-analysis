@@ -1,0 +1,130 @@
+# Standalone workspace root. The root manifest `exclude`s this crate, but
+# `exclude` denies membership without terminating cargo's upward search for a
+# workspace root. Inside a git worktree under `.claude/worktrees/` that search
+# escapes the worktree and lands on the main checkout's manifest, where this
+# path is neither a member nor excluded — breaking `cargo fmt --all` and every
+# `make pre-commit` stage that depends on it (#1145).
+#
+# Kept at the top of the file rather than the bottom: an empty table as the
+# last thing in a manifest silently adopts any bare key appended after it, so
+# a future `foo = "1"` meant for `[package]` would become `[workspace].foo`.
+[workspace]
+
+[package]
+name = "big-code-analysis-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "MPL-2.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Path-only, with no `version` of its own: the fuzz crate is never published,
+# so pinning it would only add a second place to bump on every release. This
+# also keeps it outside `check-excluded-manifests.py`'s grammar-pin rule,
+# which skips entries carrying no version requirement.
+#
+# `all-languages` is the default feature set and is what the per-language
+# targets below need; spelling it out documents the dependency rather than
+# relying on the default staying what it is.
+[dependencies.big-code-analysis]
+path = ".."
+features = ["all-languages"]
+
+# Mirrors [workspace.lints] in ../Cargo.toml. This crate is excluded from
+# that workspace (see [workspace].exclude there), so it cannot inherit via
+# `lints.workspace = true` and needs its own copy — without it a crate
+# nominally gated at `-D warnings` is measured against the compiler defaults
+# and still reads as fully linted (#1228).
+#
+# One deliberate divergence: the workspace's
+# `unexpected_cfgs = { check-cfg = ['cfg(chain_audit)'] }` entry is not
+# repeated here. It exists to admit the library's `chain_audit` walk
+# assertion (#1122), which this crate has no counterpart to; copying it
+# would only teach rustc to accept a `cfg(chain_audit)` typo in a crate that
+# never sets the flag.
+[lints.rust]
+missing_docs = "warn"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+
+# Fuzz targets are not tests, are not documented on docs.rs, and are not
+# benchmarks. `cargo fuzz` supplies its own `main`, so `test = false` is
+# required rather than merely tidy: the libtest harness would fight it.
+[[bin]]
+name = "parse_bash"
+path = "fuzz_targets/parse_bash.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_c"
+path = "fuzz_targets/parse_c.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_cpp"
+path = "fuzz_targets/parse_cpp.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_javascript"
+path = "fuzz_targets/parse_javascript.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_perl"
+path = "fuzz_targets/parse_perl.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_python"
+path = "fuzz_targets/parse_python.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_rust"
+path = "fuzz_targets/parse_rust.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_tcl"
+path = "fuzz_targets/parse_tcl.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "preproc_macro"
+path = "fuzz_targets/preproc_macro.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "nested_depth"
+path = "fuzz_targets/nested_depth.rs"
+test = false
+doc = false
+bench = false

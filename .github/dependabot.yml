@@ -69,6 +69,18 @@ updates:
         update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "deps"
+  # The cargo-fuzz crate (#1154). Workspace-excluded, so it carries its
+  # own lockfile and is invisible to the "/" entry above.
+  - package-ecosystem: cargo
+    directory: "/fuzz"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: "deps"
   - package-ecosystem: cargo
     directory: "/enums"
     schedule:

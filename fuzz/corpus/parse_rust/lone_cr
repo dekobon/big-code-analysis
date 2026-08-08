@@ -1,0 +1,1 @@
+/// Doc.fn f(a: i32) -> i32 {    let s = "x";    g(a)}

@@ -1,0 +1,2 @@
+#define DBG 1
+auto s = R"x(DBG)x";

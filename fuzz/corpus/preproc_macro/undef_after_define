@@ -1,0 +1,3 @@
+#define DBG 1
+#undef DBG
+int x = DBG;

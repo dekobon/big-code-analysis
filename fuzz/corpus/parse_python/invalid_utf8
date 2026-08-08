@@ -1,0 +1,4 @@
+# py
+def f(a):
+    s = "x"
+    return g(a)€ÿ

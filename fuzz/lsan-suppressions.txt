@@ -1,0 +1,36 @@
+# LeakSanitizer suppressions for the fuzz targets.
+#
+# Keep this file as short as it can be. Every entry is a leak we have
+# decided not to fail on, which means it is also a leak nothing will
+# tell us about again. Each one must name where it was reported and why
+# it cannot be fixed here.
+#
+# ---------------------------------------------------------------------
+# tree-sitter-perl 1.1.2 — heredoc queues are never freed
+# ---------------------------------------------------------------------
+# `tree_sitter_perl_external_scanner_destroy` (scanner.c:1225) frees the
+# `Scanner` and nothing else: the three `create_queue()` allocations from
+# `heredoc_new`, the per-heredoc `STRING_FREE`s, and the `VEC_FREE` of the
+# heredoc vector are all present but commented out. So every scanner
+# create/destroy cycle leaks its queues and whatever they still held.
+#
+# Found by `parse_perl` on its first bounded run (#1154).
+#
+# It is bounded, and saying so is the point of this paragraph — the code
+# reads like a per-file leak and it is not one. Measured at 3 144 bytes
+# in 9 allocations, *identical* at `-runs=3000` and `-runs=30000`:
+# `node::parser_cache::parse_on_scratch_parser` reuses one thread-local
+# `Parser`, so tree-sitter creates the external scanner once per thread
+# per language rather than once per file. The cost is therefore a few
+# kilobytes per worker thread for the process lifetime, not growth under
+# load. It is not the #1052 availability class and must not be reported
+# as such.
+#
+# It is upstream in the grammar, not in this wrapper — tree-sitter-perl
+# is a pinned `=1.1.2` external dependency we vendor no copy of, so there
+# is nothing to patch on our side. Suppressed rather than disabling leak
+# detection for the target, so a *different* leak on the Perl path still
+# fails the run.
+#
+# Remove this entry when the pin moves to a release carrying the fix.
+leak:tree_sitter_perl_external_scanner_create

@@ -62,11 +62,18 @@ baseline = ".bca-baseline.toml"
 # `sanitize_identifier` is a character-class table, and the benchmark
 # harness's formatters are long runs of `writeln!(...)?` whose `nexits`
 # says nothing about maintainability. None of it ships to a user.
+#
+# `fuzz/` joins them for the same reason (#1154). Its per-language syntax
+# table is one arm per (language, shape) pair, which is a table rather
+# than logic; the seed corpora under `fuzz/corpus/` are separately kept
+# out of the *walk* in `.bcaignore`, since they are adversarial byte
+# blobs that exist to be malformed.
 exclude = [
   "./.claude/**",
   "./.opencode/**",
   "./big-code-analysis-bench/**",
   "./enums/**",
+  "./fuzz/**",
   "./generate-grammars/**",
   "./utils/**",
   "./xtask/**",

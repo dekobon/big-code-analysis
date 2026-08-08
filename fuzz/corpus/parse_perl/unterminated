@@ -1,0 +1,2 @@
+my $s = <<'EOF';
+unterminated heredoc

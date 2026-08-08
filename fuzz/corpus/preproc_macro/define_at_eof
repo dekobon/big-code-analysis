@@ -1,0 +1,2 @@
+#define DBG 1
+int x = DBG

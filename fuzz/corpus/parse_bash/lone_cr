@@ -1,0 +1,1 @@
+# shf() {  local s="x"  g "$s"}

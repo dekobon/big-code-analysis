@@ -1,0 +1,6 @@
+// cpp
+#include <string>
+int f(int a) {
+  auto s = R"(x)";
+  return g(a);
+}

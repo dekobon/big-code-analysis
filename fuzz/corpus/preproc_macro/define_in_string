@@ -1,0 +1,2 @@
+#define DBG 1
+const char *s = "DBG";

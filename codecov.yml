@@ -59,6 +59,13 @@ ignore:
   - "tree-sitter-preproc/**"
   - "tree-sitter-tcl/**"
   - "enums/**"
+  # Belt and braces (#1154). `fuzz/` is workspace-excluded, so
+  # `cargo llvm-cov --workspace` cannot reach it and no line of it can
+  # enter either denominator in the first place — but naming it here
+  # keeps that true if the crate is ever pulled into the workspace, and
+  # a fuzz target has no meaningful coverage number: it is run by
+  # libFuzzer, not by the test suite.
+  - "fuzz/**"
   - "xtask/**"
   - "**/tests/**"
   - "**/build.rs"
