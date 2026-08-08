@@ -294,13 +294,16 @@ mod tests {
     /// `nested_depth` has stopped reaching the class it exists for and
     /// the constant needs raising — the target would still run, and
     /// would still look like coverage.
-    #[test]
-    fn max_depth_exceeds_the_ast_serialize_bound() {
-        // `depth` is reduced modulo the cap, so `MAX_NESTING_DEPTH` maps
-        // to 1. The value one below it is the deepest reachable nest.
-        let deepest = u16::try_from(MAX_NESTING_DEPTH - 1).expect("cap fits in u16");
-        let source = nesting(NestLang::Rust, deepest, &[Shape::Paren]).render();
+    /// The text `recursion::serialize_bounded` puts in its error.
+    ///
+    /// Matched on rather than accepting any `Err`, so an unrelated
+    /// serialization failure cannot stand in for the depth bound and
+    /// make these tests pass for the wrong reason.
+    const DEPTH_ERROR: &str = "nesting is deeper than the serialization limit";
 
+    /// Serialize an `AstNode` dump of `source`, returning the error text
+    /// if it fails.
+    fn dump_error(source: Vec<u8>) -> Option<String> {
         let ast = Ast::parse(Source::from_bytes(LANG::Rust, source)).expect("rust is enabled");
         let dump = ast.dump(AstCfg {
             id: String::new(),
@@ -308,9 +311,25 @@ mod tests {
             comment: true,
             span: true,
         });
-        assert!(
-            serde_json::to_vec(&dump).is_err(),
-            "the deepest generated nest did not reach MAX_AST_SERIALIZE_DEPTH"
+        serde_json::to_vec(&dump).err().map(|e| e.to_string())
+    }
+
+    #[test]
+    fn max_depth_exceeds_the_ast_serialize_bound() {
+        // `depth` is reduced modulo the cap, so `MAX_NESTING_DEPTH` maps
+        // to 1. The value one below it is the deepest reachable nest.
+        let deepest = u16::try_from(MAX_NESTING_DEPTH - 1).expect("cap fits in u16");
+        let error = dump_error(nesting(NestLang::Rust, deepest, &[Shape::Paren]).render())
+            .expect("the deepest generated nest must reach MAX_AST_SERIALIZE_DEPTH");
+        assert!(error.contains(DEPTH_ERROR), "unexpected failure: {error}");
+
+        // The other half of the claim. Without it the assertion above
+        // holds for a generator that emits an unserializable tree at
+        // *every* depth, which would say nothing about reaching a bound.
+        assert_eq!(
+            dump_error(nesting(NestLang::Rust, 4, &[Shape::Paren]).render()),
+            None,
+            "a shallow nest must serialize cleanly"
         );
     }
 
@@ -318,18 +337,31 @@ mod tests {
     /// lambda shapes drive: a paren nests the AST without opening a
     /// function space, so a `Shape::Paren` nest would leave this bound
     /// untouched however deep it went.
-    #[test]
-    fn lambda_shapes_exceed_the_space_serialize_bound() {
-        let deepest = u16::try_from(MAX_NESTING_DEPTH - 1).expect("cap fits in u16");
-        let source = nesting(NestLang::Rust, deepest, &[Shape::Lambda]).render();
-
+    /// Serialize the `FuncSpace` tree for `source`, returning the error
+    /// text if it fails.
+    fn space_error(source: Vec<u8>) -> Option<String> {
         let space = Ast::parse(Source::from_bytes(LANG::Rust, source))
             .expect("rust is enabled")
             .metrics(MetricsOptions::default())
             .expect("walker succeeds");
-        assert!(
-            serde_json::to_vec(&space).is_err(),
-            "the deepest lambda nest did not reach MAX_SPACE_SERIALIZE_DEPTH"
+        serde_json::to_vec(&space).err().map(|e| e.to_string())
+    }
+
+    #[test]
+    fn lambda_shapes_exceed_the_space_serialize_bound() {
+        let deepest = u16::try_from(MAX_NESTING_DEPTH - 1).expect("cap fits in u16");
+        let error = space_error(nesting(NestLang::Rust, deepest, &[Shape::Lambda]).render())
+            .expect("the deepest lambda nest must reach MAX_SPACE_SERIALIZE_DEPTH");
+        assert!(error.contains(DEPTH_ERROR), "unexpected failure: {error}");
+
+        // Only the lambda shapes open function spaces, so an equally
+        // deep paren nest must *not* trip this bound. That is what makes
+        // the assertion above a claim about `FuncSpace` depth rather
+        // than about depth in general.
+        assert_eq!(
+            space_error(nesting(NestLang::Rust, deepest, &[Shape::Paren]).render()),
+            None,
+            "a paren nest opens no function spaces and must serialize cleanly"
         );
     }
 
@@ -351,7 +383,10 @@ mod tests {
     fn seeds_cover_every_language() {
         use std::collections::BTreeSet;
 
-        let dir = std::path::Path::new("corpus/nested_depth");
+        // Anchored to the manifest rather than the process working
+        // directory, which cargo sets to the package root today but
+        // which nothing in the test controls.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/nested_depth");
         let mut langs = BTreeSet::new();
         let mut deepest = 0;
         let mut seeds = 0;
