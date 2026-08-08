@@ -1708,6 +1708,14 @@ _ci-cargo-pipeline:
 # uploads anything; the release workflow is the only mutator.
 # ---------------------------------------------------------------------------
 
+# The five vendored grammar leaves, in publish order. `release-check`
+# reads this list twice, once to confirm the directories are committed
+# and once to dry-run the publish, so the two cannot drift apart.
+# `release.yml` keeps its own copy; a make variable cannot reach a
+# workflow.
+GRAMMAR_LEAVES := tree-sitter-ccomment tree-sitter-mozcpp tree-sitter-mozjs \
+                  tree-sitter-preproc tree-sitter-tcl
+
 # verify-changelog: confirm CHANGELOG.md has a `## [VERSION]` section.
 # Fixed-string match so dots in the version aren't treated as regex
 # wildcards. Mirrors the preflight check in release.yml.
@@ -1749,18 +1757,43 @@ verify-changelog:
 # release, not just the first, contrary to what this comment and
 # RELEASING.md both used to claim.
 #
-# cargo-deny and cargo-about are probed up front by
+# Two preconditions are checked before any slow stage runs.
+#
+# cargo-deny and cargo-about are probed by
 # `utils/check-tools.sh --release-only`, which names the missing one
 # and its install command. Left to fail in place, a missing subcommand
 # surfaces as cargo's bare `no such command`, and the obvious remedy
 # for cargo-about installs nothing at all unless `--features cli` is
 # passed (#1226).
+#
+# The grammar leaves are then checked for uncommitted changes, because
+# `cargo publish` refuses to package a directory that has any (#1225).
+# Left to fail in place that costs a cargo-deny run and two cargo-about
+# renders first, and cargo's own message offers `--allow-dirty` as the
+# remedy — which would gate content the tag will not carry. The check
+# is scoped and untracked-blind to match what cargo actually rejects:
+# measured, a modified `src/lib.rs` does not stop a leaf packaging, and
+# an untracked file outside the leaf's `include` is never packaged, so
+# neither is worth failing over. cargo stays the backstop for the
+# residue (an untracked file that `include` does cover).
 release-check:
 	@if [ -z "$(VERSION)" ]; then \
 	  echo "ERROR: VERSION not set. Usage: make release-check VERSION=0.1.0"; \
 	  exit 1; \
 	fi
 	@bash $(BASE_DIR)utils/check-tools.sh --release-only
+	@dirty="$$(git status --porcelain --untracked-files=no -- $(GRAMMAR_LEAVES))"; \
+	  if [ -n "$$dirty" ]; then \
+	    echo "ERROR: uncommitted changes in the vendored grammar leaves:"; \
+	    echo "$$dirty"; \
+	    echo ""; \
+	    echo "release-check dry-runs 'cargo publish' for these crates, which"; \
+	    echo "cargo refuses to do while they hold uncommitted changes. Run the"; \
+	    echo "gate on the tree you are about to tag: commit (or amend), then"; \
+	    echo "'make release-check VERSION=$(VERSION)', then tag."; \
+	    echo "Do not pass --allow-dirty; it gates content the tag will not carry."; \
+	    exit 1; \
+	  fi
 	@echo "Running cargo deny check..."
 	@cargo deny check
 	@echo "Generating THIRD-PARTY-LICENSES-bca.md (dry-run)..."
@@ -1774,7 +1807,7 @@ release-check:
 	  --manifest-path big-code-analysis-web/Cargo.toml \
 	  about.hbs > /dev/null
 	@echo "Dry-running cargo publish for the five vendored grammar leaves..."
-	@for d in tree-sitter-ccomment tree-sitter-mozcpp tree-sitter-mozjs tree-sitter-preproc tree-sitter-tcl; do \
+	@for d in $(GRAMMAR_LEAVES); do \
 	  cargo publish --dry-run --locked --manifest-path "$$d/Cargo.toml" || exit 1; \
 	done
 	@$(MAKE) check-publish-metadata
