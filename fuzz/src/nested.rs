@@ -25,7 +25,7 @@
 //! what drive the `FuncSpace` bound specifically — a plain paren nests
 //! the AST without opening a function space.
 
-use arbitrary::Arbitrary;
+use arbitrary::{Arbitrary, Unstructured};
 use big_code_analysis::LANG;
 
 /// Greatest number of nesting constructs a generated input may carry.
@@ -50,7 +50,9 @@ pub const MAX_NESTING_DEPTH: usize = 512;
 /// A subset of the fuzzed set: each entry needs a hand-written table of
 /// constructs, and these four span the interesting variation — braces
 /// versus indentation, and three different lambda spellings.
-#[derive(Arbitrary, Debug, Clone, Copy)]
+// `Ord` so `seeds_cover_every_language` can compare the decoded set
+// against an expected one, rather than asserting membership four times.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum NestLang {
     /// Rust: block expressions nest, so it has the widest shape table.
     Rust,
@@ -65,7 +67,7 @@ pub enum NestLang {
 }
 
 /// One nesting construct, rendered per language by [`Nesting::pair`].
-#[derive(Arbitrary, Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shape {
     /// Parenthesised expression — the cheapest AST level available.
     Paren,
@@ -81,8 +83,40 @@ pub enum Shape {
     Block,
 }
 
+/// Greatest number of entries read into [`Nesting::shapes`].
+///
+/// The sequence is cycled, so a longer one adds no shape a shorter one
+/// cannot reach — it only lets a mutator spend input bytes on a tail
+/// that changes nothing.
+const MAX_SHAPES: usize = 16;
+
+impl NestLang {
+    /// Decode a language selector byte. See [`Nesting`]'s byte layout.
+    fn from_byte(byte: u8) -> Self {
+        match byte % 4 {
+            0 => Self::Rust,
+            1 => Self::Cpp,
+            2 => Self::Javascript,
+            _ => Self::Python,
+        }
+    }
+}
+
+impl Shape {
+    /// Decode a shape byte. See [`Nesting`]'s byte layout.
+    fn from_byte(byte: u8) -> Self {
+        match byte % 5 {
+            0 => Self::Paren,
+            1 => Self::Call,
+            2 => Self::Bracket,
+            3 => Self::Lambda,
+            _ => Self::Block,
+        }
+    }
+}
+
 /// A generated deeply-nested input.
-#[derive(Arbitrary, Debug)]
+#[derive(Debug)]
 pub struct Nesting {
     /// Which language's syntax to emit. Private so it does not collide
     /// with the [`Nesting::lang`] accessor, which returns the library's
@@ -93,6 +127,40 @@ pub struct Nesting {
     /// Constructs to cycle through while descending. An empty sequence
     /// falls back to a single [`Shape::Paren`].
     shapes: Vec<Shape>,
+}
+
+/// Hand-written rather than derived, so the byte layout is ours:
+///
+/// | bytes | meaning |
+/// |---|---|
+/// | 0 | language selector, `% 4` |
+/// | 1-2 | raw depth, little-endian `u16`, reduced in [`Nesting::render`] |
+/// | 3.. | one shape per byte, `% 5`, up to [`MAX_SHAPES`] |
+///
+/// The derive was the obvious choice and was wrong here, for a reason
+/// worth recording. Its layout is an implementation detail of
+/// `arbitrary`, which made the committed seeds unwritable: the twelve
+/// `nested_depth` seeds first written against it *all* decoded to
+/// `Rust`, so a corpus that read as covering four languages covered
+/// one, and a 16-million-combination search over the seed bytes could
+/// not produce a single `Cpp`, `Javascript` or `Python` input. A
+/// generator whose seeds cannot be written deliberately cannot be
+/// checked either — `seeds_cover_every_language` below is only possible
+/// because this layout is fixed here.
+impl<'a> Arbitrary<'a> for Nesting {
+    fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
+        let lang = NestLang::from_byte(u.arbitrary::<u8>()?);
+        let depth = u.arbitrary::<u16>()?;
+        let mut shapes = Vec::new();
+        while !u.is_empty() && shapes.len() < MAX_SHAPES {
+            shapes.push(Shape::from_byte(u.arbitrary::<u8>()?));
+        }
+        Ok(Self {
+            lang,
+            depth,
+            shapes,
+        })
+    }
 }
 
 impl Nesting {
@@ -204,6 +272,8 @@ impl Nesting {
 mod tests {
     use big_code_analysis::{Ast, AstCfg, LANG, MetricsOptions, Source};
 
+    use arbitrary::{Arbitrary, Unstructured};
+
     use super::{MAX_NESTING_DEPTH, NestLang, Nesting, Shape};
 
     /// Build a `Nesting` directly. `Arbitrary` is how the fuzzer makes
@@ -267,6 +337,52 @@ mod tests {
     /// rather than stopping at its length — the cycling in `render`. A
     /// truncated nest is the silent-vacuity failure mode: the target
     /// still runs, and reaches nothing.
+    /// The committed `nested_depth` seeds must reach every language the
+    /// generator knows, and at least one must nest deeply enough to
+    /// matter.
+    ///
+    /// This is the guard that the derived `Arbitrary` made impossible.
+    /// The first twelve seeds written here all decoded to `Rust` while
+    /// reading as a spread across four languages — a corpus that looks
+    /// like coverage and is not, which is the precise failure mode this
+    /// whole crate exists to avoid. Nothing about a seed file's contents
+    /// says which language it selects, so only an assertion can.
+    #[test]
+    fn seeds_cover_every_language() {
+        use std::collections::BTreeSet;
+
+        let dir = std::path::Path::new("corpus/nested_depth");
+        let mut langs = BTreeSet::new();
+        let mut deepest = 0;
+        let mut seeds = 0;
+
+        for entry in std::fs::read_dir(dir).expect("the seed corpus is committed") {
+            let bytes = std::fs::read(entry.expect("readable entry").path()).expect("readable seed");
+            let mut u = Unstructured::new(&bytes);
+            let nesting = Nesting::arbitrary(&mut u).expect("seeds decode");
+            deepest = deepest.max(nesting.render().len());
+            langs.insert(nesting.lang);
+            seeds += 1;
+        }
+
+        // Non-vacuity: an empty directory would satisfy every assertion
+        // below by having nothing to contradict them.
+        assert!(seeds >= 4, "expected at least one seed per language, found {seeds}");
+        assert_eq!(
+            langs,
+            BTreeSet::from([
+                NestLang::Rust,
+                NestLang::Cpp,
+                NestLang::Javascript,
+                NestLang::Python
+            ]),
+            "the seed corpus does not reach every language"
+        );
+        // A shallow-only corpus would leave the deep-nesting class — the
+        // reason this target exists — to be rediscovered from scratch.
+        assert!(deepest > 1_000, "no seed nests deeply; deepest render was {deepest} bytes");
+    }
+
     // `naive_bytecount` wants the `bytecount` crate. Pulling a
     // dependency into a fuzz crate to speed up a byte tally over a few
     // hundred bytes, in a test, is not a trade worth making.
