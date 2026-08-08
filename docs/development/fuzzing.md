@@ -140,6 +140,23 @@ trailing newline (the #1051 shape), CRLF and lone-CR endings, a UTF-8
 BOM, invalid UTF-8, NUL bytes, an unterminated construct, and the empty
 input.
 
+Those are byte-exact, and `.gitattributes` marks the directory
+`-text -diff` so git never normalises them. Several exist precisely to
+carry what it would otherwise rewrite.
+
+`nested_depth`'s seeds are different in kind: that target decodes bytes
+into a generator input rather than treating them as source. Its layout
+is defined by a hand-written `Arbitrary` impl — byte 0 selects the
+language, bytes 1-2 are the raw depth, the rest are shapes — and the
+seeds are two per language, one shallow and one at the depth cap.
+
+The impl is hand-written for exactly this reason. Under the derive, the
+layout is an implementation detail of the `arbitrary` crate, the seeds
+cannot be written deliberately, and the first twelve written against it
+all decoded to Rust — a corpus that read as spanning four languages and
+covered one. `seeds_cover_every_language` now asserts the decoded set,
+which is only checkable because the layout is ours.
+
 **Runs do not write here.** libFuzzer writes every coverage-increasing
 input it finds into the *first* corpus directory it is handed and treats
 later ones as read-only. The recipes therefore pass

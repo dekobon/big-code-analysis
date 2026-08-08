@@ -545,6 +545,25 @@ fails late in the release pipeline if `Cargo.lock` drifts from what
 the workspace resolves to. Commit the refreshed lockfile alongside
 the `Cargo.toml` edits.
 
+**Refresh the workspace-excluded lockfiles too.** `cargo update
+--workspace` reaches only the root lockfile, and an excluded crate has
+its own. `fuzz/Cargo.lock` records `big-code-analysis` at the version it
+resolved against, so the bump above strands it and every `--locked`
+invocation in `make fuzz-check` then fails with "cannot update the lock
+file … because --locked was passed" — verified by bumping
+`[workspace.package] version` and re-running it. `enums/Cargo.lock` is
+the same shape once its own `[package] version` and grammar pins move
+in steps 3 and 4:
+
+```bash
+cargo update --manifest-path fuzz/Cargo.toml --workspace
+cargo update --manifest-path enums/Cargo.toml --workspace
+```
+
+Commit both alongside the root lockfile. Neither crate is published, so
+this never blocks `cargo publish` — it surfaces later, as a red fuzz or
+`enums-check` job on a tree that looks correct.
+
 Regenerate the committed man pages in the same release-prep commit:
 
 ```bash
