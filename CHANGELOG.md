@@ -56,7 +56,11 @@ for historical reference.
   `pre-commit`, `ci`, and the release workflow's preflight. It reads resolved
   fields from `cargo metadata` so `[workspace.package]` inheritance is
   honoured, and resolves `include.workspace = true` separately because
-  `cargo metadata` does not emit `include` (#1224).
+  `cargo metadata` does not emit `include`. Its `cargo package --list` runs
+  `--locked`, carrying over the flag from the `cargo publish --dry-run
+  --locked` it replaced: without it a stale `Cargo.lock` is silently
+  re-resolved and rewritten and the gate still reports a pass, so a tag
+  could be cut without the committed lockfile ever being verified (#1224).
 - `make release-check` now probes `cargo-deny` and `cargo-about` before
   running them, naming the missing tool and its exact install command instead
   of surfacing cargo's generic `no such command` partway through the gate.
