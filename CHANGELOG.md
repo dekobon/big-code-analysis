@@ -62,6 +62,20 @@ for historical reference.
 
 ### Fixed
 
+- `fix_includes` returned its diagnostics in a different order on every
+  run for identical input, because both producers push while iterating a
+  `HashMap` — `files` in `build_include_graph`, `nodes` in
+  `record_indirect_includes`. `bca preproc` prints that `Vec` straight to
+  stderr, so the same source tree emitted the same warnings in a
+  different order each time. Measured at 40 distinct orders across 40
+  runs of one 8-file input, against a single distinct *set* — the
+  content was already deterministic, only the sequence was not. The
+  sequence is now sorted, which needed `Ord` on the public
+  `PreprocDiagnostic` (additive; see `STABILITY.md`). The inner half of
+  this had already been fixed: `IncludeCycle` sorts its own member list
+  "so the emitted diagnostic is deterministic across runs", and only the
+  outer sequence was left. Found while establishing whether
+  `fix_includes` was safe to fuzz (#1288).
 - The `LANG::C` arm of the preprocessor macro-replacement pass had no
   test that could observe it. `parse_then_metrics_c_with_preproc_…` was
   added by #721 to give that arm "direct coverage", but its only
