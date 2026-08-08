@@ -1058,9 +1058,15 @@ bench-walk:
 #               actually exceeds the serialization bounds it exists to
 #               reach — without them a generator that quietly stopped
 #               nesting would still run, and still look like coverage.
-#               The fmt stage runs outside the nightly/cargo-fuzz guard
-#               below, because it needs neither and is the stage most
-#               likely to drift unnoticed.
+#
+#               Every stage is pinned to `+nightly`, the fmt one
+#               included, so this target either runs wholly on nightly
+#               or skips wholly. An unpinned `cargo fmt` resolves
+#               through the *default* toolchain, which is stable on a
+#               typical checkout and nightly in the fuzz workflow —
+#               agreeing today and free to diverge on any nightly
+#               rustfmt release, which is the "works locally, red in
+#               CI" shape this repository keeps paying for.
 #   fuzz-smoke  replay the committed corpora with a short iteration
 #               bound. Bounded by `-runs`, never `-max_total_time`: a
 #               wall-clock bound makes a failure non-reproducible across
@@ -1119,11 +1125,11 @@ FUZZ_RUN_ENV = LSAN_OPTIONS=suppressions=$(BASE_DIR)fuzz/lsan-suppressions.txt
 FUZZ_WORK = $(BASE_DIR)fuzz/corpus-work
 
 fuzz-check:
-	@echo "Checking formatting of workspace-excluded fuzz crate..."
-	@cargo fmt --manifest-path $(BASE_DIR)fuzz/Cargo.toml --check || \
-	  { echo "fuzz crate is not formatted (run 'cargo fmt --manifest-path fuzz/Cargo.toml')"; exit 1; }
 	@if rustup toolchain list 2>/dev/null | grep -q '^nightly' && \
 	    command -v cargo-fuzz >/dev/null 2>&1; then \
+	  echo "Checking formatting of workspace-excluded fuzz crate..."; \
+	  cargo +nightly fmt --manifest-path $(BASE_DIR)fuzz/Cargo.toml --check || \
+	    { echo "fuzz crate is not formatted (run 'cargo +nightly fmt --manifest-path fuzz/Cargo.toml')"; exit 1; }; \
 	  echo "Linting workspace-excluded fuzz crate..."; \
 	  cargo +nightly clippy \
 	    --manifest-path $(BASE_DIR)fuzz/Cargo.toml \
