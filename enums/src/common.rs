@@ -151,12 +151,16 @@ pub fn camel_case(name: &str) -> String {
 }
 
 /// Enumerates a grammar's node kinds as `(rust_name, renamed, ts_name)`
-/// triples, named nodes first, with the tree-sitter ERROR sentinel
+/// triples in node-kind id order, with the tree-sitter ERROR sentinel
 /// appended last.
 ///
 /// `renamed` marks an entry whose Rust name carries a numeric suffix to
-/// break a collision with an earlier one. `escape` is forwarded to
-/// [`sanitize_string`].
+/// break a collision with an earlier one. Named kinds are *resolved*
+/// before anonymous ones, so a named kind keeps the unsuffixed name and
+/// an anonymous namesake takes the suffix; that is a naming priority,
+/// not the order of the returned `Vec`, which stays keyed on the id so
+/// the generated enum's discriminants match tree-sitter's. `escape` is
+/// forwarded to [`sanitize_string`].
 ///
 /// # Panics
 ///
