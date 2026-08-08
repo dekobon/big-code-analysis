@@ -45,7 +45,12 @@ use crate::traits::*;
 /// severity prefix and no trailing newline; prefixing is the presenting
 /// layer's job, so the prefix is written in exactly one place per crate
 /// (#1199).
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+// `Ord` exists so [`fix_includes`] can return a stable sequence; see the
+// sort there for why. The derived order is by variant declaration first,
+// then by field, which groups a run's diagnostics by kind and orders each
+// kind by path — the shape a reader scanning `bca preproc` warnings wants.
+// It is an output-ordering aid, not a severity ranking.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 pub enum PreprocDiagnostic {
     /// A file's `#include` resolved back to the file itself; the
     /// self-edge was skipped.
@@ -607,6 +612,19 @@ pub fn fix_includes<S: ::std::hash::BuildHasher>(
     let (mut g, mut nodes) = build_include_graph(files, all_files, &mut diagnostics);
     let scc_map = collapse_scc(&mut g, &mut nodes, &mut diagnostics);
     record_indirect_includes(files, &g, &nodes, &scc_map, &mut diagnostics);
+    // Both producers push while iterating a `HashMap` — `files` in
+    // `build_include_graph`, `nodes` in `record_indirect_includes` — so
+    // without this the *sequence* varies run to run for identical input
+    // even though its content does not. Measured before the sort: 40
+    // distinct orders across 40 runs of one 8-file input, one distinct
+    // set. The CLI prints this Vec straight to stderr, so that surfaced
+    // as `bca preproc` emitting the same warnings in a different order
+    // every time — the #1091 class.
+    //
+    // Note the inner half of this was already fixed: `IncludeCycle`
+    // sorts its own member list "so the emitted diagnostic is
+    // deterministic across runs". Only the outer sequence was left.
+    diagnostics.sort();
     diagnostics
 }
 

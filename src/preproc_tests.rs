@@ -228,6 +228,59 @@ fn self_inclusion_is_reported_as_diagnostic() {
     );
 }
 
+/// `fix_includes` returns its diagnostics in a stable order.
+///
+/// Both producers push while iterating a `HashMap` — `files` in
+/// `build_include_graph`, `nodes` in `record_indirect_includes` — so the
+/// sequence was previously reshuffled on every run for identical input.
+/// The CLI prints this `Vec` straight to stderr, so `bca preproc` emitted
+/// the same warnings in a different order each time (the #1091 class).
+///
+/// Eight self-including files rather than two: with `n` diagnostics a
+/// shuffle has a `1/n!` chance of coming back sorted by luck, so two
+/// would pass half the time against the unsorted code. At eight that is
+/// 1 in 40 320 per run, and the loop runs the input twenty times.
+///
+/// Measured against the pre-fix code, this test observed 40 distinct
+/// orders in 40 runs; the *set* was identical every time, which is why
+/// the assertion is about sequence rather than content.
+#[test]
+fn fix_includes_returns_diagnostics_in_a_stable_order() {
+    const FILES: [&str; 8] = ["e.h", "b.h", "h.h", "a.h", "g.h", "c.h", "f.h", "d.h"];
+
+    fn run() -> Vec<String> {
+        let mut files: HashMap<PathBuf, PreprocFile> = HashMap::new();
+        let mut all_files: HashMap<String, Vec<PathBuf>> = HashMap::new();
+        // Every file includes itself, so each yields one `SelfInclusion`.
+        for name in FILES {
+            let path = PathBuf::from(name);
+            let mut pf = PreprocFile::default();
+            pf.direct_includes.insert((*name).to_string());
+            files.insert(path.clone(), pf);
+            all_files.insert((*name).to_string(), vec![path]);
+        }
+        fix_includes(&mut files, &all_files)
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect()
+    }
+
+    let expected: Vec<String> = {
+        let mut names: Vec<&str> = FILES.to_vec();
+        names.sort_unstable();
+        names
+            .iter()
+            .map(|n| format!("possible self inclusion {n}"))
+            .collect()
+    };
+
+    // A fresh `HashMap` gets a fresh `RandomState`, so each iteration
+    // builds the same logical input with a different iteration order.
+    for i in 0..20 {
+        assert_eq!(run(), expected, "diagnostic order differed on run {i}");
+    }
+}
+
 /// `fix_includes` collapses a 2-file include cycle into one SCC replacement
 /// node and propagates every member of that SCC into the `indirect_includes`
 /// of *both* files symmetrically. Also exercises the `let-else` /
