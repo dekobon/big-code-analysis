@@ -228,6 +228,17 @@ and `cargo run -p big-code-analysis-web --`.
   namespace is the redundant double prefix #609 removed.
 - Edition is 2024 — `let-else`, let-chains, and other 2024 features are
   available.
+- The lint posture (`clippy::pedantic` at `warn`, `missing_docs`) lives
+  in `[workspace.lints]` and reaches members through
+  `lints.workspace = true`. A **workspace-excluded** crate roots its own
+  workspace and inherits nothing, so it needs its own copy of those
+  tables; `enums` carries one, and the five vendored `tree-sitter-*`
+  crates are exempt by decision (generated binding boilerplate that a
+  regeneration replaces wholesale). `utils/check-excluded-manifests.py`
+  gates this — without it a crate gated at `-D warnings` is measured
+  against the compiler defaults and still reads as fully linted (#1228).
+  Additional `allow`s go at file or function level, so the carve-out
+  stays visible at the affected site.
 
 ## Validation gates
 
@@ -625,8 +636,9 @@ weigh them, do not drive them to zero at any cost.
 External grammar crates are version-pinned (`=0.23.5`, `=0.26.10`,
 etc.) in the root `Cargo.toml` **and in each workspace-excluded crate's
 own manifest** (the five vendored grammars plus `enums`) —
-`utils/check-excluded-manifests.py` enforces both, so neither a root
-pin nor a new vendored grammar can reintroduce a caret range (#1151).
+`utils/check-excluded-manifests.py` enforces both (alongside the
+`[lints]`-table rule under "Rust conventions"), so neither a root pin
+nor a new vendored grammar can reintroduce a caret range (#1151).
 Member crates take their grammars through `workspace = true` and carry
 no requirement of their own. The gate reads manifests with `tomllib`,
 so a literal string (`tree-sitter-cpp = '0.23.4'`) is checked like any

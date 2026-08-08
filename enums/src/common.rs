@@ -9,10 +9,19 @@ use tree_sitter::Language;
 /// formatting error rather than a malformed template — but "unlikely"
 /// is not "impossible", and each caller is three lines from an `Err`
 /// it can return (#1227).
+#[must_use]
 pub fn render_error(err: askama::Error) -> std::io::Error {
     std::io::Error::other(err)
 }
 
+/// Rewrites a tree-sitter node-kind string into a valid Rust identifier.
+///
+/// Punctuation becomes its symbolic name (`+` -> `PLUS`), separated
+/// from any preceding alphanumeric run by `_`; characters with no
+/// mapping are dropped. A handful of whole-token special cases (the
+/// BOM, `_`, `self`, `Self`) are translated up front because the
+/// generic rule would leave them empty or reserved.
+#[must_use]
 pub fn sanitize_identifier(name: &str) -> String {
     // Match both the canonical U+FEFF (a UTF-8-decoded BOM token, the
     // shape tree-sitter actually produces from `node_kind_for_id`) and
@@ -83,6 +92,15 @@ pub fn sanitize_identifier(name: &str) -> String {
     result
 }
 
+/// Escapes a tree-sitter node-kind string for embedding in a string
+/// literal.
+///
+/// `escape` selects how many rounds of literal interpretation the value
+/// must survive: `false` emits the single-backslash form for a literal
+/// parsed once (Rust source, JSON — see issue #862), `true` the
+/// double-backslash form for a value that is re-interpreted a second
+/// time.
+#[must_use]
 pub fn sanitize_string(name: &str, escape: bool) -> String {
     let mut result = String::with_capacity(name.len());
     if escape {
@@ -111,7 +129,12 @@ pub fn sanitize_string(name: &str, escape: bool) -> String {
     result
 }
 
-pub fn camel_case(name: String) -> String {
+/// Converts a `snake_case` identifier to `CamelCase`.
+///
+/// Underscores only toggle the capitalize-next flag and are never
+/// emitted, so leading, trailing, and doubled ones collapse away.
+#[must_use]
+pub fn camel_case(name: &str) -> String {
     let mut result = String::with_capacity(name.len());
     let mut cap = true;
     for c in name.chars() {
@@ -127,6 +150,23 @@ pub fn camel_case(name: String) -> String {
     result
 }
 
+/// Enumerates a grammar's node kinds as `(rust_name, renamed, ts_name)`
+/// triples, named nodes first, with the tree-sitter ERROR sentinel
+/// appended last.
+///
+/// `renamed` marks an entry whose Rust name carries a numeric suffix to
+/// break a collision with an earlier one. `escape` is forwarded to
+/// [`sanitize_string`].
+///
+/// # Panics
+///
+/// Panics when the grammar reports a `node_kind_count` outside
+/// tree-sitter's own `u16` id space, which means a provably-broken
+/// grammar (#548). Wrapping the index instead would silently read a
+/// different node kind, and this is a build-time generator rather than
+/// shipped library code, so failing the run loudly is the cheaper
+/// outcome.
+#[must_use]
 pub fn get_token_names(language: &Language, escape: bool) -> Vec<(String, bool, String)> {
     let count = language.node_kind_count();
     let mut names = BTreeMap::default();
@@ -151,9 +191,8 @@ pub fn get_token_names(language: &Language, escape: bool) -> Vec<(String, bool, 
             let kind = language
                 .node_kind_for_id(id)
                 .expect("id < node_kind_count is a valid node kind");
-            let name = sanitize_identifier(kind);
             let ts_name = sanitize_string(kind, escape);
-            let mut name = camel_case(name);
+            let mut name = camel_case(&sanitize_identifier(kind));
             if name.is_empty() {
                 name = format!("Anon{i}");
             }
@@ -274,7 +313,7 @@ mod tests {
 
     #[test]
     fn camel_case_simple() {
-        assert_eq!(camel_case("foo_bar".to_string()), "FooBar");
+        assert_eq!(camel_case("foo_bar"), "FooBar");
     }
 
     // Underscores only toggle the capitalize-next flag; they are never
@@ -282,14 +321,14 @@ mod tests {
     // collapse away entirely.
     #[test]
     fn camel_case_underscore_variants() {
-        assert_eq!(camel_case("_foo".to_string()), "Foo");
-        assert_eq!(camel_case("foo_".to_string()), "Foo");
-        assert_eq!(camel_case("foo__bar".to_string()), "FooBar");
+        assert_eq!(camel_case("_foo"), "Foo");
+        assert_eq!(camel_case("foo_"), "Foo");
+        assert_eq!(camel_case("foo__bar"), "FooBar");
     }
 
     #[test]
     fn camel_case_empty_is_empty() {
-        assert_eq!(camel_case(String::new()), "");
+        assert_eq!(camel_case(""), "");
     }
 
     #[test]

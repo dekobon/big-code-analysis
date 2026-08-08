@@ -136,7 +136,7 @@ help:
 	@echo "  check-versions                       Enforce lockstep version invariant across owned crates"
 	@echo "  check-versions-test                  Self-tests for the check-versions gate"
 	@echo "  check-grammar-crate-test            Sync-test EXTENSIONS table vs src/langs.rs"
-	@echo "  check-excluded-manifests             Assert excluded crates root a workspace and grammars are =-pinned"
+	@echo "  check-excluded-manifests             Assert excluded crates root a workspace, declare lints, and =-pin grammars"
 	@echo "  check-excluded-manifests-test        Self-tests for the check-excluded-manifests gate"
 	@echo "  check-manpage-assets                 Assert every bca-*.1 man page is in deb+rpm asset lists"
 	@echo "  check-diagnostic-prefix              Block capitalised Warning:/Error:/Note: literals"
@@ -515,7 +515,10 @@ check-versions-test:
 # checkout, breaking `cargo fmt --all` and every `make pre-commit`
 # stage chained behind it. Also asserts every tree-sitter dependency
 # in the root manifest and in each excluded crate carries an `=X.Y.Z`
-# pin (#1151). Static lint — no network, no cargo.
+# pin (#1151), and that each excluded crate declares its own `[lints]`
+# table or is listed exempt — `[workspace.lints]` reaches members only,
+# so without one a crate is gated at `-D warnings` against the compiler
+# defaults (#1228). Static lint — no network, no cargo.
 check-excluded-manifests:
 	@echo "Checking workspace-excluded manifests..."
 	@python3 $(BASE_DIR)utils/check-excluded-manifests.py

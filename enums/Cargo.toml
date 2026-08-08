@@ -55,5 +55,30 @@ tree-sitter-ccomment = { package = "bca-tree-sitter-ccomment", path = "../tree-s
 tree-sitter-mozcpp = { package = "bca-tree-sitter-mozcpp", path = "../tree-sitter-mozcpp", version = "=2.1.1" }
 tree-sitter-mozjs = { package = "bca-tree-sitter-mozjs", path = "../tree-sitter-mozjs", version = "=2.1.1" }
 
+# Mirrors [workspace.lints] in ../Cargo.toml. `enums` is excluded from
+# that workspace (see [workspace].exclude there), so it cannot inherit
+# via `lints.workspace = true` and needs its own copy — without it
+# `make enums-check` reads as a full lint gate while running against a
+# strictly smaller lint set than every shipping crate (#1228).
+#
+# One deliberate divergence: the workspace's
+# `unexpected_cfgs = { check-cfg = ['cfg(chain_audit)'] }` entry is not
+# repeated here. It exists to *admit* the library's `chain_audit` walk
+# assertion (#1122), which this crate has no counterpart to; copying it
+# would only teach rustc to accept a `cfg(chain_audit)` typo in a crate
+# that never sets the flag.
+[lints.rust]
+missing_docs = "warn"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+
+# `clippy::unwrap_used` is a per-root `#![cfg_attr(not(test), ...)]`
+# attribute in src/lib.rs and src/main.rs rather than an entry here, for
+# the reason spelled out in ../Cargo.toml: a Cargo lint applies to every
+# target of its package, and the `unwrap` ban is a production-only rule
+# (#1227).
+
 [profile.release]
 debug = "line-tables-only"

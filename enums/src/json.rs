@@ -3,8 +3,8 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
-use crate::common::*;
-use crate::languages::*;
+use crate::common::{camel_case, get_token_names, render_error};
+use crate::languages::{Lang, get_language, get_language_name};
 
 #[derive(Debug, Template)]
 #[template(path = "json.json", escape = "none")]
@@ -19,11 +19,20 @@ struct JsonTemplate {
 // source-string interpretation layer (issue #862).
 const JSON_TOKEN_ESCAPE: bool = false;
 
+/// Writes one JSON token-kind table per [`Lang`] into `output`.
+///
+/// `file_template` is the file stem with `$` standing in for the
+/// lowercased language name, so `language_$` yields
+/// `language_rust.json`.
+///
+/// # Errors
+///
+/// Returns the underlying [`std::io::Error`] when a destination file
+/// cannot be created or written, or when a template fails to render.
 pub fn generate_json(output: &Path, file_template: &str) -> std::io::Result<()> {
     for lang in Lang::into_enum_iter() {
         let language = get_language(&lang);
-        let name = get_language_name(&lang);
-        let c_name = camel_case(name.to_string());
+        let c_name = camel_case(get_language_name(&lang));
 
         let file_name = format!(
             "{}.json",
@@ -45,6 +54,7 @@ pub fn generate_json(output: &Path, file_template: &str) -> std::io::Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::sanitize_string;
 
     // Minimal JSON string-literal unescaper, sufficient for the escape
     // sequences `sanitize_string` can emit (`\"`, `\\`, `\t`, `\n`, `\r`).
@@ -58,7 +68,9 @@ mod tests {
             if c == '\\' {
                 match chars.next() {
                     Some('"') => out.push('"'),
-                    Some('\\') => out.push('\\'),
+                    // A trailing lone backslash has nothing to escape,
+                    // so it stands for itself — same body as `\\`.
+                    Some('\\') | None => out.push('\\'),
                     Some('t') => out.push('\t'),
                     Some('n') => out.push('\n'),
                     Some('r') => out.push('\r'),
@@ -66,7 +78,6 @@ mod tests {
                         out.push('\\');
                         out.push(other);
                     }
-                    None => out.push('\\'),
                 }
             } else {
                 out.push(c);
