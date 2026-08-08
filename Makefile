@@ -88,7 +88,7 @@ find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name 
 NEXTEST        := $(shell command -v cargo-nextest 2>/dev/null)
 TEST_CMD       = $(if $(NEXTEST),$(NEXTEST) nextest run --workspace --all-features,cargo test --workspace --all-features --lib --bins --tests)
 
-.PHONY: help check-tools worktree-setup worktree-setup-test build build-release check test test-doc chain-audit fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors snapshot-anchors-test rustfmt-bail rustfmt-bail-test grammar-marker-sync grammar-marker-sync-test check-versions check-excluded-manifests check-excluded-manifests-test check-manpage-assets check-diagnostic-prefix check-diagnostic-prefix-test gate-status-test check-tools-test enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-pot book-po-update book-ja book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib bench bench-scaling bench-walk _check-find _pc-all _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-manpage-assets _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-all _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-manpage-assets _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
+.PHONY: help check-tools worktree-setup worktree-setup-test build build-release check test test-doc chain-audit fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors snapshot-anchors-test rustfmt-bail rustfmt-bail-test grammar-marker-sync grammar-marker-sync-test check-versions check-excluded-manifests check-excluded-manifests-test check-ruff-lockstep check-ruff-lockstep-test check-manpage-assets check-diagnostic-prefix check-diagnostic-prefix-test gate-status-test check-tools-test enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-pot book-po-update book-ja book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib bench bench-scaling bench-walk _check-find _pc-all _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-ruff-lockstep _pc-check-ruff-lockstep-test _pc-check-manpage-assets _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-all _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-manpage-assets _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
 
 # Default target
 help:
@@ -138,6 +138,8 @@ help:
 	@echo "  check-grammar-crate-test            Sync-test EXTENSIONS table vs src/langs.rs"
 	@echo "  check-excluded-manifests             Assert excluded crates root a workspace, declare lints, and =-pin grammars"
 	@echo "  check-excluded-manifests-test        Self-tests for the check-excluded-manifests gate"
+	@echo "  check-ruff-lockstep                  Assert the ruff-pre-commit rev, uv.lock, and the requirements export agree"
+	@echo "  check-ruff-lockstep-test             Self-tests for the check-ruff-lockstep gate"
 	@echo "  check-manpage-assets                 Assert every bca-*.1 man page is in deb+rpm asset lists"
 	@echo "  check-diagnostic-prefix              Block capitalised Warning:/Error:/Note: literals"
 	@echo "  check-diagnostic-prefix-test         Self-tests for the diagnostic-prefix gate"
@@ -540,6 +542,26 @@ check-excluded-manifests-test:
 	@echo "Running check-excluded-manifests self-tests..."
 	@(cd $(BASE_DIR) && python3 -m unittest -q utils/check-excluded-manifests-test.py)
 
+# ruff version lockstep (#1230). One adopted ruff is declared in four
+# places and nothing compared them: the `ruff-pre-commit` `rev:` in
+# .pre-commit-config.yaml, the version big-code-analysis-py/uv.lock
+# resolves, the `ruff==` pin in its requirements/dev.txt export (what
+# CI installs), and the bound in its pyproject.toml. The rev had
+# already drifted once — v0.15.14 against a lockfile resolving
+# 0.15.22 — which is silent until the two versions happen to disagree,
+# and then presents as "works locally, red in CI". Static lint — no
+# network, no cargo.
+check-ruff-lockstep:
+	@echo "Checking ruff version lockstep..."
+	@python3 $(BASE_DIR)utils/check-ruff-lockstep.py
+
+# Self-tests for the ruff-lockstep gate. Separate target for the same
+# reason as the other gate self-tests: the gate stays a one-line
+# invariant check and test failures get their own parallel-arm output.
+check-ruff-lockstep-test:
+	@echo "Running check-ruff-lockstep self-tests..."
+	@(cd $(BASE_DIR) && python3 -m unittest -q utils/check-ruff-lockstep-test.py)
+
 # Man-page packaging gate. Blocks the failure mode from #444:
 # a bca subcommand man page that drops out of the hand-maintained
 # deb/rpm asset lists in the CLI / web crate Cargo.toml. Static
@@ -793,28 +815,55 @@ py-relock:
 # spuriously flag excluded files. The smoke dir has nothing to exclude, so
 # pointing `--config` at the bindings pyproject just gives it the same
 # ruleset (line-length 100, the `[tool.ruff.lint] select` set) (#995).
+#
+# Resolve ruff the way `py-typecheck` resolves mypy and pyright: prefer
+# the bindings dir's `.venv/bin/ruff`, fall back to PATH, skip cleanly
+# when neither exists. Hoisted into one variable because all three ruff
+# targets need the identical resolution, and because PATH-first was
+# wrong in the same way three times over (#1230). Three provisioning
+# paths install an *unpinned* ruff onto PATH — `mise.toml`'s
+# `"pipx:ruff" = "latest"`, the Dockerfile's `uv tool install ruff`, and
+# the `pipx install ruff` CONTRIBUTING documents — so PATH-first let the
+# local gate run a ruff outside the `pyproject.toml` `<0.17` ceiling
+# while CI ran the `uv.lock`-resolved one. The venv copy is by
+# construction the version `make check-ruff-lockstep` gates.
+#
+# `exit 0` (not a shell `if/else` around the whole body) keeps each
+# recipe a single logical line: the resolve step ends the sub-shell
+# successfully and make moves on, exactly as the old `else echo
+# "...skipping"` arm did.
+#
+# The `|| true` is load-bearing under this Makefile's
+# `.SHELLFLAGS := -eu -o pipefail -c`. An assignment takes the exit
+# status of its command substitution, and the right-hand side of `||`
+# is the list's last command, so a failing `command -v` (bash returns 1
+# when the name is absent) kills the shell under `-e` — turning the
+# skip-when-missing path into `make: *** [py-lint] Error 1` with no
+# diagnostic at all. Measured, not theorised.
+PY_RUFF_RESOLVE = ruff="$(BCA_PY_DIR)/.venv/bin/ruff"; \
+	  [ -x "$$ruff" ] || ruff="$$(command -v ruff 2>/dev/null || true)"; \
+	  if [ -z "$$ruff" ]; then echo "ruff not found; skipping $@"; exit 0; fi
+
 py-fmt:
-	@if command -v ruff >/dev/null 2>&1; then \
+	@$(PY_RUFF_RESOLVE); \
 	  echo "Formatting Python sources..."; \
-	  ruff format "$(BCA_PY_DIR)"; \
-	  ruff format --config "$(BCA_PY_DIR)/pyproject.toml" "$(SMOKE_PY_DIR)"; \
-	else echo "ruff not found; skipping py-fmt"; fi
+	  "$$ruff" format "$(BCA_PY_DIR)" && \
+	  "$$ruff" format --config "$(BCA_PY_DIR)/pyproject.toml" "$(SMOKE_PY_DIR)" || \
+	    { echo "ruff format failed"; exit 1; }
 
 py-fmt-check:
-	@if command -v ruff >/dev/null 2>&1; then \
+	@$(PY_RUFF_RESOLVE); \
 	  echo "Checking Python formatting..."; \
-	  ruff format --check "$(BCA_PY_DIR)" && \
-	  ruff format --check --config "$(BCA_PY_DIR)/pyproject.toml" "$(SMOKE_PY_DIR)" || \
-	    { echo "Python files not formatted (run 'make py-fmt')"; exit 1; }; \
-	else echo "ruff not found; skipping py-fmt-check"; fi
+	  "$$ruff" format --check "$(BCA_PY_DIR)" && \
+	  "$$ruff" format --check --config "$(BCA_PY_DIR)/pyproject.toml" "$(SMOKE_PY_DIR)" || \
+	    { echo "Python files not formatted (run 'make py-fmt')"; exit 1; }
 
 py-lint:
-	@if command -v ruff >/dev/null 2>&1; then \
+	@$(PY_RUFF_RESOLVE); \
 	  echo "Linting Python sources..."; \
-	  ruff check "$(BCA_PY_DIR)" && \
-	  ruff check --config "$(BCA_PY_DIR)/pyproject.toml" "$(SMOKE_PY_DIR)" || \
-	    { echo "ruff lint found issues"; exit 1; }; \
-	else echo "ruff not found; skipping py-lint"; fi
+	  "$$ruff" check "$(BCA_PY_DIR)" && \
+	  "$$ruff" check --config "$(BCA_PY_DIR)/pyproject.toml" "$(SMOKE_PY_DIR)" || \
+	    { echo "ruff lint found issues"; exit 1; }
 
 py-typecheck:
 	@# Prefer the bindings dir's `.venv/bin/{mypy,pyright}` when
@@ -1013,7 +1062,7 @@ lint:
 	$(MAKE) -j --output-sync=target \
 	  _ci-clippy \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-manpage-assets _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test
+	  _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-manpage-assets _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test
 
 # ---------------------------------------------------------------------------
 # Maintenance
@@ -1178,7 +1227,7 @@ _pc-all:
 	$(MAKE) -j --output-sync=target \
 	  _pc-test \
 	  _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check \
-	  _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-manpage-assets _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test \
+	  _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-ruff-lockstep _pc-check-ruff-lockstep-test _pc-check-manpage-assets _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test \
 	  _pc-manpages \
 	  _pc-self-scan _pc-self-scan-headroom \
 	  _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest
@@ -1188,7 +1237,7 @@ _ci-all:
 	$(MAKE) -j --output-sync=target \
 	  _ci-cargo-pipeline \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-manpage-assets _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test \
+	  _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-manpage-assets _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test \
 	  _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
 
 # ---------------------------------------------------------------------------
@@ -1222,6 +1271,8 @@ _ci-all:
 #    ├── _pc-grammar-marker-sync
 #    ├── _pc-grammar-marker-sync-test
 #    ├── _pc-check-versions
+#    ├── _pc-check-ruff-lockstep
+#    ├── _pc-check-ruff-lockstep-test
 #    ├── _pc-check-diagnostic-prefix
 #    ├── _pc-check-diagnostic-prefix-test
 #    ├── _pc-worktree-setup-test
@@ -1322,6 +1373,12 @@ _pc-check-excluded-manifests: _pc-fmt
 
 _pc-check-excluded-manifests-test: _pc-fmt
 	$(MAKE) check-excluded-manifests-test
+
+_pc-check-ruff-lockstep: _pc-fmt
+	$(MAKE) check-ruff-lockstep
+
+_pc-check-ruff-lockstep-test: _pc-fmt
+	$(MAKE) check-ruff-lockstep-test
 
 _pc-check-manpage-assets: _pc-fmt
 	$(MAKE) check-manpage-assets
@@ -1504,6 +1561,12 @@ _ci-check-excluded-manifests:
 
 _ci-check-excluded-manifests-test:
 	$(MAKE) check-excluded-manifests-test
+
+_ci-check-ruff-lockstep:
+	$(MAKE) check-ruff-lockstep
+
+_ci-check-ruff-lockstep-test:
+	$(MAKE) check-ruff-lockstep-test
 
 _ci-check-manpage-assets:
 	$(MAKE) check-manpage-assets

@@ -14,10 +14,13 @@ repos:
       - id: taskcluster_yml
 -   repo: https://github.com/astral-sh/ruff-pre-commit
     # Bump in lockstep with the ruff version `uv.lock` resolves under
-    # the big-code-analysis-py/pyproject.toml `ruff>=0.13,<0.17` bound
-    # (`rg '^ruff==' big-code-analysis-py/requirements/dev.txt`), which
-    # is also what CI installs. `ruff-check` and `ruff-format` are the
-    # current hook IDs (the legacy `ruff` alias is deprecated).
+    # the big-code-analysis-py/pyproject.toml `ruff>=0.13,<0.17` bound,
+    # which is also what CI installs (via the hash-pinned
+    # requirements/dev.txt export). This is gated: `make
+    # check-ruff-lockstep` fails when this `rev:` is not `v` + the
+    # locked version, so the comment is documentation rather than the
+    # mechanism it used to be (#1230). `ruff-check` and `ruff-format`
+    # are the current hook IDs (the legacy `ruff` alias is deprecated).
     rev: v0.16.2
     hooks:
     -   id: ruff-check
@@ -162,6 +165,28 @@ repos:
         language: system
         files: '^utils/check-excluded-manifests(-test)?\.py$'
         entry: python3 -m unittest -q utils/check-excluded-manifests-test.py
+        pass_filenames: false
+
+      # ruff version lockstep (#1230). The `rev:` above is the file this
+      # gate most often catches, so it must fire on edits to *this*
+      # config as well as to the three big-code-analysis-py files that
+      # declare the same version. Before #1222 the rev was v0.15.14
+      # while uv.lock resolved 0.15.22 and nothing noticed.
+      - id: check-ruff-lockstep
+        name: check-ruff-lockstep
+        language: system
+        files: '^(\.pre-commit-config\.yaml|big-code-analysis-py/(uv\.lock|pyproject\.toml|requirements/dev\.txt)|utils/check-ruff-lockstep\.py)$'
+        entry: python3 utils/check-ruff-lockstep.py
+        pass_filenames: false
+
+      # Self-tests for the ruff-lockstep gate. Runs on edits to the
+      # script or its test file (the unit tests import the module, so a
+      # logic change there must re-run them).
+      - id: check-ruff-lockstep-test
+        name: check-ruff-lockstep-test
+        language: system
+        files: '^utils/check-ruff-lockstep(-test)?\.py$'
+        entry: python3 -m unittest -q utils/check-ruff-lockstep-test.py
         pass_filenames: false
 
       # Self-tests for the worktree-setup submodule classifier. It is

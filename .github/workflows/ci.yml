@@ -633,6 +633,19 @@ jobs:
       # gate without surfacing the regression in CI.
       - name: check-excluded-manifests self-tests (explicit)
         run: python3 -m unittest -q utils/check-excluded-manifests-test.py
+      # Defensive twin for the ruff-lockstep gate (#1230): the
+      # ruff-pre-commit `rev:`, `uv.lock`, and the hash-pinned
+      # `requirements/dev.txt` export CI installs from must name one
+      # version. They had already drifted once, silently, because a
+      # comment was the whole mechanism — so this gate in particular
+      # must not be able to disappear from the aggregate unnoticed.
+      - name: check-ruff-lockstep (explicit)
+        run: python3 utils/check-ruff-lockstep.py
+      # Run the gate's own unittests as their own explicit step
+      # so a refactor that breaks the script can't disable the
+      # gate without surfacing the regression in CI.
+      - name: check-ruff-lockstep self-tests (explicit)
+        run: python3 -m unittest -q utils/check-ruff-lockstep-test.py
       # Defensive twin for the enums-codegen-drift gate (#405):
       # running any grammar regen previously regenerated
       # `src/c_langs_macros/*.rs` to a pre-optimization form
@@ -722,8 +735,10 @@ jobs:
       # installs the exact resolved set `make py-bootstrap` uses
       # locally — no floor-vs-lockfile drift — and `--require-hashes`
       # pins the supply chain (OpenSSF Scorecard Pinned-Dependencies).
-      # Keep the ruff-pre-commit `rev:` in .pre-commit-config.yaml in
-      # lockstep with the ruff version resolved there.
+      # The ruff-pre-commit `rev:` in .pre-commit-config.yaml is held in
+      # lockstep with the ruff version resolved there by the
+      # `check-ruff-lockstep` gate in the `lint` job (#1230), so this is
+      # no longer something a reviewer has to remember.
       - name: Create venv + install Python toolchain
         working-directory: big-code-analysis-py
         run: |

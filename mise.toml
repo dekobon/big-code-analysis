@@ -24,6 +24,16 @@ python = "3.12"
 # entries, because pipx itself needs a Python interpreter on PATH.
 # Listing python = "3.12" above is therefore load-bearing — do not
 # reorder.
+#
+# Deliberately unpinned, including ruff, whose version this repository
+# otherwise holds in lockstep across four files (#1230). mise's pipx
+# backend takes a single exact version, not a PEP 440 range, so pinning
+# here would add a fifth exact copy to bump on every ruff release —
+# reproducing the drift the lockstep gate exists to stop, in a file no
+# gate reads. Instead `make py-fmt` / `py-lint` prefer
+# `big-code-analysis-py/.venv/bin/ruff`, so a contributor who has run
+# `make py-bootstrap` never reaches these; these are the fallback for
+# one who has not, and CI is the backstop there.
 "pipx:ruff" = "latest"
 "pipx:mypy" = "latest"
 "pipx:pyright" = "latest"
