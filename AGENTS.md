@@ -64,6 +64,7 @@ and `cargo run -p big-code-analysis-web --`.
   `check-grammar-marker-sync.py`, `check-enums-codegen-drift.sh`,
   `check-grammar-crate.py`, `check-grammars-crates.sh`,
   `check-excluded-manifests.py`, `check-ruff-lockstep.py`,
+  `check-publish-metadata.py`,
   `verify-name-only-churn.py`, and each
   gate's `*-test.py` self-tests.
   Each resolves the repository root from its own location
@@ -283,7 +284,14 @@ ruff-lockstep gate (`make check-ruff-lockstep`, which fails when the
 version `big-code-analysis-py/uv.lock` resolves, when the
 `requirements/dev.txt` export has fallen behind that lockfile, or when
 `pyproject.toml`'s ruff bound was edited without a `make py-relock` —
-see "One ruff version" below), and the
+see "One ruff version" below), the publish-metadata gate
+(`make check-publish-metadata`, which asserts every publishable crate
+carries the `description` / `readme` / `repository` / `license` fields
+crates.io needs, that a crate rooted at the workspace root has a
+non-empty `[package].include`, and that the files `cargo package
+--list` reports total under 32 MiB — the three top-level
+crates pin internal deps at `=<version>` and so cannot be
+`cargo publish --dry-run`-ed before the tag, see `RELEASING.md`), and the
 Python `ruff` lint /
 `ruff format` / `mypy --strict` + `pyright` / `maturin develop` +
 `pytest` / `mypy stubtest` stages for `big-code-analysis-py` (each

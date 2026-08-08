@@ -88,7 +88,7 @@ find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name 
 NEXTEST        := $(shell command -v cargo-nextest 2>/dev/null)
 TEST_CMD       = $(if $(NEXTEST),$(NEXTEST) nextest run --workspace --all-features,cargo test --workspace --all-features --lib --bins --tests)
 
-.PHONY: help check-tools worktree-setup worktree-setup-test build build-release check test test-doc chain-audit fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors snapshot-anchors-test rustfmt-bail rustfmt-bail-test grammar-marker-sync grammar-marker-sync-test check-versions check-excluded-manifests check-excluded-manifests-test check-ruff-lockstep check-ruff-lockstep-test check-manpage-assets check-diagnostic-prefix check-diagnostic-prefix-test gate-status-test check-tools-test enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-pot book-po-update book-ja book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib bench bench-scaling bench-walk _check-find _pc-all _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-ruff-lockstep _pc-check-ruff-lockstep-test _pc-check-manpage-assets _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-all _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-manpage-assets _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
+.PHONY: help check-tools worktree-setup worktree-setup-test build build-release check test test-doc chain-audit fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors snapshot-anchors-test rustfmt-bail rustfmt-bail-test grammar-marker-sync grammar-marker-sync-test check-versions check-excluded-manifests check-excluded-manifests-test check-ruff-lockstep check-ruff-lockstep-test check-publish-metadata check-publish-metadata-test check-manpage-assets check-diagnostic-prefix check-diagnostic-prefix-test gate-status-test check-tools-test enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-pot book-po-update book-ja book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib bench bench-scaling bench-walk _check-find _pc-all _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-ruff-lockstep _pc-check-ruff-lockstep-test _pc-check-publish-metadata _pc-check-publish-metadata-test _pc-check-manpage-assets _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-all _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
 
 # Default target
 help:
@@ -140,6 +140,8 @@ help:
 	@echo "  check-excluded-manifests-test        Self-tests for the check-excluded-manifests gate"
 	@echo "  check-ruff-lockstep                  Assert the ruff-pre-commit rev, uv.lock, and the requirements export agree"
 	@echo "  check-ruff-lockstep-test             Self-tests for the check-ruff-lockstep gate"
+	@echo "  check-publish-metadata               Assert every publishable crate carries the metadata crates.io needs"
+	@echo "  check-publish-metadata-test          Self-tests for the check-publish-metadata gate"
 	@echo "  check-manpage-assets                 Assert every bca-*.1 man page is in deb+rpm asset lists"
 	@echo "  check-diagnostic-prefix              Block capitalised Warning:/Error:/Note: literals"
 	@echo "  check-diagnostic-prefix-test         Self-tests for the diagnostic-prefix gate"
@@ -561,6 +563,31 @@ check-ruff-lockstep:
 check-ruff-lockstep-test:
 	@echo "Running check-ruff-lockstep self-tests..."
 	@(cd $(BASE_DIR) && python3 -m unittest -q utils/check-ruff-lockstep-test.py)
+
+# Publish-metadata gate (#1224). `cargo publish --dry-run` is the
+# natural pre-tag check, but it cannot run for the three top-level
+# crates: each pins an internal dependency at `=<version>`, and the
+# Lockstep policy makes that the version being released — which is by
+# definition not yet on crates.io. The workaround it replaces skipped
+# the parent dry-run whenever the pinned leaf was absent from the
+# sparse index, so it skipped on every release and the crate went out
+# with no metadata gate at all. This asserts the same fields
+# registry-free, from `cargo metadata` (which resolves
+# `[workspace.package]` inheritance) plus `cargo package --list` (the
+# one packaging step that does not resolve dependencies). Two cargo
+# calls per crate, no build, and no workspace `target/` lock — measured
+# at ~0.8s alongside a running build, so it fans out with the other
+# static gates rather than chaining into the cargo pipeline.
+check-publish-metadata:
+	@echo "Checking crates.io publish metadata..."
+	@python3 $(BASE_DIR)utils/check-publish-metadata.py
+
+# Self-tests for the publish-metadata gate. Separate target for the
+# same reason as the other gate self-tests: the gate stays a one-line
+# invariant check and test failures get their own parallel-arm output.
+check-publish-metadata-test:
+	@echo "Running check-publish-metadata self-tests..."
+	@(cd $(BASE_DIR) && python3 -m unittest -q utils/check-publish-metadata-test.py)
 
 # Man-page packaging gate. Blocks the failure mode from #444:
 # a bca subcommand man page that drops out of the hand-maintained
@@ -1062,7 +1089,7 @@ lint:
 	$(MAKE) -j --output-sync=target \
 	  _ci-clippy \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-manpage-assets _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test
+	  _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test
 
 # ---------------------------------------------------------------------------
 # Maintenance
@@ -1227,7 +1254,7 @@ _pc-all:
 	$(MAKE) -j --output-sync=target \
 	  _pc-test \
 	  _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check \
-	  _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-ruff-lockstep _pc-check-ruff-lockstep-test _pc-check-manpage-assets _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test \
+	  _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-ruff-lockstep _pc-check-ruff-lockstep-test _pc-check-publish-metadata _pc-check-publish-metadata-test _pc-check-manpage-assets _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test \
 	  _pc-manpages \
 	  _pc-self-scan _pc-self-scan-headroom \
 	  _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest
@@ -1237,7 +1264,7 @@ _ci-all:
 	$(MAKE) -j --output-sync=target \
 	  _ci-cargo-pipeline \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-manpage-assets _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test \
+	  _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test \
 	  _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
 
 # ---------------------------------------------------------------------------
@@ -1273,6 +1300,8 @@ _ci-all:
 #    ├── _pc-check-versions
 #    ├── _pc-check-ruff-lockstep
 #    ├── _pc-check-ruff-lockstep-test
+#    ├── _pc-check-publish-metadata
+#    ├── _pc-check-publish-metadata-test
 #    ├── _pc-check-diagnostic-prefix
 #    ├── _pc-check-diagnostic-prefix-test
 #    ├── _pc-worktree-setup-test
@@ -1379,6 +1408,12 @@ _pc-check-ruff-lockstep: _pc-fmt
 
 _pc-check-ruff-lockstep-test: _pc-fmt
 	$(MAKE) check-ruff-lockstep-test
+
+_pc-check-publish-metadata: _pc-fmt
+	$(MAKE) check-publish-metadata
+
+_pc-check-publish-metadata-test: _pc-fmt
+	$(MAKE) check-publish-metadata-test
 
 _pc-check-manpage-assets: _pc-fmt
 	$(MAKE) check-manpage-assets
@@ -1568,6 +1603,12 @@ _ci-check-ruff-lockstep:
 _ci-check-ruff-lockstep-test:
 	$(MAKE) check-ruff-lockstep-test
 
+_ci-check-publish-metadata:
+	$(MAKE) check-publish-metadata
+
+_ci-check-publish-metadata-test:
+	$(MAKE) check-publish-metadata-test
+
 _ci-check-manpage-assets:
 	$(MAKE) check-manpage-assets
 
@@ -1683,17 +1724,30 @@ verify-changelog:
 
 # release-check: full pre-tag gate. cargo-deny enforces the license /
 # advisory / source allowlists; cargo-about's dry-run renders the
-# per-binary THIRD-PARTY-LICENSES files the release archives ship;
-# the publish dry-runs catch metadata regressions (missing
-# description/license/readme, deny.toml violations, version drift)
-# before any external publish fires. The five vendored grammar
-# leaves dry-run unconditionally. The parent dry-run mirrors CI's
-# preflight bootstrap probe (see `.github/workflows/release.yml`):
-# we query the sparse index for `bca-tree-sitter-ccomment` at the
-# workspace-pinned version and only run the parent dry-run if that
-# leaf is already on crates.io. On the very first release the probe
-# returns "not on registry", the parent dry-run is skipped with an
-# explanatory note, and CI handles the bootstrap end-to-end.
+# per-binary THIRD-PARTY-LICENSES files the release archives ship; the
+# publish dry-runs catch metadata regressions (missing
+# description/license/readme, non-packageable files, version drift)
+# before any external publish fires.
+#
+# Only the five vendored grammar leaves can be dry-run, so they are all
+# that last sentence covers. They carry no internal pins, so `cargo
+# publish --dry-run` resolves for them at any time. The three top-level
+# crates cannot: each pins an internal
+# dependency at `=<version>` and the Lockstep policy makes that the
+# version being released, which is by definition not yet on
+# crates.io. `make check-publish-metadata` is the registry-independent
+# stand-in — see `utils/check-publish-metadata.py` and #1224. It is
+# also part of `make lint` / `pre-commit` / `ci`, so a regression is
+# normally caught long before anyone reaches for this target; the call
+# here is what makes the pre-tag gate self-contained.
+#
+# What is deliberately *not* here is a `cargo publish --dry-run` for
+# the parent. The version of this recipe #1224 removed wrapped one in
+# a sparse-index probe for `bca-tree-sitter-ccomment` at the
+# workspace-pinned version. Because that is always the version being
+# released, the probe never hit and the dry-run never ran — on any
+# release, not just the first, contrary to what this comment and
+# RELEASING.md both used to claim.
 #
 # cargo-deny and cargo-about are probed up front by
 # `utils/check-tools.sh --release-only`, which names the missing one
@@ -1723,17 +1777,7 @@ release-check:
 	@for d in tree-sitter-ccomment tree-sitter-mozcpp tree-sitter-mozjs tree-sitter-preproc tree-sitter-tcl; do \
 	  cargo publish --dry-run --locked --manifest-path "$$d/Cargo.toml" || exit 1; \
 	done
-	@LEAF_VERSION=$$(awk -F'"' \
-	  '/^\[package\]/{f=1; next} /^\[/{f=0} f && /^version *=/ {print $$2; exit}' \
-	  tree-sitter-ccomment/Cargo.toml); \
-	BODY=$$(curl -sfL "https://index.crates.io/bc/a-/bca-tree-sitter-ccomment" 2>/dev/null || true); \
-	if [ -n "$$BODY" ] && echo "$$BODY" | grep -q "\"vers\":\"$$LEAF_VERSION\""; then \
-	  echo "Dry-running cargo publish for big-code-analysis..."; \
-	  cargo publish -p big-code-analysis --dry-run --locked; \
-	else \
-	  echo "Skipping big-code-analysis dry-run: bca-tree-sitter-ccomment $$LEAF_VERSION not yet on crates.io"; \
-	  echo "(bootstrap state — CI will publish the leaves before the parent on the next release tag)."; \
-	fi
+	@$(MAKE) check-publish-metadata
 	@$(MAKE) verify-changelog VERSION=$(VERSION)
 	@echo "release-check passed for $(VERSION)"
 

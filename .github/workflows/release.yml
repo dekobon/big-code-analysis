@@ -141,40 +141,32 @@ jobs:
             cargo publish --dry-run --locked --manifest-path "$d/Cargo.toml"
           done
 
-      # The parent's `=<leaf-version>` deps cannot resolve until the
-      # five `bca-tree-sitter-*` leaves are on crates.io. On the very
-      # first release tag this dry-run will fail by design — the
-      # release workflow's `publish-crates` job will then upload the
-      # leaves first and the parent second. We skip the parent dry-run
-      # in that bootstrap state by querying the sparse index for the
-      # ccomment leaf at the workspace-pinned version (probing one
-      # leaf is enough because every owned crate in this repo shares
-      # one version per the Lockstep version policy in RELEASING.md,
-      # enforced by ./utils/check-versions.py in `make pre-commit`).
-      # Once that leaf is on crates.io the bootstrap has happened and
-      # the parent dry-run becomes a hard gate again.
-      - name: Dry-run cargo publish for big-code-analysis
-        if: vars.ENABLE_CRATES_PUBLISH == 'true'
-        run: |
-          set -euo pipefail
-          # Extract [package].version (anchored on the [package]
-          # header so an unrelated `version =` line outside the
-          # [package] table can never satisfy the regex).
-          LEAF_VERSION=$(awk -F'"' \
-            '/^\[package\]/{f=1; next} /^\[/{f=0} f && /^version *=/ {print $2; exit}' \
-            tree-sitter-ccomment/Cargo.toml)
-          INDEX="https://index.crates.io/bc/a-/bca-tree-sitter-ccomment"
-          BODY=$(curl -sfL "${INDEX}" 2>/dev/null || true)
-          # Substring-match via bash glob: no pipe (no SIGPIPE under
-          # pipefail) and no regex semantics (dots in the version
-          # string never match arbitrary chars). See leaf-publish step
-          # for the analogous pattern.
-          NEEDLE="\"vers\":\"${LEAF_VERSION}\""
-          if [[ "${BODY}" == *"${NEEDLE}"* ]]; then
-            cargo publish -p big-code-analysis --dry-run --locked
-          else
-            echo "::notice::Skipping big-code-analysis dry-run: bca-tree-sitter-ccomment ${LEAF_VERSION} not yet on crates.io (bootstrap state). The publish-crates job will upload leaves first."
-          fi
+      # The three top-level crates get no dry-run, because none is
+      # possible here. Each pins an internal dependency at
+      # `=<version>` — the parent on the five leaves, the CLI and web
+      # crates on the parent — and the Lockstep version policy
+      # (RELEASING.md, enforced by ./utils/check-versions.py) makes
+      # that the version this tag is releasing. Packaging resolves the
+      # registry requirement, so it cannot succeed against a version
+      # that is by definition not yet published.
+      #
+      # What stood here until #1224 was a `cargo publish --dry-run` for
+      # the parent, wrapped in a sparse-index probe for the ccomment
+      # leaf at that same version, described as a first-release
+      # bootstrap. Since the probed version is always the version being
+      # released, the probe never hit: the notice fired on every
+      # release and the dry-run branch never ran before an upload.
+      #
+      # This gate asserts the metadata a dry-run would have checked
+      # without needing anything on the registry: crates.io-facing
+      # fields (from `cargo metadata`, so `[workspace.package]`
+      # inheritance resolves), the `include` whitelist, and the total
+      # size of what `cargo package --list` reports. It
+      # is deliberately not gated on `ENABLE_CRATES_PUBLISH`: it
+      # touches nothing external, and while that variable is unset a
+      # gated step would once again never run.
+      - name: Check crates.io publish metadata
+        run: python3 utils/check-publish-metadata.py
 
       - name: Extract release notes from CHANGELOG
         env:

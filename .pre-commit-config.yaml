@@ -189,6 +189,29 @@ repos:
         entry: python3 -m unittest -q utils/check-ruff-lockstep-test.py
         pass_filenames: false
 
+      # Publish metadata for the crates.io uploads (#1224). The three
+      # top-level crates pin internal deps at `=<version>`, so none can
+      # be `cargo publish --dry-run`-ed before the tag that publishes
+      # that version — this is the registry-independent stand-in.
+      # Scoped to the manifests it reads: `include`, `description`,
+      # `readme` and the workspace-inherited fields all live there.
+      - id: check-publish-metadata
+        name: check-publish-metadata
+        language: system
+        files: '^(Cargo\.toml|big-code-analysis-(cli|web)/Cargo\.toml|utils/check-publish-metadata\.py)$'
+        entry: python3 utils/check-publish-metadata.py
+        pass_filenames: false
+
+      # Self-tests for the publish-metadata gate. Runs on edits to the
+      # script or its test file (the unit tests import the module, so a
+      # logic change there must re-run them).
+      - id: check-publish-metadata-test
+        name: check-publish-metadata-test
+        language: system
+        files: '^utils/check-publish-metadata(-test)?\.py$'
+        entry: python3 -m unittest -q utils/check-publish-metadata-test.py
+        pass_filenames: false
+
       # Self-tests for the worktree-setup submodule classifier. It is
       # what decides when to run a destructive `git submodule update
       # --force`, so a logic change there re-runs them (#1171).
