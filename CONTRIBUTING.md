@@ -209,6 +209,36 @@ Alternative install paths (`mise install` via `mise.toml`, direct
 pip install -e ".[dev]"`) still work but bypass `uv.lock`; resolved
 versions can drift from peers and from CI. They remain documented
 for contributors with environment constraints that preclude uv.
+None of them pins ruff, deliberately — see below.
+
+#### The ruff version is gated
+
+One ruff version is adopted, and `uv.lock` is where it is decided.
+`make check-ruff-lockstep` (wired into `make lint`, `make pre-commit`,
+`make ci`, and the pre-commit hooks) fails unless three other
+declarations agree with it:
+
+- the `ruff-pre-commit` `rev:` in `.pre-commit-config.yaml`, which must
+  be `v` + the locked version — otherwise `pre-commit run --all-files`
+  runs a different ruff than CI;
+- the `ruff==` pin in `big-code-analysis-py/requirements/dev.txt`, the
+  hash-pinned export CI installs from;
+- the `ruff` bound in `pyproject.toml`, which must match the one uv
+  recorded resolving against — a bound edited without `make py-relock`
+  leaves CI installing a version the manifest no longer admits.
+
+Adopting a newer ruff is therefore `uv lock --upgrade-package ruff`
+plus the `uv export` pair `make py-relock` runs, then the `rev:`, all
+in one commit. The gate names whichever file has fallen behind.
+
+`make py-fmt`, `py-fmt-check` and `py-lint` run
+`big-code-analysis-py/.venv/bin/ruff` when it exists and fall back to
+PATH otherwise, mirroring how `py-typecheck` resolves mypy and
+pyright. So the local gate runs the locked ruff as soon as you have
+run `make py-bootstrap`. The alternative install paths above stay
+unpinned on purpose: an exact version in `mise.toml` or the
+`Dockerfile` would be a fifth copy to bump on every ruff release, in a
+file no gate reads.
 
 Then build and test:
 

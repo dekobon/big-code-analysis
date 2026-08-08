@@ -63,7 +63,8 @@ and `cargo run -p big-code-analysis-web --`.
   `check-manpage-assets.py`, `check-diagnostic-prefix.py`,
   `check-grammar-marker-sync.py`, `check-enums-codegen-drift.sh`,
   `check-grammar-crate.py`, `check-grammars-crates.sh`,
-  `check-excluded-manifests.py`, `verify-name-only-churn.py`, and each
+  `check-excluded-manifests.py`, `check-ruff-lockstep.py`,
+  `verify-name-only-churn.py`, and each
   gate's `*-test.py` self-tests.
   Each resolves the repository root from its own location
   (`Path(__file__).resolve().parents[1]`) rather than the cwd, so it
@@ -276,13 +277,43 @@ functions encroaching into the 95-100% band fail before the hard
 gate trips; `make self-scan-write-baseline-headroom` refreshes
 `.bca-baseline.toml` — prefer the headroom variant over the bare
 `make self-scan-write-baseline`, otherwise the soft-tier
-`self-scan-headroom` gate re-fires on untouched files), and the
+`self-scan-headroom` gate re-fires on untouched files), the
+ruff-lockstep gate (`make check-ruff-lockstep`, which fails when the
+`ruff-pre-commit` `rev:` in `.pre-commit-config.yaml` is not `v` + the
+version `big-code-analysis-py/uv.lock` resolves, when the
+`requirements/dev.txt` export has fallen behind that lockfile, or when
+`pyproject.toml`'s ruff bound was edited without a `make py-relock` —
+see "One ruff version" below), and the
 Python `ruff` lint /
 `ruff format` / `mypy --strict` + `pyright` / `maturin develop` +
 `pytest` / `mypy stubtest` stages for `big-code-analysis-py` (each
 Python stage is skipped with a clear "X not found" message when the
 corresponding tool is absent). `make ci` runs the same checks without
 auto-fix, mirroring CI behaviour.
+
+**One ruff version, four declarations.**
+`big-code-analysis-py/uv.lock` is the anchor: it is what `uv sync
+--locked` resolves, and everything else follows it. The
+`ruff-pre-commit` `rev:` must be `v` + that version, the
+`requirements/dev.txt` export (what CI installs with `pip install
+--require-hashes`) must pin it, and `pyproject.toml`'s bound must be
+the one uv recorded resolving against. Adopting a newer ruff is
+therefore two edits in one commit: `uv lock --upgrade-package ruff`
+plus the `uv export` pair that `make py-relock` runs, then the `rev:`.
+The gate names whichever of the three has fallen behind. Before
+`select` landed in #1222 this had already drifted silently — `rev:
+v0.15.14` against a lockfile resolving 0.15.22 — which is invisible
+until the two versions happen to disagree and then reads as "works
+locally, red in CI" (#1230).
+
+The `make py-fmt` / `py-lint` / `py-fmt-check` recipes resolve
+`big-code-analysis-py/.venv/bin/ruff` before PATH, the same way
+`py-typecheck` resolves mypy and pyright, so the local gate runs the
+locked ruff by construction. Three provisioning paths (`mise.toml`,
+the `Dockerfile`, and the `pipx install ruff` CONTRIBUTING documents)
+install an *unpinned* ruff onto PATH and stay that way on purpose:
+each would otherwise be a fifth exact copy of the version, in a file
+no gate reads. Run `make py-bootstrap` and the venv wins.
 
 **Read the outcome from the `BCA_GATE:` line, nothing else.** Both gates
 end with exactly one of `BCA_GATE: pass (gate=pre-commit)` or

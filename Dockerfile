@@ -284,6 +284,15 @@ EOF
 # py-bootstrap` => `uv sync --locked`). ruff/mypy/maturin install as uv
 # tools into the system location (see UV_TOOL_* above); pyright ships as a
 # Node package so it uses the system Node instead of downloading its own.
+#
+# These are deliberately unversioned, ruff included, even though this
+# repository holds the ruff version in lockstep across four files
+# (#1230). The image is built without the repository checked out, so it
+# cannot read uv.lock; a literal version here would be a fifth copy to
+# bump on every release, in a file no gate reads. `make py-fmt` /
+# `py-lint` prefer `big-code-analysis-py/.venv/bin/ruff`, so once a
+# contributor runs `make py-bootstrap` inside the container the locked
+# ruff wins over the one installed here.
 # ---------------------------------------------------------------------------
 RUN set -eux; \
     curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh; \
