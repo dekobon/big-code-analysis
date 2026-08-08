@@ -109,6 +109,37 @@ jobs:
         with:
           tool: cargo-fuzz
 
+      # LSan matches a `leak:` suppression against the *symbolized*
+      # stack, so with no symbolizer reachable every entry in
+      # fuzz/lsan-suppressions.txt silently stops applying and the known
+      # tree-sitter-perl leak fails the run. That is not theoretical —
+      # it is how this job first went red while passing locally, where
+      # the distro ships `/usr/bin/llvm-symbolizer`. `rustup component
+      # add llvm-tools` does not provide one.
+      #
+      # The runner image carries versioned copies under
+      # `/usr/lib/llvm-*/bin`, which the Makefile resolver finds, so the
+      # install below is a fallback rather than the normal path.
+      - name: Ensure an llvm-symbolizer is available
+        run: |
+          set -euo pipefail
+          # Glob + `-x` rather than `ls`: the Makefile resolver looks in
+          # both places, so this must agree with it, and a non-matching
+          # glob stays literal (hence the executable test).
+          sym="$(command -v llvm-symbolizer || true)"
+          if [ -z "$sym" ]; then
+            for candidate in /usr/lib/llvm-*/bin/llvm-symbolizer; do
+              [ -x "$candidate" ] && sym="$candidate"
+            done
+          fi
+          if [ -n "$sym" ]; then
+            echo "symbolizer present: $sym"
+          else
+            echo "no symbolizer found; installing llvm"
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends llvm
+          fi
+
       # Also the fuzz crate's only lint gate: it is workspace-excluded,
       # so `cargo clippy --workspace` in ci.yml cannot reach it (#164,
       # #1228).
