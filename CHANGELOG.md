@@ -24,8 +24,56 @@ for historical reference.
 
 ## [Unreleased]
 
+### Added
+
+- A `check-ruff-lockstep` gate (`make check-ruff-lockstep`, wired into
+  `make lint` / `pre-commit` / `ci` and the pre-commit hooks) holds the one
+  adopted ruff version together across the four files that declare it.
+  `big-code-analysis-py/uv.lock` is the anchor, because the hash-pinned
+  `requirements/dev.txt` CI installs from is *generated* from it — gating on
+  the export would bless a stale export rather than catch one. The
+  `ruff-pre-commit` `rev:` in `.pre-commit-config.yaml` must be `v` + the
+  locked version, the export must pin it, and `pyproject.toml`'s bound must
+  match the one uv recorded resolving against. The `rev:` was previously held
+  by a comment alone and had already drifted silently once (`v0.15.14`
+  against a lockfile resolving 0.15.22), which stays invisible until the two
+  versions disagree and then presents as "works locally, red in CI" (#1230).
+
 ### Fixed
 
+- The pre-tag `cargo publish --dry-run` for `big-code-analysis` was skipped
+  on every release, not only the first. It was gated on a crates.io sparse
+  index probe for a leaf version that the Lockstep policy guarantees is the
+  version being released — and therefore never published yet — so the branch
+  that runs the dry-run was unreachable, while `release.yml` and
+  `RELEASING.md` both told a maintainer it became a hard gate from the second
+  tag onwards. `big-code-analysis-cli` and `big-code-analysis-web` had no
+  such check at all: both pin `big-code-analysis = "=<version>"`, so neither
+  could have been dry-run either. Replaced with `make check-publish-metadata`
+  (`utils/check-publish-metadata.py`), a registry-independent gate over every
+  publishable crate's crates.io-required metadata, `[package].include`
+  whitelist, and packaged size, wired into `release-check`, `lint`,
+  `pre-commit`, `ci`, and the release workflow's preflight. It reads resolved
+  fields from `cargo metadata` so `[workspace.package]` inheritance is
+  honoured, and resolves `include.workspace = true` separately because
+  `cargo metadata` does not emit `include` (#1224).
+- `make release-check` now probes `cargo-deny` and `cargo-about` before
+  running them, naming the missing tool and its exact install command instead
+  of surfacing cargo's generic `no such command` partway through the gate.
+  Both are listed by `make check-tools` and documented in `RELEASING.md`. The
+  `cargo-about` hint spells `--features cli`: the binary sits behind a
+  non-default feature, so a bare `cargo install cargo-about` compiles the
+  library, installs no binary, reports the miss as a *warning*, and exits 0
+  (#1226).
+- `make release-check` rejects uncommitted changes in the vendored grammar
+  leaves before its slow stages, with the commit → gate → tag ordering as the
+  remedy rather than cargo's misleading `--allow-dirty` hint — passing that
+  flag would dry-run content differing from the tag, defeating the gate. The
+  check is scoped to what `cargo publish --dry-run` actually rejects (tracked
+  changes inside the five leaf directories), measured rather than assumed, so
+  it cannot fail on trees cargo would accept. `RELEASING.md`'s pre-release
+  checklist now carries the gate and that ordering explicitly, and notes the
+  push is separable (#1225).
 - The CLI and web crates no longer terminate on a library parse error.
   All fifteen `.expect(FEATURES_PINNED)` call sites — eight in `bca`'s
   dispatch helpers, seven in `bca-web`'s handlers, plus the constant
@@ -42,6 +90,28 @@ for historical reference.
 
 ### Changed
 
+- The workspace-excluded `enums` crate declares the workspace lint posture
+  (`clippy::pedantic`, `missing_docs`) in its own manifest.
+  `[workspace.lints]` reaches members only, so `make enums-check` had been
+  gating the crate at `-D warnings` against the compiler defaults while
+  reading as a full lint gate. Clearing the table cost 38 findings, not the
+  23 pedantic ones alone — `missing_docs` accounted for the other 15 — and
+  none was silenced with a blanket `allow`.
+  `utils/check-excluded-manifests.py` gained a third invariant so this cannot
+  recur: every workspace-excluded crate must declare its own `[lints]` table
+  or be named in the gate's exempt set. It is an exempt list rather than a
+  required list, so the *next* excluded crate has to make the decision
+  explicitly instead of inheriting the silence. The five vendored
+  `tree-sitter-*` grammar crates are exempt — their Rust is generated binding
+  boilerplate a regeneration replaces wholesale (#1228).
+- `make py-fmt`, `py-fmt-check` and `py-lint` resolve
+  `big-code-analysis-py/.venv/bin/ruff` before PATH, the way `py-typecheck`
+  already resolved mypy and pyright, so the local gate runs the
+  `uv.lock`-resolved ruff rather than whichever unpinned copy `mise.toml`,
+  the `Dockerfile`, or a bare `pipx install ruff` left on PATH. Those three
+  provisioning paths stay unpinned deliberately: an exact version in any of
+  them would be a fifth ungated copy to keep in lockstep, which is the
+  failure this change exists to prevent (#1230).
 - `clippy::arithmetic_side_effects` is enforced on the `loc` metric
   module, and the span arithmetic there is now explicitly saturating.
   `Loc` is the one metric computing on tree-sitter row coordinates, and
