@@ -131,6 +131,34 @@ GENERATED_ENTRIES = frozenset({".cargo_vcs_info.json", "Cargo.lock", "Cargo.toml
 MAX_PACKAGED_BYTES = 32 * 1024 * 1024
 
 
+# cargo's own advice on a `--locked` failure is "remove the --locked flag
+# and use --offline instead", which here would let the gate rewrite the
+# lockfile and pass — the regression it exists to catch. Matched on
+# cargo's wording so the override fires only on that failure.
+_LOCKED_REFUSAL = "--locked was passed"
+
+_LOCKED_REMEDY = (
+    "\n\nnote: `Cargo.lock` is stale — that is the finding, and cargo's "
+    "advice above is wrong for this gate. Refresh the lockfile with a "
+    "plain `cargo check` (or `cargo generate-lockfile`) and commit the "
+    "result. Dropping `--locked` would make this gate rewrite the "
+    "lockfile and report a pass, so a tag could be cut without the "
+    "committed lockfile ever being verified (#1224)."
+)
+
+
+def lockfile_remedy(args: list[str], stderr: str) -> str:
+    """Return a note overriding cargo's advice to drop ``--locked``.
+
+    Empty for every other failure: a note that fires indiscriminately
+    would be read as boilerplate and stop carrying the one case where
+    following cargo's own hint defeats the gate.
+    """
+    if "--locked" not in args or _LOCKED_REFUSAL not in stderr:
+        return ""
+    return _LOCKED_REMEDY
+
+
 def run_cargo(args: list[str], cwd: pathlib.Path) -> str:
     """Run a cargo subcommand, hard-erroring on a non-zero exit."""
     try:
@@ -147,6 +175,7 @@ def run_cargo(args: list[str], cwd: pathlib.Path) -> str:
         raise SystemExit(
             f"error: `cargo {' '.join(args)}` failed with exit "
             f"{completed.returncode}:\n{completed.stderr.rstrip()}"
+            + lockfile_remedy(args, completed.stderr)
         )
     return completed.stdout
 
@@ -174,8 +203,18 @@ def package_listing(name: str, package_root: pathlib.Path) -> list[str]:
     `--allow-dirty` is unconditional: the question is what the *working
     tree* would package, and without it cargo refuses outright on any
     uncommitted change, which would make this unusable mid-edit.
+
+    `--locked` carries over from the `cargo publish --dry-run --locked`
+    this gate replaced, and is not optional. Measured: with a
+    `[[package]]` entry deleted from `Cargo.lock`, the flagless form
+    re-resolves, rewrites the lockfile in place, and reports a pass — a
+    static gate mutating the tree in `make lint`, and, in `release.yml`'s
+    preflight, a tag cut without the committed lockfile ever being
+    checked. With the flag cargo exits 101 and says so.
     """
-    raw = run_cargo(["package", "-p", name, "--allow-dirty", "--list"], package_root)
+    raw = run_cargo(
+        ["package", "-p", name, "--allow-dirty", "--locked", "--list"], package_root
+    )
     return [line.strip() for line in raw.splitlines() if line.strip()]
 
 

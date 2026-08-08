@@ -289,6 +289,69 @@ class PackagedSizeTest(unittest.TestCase):
         self.assertIn("include", problems[0])
 
 
+class PackageListingTest(unittest.TestCase):
+    def test_the_listing_invocation_is_pinned_in_full(self) -> None:
+        # Every flag here is load-bearing and none is observable anywhere
+        # else, so the whole argv is the assertion rather than the two
+        # flags that happen to be interesting today. `--locked` is the
+        # difference between checking the lockfile this tag carries and
+        # quietly rewriting it; `--allow-dirty` is what keeps the gate
+        # usable mid-edit, and dropping it would make the gate refuse on
+        # any uncommitted change while every test here still passed.
+        with mock.patch.object(GATE, "run_cargo", return_value="Cargo.toml\n") as run:
+            GATE.package_listing("demo", pathlib.Path("/ws"))
+        self.assertEqual(
+            run.call_args.args[0],
+            ["package", "-p", "demo", "--allow-dirty", "--locked", "--list"],
+        )
+
+
+class LockfileRemedyTest(unittest.TestCase):
+    # cargo answers a `--locked` refusal with "remove the --locked flag and
+    # use --offline instead", which for this gate is the one remedy that
+    # must not be followed.
+    STDERR = (
+        "error: cannot update the lock file because --locked was passed to "
+        "prevent this\nhelp: to generate the lock file without accessing the "
+        "network, remove the --locked flag and use --offline instead.\n"
+    )
+
+    def test_the_note_fires_on_a_locked_refusal(self) -> None:
+        note = GATE.lockfile_remedy(["package", "--locked", "--list"], self.STDERR)
+        self.assertIn("Cargo.lock` is stale", note)
+        self.assertIn("cargo check", note)
+
+    def test_the_note_is_silent_on_an_unrelated_failure(self) -> None:
+        # A note on every failure reads as boilerplate and stops carrying
+        # the case it exists for.
+        self.assertEqual(
+            GATE.lockfile_remedy(
+                ["package", "--locked", "--list"], "error: no such package `demo`\n"
+            ),
+            "",
+        )
+
+    def test_the_note_is_silent_when_the_flag_was_not_passed(self) -> None:
+        self.assertEqual(GATE.lockfile_remedy(["metadata"], self.STDERR), "")
+
+    def test_the_note_reaches_the_raised_error(self) -> None:
+        # The three cases above pin the note's content; this one pins that
+        # `run_cargo` still calls it. Without this, deleting the call site
+        # leaves cargo's "remove the --locked flag" advice as the only
+        # thing the maintainer reads, and no test notices.
+        completed = subprocess.CompletedProcess(
+            args=["cargo"], returncode=101, stdout="", stderr=self.STDERR
+        )
+        with mock.patch.object(GATE.subprocess, "run", return_value=completed):
+            with self.assertRaises(SystemExit) as raised:
+                GATE.run_cargo(["package", "--locked", "--list"], pathlib.Path("/ws"))
+        message = str(raised.exception)
+        self.assertIn("Cargo.lock` is stale", message)
+        # cargo's own text is still shown — the note overrides its advice,
+        # it does not hide the diagnosis.
+        self.assertIn("--locked was passed", message)
+
+
 class PublishablePackagesTest(unittest.TestCase):
     def test_publish_false_is_excluded(self) -> None:
         metadata = {

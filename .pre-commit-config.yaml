@@ -194,11 +194,19 @@ repos:
       # be `cargo publish --dry-run`-ed before the tag that publishes
       # that version — this is the registry-independent stand-in.
       # Scoped to the manifests it reads: `include`, `description`,
-      # `readme` and the workspace-inherited fields all live there.
+      # `readme` and the workspace-inherited fields all live there. That
+      # is every *member* manifest, not just today's three publishable
+      # ones — the gate's scope is whatever `publish` is not `false` on,
+      # so an edit flipping that in the bench, Python, or xtask manifest
+      # is exactly the edit this hook has to see. `Cargo.lock` and the
+      # five vendored grammar manifests are in scope for a second reason:
+      # the gate runs `cargo package --locked`, so a version bump in a
+      # path dependency leaves the root lockfile stale and fails it
+      # without touching a member manifest.
       - id: check-publish-metadata
         name: check-publish-metadata
         language: system
-        files: '^(Cargo\.toml|big-code-analysis-(cli|web)/Cargo\.toml|utils/check-publish-metadata\.py)$'
+        files: '^(Cargo\.(toml|lock)|(big-code-analysis-(cli|web|py|bench)|xtask|tree-sitter-(ccomment|mozcpp|mozjs|preproc|tcl))/Cargo\.toml|utils/check-publish-metadata\.py)$'
         entry: python3 utils/check-publish-metadata.py
         pass_filenames: false
 
