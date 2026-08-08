@@ -109,6 +109,17 @@ Install once:
 cargo install cargo-fuzz --locked
 ```
 
+You also need an `llvm-symbolizer` on `PATH` or under
+`/usr/lib/llvm-*/bin` (Debian/Ubuntu: `apt-get install llvm`; macOS: it
+comes with Xcode's clang). `rustup component add llvm-tools` ships the
+rest of the LLVM binutils but **not** this one.
+
+It is a hard requirement, not a nicety: LSan matches a `leak:`
+suppression against the *symbolized* stack, so without one every entry
+in `fuzz/lsan-suppressions.txt` stops applying and the known
+tree-sitter-perl leak fails the run. The run targets check for it up
+front and refuse to start rather than let you read that as a real leak.
+
 Then:
 
 ```bash

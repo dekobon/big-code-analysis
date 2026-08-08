@@ -1129,7 +1129,35 @@ FUZZ_CC_ENV = CFLAGS_$(subst -,_,$(FUZZ_HOST_TRIPLE))="$(FUZZ_SAN_FLAGS)" \
 # tree-sitter-perl); suppressing it by symbol rather than passing
 # `-detect_leaks=0` keeps every *other* leak on the Perl path fatal. The
 # file documents each entry — read it before adding one.
-FUZZ_RUN_ENV = LSAN_OPTIONS=suppressions=$(BASE_DIR)fuzz/lsan-suppressions.txt
+#
+# A `leak:` entry names a *function*, and LSan matches it against the
+# symbolized stack — so with no symbolizer reachable it matches nothing,
+# every suppression silently stops applying, and the known leak becomes
+# a fatal error. That is not hypothetical: it is how this first ran red
+# in CI while passing locally, because this distro ships
+# `/usr/bin/llvm-symbolizer` and the runner image only has the versioned
+# copies under `/usr/lib/llvm-*/bin`. Note `rustup component add
+# llvm-tools` does *not* provide one, despite shipping the rest of the
+# LLVM binutils.
+#
+# Resolved rather than assumed, newest first, and the run recipes refuse
+# to start without it — a silently-inapplicable suppression is precisely
+# the failure this comment exists to prevent.
+FUZZ_SYMBOLIZER = $(shell command -v llvm-symbolizer 2>/dev/null || \
+	  ls -1 /usr/lib/llvm-*/bin/llvm-symbolizer 2>/dev/null | sort -V | tail -1)
+FUZZ_RUN_ENV = LSAN_OPTIONS=suppressions=$(BASE_DIR)fuzz/lsan-suppressions.txt \
+	  ASAN_SYMBOLIZER_PATH=$(FUZZ_SYMBOLIZER)
+
+# Fail with the reason rather than with an unsuppressed leak report.
+define fuzz-require-symbolizer
+	if [ -z "$(FUZZ_SYMBOLIZER)" ]; then \
+	  echo "no llvm-symbolizer found; LSan cannot match the entries in"; \
+	  echo "fuzz/lsan-suppressions.txt and the known tree-sitter-perl leak"; \
+	  echo "would be reported as a failure. Install one (Debian/Ubuntu:"; \
+	  echo "'apt-get install llvm'; macOS: it ships with Xcode's clang)."; \
+	  exit 1; \
+	fi
+endef
 
 # libFuzzer *writes* every coverage-increasing input it finds into the
 # first corpus directory it is given, and treats later ones as read-only
@@ -1161,6 +1189,7 @@ fuzz-check:
 	fi
 
 fuzz-smoke:
+	@$(fuzz-require-symbolizer)
 	@if rustup toolchain list 2>/dev/null | grep -q '^nightly' && \
 	    command -v cargo-fuzz >/dev/null 2>&1; then \
 	  for t in $$(cargo +nightly fuzz list); do \
@@ -1175,6 +1204,7 @@ fuzz-smoke:
 	fi
 
 fuzz-run:
+	@$(fuzz-require-symbolizer)
 	@if rustup toolchain list 2>/dev/null | grep -q '^nightly' && \
 	    command -v cargo-fuzz >/dev/null 2>&1; then \
 	  if [ -n "$(FUZZ_INPUT)" ]; then \
@@ -1193,6 +1223,7 @@ fuzz-run:
 	fi
 
 fuzz-tmin:
+	@$(fuzz-require-symbolizer)
 	@if [ -z "$(FUZZ_INPUT)" ]; then \
 	  echo "fuzz-tmin needs FUZZ_INPUT=<path to a crash artifact>"; \
 	  exit 2; \
