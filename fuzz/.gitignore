@@ -1,0 +1,18 @@
+# `cargo fuzz init` generates this file with `corpus` in it. That line is
+# deliberately absent here: the seed corpora under `corpus/` are checked
+# in, because a fuzz target with no seeds starts from a single empty
+# input and spends its first minutes rediscovering that source code has
+# braces in it. Every crasher we find is also committed here, so the
+# artifact survives independently of anyone re-running the fuzzer.
+#
+# Everything below is build output or a run's scratch space. `Cargo.lock`
+# is *not* here: it is tracked, like `enums/Cargo.lock`, because the
+# `make fuzz-check` clippy pass runs `--locked` and Dependabot needs a
+# lockfile to raise a PR against.
+target
+artifacts
+coverage
+# Where libFuzzer writes the inputs it discovers. `make fuzz-smoke` /
+# `fuzz-run` hand it this directory first and `corpus/` second, so the
+# committed seeds stay read-only and a run never dirties the tree.
+corpus-work

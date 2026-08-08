@@ -23,6 +23,7 @@ The repository is a Cargo workspace:
 | `big-code-analysis-bench` | `big-code-analysis-bench/` (excluded from default-members) | Out-of-band benchmark harness for the metric walk: the complexity-class gate (`make bench-scaling`) and criterion measurements (`make bench-walk`); see [`docs/development/benchmarking.md`](docs/development/benchmarking.md) |
 | `xtask` | `xtask/` (excluded from default-members) | Build-time helper that renders man pages from the live clap definitions (see `man/`) |
 | `enums` | `enums/` (excluded from default workspace) | Code-generation helper for language enums |
+| `big-code-analysis-fuzz` | `fuzz/` (excluded from the workspace) | Out-of-band `cargo-fuzz` targets for the parse-and-walk layer (`make fuzz-check` / `fuzz-smoke`); see [`docs/development/fuzzing.md`](docs/development/fuzzing.md) |
 
 Vendored / path-dependent grammar crates also live in the repo:
 `tree-sitter-ccomment`, `tree-sitter-mozcpp`, `tree-sitter-mozjs`,
@@ -458,6 +459,17 @@ quadratic walk makes the unit tests *slow* rather than red, so run
 `make bench-scaling` around any change to AST traversal, `Checker`,
 `Getter`, or a metric's `compute`. See
 [`docs/development/benchmarking.md`](docs/development/benchmarking.md).
+
+**Fuzzing** is the third out-of-band gate (`.github/workflows/fuzz.yml`,
+the workspace-excluded `fuzz/` crate). Also not per-commit: cargo-fuzz
+needs nightly and builds every grammar under ASan, so it lives in its own
+workflow — `ci.yml` sets `RUSTFLAGS: "-D warnings"` workflow-wide and
+pairing that with nightly red-Xes CI on unrelated new nightly lints. Run
+`make fuzz-check` after editing anything under `fuzz/`, since the crate is
+workspace-excluded and therefore invisible to `cargo clippy --workspace`
+(the #164 / #1228 blind spot). Bound any run with `-runs=N`, never
+`-max_total_time`, or the result cannot be reproduced on another machine.
+See [`docs/development/fuzzing.md`](docs/development/fuzzing.md).
 
 For snapshot test changes, run `cargo insta test --review` and accept or
 reject each snapshot rather than blindly updating files.

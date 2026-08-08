@@ -45,6 +45,12 @@ The out-of-band benchmark harness (`make bench-*`) additionally walks
 [Benchmarking](docs/development/benchmarking.md) for its recursive
 checkout.
 
+The `cargo-fuzz` targets (`make fuzz-*`) are likewise out of band and
+need a nightly toolchain plus `cargo install cargo-fuzz --locked`; every
+recipe skips with a printed reason when either is missing, so a
+stable-only checkout is not blocked. See
+[Fuzzing](docs/development/fuzzing.md).
+
 The two binaries shipped with the workspace are:
 
 - `bca`, the CLI (`big-code-analysis-cli`):

@@ -26,6 +26,27 @@ for historical reference.
 
 ### Added
 
+- A `cargo-fuzz` crate (`fuzz/`, workspace-excluded) with ten libFuzzer
+  targets over the parse-and-walk layer, committed seed corpora, and an
+  out-of-band `fuzz` workflow (`make fuzz-check` / `fuzz-smoke` /
+  `fuzz-run`; see
+  [`docs/development/fuzzing.md`](docs/development/fuzzing.md)). The
+  target set is scoped to what the static lints adopted in #1152 cannot
+  reach — chiefly the nine per-function `indexing_slicing` carve-outs in
+  the C-family macro lexer, which only the `preproc_macro` target
+  exercises — rather than to blanket byte fuzzing, which a 112-file
+  adversarial corpus already showed the encoding/IO layer survives.
+  Targets call `Source::from_bytes` so the bytes reach the parser
+  unnormalised; the file-reading path appends a trailing newline, and a
+  harness that inherited it would pass vacuously against the very class
+  of bug (#1051) that motivated this. The tree-sitter grammars are
+  compiled with `-fsanitize=address` too, so the C scanners are covered
+  and not just the Rust. Its first bounded run found a bounded leak in
+  `tree-sitter-perl` 1.1.2's heredoc scanner, whose
+  `external_scanner_destroy` has its queue frees commented out — upstream
+  in the grammar, recorded in `fuzz/lsan-suppressions.txt` with the
+  measurement showing it is per-thread rather than per-parse. No library
+  behaviour changes (#1154).
 - A `check-ruff-lockstep` gate (`make check-ruff-lockstep`, wired into
   `make lint` / `pre-commit` / `ci` and the pre-commit hooks) holds the one
   adopted ruff version together across the four files that declare it.

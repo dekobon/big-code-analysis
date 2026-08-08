@@ -12,6 +12,10 @@ include = [
     "big-code-analysis-web/**/*.toml",
     "big-code-analysis-book/**/*.toml",
     "xtask/**/*.toml",
+    # First-party, so it is formatted like the rest of the repo. The
+    # vendored grammars and `enums/` are excluded below because they
+    # follow upstream conventions; `fuzz/` has no upstream (#1154).
+    "fuzz/**/*.toml",
     "mise.toml",
     ".typos.toml",
     "bca.toml",

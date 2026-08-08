@@ -277,6 +277,24 @@ repos:
         entry: bash utils/check-enums-codegen-drift.sh
         pass_filenames: false
 
+      # Lint + build the workspace-excluded cargo-fuzz crate. Scoped to
+      # `fuzz/` edits alone, deliberately: `make fuzz-check` is a
+      # nightly ASan build of every grammar and would be far too slow to
+      # run on an ordinary `src/` commit, which is also why it is absent
+      # from `make pre-commit` / `ci` / `lint`. Editing a fuzz target,
+      # though, is exactly when the build should be checked — the crate
+      # is invisible to `cargo clippy --workspace` (#164, #1228), so
+      # nothing else would catch a broken one until the fuzz workflow
+      # ran. Skips with a printed reason when nightly or cargo-fuzz is
+      # missing. Excludes `corpus/`: seeds are data, and adding one must
+      # not trigger a rebuild.
+      - id: fuzz-check
+        name: fuzz-check
+        language: system
+        files: '^fuzz/(Cargo\.(toml|lock)|src/.+|fuzz_targets/.+|lsan-suppressions\.txt)$'
+        entry: make fuzz-check
+        pass_filenames: false
+
       # Self-tests for the enums-codegen-drift gate. Runs on edits
       # to either the script or its test file. Kept as a separate
       # hook so the gate hook above stays a one-line invariant

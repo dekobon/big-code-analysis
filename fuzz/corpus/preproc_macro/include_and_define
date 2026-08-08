@@ -1,0 +1,4 @@
+#include "other.h"
+#define A 1
+#define B 2
+int x = A + B;

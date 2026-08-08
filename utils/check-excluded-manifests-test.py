@@ -368,12 +368,19 @@ class LintsTableTest(unittest.TestCase):
     def test_the_exempt_set_names_only_the_vendored_grammars(self) -> None:
         # Non-vacuity guard: the rule would also "pass" if every excluded
         # crate were exempt. Pin that `enums` — the crate #1228 is about
-        # — is the one the real repository actually checks.
+        # — and `fuzz` (#1154) are the crates the real repository checks.
+        #
+        # The list is exact rather than a subset check on purpose. A new
+        # workspace-excluded crate must arrive here deliberately, because
+        # the alternative — adding it to LINTS_EXEMPT_CRATES, which the
+        # gate's own error message offers — is what silently drops it out
+        # of the lint posture.
         crates = GATE.read_excluded_crates(
             (REPO_ROOT / "Cargo.toml").read_text(encoding="utf-8")
         )
         self.assertEqual(
-            [c for c in crates if c not in GATE.LINTS_EXEMPT_CRATES], ["enums"]
+            [c for c in crates if c not in GATE.LINTS_EXEMPT_CRATES],
+            ["enums", "fuzz"],
         )
 
 
@@ -663,8 +670,11 @@ class RealRepositoryTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Excluded manifests OK", result.stdout)
         # The lint-checked tally is what distinguishes a real pass from
-        # one where every excluded crate happened to be exempt.
-        self.assertIn("1 lint-checked", result.stdout)
+        # one where every excluded crate happened to be exempt. It counts
+        # the non-exempt excluded crates: `enums` (#1228) and `fuzz`
+        # (#1154), matching the exact list pinned in
+        # `test_the_exempt_set_names_only_the_vendored_grammars`.
+        self.assertIn("2 lint-checked", result.stdout)
 
 
 if __name__ == "__main__":

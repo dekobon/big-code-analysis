@@ -1,0 +1,6 @@
+﻿/* c */
+#include <stdio.h>
+int f(int a) {
+  puts("x");
+  return a;
+}

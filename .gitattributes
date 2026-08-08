@@ -22,3 +22,14 @@ tree-sitter-preproc/** linguist-vendored
 # Resolve with:
 #   make self-scan-write-baseline-headroom
 .bca-baseline.toml -merge
+
+# Fuzz corpus seeds are byte-exact by definition (#1154). Several exist
+# precisely to carry the bytes git would otherwise normalise away: the
+# `crlf` and `lone_cr` seeds encode line endings, `no_trailing_newline`
+# encodes the *absence* of a final LF (the #1051 shape), and
+# `invalid_utf8` / `nul_bytes` / `bom` are not text at all. Without
+# `-text`, a checkout with `core.autocrlf=true` — or just `git add` on
+# Windows — silently rewrites them into a different test than the one
+# committed, and the fuzz run still passes because the seeds are only a
+# starting point. `-diff` keeps the binary ones out of patch output.
+fuzz/corpus/** -text -diff

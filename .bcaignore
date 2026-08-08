@@ -38,6 +38,16 @@
 # `*_tests.rs` glob does not reach it, and none of it ships.
 ./**/test_support.rs
 ./target/**
+# Fuzzing scratch (#1154). The seed corpora are deliberately malformed
+# source — invalid UTF-8, NUL bytes, unterminated constructs — so
+# analysing them measures nothing and would put ERROR-node parses into
+# `bca report`. `artifacts/` and `target/` are output. The fuzz *targets*
+# are analysed but never gated; that exemption is `[check] exclude` in
+# bca.toml, per the gate-scope-versus-walk-scope note above.
+./fuzz/corpus/**
+./fuzz/corpus-work/**
+./fuzz/artifacts/**
+./fuzz/target/**
 ./big-code-analysis-book/**
 ./docs/**
 ./packaging/**

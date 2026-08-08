@@ -1,0 +1,169 @@
+name: Fuzz
+
+# cargo-fuzz targets for the parse-and-walk layer (#1154).
+#
+# A separate workflow rather than a job in ci.yml, for one concrete
+# reason: cargo-fuzz needs nightly, and ci.yml sets
+# `RUSTFLAGS: "-D warnings"` at the workflow level. Pairing the two turns
+# every new nightly lint into a red X on unrelated PRs — the same
+# reasoning the `coverage` job in ci.yml records for staying on stable.
+# Here the flag simply is not set, so a nightly lint is a warning.
+#
+# The consequence is worth stating plainly: this workflow is not in the
+# `ci` aggregator's `needs:`, so it is advisory until branch protection
+# names it.
+#
+# See docs/development/fuzzing.md.
+
+# The two `paths:` lists are duplicated rather than shared through a YAML
+# anchor. Anchors are not reliably supported across GitHub's workflow
+# parser and nothing local can prove they are, so a silently-dropped
+# filter would leave the job running on every docs-only PR — or not
+# running at all.
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'fuzz/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'tree-sitter-*/**'
+      - 'Makefile'
+      - '.github/workflows/fuzz.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'fuzz/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'tree-sitter-*/**'
+      - 'Makefile'
+      - '.github/workflows/fuzz.yml'
+  schedule:
+    # 07:00 UTC on the 8th of January, April, July, and October — a week
+    # after the mutation-testing cron and a week before the benchmark
+    # one, so the three out-of-band jobs never contend.
+    - cron: '0 7 8 1,4,7,10 *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# All `uses:` below are pinned to commit SHAs to eliminate supply-chain
+# risk from action-release spoofing. Bump via Dependabot (see
+# .github/dependabot.yml), which rewrites the SHA + version comment.
+#
+# Note the absence of `RUSTFLAGS: "-D warnings"` — see the header.
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+
+jobs:
+  fuzz:
+    name: Build and smoke targets
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          # The integration corpora under tests/repositories/ are for the
+          # snapshot suites; no fuzz target reads them.
+          submodules: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable tip
+        with:
+          toolchain: nightly
+
+      # A distinct cache key: these artifacts are built with
+      # `-Zsanitizer=address` and ASan-instrumented C, so they are not
+      # interchangeable with the regular build cache. Same reasoning as
+      # the `coverage` job's `key: coverage` in ci.yml.
+      - name: Cache cargo build artifacts
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: fuzz
+          workspaces: |
+            .
+            fuzz
+
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@6a1bd70eaac3c8bdf093356838d7ee09fda951cf # v2.85.5
+        with:
+          tool: cargo-fuzz
+
+      # Also the fuzz crate's only lint gate: it is workspace-excluded,
+      # so `cargo clippy --workspace` in ci.yml cannot reach it (#164,
+      # #1228).
+      - name: Lint and build fuzz targets
+        run: make fuzz-check
+
+      # `-runs`, never `-max_total_time`: a wall-clock bound makes a
+      # failure non-reproducible across runners of different speeds. The
+      # per-PR budget is deliberately small — the compile gate above is
+      # the part that must be fast — and the quarterly cron carries the
+      # long sweep.
+      - name: Smoke the targets
+        id: smoke
+        env:
+          FUZZ_RUNS: ${{ github.event_name == 'schedule' && '200000' || '10000' }}
+        run: make fuzz-smoke FUZZ_RUNS="$FUZZ_RUNS"
+
+      # libFuzzer writes the offending input to fuzz/artifacts/<target>/.
+      # Without this the reproducer dies with the runner.
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts/
+          if-no-files-found: warn
+          retention-days: 90
+
+      # Only for the cron: nobody is watching a scheduled run, so a red X
+      # alone would sit unread. A PR run is already reported on the PR.
+      - name: File issue on a scheduled-run crash
+        if: failure() && github.event_name == 'schedule' && steps.smoke.conclusion == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ ! -d fuzz/artifacts ] || [ -z "$(ls -A fuzz/artifacts 2>/dev/null)" ]; then
+            echo "The smoke step failed without writing a reproducer;"
+            echo "treating as infrastructure failure, not opening an issue."
+            exit 0
+          fi
+          {
+            echo "The scheduled \`fuzz.yml\` run produced at least one crash."
+            echo
+            echo "- Run: ${RUN_URL}"
+            echo
+            echo "Reproducers are in the \`fuzz-artifacts\` artifact, one"
+            echo "directory per target. To reproduce locally:"
+            echo
+            echo '```bash'
+            echo 'cargo +nightly fuzz run <target> fuzz/artifacts/<target>/<file>'
+            echo 'cargo +nightly fuzz tmin <target> fuzz/artifacts/<target>/<file>'
+            echo '```'
+            echo
+            echo "Per \`docs/development/fuzzing.md\`, a confirmed crasher"
+            echo "becomes both a committed corpus seed and a normal"
+            echo "\`#[test]\` — the test is what enforces the regression"
+            echo "without anyone re-running the fuzzer."
+          } > /tmp/fuzz-issue-body.md
+          gh issue create \
+            --title "Fuzzing: crash in scheduled run ${{ github.run_id }}" \
+            --label "bug" \
+            --body-file /tmp/fuzz-issue-body.md

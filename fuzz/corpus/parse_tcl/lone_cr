@@ -1,0 +1,1 @@
+# tclproc f {a} {  set s "x"  return [g $a]}

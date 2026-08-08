@@ -1,0 +1,2 @@
+#define D 1
+char c = 'D'; int y = D;

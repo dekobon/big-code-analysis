@@ -1,0 +1,1 @@
+# plsub f {  my $s = "x";  return g($s);}
