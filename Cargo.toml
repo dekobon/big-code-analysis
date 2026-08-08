@@ -25,7 +25,7 @@ exclude = [
   # The cargo-fuzz crate (#1154). Excluded so `cargo test --workspace`
   # and every other workspace-scoped command stay unaffected by a crate
   # that only builds on nightly, under a sanitizer, against libFuzzer.
-  # Its own gate is `make fuzz-build` and the `fuzz` CI workflow — see
+  # Its own gate is `make fuzz-check` and the `fuzz` CI workflow — see
   # `docs/development/fuzzing.md`.
   "fuzz",
   "tree-sitter-ccomment",

@@ -287,13 +287,6 @@ mod tests {
         }
     }
 
-    /// `MAX_NESTING_DEPTH` is chosen to clear `MAX_AST_SERIALIZE_DEPTH`,
-    /// and this is the measurement rather than the hope: at the maximum
-    /// depth the `AstNode` tree must be deep enough that the bounded
-    /// `Serialize` impl refuses it. If this ever starts passing,
-    /// `nested_depth` has stopped reaching the class it exists for and
-    /// the constant needs raising — the target would still run, and
-    /// would still look like coverage.
     /// The text `recursion::serialize_bounded` puts in its error.
     ///
     /// Matched on rather than accepting any `Err`, so an unrelated
@@ -308,12 +301,19 @@ mod tests {
         let dump = ast.dump(AstCfg {
             id: String::new(),
             language: LANG::Rust.name().to_owned(),
-            comment: true,
+            comment: false,
             span: true,
         });
         serde_json::to_vec(&dump).err().map(|e| e.to_string())
     }
 
+    /// `MAX_NESTING_DEPTH` is chosen to clear `MAX_AST_SERIALIZE_DEPTH`,
+    /// and this is the measurement rather than the hope: at the maximum
+    /// depth the `AstNode` tree must be deep enough that the bounded
+    /// `Serialize` impl refuses it. If this ever starts passing,
+    /// `nested_depth` has stopped reaching the class it exists for and
+    /// the constant needs raising — the target would still run, and
+    /// would still look like coverage.
     #[test]
     fn max_depth_exceeds_the_ast_serialize_bound() {
         // `depth` is reduced modulo the cap, so `MAX_NESTING_DEPTH` maps
@@ -333,10 +333,6 @@ mod tests {
         );
     }
 
-    /// The same measurement for the `FuncSpace` bound, which only the
-    /// lambda shapes drive: a paren nests the AST without opening a
-    /// function space, so a `Shape::Paren` nest would leave this bound
-    /// untouched however deep it went.
     /// Serialize the `FuncSpace` tree for `source`, returning the error
     /// text if it fails.
     fn space_error(source: Vec<u8>) -> Option<String> {
@@ -347,6 +343,10 @@ mod tests {
         serde_json::to_vec(&space).err().map(|e| e.to_string())
     }
 
+    /// The same measurement for the `FuncSpace` bound, which only the
+    /// lambda shapes drive: a paren nests the AST without opening a
+    /// function space, so a `Shape::Paren` nest would leave this bound
+    /// untouched however deep it went.
     #[test]
     fn lambda_shapes_exceed_the_space_serialize_bound() {
         let deepest = u16::try_from(MAX_NESTING_DEPTH - 1).expect("cap fits in u16");
@@ -365,10 +365,6 @@ mod tests {
         );
     }
 
-    /// A short `shapes` sequence must still nest to the requested depth
-    /// rather than stopping at its length — the cycling in `render`. A
-    /// truncated nest is the silent-vacuity failure mode: the target
-    /// still runs, and reaches nothing.
     /// The committed `nested_depth` seeds must reach every language the
     /// generator knows, and at least one must nest deeply enough to
     /// matter.
@@ -392,7 +388,8 @@ mod tests {
         let mut seeds = 0;
 
         for entry in std::fs::read_dir(dir).expect("the seed corpus is committed") {
-            let bytes = std::fs::read(entry.expect("readable entry").path()).expect("readable seed");
+            let bytes =
+                std::fs::read(entry.expect("readable entry").path()).expect("readable seed");
             let mut u = Unstructured::new(&bytes);
             let nesting = Nesting::arbitrary(&mut u).expect("seeds decode");
             deepest = deepest.max(nesting.render().len());
@@ -402,7 +399,10 @@ mod tests {
 
         // Non-vacuity: an empty directory would satisfy every assertion
         // below by having nothing to contradict them.
-        assert!(seeds >= 4, "expected at least one seed per language, found {seeds}");
+        assert!(
+            seeds >= 4,
+            "expected at least one seed per language, found {seeds}"
+        );
         assert_eq!(
             langs,
             BTreeSet::from([
@@ -415,9 +415,17 @@ mod tests {
         );
         // A shallow-only corpus would leave the deep-nesting class — the
         // reason this target exists — to be rediscovered from scratch.
-        assert!(deepest > 1_000, "no seed nests deeply; deepest render was {deepest} bytes");
+        assert!(
+            deepest > 1_000,
+            "no seed nests deeply; deepest render was {deepest} bytes"
+        );
     }
 
+    /// A short `shapes` sequence must still nest to the requested depth
+    /// rather than stopping at its length — the cycling in `render`. A
+    /// truncated nest is the silent-vacuity failure mode: the target
+    /// still runs, and reaches nothing.
+    //
     // `naive_bytecount` wants the `bytecount` crate. Pulling a
     // dependency into a fuzz crate to speed up a byte tally over a few
     // hundred bytes, in a test, is not a trade worth making.

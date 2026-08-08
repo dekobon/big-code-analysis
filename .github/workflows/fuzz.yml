@@ -151,11 +151,13 @@ jobs:
             echo "- Run: ${RUN_URL}"
             echo
             echo "Reproducers are in the \`fuzz-artifacts\` artifact, one"
-            echo "directory per target. To reproduce locally:"
+            echo "directory per target. To reproduce locally — via the make"
+            echo "targets, which carry the sanitizer flags that instrument"
+            echo "the tree-sitter C scanners:"
             echo
             echo '```bash'
-            echo 'cargo +nightly fuzz run <target> fuzz/artifacts/<target>/<file>'
-            echo 'cargo +nightly fuzz tmin <target> fuzz/artifacts/<target>/<file>'
+            echo 'make fuzz-run  FUZZ_TARGET=<target> FUZZ_INPUT=fuzz/artifacts/<target>/<file>'
+            echo 'make fuzz-tmin FUZZ_TARGET=<target> FUZZ_INPUT=fuzz/artifacts/<target>/<file>'
             echo '```'
             echo
             echo "Per \`docs/development/fuzzing.md\`, a confirmed crasher"
