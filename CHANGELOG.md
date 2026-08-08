@@ -46,7 +46,10 @@ for historical reference.
   `external_scanner_destroy` has its queue frees commented out — upstream
   in the grammar, recorded in `fuzz/lsan-suppressions.txt` with the
   measurement showing it is per-thread rather than per-parse. No library
-  behaviour changes (#1154).
+  behaviour changes (#1154). A `preproc_includes` target covers the
+  include-resolution half of the preprocessor — `fix_includes` and the
+  graph building, SCC collapse and candidate scoring behind it, none of
+  which `preproc_macro` reaches (#1288).
 - A `check-ruff-lockstep` gate (`make check-ruff-lockstep`, wired into
   `make lint` / `pre-commit` / `ci` and the pre-commit hooks) holds the one
   adopted ruff version together across the four files that declare it.

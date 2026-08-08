@@ -1,7 +1,7 @@
 # Fuzzing
 
 `big-code-analysis` runs [cargo-fuzz][cf] against the parse-and-walk
-layer: the `fuzz/` crate holds ten [libFuzzer][lf] targets that feed
+layer: the `fuzz/` crate holds eleven [libFuzzer][lf] targets that feed
 arbitrary bytes to `Ast::parse` and then run every public walk over the
 result. Coverage-guided mutation reaches malformed and adversarial input
 shapes that a fixture suite samples only where someone thought to look.
@@ -42,6 +42,7 @@ specific rationale.
 |---|---|
 | `parse_bash`, `parse_c`, `parse_cpp`, `parse_javascript`, `parse_perl`, `parse_python`, `parse_rust`, `parse_tcl` | `Ast::parse` for one language, then the full walk fan-out |
 | `preproc_macro` | `preprocess` harvest → `Source::with_preproc` → the C-family macro-masking lexer |
+| `preproc_includes` | `preprocess` over several files → `fix_includes` → include-graph resolution, SCC collapse, candidate scoring |
 | `nested_depth` | A structured generator for the deep-nesting complexity class |
 
 Three design points are load-bearing.
@@ -72,6 +73,27 @@ sets `CFLAGS_<host-triple>`. It has to be the triple-qualified spelling:
 then `<BUILD_KIND>_<VAR>`, then bare `<VAR>`, and picks `HOST_` rather
 than `TARGET_` for the build kind when it is not cross-compiling — so
 `TARGET_CFLAGS` is silently inert for a native fuzz build.
+
+### Fuzzing an order-dependent function
+
+`fix_includes` walks `HashMap`-ordered collections, which held
+`preproc_includes` back until it was measured (#1288): a crash whose
+occurrence depends on iteration order would not reproduce from its own
+artifact, which is the same non-reproducibility the `-runs`-not-
+`-max_total_time` rule exists to prevent.
+
+Measured across 40 runs of one 8-file input: the diagnostic **sequence**
+varied every time, while the diagnostic **set** and the mutated `files`
+map were identical. So the content was already deterministic and only
+the returned `Vec`'s order was not — which was also a live defect on its
+own, since `bca preproc` prints that `Vec` straight to stderr and so
+emitted the same warnings in a different order on every run. It is now
+sorted at the source.
+
+The general rule this leaves: before pointing a fuzzer at a function
+that iterates an unordered collection, establish which of its outputs
+are order-stable. If a crash can depend on the order, the artifact is
+not a reproducer and the target is worse than nothing.
 
 ### Languages not fuzzed
 

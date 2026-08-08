@@ -123,6 +123,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "preproc_includes"
+path = "fuzz_targets/preproc_includes.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "nested_depth"
 path = "fuzz_targets/nested_depth.rs"
 test = false
