@@ -246,6 +246,38 @@ class LintsTableTest(unittest.TestCase):
             "no [lints] table",
         )
 
+    def test_an_empty_sub_table_is_reported(self) -> None:
+        # The same vacuity as an empty `[lints]`, one level down: a
+        # `[lints.clippy]` header with no keys under it sets no level, so
+        # the crate still builds on compiler defaults while the manifest
+        # reads as having a lint posture. This is the shape the bare
+        # `[lints]` case above is checked for, and it must not slip
+        # through by being nested.
+        bodies = (
+            "[lints.rust]\n",
+            "[lints.clippy]\n",
+            "[lints.rust]\n\n[lints.clippy]\n",
+        )
+        for body in bodies:
+            with self.subTest(body=body):
+                self.assertEqual(
+                    GATE.lints_table_problem(
+                        f'[package]\nname = "g"\n\n{body}', "g/Cargo.toml"
+                    ),
+                    "[lints] declares no lint levels",
+                )
+
+    def test_one_populated_sub_table_is_enough(self) -> None:
+        # Non-vacuity guard for the rule above: an empty sibling must not
+        # veto a real declaration.
+        self.assertIsNone(
+            GATE.lints_table_problem(
+                '[package]\nname = "g"\n\n[lints.rust]\n\n'
+                '[lints.clippy]\npedantic = "warn"\n',
+                "g/Cargo.toml",
+            )
+        )
+
     def test_workspace_inheritance_is_reported_distinctly(self) -> None:
         # The spelling every member crate uses, and the one most likely
         # to be copied in. An excluded crate roots its own workspace, so
@@ -256,6 +288,70 @@ class LintsTableTest(unittest.TestCase):
         self.assertIsNotNone(problem)
         assert problem is not None
         self.assertIn("workspace = true", problem)
+
+    def test_self_rooted_inheritance_is_a_real_posture(self) -> None:
+        # An excluded crate roots its own workspace, so `workspace = true`
+        # resolves against `[workspace.lints]` in this same file. Measured
+        # on cargo 1.95: this manifest builds and emits the inherited
+        # `missing_docs`, so rejecting it — as this gate did until the
+        # value was resolved rather than assumed absent — is a false
+        # positive stating a reason that is not true.
+        self.assertIsNone(
+            GATE.lints_table_problem(
+                '[package]\nname = "g"\n\n'
+                '[workspace]\n\n[workspace.lints.rust]\nmissing_docs = "warn"\n\n'
+                "[lints]\nworkspace = true\n",
+                "g/Cargo.toml",
+            )
+        )
+
+    def test_inherited_lints_face_the_same_vacuity_rule(self) -> None:
+        # Resolving the inheritance must not become a way around the
+        # emptiness check: an inherited table that declares no level is as
+        # vacuous as a local one.
+        self.assertEqual(
+            GATE.lints_table_problem(
+                '[package]\nname = "g"\n\n'
+                "[workspace]\n\n[workspace.lints.rust]\n\n"
+                "[lints]\nworkspace = true\n",
+                "g/Cargo.toml",
+            ),
+            "[lints] declares no lint levels",
+        )
+
+    def test_an_empty_inherited_table_reads_as_vacuous_not_absent(self) -> None:
+        # `[workspace.lints]` with nothing under it resolves fine — it just
+        # sets no level. Naming that "inherits nothing" would misdescribe
+        # which half is broken.
+        self.assertEqual(
+            GATE.lints_table_problem(
+                '[package]\nname = "g"\n\n'
+                "[workspace]\n\n[workspace.lints]\n\n"
+                "[lints]\nworkspace = true\n",
+                "g/Cargo.toml",
+            ),
+            "[lints] declares no lint levels",
+        )
+
+    def test_inheritance_with_nothing_to_inherit_is_reported(self) -> None:
+        # `[workspace]` present but carrying no `lints` table: the
+        # `workspace = true` really does resolve to nothing here.
+        problem = GATE.lints_table_problem(
+            '[package]\nname = "g"\n\n[workspace]\n\n[lints]\nworkspace = true\n',
+            "g/Cargo.toml",
+        )
+        self.assertEqual(problem, "[lints] workspace = true, which inherits nothing here")
+
+    def test_the_reported_workspace_value_is_the_one_written(self) -> None:
+        # `workspace = false` fails too — cargo refuses it outright — but
+        # quoting it as `= true` sends the reader hunting for text the
+        # manifest does not contain.
+        problem = GATE.lints_table_problem(
+            '[package]\nname = "g"\n\n[lints]\nworkspace = false\n', "g/Cargo.toml"
+        )
+        self.assertIsNotNone(problem)
+        assert problem is not None
+        self.assertIn("workspace = false", problem)
 
     def test_a_non_exempt_crate_without_a_table_is_collected(self) -> None:
         root = self._root_with({"a": '[package]\nname = "a"\n'})

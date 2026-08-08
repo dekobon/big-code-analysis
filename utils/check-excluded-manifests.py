@@ -217,20 +217,61 @@ def missing_workspace_table(crates: list[str], root: pathlib.Path) -> list[str]:
     return offenders
 
 
+def workspace_lints(manifest: dict[str, Any]) -> dict[str, Any] | None:
+    """Return a manifest's own ``[workspace.lints]``, or ``None``.
+
+    An excluded crate roots its *own* workspace — every one here carries a
+    ``[workspace]`` table — so ``[lints] workspace = true`` resolves
+    against this same file rather than the repository root. Measured on
+    cargo 1.95: a self-rooted crate spelling both tables builds and emits
+    the inherited lints, so that shape is a real lint posture and not the
+    copied-in mistake it resembles.
+
+    An *empty* ``[workspace.lints]`` is returned rather than rejected
+    here, so the caller's vacuity rule names it as declaring no levels —
+    which is what it does. Reporting it as inheriting nothing would be
+    the less accurate of the two: the inheritance resolves fine.
+    """
+    workspace = manifest.get("workspace")
+    if not isinstance(workspace, dict):
+        return None
+    lints = workspace.get("lints")
+    return lints if isinstance(lints, dict) else None
+
+
 def lints_table_problem(manifest_text: str, label: str) -> str | None:
     """Describe why ``label``'s ``[lints]`` table is unusable, or ``None``.
 
-    Two ways to fail. An absent or empty table leaves the crate on
-    compiler defaults. A ``workspace = true`` table is worse than absent:
-    it is the spelling every *member* crate uses, so it looks right, but
-    an excluded crate roots its own workspace and inherits nothing from
-    the repository root's ``[workspace.lints]``.
+    Three ways to fail. An absent or empty table leaves the crate on
+    compiler defaults. A ``[lints.rust]`` / ``[lints.clippy]`` sub-table
+    with no keys under it is exactly as vacuous — it sets no level, so it
+    must not buy a pass either. And ``workspace = true`` with no local
+    ``[workspace.lints]`` to resolve against inherits nothing: it is the
+    spelling every *member* crate uses, so it looks right, but an
+    excluded crate does not reach the repository root's table.
+
+    ``workspace = true`` *with* a populated ``[workspace.lints]`` in the
+    same file is legitimate and passes — the effective table is the
+    inherited one, and it faces the same vacuity rule.
     """
-    lints = parse_manifest(manifest_text, label).get("lints")
+    manifest = parse_manifest(manifest_text, label)
+    lints = manifest.get("lints")
     if not isinstance(lints, dict) or not lints:
         return "no [lints] table"
     if "workspace" in lints:
-        return "[lints] workspace = true, which inherits nothing here"
+        if lints["workspace"] is not True:
+            # cargo refuses `workspace = false` outright ("`workspace`
+            # cannot be false"), so there is nothing to resolve. Quote
+            # what the manifest says: reporting `= true` here would send
+            # the reader hunting for text that is not there.
+            spelled = str(lints["workspace"]).lower()
+            return f"[lints] workspace = {spelled}, which cargo rejects"
+        inherited = workspace_lints(manifest)
+        if inherited is None:
+            return "[lints] workspace = true, which inherits nothing here"
+        lints = inherited
+    if not any(isinstance(table, dict) and table for table in lints.values()):
+        return "[lints] declares no lint levels"
     return None
 
 
