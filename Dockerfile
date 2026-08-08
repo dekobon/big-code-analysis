@@ -137,6 +137,12 @@ RUN set -eux; \
 # Cargo dev/CI tools via cargo-binstall (prebuilt binaries — no long
 # compiles). cargo-nextest / cargo-llvm-cov mirror CI; cargo-about /
 # cargo-deny back `make release-check`; mdbook backs `make book`.
+#
+# The `cargo about --version` line is a guard, not a version print.
+# binstall's last-resort strategy is a plain `cargo install`, and
+# cargo-about keeps its binary behind a non-default `cli` feature — so
+# that fallback would install no binary, warn, and exit 0, baking a
+# release image that cannot run `make release-check` (#1226).
 RUN set -eux; \
     curl -fsSL https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash; \
     cargo binstall --no-confirm \
@@ -147,6 +153,7 @@ RUN set -eux; \
         cargo-about \
         cargo-deny \
         mdbook; \
+    cargo about --version; \
     rm -rf "$CARGO_HOME/registry" "$CARGO_HOME/git" /tmp/*
 
 # ---------------------------------------------------------------------------

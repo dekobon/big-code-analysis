@@ -1,7 +1,92 @@
 #!/usr/bin/env bash
 # Check for required and optional tools used by the Makefile.
+#
+# `--release-only` probes just the two tools `make release-check`
+# invokes and exits non-zero if either is absent; the gate calls it that
+# way so a missing tool is named up front instead of surfacing as
+# cargo's generic `no such command` partway through (#1226).
 
 set -euo pipefail
+
+usage() {
+	echo "usage: check-tools.sh [--release-only]" >&2
+	exit 2
+}
+
+release_only=0
+if [ "$#" -gt 1 ]; then
+	usage
+elif [ "$#" -eq 1 ]; then
+	[ "$1" = "--release-only" ] || usage
+	release_only=1
+fi
+
+# The exact install commands for the two tools `make release-check`
+# cannot run without. cargo-about 0.9.0 moved its binary behind a
+# non-default `cli` feature, so a bare `cargo install cargo-about`
+# compiles the library, installs no binary, reports the miss as a
+# *warning*, and exits 0 — after which `cargo about` still answers "no
+# such command" (#1226). Both readers of these strings — the section
+# further down and `make release-check` through `--release-only` — take
+# them from here, so the `--features cli` spelling cannot go missing
+# from one of them.
+CARGO_DENY_INSTALL="cargo install --locked cargo-deny"
+CARGO_ABOUT_INSTALL="cargo install --locked cargo-about --features cli"
+
+# Probes the release tooling, printing one status line each and setting
+# deny_missing / about_missing / release_missing.
+#
+# `cargo <sub> --version` rather than `command -v cargo-about`: it is
+# what the gate itself does, so a binary that is on PATH but which cargo
+# cannot dispatch to still reads as missing here.
+check_release_tools() {
+	deny_missing=0
+	if cargo deny --version >/dev/null 2>&1; then
+		deny_version=$(cargo deny --version 2>/dev/null | awk 'NR==1{print $2; exit}' || true)
+		echo "  ✓ cargo-deny (version: ${deny_version:-unknown})"
+	else
+		echo "  ✗ cargo-deny (not found)"
+		deny_missing=1
+	fi
+
+	about_missing=0
+	if cargo about --version >/dev/null 2>&1; then
+		about_version=$(cargo about --version 2>/dev/null | awk 'NR==1{print $2; exit}' || true)
+		echo "  ✓ cargo-about (version: ${about_version:-unknown})"
+	else
+		echo "  ✗ cargo-about (not found)"
+		about_missing=1
+	fi
+
+	release_missing=$((deny_missing + about_missing))
+}
+
+print_release_hints() {
+	if [ "$deny_missing" -eq 1 ]; then
+		echo "  - cargo-deny: Install with: $CARGO_DENY_INSTALL"
+	fi
+	if [ "$about_missing" -eq 1 ]; then
+		echo "  - cargo-about: Install with: $CARGO_ABOUT_INSTALL"
+		echo "                 (--features cli is not optional: the binary is behind a"
+		echo "                  non-default feature, so a bare 'cargo install cargo-about'"
+		echo "                  installs nothing and still exits 0)"
+	fi
+}
+
+if [ "$release_only" -eq 1 ]; then
+	echo "Checking release tooling ('make release-check')..."
+	check_release_tools
+	if [ "$release_missing" -gt 0 ]; then
+		echo ""
+		echo "Missing release tools:"
+		print_release_hints
+		echo ""
+		echo "'make release-check' invokes 'cargo deny' and 'cargo about' directly"
+		echo "and cannot proceed without them."
+		exit 1
+	fi
+	exit 0
+fi
 
 echo "Checking required tools..."
 echo ""
@@ -153,6 +238,13 @@ else
 fi
 
 echo ""
+echo "Optional Tools (Release engineering — 'make release-check'):"
+echo "  (optional day to day; 'make release-check' hard-fails without both,"
+echo "   so a release cannot be cut until they are installed)"
+
+check_release_tools
+
+echo ""
 echo "Optional Tools (Python tooling — big-code-analysis-py):"
 echo "  (any work on big-code-analysis-py needs uv + the four py-* tools;"
 echo "   skip this section entirely if you only touch Rust)"
@@ -202,7 +294,7 @@ fi
 echo ""
 
 core_missing=$((cargo_missing + nightly_missing + udeps_missing + insta_missing + checkmake_missing))
-optional_missing=$((rumdl_missing + fd_missing + taplo_missing + shellcheck_missing + shfmt_missing + nextest_missing + actionlint_missing + mdbook_missing + uv_missing + ruff_missing + mypy_missing + pyright_missing + maturin_py_missing))
+optional_missing=$((rumdl_missing + fd_missing + taplo_missing + shellcheck_missing + shfmt_missing + nextest_missing + actionlint_missing + mdbook_missing + release_missing + uv_missing + ruff_missing + mypy_missing + pyright_missing + maturin_py_missing))
 
 if [ "$core_missing" -gt 0 ]; then
 	echo "Missing core tools:"
@@ -253,6 +345,7 @@ if [ "$optional_missing" -gt 0 ]; then
 	if [ "$mdbook_missing" -eq 1 ]; then
 		echo "  - mdbook: Install with: cargo install --locked mdbook (needed for 'make book')"
 	fi
+	print_release_hints
 	if [ "$uv_missing" -eq 1 ]; then
 		echo "  - uv: needed for 'make py-bootstrap' (creates .venv from uv.lock)."
 		echo "        Install with: curl -LsSf https://astral.sh/uv/install.sh | sh"

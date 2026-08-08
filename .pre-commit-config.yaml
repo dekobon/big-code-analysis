@@ -184,6 +184,16 @@ repos:
         entry: bash utils/gate-status-test.sh
         pass_filenames: false
 
+      # Self-tests for the release-tool probes and install hints.
+      # cargo-about's hint is only correct with `--features cli`;
+      # without it the install exits 0 and installs nothing (#1226).
+      - id: check-tools-test
+        name: check-tools-test
+        language: system
+        files: '^utils/check-tools(-test)?\.sh$'
+        entry: bash utils/check-tools-test.sh
+        pass_filenames: false
+
       # Sync-test for check-grammar-crate.py's EXTENSIONS table against
       # src/langs.rs (#869). Re-runs when the script, its test, or the
       # source-of-truth language table changes.
