@@ -80,10 +80,17 @@ jobs:
           # snapshot suites; no fuzz target reads them.
           submodules: false
 
+      # `components:` is not optional here. The action installs a minimal
+      # profile, so a bare `toolchain: nightly` has neither rustfmt nor
+      # clippy — and `make fuzz-check` opens with a fmt stage and follows
+      # it with clippy, so the job dies on its first command with
+      # "'cargo-fmt' is not installed for the toolchain 'nightly-...'".
+      # It passes locally, where nightly was installed by hand with both.
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable tip
         with:
           toolchain: nightly
+          components: rustfmt, clippy
 
       # A distinct cache key: these artifacts are built with
       # `-Zsanitizer=address` and ASan-instrumented C, so they are not
