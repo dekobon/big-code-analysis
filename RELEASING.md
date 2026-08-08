@@ -227,6 +227,29 @@ already matches the workspace version.
 You only need to do this once per project, but verify each item
 before the first real release.
 
+### Local tooling
+
+`make release-check` shells out to two cargo subcommands that the
+day-to-day gate never touches, plus `minisign` if you verify a
+published release locally:
+
+```bash
+cargo install --locked cargo-deny
+cargo install --locked cargo-about --features cli
+```
+
+`--features cli` is not optional. cargo-about moved its binary behind
+a non-default `cli` feature in 0.9.0, so `cargo install cargo-about`
+compiles the library, installs no binary, reports the miss as a
+*warning*, and exits 0 — after which `cargo about` still answers `no
+such command: about`, which reads like a PATH problem rather than an
+install that did nothing.
+
+`make check-tools` lists both alongside the rest of the toolchain, and
+`make release-check` probes them up front and names whichever is
+missing, so neither failure mode has to be diagnosed from cargo's
+generic error.
+
 ### Repository secrets
 
 Configure these under **Settings → Secrets and variables → Actions →
