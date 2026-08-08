@@ -1103,6 +1103,22 @@ FUZZ_INPUT ?=
 #
 # Recursive `=`, not `:=`: `rustc -vV` then runs only when a fuzz target
 # actually needs it rather than on every `make` invocation.
+#
+# Every `cargo fuzz` subcommand is passed `--target $(FUZZ_HOST_TRIPLE)`
+# for the same reason, and it is not belt-and-braces. cargo-fuzz derives
+# its default target from the triple *it was itself built for*, not from
+# the host's `rustc`. Install it with `cargo install` and that is the
+# host; install it through a binstall-backed action, as the fuzz workflow
+# does, and you get the prebuilt `x86_64-unknown-linux-musl` artifact —
+# whereupon it builds the targets for musl, which is not installed as a
+# rustup target and is statically linked, so the build dies on
+# "sanitizer is incompatible with statically linked libc".
+#
+# The quieter half is why this is pinned rather than worked around in
+# CI: keying the CFLAGS to one triple while cargo-fuzz builds for
+# another attaches the instrumentation to nothing at all, and the build
+# still succeeds. Naming the triple once and using it for both makes
+# that disagreement unrepresentable.
 FUZZ_SAN_FLAGS := -fsanitize=address -fno-omit-frame-pointer
 FUZZ_HOST_TRIPLE = $(shell rustc -vV | sed -n 's/^host: //p')
 FUZZ_CC_ENV = CFLAGS_$(subst -,_,$(FUZZ_HOST_TRIPLE))="$(FUZZ_SAN_FLAGS)" \
@@ -1139,7 +1155,7 @@ fuzz-check:
 	    --manifest-path $(BASE_DIR)fuzz/Cargo.toml \
 	    --locked; \
 	  echo "Building cargo-fuzz targets (nightly, ASan)..."; \
-	  $(FUZZ_CC_ENV) cargo +nightly fuzz build; \
+	  $(FUZZ_CC_ENV) cargo +nightly fuzz build --target $(FUZZ_HOST_TRIPLE); \
 	else \
 	  echo "nightly toolchain or cargo-fuzz not found; skipping fuzz-check"; \
 	fi
@@ -1150,7 +1166,7 @@ fuzz-smoke:
 	  for t in $$(cargo +nightly fuzz list); do \
 	    echo "Fuzzing $$t for $(FUZZ_RUNS) runs..."; \
 	    mkdir -p $(FUZZ_WORK)/"$$t"; \
-	    $(FUZZ_CC_ENV) $(FUZZ_RUN_ENV) cargo +nightly fuzz run "$$t" \
+	    $(FUZZ_CC_ENV) $(FUZZ_RUN_ENV) cargo +nightly fuzz run --target $(FUZZ_HOST_TRIPLE) "$$t" \
 	      $(FUZZ_WORK)/"$$t" $(BASE_DIR)fuzz/corpus/"$$t" \
 	      -- -runs=$(FUZZ_RUNS) -timeout=$(FUZZ_TIMEOUT); \
 	  done; \
@@ -1163,12 +1179,12 @@ fuzz-run:
 	    command -v cargo-fuzz >/dev/null 2>&1; then \
 	  if [ -n "$(FUZZ_INPUT)" ]; then \
 	    echo "Replaying $(FUZZ_TARGET) against $(FUZZ_INPUT)..."; \
-	    $(FUZZ_CC_ENV) $(FUZZ_RUN_ENV) cargo +nightly fuzz run $(FUZZ_TARGET) \
+	    $(FUZZ_CC_ENV) $(FUZZ_RUN_ENV) cargo +nightly fuzz run --target $(FUZZ_HOST_TRIPLE) $(FUZZ_TARGET) \
 	      "$(FUZZ_INPUT)" -- -timeout=$(FUZZ_TIMEOUT); \
 	  else \
 	    echo "Fuzzing $(FUZZ_TARGET) for $(FUZZ_RUNS) runs..."; \
 	    mkdir -p $(FUZZ_WORK)/$(FUZZ_TARGET); \
-	    $(FUZZ_CC_ENV) $(FUZZ_RUN_ENV) cargo +nightly fuzz run $(FUZZ_TARGET) \
+	    $(FUZZ_CC_ENV) $(FUZZ_RUN_ENV) cargo +nightly fuzz run --target $(FUZZ_HOST_TRIPLE) $(FUZZ_TARGET) \
 	      $(FUZZ_WORK)/$(FUZZ_TARGET) $(BASE_DIR)fuzz/corpus/$(FUZZ_TARGET) \
 	      -- -runs=$(FUZZ_RUNS) -timeout=$(FUZZ_TIMEOUT); \
 	  fi; \
@@ -1184,7 +1200,7 @@ fuzz-tmin:
 	@if rustup toolchain list 2>/dev/null | grep -q '^nightly' && \
 	    command -v cargo-fuzz >/dev/null 2>&1; then \
 	  echo "Minimising $(FUZZ_INPUT) for $(FUZZ_TARGET)..."; \
-	  $(FUZZ_CC_ENV) $(FUZZ_RUN_ENV) cargo +nightly fuzz tmin $(FUZZ_TARGET) \
+	  $(FUZZ_CC_ENV) $(FUZZ_RUN_ENV) cargo +nightly fuzz tmin --target $(FUZZ_HOST_TRIPLE) $(FUZZ_TARGET) \
 	    "$(FUZZ_INPUT)" -- -timeout=$(FUZZ_TIMEOUT); \
 	else \
 	  echo "nightly toolchain or cargo-fuzz not found; skipping fuzz-tmin"; \

@@ -202,6 +202,16 @@ run` / `tmin` directly. They carry the `CFLAGS_<host-triple>` /
 rebuilds every tree-sitter grammar *without* ASan, which is precisely
 the instrumentation that found the C-scanner class in the first place.
 
+They also pass `--target <host-triple>` explicitly, which matters more
+than it looks. cargo-fuzz defaults its target to the triple *it* was
+built for, not the host's: `cargo install cargo-fuzz` gives you the
+host, while a binstall-backed install — what `taiki-e/install-action`
+does in the workflow — hands you the prebuilt musl artifact, which then
+builds the targets for a statically-linked libc the sanitizer refuses.
+Pinning it also keeps the CFLAGS triple and the build triple the same
+by construction; keyed to different triples the instrumentation attaches
+to nothing and the build still succeeds.
+
 Step 4 does not fit every finding, and the exception is worth naming: a
 *leak* is invisible to `cargo test`, because nothing outside a sanitizer
 build observes it. For those the durable artifact is the seed plus an
