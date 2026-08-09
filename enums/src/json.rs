@@ -12,13 +12,6 @@ struct JsonTemplate {
     names: Vec<(String, bool, String)>,
 }
 
-// The token text is interpolated into a JSON string literal that is parsed
-// exactly once, so use the single-backslash escape form (escape=false),
-// matching the Rust and Go generators. The double-backslash form
-// (escape=true) is only correct for values that survive a second
-// source-string interpretation layer (issue #862).
-const JSON_TOKEN_ESCAPE: bool = false;
-
 /// Writes one JSON token-kind table per [`Lang`] into `output`.
 ///
 /// `file_template` is the file stem with `$` standing in for the
@@ -41,7 +34,7 @@ pub fn generate_json(output: &Path, file_template: &str) -> std::io::Result<()> 
         let path = output.join(file_name);
         let mut file = File::create(path)?;
 
-        let names = get_token_names(&language, JSON_TOKEN_ESCAPE);
+        let names = get_token_names(&language);
 
         let args = JsonTemplate { names };
 
@@ -89,7 +82,7 @@ mod tests {
     // Render a single ["name", "ts_name"] row exactly as `generate_json`
     // would, then extract the quoted ts_name back out of the rendered JSON.
     fn rendered_ts_name(token: &str) -> String {
-        let ts_name = sanitize_string(token, JSON_TOKEN_ESCAPE);
+        let ts_name = sanitize_string(token);
         let args = JsonTemplate {
             names: vec![("Tok".to_string(), false, ts_name)],
         };

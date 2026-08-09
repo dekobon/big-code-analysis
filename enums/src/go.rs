@@ -31,7 +31,7 @@ pub fn generate_go(output: &Path, file_template: &str) -> std::io::Result<()> {
         let path = output.join(file_name);
         let mut file = File::create(path)?;
 
-        let names = get_token_names(&language, false);
+        let names = get_token_names(&language);
         // `unwrap_or(0)` is the identity, not a swallowed error: with no
         // names the `map` below yields nothing, so the padding width is
         // never read. The empty case is unreachable — `get_token_names`
