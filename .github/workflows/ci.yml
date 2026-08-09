@@ -594,6 +594,15 @@ jobs:
       # it from the aggregate recipe.
       - name: check-manpage-assets (explicit)
         run: python3 utils/check-manpage-assets.py
+      # Defensive twin for the man-page drift gate's self-tests
+      # (#1249). The gate itself runs in the `manpage` job, which
+      # invokes the script directly and so cannot be dropped by a
+      # refactor of the `make lint` aggregate — but the tests that
+      # prove the gate still catches an untracked page can be, and a
+      # gate that has silently stopped gating is indistinguishable
+      # from a clean tree. That is the failure this pair exists for.
+      - name: check-manpage-drift-test (explicit)
+        run: python3 -m unittest -q utils/check-manpage-drift-test.py
       # Defensive twin for the diagnostic-prefix gate (#1199): a
       # capitalised `Warning:` / `Error:` / `Note:` baked into a string
       # literal bypasses the one-helper-per-crate severity ladder and
@@ -971,12 +980,16 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Regenerate man pages
         run: cargo xtask
+      # Fails on every direction the regenerated tree can differ from
+      # the committed one — modified, deleted, *and* added pages. The
+      # added direction needs `git ls-files --others`: the page xtask
+      # writes for a brand-new subcommand is untracked, and `git diff`
+      # alone passed green over it until #1249. The check lives in the
+      # script rather than inline here so this step and
+      # `make manpages-check` cannot drift apart; the `::error::`
+      # annotation is emitted by the script when GITHUB_ACTIONS is set.
       - name: Verify no drift
-        run: |
-          if ! git diff --exit-code -- man/; then
-            echo "::error::Committed man pages drift from the clap schema. Run 'cargo xtask' locally and commit the result."
-            exit 1
-          fi
+        run: python3 utils/check-manpage-drift.py
 
   # Single required status check for branch protection — depends on
   # every gating job. Passing this one check guarantees the full matrix

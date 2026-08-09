@@ -309,12 +309,16 @@ repos:
 
       # Catch clap-vs-man-page drift before push. The
       # `.github/workflows/ci.yml` `manpage` job (Regenerate, then
-      # `git diff --exit-code -- man/`) is the upstream backstop;
+      # assert no drift) is the upstream backstop;
       # this hook makes the same check available locally and via
       # `pre-commit run --all-files`. The hook fails on drift and
       # leaves the regenerated files in the working tree — same
       # side effect CI runs into, accepted because man pages are
       # generated artifacts.
+      #
+      # Since #1249 the assertion half lives in
+      # `utils/check-manpage-drift.py`, shared with the CI job, and
+      # covers added pages as well as modified and deleted ones.
       #
       # The `files:` filter covers every input that can change the
       # generated `.1` output:
@@ -331,6 +335,18 @@ repos:
         language: system
         files: '^(big-code-analysis-cli/(src/.*\.rs|Cargo\.toml)|big-code-analysis-web/(src/.*\.rs|Cargo\.toml)|xtask/(src/.*\.rs|Cargo\.toml)|Cargo\.toml|man/.*\.1)$'
         entry: make manpages-check
+        pass_filenames: false
+
+      # Self-tests for the man-page drift gate. Separate hook so the
+      # gate above stays a regenerate-then-assert pair and the tests
+      # get their own pass/fail in `pre-commit run` output. They run
+      # against scratch repositories only — never the real `man/`,
+      # which the `manpages` hook rewrites.
+      - id: check-manpage-drift-test
+        name: check-manpage-drift-test
+        language: system
+        files: '^utils/check-manpage-drift(-test)?\.py$'
+        entry: python3 -m unittest -q utils/check-manpage-drift-test.py
         pass_filenames: false
 
       # Lockstep version invariant — every owned crate and every

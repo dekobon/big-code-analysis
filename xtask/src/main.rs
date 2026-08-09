@@ -2,9 +2,10 @@
 //!
 //! `cargo xtask` (no args) regenerates the man pages for `bca` and
 //! `bca-web` under `man/` at the repo root, one `.1` per top-level
-//! binary plus one per `bca` subcommand. CI gates a `git diff
-//! --exit-code -- man/` against the output, so adding a flag without
-//! re-running `cargo xtask` fails the manpage job.
+//! binary plus one per `bca` subcommand. CI gates the output with
+//! `utils/check-manpage-drift.py` — modified, deleted, *and* newly
+//! added pages — so adding a flag or a subcommand without re-running
+//! `cargo xtask` and committing the result fails the manpage job.
 #![allow(missing_docs)]
 #![allow(clippy::pedantic)]
 // Production-only `unwrap()` ban. See `[workspace.lints.clippy]` in the
@@ -74,8 +75,9 @@ fn run_manpages(workspace_root: &Path) -> io::Result<()> {
     )?;
 
     // Sweep orphan `.1` files (renamed/removed subcommands) so the CI
-    // `git diff --exit-code -- man/` gate flips red on stale pages
-    // instead of silently shipping them.
+    // man-page drift gate flips red on stale pages instead of silently
+    // shipping them. The deletion shows up in `git diff`; the page the
+    // rename *adds* needs the gate's untracked half (#1249).
     sweep_orphans(&out_dir, &expected)?;
 
     println!("Wrote man pages to {}", out_dir.display());
