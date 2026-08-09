@@ -69,7 +69,7 @@ value = 6.0
 path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "run_check"
 metric = "halstead.effort"
-value = 60852.18615151166
+value = 61595.19073540147
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check/effective_config.rs"

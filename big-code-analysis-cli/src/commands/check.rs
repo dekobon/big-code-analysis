@@ -138,7 +138,7 @@ pub(crate) fn run_check(
     // there is no baseline to refresh and no artifact worth pointing
     // at. Suppressed debt is informational and never remediated here.
     let remediation = if any_violations {
-        format_remediation_block(&globals_for_remediation, &args)
+        format_remediation_block(&globals_for_remediation, &args, tier)
     } else {
         None
     };

@@ -386,18 +386,34 @@ fn globals_for_remediation(
     }
 }
 
+/// Parse a rendered refresh argv back through the real clap surface,
+/// returning the `check` args it produced. Any usage error — a flag in
+/// a position clap no longer accepts, a value spelling the parser
+/// rejects — fails here rather than being string-matched away (#1243).
+fn parse_refresh_argv(argv: &[String]) -> CheckArgs {
+    use clap::Parser;
+    let parsed = crate::Cli::try_parse_from(argv).unwrap_or_else(|e| {
+        panic!("emitted refresh command must parse; got:\n{e}\nargv: {argv:?}")
+    });
+    match parsed.command {
+        crate::Command::Check(args) => *args,
+        other => panic!("expected Command::Check, got {other:?}"),
+    }
+}
+
 #[test]
 fn format_remediation_block_returns_none_when_suppressed() {
     let globals = globals_for_remediation(&["."], &[], None);
     let args = check_args_for_remediation(None, None, true);
-    assert!(format_remediation_block(&globals, &args).is_none());
+    assert!(format_remediation_block(&globals, &args, crate::TierSpec::Hard).is_none());
 }
 
 #[test]
 fn format_remediation_block_contains_three_bullet_points() {
     let globals = globals_for_remediation(&["."], &[], None);
     let args = check_args_for_remediation(Some("bca-thresholds.toml"), None, false);
-    let out = format_remediation_block(&globals, &args).expect("remediation present");
+    let out = format_remediation_block(&globals, &args, crate::TierSpec::Hard)
+        .expect("remediation present");
     assert!(out.contains("--- next steps ---"));
     assert!(
         out.contains("* Detailed reports:"),
@@ -416,11 +432,12 @@ fn format_remediation_block_contains_three_bullet_points() {
 }
 
 #[test]
-fn refresh_baseline_command_mirrors_resolved_args() {
-    // The copy-paste invocation must reproduce the gate's --paths /
-    // --exclude / --exclude-from / --config so the user can run it
-    // verbatim. Hard-coding `--paths .` would be wrong for repos
-    // that scope scans differently.
+fn refresh_baseline_command_names_the_subcommand_before_its_flags() {
+    // The walk flags are subcommand-scoped (#597), so `check` must
+    // come first. This is the *shape* half of the #1243 guard; the
+    // half that would have caught the regression is
+    // `refresh_baseline_argv_round_trips_through_the_parser` below,
+    // which runs the string past the parser instead of past `contains`.
     let globals =
         globals_for_remediation(&["src", "tests"], &["target", "vendor"], Some(".bcaignore"));
     let args = check_args_for_remediation(
@@ -428,73 +445,275 @@ fn refresh_baseline_command_mirrors_resolved_args() {
         Some(".bca-baseline.toml"),
         false,
     );
-    let cmd = refresh_baseline_command(&globals, &args);
+    let cmd = refresh_baseline_command(&globals, &args, crate::TierSpec::Hard);
     assert!(
-        cmd.starts_with("bca "),
-        "must start with `bca `, got: {cmd}"
-    );
-    assert!(
-        cmd.contains("--paths src"),
-        "missing --paths src, got: {cmd}"
-    );
-    assert!(
-        cmd.contains("--paths tests"),
-        "missing --paths tests, got: {cmd}"
-    );
-    assert!(
-        cmd.contains("--exclude target"),
-        "missing --exclude target, got: {cmd}"
-    );
-    assert!(
-        cmd.contains("--exclude vendor"),
-        "missing --exclude vendor, got: {cmd}"
-    );
-    assert!(
-        cmd.contains("--exclude-from .bcaignore"),
-        "missing --exclude-from, got: {cmd}"
-    );
-    assert!(
-        cmd.contains("check"),
-        "missing `check` subcommand, got: {cmd}"
-    );
-    assert!(
-        cmd.contains("--config bca-thresholds.toml"),
-        "missing --config, got: {cmd}"
-    );
-    assert!(
-        cmd.contains("--write-baseline .bca-baseline.toml"),
-        "missing --write-baseline, got: {cmd}"
+        cmd.starts_with("bca check --"),
+        "walk flags must follow the subcommand, got: {cmd}"
     );
 }
 
 #[test]
-fn refresh_baseline_command_defaults_paths_when_unset() {
+fn refresh_baseline_argv_round_trips_through_the_parser() {
+    // The regression guard for #1243. Every flag the gate ran with
+    // must come back out of `Cli::try_parse_from` carrying the value
+    // it went in with — not merely appear somewhere in the string.
+    //
+    // Fixture values are deliberately asymmetric (two paths but one
+    // include, distinct globs per flag, two thresholds with different
+    // numeric shapes) so a flag emitted with the wrong name or the
+    // wrong value lands on its own failure rather than on a value
+    // that happens to match. The four boolean switches are all `true`
+    // here, which cannot tell them apart —
+    // `refresh_baseline_argv_pairs_each_switch_with_its_own_flag`
+    // covers that wiring.
+    let globals = GlobalOpts {
+        paths: vec![PathBuf::from("src"), PathBuf::from("tests")],
+        include: vec!["*.rs".to_string()],
+        exclude: vec!["target/**".to_string(), "vendor/**".to_string()],
+        language: Some("rust".to_string()),
+        no_skip_generated: true,
+        preproc_data: Some(PathBuf::from("preproc.json")),
+        paths_from: Some(PathBuf::from("paths.txt")),
+        exclude_from: Some(PathBuf::from(".bcaignore")),
+        no_ignore: true,
+        exclude_tests: true,
+        count_cyclomatic_try: Some(false),
+        no_config: true,
+        ..GlobalOpts::default()
+    };
+    let args = CheckArgs {
+        thresholds: vec![
+            ("cyclomatic".to_string(), 15.0),
+            ("halstead.effort".to_string(), 12.5),
+        ],
+        config: Some(PathBuf::from("bca-thresholds.toml")),
+        no_suppress: true,
+        baseline: Some(PathBuf::from("custom-baseline.toml")),
+        // `false`, not `true`. `--baseline-fuzzy-match` declares
+        // `default_missing_value = "true"`, so a `true` fixture also
+        // passes when the flag is emitted as *two* argv elements:
+        // clap reads the bare flag as `true` and swallows the value
+        // as a stray positional path. Only `false` can distinguish
+        // that from the `require_equals` spelling `push_equals`
+        // produces.
+        baseline_fuzzy_match: Some(false),
+        check_exclude: vec!["fixtures/**".to_string()],
+        check_exclude_from: Some(PathBuf::from(".bcacheckignore")),
+        ..base_check_args()
+    };
+    let tier = crate::TierSpec::Soft(Some(0.9));
+
+    let argv = refresh_baseline_argv(&globals, &args, tier);
+    let back = parse_refresh_argv(&argv);
+
+    assert_eq!(
+        back.selection.paths,
+        vec![PathBuf::from("src"), PathBuf::from("tests")],
+    );
+    assert_eq!(back.selection.include, vec!["*.rs".to_string()]);
+    assert_eq!(
+        back.selection.exclude,
+        vec!["target/**".to_string(), "vendor/**".to_string()],
+    );
+    assert_eq!(back.selection.language.as_deref(), Some("rust"));
+    assert!(back.selection.no_skip_generated);
+    assert_eq!(
+        back.selection.paths_from.as_deref(),
+        Some(Path::new("paths.txt")),
+    );
+    assert_eq!(
+        back.selection.exclude_from.as_deref(),
+        Some(Path::new(".bcaignore")),
+    );
+    assert!(back.selection.no_ignore);
+    assert!(back.selection.no_config);
+    assert_eq!(
+        back.preproc.preproc_data.as_deref(),
+        Some(Path::new("preproc.json")),
+    );
+    assert!(back.tuning.exclude_tests);
+    assert_eq!(back.tuning.cyclomatic_count_try, Some(false));
+    assert_eq!(back.thresholds, args.thresholds);
+    assert_eq!(
+        back.config.as_deref(),
+        Some(Path::new("bca-thresholds.toml")),
+    );
+    assert_eq!(back.tier, tier);
+    assert!(back.no_suppress);
+    assert_eq!(back.baseline_fuzzy_match, Some(false));
+    // The refresh *writes* the baseline the gate read, so `--baseline`
+    // becomes `--write-baseline` (the two conflict in clap).
+    assert_eq!(
+        back.write_baseline,
+        Some(Some(PathBuf::from("custom-baseline.toml"))),
+    );
+    assert_eq!(back.baseline, None);
+    // Nothing may land in the trailing positional `[PATHS]`. A
+    // `require_equals` flag emitted as two elements parses cleanly
+    // and dumps its value here, which every assertion above would
+    // otherwise miss.
+    assert!(
+        back.positional.positional_paths.is_empty(),
+        "stray positional argument in {argv:?}"
+    );
+}
+
+#[test]
+fn refresh_baseline_argv_mirrors_the_gate_only_excludes() {
+    // `apply_check_exclude` runs before `write_check_baseline` (#378),
+    // so a refresh that drops `--check-exclude` records exactly the
+    // violations the gate deliberately exempted. Asserted apart from
+    // the full round-trip so losing this mirroring fails a test that
+    // names it.
+    let globals = globals_for_remediation(&["."], &[], None);
+    let args = CheckArgs {
+        check_exclude: vec!["fixtures/**".to_string(), "generated/**".to_string()],
+        check_exclude_from: Some(PathBuf::from(".bcacheckignore")),
+        ..base_check_args()
+    };
+    let back = parse_refresh_argv(&refresh_baseline_argv(
+        &globals,
+        &args,
+        crate::TierSpec::Hard,
+    ));
+    assert_eq!(back.check_exclude, args.check_exclude);
+    assert_eq!(
+        back.check_exclude_from.as_deref(),
+        Some(Path::new(".bcacheckignore")),
+    );
+}
+
+#[test]
+fn refresh_baseline_argv_defaults_paths_and_baseline_when_unset() {
     // `--paths .` is the walker's implicit default; the remediation
     // block must print it explicitly so the user can copy-paste
     // without thinking about which directory `bca` would have walked
-    // by default.
+    // by default. With no `--baseline`, the write target is the
+    // documented default file.
     let globals = globals_for_remediation(&[], &[], None);
     let args = check_args_for_remediation(None, None, false);
-    let cmd = refresh_baseline_command(&globals, &args);
-    assert!(
-        cmd.contains("--paths ."),
-        "missing default --paths, got: {cmd}"
+    let argv = refresh_baseline_argv(&globals, &args, crate::TierSpec::Hard);
+    let back = parse_refresh_argv(&argv);
+    assert_eq!(back.selection.paths, vec![PathBuf::from(".")]);
+    assert_eq!(
+        back.write_baseline,
+        Some(Some(PathBuf::from(".bca-baseline.toml"))),
     );
-    // And the default baseline target is `.bca-baseline.toml`.
-    assert!(
-        cmd.contains("--write-baseline .bca-baseline.toml"),
-        "missing default baseline path, got: {cmd}"
-    );
+    // Flags the gate never set stay off the command rather than being
+    // emitted at their defaults. This has to be asserted on the argv:
+    // clap re-materialises every default on the way back, so
+    // `back.tier == Hard` holds whether or not a redundant
+    // `--tier=hard` was printed.
+    for absent in ["--tier", "--exclude", "--exclude-tests", "--config"] {
+        let equals_form = format!("{absent}=");
+        assert!(
+            !argv
+                .iter()
+                .any(|a| a == absent || a.starts_with(&equals_form)),
+            "{absent} must not be emitted when unset, got: {argv:?}"
+        );
+    }
 }
 
 #[test]
-fn refresh_baseline_command_shell_quotes_paths_with_spaces() {
-    // A `--paths` arg containing a space must be quoted so the
-    // copy-paste command shells correctly. The simple identifier
-    // path takes the fast no-quote branch.
-    let globals = globals_for_remediation(&["dir with space", "src"], &[], None);
+fn refresh_baseline_argv_renders_every_tier_spelling() {
+    // `--tier` is the one mirrored flag whose argv form is not a
+    // straight copy of a field: the hard default prints nothing, a
+    // bare soft tier prints `soft`, and a pinned ratio prints
+    // `soft=<r>`. A refresh that drops the tier silently writes a
+    // hard-tier baseline for a soft-tier gate; one that mis-spells it
+    // fails to parse, which is #1243 again.
+    let globals = globals_for_remediation(&["."], &[], None);
     let args = check_args_for_remediation(None, None, false);
-    let cmd = refresh_baseline_command(&globals, &args);
+    let cases = [
+        (crate::TierSpec::Hard, None),
+        (crate::TierSpec::Soft(None), Some("--tier=soft")),
+        (crate::TierSpec::Soft(Some(0.9)), Some("--tier=soft=0.9")),
+    ];
+    for (tier, expected) in cases {
+        let argv = refresh_baseline_argv(&globals, &args, tier);
+        let emitted = argv.iter().find(|a| a.starts_with("--tier"));
+        assert_eq!(
+            emitted.map(String::as_str),
+            expected,
+            "wrong --tier element for {tier:?}, got: {argv:?}"
+        );
+        assert_eq!(
+            parse_refresh_argv(&argv).tier,
+            tier,
+            "{tier:?} did not survive the parser"
+        );
+    }
+}
+
+#[test]
+fn refresh_baseline_argv_pairs_each_switch_with_its_own_flag() {
+    // Four presence-only walk switches emit four distinct flags. A
+    // fixture that sets them all alike cannot tell the pairings
+    // apart: transposing two `push_switch` value arguments produces
+    // byte-identical argv. Turning exactly one on at a time makes any
+    // transposition fail on both of the flags involved.
+    let base = globals_for_remediation(&["."], &[], None);
+    let args = check_args_for_remediation(None, None, false);
+    let cases = [
+        (
+            "--no-skip-generated",
+            GlobalOpts {
+                no_skip_generated: true,
+                ..base.clone()
+            },
+        ),
+        (
+            "--no-ignore",
+            GlobalOpts {
+                no_ignore: true,
+                ..base.clone()
+            },
+        ),
+        (
+            "--no-config",
+            GlobalOpts {
+                no_config: true,
+                ..base.clone()
+            },
+        ),
+        (
+            "--exclude-tests",
+            GlobalOpts {
+                exclude_tests: true,
+                ..base
+            },
+        ),
+    ];
+    let every_switch: Vec<&str> = cases.iter().map(|(flag, _)| *flag).collect();
+    for (flag, globals) in &cases {
+        let argv = refresh_baseline_argv(globals, &args, crate::TierSpec::Hard);
+        let emitted: Vec<&str> = argv
+            .iter()
+            .map(String::as_str)
+            .filter(|a| every_switch.contains(a))
+            .collect();
+        assert_eq!(
+            emitted,
+            vec![*flag],
+            "setting only {flag} must emit only {flag}, got: {argv:?}"
+        );
+    }
+}
+
+#[test]
+fn refresh_baseline_command_shell_quotes_values_needing_it() {
+    // A value containing a space, a glob metacharacter, or a quote
+    // must survive the paste as one argument; a plain identifier
+    // takes the fast no-quote branch so the common case reads
+    // naturally.
+    let globals = GlobalOpts {
+        paths: vec![PathBuf::from("dir with space"), PathBuf::from("src")],
+        exclude: vec!["sub/**".to_string(), "it's/**".to_string()],
+        ..GlobalOpts::default()
+    };
+    let args = check_args_for_remediation(None, None, false);
+    let cmd = refresh_baseline_command(&globals, &args, crate::TierSpec::Hard);
     assert!(
         cmd.contains("--paths 'dir with space'"),
         "expected single-quoted spaced path, got: {cmd}"
@@ -502,6 +721,138 @@ fn refresh_baseline_command_shell_quotes_paths_with_spaces() {
     assert!(
         cmd.contains("--paths src"),
         "expected unquoted simple path, got: {cmd}"
+    );
+    assert!(
+        cmd.contains("--exclude 'sub/**'"),
+        "a glob must be quoted so the shell does not expand it, got: {cmd}"
+    );
+    assert!(
+        cmd.contains(r"--exclude 'it'\''s/**'"),
+        "an embedded quote must be escaped POSIX-style, got: {cmd}"
+    );
+}
+
+/// A path `bca` walked but cannot spell as UTF-8 becomes a visibly
+/// broken placeholder rather than a `to_string_lossy` form that points
+/// at some other file. The placeholder contains `<` and spaces, so it
+/// must reach the reader *quoted* — unquoted, a shell parses it as
+/// input redirection and the command fails in a way that reads as a
+/// `bca` bug. Unix-only: `OsStr` is byte-addressable only there.
+#[cfg(unix)]
+#[test]
+fn refresh_baseline_command_quotes_the_non_utf8_path_placeholder() {
+    use std::os::unix::ffi::OsStrExt as _;
+    let globals = GlobalOpts {
+        paths: vec![PathBuf::from(std::ffi::OsStr::from_bytes(b"lib\xffdir"))],
+        ..GlobalOpts::default()
+    };
+    let args = check_args_for_remediation(None, None, false);
+    let argv = refresh_baseline_argv(&globals, &args, crate::TierSpec::Hard);
+    assert!(
+        argv.iter().any(|a| a.starts_with("<non-UTF-8 path:")),
+        "expected a placeholder argv element, got: {argv:?}"
+    );
+    let cmd = refresh_baseline_command(&globals, &args, crate::TierSpec::Hard);
+    assert!(
+        cmd.contains("--paths '<non-UTF-8 path:"),
+        "the placeholder must be quoted, got: {cmd}"
+    );
+}
+
+/// The rendered string is what a user pastes, and a shell — not clap —
+/// decides where its argument boundaries fall. Split it with the real
+/// thing so the quoting half of the builder is held to the same
+/// standard as the flag half: `sh` word-splits the command, `printf`
+/// echoes one argument per line, and the result goes back through the
+/// parser.
+///
+/// POSIX-only by construction — `shell_quote`'s doc comment says as
+/// much — so the gate is on the `fn`, not on an inner block, and the
+/// test is absent rather than vacuous elsewhere.
+#[cfg(unix)]
+#[test]
+fn refresh_baseline_command_survives_a_real_shell_round_trip() {
+    let globals = GlobalOpts {
+        paths: vec![PathBuf::from("dir with space")],
+        exclude: vec!["sub/**".to_string(), "it's/**".to_string()],
+        // A value a shell would otherwise substitute away: `$(...)`
+        // reaching the parser as anything but these literal bytes
+        // means the quoting is injectable, not merely wrong.
+        include: vec!["$(echo pwned)".to_string()],
+        ..GlobalOpts::default()
+    };
+    let args = check_args_for_remediation(None, None, false);
+    let cmd = refresh_baseline_command(&globals, &args, crate::TierSpec::Hard);
+
+    let out = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("printf '%s\\n' {cmd}"))
+        .output()
+        .expect("spawn sh");
+    assert!(
+        out.status.success(),
+        "sh rejected the rendered command: {}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    let argv: Vec<String> = String::from_utf8(out.stdout)
+        .expect("utf8")
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(
+        argv,
+        refresh_baseline_argv(&globals, &args, crate::TierSpec::Hard),
+        "the shell must recover exactly the argv the builder produced",
+    );
+
+    let back = parse_refresh_argv(&argv);
+    assert_eq!(back.selection.paths, vec![PathBuf::from("dir with space")]);
+    assert_eq!(
+        back.selection.exclude,
+        vec!["sub/**".to_string(), "it's/**".to_string()],
+    );
+    assert_eq!(back.selection.include, vec!["$(echo pwned)".to_string()]);
+}
+
+#[test]
+fn remediation_block_flags_a_stdin_list_it_cannot_replay() {
+    // A `-` list flag consumed a pipe that is gone by the time anyone
+    // reads the log, so the printed command needs a caveat no other
+    // flag does. All three sources are covered: dropping any one of
+    // them from `any_list_flag_read_stdin` leaves that flag's users
+    // with an unreplayable command and no warning.
+    let caveat = "read stdin";
+    let args = check_args_for_remediation(None, None, false);
+    let base = globals_for_remediation(&["."], &[], Some(".bcaignore"));
+
+    let mut from_paths = base.clone();
+    from_paths.paths_from = Some(PathBuf::from("-"));
+    let mut from_exclude = base.clone();
+    from_exclude.exclude_from = Some(PathBuf::from("-"));
+    let piped_check_exclude = CheckArgs {
+        check_exclude_from: Some(PathBuf::from("-")),
+        ..check_args_for_remediation(None, None, false)
+    };
+
+    for (label, globals, args) in [
+        ("--paths-from", &from_paths, &args),
+        ("--exclude-from", &from_exclude, &args),
+        ("--check-exclude-from", &base, &piped_check_exclude),
+    ] {
+        let out = format_remediation_block(globals, args, crate::TierSpec::Hard)
+            .expect("remediation present");
+        assert!(
+            out.contains(caveat),
+            "{label} - must be called out, got:\n{out}"
+        );
+    }
+
+    // The same fixture with every list flag file-backed must not warn.
+    let quiet =
+        format_remediation_block(&base, &args, crate::TierSpec::Hard).expect("remediation present");
+    assert!(
+        !quiet.contains(caveat),
+        "a file-backed list replays fine and needs no caveat, got:\n{quiet}"
     );
 }
 

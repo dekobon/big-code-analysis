@@ -1245,7 +1245,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("step-summary.md");
         let pairs = vec![coverage_pair(violation_for("src/a.rs", "f", "cyclomatic"))];
-        let remediation = "\n--- next steps ---\n* Detailed reports: bca-reports artifact\n* To refresh baseline: bca --paths . check --write-baseline .bca-baseline.toml\n";
+        let remediation = "\n--- next steps ---\n* Detailed reports: bca-reports artifact\n* To refresh baseline: bca check --paths . --write-baseline .bca-baseline.toml\n";
         write_step_summary(&path, &pairs, Some(remediation)).expect("write 1");
         let after_first = std::fs::read_to_string(&path).expect("read 1");
         // 4-backtick fence opens AND closes inside the marker pair.
