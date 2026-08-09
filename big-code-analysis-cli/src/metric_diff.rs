@@ -61,7 +61,7 @@ const NAME_KEY: &str = "name";
 /// interchangeable at the [`crate::walk_metric_set`] signature.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DiffSide {
-    /// The `git archive` extraction of `<ref>`.
+    /// The materialized `<ref>` tree (see `diff::materialize_tree`).
     Before,
     /// The working tree (or the explicit directory positional).
     After,

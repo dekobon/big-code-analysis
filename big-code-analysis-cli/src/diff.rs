@@ -405,10 +405,10 @@ pub(crate) fn canonicalize_for_match(path: &Path) -> PathBuf {
 }
 
 /// Subcommand for `git rev-parse --verify <ref>^{tree}`, used to confirm
-/// a `--since` ref resolves to a tree object before we try to archive
-/// it. The `^{tree}` peel rejects refs that exist but do not name a
-/// commit/tree (e.g. a blob SHA), giving a precise diagnostic instead of
-/// a confusing `git archive` failure downstream.
+/// a `--since` ref resolves to a tree object before we try to
+/// materialize it. The `^{tree}` peel rejects refs that exist but do not
+/// name a commit/tree (e.g. a blob SHA), giving a precise diagnostic
+/// instead of a confusing `ls-tree` failure downstream.
 const TREEISH_SUFFIX: &str = "^{tree}";
 
 /// Validate that `since_ref` can serve as the "before" side of

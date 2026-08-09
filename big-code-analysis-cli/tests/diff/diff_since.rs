@@ -290,7 +290,7 @@ fn since_leaves_no_temp_trees_behind() {
 #[test]
 fn since_from_subdir_pairs_against_repo_root() {
     // Regression: `bca diff --since` must pair files correctly when run
-    // from a subdirectory. The before side is a `git archive` of the
+    // from a subdirectory. The before side is a materialization of the
     // whole ref tree (rooted at the repo top), so the working-tree after
     // side must also anchor at the repo root — not the process CWD —
     // else the keys (`src/work.rs` vs a CWD-relative form) never match
