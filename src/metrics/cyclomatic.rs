@@ -571,7 +571,7 @@ mod typescript;
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::test_support::check_metrics_only_shim;
+    use crate::test_support::{ast_has_kind_id, check_metrics_only_shim};
 
     use super::*;
 
@@ -4704,27 +4704,6 @@ g() {
         );
         assert!(ast_has_kind_id(&parser, Bash::TernaryExpression as u16));
         assert!(!ast_has_kind_id(&parser, Bash::TernaryExpression2 as u16));
-    }
-
-    // Walk the AST and return true iff any node has `kind_id == target`.
-    // Used as a drift marker for an alias kind id: a passing
-    // `!ast_has_kind_id(...)` assertion proves the kind is unreachable at
-    // the pinned grammar version, so a future grammar bump that starts
-    // emitting it fails loudly instead of silently changing the metric
-    // (lesson 34).
-    fn ast_has_kind_id<P: ParserTrait>(parser: &P, target: u16) -> bool {
-        let mut stack = vec![parser.root()];
-        while let Some(node) = stack.pop() {
-            if node.kind_id() == target {
-                return true;
-            }
-            for i in (0..node.child_count()).rev() {
-                if let Some(c) = node.child(i) {
-                    stack.push(c);
-                }
-            }
-        }
-        false
     }
 
     #[test]

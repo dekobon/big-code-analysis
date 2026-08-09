@@ -444,7 +444,7 @@ implement_metric_trait!(Abc, PreprocCode, CcommentCode);
 )]
 mod tests {
     use crate::test_support::{
-        check_func_space_only_shim, check_metrics_only_shim, metrics_verbatim,
+        ast_has_kind_id, check_func_space_only_shim, check_metrics_only_shim, metrics_verbatim,
     };
     use crate::traits::ParserTrait;
 
@@ -468,27 +468,6 @@ mod tests {
         let decisions = deepest.metrics.cyclomatic.cyclomatic() - 1;
         assert_eq!(decisions, expected);
         assert_eq!(deepest.metrics.abc.conditions(), decisions);
-    }
-
-    // Walk the AST and return true iff any node has `kind_id == target`.
-    // Used as a drift marker for hidden-rule kind ids: a passing
-    // `!ast_has_kind_id(...)` assertion proves the kind is unreachable
-    // at the pinned grammar version, so a future grammar bump that
-    // promotes the hidden rule to a concrete emitted node will fail
-    // loudly instead of silently changing the metric (lesson 34).
-    fn ast_has_kind_id<P: ParserTrait>(parser: &P, target: u16) -> bool {
-        let mut stack = vec![parser.root()];
-        while let Some(node) = stack.pop() {
-            if node.kind_id() == target {
-                return true;
-            }
-            for i in (0..node.child_count()).rev() {
-                if let Some(c) = node.child(i) {
-                    stack.push(c);
-                }
-            }
-        }
-        false
     }
 
     /// Regression for #227: a `Stats::default()` that never sees an
