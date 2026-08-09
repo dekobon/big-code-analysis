@@ -68,7 +68,7 @@ Do not follow file renames across history
 Do not exclude bot author identities
 .TP
 \fB\-\-bot\-pattern\fR \fI<BOT_PATTERN>\fR
-Override the bot\-author exclusion regex
+Override the bot\-author exclusion regex. Matched case\-insensitively against both the author name and the email; prefix `(?\-i)` to match case exactly
 .TP
 \fB\-\-as\-of\fR \fI<AS_OF>\fR
 Reference "now" for reproducible runs (RFC 3339, `@unix`, or any git date spelling). Defaults to wall\-clock time

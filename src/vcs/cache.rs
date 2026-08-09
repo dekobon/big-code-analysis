@@ -70,9 +70,17 @@ use super::score::RISK_SCORE_VERSION;
 use super::stats::VCS_SCHEMA_VERSION;
 
 /// On-disk format version for the cache. Bump on any change to the
-/// `HistoryCache` / `CommitEvent` shape; an older entry is then
-/// ignored rather than mis-parsed.
-pub const CACHE_SCHEMA_VERSION: u32 = 1;
+/// `HistoryCache` / `CommitEvent` shape — and on any change to what a
+/// recorded event *means*, since an older entry is otherwise replayed
+/// under semantics it was not walked with.
+///
+/// Version 2 (#1265): [`BotFilter`](super::identity::BotFilter) became
+/// case-insensitive. The fingerprint hashes only the pattern *string*,
+/// so an event log walked under the case-sensitive matcher would
+/// otherwise replay with its excluded set intact — the same input
+/// answering differently depending on whether the cache was warm. The
+/// bump forces one benign cold walk.
+pub const CACHE_SCHEMA_VERSION: u32 = 2;
 
 /// Front-end control over the persistent cache for one build.
 ///

@@ -135,6 +135,45 @@ mod push_if_human {
         );
     }
 
+    /// Regression for #1265. `push_if_human` calls `is_bot` on the **raw**
+    /// signature bytes, before the lowercasing `AuthorId::new` applies
+    /// later — so the filter's own case sensitivity is what decides, and
+    /// it was case-sensitive against a doc contract promising otherwise.
+    /// Two commits by the same bot differing only in capitalisation are
+    /// both excluded now; before the fix the capitalised one survived as
+    /// a phantom human author.
+    #[test]
+    fn bot_authors_are_excluded_regardless_of_case() {
+        let snapshot: &'static gix::mailmap::Snapshot =
+            Box::leak(Box::new(gix::mailmap::Snapshot::default()));
+        // Leaked for the same reason the snapshot is: `ParticipantResolver`
+        // borrows both for `'a`, and the process exits after the test.
+        let bots: &'static crate::vcs::identity::BotFilter = Box::leak(Box::new(
+            crate::vcs::identity::BotFilter::new(crate::vcs::options::DEFAULT_BOT_PATTERN)
+                .expect("default pattern compiles"),
+        ));
+        let resolver = ParticipantResolver::new(snapshot, Some(bots));
+        let mut out = Vec::new();
+        resolver.push_if_human(
+            &mut out,
+            b"dependabot[bot]",
+            b"dependabot[bot]@users.noreply.github.com",
+        );
+        resolver.push_if_human(
+            &mut out,
+            b"Dependabot[bot]",
+            b"Dependabot[bot]@users.noreply.github.com",
+        );
+        assert!(
+            out.is_empty(),
+            "neither casing of a bot identity may anchor a participant: {out:?}"
+        );
+        // The filter still admits humans, so the emptiness above is the
+        // bot rule firing rather than the resolver dropping everything.
+        resolver.push_if_human(&mut out, b"Ada Lovelace", b"ada@example.com");
+        assert_eq!(out.len(), 1, "a human author is still kept: {out:?}");
+    }
+
     #[test]
     fn named_and_name_only_authors_are_kept() {
         let resolver = resolver();
