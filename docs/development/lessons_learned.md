@@ -1339,7 +1339,11 @@ a drift-marker assertion
 (`!ast_has_kind_id(&parser, Lang::HiddenVariant as u16)`) whose message
 names the hidden rule and demands replacement on drift. A hidden-rule
 variant without a drift marker is an invisible promise: it looks like
-coverage and protects nothing observable today.
+coverage and protects nothing observable today. The underscore
+identifies a hidden rule; it does not establish that a non-underscore
+alias is *reachable*. When the name is ordinary, probe every context the
+construct appears in before concluding the variant is live — the remedy
+is the same drift marker either way.
 
 The parser flattens hidden rules away, so a defensive arm listing one is
 dead code today and a correctness promise *if* a future grammar revision
@@ -1357,6 +1361,16 @@ source: `Java::MultilineStringLiteral` (text blocks parse as regular
 the same), and `Php::String3` (the `_string` hidden supertype). Each
 maps to a name beginning with `_`, confirming the heuristic. The
 remediation keeps the arm and pins the absence.
+
+**An alias with an ordinary name that the grammar never emits** (#1268).
+`Bash::TernaryExpression2` maps to `"ternary_expression"` with no leading
+underscore, so the heuristic above answers "not hidden". Across all eight
+arithmetic contexts the grammar admits — `$(( … ))`, a bare `(( … ))`
+statement, a c-style `for ((…))` header, `let`, an array subscript, an
+`if (( … ))` condition, a `declare -i` initializer, and a plain
+assignment — the parser emits only the unsuffixed kind. The defensive arm
+stays and carries the same `ast_has_kind_id` marker; what changed is that
+identifying the case took a probe rather than a grep.
 
 ---
 
@@ -2159,7 +2173,10 @@ the bug.** A site that arrives at the same wrong answer by different code
 does not match the pattern you are grepping for, and consolidating the
 sites that *do* match converts one surface's bug into a divergence
 between surfaces — a worse failure, and one no existing parity test
-covers.
+covers. A report's list of affected sites is a starting point, not a
+census: #1271 named five window-boundary subtractions, and a sweep for
+the quantity found a sixth in `BlameWalk::new` and a seventh in
+`days_between`, whose shape matched no search for the reported one.
 
 The cost is not the duplication but *omission by default*: a newly added
 language — or a sibling cloned from a template predating the rule —
@@ -3066,6 +3083,15 @@ climbs remained; the real figure was higher.
 `loc.sloc` cap that gates the build, and anyone budgeting a file against
 that cap from the comment would get it wrong.
 
+**A claim about a sibling language held a wrong number in place**
+(#1278). A Go ABC test asserted that an initialized `var` declaration is
+not counted, "matching the Rust/Java rule for `let` / `int y = 1`".
+Measured: Rust and Java each score one assignment for exactly that form,
+so the rationale was backwards — and load-bearing, because the expected
+value it justified was wrong too and had been for as long as the comment
+stood. Prose explaining *why* a number is what it is has to be checked
+together with the number, not after it.
+
 ---
 
 ## 85. Coverage measures execution, not discrimination
@@ -3295,8 +3321,12 @@ everything else, so the inputs that move are exactly the ones no one
 enumerated and no test covers. Before consolidating, enumerate the node
 kinds the container can actually hold, and decide the leftovers
 deliberately: adopting the shared answer is usually right, but it is a
-decision, not a refactor. (cf. lesson 59 for why you are consolidating,
-and lesson 65 for the structural inverse.)
+decision, not a refactor. The same choice exists when you author the
+filter rather than consolidate one: gating a token that serves several
+grammatical roles *positively* — require the one parent that means what
+you are counting — is closed and fails safe, while denying the roles you
+thought of is open and admits the ones you did not. (cf. lesson 59 for
+why you are consolidating, and lesson 65 for the structural inverse.)
 
 The direction of the change is what hides it. A positive filter is
 closed — a grammar that starts emitting a new kind silently scores zero,
@@ -3322,5 +3352,20 @@ through the same helper — `int f(int a,,)` gives 2 and
 `int g({ int x; })` gives 1 — so the block arm had been the one caller
 answering differently. Recording that in the arm's comment is what
 stops the next reader from filing it as a regression.
+
+**One token, several grammatical roles — a denylist admits the role
+nobody listed** (#1274, #1280). A bare `<` is a comparison, and in Java
+and Groovy it also delimits generic type arguments and type
+*parameters*. The gate denied `type_arguments` only, so every generic
+*declaration* — `class Gen<T>`, `<T> void m()` — scored two phantom ABC
+conditions, and Groovy has a third form, `method_type_parameters`, that
+a denylist must name separately. Both were rewritten to require a
+`binary_expression` parent. Ruby then arrived with two roles nobody
+would have enumerated in advance — a superclass clause
+(`class Foo < Bar`) and an operator-method name (`def <(other)`) — and
+the positive gate covered both without being told about either. **C#,
+Kotlin and the JS family still carry the denylist form**, so they are
+correct only for the roles someone thought of: the state Java and Groovy
+were in before #1274.
 
 ---
