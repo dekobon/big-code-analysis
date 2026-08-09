@@ -32,13 +32,17 @@ for historical reference.
   the tree under test — a one-line stderr summary names the counts:
   `bca: 2 files not checked (1 generated, 1 ignored) — pass
   --report-skipped to list them`. Either input could previously remove
-  a file from a pull-request gate with nothing on stderr. The ignored
-  counts are measured at the walk's prune points: analyzable files are
-  counted, while a whole ignored directory is reported as its own
-  `N ignored directories not walked` clause and never entered, so the
-  summary stays cheap and small on trees with large ignored build
+  a file from a pull-request gate with nothing on stderr. The counts
+  are measured at the walk's prune points and cover only files a
+  parser owns (a generated `Cargo.lock` or an ignored log file was
+  never a gate bypass), never a file named explicitly on the command
+  line; a whole ignored directory is reported — under
+  `--report-skipped` only, since ignored build trees exist in
+  essentially every checkout — as its own
+  `N ignored directories not walked` clause and is never entered, so
+  the summary stays cheap and small on trees with large ignored build
   output. Clean runs stay silent, exit codes are unchanged, and
-  `--report-skipped` now also lists each ignore-dropped entry
+  `--report-skipped` also lists each ignore-dropped entry
   (`note: skipped (ignored): …`,
   `note: skipped (ignored directory): …`).
 - `bca check --strict`, plus a matching `[check] strict` manifest key

@@ -334,8 +334,8 @@ bca: warning: utils/gate.py matches an exclude pattern (./utils/**) but was name
 
 - `--no-ignore` — disable `.gitignore` / `.ignore` / global-gitignore
   awareness when expanding directory seeds. `bca check` counts the
-  analyzable files and prunes the directories ignore rules dropped
-  from a gate run in its not-checked summary, lists them under
+  analyzable files ignore rules dropped from a gate run in its
+  not-checked summary, lists every dropped entry under
   `--report-skipped` (`note: skipped (ignored): <path>`,
   `note: skipped (ignored directory): <path>`), and disables the
   awareness under its [`--strict` profile](check.md#strict-mode),

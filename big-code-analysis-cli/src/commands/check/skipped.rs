@@ -5,6 +5,8 @@
 
 use super::*;
 
+use crate::format_util::counted;
+
 /// Say, by default, what the gate declined to look at (#1055): each
 /// ignore-dropped entry under `--report-skipped` (the generated listing
 /// is printed during dispatch), then the one-line count summary. A run
@@ -34,18 +36,22 @@ pub(crate) fn report_unchecked_files(walk: &CheckWalk, report_skipped: bool) {
 }
 
 /// The one-line not-checked summary, or `None` when nothing was
-/// skipped. Zero-count categories are omitted; pruned directories get
+/// skipped. Zero-count categories are omitted. Pruned directories get
 /// their own clause because their contents are unknown by design (the
-/// walk never enters them, so they cannot be given a file count); the
-/// `--report-skipped` hint is dropped when the flag is already on
-/// (`listed`) and the per-entry lines have therefore just been printed.
+/// walk never enters them, so they cannot be given a file count) — and
+/// that clause appears only under `--report-skipped` (`listed`):
+/// essentially every real checkout has an ignored build tree on disk
+/// (`target/`, `node_modules/`), so a default summary that counted
+/// pruned directories would fire on every run and bury the signal the
+/// file counts carry. The `--report-skipped` hint is dropped when the
+/// flag is already on and the per-entry lines have just been printed.
 pub(crate) fn unchecked_summary(
     generated: usize,
     ignored: &crate::IgnoredEntries,
     listed: bool,
 ) -> Option<String> {
     let ignored_files = ignored.files.len();
-    let dirs = ignored.dirs.len();
+    let dirs = if listed { ignored.dirs.len() } else { 0 };
     let file_total = generated + ignored_files;
     if file_total + dirs == 0 {
         return None;
@@ -77,11 +83,4 @@ pub(crate) fn unchecked_summary(
         " — pass --report-skipped to list them"
     };
     Some(format!("{}{hint}", clauses.join("; ")))
-}
-
-/// `3 files`, `1 ignored directory`: a count with the noun that
-/// agrees with it.
-fn counted(count: usize, singular: &str, plural: &str) -> String {
-    let noun = if count == 1 { singular } else { plural };
-    format!("{count} {noun}")
 }

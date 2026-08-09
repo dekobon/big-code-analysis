@@ -66,6 +66,14 @@ pub(crate) fn strip_path_prefix<'a>(path: &'a str, prefix: &str) -> &'a str {
     }
 }
 
+/// `3 files`, `1 ignored directory`: a count with the noun that agrees
+/// with it. The crate spells this rule in several report renderers;
+/// new sites should call this one.
+pub(crate) fn counted(count: usize, singular: &str, plural: &str) -> String {
+    let noun = if count == 1 { singular } else { plural };
+    format!("{count} {noun}")
+}
+
 #[cfg(test)]
 #[allow(
     clippy::float_cmp,
