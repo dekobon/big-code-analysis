@@ -111,9 +111,20 @@ reason, not a wish for symmetry.
 around a minute even warm, which does not belong in the per-commit loop —
 the same call `chain-audit`, `bench-scaling` and mutation testing make.
 
-`.github/workflows/fuzz.yml` runs them instead: on pull requests and
-pushes that touch `src/`, `fuzz/`, a manifest, a vendored grammar or the
-`Makefile`, and on a quarterly cron with a much larger iteration budget.
+`.github/workflows/fuzz.yml` runs them instead, and splits the two
+questions fuzzing answers. A pull request touching `src/`, `fuzz/`, a
+manifest, a vendored grammar or the `Makefile` builds every target and
+then **replays the committed seeds** — the regression question, answered
+in seconds. The quarterly cron does the **hunt**, at 200 000 runs per
+target.
+
+That split is a correction, and the numbers are why. The job first ran
+11 targets x 10 000 mutations on every pull-request push: 156 s to build
+and 977 s to fuzz, nine times over one pull request, 96 minutes of runner
+time. A 10 000-run search is far too short to find what the cron will and
+long enough to dominate the job, so the spend bought neither answer. It
+also ran again on every push to `main`, re-validating a tree the pull
+request had just validated.
 It is a separate workflow rather than a job in `ci.yml` because
 cargo-fuzz needs nightly and `ci.yml` sets `RUSTFLAGS: "-D warnings"`
 workflow-wide; pairing the two turns every new nightly lint into a red X

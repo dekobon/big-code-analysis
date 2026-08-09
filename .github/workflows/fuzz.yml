@@ -15,23 +15,10 @@ name: Fuzz
 #
 # See docs/development/fuzzing.md.
 
-# The two `paths:` lists are duplicated rather than shared through a YAML
-# anchor. Anchors are not reliably supported across GitHub's workflow
-# parser and nothing local can prove they are, so a silently-dropped
-# filter would leave the job running on every docs-only PR — or not
-# running at all.
+# No `push:` trigger. A merge re-runs the identical tree the pull request
+# already validated, so it costs ~17 minutes to learn nothing.
 on:
   pull_request:
-    paths:
-      - 'src/**'
-      - 'fuzz/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'tree-sitter-*/**'
-      - 'Makefile'
-      - '.github/workflows/fuzz.yml'
-  push:
-    branches: [main]
     paths:
       - 'src/**'
       - 'fuzz/**'
@@ -146,16 +133,23 @@ jobs:
       - name: Lint and build fuzz targets
         run: make fuzz-check
 
-      # `-runs`, never `-max_total_time`: a wall-clock bound makes a
-      # failure non-reproducible across runners of different speeds. The
-      # per-PR budget is deliberately small — the compile gate above is
-      # the part that must be fast — and the quarterly cron carries the
-      # long sweep.
-      - name: Smoke the targets
+      # A pull request replays the committed seeds and stops: the
+      # regression question ("did this change break an input that used to
+      # be fine") rather than the hunt. Seconds, against the ~16 minutes
+      # 11 targets x 10 000 mutations used to cost — and that spend bought
+      # a search too short to find anything the cron will not.
+      #
+      # The cron does the real fuzzing. `-runs`, never `-max_total_time`:
+      # a wall-clock bound makes a failure non-reproducible across
+      # runners of different speeds.
+      - name: Fuzz the targets
         id: smoke
-        env:
-          FUZZ_RUNS: ${{ github.event_name == 'schedule' && '200000' || '10000' }}
-        run: make fuzz-smoke FUZZ_RUNS="$FUZZ_RUNS"
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            make fuzz-replay
+          else
+            make fuzz-smoke FUZZ_RUNS=200000
+          fi
 
       # libFuzzer writes the offending input to fuzz/artifacts/<target>/.
       # Without this the reproducer dies with the runner.
