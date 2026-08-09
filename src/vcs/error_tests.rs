@@ -1,6 +1,75 @@
 use super::*;
 use std::path::PathBuf;
 
+/// A dense index per [`Error`] variant, from a **wildcard-free** match.
+///
+/// This is the structural half of the contract that `is_client_input`'s
+/// own compile-forcing cannot reach. `Error` is `#[non_exhaustive]`, but
+/// that only constrains *other* crates — a match here, inside the
+/// defining crate, must still be exhaustive. So adding an eighteenth
+/// variant fails to **compile this file**, which is the file that must
+/// gain the new cases. Before #1269 the two lists below were plain
+/// `Vec`s asking politely to be kept in step, and #956 showed they are
+/// not: `InvalidAuthorHashKey` went unlisted in both until #1245.
+///
+/// [`VARIANT_COUNT`] cannot go stale in either direction. Too small and
+/// the bitmap indexing below panics out of bounds; too large and the
+/// unreachable slot is never covered, failing the completeness
+/// assertion.
+fn variant_index(e: &Error) -> usize {
+    match e {
+        Error::NotARepository(_) => 0,
+        Error::OpenRepository(_) => 1,
+        Error::ResolveRef { .. } => 2,
+        Error::Walk(_) => 3,
+        Error::Diff(_) => 4,
+        Error::Mailmap(_) => 5,
+        Error::InvalidBotPattern(_) => 6,
+        Error::InvalidWindow(_) => 7,
+        Error::InvalidTimestamp(_) => 8,
+        Error::InvalidFormula(_) => 9,
+        Error::InvalidFileTypeScope(_) => 10,
+        Error::InvalidBusFactorThreshold(_) => 11,
+        Error::InvalidAuthorHashKey(_) => 12,
+        Error::InvalidTrend(_) => 13,
+        Error::Blame(_) => 14,
+        Error::InvalidDiff(_) => 15,
+        Error::Cache(_) => 16,
+    }
+}
+
+/// Number of [`Error`] variants — see [`variant_index`], which guards it.
+const VARIANT_COUNT: usize = 17;
+
+/// Assert `errors` names every variant exactly once.
+///
+/// `what` is spliced into the failure so the message says which list is
+/// short, and the panic names the missing slots by index rather than
+/// only reporting a count mismatch.
+fn assert_covers_every_variant<'a>(errors: impl IntoIterator<Item = &'a Error>, what: &str) {
+    let mut seen = [false; VARIANT_COUNT];
+    for err in errors {
+        let i = variant_index(err);
+        assert!(
+            !seen[i],
+            "{what}: two entries name the same variant ({err:?}); each must \
+             stand for exactly one, or a later variant hides behind it",
+        );
+        seen[i] = true;
+    }
+    let missing: Vec<usize> = seen
+        .iter()
+        .enumerate()
+        .filter_map(|(i, hit)| (!hit).then_some(i))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "{what}: {} of {VARIANT_COUNT} variants covered; missing the arms of \
+         `variant_index` at {missing:?}",
+        VARIANT_COUNT - missing.len(),
+    );
+}
+
 // The Display strings are user-facing diagnostics surfaced by the CLI,
 // the `POST /vcs` error body, and the Python `ValueError`. Pin each
 // variant's wording so a refactor cannot silently degrade them.
@@ -80,22 +149,12 @@ fn display_covers_every_variant() {
             "history cache error: disk full",
         ),
     ];
-    // Completeness, for the half of the enum that can be enumerated.
-    // Comparing discriminants ignores the payloads, which differ between
-    // the samples and the cases below. The environment variants have no
-    // generated list and stay hand-checked — nothing can enumerate them,
-    // so a new one silently goes unpinned here.
-    let covered: Vec<_> = cases
-        .iter()
-        .map(|(err, _)| std::mem::discriminant(err))
-        .collect();
-    for sample in Error::client_input_samples() {
-        assert!(
-            covered.contains(&std::mem::discriminant(&sample)),
-            "client-input variant {sample:?} has no Display case; its wording \
-             is the `error` prose of a 400 and nothing else pins it",
-        );
-    }
+    // Completeness over the *whole* enum, not just the half with a
+    // generated list. `variant_index` is wildcard-free, so an eighteenth
+    // variant breaks the build here rather than sliding through with its
+    // wording — the `error` prose of a 400 or a 500 — pinned by nothing
+    // (#1269).
+    assert_covers_every_variant(cases.iter().map(|(err, _)| err), "Display cases");
     for (err, expected) in cases {
         let rendered = err.to_string();
         assert!(
@@ -137,10 +196,12 @@ fn invalid_formula_lists_the_accepted_names() {
 /// otherwise invisible: it shrinks one list and grows the other, which
 /// every per-variant assertion in this file survives.
 ///
-/// There is deliberately no matching `ENVIRONMENT_COUNT`. The
+/// There is deliberately no matching `ENVIRONMENT_COUNT`: the
 /// environment cases below are a vec literal, so asserting its length
 /// would compare a literal against a constant and could not fail for
-/// any change to `Error`.
+/// any change to `Error`. What does hold the environment half honest is
+/// [`assert_covers_every_variant`], which needs the two groups to be
+/// jointly exhaustive over a compile-forced witness (#1269).
 const CLIENT_INPUT_COUNT: usize = 11;
 
 // Pin the client-input vs environment/backend classification of every
@@ -176,6 +237,15 @@ fn is_client_input_classifies_every_variant() {
         CLIENT_INPUT_COUNT,
         "the client-input group changed size; if that is deliberate, every \
          new variant also needs an `error_kind` token in the web crate",
+    );
+    // Jointly exhaustive and disjoint over every variant. This is what
+    // stops a new *environment* variant from going unclassified: the
+    // generated `client_input_samples` cannot cover it, and the vec above
+    // is hand-written, so without this the pair could silently classify
+    // 17 of 18 (#1269).
+    assert_covers_every_variant(
+        client_input.iter().chain(environment.iter()),
+        "classification",
     );
     for err in client_input {
         assert!(err.is_client_input(), "{err:?} should be client input");
