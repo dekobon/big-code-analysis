@@ -95,6 +95,16 @@ CLI `--threshold` flags override values read from this file."
     /// pass this to see the raw, un-silenced offender list.
     #[clap(long = "no-suppress")]
     pub(crate) no_suppress: bool,
+    /// Gate profile for untrusted input (a pull-request CI gate): also
+    /// analyse files that a generated-code marker (`@generated`,
+    /// `DO NOT EDIT`, `GENERATED CODE`) or a VCS ignore file would
+    /// otherwise silently drop from the run. Equivalent to passing both
+    /// `--no-skip-generated` and `--no-ignore` — the branch under test
+    /// controls file contents and `.gitignore` alike, so either one can
+    /// shrink the checked set. Mirrors the `strict` key in the `[check]`
+    /// table of `bca.toml`, which can only turn the profile on.
+    #[clap(long = "strict")]
+    pub(crate) strict: bool,
     /// Surface suppressed debt in the offender document instead of
     /// dropping it. Offenders silenced by an in-source `bca: suppress`
     /// marker or covered by the baseline are still kept out of the gate

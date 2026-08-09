@@ -26,6 +26,23 @@ for historical reference.
 
 ### Added
 
+- `bca check` now reports what it declined to look at (#1055). When the
+  gate skipped files — a generated-code marker (`@generated`,
+  `DO NOT EDIT`, `GENERATED CODE`) or a VCS ignore file committed in
+  the tree under test — a one-line stderr summary names the counts:
+  `bca: 2 files not checked (1 generated, 1 ignored) — pass
+  --report-skipped to list them`. Either input could previously remove
+  a file from a pull-request gate with nothing on stderr. Clean runs
+  stay silent, exit codes are unchanged, and `--report-skipped` now
+  also lists each ignore-dropped file (`note: skipped (ignored): …`).
+- `bca check --strict`, plus a matching `[check] strict` manifest key
+  (#1055): the untrusted-input gate profile. Flips both skip defaults
+  in one flag (equivalent to `--no-skip-generated --no-ignore`), so a
+  PR gate opts out of content sniffing and in-tree ignore files without
+  remembering two flags. The manifest key is presence-only (it can turn
+  the profile on, never off) so a project opts in once rather than per
+  workflow.
+
 - A `cargo-fuzz` crate (`fuzz/`, workspace-excluded) with eleven libFuzzer
   targets over the parse-and-walk layer, committed seed corpora, and an
   out-of-band `fuzz` workflow (`make fuzz-check` / `fuzz-smoke` /

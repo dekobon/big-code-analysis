@@ -149,6 +149,7 @@ pub(crate) fn scaffold_baseline(
         config: Some(manifest_path.to_path_buf()),
         no_fail: false,
         no_suppress: false,
+        strict: false,
         report_suppressed: false,
         output_format: None,
         output: None,

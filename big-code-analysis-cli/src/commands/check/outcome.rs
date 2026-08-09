@@ -5,7 +5,7 @@ use super::*;
 
 /// Severity category of a `bca check` run, used to derive the process
 /// exit code (#385). The variants are *not* the exit codes — the
-/// mapping depends on `--strict-exit-codes` (see [`Self::exit_code`]).
+/// mapping depends on `--exit-codes=tiered` (see [`Self::exit_code`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CheckOutcome {
     /// No violations survived filtering.
@@ -27,13 +27,15 @@ pub(crate) enum CheckOutcome {
 
 impl CheckOutcome {
     /// Map the outcome to a process exit code. In the default contract
-    /// (`strict == false`) every non-clean run collapses to exit `2`,
+    /// (`tiered == false`) every non-clean run collapses to exit `2`,
     /// preserving the stable 0/1/2 behaviour every existing integration
-    /// relies on. In tiered mode (`--strict-exit-codes`) each category
+    /// relies on. In tiered mode (`--exit-codes=tiered`) each category
     /// gets its own code (2-5). Returns `None` for a clean run, where
     /// the caller exits 0 implicitly by returning.
-    pub(crate) fn exit_code(self, strict: bool) -> Option<i32> {
-        let tiered = match self {
+    // The parameter used to be called `strict`, predating the
+    // `--strict` gate profile, which is unrelated to exit codes.
+    pub(crate) fn exit_code(self, tiered: bool) -> Option<i32> {
+        let code = match self {
             Self::Clean => return None,
             Self::NewOnly => 2,
             Self::RegressionOnly => 3,
@@ -41,8 +43,8 @@ impl CheckOutcome {
             Self::HardBreach => 5,
         };
         // The default contract collapses every violation category to
-        // exit 2; only `--strict-exit-codes` surfaces the 3/4/5 split.
-        Some(if strict { tiered } else { 2 })
+        // exit 2; only `--exit-codes=tiered` surfaces the 3/4/5 split.
+        Some(if tiered { code } else { 2 })
     }
 }
 

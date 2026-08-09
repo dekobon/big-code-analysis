@@ -189,6 +189,9 @@ fn validate_and_resolve_file(
 
     if cfg.skip_generated && !matches!(cfg.action, Action::PreprocProduce) && is_generated(&source)
     {
+        if let Some(counter) = &cfg.generated_skipped {
+            counter.fetch_add(1, Ordering::Relaxed);
+        }
         if cfg.report_skipped || cfg.warning {
             note(format_args!("skipped (generated): {}", path.display()));
         }
@@ -735,6 +738,7 @@ mod tests {
             check_tx: None,
             exemptions_tx: None,
             files_dispatched: None,
+            generated_skipped: None,
             read_failures: Arc::new(AtomicUsize::new(0)),
             write_failures: Arc::new(AtomicUsize::new(0)),
             explicit_seeds: Arc::new(std::collections::HashSet::new()),

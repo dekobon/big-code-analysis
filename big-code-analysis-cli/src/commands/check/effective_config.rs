@@ -213,6 +213,11 @@ pub(crate) struct EffectiveCheck {
     pub(crate) report_suppressed: bool,
     pub(crate) no_ignore: bool,
     pub(crate) no_skip_generated: bool,
+    /// Whether the untrusted-input gate profile is on (`--strict` or
+    /// `[check] strict`). The two fields above already show the flipped
+    /// defaults it implies; this records that the profile — not two
+    /// individual flags — is what set them.
+    pub(crate) strict: bool,
     pub(crate) exclude_tests: bool,
     pub(crate) changed_only: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -308,6 +313,7 @@ impl EffectiveCheck {
             report_suppressed: args.report_suppressed,
             no_ignore: globals.no_ignore,
             no_skip_generated: globals.no_skip_generated,
+            strict: args.strict,
             exclude_tests: globals.exclude_tests,
             changed_only: args.changed_only,
             since: args.since.clone(),

@@ -19,6 +19,7 @@ mod check_exclude;
 mod check_exit_codes;
 mod check_explain_threshold;
 mod check_report_suppressed_scope;
+mod check_skipped_inputs;
 mod check_stream_contract;
 mod check_suppression;
 mod check_thresholds;
