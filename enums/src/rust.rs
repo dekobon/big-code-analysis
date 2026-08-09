@@ -45,7 +45,7 @@ pub fn generate_rust(output: &Path, file_template: &str) -> std::io::Result<()> 
 
 fn build_rust_template(lang: &Lang) -> RustTemplate {
     let c_name = camel_case(get_language_name(lang));
-    let names = get_token_names(&get_language(lang), false);
+    let names = get_token_names(&get_language(lang));
 
     // `get_token_names` always appends the tree-sitter ERROR sentinel last
     // (pinned by its `get_token_names_appends_error_sentinel_last` test), so the

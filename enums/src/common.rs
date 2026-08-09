@@ -95,35 +95,25 @@ pub fn sanitize_identifier(name: &str) -> String {
 /// Escapes a tree-sitter node-kind string for embedding in a string
 /// literal.
 ///
-/// `escape` selects how many rounds of literal interpretation the value
-/// must survive: `false` emits the single-backslash form for a literal
-/// parsed once (Rust source, JSON — see issue #862), `true` the
-/// double-backslash form for a value that is re-interpreted a second
-/// time.
+/// Emits the single-backslash form, for a literal that is parsed exactly
+/// once. Every generator here wants that: the Rust, Go and JSON outputs
+/// each interpolate the value into one string literal and no output
+/// format has a second source-string interpretation layer. A
+/// double-backslash variant existed behind an `escape: bool` until
+/// #1241; its last caller was the JSON generator, and #862 established
+/// that caller was double-escaping by mistake. The flag is gone so the
+/// #862 bug is unrepresentable rather than one flipped boolean away.
 #[must_use]
-pub fn sanitize_string(name: &str, escape: bool) -> String {
+pub fn sanitize_string(name: &str) -> String {
     let mut result = String::with_capacity(name.len());
-    if escape {
-        for c in name.chars() {
-            match c {
-                '\"' => result += "\\\\\\\"",
-                '\\' => result += "\\\\\\\\",
-                '\t' => result += "\\\\t",
-                '\n' => result += "\\\\n",
-                '\r' => result += "\\\\r",
-                _ => result.push(c),
-            }
-        }
-    } else {
-        for c in name.chars() {
-            match c {
-                '\"' => result += "\\\"",
-                '\\' => result += "\\\\",
-                '\t' => result += "\\t",
-                '\n' => result += "\\n",
-                '\r' => result += "\\r",
-                _ => result.push(c),
-            }
+    for c in name.chars() {
+        match c {
+            '\"' => result += "\\\"",
+            '\\' => result += "\\\\",
+            '\t' => result += "\\t",
+            '\n' => result += "\\n",
+            '\r' => result += "\\r",
+            _ => result.push(c),
         }
     }
     result
@@ -159,8 +149,7 @@ pub fn camel_case(name: &str) -> String {
 /// before anonymous ones, so a named kind keeps the unsuffixed name and
 /// an anonymous namesake takes the suffix; that is a naming priority,
 /// not the order of the returned `Vec`, which stays keyed on the id so
-/// the generated enum's discriminants match tree-sitter's. `escape` is
-/// forwarded to [`sanitize_string`].
+/// the generated enum's discriminants match tree-sitter's.
 ///
 /// # Panics
 ///
@@ -171,7 +160,7 @@ pub fn camel_case(name: &str) -> String {
 /// shipped library code, so failing the run loudly is the cheaper
 /// outcome.
 #[must_use]
-pub fn get_token_names(language: &Language, escape: bool) -> Vec<(String, bool, String)> {
+pub fn get_token_names(language: &Language) -> Vec<(String, bool, String)> {
     let count = language.node_kind_count();
     let mut names = BTreeMap::default();
     let mut name_count = HashMap::new();
@@ -195,7 +184,7 @@ pub fn get_token_names(language: &Language, escape: bool) -> Vec<(String, bool, 
             let kind = language
                 .node_kind_for_id(id)
                 .expect("id < node_kind_count is a valid node kind");
-            let ts_name = sanitize_string(kind, escape);
+            let ts_name = sanitize_string(kind);
             let mut name = camel_case(&sanitize_identifier(kind));
             if name.is_empty() {
                 name = format!("Anon{i}");
@@ -296,22 +285,15 @@ mod tests {
         assert_eq!(sanitize_identifier("Self"), "SELF");
     }
 
-    // escape=false emits the single-backslash (Rust source) form.
+    // The single-backslash form, for a literal parsed exactly once. This
+    // is now the only form `sanitize_string` can emit; the
+    // double-backslash variant and its `escape=true` test went with the
+    // flag in #1241.
     #[test]
-    fn sanitize_string_no_escape() {
+    fn sanitize_string_escapes_for_a_single_parse() {
         assert_eq!(
-            sanitize_string("a\"b\\c\td\ne\rf", false),
+            sanitize_string("a\"b\\c\td\ne\rf"),
             "a\\\"b\\\\c\\td\\ne\\rf"
-        );
-    }
-
-    // escape=true emits the double-backslash form (the value survives a
-    // second round of source-string interpretation).
-    #[test]
-    fn sanitize_string_escape() {
-        assert_eq!(
-            sanitize_string("a\"b\\c\td\ne\rf", true),
-            "a\\\\\\\"b\\\\\\\\c\\\\td\\\\ne\\\\rf"
         );
     }
 
@@ -338,7 +320,7 @@ mod tests {
     #[test]
     fn get_token_names_appends_error_sentinel_last() {
         let language: Language = tree_sitter_rust::LANGUAGE.into();
-        let names = get_token_names(&language, false);
+        let names = get_token_names(&language);
         let (rust_name, renamed, ts_name) = names.last().expect("non-empty token list");
         assert_eq!(ts_name, "ERROR");
         assert_eq!(rust_name, "Error");
@@ -348,7 +330,7 @@ mod tests {
     #[test]
     fn get_token_names_have_unique_rust_names() {
         let language: Language = tree_sitter_rust::LANGUAGE.into();
-        let names = get_token_names(&language, false);
+        let names = get_token_names(&language);
         let mut seen = std::collections::HashSet::new();
         for (rust_name, _, _) in &names {
             assert!(
@@ -367,7 +349,7 @@ mod tests {
     #[test]
     fn get_token_names_renamed_flag_marks_deduplicated_entries() {
         let language: Language = tree_sitter_rust::LANGUAGE.into();
-        let names = get_token_names(&language, false);
+        let names = get_token_names(&language);
         let originals: Vec<&str> = names
             .iter()
             .filter(|(_, renamed, _)| !renamed)
