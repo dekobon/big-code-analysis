@@ -206,13 +206,23 @@ impl Getter for ElixirCode {
             // (`~r`, the trailing `i`/`u` flags) stay as operands even
             // for interpolated sigils — they are distinct tokens with
             // their own text.
+            //
+            // `boolean: choice("true", "false")` and `nil: "nil"` each
+            // wrap a keyword leaf, so a literal reaches the walker
+            // twice; listing the wrapper and the leaf both inflated `N2`
+            // by one per literal while the text-keyed `n2` hid it
+            // (#1253). Only the wrappers count, mirroring Ruby's `Nil` /
+            // `Nil2` split. Unlike C#, the leaves need no parent guard:
+            // those two rules are the grammar's only producers of them,
+            // and the one other position accepting the reserved words —
+            // the right-hand side of a remote dot, `Foo.nil` — aliases
+            // them to `identifier`.
             E::Identifier | E::Alias | E::OperatorIdentifier
             | E::SigilName | E::SigilName2 | E::SigilModifiers
             | E::Keyword | E::Keyword2 | E::QuotedKeyword
             | E::Integer | E::Float | E::Char
             | E::Atom | E::Atom2 | E::QuotedAtom
-            | E::Boolean | E::True | E::False
-            | E::Nil | E::Nil2
+            | E::Boolean | E::Nil
                 => HalsteadType::Operand,
 
             _ => HalsteadType::Unknown,
