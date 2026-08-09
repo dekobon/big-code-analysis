@@ -96,6 +96,18 @@ for historical reference.
 
 ### Fixed
 
+- The `enums` code generator minted collision-breaking names
+  (`Foo` → `Foo2`) without registering them, so a minted suffix could
+  silently duplicate a node kind whose own sanitized name is literally
+  `base` + digits. `tree-sitter-php` is one aliased rule away from
+  exactly that — it already emits `cast_type_token1` through
+  `cast_type_token12` — and the generator would have exited `0`, leaving
+  the duplicate to surface as a rustc duplicate-variant error in the
+  parent crate during a grammar bump, where it reads as upstream
+  breakage. Minted names are now probed against, and registered in, the
+  taken-name set. No shipped artifact changes: no current grammar
+  reaches the collision, so every generated file is byte-identical
+  (#1237).
 - `bca check --baseline` rendered a malformed, double-signed
   `[regr +-29%]` tag for every `mi.*` regression. `Baseline::classify`
   has been direction-aware since #827 — for the lower-is-worse `mi.*`
@@ -338,6 +350,14 @@ for historical reference.
 
 ### Changed
 
+- The `enums` generator's `sanitize_string` / `get_token_names` lost their
+  `escape: bool` parameter. No production caller passed `true`: #862
+  established that the JSON generator, the last one, was double-escaping
+  by mistake. Removing the flag deletes the dead double-backslash branch,
+  its test, and the `JSON_TOKEN_ESCAPE` constant that existed only to
+  document why the answer must be `false` — making the #862 bug
+  unrepresentable rather than one flipped boolean away. Internal build
+  tool only; generated output is byte-identical (#1241).
 - The workspace-excluded `enums` crate declares the workspace lint posture
   (`clippy::pedantic`, `missing_docs`) in its own manifest.
   `[workspace.lints]` reaches members only, so `make enums-check` had been
