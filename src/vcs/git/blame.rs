@@ -86,7 +86,7 @@ use super::repo;
 use crate::vcs::classify::{self, Classification};
 use crate::vcs::error::Error;
 use crate::vcs::identity::{AuthorId, BotFilter};
-use crate::vcs::options::Options;
+use crate::vcs::options::{Options, window_boundary};
 use crate::vcs::stats::{Accumulator, ChangeRecord, Stats};
 
 /// A function's 1-based, inclusive line span at the target ref, as taken
@@ -291,8 +291,8 @@ impl PerFunctionBlame {
             .transpose()?;
 
         let now = options.as_of.unwrap_or_else(super::current_unix_seconds);
-        let long_boundary = now - options.long_window_secs;
-        let recent_boundary = now - options.recent_window_secs;
+        let long_boundary = window_boundary(now, options.long_window_secs);
+        let recent_boundary = window_boundary(now, options.recent_window_secs);
 
         Ok(Self {
             repo: repo.into_sync(),

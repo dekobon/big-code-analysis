@@ -319,3 +319,18 @@ fn total_edits_sum_saturates_across_authors() {
     assert!(stats.ownership_top_share.is_finite());
     assert_eq!(stats.authors_long, 2);
 }
+
+#[test]
+fn days_between_saturates_on_an_extreme_timestamp() {
+    // `earlier` is a committer timestamp straight out of an object header,
+    // so the subtraction must be total. The plain `-` panics in a debug
+    // build on these inputs and, in release, wraps to a *positive* delta
+    // that the `.max(0)` clamp cannot repair (#1271).
+    assert_eq!(days_between(i64::MIN, i64::MAX), u32::MAX);
+    assert_eq!(days_between(i64::MIN, 0), u32::MAX);
+    // The mirror direction: a future-dated commit still clamps to today.
+    assert_eq!(days_between(i64::MAX, i64::MIN), 0);
+    // The ordinary case is unchanged.
+    assert_eq!(days_between(0, 3 * 86_400), 3);
+    assert_eq!(days_between(1_000, 1_000), 0);
+}

@@ -24,7 +24,7 @@ use crate::diag::warn;
 use crate::vcs::HistoryIndex;
 use crate::vcs::cache::{self, CacheConfig, CommitEvent, HistoryCache};
 use crate::vcs::error::Error;
-use crate::vcs::options::Options;
+use crate::vcs::options::{Options, window_boundary};
 use crate::vcs::replay;
 use crate::vcs::score::RISK_SCORE_VERSION;
 use crate::vcs::stats::VCS_SCHEMA_VERSION;
@@ -102,7 +102,7 @@ pub(crate) fn build_cached(
     };
 
     let fingerprint = cache::fingerprint(options);
-    let long_boundary = now - options.long_window_secs;
+    let long_boundary = window_boundary(now, options.long_window_secs);
 
     // Pure hit: an exact, compatible entry that reaches back far enough.
     let exact_path = cache::entry_path(&repo_dir, &head_sha);

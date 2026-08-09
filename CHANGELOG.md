@@ -96,6 +96,20 @@ for historical reference.
 
 ### Fixed
 
+- The VCS window-boundary computation was non-saturating in two of its
+  six sites — `build_cached`, the *default* path for `bca vcs`, and
+  `BlameWalk`'s constructor. Both operands are attacker-adjacent: the
+  reference time is an `--as-of` value or a committer timestamp read out
+  of an object header, and the window length is user-supplied up to
+  roughly `i64::MAX` through `--long-window`. A plain `-` therefore
+  panicked in a debug build and, in release, wrapped to a boundary in
+  the far *future*, silently reversing the pure-hit check, the candidate
+  filter, `prune_and_dedup`, and the `walk_long_boundary` persisted for
+  future runs. All six sites now route through one
+  `vcs::options::window_boundary` helper that documents and pins the
+  saturation invariant once. `days_between` carried the same hazard
+  under a `.max(0)` clamp that a wrapped (positive) delta defeats, and
+  saturates too (#1271).
 - A Bash arithmetic ternary — the only ternary form Bash has —
   contributed nothing to cyclomatic or cognitive complexity, so
   `local m=$(( a > b ? a : b ))` reported cyclomatic 1 (base only) and

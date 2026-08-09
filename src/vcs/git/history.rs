@@ -26,7 +26,7 @@ use crate::vcs::cache::CommitEvent;
 use crate::vcs::classify::{self, Classification};
 use crate::vcs::error::Error;
 use crate::vcs::identity::{AuthorId, BotFilter};
-use crate::vcs::options::Options;
+use crate::vcs::options::{Options, window_boundary};
 
 /// Rename edges (`source → destination`) a commit introduced.
 type RenameEdges = Vec<(PathBuf, PathBuf)>;
@@ -53,11 +53,7 @@ pub(crate) fn collect_events(
     now: i64,
     stop_oids: &HashSet<gix::ObjectId>,
 ) -> Result<(Vec<CommitEvent>, Option<gix::ObjectId>), Error> {
-    // Saturating: a garbage extreme `--as-of` (e.g. i64::MIN) must not
-    // overflow the cutoff subtraction. Saturating to i64::MIN yields an
-    // unbounded-past boundary — every commit timestamp is included, the
-    // safe total behavior for a degenerate clock.
-    let long_boundary = now.saturating_sub(options.long_window_secs);
+    let long_boundary = window_boundary(now, options.long_window_secs);
 
     let mailmap = repo.open_mailmap();
     let bots = if options.exclude_bots {

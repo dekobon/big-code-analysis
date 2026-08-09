@@ -295,6 +295,26 @@ impl Options {
     }
 }
 
+/// The oldest timestamp a window of `window_secs` reaches back to from
+/// `reference`.
+///
+/// Saturating, and that is the whole point of the function existing. Both
+/// operands are attacker-adjacent: `reference` is an `--as-of` value or a
+/// committer timestamp read straight out of an object header, and
+/// `window_secs` is user-supplied up to roughly `i64::MAX` through
+/// [`parse_window`]. A plain `-` therefore panics in a debug build and, in
+/// release, wraps to a boundary in the far *future* — which silently
+/// reverses the meaning of every comparison downstream. Saturating to
+/// `i64::MIN` instead yields an unbounded-past boundary: every commit is
+/// inside the window, the safe total behaviour for a degenerate clock.
+///
+/// Every window boundary in the subsystem goes through here so the walk,
+/// the replay, and the cache all agree on the same value at the extremes
+/// (#1271).
+pub(crate) fn window_boundary(reference: i64, window_secs: i64) -> i64 {
+    reference.saturating_sub(window_secs)
+}
+
 /// Round a second count to the nearest whole day, saturating into
 /// `u32`. Window lengths never approach `u32::MAX` days in practice,
 /// but the saturation keeps the conversion total and lint-clean.
