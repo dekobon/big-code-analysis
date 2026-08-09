@@ -49,6 +49,12 @@ value = 48544.21441032752
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 527.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "classify_check_violations"
 metric = "nargs"
 value = 5.0
@@ -69,7 +75,7 @@ value = 6.0
 path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "run_check"
 metric = "halstead.effort"
-value = 60852.18615151166
+value = 62885.05529367418
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check/effective_config.rs"

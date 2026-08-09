@@ -158,6 +158,15 @@ fn dispatch_action(
 /// the source language. Returns `Ok(None)` when the file should be
 /// skipped (logging the per-`cfg.warning` reason inline). Returns
 /// `Ok(Some((path, source, lang)))` to hand off to dispatch.
+/// Bump one of the `Config`'s optional post-walk tallies. Each counter
+/// is `None` for the flows that never read it, and every increment is
+/// a Relaxed add from a worker thread.
+fn bump_tally(counter: Option<&Arc<std::sync::atomic::AtomicUsize>>) {
+    if let Some(counter) = counter {
+        counter.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 fn validate_and_resolve_file(
     path: PathBuf,
     cfg: &Config,
@@ -171,14 +180,12 @@ fn validate_and_resolve_file(
         cfg.read_failures.fetch_add(1, Ordering::Relaxed);
     })?;
 
-    if let Some(counter) = &cfg.files_dispatched {
-        // Count every file we managed to read, including those skipped
-        // below for empty content / unrecognized language. The user
-        // pointed at these files and the runner walked them — they count
-        // as "the input was non-empty" for the zero-files-matched check
-        // in `run_check`.
-        counter.fetch_add(1, Ordering::Relaxed);
-    }
+    // Count every file we managed to read, including those skipped
+    // below for empty content / unrecognized language. The user
+    // pointed at these files and the runner walked them — they count
+    // as "the input was non-empty" for the zero-files-matched check
+    // in `run_check`.
+    bump_tally(cfg.files_dispatched.as_ref());
 
     let Some(source) = source else {
         if cfg.warning {
@@ -189,9 +196,7 @@ fn validate_and_resolve_file(
 
     if cfg.skip_generated && !matches!(cfg.action, Action::PreprocProduce) && is_generated(&source)
     {
-        if let Some(counter) = &cfg.generated_skipped {
-            counter.fetch_add(1, Ordering::Relaxed);
-        }
+        bump_tally(cfg.generated_skipped.as_ref());
         if cfg.report_skipped || cfg.warning {
             note(format_args!("skipped (generated): {}", path.display()));
         }
@@ -212,9 +217,7 @@ fn validate_and_resolve_file(
                  language: {} (pass --language to force a parser)",
                 path.display()
             ));
-            if let Some(counter) = &cfg.explicit_unrecognized {
-                counter.fetch_add(1, Ordering::Relaxed);
-            }
+            bump_tally(cfg.explicit_unrecognized.as_ref());
         } else if cfg.warning {
             warn(format_args!(
                 "skipping file with unrecognized language: {}",
@@ -227,9 +230,7 @@ fn validate_and_resolve_file(
     // The file resolved to a recognized language and is about to be
     // dispatched: count it as analyzable output for the #663 zero-output
     // exit-1 check.
-    if let Some(counter) = &cfg.output_produced {
-        counter.fetch_add(1, Ordering::Relaxed);
-    }
+    bump_tally(cfg.output_produced.as_ref());
 
     Ok(Some((path, source, language)))
 }
