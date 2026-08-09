@@ -28,7 +28,7 @@ impl Getter for PhpCode {
         }
     }
 
-    fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> HalsteadType {
         use Php::*;
         match node.kind_id().into() {
             // Operator: control-flow keywords
@@ -89,12 +89,56 @@ impl Getter for PhpCode {
             | DOT
                 => HalsteadType::Operator,
 
-            // Operands: identifiers and literals.
+            // `name` is a genuine operand almost everywhere — function,
+            // class, const, member (`->prop`) and namespace-component
+            // identifiers are all this kind. But it is ALSO the identifier
+            // leaf of every variable reference: `$x` parses as a
+            // `variable_name` wrapping `name`, and `"${x}"` as a
+            // `dynamic_variable_name` wrapping it directly. Both wrappers
+            // are operands in their own right below (keyed with the `$`
+            // sigil, the way Bash and iRules key theirs), so counting the
+            // leaf too double-counts every variable reference — inflating
+            // N2 and adding a spurious sigil-less twin to n2 (#1259).
+            // Exclude it exactly in those two positions, the same
+            // parent-scoped guard Bash applies to `variable_name` under
+            // `simple_expansion` and iRules to `Id` under
+            // `variable_substitution`. `Name2` is the hidden `_name`
+            // supertype the parser never emits — pinned by
+            // `php_name2_hidden_rule_drift_marker` in `src/metrics/abc.rs`.
+            // It rides along defensively so a grammar bump that promotes
+            // it inherits the guard rather than the bug.
+            Name | Name2 => match ancestors.parent(node).map(|p| p.kind_id().into()) {
+                Some(VariableName | DynamicVariableName) => HalsteadType::Unknown,
+                _ => HalsteadType::Operand,
+            },
+
+            // Variable-variable syntax nests these wrappers: `$$x` is a
+            // `dynamic_variable_name` around a `variable_name`, `${$x}`
+            // the same, and `$$$x` a `dynamic_variable_name` around
+            // another `dynamic_variable_name`. Each level's text span
+            // contains the one below it, so only the outermost may count;
+            // suppressing both kinds under a `dynamic_variable_name`
+            // parent handles arbitrary depth (#1259). An inner reference
+            // reached through a real expression (`${$x . 'y'}`, whose
+            // `$x` hangs off a `binary_expression`) is unaffected.
+            VariableName | DynamicVariableName => {
+                match ancestors.parent(node).map(|p| p.kind_id().into()) {
+                    Some(DynamicVariableName) => HalsteadType::Unknown,
+                    _ => HalsteadType::Operand,
+                }
+            }
+
+            // Operands: literals, type expressions, and the compound
+            // name forms. FIXME(#1293): the type and name wrappers here
+            // still double-count the leaves they contain — `?int` scores
+            // 3 (`optional_type` + `primitive_type` + the `int` token)
+            // and `Foo\Bar\Baz` scores 5. Same class as the guards
+            // above, but which node should carry the operand is a
+            // per-construct call, so it is tracked apart from #1259.
             // `String`/`String2`/`String3` (single-quoted) and
             // `Nowdoc` never interpolate and are always counted as
             // one operand each.
-            Name | Name2 | VariableName | DynamicVariableName
-            | Integer | Float | Float2
+            Integer | Float | Float2
             | String | String2 | String3
             | Nowdoc
             | Boolean | Null | Null2
