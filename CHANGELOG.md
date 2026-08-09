@@ -26,7 +26,7 @@ for historical reference.
 
 ### Added
 
-- A `cargo-fuzz` crate (`fuzz/`, workspace-excluded) with ten libFuzzer
+- A `cargo-fuzz` crate (`fuzz/`, workspace-excluded) with eleven libFuzzer
   targets over the parse-and-walk layer, committed seed corpora, and an
   out-of-band `fuzz` workflow (`make fuzz-check` / `fuzz-smoke` /
   `fuzz-run`; see

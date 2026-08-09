@@ -1149,15 +1149,9 @@ FUZZ_RUN_ENV = LSAN_OPTIONS=suppressions=$(BASE_DIR)fuzz/lsan-suppressions.txt \
 	  ASAN_SYMBOLIZER_PATH=$(FUZZ_SYMBOLIZER)
 
 # Fail with the reason rather than with an unsuppressed leak report.
-define fuzz-require-symbolizer
-	if [ -z "$(FUZZ_SYMBOLIZER)" ]; then \
-	  echo "no llvm-symbolizer found; LSan cannot match the entries in"; \
-	  echo "fuzz/lsan-suppressions.txt and the known tree-sitter-perl leak"; \
-	  echo "would be reported as a failure. Install one (Debian/Ubuntu:"; \
-	  echo "'apt-get install llvm'; macOS: it ships with Xcode's clang)."; \
-	  exit 1; \
-	fi
-endef
+# One line, not a `define`: a multi-line define carries embedded newlines
+# that break the `\`-continued `if` block each recipe splices it into.
+FUZZ_REQUIRE_SYMBOLIZER = if [ -z "$(FUZZ_SYMBOLIZER)" ]; then echo "no llvm-symbolizer found; LSan cannot match the entries in fuzz/lsan-suppressions.txt, so the known tree-sitter-perl leak would be reported as a failure. Install one (Debian/Ubuntu: 'apt-get install llvm'; macOS: it ships with Xcode's clang)."; exit 1; fi
 
 # libFuzzer *writes* every coverage-increasing input it finds into the
 # first corpus directory it is given, and treats later ones as read-only
@@ -1189,9 +1183,9 @@ fuzz-check:
 	fi
 
 fuzz-smoke:
-	@$(fuzz-require-symbolizer)
 	@if rustup toolchain list 2>/dev/null | grep -q '^nightly' && \
 	    command -v cargo-fuzz >/dev/null 2>&1; then \
+	  $(FUZZ_REQUIRE_SYMBOLIZER); \
 	  for t in $$(cargo +nightly fuzz list); do \
 	    echo "Fuzzing $$t for $(FUZZ_RUNS) runs..."; \
 	    mkdir -p $(FUZZ_WORK)/"$$t"; \
@@ -1204,9 +1198,9 @@ fuzz-smoke:
 	fi
 
 fuzz-run:
-	@$(fuzz-require-symbolizer)
 	@if rustup toolchain list 2>/dev/null | grep -q '^nightly' && \
 	    command -v cargo-fuzz >/dev/null 2>&1; then \
+	  $(FUZZ_REQUIRE_SYMBOLIZER); \
 	  if [ -n "$(FUZZ_INPUT)" ]; then \
 	    echo "Replaying $(FUZZ_TARGET) against $(FUZZ_INPUT)..."; \
 	    $(FUZZ_CC_ENV) $(FUZZ_RUN_ENV) cargo +nightly fuzz run --target $(FUZZ_HOST_TRIPLE) $(FUZZ_TARGET) \
@@ -1223,13 +1217,13 @@ fuzz-run:
 	fi
 
 fuzz-tmin:
-	@$(fuzz-require-symbolizer)
 	@if [ -z "$(FUZZ_INPUT)" ]; then \
 	  echo "fuzz-tmin needs FUZZ_INPUT=<path to a crash artifact>"; \
 	  exit 2; \
 	fi
 	@if rustup toolchain list 2>/dev/null | grep -q '^nightly' && \
 	    command -v cargo-fuzz >/dev/null 2>&1; then \
+	  $(FUZZ_REQUIRE_SYMBOLIZER); \
 	  echo "Minimising $(FUZZ_INPUT) for $(FUZZ_TARGET)..."; \
 	  $(FUZZ_CC_ENV) $(FUZZ_RUN_ENV) cargo +nightly fuzz tmin --target $(FUZZ_HOST_TRIPLE) $(FUZZ_TARGET) \
 	    "$(FUZZ_INPUT)" -- -timeout=$(FUZZ_TIMEOUT); \

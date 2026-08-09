@@ -59,12 +59,24 @@ pub mod nested;
 /// `Node::parent` at `O(depth^2)` per candidate node. That makes it the
 /// one filter a deeply-nested input can turn into a complexity problem.
 ///
+/// **The order is load-bearing, and `"all"` must stay last.**
+/// `Filter::any` returns on its first matching predicate, and `"all"` is
+/// `|_| true`, so listing it first makes every other entry unreachable —
+/// `is_call`, `is_comment`, `is_error`, `is_string` and
+/// `is_func_with_code` are then never called on any node, in any target.
+/// It was first here until a review caught it, which had quietly reduced
+/// `count` and `find` to a bare walk and left the `"function"` predicate
+/// above — the whole reason the nesting generator is sized the way it
+/// is — dead. Kept rather than dropped because it still makes every node
+/// match once the real predicates have each had their say, so `find`
+/// builds a maximal result vector.
+///
 /// Built once rather than per call: both seams take `&[String]`, and
 /// this list never varies, so rebuilding it would put six heap
 /// allocations in the innermost loop of every target — millions of them
 /// across a run, none of them testing anything.
 static FILTERS: LazyLock<Vec<String>> = LazyLock::new(|| {
-    ["all", "call", "comment", "error", "string", "function"]
+    ["call", "comment", "error", "string", "function", "all"]
         .into_iter()
         .map(str::to_owned)
         .collect()
