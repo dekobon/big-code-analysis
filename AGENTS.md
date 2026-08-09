@@ -461,8 +461,11 @@ quadratic walk makes the unit tests *slow* rather than red, so run
 [`docs/development/benchmarking.md`](docs/development/benchmarking.md).
 
 **Fuzzing** is the third out-of-band gate (`.github/workflows/fuzz.yml`,
-the workspace-excluded `fuzz/` crate). Also not per-commit: cargo-fuzz
-needs nightly and builds every grammar under ASan, so it lives in its own
+the workspace-excluded `fuzz/` crate). Out-of-band means out of `make
+pre-commit`, not out of CI: a pull request touching `src/`, `fuzz/`, a
+manifest or a grammar still builds every target and replays the committed
+seeds, and the quarterly cron does the actual fuzzing. cargo-fuzz needs
+nightly and builds every grammar under ASan, so it lives in its own
 workflow — `ci.yml` sets `RUSTFLAGS: "-D warnings"` workflow-wide and
 pairing that with nightly red-Xes CI on unrelated new nightly lints. Run
 `make fuzz-check` after editing anything under `fuzz/`, since the crate is
