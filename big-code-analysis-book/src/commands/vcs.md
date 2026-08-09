@@ -108,7 +108,11 @@ standalone page, pass [`bca report --vcs`](report.md), which appends a
 Author identities are canonicalised through the repository `.mailmap`
 and counted by lowercased email; `Co-authored-by:` trailers add
 participants. Bot identities (`dependabot[bot]`, `renovate[bot]`,
-`github-actions[bot]`, …) are excluded by default. Binary files and
+`github-actions[bot]`, …) are excluded by default. The pattern —
+the built-in one or your own `--bot-pattern` — is matched
+case-insensitively as a substring against both the author name and the
+email, so `--bot-pattern renovate` catches `Renovate Bot`; prefix
+`(?-i)` to match case exactly. Binary files and
 symlinks are skipped; an untracked file has no record at all (distinct
 from a tracked file with zero in-window activity).
 

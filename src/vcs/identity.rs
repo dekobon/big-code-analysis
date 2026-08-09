@@ -28,7 +28,7 @@
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::{Digest, Sha256};
 
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 
 use super::error::Error;
 
@@ -252,12 +252,23 @@ pub struct BotFilter {
 impl BotFilter {
     /// Compile a bot-exclusion pattern.
     ///
+    /// Matching is **case-insensitive**, which is what
+    /// [`DEFAULT_BOT_PATTERN`](crate::vcs::DEFAULT_BOT_PATTERN) has always
+    /// documented and what the substring-style patterns users write
+    /// expect: `--bot-pattern renovate` matches `Renovate Bot`. The flag
+    /// is only the *default* for the pattern, so an expert can restore
+    /// case sensitivity for all or part of it with an inline `(?-i)` —
+    /// `(?-i)Foo` does not match `foo`.
+    ///
     /// # Errors
     ///
     /// Returns [`Error::InvalidBotPattern`] when `pattern` is not a
     /// valid regular expression.
     pub fn new(pattern: &str) -> Result<Self, Error> {
-        let pattern = Regex::new(pattern).map_err(|e| Error::InvalidBotPattern(e.to_string()))?;
+        let pattern = RegexBuilder::new(pattern)
+            .case_insensitive(true)
+            .build()
+            .map_err(|e| Error::InvalidBotPattern(e.to_string()))?;
         Ok(Self { pattern })
     }
 

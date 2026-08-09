@@ -129,7 +129,9 @@ pub(crate) struct VcsArgs {
     /// Do not exclude bot author identities.
     #[clap(long, global = true)]
     pub(crate) no_exclude_bots: bool,
-    /// Override the bot-author exclusion regex.
+    /// Override the bot-author exclusion regex. Matched
+    /// case-insensitively against both the author name and the email;
+    /// prefix `(?-i)` to match case exactly.
     #[clap(long, global = true)]
     pub(crate) bot_pattern: Option<String>,
     /// Reference "now" for reproducible runs (RFC 3339, `@unix`, or any

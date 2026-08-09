@@ -96,6 +96,19 @@ for historical reference.
 
 ### Fixed
 
+- The VCS bot-author filter was case-sensitive despite
+  `DEFAULT_BOT_PATTERN`'s doc promising the opposite since the option
+  shipped. `BotFilter::new` compiled with a plain `Regex`, and
+  `push_if_human` matches the raw signature bytes before any
+  lowercasing, so `Dependabot[bot]` was counted as a human author while
+  its lowercase twin was excluded — diluting ownership and raising file
+  risk on the same repository depending only on how a bot capitalised
+  itself. A user pattern behaves as written now too:
+  `--bot-pattern renovate` matches `Renovate Bot`. Prefix `(?-i)` to
+  restore exact matching. `CACHE_SCHEMA_VERSION` moves 1 → 2, since the
+  cache fingerprint hashes only the pattern string and an event log
+  walked under the old matcher would otherwise replay with its excluded
+  set intact; the bump costs one cold walk (#1265).
 - The VCS window-boundary computation was non-saturating in two of its
   six sites — `build_cached`, the *default* path for `bca vcs`, and
   `BlameWalk`'s constructor. Both operands are attacker-adjacent: the

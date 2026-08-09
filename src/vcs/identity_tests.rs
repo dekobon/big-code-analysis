@@ -181,6 +181,38 @@ fn default_bot_pattern_matches_known_bots() {
 }
 
 #[test]
+fn bot_pattern_matching_is_case_insensitive() {
+    // Regression for #1265: `DEFAULT_BOT_PATTERN`'s doc has promised
+    // case-insensitive matching since the option shipped, but the filter
+    // compiled with a plain `Regex`. A capitalised bot identity was
+    // counted as a human author — diluting ownership and raising file
+    // risk — while its lowercase twin was excluded.
+    let filter = BotFilter::new(DEFAULT_BOT_PATTERN).expect("default pattern compiles");
+    assert!(filter.is_bot(
+        b"Dependabot[bot]",
+        b"Dependabot[bot]@users.noreply.github.com"
+    ));
+    assert!(filter.is_bot(b"RENOVATE[BOT]", b""));
+    assert!(filter.is_bot(b"", b"GitHub-Actions[Bot]@users.noreply.github.com"));
+    // A user-supplied substring pattern behaves the way its author reads
+    // it — this is the case the doc contract exists for.
+    let custom = BotFilter::new("renovate").expect("custom pattern compiles");
+    assert!(custom.is_bot(b"Renovate Bot", b"bot@renovateapp.com"));
+    // A human is still not a bot under either.
+    assert!(!filter.is_bot(b"Ada Lovelace", b"ada@example.com"));
+    assert!(!custom.is_bot(b"Ada Lovelace", b"ada@example.com"));
+}
+
+#[test]
+fn bot_pattern_can_opt_back_into_case_sensitivity() {
+    // `case_insensitive(true)` sets only the *default* flag, so an inline
+    // `(?-i)` restores exact matching for a user who needs it (#1265).
+    let sensitive = BotFilter::new("(?-i)renovate").expect("inline flag compiles");
+    assert!(sensitive.is_bot(b"renovate[bot]", b""));
+    assert!(!sensitive.is_bot(b"Renovate Bot", b""));
+}
+
+#[test]
 fn invalid_bot_pattern_is_rejected() {
     assert!(matches!(
         BotFilter::new("(unclosed"),

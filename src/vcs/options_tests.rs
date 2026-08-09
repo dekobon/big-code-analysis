@@ -90,7 +90,11 @@ fn defaults_match_the_issue_sample() {
 #[test]
 fn default_bot_pattern_is_a_valid_regex() {
     // Guards the `expect` documented in `Options::default` / `BotFilter`.
-    assert!(regex::Regex::new(DEFAULT_BOT_PATTERN).is_ok());
+    // Compiled through `BotFilter::new` rather than `Regex::new` directly,
+    // so it exercises the production constructor — including the
+    // case-insensitive flag it sets (#1265) — instead of re-verifying that
+    // the regex crate parses a constant.
+    assert!(super::super::identity::BotFilter::new(DEFAULT_BOT_PATTERN).is_ok());
 }
 
 #[test]
