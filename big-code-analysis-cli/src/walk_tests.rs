@@ -53,7 +53,7 @@ fn walk_directory_seed_returns_sorted_paths() {
         language_forced: false,
     };
     let mut errors = WalkErrors::default();
-    let found = walk_directory_seed(root, true, 8, &filters, &mut errors);
+    let found = walk_directory_seed(root, true, 8, &filters, &mut errors).files;
 
     assert_eq!(
         errors.count(),

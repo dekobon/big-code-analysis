@@ -371,3 +371,60 @@ fn effective_config_records_the_strict_profile() {
         serde_json::Value::Bool(true)
     );
 }
+
+/// An ignored directory is reported as one pruned entry, never
+/// entered: its contents — analyzable or not — must not inflate the
+/// file count, and the summary must not enumerate a build tree
+/// (the failure mode: a `target/`-sized dir turning the summary into
+/// a multi-million-file claim).
+#[test]
+fn ignored_directory_is_pruned_not_enumerated() {
+    let (dir, proj) = fixture(&[("ok.rs", CLEAN), (".gitignore", "build/\n")]);
+    let build = proj.join("build");
+    fs::create_dir(&build).unwrap();
+    fs::write(build.join("junk.o"), b"\x7fELF").unwrap();
+    fs::write(build.join("evil.rs"), branchy("hidden_offender")).unwrap();
+
+    check(&dir, &proj, &["--report-skipped"])
+        .success()
+        .stderr(predicate::str::contains(
+            "bca: 1 ignored directory not walked",
+        ))
+        .stderr(predicate::str::contains("not checked").not())
+        .stderr(predicate::str::contains("skipped (ignored directory):"))
+        .stderr(predicate::str::contains("build"));
+}
+
+/// An ignored file no parser owns would have been read and dropped,
+/// not checked, so it is not a gate bypass and stays out of the
+/// summary — otherwise every `*.log`-style ignore rule makes the gate
+/// permanently loud.
+#[test]
+fn ignored_non_analyzable_file_stays_silent() {
+    let (dir, proj) = fixture(&[
+        ("ok.rs", CLEAN),
+        ("notes.log", "not source\n"),
+        (".gitignore", "notes.log\n"),
+    ]);
+
+    check(&dir, &proj, &[])
+        .success()
+        .stderr(predicate::str::contains("not checked").not())
+        .stderr(predicate::str::contains("ignored").not());
+}
+
+/// A file dropped by both an exclude glob and an ignore rule belongs
+/// to the exclude — the project deliberately put it out of scope, so
+/// the ignore rule adds no signal worth reporting.
+#[test]
+fn excluded_and_ignored_file_is_not_counted() {
+    let (dir, proj) = fixture(&[
+        ("violator.rs", &branchy("offender")),
+        ("ok.rs", CLEAN),
+        (".gitignore", "violator.rs\n"),
+    ]);
+
+    check(&dir, &proj, &["--exclude", "**/violator.rs"])
+        .success()
+        .stderr(predicate::str::contains("not checked").not());
+}

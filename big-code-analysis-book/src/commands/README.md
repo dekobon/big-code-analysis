@@ -334,12 +334,13 @@ bca: warning: utils/gate.py matches an exclude pattern (./utils/**) but was name
 
 - `--no-ignore` — disable `.gitignore` / `.ignore` / global-gitignore
   awareness when expanding directory seeds. `bca check` counts the
-  files ignore rules dropped from a gate run in its not-checked
-  summary, lists them under `--report-skipped`
-  (`note: skipped (ignored): <path>`), and disables the awareness
-  under its [`--strict` profile](check.md#strict-mode), since an
-  ignore file committed in the branch under test otherwise shrinks
-  the checked set.
+  analyzable files and prunes the directories ignore rules dropped
+  from a gate run in its not-checked summary, lists them under
+  `--report-skipped` (`note: skipped (ignored): <path>`,
+  `note: skipped (ignored directory): <path>`), and disables the
+  awareness under its [`--strict` profile](check.md#strict-mode),
+  since an ignore file committed in the branch under test otherwise
+  shrinks the checked set.
 - `--paths-from <FILE>` — read newline-separated input paths from
   `<FILE>`, or from stdin when `<FILE>` is `-`. Combined as a union
   with any `--paths` values. `-I` globs still apply; `-X` globs do not

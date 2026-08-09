@@ -259,11 +259,12 @@ pub(crate) struct CheckWalk {
     /// in the branch under test otherwise removes a file from the gate
     /// with nothing on stderr (#1055's bypass A).
     generated_skipped: usize,
-    /// Files a VCS ignore file dropped from the walk, sorted. Measured
-    /// by [`vcs_ignored_files`] because the walker itself never yields
-    /// them; a `.gitignore` committed in the branch under test otherwise
-    /// shrinks the checked set silently (#1055's bypass B).
-    ignored: Vec<PathBuf>,
+    /// What VCS ignore rules dropped from the walk, measured at the
+    /// walk's prune points because the walker itself never yields
+    /// ignored entries; a `.gitignore` committed in the branch under
+    /// test otherwise shrinks the checked set silently (#1055's
+    /// bypass B).
+    ignored: crate::IgnoredEntries,
 }
 
 /// Fail the run when the walk saw no input files at all. A tool error
@@ -340,14 +341,13 @@ fn run_check_walk(
         fuzzy_baseline: args.baseline_fuzzy_match.unwrap_or(false),
         ..Config::new(Action::Check, &globals, preproc)
     };
-    // Expand the seeds here rather than through `run_walk`, so the same
-    // resolved set both feeds the workers and anchors the ignored-file
-    // measurement — a private re-resolve inside `run_walk` could not be
-    // diffed against anything. The three steps below are `run_walk`'s
-    // own body, with the measurement spliced between resolve and
-    // dispatch; the exit-1 incomplete-walk contract is unchanged.
-    let (resolved, num_jobs) = resolve_walk_files(globals.clone());
-    let ignored = vcs_ignored_files(globals, &resolved);
+    // Expand the seeds here rather than through `run_walk`, so the gate
+    // can ask for the ignore-rule measurement the summary reports — no
+    // other command pays for it. The three steps below are `run_walk`'s
+    // own body with the measuring resolve substituted; the exit-1
+    // incomplete-walk contract is unchanged.
+    let (resolved, num_jobs) = crate::resolve_walk_files_with_ignored(globals);
+    let ignored = resolved.ignored;
     cfg.explicit_seeds = Arc::new(resolved.explicit_files);
     crate::enforce_complete_walk(crate::run_walk_resolved_tallying(
         resolved.files,

@@ -564,10 +564,20 @@ bca: 2 files not checked (1 generated, 1 ignored) — pass --report-skipped to l
 ```
 
 Clean runs print nothing, and the summary changes no exit code.
-`--report-skipped` lists each dropped file with a
-`note: skipped (generated): <path>` or `note: skipped (ignored): <path>`
-line. Under `--strict` nothing is skipped, so there is nothing to
-summarize.
+`--report-skipped` lists each dropped entry with a
+`note: skipped (generated): <path>`, `note: skipped (ignored): <path>`,
+or `note: skipped (ignored directory): <path>` line. Under `--strict`
+nothing is skipped, so there is nothing to summarize.
+
+The ignored counts come from the walk's prune points: for every
+directory the walker entered, the gate checks which immediate children
+ignore rules dropped. An ignored file with a recognized extension is
+counted; an ignored *directory* is reported as one
+`ignored directory not walked` entry and never entered — enumerating a
+`target/`-sized build tree would cost a full second traversal and
+produce a million-file count with no signal in it. Ignored files that
+no parser owns (logs, lockfiles) are not reported; they would have
+been read and dropped, not checked.
 
 With content sniffing off, genuinely generated trees still need an
 exemption; give them one the reviewers own, either a committed

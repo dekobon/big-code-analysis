@@ -951,6 +951,14 @@ Clean runs print nothing. `--report-skipped` adds a
 line per file. The summary changes no exit code: a bypassed run still
 exits `0`, it just says so.
 
+The ignored count covers analyzable files at the directories the walk
+entered. A whole directory dropped by an ignore rule (a build tree, or
+an attacker ignoring a source directory outright) is reported as its
+own clause — `3 ignored directories not walked` — and never entered,
+so the summary stays cheap and small on trees with large ignored build
+output. See [the check page](../commands/check.md#strict-mode) for the
+exact rules.
+
 ### `--strict` turns both mechanisms off
 
 For a gate over untrusted input, turn both mechanisms off rather than
