@@ -569,15 +569,22 @@ Clean runs print nothing, and the summary changes no exit code.
 or `note: skipped (ignored directory): <path>` line. Under `--strict`
 nothing is skipped, so there is nothing to summarize.
 
-The ignored counts come from the walk's prune points: for every
-directory the walker entered, the gate checks which immediate children
-ignore rules dropped. An ignored file with a recognized extension is
-counted; an ignored *directory* is reported as one
-`ignored directory not walked` entry and never entered — enumerating a
-`target/`-sized build tree would cost a full second traversal and
-produce a million-file count with no signal in it. Ignored files that
-no parser owns (logs, lockfiles) are not reported; they would have
-been read and dropped, not checked.
+The counts come from the walk's prune points: for every directory the
+walker entered, the gate checks which immediate children ignore rules
+dropped. Only files a parser owns are counted, on both sides — an
+ignored log file, or a generated `Cargo.lock` (whose header matches
+`@generated`), would have been read and dropped rather than checked,
+and counting either would make the summary fire on every run. A file
+named explicitly on the command line bypasses ignore rules and is
+analyzed, so it is never counted. Ignored *directories* are reported
+only under `--report-skipped`, as `N ignored directories not walked`
+entries, and are never entered: essentially every checkout has an
+ignored build tree on disk, and enumerating a `target/`-sized tree
+would cost a full second traversal for a million-file count with no
+signal in it. Note the ignored tally reflects every source the walker
+honors — in-tree `.gitignore`/`.ignore` files, but also the global
+gitignore and ancestor ignore files — so local and CI counts can
+differ.
 
 With content sniffing off, genuinely generated trees still need an
 exemption; give them one the reviewers own, either a committed

@@ -90,10 +90,10 @@ pub(crate) fn run_check(
         violations,
         scope,
         // Kept for the remediation builder: `run_check_walk` consumes
-        // `globals` by value (it passes through to `run_walk` which
-        // spawns worker threads with ownership), but
-        // `format_remediation_block` needs the resolved `--paths` /
-        // `--exclude` set to compose a copy-paste-safe refresh command.
+        // `globals` by value (the walk it drives spawns worker threads
+        // with ownership), but `format_remediation_block` needs the
+        // resolved `--paths` / `--exclude` set to compose a
+        // copy-paste-safe refresh command.
         globals: globals_for_remediation,
     } = collect_check_violations(globals, &args, preproc, thresholds);
 
@@ -333,18 +333,12 @@ fn run_check_walk(
     };
     // Expand the seeds here rather than through `run_walk`, so the gate
     // can ask for the ignore-rule measurement the summary reports — no
-    // other command pays for it. The three steps below are `run_walk`'s
-    // own body with the measuring resolve substituted; the exit-1
-    // incomplete-walk contract is unchanged.
+    // other command pays for it. `run_walk_resolved` then carries the
+    // same exit-1 incomplete-walk contract as `run_walk`.
     let (resolved, num_jobs) = crate::resolve_walk_files_with_ignored(globals);
     let ignored = resolved.ignored;
     cfg.explicit_seeds = Arc::new(resolved.explicit_files);
-    crate::enforce_complete_walk(crate::run_walk_resolved_tallying(
-        resolved.files,
-        num_jobs,
-        cfg,
-        resolved.walk_errors,
-    ));
+    crate::run_walk_resolved(resolved.files, num_jobs, cfg, resolved.walk_errors);
 
     // Workers have all joined by the time the walk returns, so the
     // sender side is dropped and `rx.into_iter()` terminates cleanly.

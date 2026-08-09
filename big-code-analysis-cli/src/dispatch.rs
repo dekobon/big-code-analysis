@@ -196,7 +196,20 @@ fn validate_and_resolve_file(
 
     if cfg.skip_generated && !matches!(cfg.action, Action::PreprocProduce) && is_generated(&source)
     {
-        bump_tally(cfg.generated_skipped.as_ref());
+        // Tally only files a parser owns: a generated lockfile or asset
+        // (`Cargo.lock` opens with `@generated`) would have been dropped
+        // at language resolution anyway and was never a gate bypass, and
+        // counting it made the #1055 summary fire on every Rust repo.
+        // Mirrors the analyzable rule the ignored-file measurement
+        // applies. The `--report-skipped` listing below is unchanged —
+        // it audits the detector, not the gate.
+        if cfg
+            .language
+            .or_else(|| guess_language(&source, &path).0)
+            .is_some()
+        {
+            bump_tally(cfg.generated_skipped.as_ref());
+        }
         if cfg.report_skipped || cfg.warning {
             note(format_args!("skipped (generated): {}", path.display()));
         }

@@ -66,14 +66,26 @@ fn unchecked_summary_drops_the_hint_when_already_listing() {
     );
 }
 
-/// A pruned directory gets its own clause — its contents are unknown
-/// by design, so it cannot be folded into the file count. Singular
-/// form pinned.
+/// Pruned directories stay out of the *default* summary: essentially
+/// every real checkout has an ignored build tree on disk, and a
+/// summary that fired on all of them would bury the file-count signal.
+#[test]
+fn unchecked_summary_holds_pruned_directories_until_listing() {
+    assert_eq!(unchecked_summary(0, &ignored(0, 3), false), None);
+    assert_eq!(
+        unchecked_summary(1, &ignored(0, 3), false).as_deref(),
+        Some("1 file not checked (1 generated) — pass --report-skipped to list them")
+    );
+}
+
+/// Under `--report-skipped`, a pruned directory gets its own clause —
+/// its contents are unknown by design, so it cannot be folded into the
+/// file count. Singular form pinned.
 #[test]
 fn unchecked_summary_reports_pruned_directories_apart() {
     assert_eq!(
-        unchecked_summary(0, &ignored(0, 1), false).as_deref(),
-        Some("1 ignored directory not walked — pass --report-skipped to list them")
+        unchecked_summary(0, &ignored(0, 1), true).as_deref(),
+        Some("1 ignored directory not walked")
     );
 }
 
@@ -81,10 +93,7 @@ fn unchecked_summary_reports_pruned_directories_apart() {
 #[test]
 fn unchecked_summary_joins_file_and_directory_clauses() {
     assert_eq!(
-        unchecked_summary(1, &ignored(0, 2), false).as_deref(),
-        Some(
-            "1 file not checked (1 generated); 2 ignored directories not walked \
-             — pass --report-skipped to list them"
-        )
+        unchecked_summary(1, &ignored(0, 2), true).as_deref(),
+        Some("1 file not checked (1 generated); 2 ignored directories not walked")
     );
 }

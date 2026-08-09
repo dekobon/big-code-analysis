@@ -953,11 +953,13 @@ exits `0`, it just says so.
 
 The ignored count covers analyzable files at the directories the walk
 entered. A whole directory dropped by an ignore rule (a build tree, or
-an attacker ignoring a source directory outright) is reported as its
-own clause — `3 ignored directories not walked` — and never entered,
-so the summary stays cheap and small on trees with large ignored build
-output. See [the check page](../commands/check.md#strict-mode) for the
-exact rules.
+an attacker ignoring a source directory outright) is never entered and
+appears only under `--report-skipped`, as its own clause —
+`3 ignored directories not walked` — because ignored build trees are
+present in essentially every checkout and would otherwise make the
+default summary permanent noise. A PR gate that must see whole-directory
+drops should pass `--report-skipped` or, better, `--strict`. See
+[the check page](../commands/check.md#strict-mode) for the exact rules.
 
 ### `--strict` turns both mechanisms off
 

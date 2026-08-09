@@ -112,11 +112,17 @@ pub(crate) struct WalkFilters<'a> {
     /// glob stop applying under a directory seed (#1189).
     excludes: walk_seed::AnchoredExcludes<'a>,
     /// Whether `--language` forces a language, which makes every named
-    /// file analyzable regardless of its extension. Only the
-    /// exclude-override warning consults it — see
-    /// [`Self::warn_exclude_overridden`] for why a filter bundle knows
-    /// about languages at all.
+    /// file analyzable regardless of its extension. Consulted through
+    /// [`Self::analyzable`] by the exclude-override warning and the
+    /// ignore-rule measurement — see [`Self::warn_exclude_overridden`]
+    /// for why a filter bundle knows about languages at all.
     language_forced: bool,
+    /// Whether this walk measures what ignore rules dropped (#1055).
+    /// On only for [`resolve_walk_files_with_ignored`], and forced off
+    /// under `--no-ignore`, where nothing can be ignore-dropped. Rides
+    /// the filter bundle so the visitor and seed loop need no extra
+    /// parameter to know whether the directory channel has a consumer.
+    measure_ignored: bool,
 }
 
 impl WalkFilters<'_> {
@@ -155,6 +161,16 @@ impl WalkFilters<'_> {
         self.include.is_empty() || self.include.is_match(match_path)
     }
 
+    /// Would any parser own `path`? The extension half of the language
+    /// guess only (the modeline and shebang fallbacks need the file's
+    /// bytes, which the walk has not read), routed through
+    /// [`get_language_for_file`] so the #1111 ASCII case-fold applies —
+    /// the one shared spelling of a rule that two call sites used to
+    /// risk deriving apart.
+    fn analyzable(&self, path: &Path) -> bool {
+        self.language_forced || get_language_for_file(path).is_some()
+    }
+
     /// Report on stderr that the explicitly-named `seed` overrode the
     /// exclude deny-set, naming the pattern it matched.
     ///
@@ -187,7 +203,7 @@ impl WalkFilters<'_> {
     /// the dispatch's modeline and shebang fallbacks need the file's
     /// bytes, and the walk has not read them here.
     fn warn_exclude_overridden(&self, seed: &Path, match_path: &Path) {
-        if !self.language_forced && get_language_for_file(seed).is_none() {
+        if !self.analyzable(seed) {
             return;
         }
         let cwd_form = walk_seed::CwdForm(walk_seed::strip_cur_dir(match_path));
@@ -206,22 +222,6 @@ impl WalkFilters<'_> {
     }
 }
 
-/// Resolved file set plus the subset of seeds that were *explicitly
-/// named files* (not products of a directory expansion).
-///
-/// `explicit_files` backs the #663 rule: an explicitly-named file whose
-/// language is unrecognized must warn on stderr and, when it is the sole
-/// reason the run produced nothing, exit 1 — mirroring the #596
-/// nonexistent-explicit-path error. A file discovered by walking a
-/// directory seed is *not* in this set, so a tree full of READMEs and
-/// configs stays silently skipped (gated behind `-w`).
-///
-/// `walk_errors` carries the #1131 tally: entries the directory walk
-/// itself could not read. It is reported separately from the worker
-/// pool's `read_failures` because the two describe different losses —
-/// a read failure names a file the walk *selected*, whereas an
-/// unlistable directory removes its whole subtree before anything can
-/// be selected, leaving nothing for a worker to fail on.
 /// What VCS ignore rules kept out of a walk, measured at the walk's
 /// prune points (#1055): for every directory the walker visited, the
 /// immediate children it did not keep, classified by what dropped them.
@@ -242,6 +242,22 @@ pub(crate) struct IgnoredEntries {
     pub(crate) dirs: Vec<PathBuf>,
 }
 
+/// Resolved file set plus the subset of seeds that were *explicitly
+/// named files* (not products of a directory expansion).
+///
+/// `explicit_files` backs the #663 rule: an explicitly-named file whose
+/// language is unrecognized must warn on stderr and, when it is the sole
+/// reason the run produced nothing, exit 1 — mirroring the #596
+/// nonexistent-explicit-path error. A file discovered by walking a
+/// directory seed is *not* in this set, so a tree full of READMEs and
+/// configs stays silently skipped (gated behind `-w`).
+///
+/// `walk_errors` carries the #1131 tally: entries the directory walk
+/// itself could not read. It is reported separately from the worker
+/// pool's `read_failures` because the two describe different losses —
+/// a read failure names a file the walk *selected*, whereas an
+/// unlistable directory removes its whole subtree before anything can
+/// be selected, leaving nothing for a worker to fail on.
 pub(crate) struct ResolvedFiles {
     pub(crate) files: Vec<PathBuf>,
     pub(crate) explicit_files: std::collections::HashSet<PathBuf>,
@@ -378,13 +394,7 @@ pub(crate) fn expand_seed_paths(
     no_ignore: bool,
     threads: usize,
     filters: &WalkFilters<'_>,
-    measure_ignored: bool,
 ) -> ResolvedFiles {
-    // bca: suppress(nargs)
-    // Sixth parameter accepted deliberately: the measurement flag is a
-    // per-call decision (only the gate pays for it), and none of the six
-    // bundle under a name worth having — see `walk_directory_seed` for
-    // the same trade.
     if let Some(src) = paths_from {
         paths.extend(read_paths_from(&src).unwrap_or_else(|e| die(e)));
     }
@@ -433,8 +443,8 @@ pub(crate) fn expand_seed_paths(
         for path in walk.files {
             found.push_walked(path);
         }
-        // Retained unconditionally — a few thousand paths at most — so
-        // the loop stays free of measurement branches.
+        // `walk.dirs` is empty unless this walk measures (the visitor
+        // gates the sends), so unconditional retention costs nothing.
         walked_dirs.push((seed, walk.dirs));
     }
     // A walk that resolved zero files is almost always a mistake — an
@@ -446,11 +456,8 @@ pub(crate) fn expand_seed_paths(
     if found.files.is_empty() {
         warn("0 files matched");
     }
-    // With ignore handling off nothing can be ignore-dropped, so the
-    // measurement short-circuits to empty rather than reporting every
-    // hidden-or-excluded child as a mystery.
-    let ignored = if measure_ignored && !no_ignore {
-        measure_ignored_entries(&walked_dirs, &found.files, filters)
+    let ignored = if filters.measure_ignored {
+        measure_ignored_entries(&walked_dirs, &found, filters)
     } else {
         IgnoredEntries::default()
     };
@@ -494,16 +501,25 @@ fn admit_file_seed(seed: &Path, filters: &WalkFilters<'_>, found: &mut SeedSet) 
 /// about anything it could not list, and this pass is advisory.
 fn measure_ignored_entries(
     walked_dirs: &[(PathBuf, Vec<PathBuf>)],
-    kept_files: &[PathBuf],
+    found: &SeedSet,
     filters: &WalkFilters<'_>,
 ) -> IgnoredEntries {
     let walked = WalkedSets {
         dirs: walked_dirs
             .iter()
             .flat_map(|(_, dirs)| dirs)
-            .map(PathBuf::as_path)
+            .map(|dir| walk_seed::strip_cur_dir(dir))
             .collect(),
-        files: kept_files.iter().map(PathBuf::as_path).collect(),
+        files: found
+            .files
+            .iter()
+            .map(|file| walk_seed::strip_cur_dir(file))
+            .collect(),
+        explicit_canon: found
+            .explicit_files
+            .iter()
+            .filter_map(|path| path.canonicalize().ok())
+            .collect(),
     };
     let mut ignored = IgnoredEntries::default();
     for (seed, dirs) in walked_dirs {
@@ -519,19 +535,40 @@ fn measure_ignored_entries(
     // Overlapping seeds can flag the same entry once per seed; one
     // mention per path, in a stable order for the `--report-skipped`
     // listing.
-    ignored.files.sort_unstable();
-    ignored.files.dedup();
-    ignored.dirs.sort_unstable();
-    ignored.dirs.dedup();
+    dedupe_measured(&mut ignored.files);
+    dedupe_measured(&mut ignored.dirs);
     ignored
+}
+
+/// Sort and dedupe one measured list in the `./`-stripped space, so the
+/// two spellings overlapping seeds give one path (`-p .` yields
+/// `./src/f.rs` where `-p src` yields `src/f.rs`) collapse to a single
+/// mention instead of being counted twice. A *stable* sort keeps the
+/// surviving spelling the first-seeded one rather than whichever walker
+/// thread happened to report it.
+fn dedupe_measured(paths: &mut Vec<PathBuf>) {
+    paths.sort_by(|a, b| walk_seed::strip_cur_dir(a).cmp(walk_seed::strip_cur_dir(b)));
+    paths.dedup_by(|a, b| walk_seed::strip_cur_dir(a) == walk_seed::strip_cur_dir(b));
 }
 
 /// What the walk produced, as membership sets: the directories it
 /// entered and the files it kept. [`classify_dropped_child`] consults
 /// both to tell "the walk saw this" from "an ignore rule dropped it".
+///
+/// Keyed on the `./`-stripped form, because a path's spelling is the
+/// seed's and not the file's: `-p . -p build` records `build` as walked
+/// while `.`'s prune point offers `./build`, and comparing those
+/// verbatim reported an explicitly-walked directory as ignore-pruned.
 struct WalkedSets<'a> {
     dirs: std::collections::HashSet<&'a Path>,
     files: std::collections::HashSet<&'a Path>,
+    /// Explicitly-named file seeds, canonicalized: an explicit seed
+    /// bypasses ignore rules (#726) and *was* analyzed, but its
+    /// caller spelling — often absolute — need not match the walker
+    /// form either verbatim or `./`-stripped, so membership is by
+    /// canonical path. Seeds that fail to canonicalize (vanished
+    /// mid-run) are simply absent, which errs toward reporting.
+    explicit_canon: std::collections::HashSet<PathBuf>,
 }
 
 /// Classify one directory child the walk did not keep, recording it in
@@ -555,41 +592,63 @@ fn classify_dropped_child(
     // Hidden entries are dropped by `.hidden(true)` and symlinks by
     // `follow_links(false)` whether or not any ignore rule exists, so
     // neither carries an ignore signal.
-    if entry.file_name().as_encoded_bytes().starts_with(b".") || file_type.is_symlink() {
+    if walker_hides(entry) || file_type.is_symlink() {
         return;
     }
     let path = entry.path();
+    // Both membership tests compare in the `./`-stripped space — see
+    // [`WalkedSets`] for why the spelling cannot be trusted verbatim.
     if file_type.is_dir() {
-        if !walked.dirs.contains(path.as_path()) {
+        if !walked.dirs.contains(walk_seed::strip_cur_dir(&path)) {
             ignored.dirs.push(path);
         }
         return;
     }
-    if !file_type.is_file() || walked.files.contains(path.as_path()) {
+    if !file_type.is_file() || walked.files.contains(walk_seed::strip_cur_dir(&path)) {
         return;
     }
     // A file no parser owns would have been read and skipped, not
-    // checked, so it is not worth reporting as a gate bypass — unless
-    // `--language` forces every file to a parser. The extension half of
-    // the language guess is all the walk can apply (the modeline and
-    // shebang fallbacks need the bytes), mirroring
-    // `warn_exclude_overridden`. The walk's own include/exclude globs
-    // drop the file with ignore handling off too, so they own their
-    // explanation likewise.
-    let analyzable = filters.language_forced || get_language_for_file(&path).is_some();
-    if analyzable && filters.passes(&path, &walk_seed::match_path_for(seed, &path)) {
+    // checked, so it is not worth reporting as a gate bypass. The
+    // walk's own include/exclude globs drop the file with ignore
+    // handling off too, so they own their explanation; and a file the
+    // caller named explicitly was analyzed despite the ignore rule
+    // (#726), so accusing the run of skipping it would contradict the
+    // violations it just printed.
+    let checked_explicitly = !walked.explicit_canon.is_empty()
+        && path
+            .canonicalize()
+            .is_ok_and(|canonical| walked.explicit_canon.contains(&canonical));
+    if !checked_explicitly
+        && filters.analyzable(&path)
+        && filters.passes(&path, &walk_seed::match_path_for(seed, &path))
+    {
         ignored.files.push(path);
     }
 }
 
-/// Handle one entry produced by [`walk_directory_seed`]'s parallel walker:
-/// forward a matching file down `tx`, or warn about (and tally) an error.
-///
-/// A free function rather than the closure body it was extracted from, because
-/// `ignore`'s `build_parallel().run(|| Box::new(move |entry| …))` API nests the
-/// visitor two closures deep. Cognitive complexity charges a nesting increment
-/// per enclosing lambda, so four decisions scored 16 there against 5 here — and
-/// the visitor reads better with a name than buried inside the builder setup.
+/// Mirror of the walker's `.hidden(true)` filter: a dot-prefixed name
+/// on every platform, plus the hidden file attribute on Windows —
+/// `ignore`'s hidden test checks both, and modelling only the dot rule
+/// reported attribute-hidden files as ignore-dropped on Windows.
+fn walker_hides(entry: &std::fs::DirEntry) -> bool {
+    if entry.file_name().as_encoded_bytes().starts_with(b".") {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        // FILE_ATTRIBUTE_HIDDEN from the Windows file-attribute set.
+        const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+        if entry
+            .metadata()
+            .is_ok_and(|md| md.file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0)
+        {
+            return true;
+        }
+    }
+    false
+}
+
 /// The two channels a walk visitor reports through: files that passed
 /// the filters, and every directory the walker entered — the "what the
 /// walker saw" base set [`measure_ignored_entries`] diffs against.
@@ -598,6 +657,14 @@ struct WalkSinks {
     dirs: crossbeam::channel::Sender<PathBuf>,
 }
 
+/// Handle one entry produced by [`walk_directory_seed`]'s parallel walker:
+/// forward a matching file down `sinks`, or warn about (and tally) an error.
+///
+/// A free function rather than the closure body it was extracted from, because
+/// `ignore`'s `build_parallel().run(|| Box::new(move |entry| …))` API nests the
+/// visitor two closures deep. Cognitive complexity charges a nesting increment
+/// per enclosing lambda, so four decisions scored 16 there against 5 here — and
+/// the visitor reads better with a name than buried inside the builder setup.
 fn visit_walk_entry(
     entry: Result<ignore::DirEntry, ignore::Error>,
     seed: &Path,
@@ -628,11 +695,16 @@ fn visit_walk_entry(
         return;
     };
     if file_type.is_dir() {
-        // Record every directory the walker entered. An ignore-pruned
-        // directory never reaches this visitor, so the recorded set is
-        // exactly what the measurement needs to tell "walked" from
-        // "pruned" without re-deriving any ignore decision.
-        let _ = sinks.dirs.send(entry.into_path());
+        // Record every directory the walker entered — but only when
+        // this walk measures ignore drops, so `bca metrics` over a
+        // million-directory tree does not allocate and retain a
+        // directory list nothing will read. An ignore-pruned directory
+        // never reaches this visitor, so the recorded set is exactly
+        // what the measurement needs to tell "walked" from "pruned"
+        // without re-deriving any ignore decision.
+        if filters.measure_ignored {
+            let _ = sinks.dirs.send(entry.into_path());
+        }
         return;
     }
     if !file_type.is_file() {
@@ -810,6 +882,10 @@ fn resolve_walk_files_inner(globals: GlobalOpts, measure_ignored: bool) -> (Reso
             canonical_manifest_dir.as_deref(),
         ),
         language_forced: globals.language.is_some(),
+        // With ignore handling off nothing can be ignore-dropped, so
+        // the measurement short-circuits to empty rather than reporting
+        // every hidden-or-excluded child as a mystery.
+        measure_ignored: measure_ignored && !globals.no_ignore,
     };
     let resolved = expand_seed_paths(
         globals.paths,
@@ -820,7 +896,6 @@ fn resolve_walk_files_inner(globals: GlobalOpts, measure_ignored: bool) -> (Reso
         // with (#1114).
         num_jobs,
         &filters,
-        measure_ignored,
     );
     (resolved, num_jobs)
 }

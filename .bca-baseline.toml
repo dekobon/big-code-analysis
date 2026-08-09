@@ -49,12 +49,6 @@ value = 48544.21441032752
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 527.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "classify_check_violations"
 metric = "nargs"
 value = 5.0
@@ -374,6 +368,12 @@ value = 6.0
 [[entry]]
 path = "big-code-analysis-cli/src/walk.rs"
 qualified = "classify_dropped_child"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/walk.rs"
+qualified = "expand_seed_paths"
 metric = "nargs"
 value = 5.0
 

@@ -2,7 +2,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: big-code-analysis Documentation\n"
-"POT-Creation-Date: 2026-08-08T22:27:57-07:00\n"
+"POT-Creation-Date: 2026-08-09T04:45:20-07:00\n"
 "PO-Revision-Date: 2026-07-21\n"
 "Last-Translator: big-code-analysis maintainers\n"
 "Language-Team: Japanese\n"
@@ -86,7 +86,7 @@ msgstr "品質レポート"
 msgid "CI integration"
 msgstr "CI 連携"
 
-#: src/SUMMARY.md:20 src/commands/check.md:588
+#: src/SUMMARY.md:20 src/commands/check.md:595
 msgid "Baselines"
 msgstr "ベースライン"
 
@@ -5791,13 +5791,13 @@ msgstr "パス探索フラグ"
 msgid ""
 "`--no-ignore` — disable `.gitignore` / `.ignore` / global-gitignore "
 "awareness when expanding directory seeds. `bca check` counts the analyzable "
-"files and prunes the directories ignore rules dropped from a gate run in its "
-"not-checked summary, lists them under `--report-skipped` (`note: skipped "
-"(ignored): <path>`, `note: skipped (ignored directory): <path>`), and "
-"disables the awareness under its [`--strict` profile](check.md#strict-mode), "
-"since an ignore file committed in the branch under test otherwise shrinks "
-"the checked set."
-msgstr "`--no-ignore` — ディレクトリシードを展開する際の `.gitignore` / `.ignore` / グローバル gitignore の解釈を無効にします。`bca check` は、ignore ルールによってゲート実行から除外された分析可能なファイルと、走査されなかったディレクトリを not-checked サマリーで数え、`--report-skipped` で一覧表示し（`note: skipped (ignored): <path>`、`note: skipped (ignored directory): <path>`）、[`--strict` プロファイル](check.md#strict-mode)ではこの解釈自体を無効にします。テスト対象のブランチにコミットされた ignore ファイルが、検査対象のファイル集合を黙って狭めてしまうためです。"
+"files ignore rules dropped from a gate run in its not-checked summary, lists "
+"every dropped entry under `--report-skipped` (`note: skipped (ignored): "
+"<path>`, `note: skipped (ignored directory): <path>`), and disables the "
+"awareness under its [`--strict` profile](check.md#strict-mode), since an "
+"ignore file committed in the branch under test otherwise shrinks the checked "
+"set."
+msgstr "`--no-ignore` — ディレクトリシードを展開する際の `.gitignore` / `.ignore` / グローバル gitignore の解釈を無効にします。`bca check` は、ignore ルールによってゲート実行から除外された分析可能なファイルを not-checked サマリーで数え、除外された各エントリを `--report-skipped` で一覧表示し（`note: skipped (ignored): <path>`、`note: skipped (ignored directory): <path>`）、[`--strict` プロファイル](check.md#strict-mode)ではこの解釈自体を無効にします。テスト対象のブランチにコミットされた ignore ファイルが、検査対象のファイル集合を黙って狭めてしまうためです。"
 
 #: src/commands/index.md:344
 msgid ""
@@ -5963,7 +5963,7 @@ msgstr "コマンド"
 msgid "Output"
 msgstr "出力"
 
-#: src/commands/metrics.md:58 src/commands/check.md:793
+#: src/commands/metrics.md:58 src/commands/check.md:800
 msgid "Audience"
 msgstr "対象"
 
@@ -6823,7 +6823,7 @@ msgstr ""
 "センタイルに再ランク付けし、その平均を取ります — 文献は、プロジェクト横断の頑"
 "健性のために、固定しきい値よりも相対的なトリガーを推奨しています。"
 
-#: src/commands/vcs.md:197 src/commands/report.md:41 src/commands/check.md:715
+#: src/commands/vcs.md:197 src/commands/report.md:41 src/commands/check.md:722
 #: src/commands/web-server.md:61 src/recipes/ci.md:533
 msgid "Flag"
 msgstr "フラグ"
@@ -9888,21 +9888,32 @@ msgid ""
 "<path>`, `note: skipped (ignored): <path>`, or `note: skipped (ignored "
 "directory): <path>` line. Under `--strict` nothing is skipped, so there is "
 "nothing to summarize."
-msgstr "クリーンな実行では何も出力されず、サマリーが終了コードを変えることもありません。`--report-skipped` は除外された各エントリを `note: skipped (generated): <path>`、`note: skipped (ignored): <path>`、または `note: skipped (ignored directory): <path>` の行で一覧表示します。`--strict` の下では何もスキップされないため、要約するものもありません。"
+msgstr ""
+"クリーンな実行では何も出力されず、サマリーが終了コードを変えることもありませ"
+"ん。`--report-skipped` は除外された各エントリを `note: skipped (generated): "
+"<path>`、`note: skipped (ignored): <path>`、または `note: skipped (ignored "
+"directory): <path>` の行で一覧表示します。`--strict` の下では何もスキップされ"
+"ないため、要約するものもありません。"
 
 #: src/commands/check.md:572
 msgid ""
-"The ignored counts come from the walk's prune points: for every directory "
-"the walker entered, the gate checks which immediate children ignore rules "
-"dropped. An ignored file with a recognized extension is counted; an ignored "
-"_directory_ is reported as one `ignored directory not walked` entry and "
-"never entered — enumerating a `target/`\\-sized build tree would cost a full "
-"second traversal and produce a million-file count with no signal in it. "
-"Ignored files that no parser owns (logs, lockfiles) are not reported; they "
-"would have been read and dropped, not checked."
-msgstr "ignore 由来のカウントは、ウォークの枝刈り地点で測定されます。ウォーカーが入った各ディレクトリについて、直下の子のうち ignore ルールが除外したものをゲートが確認します。認識される拡張子を持つ無視されたファイルはカウントされます。無視された「ディレクトリ」は `ignored directory not walked` の 1 エントリとして報告され、中には入りません。`target/` 規模のビルドツリーを列挙すれば、まるごともう 1 回の走査コストがかかり、意味のない数百万ファイルのカウントが生まれるためです。どのパーサも扱わない無視されたファイル（ログ、ロックファイル）は報告されません。それらは検査されるのではなく、読み込まれて破棄されるだけだからです。"
+"The counts come from the walk's prune points: for every directory the walker "
+"entered, the gate checks which immediate children ignore rules dropped. Only "
+"files a parser owns are counted, on both sides — an ignored log file, or a "
+"generated `Cargo.lock` (whose header matches `@generated`), would have been "
+"read and dropped rather than checked, and counting either would make the "
+"summary fire on every run. A file named explicitly on the command line "
+"bypasses ignore rules and is analyzed, so it is never counted. Ignored "
+"_directories_ are reported only under `--report-skipped`, as `N ignored "
+"directories not walked` entries, and are never entered: essentially every "
+"checkout has an ignored build tree on disk, and enumerating a `target/`\\-"
+"sized tree would cost a full second traversal for a million-file count with "
+"no signal in it. Note the ignored tally reflects every source the walker "
+"honors — in-tree `.gitignore`/`.ignore` files, but also the global gitignore "
+"and ancestor ignore files — so local and CI counts can differ."
+msgstr "カウントはウォークの枝刈り地点で測定されます。ウォーカーが入った各ディレクトリについて、直下の子のうち ignore ルールが除外したものをゲートが確認します。どちらの側でも、いずれかのパーサが扱うファイルだけがカウントされます。無視されたログファイルや、生成された `Cargo.lock`（ヘッダが `@generated` にマッチします）は、検査されるのではなく読み込まれて破棄されるだけであり、これらを数えるとサマリーがすべての実行で表示されてしまいます。コマンドラインで明示的に指定されたファイルは ignore ルールを迂回して分析されるため、カウントされません。無視された「ディレクトリ」は `--report-skipped` の下でのみ `N ignored directories not walked` のエントリとして報告され、中には入りません。無視されたビルドツリーはほぼすべてのチェックアウトに存在し、`target/` 規模のツリーを列挙すればまるごともう 1 回の走査コストで意味のない数百万ファイルのカウントが生まれるためです。なお ignore 由来の集計は、ツリー内の `.gitignore`/`.ignore` だけでなく、グローバル gitignore や祖先ディレクトリの ignore ファイルなど、ウォーカーが解釈するすべてのソースを反映するため、ローカルと CI でカウントが異なることがあります。"
 
-#: src/commands/check.md:582
+#: src/commands/check.md:589
 msgid ""
 "With content sniffing off, genuinely generated trees still need an "
 "exemption; give them one the reviewers own, either a committed walker deny-"
@@ -9916,7 +9927,7 @@ msgstr ""
 "[`[check.exclude]`](#exempting-whole-file-categories-checkexclude) のグロブを"
 "使ってください。"
 
-#: src/commands/check.md:590
+#: src/commands/check.md:597
 msgid ""
 "When you adopt thresholds on an existing codebase you typically face a "
 "binary choice between \"raise the limit until nothing fires\" and \"fix "
@@ -9930,7 +9941,7 @@ msgstr ""
 "の違反を記録し、退行と新規違反のみを失敗させ、チームが負債を返済するにつれて"
 "ファイルを縮小していきます。"
 
-#: src/commands/check.md:597
+#: src/commands/check.md:604
 msgid ""
 "Baselines are **complementary to** the suppression markers from [Suppression "
 "markers](suppression.md), not a substitute. Suppressions express \"this "
@@ -9945,11 +9956,11 @@ msgstr ""
 "表現し、コミットされた TOML ファイルに置かれます。`bca check` はまず抑制を尊"
 "重し、残ったものにベースラインフィルターを適用します。"
 
-#: src/commands/check.md:604
+#: src/commands/check.md:611
 msgid "Writing a baseline"
 msgstr "ベースラインの書き出し"
 
-#: src/commands/check.md:611
+#: src/commands/check.md:618
 msgid ""
 "This walks the tree, captures every threshold violation that would otherwise "
 "fail the check, and writes them to the file as sorted TOML. The run exits "
@@ -9959,7 +9970,7 @@ msgstr ""
 "反を捕捉して、ソート済み TOML としてファイルに書き出します。この実行は違反数"
 "に関係なく `0` で終了します — 目的は違反を捕捉することだからです。"
 
-#: src/commands/check.md:616
+#: src/commands/check.md:623
 msgid ""
 "```toml\n"
 "# bca baseline file. Generated by `bca check --write-baseline`.\n"
@@ -9995,7 +10006,7 @@ msgstr ""
 "value = 22.0\n"
 "```"
 
-#: src/commands/check.md:633
+#: src/commands/check.md:640
 msgid ""
 "The `qualified` field is the function's qualified symbol (the `::`\\-joined "
 "chain of enclosing named containers plus the function name). An entry "
@@ -10013,7 +10024,7 @@ msgstr ""
 "baseline-fuzzy-match` を使うと、各エントリはリネーム耐性のあるマッチングのた"
 "めの `body_hash` も持ちます。"
 
-#: src/commands/check.md:642
+#: src/commands/check.md:649
 msgid ""
 "Functions already covered by an in-source suppression marker are excluded. "
 "Pass `--no-suppress` together with `--write-baseline` to record every "
@@ -10023,7 +10034,7 @@ msgstr ""
 "を記録するには、`--write-baseline` と一緒に `--no-suppress` を渡します（CI 監"
 "査フロー）。"
 
-#: src/commands/check.md:646
+#: src/commands/check.md:653
 msgid ""
 "`--write-baseline` cannot be combined with `--baseline`, `--report-format`, "
 "`--output`, `--since`, or `--changed-only` — the baseline file _is_ the "
@@ -10033,15 +10044,15 @@ msgstr ""
 "since`、`--changed-only` と組み合わせられません — ベースラインファイルが出力"
 "「そのもの」だからです。"
 
-#: src/commands/check.md:650
+#: src/commands/check.md:657
 msgid "Reading a baseline"
 msgstr "ベースラインの読み込み"
 
-#: src/commands/check.md:657
+#: src/commands/check.md:664
 msgid "A violation is suppressed when both conditions hold:"
 msgstr "違反は、次の両方の条件が成り立つときに抑制されます。"
 
-#: src/commands/check.md:659
+#: src/commands/check.md:666
 msgid ""
 "An entry matches by `(path, qualified_symbol, metric)` — independent of line "
 "number — or, failing that and with `--baseline-fuzzy-match`, by body hash. "
@@ -10053,11 +10064,11 @@ msgstr ""
 "シュで一致する。（完全な解決順序は[ベースラインレシピ](../recipes/baselines."
 "md#how-matching-works)を参照してください。）"
 
-#: src/commands/check.md:663
+#: src/commands/check.md:670
 msgid "The current `value` is **less than or equal to** the recorded value."
 msgstr "現在の `value` が記録された値**以下**である。"
 
-#: src/commands/check.md:665
+#: src/commands/check.md:672
 msgid ""
 "A function that gets worse than its baseline value still fails. New "
 "offenders not listed in the baseline still fail. Improvements pass silently "
@@ -10068,7 +10079,7 @@ msgstr ""
 "い新規違反も引き続き失敗します。改善は黙って通過します（エントリは次の `--"
 "write-baseline` による更新まで、古い高めの値のまま残ります）。"
 
-#: src/commands/check.md:670
+#: src/commands/check.md:677
 msgid ""
 "A baseline file that does not exist, is empty, has a missing or unsupported "
 "`version`, or fails to parse is a tool error (exit `1`), not a silent zero-"
@@ -10078,7 +10089,7 @@ msgstr ""
 "敗するベースラインファイルはツールエラー（終了コード `1`）であり、黙ってゼロ"
 "マッチ扱いにはなりません。"
 
-#: src/commands/check.md:674
+#: src/commands/check.md:681
 msgid ""
 "Path keys are canonicalised relative to the baseline file's own directory "
 "(the _anchor_), so `--paths .`, `--paths src/`, and `--paths \"$PWD\"` "
@@ -10092,11 +10103,11 @@ msgstr ""
 "く `--baseline` 実行はマッチします — `--write-baseline` を再実行せずに自由に"
 "切り替えられます。"
 
-#: src/commands/check.md:680 src/recipes/baselines.md:420
+#: src/commands/check.md:687 src/recipes/baselines.md:420
 msgid "Limitations"
 msgstr "制限事項"
 
-#: src/commands/check.md:682
+#: src/commands/check.md:689
 msgid ""
 "**Ambiguous symbols / anonymous functions.** Entries key on the qualified "
 "symbol, so inserting code above a _named_ function no longer re-keys it. The "
@@ -10112,7 +10123,7 @@ msgstr ""
 "どちらも移動すると「新規」として再キーされます。`--write-baseline` で更新して"
 "ください。"
 
-#: src/commands/check.md:688
+#: src/commands/check.md:695
 msgid ""
 "**OS portability.** Paths are stored with forward slashes so a baseline "
 "written on one OS matches the same tree on another. Paths that are not valid "
@@ -10124,7 +10135,7 @@ msgstr ""
 "は損失のある表示形式（U+FFFD 置換）にフォールバックし、正確にラウンドトリップ"
 "しない場合があります。"
 
-#: src/commands/check.md:693
+#: src/commands/check.md:700
 msgid ""
 "See the [Baselines recipe](../recipes/baselines.md) for the end-to-end "
 "adoption flow and CI integration patterns."
@@ -10132,11 +10143,11 @@ msgstr ""
 "エンドツーエンドの導入フローと CI 統合パターンについては、[ベースラインレシ"
 "ピ](../recipes/baselines.md)を参照してください。"
 
-#: src/commands/check.md:696
+#: src/commands/check.md:703
 msgid "Reporting without failing"
 msgstr "失敗させずに報告する"
 
-#: src/commands/check.md:698
+#: src/commands/check.md:705
 msgid ""
 "`--no-fail` reports offenders as usual but exits `0`. Useful while adopting "
 "baselines without flipping CI red. Other CI tools call this behavior `--"
@@ -10147,11 +10158,11 @@ msgstr ""
 "report-only` や `--soft-fail` と呼びますが、ここでは `--no-fail` という綴りで"
 "す。"
 
-#: src/commands/check.md:707 src/recipes/ci.md:322
+#: src/commands/check.md:714 src/recipes/ci.md:322
 msgid "Actionable failure output"
 msgstr "対処しやすい失敗出力"
 
-#: src/commands/check.md:709
+#: src/commands/check.md:716
 msgid ""
 "When `bca check` fails, five flags shape the failure stream so a developer "
 "skimming a CI log can see what tripped, where in their PR it tripped, and "
@@ -10165,46 +10176,46 @@ msgstr ""
 "ずれも GitHub Actions の環境変数から自動検出されるため、一般的な CI のケース"
 "では明示的な設定は不要です。"
 
-#: src/commands/check.md:715 src/commands/suppression.md:27
+#: src/commands/check.md:722 src/commands/suppression.md:27
 #: src/commands/suppression.md:128 src/recipes/ci.md:533
 msgid "Effect"
 msgstr "効果"
 
-#: src/commands/check.md:715
+#: src/commands/check.md:722
 msgid "Auto-detect env"
 msgstr "自動検出する環境変数"
 
-#: src/commands/check.md:717 src/recipes/ci.md:535
+#: src/commands/check.md:724 src/recipes/ci.md:535
 msgid "`--since <ref>`"
 msgstr "`--since <ref>`"
 
-#: src/commands/check.md:717
+#: src/commands/check.md:724
 msgid ""
 "Partition per-file footer into \"Files in this range\" + \"Other offenders\""
 msgstr ""
 "ファイル別フッターを \"Files in this range\" と \"Other offenders\" に分割"
 
-#: src/commands/check.md:717
+#: src/commands/check.md:724
 msgid "`BCA_DIFF_BASE`, `GITHUB_BASE_REF`, `GITHUB_EVENT_BEFORE`"
 msgstr "`BCA_DIFF_BASE`、`GITHUB_BASE_REF`、`GITHUB_EVENT_BEFORE`"
 
-#: src/commands/check.md:718 src/recipes/ci.md:536
+#: src/commands/check.md:725 src/recipes/ci.md:536
 msgid "`--changed-only`"
 msgstr "`--changed-only`"
 
-#: src/commands/check.md:718
+#: src/commands/check.md:725
 msgid "Drop violations outside the diff scope entirely"
 msgstr "diff スコープ外の違反を完全に除外"
 
-#: src/commands/check.md:718
+#: src/commands/check.md:725
 msgid "Requires a resolvable base (`--since` or one of the above)"
 msgstr "解決可能なベースが必要（`--since` または上記のいずれか）"
 
-#: src/commands/check.md:719 src/recipes/ci.md:537
+#: src/commands/check.md:726 src/recipes/ci.md:537
 msgid "`--github-annotations <auto\\|always\\|never>`"
 msgstr "`--github-annotations <auto\\|always\\|never>`"
 
-#: src/commands/check.md:719
+#: src/commands/check.md:726
 msgid ""
 "Emit `::error file=…::msg` workflow commands for inline file annotations "
 "(bare flag = `always`)"
@@ -10212,15 +10223,15 @@ msgstr ""
 "インラインのファイル注釈のために `::error file=…::msg` ワークフローコマンドを"
 "出力（フラグ単独指定 = `always`）"
 
-#: src/commands/check.md:719
+#: src/commands/check.md:726
 msgid "`auto` detects `GITHUB_ACTIONS == \"true\"`"
 msgstr "`auto` は `GITHUB_ACTIONS == \"true\"` を検出"
 
-#: src/commands/check.md:720 src/recipes/ci.md:538
+#: src/commands/check.md:727 src/recipes/ci.md:538
 msgid "`--summary-file <path\\|auto\\|never>`"
 msgstr "`--summary-file <path\\|auto\\|never>`"
 
-#: src/commands/check.md:720
+#: src/commands/check.md:727
 msgid ""
 "Append markdown digest (per-file rollup + breakdown + top-10 offenders); "
 "`never` suppresses it"
@@ -10228,23 +10239,23 @@ msgstr ""
 "Markdown ダイジェスト（ファイル別集計 + 内訳 + 違反トップ 10）を追記。"
 "`never` で抑止"
 
-#: src/commands/check.md:720
+#: src/commands/check.md:727
 msgid "`auto` detects `GITHUB_STEP_SUMMARY`"
 msgstr "`auto` は `GITHUB_STEP_SUMMARY` を検出"
 
-#: src/commands/check.md:721 src/recipes/ci.md:539
+#: src/commands/check.md:728 src/recipes/ci.md:539
 msgid "`--no-remediation`"
 msgstr "`--no-remediation`"
 
-#: src/commands/check.md:721 src/recipes/ci.md:539
+#: src/commands/check.md:728 src/recipes/ci.md:539
 msgid "Suppress the trailing `--- next steps ---` block"
 msgstr "末尾の `--- next steps ---` ブロックを抑止"
 
-#: src/commands/check.md:721
+#: src/commands/check.md:728
 msgid "Block emitted on failure unless this flag is passed"
 msgstr "このフラグを渡さない限り、失敗時にブロックを出力"
 
-#: src/commands/check.md:723
+#: src/commands/check.md:730
 msgid ""
 "The per-violation rows and the per-file rollup footer remain unchanged in "
 "_content_ when none of the above are active, so CI tooling that grep-anchors "
@@ -10256,7 +10267,7 @@ msgstr ""
 "引き続き動作します — ただし、それぞれが現在どのストリームに出力されるかは[ど"
 "のストリームか](#which-stream)を参照してください。"
 
-#: src/commands/check.md:728
+#: src/commands/check.md:735
 msgid ""
 "See the [CI integration recipe](../recipes/ci.md#actionable-failure-output) "
 "for worked examples — including a \"putting it all together\" GHA snippet "
@@ -10270,15 +10281,15 @@ msgstr ""
 "baseline` 更新フローについては[ベースラインレシピ](../recipes/baselines.md)を"
 "参照してください。"
 
-#: src/commands/check.md:734
+#: src/commands/check.md:741
 msgid "Diff-base auto-detection precedence"
 msgstr "diff ベース自動検出の優先順位"
 
-#: src/commands/check.md:736
+#: src/commands/check.md:743
 msgid "When `--since` is omitted, `bca` consults env vars in this order:"
 msgstr "`--since` が省略された場合、`bca` は次の順序で環境変数を参照します。"
 
-#: src/commands/check.md:738
+#: src/commands/check.md:745
 msgid ""
 "`BCA_DIFF_BASE` — explicit override hatch for local shells or non-GHA CI "
 "runners."
@@ -10286,7 +10297,7 @@ msgstr ""
 "`BCA_DIFF_BASE` — ローカルシェルや GHA 以外の CI ランナー向けの明示的なオー"
 "バーライド手段。"
 
-#: src/commands/check.md:740
+#: src/commands/check.md:747
 msgid ""
 "`GITHUB_BASE_REF` — set by GHA on `pull_request` events. Expanded to `origin/"
 "<value>`; the runner is responsible for the corresponding `git fetch` "
@@ -10296,7 +10307,7 @@ msgstr ""
 "<value>` に展開されます。対応する `git fetch` はランナーの責任です（`actions/"
 "checkout` の `fetch-depth: 0`）。"
 
-#: src/commands/check.md:743
+#: src/commands/check.md:750
 msgid ""
 "`GITHUB_EVENT_BEFORE` — set by GHA on `push` events to the SHA at HEAD "
 "before the push. The all-zeroes sentinel (force push, brand-new branch) is "
@@ -10306,7 +10317,7 @@ msgstr ""
 "設定します。すべてゼロのセンチネル（強制プッシュ、新規ブランチ）はシグナルな"
 "しとして扱われます。"
 
-#: src/commands/check.md:747
+#: src/commands/check.md:754
 msgid ""
 "Failing to resolve a base is non-fatal **unless `--changed-only` is "
 "passed**, in which case the gate dies — silently suppressing every violation "
@@ -10322,41 +10333,41 @@ msgstr ""
 "（部分的なベースラインは、次のフルツリー実行で diff スコープ外のすべての違反"
 "を黙って覆い隠してしまいます）。"
 
-#: src/commands/check.md:755
+#: src/commands/check.md:762
 msgid "CI example (GitHub Actions)"
 msgstr "CI の例（GitHub Actions）"
 
-#: src/commands/check.md:758 src/commands/check.md:770
-#: src/commands/check.md:841 src/commands/check.md:850
-#: src/commands/check.md:856 src/commands/check.md:942
-#: src/commands/check.md:949 src/commands/check.md:951 src/recipes/ci.md:119
+#: src/commands/check.md:765 src/commands/check.md:777
+#: src/commands/check.md:848 src/commands/check.md:857
+#: src/commands/check.md:863 src/commands/check.md:949
+#: src/commands/check.md:956 src/commands/check.md:958 src/recipes/ci.md:119
 #: src/recipes/ci.md:126 src/recipes/ci.md:140 src/recipes/ci.md:176
 #: src/recipes/ci.md:184 src/recipes/ci.md:186 src/recipes/ci.md:194
 #: src/recipes/ci.md:222 src/recipes/ci.md:233 src/recipes/ci.md:237
 #: src/recipes/ci.md:245 src/recipes/ci.md:289 src/recipes/ci.md:354
 #: src/recipes/ci.md:415 src/recipes/ci.md:442 src/recipes/ci.md:505
-#: src/recipes/ci.md:565 src/recipes/ci.md:968 src/recipes/baselines.md:78
+#: src/recipes/ci.md:565 src/recipes/ci.md:970 src/recipes/baselines.md:78
 #: src/recipes/local-gates.md:414 src/recipes/local-gates.md:549
 #: src/recipes/local-gates.md:555 src/python/sarif.md:67 src/python/sarif.md:76
 msgid "name"
 msgstr "name"
 
-#: src/commands/check.md:758 src/recipes/baselines.md:78
+#: src/commands/check.md:765 src/recipes/baselines.md:78
 msgid "Check code complexity thresholds"
 msgstr "Check code complexity thresholds"
 
-#: src/commands/check.md:759 src/commands/check.md:771
-#: src/commands/check.md:851 src/commands/check.md:950
-#: src/commands/check.md:952 src/recipes/ci.md:128 src/recipes/ci.md:141
+#: src/commands/check.md:766 src/commands/check.md:778
+#: src/commands/check.md:858 src/commands/check.md:957
+#: src/commands/check.md:959 src/recipes/ci.md:128 src/recipes/ci.md:141
 #: src/recipes/ci.md:187 src/recipes/ci.md:238 src/recipes/ci.md:290
 #: src/recipes/ci.md:355 src/recipes/ci.md:416 src/recipes/ci.md:443
-#: src/recipes/ci.md:506 src/recipes/ci.md:566 src/recipes/ci.md:969
+#: src/recipes/ci.md:506 src/recipes/ci.md:566 src/recipes/ci.md:971
 #: src/recipes/baselines.md:79 src/recipes/local-gates.md:415
 #: src/python/sarif.md:68
 msgid "run"
 msgstr "run"
 
-#: src/commands/check.md:759
+#: src/commands/check.md:766
 msgid ""
 "    bca check\n"
 "  # Thresholds and paths come from the auto-discovered `bca.toml`\n"
@@ -10369,7 +10380,7 @@ msgstr ""
 "  # ステップが失敗する — はまさにここで求めるものです。追加の配線は不要で"
 "す。\n"
 
-#: src/commands/check.md:766
+#: src/commands/check.md:773
 msgid ""
 "If you want to keep the job green and surface offenders as a build "
 "annotation while you reduce the count, swap in `--no-fail`:"
@@ -10377,19 +10388,19 @@ msgstr ""
 "違反数を減らしている間、ジョブをグリーンに保ちつつ違反をビルド注釈として表示"
 "したい場合は、`--no-fail` に置き換えます。"
 
-#: src/commands/check.md:770
+#: src/commands/check.md:777
 msgid "Surface complexity hot spots (non-blocking)"
 msgstr "Surface complexity hot spots (non-blocking)"
 
-#: src/commands/check.md:771
+#: src/commands/check.md:778
 msgid "    bca check --paths src/ --no-fail\n"
 msgstr "    bca check --paths src/ --no-fail\n"
 
-#: src/commands/check.md:775
+#: src/commands/check.md:782
 msgid "Exporting offender records"
 msgstr "違反レコードのエクスポート"
 
-#: src/commands/check.md:777
+#: src/commands/check.md:784
 msgid ""
 "`bca check` also emits a single CI/IDE document covering every offender in "
 "the walk. Pass `--report-format <fmt>` to pick the shape and `--output "
@@ -10405,7 +10416,7 @@ msgstr ""
 "削除されます。終了コードの契約はこれらのフラグの影響を受けません。クリーンな"
 "ら 0、違反があれば 2（`--no-fail` 時を除く）、ツールエラーなら 1 です。"
 
-#: src/commands/check.md:785
+#: src/commands/check.md:792
 msgid ""
 "When `--output` is given without `--report-format`, the format is **inferred "
 "from the output extension**: `.sarif` selects `sarif` and `.xml` selects "
@@ -10423,51 +10434,51 @@ msgstr ""
 "`--output` が黙って無視されることは決してありません。明示的な `--report-"
 "format` は常に拡張子より優先されます。"
 
-#: src/commands/check.md:793
+#: src/commands/check.md:800
 msgid "Format"
 msgstr "フォーマット"
 
-#: src/commands/check.md:795
+#: src/commands/check.md:802
 msgid "`checkstyle`"
 msgstr "`checkstyle`"
 
-#: src/commands/check.md:795
+#: src/commands/check.md:802
 msgid "Jenkins, SonarQube, GitLab, \"warnings plugin\" CI"
 msgstr "Jenkins、SonarQube、GitLab、\"warnings plugin\" 系 CI"
 
-#: src/commands/check.md:796
+#: src/commands/check.md:803
 msgid "`sarif`"
 msgstr "`sarif`"
 
-#: src/commands/check.md:796
+#: src/commands/check.md:803
 msgid "GitHub Code Scanning, modern IDEs / security tooling"
 msgstr "GitHub Code Scanning、モダンな IDE / セキュリティツール"
 
-#: src/commands/check.md:797
+#: src/commands/check.md:804
 msgid "`code-climate`"
 msgstr "`code-climate`"
 
-#: src/commands/check.md:797
+#: src/commands/check.md:804
 msgid "GitLab MR Code Quality widget"
 msgstr "GitLab MR の Code Quality ウィジェット"
 
-#: src/commands/check.md:798
+#: src/commands/check.md:805
 msgid "`clang-warning`"
 msgstr "`clang-warning`"
 
-#: src/commands/check.md:798
+#: src/commands/check.md:805
 msgid "Editor quickfix parsers, GitHub Actions problem matcher"
 msgstr "エディタの quickfix パーサー、GitHub Actions の problem matcher"
 
-#: src/commands/check.md:799
+#: src/commands/check.md:806
 msgid "`msvc-warning`"
 msgstr "`msvc-warning`"
 
-#: src/commands/check.md:799
+#: src/commands/check.md:806
 msgid "Visual Studio, VS Code, Windows CI runners"
 msgstr "Visual Studio、VS Code、Windows CI ランナー"
 
-#: src/commands/check.md:801
+#: src/commands/check.md:808
 msgid ""
 "When no offenders exist the writer emits a well-formed but empty document — "
 "empty `runs[].results` array for SARIF, empty JSON array (`[]`) for Code "
@@ -10481,11 +10492,11 @@ msgstr ""
 "つの警告行フォーマットでは 0 バイト — これにより CI コンシューマーは違反のな"
 "い実行結果もそのまま取り込めます。"
 
-#: src/commands/check.md:808
+#: src/commands/check.md:815
 msgid "Checkstyle (CI integration)"
 msgstr "Checkstyle（CI 統合）"
 
-#: src/commands/check.md:817
+#: src/commands/check.md:824
 msgid ""
 "The Checkstyle writer emits a single `<checkstyle version=\"4.3\">` document "
 "containing one `<file>` element per source path, each holding one `<error>` "
@@ -10499,11 +10510,11 @@ msgstr ""
 "の XSD で、Jenkins および SonarQube の「Warnings Next Generation」/「Generic "
 "Issue」インポーターが直接取り込めます。"
 
-#: src/commands/check.md:823
+#: src/commands/check.md:830
 msgid "SARIF (GitHub Code Scanning)"
 msgstr "SARIF（GitHub Code Scanning）"
 
-#: src/commands/check.md:832
+#: src/commands/check.md:839
 msgid ""
 "The SARIF writer emits a single SARIF 2.1.0 JSON document with one `runs[]` "
 "element. Each metric-threshold violation becomes a `result` under `runs[0]."
@@ -10515,75 +10526,75 @@ msgstr ""
 "`result` になり、実行結果に現れるメトリクス名は重複排除されて、短い説明ととも"
 "に `runs[0].tool.driver.rules[]` に格納されます。"
 
-#: src/commands/check.md:838
+#: src/commands/check.md:845
 msgid "To upload a SARIF file to GitHub Code Scanning from a workflow:"
 msgstr ""
 "ワークフローから GitHub Code Scanning に SARIF ファイルをアップロードするに"
 "は:"
 
-#: src/commands/check.md:841
+#: src/commands/check.md:848
 msgid "bca-sarif"
 msgstr "bca-sarif"
 
-#: src/commands/check.md:842 src/commands/check.md:943
+#: src/commands/check.md:849 src/commands/check.md:950
 msgid "push"
 msgstr "push"
 
-#: src/commands/check.md:842 src/commands/check.md:943 src/recipes/ci.md:224
+#: src/commands/check.md:849 src/commands/check.md:950 src/recipes/ci.md:224
 msgid "pull_request"
 msgstr "pull_request"
 
-#: src/commands/check.md:842 src/commands/check.md:943 src/recipes/ci.md:225
+#: src/commands/check.md:849 src/commands/check.md:950 src/recipes/ci.md:225
 msgid "jobs"
 msgstr "jobs"
 
-#: src/commands/check.md:844
+#: src/commands/check.md:851
 msgid "scan"
 msgstr "scan"
 
-#: src/commands/check.md:845 src/commands/check.md:946 src/recipes/ci.md:228
+#: src/commands/check.md:852 src/commands/check.md:953 src/recipes/ci.md:228
 msgid "runs-on"
 msgstr "runs-on"
 
-#: src/commands/check.md:845 src/commands/check.md:946 src/recipes/ci.md:228
+#: src/commands/check.md:852 src/commands/check.md:953 src/recipes/ci.md:228
 msgid "ubuntu-latest"
 msgstr "ubuntu-latest"
 
-#: src/commands/check.md:846 src/recipes/ci.md:229
+#: src/commands/check.md:853 src/recipes/ci.md:229
 msgid "permissions"
 msgstr "permissions"
 
-#: src/commands/check.md:847
+#: src/commands/check.md:854
 msgid "security-events"
 msgstr "security-events"
 
-#: src/commands/check.md:847 src/recipes/ci.md:230
+#: src/commands/check.md:854 src/recipes/ci.md:230
 msgid "write"
 msgstr "write"
 
-#: src/commands/check.md:848 src/commands/check.md:947 src/recipes/ci.md:111
+#: src/commands/check.md:855 src/commands/check.md:954 src/recipes/ci.md:111
 #: src/recipes/ci.md:231
 msgid "steps"
 msgstr "steps"
 
-#: src/commands/check.md:849 src/commands/check.md:857
-#: src/commands/check.md:948 src/recipes/ci.md:121 src/recipes/ci.md:177
+#: src/commands/check.md:856 src/commands/check.md:864
+#: src/commands/check.md:955 src/recipes/ci.md:121 src/recipes/ci.md:177
 #: src/recipes/ci.md:185 src/recipes/ci.md:195 src/recipes/ci.md:232
 #: src/recipes/ci.md:234 src/recipes/ci.md:246 src/recipes/ci.md:348
 #: src/recipes/ci.md:498 src/python/sarif.md:77
 msgid "uses"
 msgstr "uses"
 
-#: src/commands/check.md:849 src/commands/check.md:948 src/recipes/ci.md:232
+#: src/commands/check.md:856 src/commands/check.md:955 src/recipes/ci.md:232
 #: src/recipes/ci.md:348 src/recipes/ci.md:498
 msgid "actions/checkout@v4"
 msgstr "actions/checkout@v4"
 
-#: src/commands/check.md:850 src/commands/check.md:951
+#: src/commands/check.md:857 src/commands/check.md:958
 msgid "Run big-code-analysis"
 msgstr "Run big-code-analysis"
 
-#: src/commands/check.md:851
+#: src/commands/check.md:858
 msgid ""
 "          bca check --paths . \\\n"
 "              --report-format sarif \\\n"
@@ -10595,29 +10606,29 @@ msgstr ""
 "              --output report.sarif.json \\\n"
 "              --no-fail\n"
 
-#: src/commands/check.md:856
+#: src/commands/check.md:863
 msgid "Upload SARIF"
 msgstr "Upload SARIF"
 
-#: src/commands/check.md:857 src/python/sarif.md:77
+#: src/commands/check.md:864 src/python/sarif.md:77
 msgid "github/codeql-action/upload-sarif@v3"
 msgstr "github/codeql-action/upload-sarif@v3"
 
-#: src/commands/check.md:858 src/recipes/ci.md:122 src/recipes/ci.md:178
+#: src/commands/check.md:865 src/recipes/ci.md:122 src/recipes/ci.md:178
 #: src/recipes/ci.md:196 src/recipes/ci.md:235 src/recipes/ci.md:247
 #: src/recipes/ci.md:349 src/recipes/ci.md:499 src/python/sarif.md:78
 msgid "with"
 msgstr "with"
 
-#: src/commands/check.md:859 src/python/sarif.md:79
+#: src/commands/check.md:866 src/python/sarif.md:79
 msgid "sarif_file"
 msgstr "sarif_file"
 
-#: src/commands/check.md:859
+#: src/commands/check.md:866
 msgid "report.sarif.json"
 msgstr "report.sarif.json"
 
-#: src/commands/check.md:862
+#: src/commands/check.md:869
 msgid ""
 "`--no-fail` keeps the job green so the SARIF upload step still runs when "
 "offenders exist; remove it once you want a metric regression to fail the "
@@ -10627,11 +10638,11 @@ msgstr ""
 "アップロードステップは実行されます。メトリクスの悪化でワークフローを失敗させ"
 "たくなったら外してください。"
 
-#: src/commands/check.md:866
+#: src/commands/check.md:873
 msgid "GitLab Code Quality (Code Climate JSON)"
 msgstr "GitLab Code Quality（Code Climate JSON）"
 
-#: src/commands/check.md:875
+#: src/commands/check.md:882
 msgid ""
 "The Code Climate writer emits a single JSON array of issue objects matching "
 "[GitLab's strict subset](https://docs.gitlab.com/ci/testing/code_quality/) "
@@ -10661,78 +10672,78 @@ msgstr ""
 "`critical`/`blocker` ですが、`bca` が `info` を出力することはありません — し"
 "きい値違反は常に `minor` 以上になります。"
 
-#: src/commands/check.md:890
+#: src/commands/check.md:897
 msgid "To wire the artifact into GitLab's MR Code Quality widget:"
 msgstr ""
 "アーティファクトを GitLab の MR Code Quality ウィジェットに接続するには:"
 
-#: src/commands/check.md:893 src/recipes/ci.md:757
+#: src/commands/check.md:900 src/recipes/ci.md:757
 msgid "code_quality"
 msgstr "code_quality"
 
-#: src/commands/check.md:894 src/recipes/ci.md:677 src/recipes/ci.md:758
+#: src/commands/check.md:901 src/recipes/ci.md:677 src/recipes/ci.md:758
 #: src/recipes/ci.md:800
 msgid "stage"
 msgstr "stage"
 
-#: src/commands/check.md:894 src/recipes/ci.md:667 src/recipes/ci.md:677
+#: src/commands/check.md:901 src/recipes/ci.md:667 src/recipes/ci.md:677
 #: src/recipes/ci.md:758 src/recipes/ci.md:800
 msgid "quality"
 msgstr "quality"
 
-#: src/commands/check.md:895 src/recipes/ci.md:759 src/recipes/ci.md:807
+#: src/commands/check.md:902 src/recipes/ci.md:759 src/recipes/ci.md:807
 #: src/recipes/baselines.md:92
 msgid "script"
 msgstr "script"
 
-#: src/commands/check.md:896 src/recipes/ci.md:760
+#: src/commands/check.md:903 src/recipes/ci.md:760
 msgid "bca check --paths \"$CI_PROJECT_DIR\""
 msgstr "bca check --paths \"$CI_PROJECT_DIR\""
 
-#: src/commands/check.md:897 src/recipes/ci.md:706 src/recipes/ci.md:761
+#: src/commands/check.md:904 src/recipes/ci.md:706 src/recipes/ci.md:761
 msgid "--report-format code-climate"
 msgstr "--report-format code-climate"
 
-#: src/commands/check.md:898 src/recipes/ci.md:707 src/recipes/ci.md:762
+#: src/commands/check.md:905 src/recipes/ci.md:707 src/recipes/ci.md:762
 msgid "--output gl-code-quality-report.json"
 msgstr "--output gl-code-quality-report.json"
 
-#: src/commands/check.md:899 src/recipes/ci.md:708 src/recipes/ci.md:714
+#: src/commands/check.md:906 src/recipes/ci.md:708 src/recipes/ci.md:714
 #: src/recipes/ci.md:763
 msgid "--no-fail"
 msgstr "--no-fail"
 
-#: src/commands/check.md:900 src/recipes/ci.md:724 src/recipes/ci.md:764
+#: src/commands/check.md:907 src/recipes/ci.md:724 src/recipes/ci.md:764
 msgid "artifacts"
 msgstr "artifacts"
 
-#: src/commands/check.md:901 src/recipes/ci.md:725 src/recipes/ci.md:765
+#: src/commands/check.md:908 src/recipes/ci.md:725 src/recipes/ci.md:765
 msgid "when"
 msgstr "when"
 
-#: src/commands/check.md:901 src/recipes/ci.md:725 src/recipes/ci.md:765
+#: src/commands/check.md:908 src/recipes/ci.md:725 src/recipes/ci.md:765
 msgid "always"
 msgstr "always"
 
-#: src/commands/check.md:902 src/recipes/ci.md:726 src/recipes/ci.md:766
+#: src/commands/check.md:909 src/recipes/ci.md:726 src/recipes/ci.md:766
 msgid "reports"
 msgstr "reports"
 
-#: src/commands/check.md:903 src/recipes/ci.md:727 src/recipes/ci.md:767
+#: src/commands/check.md:910 src/recipes/ci.md:727 src/recipes/ci.md:767
 msgid "codequality"
 msgstr "codequality"
 
-#: src/commands/check.md:903 src/commands/check.md:905 src/recipes/ci.md:727
+#: src/commands/check.md:910 src/commands/check.md:912 src/recipes/ci.md:727
 #: src/recipes/ci.md:729 src/recipes/ci.md:767 src/recipes/ci.md:769
 msgid "gl-code-quality-report.json"
 msgstr "gl-code-quality-report.json"
 
-#: src/commands/check.md:904 src/recipes/ci.md:683 src/recipes/ci.md:728
+#: src/commands/check.md:911 src/recipes/ci.md:683 src/recipes/ci.md:728
 #: src/recipes/ci.md:768
 msgid "paths"
 msgstr "paths"
 
-#: src/commands/check.md:908
+#: src/commands/check.md:915
 msgid ""
 "See the [GitLab Code Quality widget recipe](../recipes/ci.md#gitlab-code-"
 "quality-widget) for the full pipeline (combined Code Climate + Checkstyle + "
@@ -10743,7 +10754,7 @@ msgstr ""
 "ウィジェットのレシピ](../recipes/ci.md#gitlab-code-quality-widget)を参照して"
 "ください。"
 
-#: src/commands/check.md:913
+#: src/commands/check.md:920
 msgid ""
 "`--no-fail` keeps the job green so the Code Quality report still uploads "
 "when offenders exist; remove it once you want a metric regression to fail "
@@ -10753,11 +10764,11 @@ msgstr ""
 "Quality レポートはアップロードされます。メトリクスの悪化でパイプラインを失敗"
 "させたくなったら外してください。"
 
-#: src/commands/check.md:917
+#: src/commands/check.md:924
 msgid "Clang/GCC warning lines (editor quickfix and CI annotators)"
 msgstr "Clang/GCC 警告行（エディタの quickfix と CI アノテーター）"
 
-#: src/commands/check.md:926
+#: src/commands/check.md:933
 msgid ""
 "The Clang format emits one offender per line in the conventional compiler-"
 "warning shape:"
@@ -10765,7 +10776,7 @@ msgstr ""
 "Clang フォーマットは、慣例的なコンパイラ警告の形式で違反を 1 行に 1 件ずつ出"
 "力します:"
 
-#: src/commands/check.md:933
+#: src/commands/check.md:940
 msgid ""
 "This is the format `clang -fdiagnostics-format=` produces and the shape "
 "every editor quickfix parser (VS Code, IntelliJ, Vim) and most CI annotators "
@@ -10775,7 +10786,7 @@ msgstr ""
 "ディタの quickfix パーサー（VS Code、IntelliJ、Vim）と大半の CI アノテーター"
 "が設定なしで解釈できる形式です。"
 
-#: src/commands/check.md:937
+#: src/commands/check.md:944
 msgid ""
 "GitHub Actions surfaces the lines as inline annotations on the PR diff via "
 "the built-in GCC problem matcher (or any community `compiler-problem-"
@@ -10785,23 +10796,23 @@ msgstr ""
 "製 `compiler-problem-matchers` アクション）を介して、これらの行を PR の差分上"
 "のインラインアノテーションとして表示します:"
 
-#: src/commands/check.md:942
+#: src/commands/check.md:949
 msgid "bca-clang-warnings"
 msgstr "bca-clang-warnings"
 
-#: src/commands/check.md:945
+#: src/commands/check.md:952
 msgid "lint"
 msgstr "lint"
 
-#: src/commands/check.md:949
+#: src/commands/check.md:956
 msgid "Enable GCC problem matcher"
 msgstr "Enable GCC problem matcher"
 
-#: src/commands/check.md:950
+#: src/commands/check.md:957
 msgid "echo \"::add-matcher::$RUNNER_TOOL_CACHE/problem-matchers/gcc.json\""
 msgstr "echo \"::add-matcher::$RUNNER_TOOL_CACHE/problem-matchers/gcc.json\""
 
-#: src/commands/check.md:952
+#: src/commands/check.md:959
 msgid ""
 "          bca check --paths . \\\n"
 "              --report-format clang-warning \\\n"
@@ -10811,7 +10822,7 @@ msgstr ""
 "              --report-format clang-warning \\\n"
 "              --no-fail\n"
 
-#: src/commands/check.md:958
+#: src/commands/check.md:965
 msgid ""
 "If your runner does not ship a GCC matcher, fall back to streaming the lines "
 "and re-emitting them as `::warning file=...,line=...::` workflow commands."
@@ -10820,11 +10831,11 @@ msgstr ""
 "て `::warning file=...,line=...::` ワークフローコマンドとして再出力する方法に"
 "フォールバックしてください。"
 
-#: src/commands/check.md:962
+#: src/commands/check.md:969
 msgid "MSVC warning lines (Visual Studio and Windows CI)"
 msgstr "MSVC 警告行（Visual Studio と Windows CI）"
 
-#: src/commands/check.md:971
+#: src/commands/check.md:978
 msgid ""
 "The MSVC format emits one offender per line in Visual Studio's `cl.exe` "
 "diagnostic shape:"
@@ -10832,7 +10843,7 @@ msgstr ""
 "MSVC フォーマットは、Visual Studio の `cl.exe` 診断形式で違反を 1 行に 1 件ず"
 "つ出力します:"
 
-#: src/commands/check.md:978
+#: src/commands/check.md:985
 msgid ""
 "Note the space before the colon after `warning`/`error` — that is the MSVC "
 "convention. On Windows the path is normalized to use `\\` separators "
@@ -16906,17 +16917,20 @@ msgstr ""
 msgid ""
 "The ignored count covers analyzable files at the directories the walk "
 "entered. A whole directory dropped by an ignore rule (a build tree, or an "
-"attacker ignoring a source directory outright) is reported as its own clause "
-"— `3 ignored directories not walked` — and never entered, so the summary "
-"stays cheap and small on trees with large ignored build output. See [the "
-"check page](../commands/check.md#strict-mode) for the exact rules."
-msgstr "ignore 由来のカウントは、ウォークが入ったディレクトリにある分析可能なファイルを対象とします。ignore ルールでディレクトリごと除外された場合（ビルドツリーや、攻撃者がソースディレクトリを丸ごと無視した場合）は、`3 ignored directories not walked` のように独立した句として報告され、中には入りません。そのため、大きなビルド出力が無視されているツリーでもサマリーは軽量かつ小さく保たれます。正確な規則は[check のページ](../commands/check.md#strict-mode)を参照してください。"
+"attacker ignoring a source directory outright) is never entered and appears "
+"only under `--report-skipped`, as its own clause — `3 ignored directories "
+"not walked` — because ignored build trees are present in essentially every "
+"checkout and would otherwise make the default summary permanent noise. A PR "
+"gate that must see whole-directory drops should pass `--report-skipped` or, "
+"better, `--strict`. See [the check page](../commands/check.md#strict-mode) "
+"for the exact rules."
+msgstr "ignore 由来のカウントは、ウォークが入ったディレクトリにある分析可能なファイルを対象とします。ignore ルールでディレクトリごと除外された場合（ビルドツリーや、攻撃者がソースディレクトリを丸ごと無視した場合）、そのディレクトリには入らず、`--report-skipped` の下でのみ `3 ignored directories not walked` のような独立した句として表示されます。無視されたビルドツリーはほぼすべてのチェックアウトに存在するため、既定のサマリーに含めると恒常的なノイズになるからです。ディレクトリ単位の除外を確認する必要がある PR ゲートでは `--report-skipped` を、より望ましくは `--strict` を渡してください。正確な規則は[check のページ](../commands/check.md#strict-mode)を参照してください。"
 
-#: src/recipes/ci.md:962
+#: src/recipes/ci.md:964
 msgid "`--strict` turns both mechanisms off"
 msgstr "`--strict` は両方の仕組みを無効にする"
 
-#: src/recipes/ci.md:964
+#: src/recipes/ci.md:966
 msgid ""
 "For a gate over untrusted input, turn both mechanisms off rather than "
 "auditing stderr:"
@@ -16924,15 +16938,15 @@ msgstr ""
 "信頼できない入力に対するゲートでは、stderr を監査するのではなく、両方の仕組み"
 "を無効にしてください。"
 
-#: src/recipes/ci.md:968
+#: src/recipes/ci.md:970
 msgid "Threshold gate (PR)"
 msgstr "Threshold gate (PR)"
 
-#: src/recipes/ci.md:969
+#: src/recipes/ci.md:971
 msgid "bca check --strict --paths src/"
 msgstr "bca check --strict --paths src/"
 
-#: src/recipes/ci.md:972
+#: src/recipes/ci.md:974
 msgid ""
 "[`--strict`](../commands/check.md#strict-mode) is equivalent to `--no-skip-"
 "generated --no-ignore`; prefer the single flag, since a recipe that "
@@ -29504,6 +29518,26 @@ msgstr ""
 "ない）ため、更新する際はローカルで `tree-sitter generate` を実行するのではな"
 "く、アップストリームプロジェクトから生成済みの `src/` を再ベンダリングしま"
 "す。"
+
+#~ msgid ""
+#~ "The ignored counts come from the walk's prune points: for every directory "
+#~ "the walker entered, the gate checks which immediate children ignore rules "
+#~ "dropped. An ignored file with a recognized extension is counted; an "
+#~ "ignored _directory_ is reported as one `ignored directory not walked` "
+#~ "entry and never entered — enumerating a `target/`\\-sized build tree "
+#~ "would cost a full second traversal and produce a million-file count with "
+#~ "no signal in it. Ignored files that no parser owns (logs, lockfiles) are "
+#~ "not reported; they would have been read and dropped, not checked."
+#~ msgstr ""
+#~ "ignore 由来のカウントは、ウォークの枝刈り地点で測定されます。ウォーカーが"
+#~ "入った各ディレクトリについて、直下の子のうち ignore ルールが除外したものを"
+#~ "ゲートが確認します。認識される拡張子を持つ無視されたファイルはカウントされ"
+#~ "ます。無視された「ディレクトリ」は `ignored directory not walked` の 1 エ"
+#~ "ントリとして報告され、中には入りません。`target/` 規模のビルドツリーを列挙"
+#~ "すれば、まるごともう 1 回の走査コストがかかり、意味のない数百万ファイルの"
+#~ "カウントが生まれるためです。どのパーサも扱わない無視されたファイル（ログ、"
+#~ "ロックファイル）は報告されません。それらは検査されるのではなく、読み込まれ"
+#~ "て破棄されるだけだからです。"
 
 #~ msgid ""
 #~ "`--no-ignore` — disable `.gitignore` / `.ignore` / global-gitignore "
