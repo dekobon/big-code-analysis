@@ -80,11 +80,22 @@ fn display_covers_every_variant() {
             "history cache error: disk full",
         ),
     ];
-    assert_eq!(
-        cases.len(),
-        VARIANT_COUNT,
-        "every `Error` variant needs a Display case; add the new one here",
-    );
+    // Completeness, for the half of the enum that can be enumerated.
+    // Comparing discriminants ignores the payloads, which differ between
+    // the samples and the cases below. The environment variants have no
+    // generated list and stay hand-checked — nothing can enumerate them,
+    // so a new one silently goes unpinned here.
+    let covered: Vec<_> = cases
+        .iter()
+        .map(|(err, _)| std::mem::discriminant(err))
+        .collect();
+    for sample in Error::client_input_samples() {
+        assert!(
+            covered.contains(&std::mem::discriminant(&sample)),
+            "client-input variant {sample:?} has no Display case; its wording \
+             is the `error` prose of a 400 and nothing else pins it",
+        );
+    }
     for (err, expected) in cases {
         let rendered = err.to_string();
         assert!(
@@ -118,17 +129,19 @@ fn invalid_formula_lists_the_accepted_names() {
     assert!(rendered.contains("percentile"), "{rendered:?}");
 }
 
-/// Number of [`Error`] variants, split into the two groups of
-/// `classify_error_variants!`.
+/// Size of the `client_input` group of `classify_error_variants!`.
 ///
-/// Hand-maintained on purpose: these are the tripwires that fire when a
-/// variant is *moved* between the groups. Every other assertion in this
-/// file iterates one group or the other, so a move shrinks one list and
-/// grows the other and passes everything — see
-/// `is_client_input_classifies_every_variant`.
+/// Hand-maintained on purpose, and compared against
+/// `Error::client_input_samples()` — a production-derived list — so it
+/// fires when a variant *moves* between the two groups. That move is
+/// otherwise invisible: it shrinks one list and grows the other, which
+/// every per-variant assertion in this file survives.
+///
+/// There is deliberately no matching `ENVIRONMENT_COUNT`. The
+/// environment cases below are a vec literal, so asserting its length
+/// would compare a literal against a constant and could not fail for
+/// any change to `Error`.
 const CLIENT_INPUT_COUNT: usize = 11;
-const ENVIRONMENT_COUNT: usize = 6;
-const VARIANT_COUNT: usize = CLIENT_INPUT_COUNT + ENVIRONMENT_COUNT;
 
 // Pin the client-input vs environment/backend classification of every
 // variant (issue #641). The web boundary maps `is_client_input()` to
@@ -163,11 +176,6 @@ fn is_client_input_classifies_every_variant() {
         CLIENT_INPUT_COUNT,
         "the client-input group changed size; if that is deliberate, every \
          new variant also needs an `error_kind` token in the web crate",
-    );
-    assert_eq!(
-        environment.len(),
-        ENVIRONMENT_COUNT,
-        "the environment group changed size; add or remove the case here",
     );
     for err in client_input {
         assert!(err.is_client_input(), "{err:?} should be client input");
