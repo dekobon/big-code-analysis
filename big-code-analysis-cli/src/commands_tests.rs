@@ -1237,3 +1237,187 @@ fn into_preproc_data_degrades_on_shared_arc() {
         "shared-Arc recovery must surface the accumulated file entries"
     );
 }
+
+// ---------------------------------------------------------------------
+// Aggregate `--output` element ordering (#1244)
+// ---------------------------------------------------------------------
+
+/// A trivial parsed Rust document carrying `name`.
+///
+/// The tests below hand the same fixture a *path* that disagrees with
+/// its `name`, so an assertion on the emitted order can only hold if
+/// `write_aggregate` keys on the emitted path — sorting by `name`, or
+/// not sorting at all, produces a different sequence in every case.
+fn aggregate_ast(name: &str) -> big_code_analysis::Ast {
+    use big_code_analysis::{Ast, LANG, Source};
+
+    Ast::parse(Source::new(LANG::Rust, b"fn f() { let x = 1; }\n").with_name(Some(name.to_owned())))
+        .expect("fixture parses")
+}
+
+/// The `metrics` element of an [`aggregate_ast`] document.
+fn aggregate_space(name: &str) -> FuncSpace {
+    aggregate_ast(name)
+        .metrics(big_code_analysis::MetricsOptions::default())
+        .expect("fixture yields metrics")
+}
+
+/// The `ops` element of an [`aggregate_ast`] document.
+fn aggregate_ops(name: &str) -> Ops {
+    aggregate_ast(name).ops().expect("fixture yields ops")
+}
+
+/// `(emitted path, document name)` in a deliberately scrambled source
+/// order. The path order (`alpha`, `beta`, `middle`, `zebra`) is not
+/// the source order, not the name order, and — because `beta` and
+/// `middle` carry deliberately anti-correlated names — not the reversed
+/// name order either.
+const SCRAMBLED: [(&str, &str); 4] = [
+    ("src/zebra.rs", "name-aaa"),
+    ("src/alpha.rs", "name-zzz"),
+    ("src/middle.rs", "name-yyy"),
+    ("src/beta.rs", "name-mmm"),
+];
+
+/// The names of [`SCRAMBLED`] in emitted-path order — hand-pinned, and
+/// the answer to no other ordering rule: not source order
+/// (`aaa, zzz, yyy, mmm`), not name-ascending (`aaa, mmm, yyy, zzz`),
+/// not name-descending (`zzz, yyy, mmm, aaa`), not path-descending
+/// (`aaa, yyy, mmm, zzz`).
+const PATH_ORDERED_NAMES: [&str; 4] = ["name-zzz", "name-mmm", "name-yyy", "name-aaa"];
+
+/// Read the `name` of every element of a JSON aggregate, positionally.
+fn aggregate_names(out: &Path) -> Vec<String> {
+    let doc: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(out).expect("aggregate written"))
+            .expect("aggregate is valid JSON");
+    doc.as_array()
+        .expect("aggregate is a top-level array")
+        .iter()
+        .map(|elem| {
+            elem.get("name")
+                .and_then(serde_json::Value::as_str)
+                .expect("every element carries a name")
+                .to_owned()
+        })
+        .collect()
+}
+
+/// Workers stream their results in completion order, so `metrics
+/// --output <FILE>` used to emit a differently-ordered document on
+/// every run over an unchanged tree (#1244). The aggregate is sorted by
+/// emitted path before serialization.
+#[test]
+fn write_aggregate_orders_metrics_elements_by_emitted_path() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out = dir.path().join("metrics.json");
+    let items = SCRAMBLED
+        .iter()
+        .map(|(path, name)| {
+            AggregateItem::Metrics(Box::new(aggregate_space(name)), PathBuf::from(path))
+        })
+        .collect();
+
+    write_aggregate(Some(MetricsFormat::Json), items, &out, false);
+
+    assert_eq!(
+        aggregate_names(&out),
+        PATH_ORDERED_NAMES,
+        "metrics aggregate elements must be emitted in sorted emitted-path order"
+    );
+}
+
+/// The `ops` arm of the same contract. `Ops` carries no path of its
+/// own, which is why `AggregateItem::Ops` ships one alongside it.
+#[test]
+fn write_aggregate_orders_ops_elements_by_emitted_path() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out = dir.path().join("ops.json");
+    let items = SCRAMBLED
+        .iter()
+        .map(|(path, name)| AggregateItem::Ops(Box::new(aggregate_ops(name)), PathBuf::from(path)))
+        .collect();
+
+    write_aggregate(Some(MetricsFormat::Json), items, &out, false);
+
+    assert_eq!(
+        aggregate_names(&out),
+        PATH_ORDERED_NAMES,
+        "ops aggregate elements must be emitted in sorted emitted-path order"
+    );
+}
+
+/// The CSV arm builds its rows from the same vector, keyed by the
+/// emitted path in the first column, so it inherits the same order.
+#[test]
+fn write_aggregate_orders_csv_rows_by_emitted_path() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out = dir.path().join("metrics.csv");
+    let items = SCRAMBLED
+        .iter()
+        .map(|(path, name)| {
+            AggregateItem::Metrics(Box::new(aggregate_space(name)), PathBuf::from(path))
+        })
+        .collect();
+
+    write_aggregate(Some(MetricsFormat::Csv), items, &out, false);
+
+    let text = std::fs::read_to_string(&out).expect("aggregate written");
+    let mut lines = text.lines();
+    assert!(
+        lines.next().is_some_and(|h| h.starts_with("path,")),
+        "expected the shared CSV header first: {text}"
+    );
+    // One file contributes several rows (one per space), so collapse
+    // runs of the same path rather than asserting row-for-row.
+    let mut paths: Vec<&str> = Vec::new();
+    for line in lines {
+        let path = line.split(',').next().expect("split yields one field");
+        if paths.last() != Some(&path) {
+            paths.push(path);
+        }
+    }
+    assert_eq!(
+        paths,
+        [
+            "src/alpha.rs",
+            "src/beta.rs",
+            "src/middle.rs",
+            "src/zebra.rs"
+        ],
+        "CSV aggregate rows must be grouped in sorted emitted-path order"
+    );
+}
+
+/// The degenerate sizes: sorting must not turn an empty run into a
+/// missing document, nor a one-file run into an empty array. Both are
+/// real `--output` invocations (a tree with no analyzable file; a
+/// single explicit path).
+#[test]
+fn write_aggregate_handles_empty_and_single_element_runs() {
+    let dir = tempfile::tempdir().expect("tempdir");
+
+    let empty = dir.path().join("empty.json");
+    write_aggregate(Some(MetricsFormat::Json), Vec::new(), &empty, false);
+    assert_eq!(
+        std::fs::read_to_string(&empty).expect("empty aggregate written"),
+        "[]",
+        "an empty run still writes an empty aggregate array"
+    );
+
+    let single = dir.path().join("single.json");
+    write_aggregate(
+        Some(MetricsFormat::Json),
+        vec![AggregateItem::Metrics(
+            Box::new(aggregate_space("name-only")),
+            PathBuf::from("src/only.rs"),
+        )],
+        &single,
+        false,
+    );
+    assert_eq!(
+        aggregate_names(&single),
+        ["name-only"],
+        "a single-element run emits exactly that element"
+    );
+}

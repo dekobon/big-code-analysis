@@ -14,10 +14,24 @@ use super::*;
 /// channel item stays small (a `FuncSpace` tree is large).
 pub(crate) enum AggregateItem {
     /// A `metrics` file-level space plus its emitted path (the path is
-    /// needed for the CSV aggregate, whose rows are keyed by file).
+    /// needed for the CSV aggregate, whose rows are keyed by file, and
+    /// as the aggregate document's ordering key).
     Metrics(Box<FuncSpace>, PathBuf),
-    /// An `ops` operator/operand tree.
-    Ops(Box<Ops>),
+    /// An `ops` operator/operand tree plus its emitted path. `Ops`
+    /// carries only a `name`, which for non-UTF-8 input is a *lossy*
+    /// rendering of that path, so the path rides alongside it as the
+    /// ordering key (see `write_aggregate`).
+    Ops(Box<Ops>, PathBuf),
+}
+
+impl AggregateItem {
+    /// The emitted path of the file this result came from — the
+    /// aggregate document's ordering key (#1244).
+    pub(crate) fn emitted_path(&self) -> &Path {
+        match self {
+            Self::Metrics(_, path) | Self::Ops(_, path) => path,
+        }
+    }
 }
 
 /// Assemble a runtime [`GlobalOpts`] from a subcommand's flag groups.

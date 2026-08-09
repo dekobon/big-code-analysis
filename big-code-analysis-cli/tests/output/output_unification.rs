@@ -11,6 +11,9 @@
 //! - #1115: every file destination is written through a buffer that is
 //!   explicitly flushed, so a document larger than the buffer is
 //!   complete on disk rather than missing its tail.
+//! - #1244: the aggregate document's elements are emitted in sorted
+//!   emitted-path order rather than worker-completion order, so two
+//!   runs over an unchanged tree produce byte-identical files.
 
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -183,6 +186,129 @@ fn output_writes_single_aggregate_file() {
             "each element is a metrics record: {elem}"
         );
     }
+    // The elements are ordered by emitted path, not by whichever worker
+    // finished first (#1244). Two files can pair up in the arrival order
+    // by chance, so the discriminating case is the many-file fixture in
+    // `aggregate_elements_are_ordered_by_path_not_worker_arrival`; this
+    // is the cheap guard on the shape everyone reads.
+    assert_eq!(
+        aggregate_names(&doc),
+        [
+            dir.path().join("a.rs").to_str().unwrap(),
+            dir.path().join("b.rs").to_str().unwrap(),
+        ],
+        "aggregate elements must be emitted in sorted emitted-path order"
+    );
+}
+
+/// Read the `name` of every element of a JSON aggregate, positionally.
+/// Deliberately order-preserving: the order *is* the property under
+/// test in the #1244 assertions below.
+fn aggregate_names(doc: &serde_json::Value) -> Vec<&str> {
+    doc.as_array()
+        .expect("aggregate is a top-level array")
+        .iter()
+        .map(|elem| {
+            elem.get("name")
+                .and_then(serde_json::Value::as_str)
+                .expect("every element carries a name")
+        })
+        .collect()
+}
+
+/// Write `FILES` one-function sources under `dir` and return their
+/// paths in the order the aggregate must emit them.
+///
+/// The expectation is sorted as `PathBuf`s, not as strings: `Path`
+/// compares component-wise (`a/b` sorts before `a-x/c`, the reverse of
+/// the bytewise answer), and production sorts paths. A string-sorted
+/// expectation agrees only as long as every fixture file sits in one
+/// flat directory, and would fail spuriously the day one does not.
+fn write_ordering_fixture(dir: &std::path::Path, files: usize) -> Vec<String> {
+    let mut expected: Vec<std::path::PathBuf> = Vec::with_capacity(files);
+    for i in 0..files {
+        // `m10.rs` sorts before `m2.rs`, so the numeric and lexicographic
+        // orders disagree — an assertion that accidentally described
+        // creation order would not match.
+        let file = dir.join(format!("m{i}.rs"));
+        std::fs::write(&file, format!("fn f{i}() {{ let x = {i}; }}\n")).unwrap();
+        expected.push(file);
+    }
+    expected.sort_unstable();
+    expected
+        .iter()
+        .map(|p| p.to_str().unwrap().to_owned())
+        .collect()
+}
+
+/// Run `command --output <FILE>` as JSON over `dir` at `--jobs 8` and
+/// return the emitted document.
+fn aggregate_at_eight_jobs(
+    dir: &std::path::Path,
+    command: &str,
+    out: &std::path::Path,
+) -> serde_json::Value {
+    cli()
+        .args([
+            command,
+            "--paths",
+            dir.to_str().unwrap(),
+            "-O",
+            "json",
+            "--output",
+            out.to_str().unwrap(),
+            "--jobs",
+            "8",
+        ])
+        .assert()
+        .success();
+
+    serde_json::from_slice(&std::fs::read(out).unwrap()).expect("aggregate is valid JSON")
+}
+
+/// Enough files that worker completion order reliably diverges from the
+/// walk's sorted file list at `--jobs 8`.
+const ORDERING_FIXTURE_FILES: usize = 24;
+
+/// Workers finish out of order, so before #1244 this fixture emitted a
+/// different permutation on every run — twelve measured runs gave
+/// twelve distinct orders and not one of them sorted. The aggregate is
+/// now sorted by emitted path before serialization, which makes a
+/// single run's order the whole assertion: no repeat-and-compare, which
+/// could pass on scheduling luck.
+#[test]
+fn aggregate_elements_are_ordered_by_path_not_worker_arrival() {
+    let dir = TempDir::new().unwrap();
+    let expected = write_ordering_fixture(dir.path(), ORDERING_FIXTURE_FILES);
+    let out = dir.path().join("agg.json");
+
+    let doc = aggregate_at_eight_jobs(dir.path(), "metrics", &out);
+
+    assert_eq!(
+        aggregate_names(&doc),
+        expected,
+        "aggregate elements must be emitted in sorted emitted-path order"
+    );
+}
+
+/// The `ops` half of the same contract, end to end. `AggregateItem::Ops`
+/// carries a `PathBuf` for one reason — it is the sort key — and only a
+/// multi-file `ops --output` run exercises the wiring that puts it
+/// there: with the walk's path dropped at the send site, every unit test
+/// above still passes because they construct the items by hand.
+#[test]
+fn ops_aggregate_elements_are_ordered_by_path_not_worker_arrival() {
+    let dir = TempDir::new().unwrap();
+    let expected = write_ordering_fixture(dir.path(), ORDERING_FIXTURE_FILES);
+    let out = dir.path().join("ops.json");
+
+    let doc = aggregate_at_eight_jobs(dir.path(), "ops", &out);
+
+    assert_eq!(
+        aggregate_names(&doc),
+        expected,
+        "ops aggregate elements must be emitted in sorted emitted-path order"
+    );
 }
 
 /// `--output-dir <DIR>` writes the per-file tree (the historical
