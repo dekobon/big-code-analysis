@@ -77,14 +77,94 @@ fn run_manpages(workspace_root: &Path) -> io::Result<()> {
     // Sweep orphan `.1` files (renamed/removed subcommands) so the CI
     // man-page drift gate flips red on stale pages instead of silently
     // shipping them. The deletion shows up in `git diff`; the page the
-    // rename *adds* needs the gate's untracked half (#1249).
+    // rename *adds* needs the gate's untracked half (#1249). A
+    // *case-only* rename is the one shape the sweep refuses to resolve
+    // on its own and reports as an error (#1250).
     sweep_orphans(&out_dir, &expected)?;
 
     println!("Wrote man pages to {}", out_dir.display());
     Ok(())
 }
 
+/// Whether two `*.1` filenames can name the same physical file.
+///
+/// The one definition of the equivalence relation both halves of the
+/// man-page mechanism apply: `render_man_page`'s collision guard and
+/// `sweep_orphans`' classification. They spelled it separately once,
+/// disagreed, and the sweep deleted the page the guard had just
+/// written (#1250) — sharing it makes that divergence unrepresentable.
+///
+/// Only ASCII case is folded, so a non-ASCII pair such as `café.1` /
+/// `CAFÉ.1` is *not* matched — on APFS those name one file, making that
+/// pair #1250 unfixed. What keeps the gap unreachable is that no clap
+/// command in this workspace is non-ASCII. `render_man_page`'s
+/// `debug_assert` is a tripwire for that fact rather than a guard on
+/// it: it panics instead of returning an error, and is compiled out
+/// under `--release` (every invocation today is a debug build).
+/// Adopting a Unicode-folding comparison (e.g. `unicase`) is the
+/// prerequisite for lifting the restriction.
+fn names_same_file(a: &str, b: &str) -> bool {
+    a.eq_ignore_ascii_case(b)
+}
+
+/// Delete `man/*.1` files that no command in `expected` accounts for.
+///
+/// A directory entry has *three* verdicts against `expected`, not two,
+/// so sharing the write guard's relation is not simply a matter of
+/// swapping in a case-insensitive comparison (#1250):
+///
+/// * byte-equal to an expected name — the page just written; keep.
+/// * no [`names_same_file`] match — a renamed or removed command's
+///   stale page; remove.
+/// * a [`names_same_file`] match that is not byte-equal — a case-only
+///   command rename; error, because neither other verdict is right.
+///   *Removing* destroys the page `render_man_page` just wrote: on
+///   APFS / NTFS the write for `BCA.1` lands in the existing `bca.1`
+///   directory entry, since those filesystems are case-*preserving*
+///   and opening a file under a different spelling does not rename it.
+///   *Keeping* strands a stale page on ext4 / btrfs, where the two
+///   files are distinct. Measured against
+///   `utils/check-manpage-drift.py` (#1249): the untracked `BCA.1`
+///   makes the gate red once and `git add man/` clears it, but the
+///   rename never touches `bca.1`'s bytes, so that page is invisible
+///   to both halves of the gate from the outset and simply stays
+///   tracked — after which a case-insensitive sweep can never remove
+///   it and it ships forever.
+///
+/// Erroring is the only verdict *derivable from the filenames alone*
+/// that reads the same on every filesystem, which is what the guard's
+/// comment says this crate normalises for, and it keeps the two sites'
+/// *polarity* aligned: both reject a case-only collision rather than
+/// one rejecting and the other silently retaining. The sweep could
+/// instead ask the filesystem whether the two spellings are one file
+/// (`st_dev` / `st_ino`, or `file_index` /
+/// `volume_serial_number` on Windows) and resolve it with no human
+/// step. That is two platform-gated code paths for an event that has
+/// happened zero times; it is the escape hatch if case-only renames
+/// ever become routine.
 fn sweep_orphans(out_dir: &Path, expected: &[String]) -> io::Result<()> {
+    // Load-bearing for the single `find` below, not merely for its
+    // cost: if `expected` held both `bca.1` and `BCA.1`, `find` would
+    // answer with whichever came first and the entry `bca.1` would be
+    // classified by list order — kept or rejected. `render_man_page`
+    // rules that out by refusing to push a second name that matches an
+    // earlier one, so the candidate is unique when it exists.
+    debug_assert!(
+        !expected
+            .iter()
+            .enumerate()
+            .any(|(i, a)| expected[..i].iter().any(|b| names_same_file(a, b))),
+        "render_man_page must reject case-insensitively equal page names before they reach \
+         the sweep; got {expected:?}",
+    );
+    // Classify every entry before unlinking any of it. `fs::read_dir`
+    // order is unspecified, so removing as we go and bailing on the
+    // first conflict would delete a different subset of the orphans on
+    // each run, and would report only the first of several renames.
+    // Two phases make "the error path removes nothing" a postcondition
+    // a test can assert.
+    let mut orphans = Vec::<PathBuf>::new();
+    let mut conflicts = Vec::<String>::new();
     for entry in fs::read_dir(out_dir)? {
         let entry = entry?;
         let path = entry.path();
@@ -96,14 +176,42 @@ fn sweep_orphans(out_dir: &Path, expected: &[String]) -> io::Result<()> {
         // Only sweep .1 files — leave any future README / .gitkeep
         // committed alongside untouched. Skip real directories so a
         // stray `foo.1/` doesn't error out the whole sweep.
-        if !file_type.is_dir()
-            && path.extension().is_some_and(|e| e == "1")
-            && let Some(name) = path.file_name().and_then(|n| n.to_str())
-            && !expected.iter().any(|n| n == name)
-        {
-            fs::remove_file(&path)?;
-            println!("Removed orphan {}", path.display());
+        if file_type.is_dir() || path.extension().is_none_or(|e| e != "1") {
+            continue;
         }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        // At most one candidate, per the assertion above, so
+        // byte-equality alone decides between the keep and error arms.
+        match expected.iter().find(|n| names_same_file(n, name)) {
+            // The page just written.
+            Some(want) if want == name => {}
+            Some(want) => conflicts.push(format!(
+                "  `{name}` differs from expected `{want}` only in ASCII case — `rm man/{name}`"
+            )),
+            None => orphans.push(path),
+        }
+    }
+
+    if !conflicts.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!(
+                "a case-only man-page rename cannot be swept safely — on a case-insensitive \
+                 filesystem the stale spelling *is* the page just written, so neither keeping \
+                 nor removing it is right everywhere. No orphan pages were removed. Delete the \
+                 file(s) below and re-run `cargo xtask`:\n{}\n(plain `rm`, not `git rm`: on a \
+                 case-insensitive filesystem the file now holds the freshly rendered content, \
+                 and `git rm` refuses a path with local modifications)",
+                conflicts.join("\n"),
+            ),
+        ));
+    }
+
+    for path in orphans {
+        fs::remove_file(&path)?;
+        println!("Removed orphan {}", path.display());
     }
     Ok(())
 }
@@ -180,7 +288,11 @@ fn render_man_page(
     // case-insensitive filesystems while case-sensitive ext4/btrfs
     // see two distinct files. Normalising to ASCII case here makes
     // the gate behave identically on every developer workstation.
-    if expected.iter().any(|n| n.eq_ignore_ascii_case(&filename)) {
+    //
+    // The relation lives in `names_same_file` because `sweep_orphans`
+    // must apply the same one; the two spelling it separately, and
+    // diverging, is #1250.
+    if expected.iter().any(|n| names_same_file(n, &filename)) {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
             format!("duplicate man page filename `{filename}` for command `{name}`"),
@@ -257,6 +369,129 @@ mod tests {
         assert!(
             !tmp.path().join("baz.1").exists(),
             "orphan baz.1 must be removed"
+        );
+    }
+
+    // A case-only command rename (`bca` -> `BCA`) as it presents on a
+    // case-insensitive filesystem (APFS, NTFS): `render_man_page`
+    // wrote `BCA.1`, the write landed in the pre-existing `bca.1`
+    // directory entry, and that single entry is what the sweep sees.
+    //
+    // Both competing designs fail this: the case-*sensitive* original
+    // deletes the file and returns `Ok`, and a plain
+    // `eq_ignore_ascii_case` keep returns `Ok` without naming the
+    // conflict.
+    #[test]
+    fn sweep_errors_on_case_only_rename_with_one_entry() {
+        let tmp = TempDir::new().expect("tempdir");
+        fs::write(tmp.path().join("bca.1"), b"freshly rendered BCA page")
+            .expect("write fixture file");
+
+        let err = sweep_orphans(tmp.path(), &["BCA.1".to_string()])
+            .expect_err("case-only rename must not be swept silently");
+
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        let msg = err.to_string();
+        assert!(
+            msg.contains("bca.1") && msg.contains("BCA.1"),
+            "error must name both spellings, got: {msg}"
+        );
+        assert!(
+            tmp.path().join("bca.1").exists(),
+            "the page just written must survive the sweep"
+        );
+        assert_eq!(
+            fs::read(tmp.path().join("bca.1")).expect("read page"),
+            b"freshly rendered BCA page",
+            "surviving page contents must be untouched",
+        );
+    }
+
+    // The same rename as it presents on a case-*sensitive* filesystem
+    // (ext4, btrfs): `BCA.1` is a new file and the stale `bca.1`
+    // remains. The verdict must be the error raised above — that
+    // identical-on-every-filesystem property is the whole reason the
+    // third arm exists, and it is what a plain `eq_ignore_ascii_case`
+    // keep gives up (there the stale page survives, is committed by the
+    // drift gate's own `git add man/` remedy, and is then permanently
+    // unsweepable).
+    //
+    // On a case-insensitive filesystem this fixture collapses into the
+    // previous test's single entry. That is not a gap: the assertions
+    // below hold in both worlds, which is the property under test.
+    #[test]
+    fn sweep_errors_on_case_only_rename_with_both_entries() {
+        let tmp = TempDir::new().expect("tempdir");
+        fs::write(tmp.path().join("bca.1"), b"stale lowercase page").expect("write stale page");
+        fs::write(tmp.path().join("BCA.1"), b"freshly rendered BCA page")
+            .expect("write fresh page");
+
+        let err = sweep_orphans(tmp.path(), &["BCA.1".to_string()])
+            .expect_err("case-only rename must not be swept silently");
+
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        // The remedy must name the *stale* spelling. An implementation
+        // that interpolated the expected name here would tell the
+        // contributor to delete the page just generated, and every
+        // `exists()` assertion below would still pass — this is the
+        // only test where the two spellings are separate files, so it
+        // is the only one that can catch the transposition.
+        assert!(
+            err.to_string().contains("`rm man/bca.1`"),
+            "remedy must name the stale spelling, got: {err}"
+        );
+        assert_eq!(
+            fs::read(tmp.path().join("BCA.1")).expect("read expected page"),
+            b"freshly rendered BCA page",
+            "the expected page must survive with its contents intact",
+        );
+        assert_eq!(
+            fs::read(tmp.path().join("bca.1")).expect("read stale page"),
+            b"stale lowercase page",
+            "the stale page must be left for the contributor to remove, not silently deleted",
+        );
+    }
+
+    // The error path is a refusal, not a partial sweep: `fs::read_dir`
+    // order is unspecified, so a sweep that unlinked as it classified
+    // would remove a different subset of the genuine orphans on each
+    // run before bailing. `zz-orphan.1` here is a true orphan that the
+    // same call would delete were it not for the conflict.
+    #[test]
+    fn sweep_removes_nothing_when_a_case_only_rename_is_detected() {
+        let tmp = TempDir::new().expect("tempdir");
+        touch(tmp.path(), "bca.1");
+        touch(tmp.path(), "zz-orphan.1");
+
+        sweep_orphans(tmp.path(), &["BCA.1".to_string()])
+            .expect_err("case-only rename must not be swept silently");
+
+        assert!(
+            tmp.path().join("zz-orphan.1").exists(),
+            "the error path must not have unlinked a genuine orphan"
+        );
+    }
+
+    // The shared relation is `eq_ignore_ascii_case`, which folds only
+    // ASCII — so a non-ASCII case difference is *not* a match and the
+    // entry is swept as an ordinary orphan. That limitation is the one
+    // `render_man_page`'s `debug_assert` exists to keep unreachable
+    // (no clap command in this workspace is non-ASCII). Pinning it here
+    // makes a future switch to Unicode case folding a deliberate change
+    // rather than a silent one, and discriminates the ASCII relation
+    // from a full-folding `to_lowercase()` comparison, which would
+    // instead error.
+    #[test]
+    fn sweep_treats_non_ascii_case_difference_as_an_orphan() {
+        let tmp = TempDir::new().expect("tempdir");
+        touch(tmp.path(), "café.1");
+
+        sweep_orphans(tmp.path(), &["CAFÉ.1".to_string()])
+            .expect("non-ASCII case difference is not a case-insensitive match");
+
+        assert!(
+            !tmp.path().join("café.1").exists(),
+            "eq_ignore_ascii_case does not fold `é`, so the entry is an orphan"
         );
     }
 
