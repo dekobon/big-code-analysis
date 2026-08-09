@@ -1097,7 +1097,15 @@ bench-walk:
 #               the grammars without ASan and reproduces a C-scanner
 #               crash weakly or not at all.
 FUZZ_RUNS ?= 100000
-FUZZ_TIMEOUT ?= 10
+# 60 s is measured, not chosen: the slowest *legitimate* input seen so
+# far — nested_depth's 5-byte seed decoding to 508 alternating
+# Block/Lambda levels of JavaScript — takes 11 s solo under ASan plus
+# the harness's ten-walk fan-out, so the previous default of 10 failed
+# on correct behaviour (#1308). Sixty keeps ~5x headroom over that
+# while still catching the one thing a wall-clock timeout reliably
+# catches, an unbounded loop. Raise it only for a new, slower,
+# *measured* legitimate input; investigate anything else.
+FUZZ_TIMEOUT ?= 60
 FUZZ_TARGET ?= parse_cpp
 FUZZ_INPUT ?=
 
