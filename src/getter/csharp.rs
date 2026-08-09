@@ -45,7 +45,7 @@ impl Getter for CsharpCode {
         }
     }
 
-    fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> HalsteadType {
         use Csharp::*;
 
         match node.kind_id().into() {
@@ -79,9 +79,26 @@ impl Getter for CsharpCode {
             // Predefined / primitive types
             | PredefinedType
                 => HalsteadType::Operator,
-            // Operands: identifiers and literals.
+            // `boolean_literal: choice('true', 'false')` wraps the
+            // keyword leaf, so a literal reaches the walker twice;
+            // listing both kinds inflated `N2` by one per literal while
+            // the text-keyed `n2` hid it (#1253). The leaf cannot simply
+            // be dropped: the overloadable-operator list emits a bare
+            // `true` / `false` under `operator_declaration` — the
+            // grammar's only unwrapped position — and suppressing that
+            // would leave two such declarations with identical Halstead
+            // vocabularies whenever their bodies match. That position
+            // keeps its pre-#1253 `Operand` classification here; whether
+            // an overloaded operator's *name* is better counted as an
+            // operator, as `operator +` already is, is #1296.
+            True | False => match ancestors.parent(node).map(|p| p.kind_id().into()) {
+                Some(BooleanLiteral) => HalsteadType::Unknown,
+                _ => HalsteadType::Operand,
+            },
+            // Operands: identifiers and literals. `NullLiteral` is a
+            // childless leaf, so it needs no such guard.
             Identifier | GenericName | QualifiedName | AliasQualifiedName
-            | IntegerLiteral | RealLiteral | BooleanLiteral | NullLiteral | True | False
+            | IntegerLiteral | RealLiteral | BooleanLiteral | NullLiteral
             | CharacterLiteral | StringLiteral | VerbatimStringLiteral | RawStringLiteral
                 => HalsteadType::Operand,
             // `$"..."` counts as one operand when inert. When it carries

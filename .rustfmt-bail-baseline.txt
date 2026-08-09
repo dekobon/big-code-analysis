@@ -99,7 +99,7 @@ src/getter.rs 2
 src/getter/bash.rs 3
 src/getter/c.rs 3
 src/getter/cpp.rs 6
-src/getter/csharp.rs 2
+src/getter/csharp.rs 5
 src/getter/elixir.rs 2
 src/getter/go.rs 1
 src/getter/groovy.rs 4

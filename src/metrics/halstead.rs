@@ -2065,6 +2065,15 @@ mod tests {
         // to 14 (5 non-primitive operators + 9 distinct primitives);
         // total operators (N1) is unchanged because the same nodes are
         // still counted, just keyed by lexeme.
+        //
+        // N2 dropped 23 → 21 with issue #1253: `true` and `false` each
+        // reached the walker twice — once as `boolean_literal`, once as
+        // the keyword leaf under it — so each added one spurious
+        // occurrence. n2 is unchanged at 21 because operands are keyed
+        // by source text, so the duplicate collapsed into the existing
+        // vocabulary entry; that is exactly why the inflation was
+        // invisible in n2. Every operand here is distinct, so
+        // N2 == n2 == 21 after the fix.
         check_metrics::<CsharpParser>(
             "public class Prims {
                 byte a = 1;
@@ -2083,8 +2092,64 @@ mod tests {
                 assert_eq!(metric.halstead.unique_operators(), 14);
                 assert_eq!(metric.halstead.total_operators(), 33);
                 assert_eq!(metric.halstead.unique_operands(), 21);
-                assert_eq!(metric.halstead.total_operands(), 23);
+                assert_eq!(metric.halstead.total_operands(), 21);
                 insta::assert_json_snapshot!(metric.halstead);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_boolean_literal_counts_once() {
+        // Regression: issue #1253. `boolean_literal: choice('true',
+        // 'false')` wraps the keyword leaf, and both kinds sat in the
+        // operand arm, so every `true` / `false` occurrence added +1 to
+        // N2. Operands are keyed by source text, so the duplicate
+        // collapsed into the same vocabulary entry and n2 stayed
+        // correct — which is why nothing caught it.
+        //
+        // Source repeats `true` so N2 exceeds n2 and the assertions can
+        // tell "counted once per occurrence" from "deduplicated into
+        // the vocabulary".
+        //
+        // Operands by text key: `A`, `M`, `a`, `b`, `c`, `d`, `true` × 2,
+        // `false`, `null` ⇒ n2 = 9, N2 = 10. Before the fix the keyword
+        // leaves added one occurrence per boolean ⇒ N2 = 13.
+        check_metrics::<CsharpParser>(
+            "class A {\n    void M() {\n        bool a = true;\n        bool b = false;\n        bool c = true;\n        object d = null;\n    }\n}\n",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operands(), 9);
+                assert_eq!(metric.halstead.total_operands(), 10);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_boolean_keyword_outside_a_literal_still_counts() {
+        // Companion to the test above (#1253): the suppression fires on
+        // the *parent* kind, never on `True` / `False` alone. C#'s
+        // overloadable-operator list emits a bare `true` / `false` token
+        // with no `boolean_literal` wrapper — `operator_declaration` is
+        // the grammar's only such position — so a blanket exclusion
+        // would drop the operand that is the sole difference between
+        // `operator true` and `operator false`, leaving two such
+        // declarations with identical Halstead vocabularies whenever
+        // their bodies match.
+        //
+        // Each declaration names one boolean and returns the other, so
+        // the fixture exercises both the guarded and the unguarded
+        // position for each keyword.
+        //
+        // Operands: `A` × 3 (class name, two parameter types), `a` × 2,
+        // `true` × 2 (operator name + literal), `false` × 2 (likewise)
+        // ⇒ n2 = 4, N2 = 9. A blanket exclusion gives N2 = 7; no guard
+        // at all restores the double count at N2 = 11.
+        check_metrics::<CsharpParser>(
+            "class A {\n    public static bool operator true(A a) => false;\n    public static bool operator false(A a) => true;\n}\n",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operands(), 4);
+                assert_eq!(metric.halstead.total_operands(), 9);
             },
         );
     }
@@ -3056,6 +3121,65 @@ f() {
         check_metrics::<ElixirParser>("def f do\n  \"hello\"\nend\n", "foo.ex", |metric| {
             assert_eq!(metric.halstead.unique_operands(), 3);
             assert_eq!(metric.halstead.total_operands(), 3);
+        });
+    }
+
+    #[test]
+    fn elixir_boolean_and_nil_literals_count_once() {
+        // Regression: issue #1253. `boolean: choice("true", "false")`
+        // and `nil: "nil"` each wrap a keyword leaf, and both the
+        // wrapper and the leaf sat in the operand arm — so every
+        // literal occurrence added +1 to N2. Operands are keyed by
+        // source text, so the duplicate collapsed into the same
+        // vocabulary entry and n2 stayed correct, which is why nothing
+        // caught it.
+        //
+        // Source is the issue's reproducer plus a repeat of `true` and
+        // `nil`, so N2 exceeds n2 and the assertions can tell "counted
+        // once per occurrence" from "deduplicated into the vocabulary".
+        // All three keywords appear, so restoring any one of `True`,
+        // `False`, or `Nil2` to the operand arm trips this test.
+        //
+        // Operands by text key: `x`, `y`, `z`, `w`, `v`, `true` × 2,
+        // `nil` × 2, `false` ⇒ n2 = 8, N2 = 10. Before the fix each of
+        // the five literals counted twice ⇒ N2 = 15.
+        //
+        // This also guards the drift in the other direction. Elixir
+        // classifies the wrapper and drops the leaf outright rather
+        // than parent-guarding it, so a grammar bump that stopped
+        // emitting `boolean` / `nil` would leave the leaves unclassified
+        // and the literals would vanish from N2 entirely (⇒ 5 / 5)
+        // rather than merely being miscounted.
+        check_metrics::<ElixirParser>(
+            "x = true\ny = nil\nz = false\nw = true\nv = nil\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operands(), 8);
+                assert_eq!(metric.halstead.total_operands(), 10);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_reserved_word_after_a_dot_stays_an_operand() {
+        // Companion to the test above (#1253). Elixir drops `True` /
+        // `False` / `Nil2` from the operand arm outright, which is only
+        // safe because the one grammar position that accepts a reserved
+        // word outside the `boolean` / `nil` wrapper — the right-hand
+        // side of a remote dot — aliases it to `identifier`. This pins
+        // that alias: if a grammar bump emitted the bare keyword there
+        // instead, `Foo.nil` and `Foo.true` would silently stop
+        // contributing an operand.
+        //
+        // Source: a = Foo.nil / b = Foo.true / c = nil
+        //
+        // Operands by text key: `a`, `Foo` × 2, `nil` × 2 (the aliased
+        // identifier and the real literal, which share a text key),
+        // `b`, `true`, `c` ⇒ n2 = 6, N2 = 8. Losing the alias drops the
+        // two dotted references ⇒ N2 = 6.
+        check_metrics::<ElixirParser>("a = Foo.nil\nb = Foo.true\nc = nil\n", "foo.ex", |metric| {
+            assert_eq!(metric.halstead.unique_operands(), 6);
+            assert_eq!(metric.halstead.total_operands(), 8);
         });
     }
 
