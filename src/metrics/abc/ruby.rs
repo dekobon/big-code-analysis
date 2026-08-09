@@ -26,7 +26,10 @@ use crate::*;
 //   `Call3` nodes and are counted as branches like any other call.
 // - Conditions: comparison and equality operator tokens emitted inside
 //   `binary` (`==`, `!=`, `===`, `<`, `>`, `<=`, `>=`, `<=>`,
-//   `=~`, `!~`), plus the control-flow arms that the Fitzpatrick rules
+//   `=~`, `!~`) — the `binary` parent is a gate, not a description, since
+//   every one of those tokens also names an operator method in a `def`
+//   and `<` also spells a superclass clause (#1280) — plus the
+//   control-flow arms that the Fitzpatrick rules
 //   list — the named clause nodes `Else` / `Elsif` / `When` and the
 //   `?` ternary marker, plus `Rescue` (the rescue clause) and rescue
 //   modifiers. `if` / `unless` themselves are not counted (the head
@@ -230,25 +233,27 @@ impl Abc for RubyCode {
             Call | Call2 | Call3 | Call4 | Super | Yield | Yield2 => {
                 stats.branches += 1.;
             }
-            EQEQ | BANGEQ | EQEQEQ | LTEQ | GTEQ | LTEQGT | EQTILDE | BANGTILDE | Else | Elsif
-            | When | QMARK | Rescue | RescueModifier | RescueModifier2 | RescueModifier3 => {
-                stats.conditions += 1.;
-            }
-            // `<` and `>` are comparisons only inside a `binary` node. The
-            // same `<` token also spells a class's superclass clause
-            // (`class Foo < Bar`, parent `superclass`) and an operator
-            // method's name (`def <(other)`, parent `operator`), neither of
-            // which is a condition — the positive `binary` guard is the
-            // polarity Rust / Go / C / C++ already use, and stays correct
-            // for any future non-comparison `<` (#1280). `a < b` emits the
-            // `Binary2` alias; the two siblings are listed defensively per
-            // grammar-dispatch §1. `<<` is the distinct `LTLT` token and
-            // heredoc openers are their own tokens, so neither is affected.
-            LT | GT
+            // A comparison / equality token is a condition only inside a
+            // `binary` node. Every one of them doubles as a *method name*
+            // in a `def` (`def <(other)`, `def ==(other)`, …), where the
+            // grammar parents it under `operator`; `<` additionally spells
+            // a class's superclass clause (`class Foo < Bar`, parent
+            // `superclass`). Neither is a condition — the positive
+            // `binary` guard is the polarity Rust / Go / C / C++ already
+            // use, and stays correct for any future non-comparison
+            // spelling (#1280). `a < b` emits the `Binary2` alias; the two
+            // siblings are listed defensively per grammar-dispatch §1.
+            // `<<` is the distinct `LTLT` token and heredoc openers are
+            // their own tokens, so neither is affected.
+            EQEQ | BANGEQ | EQEQEQ | LT | GT | LTEQ | GTEQ | LTEQGT | EQTILDE | BANGTILDE
                 if ancestors
                     .parent(node)
                     .is_some_and(|p| matches!(p.kind_id().into(), Binary | Binary2 | Binary3)) =>
             {
+                stats.conditions += 1.;
+            }
+            Else | Elsif | When | QMARK | Rescue | RescueModifier | RescueModifier2
+            | RescueModifier3 => {
                 stats.conditions += 1.;
             }
             // A `case … in` pattern-match arm is a branch condition exactly

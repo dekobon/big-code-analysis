@@ -1323,6 +1323,59 @@ mod tests {
     }
 
     #[test]
+    fn bash_redirection_is_not_a_condition() {
+        // `>` and `<` spell an I/O redirection as well as a comparison, and
+        // the grammar parents the redirection under `file_redirect` rather
+        // than `binary_expression`. Ungated, every redirect in a script
+        // scored a condition: this fixture measured 2 before the parent
+        // gate — the Bash instance of #1280's positive-parent polarity.
+        // expected: 0 conditions — no test, no `if`, no comparison.
+        check_metrics::<BashParser>(
+            "f() {\n  echo hi > out.txt\n  read x < in.txt\n}\n",
+            "foo.sh",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 0);
+                // The two `echo` / `read` commands still count as branches,
+                // so the zero above is the gate firing rather than the walk
+                // skipping the function body.
+                assert_eq!(metric.abc.branches_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn bash_comparison_inside_an_arithmetic_or_test_context_is_a_condition() {
+        // The positive control for the gate above: the same tokens under a
+        // `binary_expression` are real comparisons in both the `[[ … ]]`
+        // test form and the `(( … ))` arithmetic form, and still count.
+        // expected: 4 — one `if` control-flow condition and one `>` per
+        // function.
+        check_metrics::<BashParser>(
+            "f() {\n  if [[ $a > $b ]]; then :; fi\n}\ng() {\n  if (( a > b )); then :; fi\n}\n",
+            "foo.sh",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4);
+            },
+        );
+    }
+
+    #[test]
+    fn bash_arithmetic_ternary_is_a_condition() {
+        // The ABC half of #1268. Cyclomatic and cognitive both count Bash's
+        // only ternary form; ABC did not, so the identical construct scored
+        // 1 here against the C family's 2.
+        // expected: 2 — the `>` comparison and the ternary itself, matching
+        // `int m = a > b ? a : b;` in C.
+        check_metrics::<BashParser>(
+            "f() {\n  local m=$(( a > b ? a : b ))\n}\n",
+            "foo.sh",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
     fn bash_magnitude() {
         // Combined assignments + branches + conditions. The single `if`
         // contributes two conditions (the control-flow branch, #696, plus
@@ -4851,6 +4904,42 @@ function f(int $a, int $b): int {
         check_metrics::<RubyParser>("def <(other)\n  @v < other\nend\n", "foo.rb", |metric| {
             assert_eq!(metric.abc.conditions_sum(), 1);
         });
+    }
+
+    #[test]
+    fn ruby_every_comparison_operator_method_name_is_not_a_condition() {
+        // The sibling half of #1280. `<` is not special: every comparison
+        // and equality token Ruby lets you `def` parents under `operator`
+        // in that position, so gating only `LT` / `GT` left `def ==`,
+        // `def <=`, `def >=`, `def <=>`, `def !=` and `def =~` each
+        // scoring a phantom condition — measured at 1 apiece for a body
+        // containing no conditional at all.
+        // expected: 0 conditions per definition; only the name token is on
+        // the line, so a single non-zero total localises the regression.
+        check_metrics::<RubyParser>(
+            "def ==(o)\n  1\nend\n\
+             def !=(o)\n  1\nend\n\
+             def <=(o)\n  1\nend\n\
+             def >=(o)\n  1\nend\n\
+             def <=>(o)\n  1\nend\n\
+             def =~(o)\n  1\nend\n\
+             def <(o)\n  1\nend\n\
+             def >(o)\n  1\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 0);
+            },
+        );
+        // The positive control: the same tokens inside a `binary` are real
+        // comparisons and still count, so the gate is not blanket
+        // suppression.
+        check_metrics::<RubyParser>(
+            "def cmp(a, b)\n  a == b || a <= b || a <=> b\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 3);
+            },
+        );
     }
 
     #[test]
