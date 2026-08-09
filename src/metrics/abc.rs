@@ -6275,19 +6275,59 @@ function f(int $a, int $b): int {
     #[test]
     fn go_assignments_count_plain_compound_short_var_and_incdec() {
         // `x := 0` (short var decl), `x = 5` and `x = 7` (plain `=`),
-        // `x += 2` (compound), `x++` (inc) → A = 5. `var y = 1` is a
-        // declaration — its `=` is not counted (matches the Rust/Java
-        // rule for `let` / `int y = 1`).
+        // `x += 2` (compound), `x++` (inc), and the initialized
+        // declaration `var y = 1` — which is counted, matching the Rust
+        // and Java rules for `let y = 1` / `int y = 1` (both measured at
+        // one assignment each). The comment here previously claimed the
+        // opposite and pinned Go at 6 (#1278).
         check_metrics::<GoParser>(
             "package main\nfunc f() { var y = 1; _ = y; x := 0; x = 5; x += 2; x = 7; x++ }\n",
             "foo.go",
             |metric| {
                 // `_ = y` is itself an assignment_statement → +1.
-                // x:= + x=5 + x+=2 + x=7 + x++ + _=y → 6
-                assert_eq!(metric.abc.assignments_sum(), 6);
+                // var y=1 + _=y + x:= + x=5 + x+=2 + x=7 + x++ → 7
+                assert_eq!(metric.abc.assignments_sum(), 7);
                 assert_eq!(metric.abc.branches_sum(), 0);
                 assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn go_var_declarations_count_only_when_initialized() {
+        // Regression for #1278: a `var` declaration with an initializer is
+        // a `var_spec` carrying a `value` field, not an
+        // `assignment_statement` or `short_var_declaration`, so it scored
+        // zero — `var x = 5` and `x := 5` are the same binding spelled two
+        // ways. Both typed and untyped initializers count; an
+        // uninitialized `var z int` and a `const` do not.
+        // expected: 3 assignments — `var x = 5`, `var y int = 6`, `z := 7`;
+        // `var w int` and `const c = 1` contribute nothing.
+        check_metrics::<GoParser>(
+            "package main\nfunc f() int {\n\tvar x = 5\n\tvar y int = 6\n\tvar w int\n\tconst c = 1\n\tz := 7\n\treturn x + y + w + c + z\n}\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 3);
+                assert_eq!(metric.abc.branches_sum(), 0);
+            },
+        );
+    }
+
+    #[test]
+    fn go_grouped_var_block_counts_each_initialized_spec() {
+        // A grouped `var ( … )` block is one `var_declaration` holding one
+        // `var_spec` per line, so matching the spec counts each initialized
+        // line on its own. A multi-name spec is still one binding
+        // statement, matching `p, q := 1, 2` (#1278).
+        // expected: 3 assignments — `a = 1`, `p, q = 1, 2`, and `r := 0`;
+        // the uninitialized `b int` contributes nothing.
+        check_metrics::<GoParser>(
+            "package main\nfunc f() {\n\tvar (\n\t\ta = 1\n\t\tb int\n\t)\n\tvar p, q = 1, 2\n\tr := 0\n\t_ = a + b + p + q + r\n}\n",
+            "foo.go",
+            |metric| {
+                // The trailing `_ = …` is itself an assignment_statement.
+                assert_eq!(metric.abc.assignments_sum(), 4);
             },
         );
     }
@@ -6403,10 +6443,10 @@ function f(int $a, int $b): int {
     #[test]
     fn go_complex_function_abc() {
         // Mixed shape, verified by hand:
-        // - Assignments: `_ = x` (after `var`), `n := 0`,
-        //   `n = n + 1`, `n += 2`, `n++`, `_ = len(s)` → A = 6.
-        //   `var x = 10` is a declaration, not counted. Every `_ = ...`
-        //   IS counted as an assignment_statement.
+        // - Assignments: `var x = 10` (an initialized declaration, #1278),
+        //   `_ = x`, `n := 0`, `n = n + 1`, `n += 2`, `n++`,
+        //   `_ = len(s)` → A = 7. Every `_ = ...` IS counted as an
+        //   assignment_statement.
         // - Branches: `len(s)` → B = 1.
         // - Conditions: `n < 10` → 1, `else` → 1, switch arms `case 0:`
         //   and `case 1:` (default excluded) → 2 → total C = 4.
@@ -6426,7 +6466,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 6);
+                assert_eq!(metric.abc.assignments_sum(), 7);
                 assert_eq!(metric.abc.branches_sum(), 1);
                 assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);

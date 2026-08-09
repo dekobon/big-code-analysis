@@ -96,6 +96,15 @@ for historical reference.
 
 ### Fixed
 
+- Go ABC scored zero assignments for a `var` declaration with an
+  initializer. `var x = 5` and `x := 5` are the same binding spelled two
+  ways, but only the latter is a `short_var_declaration`; the former is a
+  `var_spec`, which no arm matched. An initialized `var_spec` — typed or
+  not, standalone or inside a grouped `var ( … )` block — is now one
+  assignment, matching what Rust, Java, C, C++, C#, JS, Lua and PHP
+  already count for the same construct (each measured). `const` stays
+  excluded, as does an uninitialized `var z int`. Go `abc` values rise
+  by one per initialized `var` spec (#1278).
 - Constructor delegation scored zero ABC branches in Java, C# and
   Kotlin. `super(…)` / `this(…)` parses as `explicit_constructor_invocation`
   in Java, `: base(…)` / `: this(…)` as `constructor_initializer` in C#,
