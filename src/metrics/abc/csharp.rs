@@ -148,6 +148,12 @@ fn csharp_count_token_assignment(node: &Node, stats: &mut Stats) -> bool {
     true
 }
 
+// `ConstructorInitializer` is the `: base(…)` / `: this(…)` delegation on a
+// constructor — a call by Fitzpatrick's rule, and the C# spelling of the
+// shape Java and Groovy count (#1279). Unlike the invocation kinds it
+// carries no numeric-suffix aliases, and it does not wrap an
+// `InvocationExpression` for the delegation itself, so no double count
+// arises; calls in its argument list are separate nodes counted on their own.
 fn csharp_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
     use Csharp::*;
     if matches!(
@@ -156,6 +162,7 @@ fn csharp_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
             | crate::Csharp::InvocationExpression2
             | crate::Csharp::InvocationExpression3
             | ObjectCreationExpression
+            | ConstructorInitializer
     ) {
         stats.branches += 1.;
         return true;

@@ -96,6 +96,17 @@ for historical reference.
 
 ### Fixed
 
+- Constructor delegation scored zero ABC branches in Java, C# and
+  Kotlin. `super(…)` / `this(…)` parses as `explicit_constructor_invocation`
+  in Java, `: base(…)` / `: this(…)` as `constructor_initializer` in C#,
+  and `: super(…)` as `constructor_delegation_call` in Kotlin — none of
+  which is the call kind each language's branch counter matched, so a
+  delegation contributed nothing where Groovy scored one for identical
+  source. Each is now one branch, per Fitzpatrick's "one per function
+  call". Calls in a delegation's argument list are separate nodes and
+  still count on their own, so `super(f())` is two branches, not three.
+  Java, C# and Kotlin `abc` values rise by one per delegating
+  constructor (#1279).
 - Ruby ABC counted the `<` of a superclass clause as a comparison
   condition, so every subclass declaration scored a phantom condition —
   `class Foo < Bar` with a single assignment inside reported

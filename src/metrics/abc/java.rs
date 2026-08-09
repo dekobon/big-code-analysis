@@ -168,10 +168,20 @@ fn java_count_token_assignment(node: &Node, stats: &mut Stats) -> bool {
     true
 }
 
-// Counts branch tokens: every method call or `new` allocation.
+// Counts branch tokens: every method call, `new` allocation, and
+// constructor delegation.
+// `ExplicitConstructorInvocation` is the `super(…)` / `this(…)` delegation
+// at the head of a constructor — a call by Fitzpatrick's rule, and one
+// Groovy already counted for identical source (#1279). It is a distinct
+// production that does not wrap a `MethodInvocation` for the delegation
+// itself, so listing it adds no double count; calls in its argument list
+// are separate nodes and still count on their own.
 fn java_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
     use Java::*;
-    if matches!(node.kind_id().into(), MethodInvocation | New) {
+    if matches!(
+        node.kind_id().into(),
+        MethodInvocation | New | ExplicitConstructorInvocation
+    ) {
         stats.branches += 1.;
         return true;
     }
