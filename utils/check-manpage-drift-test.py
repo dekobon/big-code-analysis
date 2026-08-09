@@ -95,9 +95,13 @@ def run_git(cwd: pathlib.Path, *args: str) -> str:
 class ManDirFixture(unittest.TestCase):
     """A scratch repo with a committed `man/` tree.
 
-    Pages are named after real ones so a failure message reads like the
-    situation it models. `man/*.log` is gitignored, standing in for the
-    editor droppings the gate must tolerate.
+    Pages are named after real ones so a failure message reads like
+    the situation it models. The `.gitignore` is realism, not a lever:
+    the untracked half never passes `--exclude-standard`, so the gate's
+    tolerance for a dropping under `man/` comes from the `man/*.1`
+    pathspec alone. Emptying this file changes no verdict — the
+    ignore-rule interaction is pinned by
+    `test_gitignored_new_page_still_fails` instead.
     """
 
     PAGES = ("bca.1", "bca-check.1", "bca-web.1")
@@ -126,6 +130,21 @@ class ManDirFixture(unittest.TestCase):
 
     def page(self, name: str) -> pathlib.Path:
         return self.root / "man" / name
+
+    def case_sensitive(self) -> bool:
+        """True when the fixture's filesystem distinguishes `a` from `A`.
+
+        `git init` sets `core.ignorecase=true` on APFS and NTFS, where
+        a case-only rename produces a different tree entirely. Probed
+        rather than inferred from `sys.platform`: a case-sensitive
+        volume on macOS and a case-insensitive one on Linux both exist.
+        """
+        probe = self.root / "man" / ".case-probe"
+        probe.write_text("", encoding="utf-8")
+        try:
+            return not (self.root / "man" / ".CASE-PROBE").exists()
+        finally:
+            probe.unlink()
 
     def gate(self) -> tuple[int, str, str]:
         """Run the real `main()` against the fixture; (code, out, err)."""
@@ -237,26 +256,27 @@ class ModifiedPageTest(ManDirFixture):
         # The old gate printed `git diff`'s output; keep that, so a
         # reviewer sees which lines moved without re-running anything.
         self.page("bca-check.1").write_text(".TH changed\n", encoding="utf-8")
-        _code, out, _err = self.gate()
+        code, out, _err = self.gate()
+        self.assertEqual(code, 1)
         self.assertIn("man/bca-check.1", out)
         self.assertIn("+.TH changed", out)
 
     @unittest.skipUnless(
         os.path.exists("/bin/true"), "needs a silent POSIX diff driver"
     )
-    def test_external_diff_driver_cannot_report_clean(self) -> None:
-        # A configured `diff.external` / GIT_EXTERNAL_DIFF may print
-        # nothing at all, so a gate that reads emptiness as cleanliness
-        # goes green over a modified page. Two flags answer that and
-        # each is asserted here: `--exit-code` decides the verdict, and
-        # `--no-ext-diff` keeps the printed evidence git's own — drop
-        # the latter and the failure names no lines.
+    def test_external_diff_driver_cannot_blank_the_report(self) -> None:
+        # This pins `--no-ext-diff` specifically. A configured
+        # `diff.external` / GIT_EXTERNAL_DIFF may print nothing at all,
+        # and without the flag the failure would name no lines. It does
+        # NOT pin the verdict rule — with the flag in place git never
+        # consults the driver, so the run is byte-identical to an
+        # ordinary diff. `EmptyDiffOutputTest` covers that half.
         self.page("bca-check.1").write_text(".TH changed\n", encoding="utf-8")
         with unittest.mock.patch.dict(
             os.environ, {"GIT_EXTERNAL_DIFF": "/bin/true"}
         ):
             code, out, err = self.gate()
-        self.assertEqual(code, 1, "silent diff driver read as a clean tree")
+        self.assertEqual(code, 1)
         self.assertIn("drift", err)
         self.assertIn("+.TH changed", out)
 
@@ -264,6 +284,37 @@ class ModifiedPageTest(ManDirFixture):
         self.page("bca-check.1").write_text(".TH changed\n", encoding="utf-8")
         run_git(self.root, "add", "man/bca-check.1")
         self.assertPasses("a staged modification")
+
+
+class EmptyDiffOutputTest(unittest.TestCase):
+    """`tracked_drift` reads git's exit status, never stdout emptiness.
+
+    No filesystem state can produce "status 1, no output" while
+    `--no-ext-diff` is passed, so the only way to cover the rule — and
+    the fallback string that keeps it from collapsing back into a clean
+    verdict — is to drive `_git` directly.
+    """
+
+    @staticmethod
+    def _proc(returncode: int, stdout: str) -> subprocess.CompletedProcess:
+        return subprocess.CompletedProcess(
+            args=["git"], returncode=returncode, stdout=stdout, stderr=""
+        )
+
+    def test_status_one_without_output_is_still_drift(self) -> None:
+        with unittest.mock.patch.object(
+            DRIFT, "_git", lambda *_a, **_k: self._proc(1, "")
+        ):
+            self.assertNotEqual(DRIFT.tracked_drift(pathlib.Path(".")), "")
+
+    def test_status_zero_with_output_is_not_drift(self) -> None:
+        # The inverse: a verdict taken from stdout would call this
+        # drift. Status 0 means git found no differences, whatever it
+        # chose to print.
+        with unittest.mock.patch.object(
+            DRIFT, "_git", lambda *_a, **_k: self._proc(0, "noise\n")
+        ):
+            self.assertEqual(DRIFT.tracked_drift(pathlib.Path(".")), "")
 
 
 class RemovedPageTest(ManDirFixture):
@@ -294,6 +345,8 @@ class CaseOnlyRenameTest(ManDirFixture):
     """
 
     def test_report_names_both_the_removal_and_the_addition(self) -> None:
+        if not self.case_sensitive():
+            self.skipTest("needs a case-sensitive filesystem")
         self.page("bca-check.1").unlink()
         self.page("bca-Check.1").write_text(".TH Check\n", encoding="utf-8")
         self.assertFails(
@@ -304,57 +357,113 @@ class CaseOnlyRenameTest(ManDirFixture):
 
 
 class GitFailureTest(unittest.TestCase):
-    """A git error must not read as a clean tree."""
+    """A git error must not read as a clean tree.
 
-    @staticmethod
-    def _run(root: pathlib.Path) -> tuple[int, str]:
+    Each half is covered on its own: `main()` calls `tracked_drift`
+    first, so a test that only checks the overall exit code passes
+    while the *other* half silently swallows everything.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = pathlib.Path(self._tmp.name) / "not-a-repo"
+        self.root.mkdir()
+
+        # Without a ceiling, git walks up from $TMPDIR and can discover
+        # an ancestor `.git` — on a host whose tempdir lives inside a
+        # checkout, or with GIT_DIR exported, both halves then succeed
+        # and the gate reports a clean tree. Measured: that turns these
+        # tests into `0 != 2` failures with no hint of the cause.
+        env = unittest.mock.patch.dict(
+            os.environ,
+            {**BASE_GIT_ENV, "GIT_CEILING_DIRECTORIES": self._tmp.name},
+        )
+        env.start()
+        self.addCleanup(env.stop)
+        for leaked in ("GIT_DIR", "GIT_WORK_TREE"):
+            os.environ.pop(leaked, None)
+
+        # Assert the precondition rather than assuming it: everything
+        # below is vacuous if this directory is inside a repository.
+        probe = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(
+            probe.returncode, 0, "fixture directory is inside a git repo"
+        )
+
+    def _run(self) -> tuple[int, str]:
         err = io.StringIO()
-        with unittest.mock.patch.object(DRIFT, "REPO_ROOT", root):
-            with contextlib.redirect_stderr(err):
-                code = DRIFT.main()
+        with unittest.mock.patch.object(DRIFT, "REPO_ROOT", self.root):
+            with contextlib.redirect_stdout(io.StringIO()):
+                with contextlib.redirect_stderr(err):
+                    code = DRIFT.main()
         return code, err.getvalue()
 
-    def test_non_repository_exits_two(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp) / "not-a-repo"
-            root.mkdir()
-            code, err = self._run(root)
-            self.assertEqual(code, 2)
-            self.assertIn("error:", err)
+    def test_tracked_half_failing_alone_exits_two(self) -> None:
+        with unittest.mock.patch.object(
+            DRIFT, "untracked_pages", lambda _root: []
+        ):
+            code, err = self._run()
+        self.assertEqual(code, 2)
+        self.assertIn("diff", err)
 
     def test_untracked_half_failing_alone_exits_two(self) -> None:
-        # `main()` calls `tracked_drift` first, so the test above never
-        # reaches `untracked_pages`. Swallowing its GitError — the
-        # "a git failure reads as clean" mode `_git` exists to
-        # prevent — would otherwise go unnoticed.
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp) / "not-a-repo"
-            root.mkdir()
-            with unittest.mock.patch.object(
-                DRIFT, "tracked_drift", lambda _root: ""
-            ):
-                code, err = self._run(root)
-            self.assertEqual(code, 2)
-            self.assertIn("ls-files", err)
+        with unittest.mock.patch.object(
+            DRIFT, "tracked_drift", lambda _root: ""
+        ):
+            code, err = self._run()
+        self.assertEqual(code, 2)
+        self.assertIn("ls-files", err)
+
+    def test_both_halves_failing_exits_two(self) -> None:
+        code, err = self._run()
+        self.assertEqual(code, 2)
+        self.assertIn("error:", err)
 
 
 class AnnotationTest(ManDirFixture):
     """CI keeps the `::error::` annotation the inline step used to emit."""
 
     def _run_with_actions(self, value: str | None) -> str:
-        self.page("bca-newsub.1").write_text(".TH new\n", encoding="utf-8")
+        """Run the gate over a failing tree; return stdout.
+
+        Asserts the run actually failed, so a "no annotation" case
+        cannot pass by the gate having found nothing to report.
+        """
         env = {} if value is None else {"GITHUB_ACTIONS": value}
         with unittest.mock.patch.dict(os.environ, env, clear=False):
             if value is None:
                 os.environ.pop("GITHUB_ACTIONS", None)
-            _code, out, _err = self.gate()
+            code, out, _err = self.gate()
+        self.assertEqual(code, 1, "fixture did not produce a failure")
         return out
 
-    def test_annotation_emitted_on_a_runner(self) -> None:
+    def test_annotation_emitted_for_an_added_page(self) -> None:
+        self.page("bca-newsub.1").write_text(".TH new\n", encoding="utf-8")
         self.assertIn("::error::", self._run_with_actions("true"))
 
-    def test_no_annotation_locally(self) -> None:
+    def test_annotation_emitted_for_a_modified_page(self) -> None:
+        # Both failure branches must reach `_annotate`. Moving the call
+        # under either `if` is invisible from the other branch's test.
+        self.page("bca-check.1").write_text(".TH changed\n", encoding="utf-8")
+        self.assertIn("::error::", self._run_with_actions("true"))
+
+    def test_no_annotation_when_unset(self) -> None:
+        self.page("bca-newsub.1").write_text(".TH new\n", encoding="utf-8")
         self.assertNotIn("::error::", self._run_with_actions(None))
+
+    def test_no_annotation_when_not_a_runner(self) -> None:
+        # `== "true"`, not `is not None`: Actions sets the variable to
+        # the literal string, and popping it alone cannot tell the two
+        # predicates apart.
+        self.page("bca-newsub.1").write_text(".TH new\n", encoding="utf-8")
+        self.assertNotIn("::error::", self._run_with_actions("false"))
 
 
 if __name__ == "__main__":
