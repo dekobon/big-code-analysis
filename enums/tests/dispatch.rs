@@ -81,12 +81,13 @@ fn lang_irules_resolves_to_tree_sitter_irules() {
 }
 
 // The Cpp -> mozcpp swap is the original drift bug this test file
-// guards against (issue #344). Asserting against `tree_sitter_mozcpp`
-// (not `tree_sitter_cpp`) is the load-bearing detail here.
+// guards against (issue #344). Since #720 `Lang::Cpp` is backed by the
+// upstream community grammar and the Mozilla fork moved to
+// `Lang::Mozcpp`, asserting against `tree_sitter_cpp` (not
+// `tree_sitter_mozcpp`) is the load-bearing detail here;
+// `lang_mozcpp_resolves_to_vendored_mozcpp` below pins the fork.
 #[test]
 fn lang_cpp_resolves_to_upstream_tree_sitter_cpp() {
-    // Since #720 `Lang::Cpp` is backed by the upstream community
-    // grammar; the Mozilla fork moved to `Lang::Mozcpp` below.
     assert_dispatch(&Lang::Cpp, "Cpp", &tree_sitter_cpp::LANGUAGE.into());
 }
 
