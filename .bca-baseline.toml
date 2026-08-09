@@ -373,7 +373,7 @@ value = 6.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/walk.rs"
-qualified = "expand_seed_paths"
+qualified = "classify_dropped_child"
 metric = "nargs"
 value = 5.0
 

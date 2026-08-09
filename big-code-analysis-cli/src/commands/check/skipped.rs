@@ -59,19 +59,17 @@ pub(crate) fn unchecked_summary(
         if ignored_files > 0 {
             breakdown.push(format!("{ignored_files} ignored"));
         }
-        let noun = if file_total == 1 { "file" } else { "files" };
         clauses.push(format!(
-            "{file_total} {noun} not checked ({})",
+            "{} not checked ({})",
+            counted(file_total, "file", "files"),
             breakdown.join(", ")
         ));
     }
     if dirs > 0 {
-        let noun = if dirs == 1 {
-            "directory"
-        } else {
-            "directories"
-        };
-        clauses.push(format!("{dirs} ignored {noun} not walked"));
+        clauses.push(format!(
+            "{} not walked",
+            counted(dirs, "ignored directory", "ignored directories")
+        ));
     }
     let hint = if listed {
         ""
@@ -79,4 +77,11 @@ pub(crate) fn unchecked_summary(
         " — pass --report-skipped to list them"
     };
     Some(format!("{}{hint}", clauses.join("; ")))
+}
+
+/// `3 files`, `1 ignored directory`: a count with the noun that
+/// agrees with it.
+fn counted(count: usize, singular: &str, plural: &str) -> String {
+    let noun = if count == 1 { singular } else { plural };
+    format!("{count} {noun}")
 }
