@@ -96,6 +96,16 @@ for historical reference.
 
 ### Fixed
 
+- Ruby ABC counted the `<` of a superclass clause as a comparison
+  condition, so every subclass declaration scored a phantom condition —
+  `class Foo < Bar` with a single assignment inside reported
+  `conditions = 1` for a file with no conditional in it. `LT` / `GT` are
+  now counted only under a `binary` parent, the positive polarity Rust,
+  Go, C, C++, Java, Groovy, C#, Kotlin and the JS family already use.
+  The same gate stops counting the `<` that names an operator method
+  (`def <(other)`). Real comparisons, `<=>`, the `<<` shovel and heredoc
+  openers are unaffected. Ruby `abc` values drop by one per subclass
+  declaration and per operator-method definition (#1280).
 - `fix_includes` returned its diagnostics in a different order on every
   run for identical input, because both producers push while iterating a
   `HashMap` — `files` in `build_include_graph`, `nodes` in

@@ -230,9 +230,25 @@ impl Abc for RubyCode {
             Call | Call2 | Call3 | Call4 | Super | Yield | Yield2 => {
                 stats.branches += 1.;
             }
-            EQEQ | BANGEQ | EQEQEQ | LT | GT | LTEQ | GTEQ | LTEQGT | EQTILDE | BANGTILDE
-            | Else | Elsif | When | QMARK | Rescue | RescueModifier | RescueModifier2
-            | RescueModifier3 => {
+            EQEQ | BANGEQ | EQEQEQ | LTEQ | GTEQ | LTEQGT | EQTILDE | BANGTILDE | Else | Elsif
+            | When | QMARK | Rescue | RescueModifier | RescueModifier2 | RescueModifier3 => {
+                stats.conditions += 1.;
+            }
+            // `<` and `>` are comparisons only inside a `binary` node. The
+            // same `<` token also spells a class's superclass clause
+            // (`class Foo < Bar`, parent `superclass`) and an operator
+            // method's name (`def <(other)`, parent `operator`), neither of
+            // which is a condition — the positive `binary` guard is the
+            // polarity Rust / Go / C / C++ already use, and stays correct
+            // for any future non-comparison `<` (#1280). `a < b` emits the
+            // `Binary2` alias; the two siblings are listed defensively per
+            // grammar-dispatch §1. `<<` is the distinct `LTLT` token and
+            // heredoc openers are their own tokens, so neither is affected.
+            LT | GT
+                if ancestors
+                    .parent(node)
+                    .is_some_and(|p| matches!(p.kind_id().into(), Binary | Binary2 | Binary3)) =>
+            {
                 stats.conditions += 1.;
             }
             // A `case … in` pattern-match arm is a branch condition exactly

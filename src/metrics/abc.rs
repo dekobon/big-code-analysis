@@ -4735,6 +4735,38 @@ function f(int $a, int $b): int {
     }
 
     #[test]
+    fn ruby_superclass_clause_is_not_a_condition() {
+        // Regression for #1280: a superclass clause spells its `<` with the
+        // same `LT` token as a comparison, but parents it under
+        // `superclass` rather than `binary`, so the parent gate excludes
+        // it. Before the gate every subclass declaration scored a phantom
+        // condition.
+        // expected: 0 conditions — the file contains no conditional at all;
+        // the single assignment is `x = 1`.
+        check_metrics::<RubyParser>(
+            "class Foo < Bar\n  def plain\n    x = 1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 0);
+                assert_eq!(metric.abc.assignments_sum(), 1);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_operator_method_name_is_not_a_condition() {
+        // The `<` naming an operator method parents under `operator`, which
+        // the `binary` gate likewise excludes (#1280). The body carries a
+        // real comparison so the expected value is not the all-zero default:
+        // 1 discriminates "only the name token is excluded" from both "the
+        // gate excludes everything" (0) and "nothing is gated" (2).
+        // expected: 1 condition — the `@v < other` comparison, not the `def <`.
+        check_metrics::<RubyParser>("def <(other)\n  @v < other\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 1);
+        });
+    }
+
+    #[test]
     fn ruby_case_match_in_arms_are_conditions() {
         // Regression for #977: each non-wildcard `case … in` arm is one
         // ABC condition, matching Python's `case_clause` handling. Using
