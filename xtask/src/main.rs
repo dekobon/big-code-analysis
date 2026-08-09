@@ -416,12 +416,16 @@ mod tests {
     // drift gate's own `git add man/` remedy, and is then permanently
     // unsweepable).
     //
-    // On a case-insensitive filesystem this fixture collapses into the
-    // previous test's single entry. That is not a gap: the assertions
-    // below hold in both worlds, which is the property under test.
+    // On a case-insensitive filesystem the fixture collapses: the second
+    // write lands in the first file's directory entry, so there is one
+    // page holding the fresh bytes rather than two. The verdict and the
+    // remedy are asserted in both worlds; only the claim about the stale
+    // page's *contents* is specific to the two-file case, and it is
+    // branched on below rather than assumed.
     #[test]
     fn sweep_errors_on_case_only_rename_with_both_entries() {
         let tmp = TempDir::new().expect("tempdir");
+        let two_files = dir_is_case_sensitive(tmp.path());
         fs::write(tmp.path().join("bca.1"), b"stale lowercase page").expect("write stale page");
         fs::write(tmp.path().join("BCA.1"), b"freshly rendered BCA page")
             .expect("write fresh page");
@@ -433,9 +437,9 @@ mod tests {
         // The remedy must name the *stale* spelling. An implementation
         // that interpolated the expected name here would tell the
         // contributor to delete the page just generated, and every
-        // `exists()` assertion below would still pass — this is the
-        // only test where the two spellings are separate files, so it
-        // is the only one that can catch the transposition.
+        // `exists()` assertion below would still pass, so this string
+        // is what catches the transposition. It holds on either
+        // filesystem: the on-disk entry is spelled `bca.1` in both.
         assert!(
             err.to_string().contains("`rm man/bca.1`"),
             "remedy must name the stale spelling, got: {err}"
@@ -445,11 +449,53 @@ mod tests {
             b"freshly rendered BCA page",
             "the expected page must survive with its contents intact",
         );
-        assert_eq!(
-            fs::read(tmp.path().join("bca.1")).expect("read stale page"),
-            b"stale lowercase page",
-            "the stale page must be left for the contributor to remove, not silently deleted",
-        );
+
+        if two_files {
+            assert_eq!(
+                fs::read(tmp.path().join("bca.1")).expect("read stale page"),
+                b"stale lowercase page",
+                "the stale page must be left for the contributor to remove, not silently deleted",
+            );
+        } else {
+            // The hazard #1250 exists for, observed directly: one entry,
+            // still spelled with the stale case, now holding the freshly
+            // rendered bytes. Asserting the count is what makes this a
+            // real check rather than a restatement of the assertion
+            // above — the two paths resolve to the same file here.
+            let pages = man_page_names(tmp.path());
+            assert_eq!(
+                pages,
+                vec!["bca.1".to_string()],
+                "a case-insensitive filesystem must leave exactly the stale entry",
+            );
+        }
+    }
+
+    /// Whether `dir` resolves filenames case-sensitively.
+    ///
+    /// Probed rather than inferred from the target OS. `cfg!(unix)` is
+    /// true on macOS, whose default APFS is case-*insensitive*, and a
+    /// Linux checkout can sit on a case-insensitive mount — so a `cfg`
+    /// gate answers a different question than the one that decides
+    /// whether two spellings are two files.
+    fn dir_is_case_sensitive(dir: &std::path::Path) -> bool {
+        let probe = dir.join("zz-case-probe.tmp");
+        fs::write(&probe, b"probe").expect("write case probe");
+        let distinct = !dir.join("ZZ-CASE-PROBE.TMP").exists();
+        fs::remove_file(&probe).expect("remove case probe");
+        distinct
+    }
+
+    /// The `.1` entries in `dir`, sorted, as the filesystem spells them.
+    fn man_page_names(dir: &std::path::Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .expect("read_dir")
+            .map(|e| e.expect("dir entry").file_name())
+            .filter_map(|n| n.into_string().ok())
+            .filter(|n| n.ends_with(".1"))
+            .collect();
+        names.sort();
+        names
     }
 
     // The error path is a refusal, not a partial sweep: `fs::read_dir`
