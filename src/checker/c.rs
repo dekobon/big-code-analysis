@@ -40,8 +40,22 @@ impl Checker for CCode {
         false
     }
 
+    // Every `call_expression` the pinned grammar emits carries the
+    // aliased `CallExpression2` kind_id: the unsuffixed symbol is the
+    // grammar's `preproc_call_expression`, which is only ever referenced
+    // under an `alias(…, $.call_expression)`, so it never reaches
+    // `kind_id()` (absent from `node-types.json` too). Matching the
+    // unsuffixed variant alone left this predicate dead — `bca count -t
+    // call` reported 0 on ordinary C (#1254). Keep it listed defensively:
+    // it is the symbol a grammar bump is most likely to start emitting
+    // (grammar-dispatch §1). Note this is an alias-mapped *visible* rule,
+    // not the `_`-prefixed hidden rule of §2 / lesson #34 — different
+    // mechanism, same symptom, same defensive treatment.
     fn is_call(node: &Node) -> bool {
-        node.kind_id() == C::CallExpression
+        matches!(
+            node.kind_id().into(),
+            C::CallExpression | C::CallExpression2
+        )
     }
 
     // C's `(void)` marker, shared with C++, Mozcpp and Objective-C.

@@ -1426,6 +1426,196 @@ mod tests {
         assert!(GroovyCode::is_call(&chain), "command_chain must be a call");
     }
 
+    // ===== C-family `is_call` regression tests (issue #1254) =====
+
+    // Every C-family grammar here references `preproc_call_expression`
+    // only under an `alias(…, $.call_expression)` — zero bare references
+    // in `grammar.json`, and no entry in `node-types.json` — so the
+    // unsuffixed `CallExpression` never reaches `kind_id()` while the
+    // aliased `CallExpression2` carries every real call.
+    //
+    // The two halves do different jobs. The first keeps the fixture an
+    // honest witness: a grammar bump that stops emitting the alias must
+    // fail here rather than silently weaken the counts below. The second
+    // cannot fail against the current parse tables — `ts_symbol_map`
+    // rewrites the unsuffixed symbol onto the aliased one for *every*
+    // input — so it is a drift marker, not a live guard: it fires only if
+    // a bump renumbers the enum or stops aliasing the rule, which is
+    // exactly what justifies keeping the unsuffixed arm defensively
+    // (the grammar-dispatch §2 technique, applied to an alias-mapped
+    // rule rather than a hidden one).
+    #[track_caller]
+    fn assert_call_kinds_are_aliased<P: ParserTrait>(
+        parser: &P,
+        lang: &str,
+        aliased: u16,
+        unsuffixed: u16,
+    ) {
+        assert!(
+            ast_has_kind_id(parser, aliased),
+            "{lang}: fixture must emit the aliased call_expression kind"
+        );
+        assert!(
+            !ast_has_kind_id(parser, unsuffixed),
+            "{lang}: the unsuffixed CallExpression is the aliased-away \
+             preproc_call_expression and must not surface"
+        );
+    }
+
+    // Six calls — statement position, initializer, `if` condition, both
+    // binary operands, and the `return` operand. The other parenthesised
+    // shapes are deliberate negatives: the `int f(int);` prototype's
+    // `function_declarator`, the `sizeof(int)` operand, and the `(int)x`
+    // cast. Six differs from the C++ fixture's five, so a test that
+    // reaches for the wrong parser cannot pass on the right number.
+    const C_CALL_SHAPES: &str = "int f(int);\n\
+                                 int main(void) {\n\
+                                 f(1);\n\
+                                 int x = g(2);\n\
+                                 if (h(3)) { }\n\
+                                 int y = a(4) + b(5);\n\
+                                 int z = sizeof(int) + (int)x + y;\n\
+                                 return c(z);\n\
+                                 }\n";
+
+    // Five calls — member (`t.m()`), arrow member (`p->m()`), qualified
+    // (`ns::f()`), and both function-pointer spellings (`fp(2)`,
+    // `(*fp)(3)`). `T t(1)` and `new T(4)` are the negatives that matter:
+    // object creation is an ABC concern, not a call site, matching Groovy /
+    // Java / C# (#430). Functional-style `T(4)` is deliberately absent
+    // from the fixture — the grammar emits it as a plain `call_expression`,
+    // so it *is* counted, and including it here would blur what the five
+    // is pinning.
+    const CPP_CALL_SHAPES: &str = "struct T { T(int); int m(); };\n\
+                                   namespace ns { int f(); }\n\
+                                   int main() {\n\
+                                   T t(1);\n\
+                                   t.m();\n\
+                                   T *p = &t;\n\
+                                   p->m();\n\
+                                   ns::f();\n\
+                                   int (*fp)(int) = nullptr;\n\
+                                   fp(2);\n\
+                                   (*fp)(3);\n\
+                                   T *q = new T(4);\n\
+                                   delete q;\n\
+                                   return sizeof(T);\n\
+                                   }\n";
+
+    /// Every `call_expression` the pinned C grammar emits carries the
+    /// *aliased* `CallExpression2` kind_id. The unsuffixed variant is the
+    /// grammar's `preproc_call_expression`, referenced only under an
+    /// `alias(…, $.call_expression)` — it is absent from `node-types.json`
+    /// and never reaches `kind_id()`. Matching it alone left `is_call`
+    /// dead: `bca count -t call` reported 0 on ordinary C (#1254).
+    #[test]
+    fn c_is_call_matches_the_aliased_call_expression() {
+        let parser = CParser::new(
+            C_CALL_SHAPES.as_bytes().to_vec(),
+            &PathBuf::from("test.c"),
+            None,
+        );
+
+        assert_call_kinds_are_aliased(
+            &parser,
+            "C",
+            C::CallExpression2 as u16,
+            C::CallExpression as u16,
+        );
+
+        assert_eq!(
+            count(&parser, &["call".to_string()]).0,
+            6,
+            "is_call must match every call_expression the C grammar emits"
+        );
+
+        // Parenthesised non-call shapes stay out. The exact count above is
+        // the sharper guard — these rows document the intended boundary
+        // and catch a future edit that widens the match to them.
+        for (kind, label) in [
+            (C::SizeofExpression as u16, "sizeof_expression"),
+            (C::CastExpression as u16, "cast_expression"),
+            (C::FunctionDeclarator as u16, "function_declarator"),
+        ] {
+            let node = find_first_kind(&parser, kind).expect(label);
+            assert!(!CCode::is_call(&node), "{label} must not be a call");
+        }
+    }
+
+    /// C++ counterpart of [`c_is_call_matches_the_aliased_call_expression`].
+    /// Member, qualified and function-pointer calls all arrive as the same
+    /// aliased `CallExpression2`; object construction does not (#1254).
+    #[test]
+    fn cpp_is_call_matches_the_aliased_call_expression() {
+        let parser = CppParser::new(
+            CPP_CALL_SHAPES.as_bytes().to_vec(),
+            &PathBuf::from("test.cpp"),
+            None,
+        );
+
+        assert_call_kinds_are_aliased(
+            &parser,
+            "Cpp",
+            Cpp::CallExpression2 as u16,
+            Cpp::CallExpression as u16,
+        );
+
+        assert_eq!(
+            count(&parser, &["call".to_string()]).0,
+            5,
+            "is_call must match member, qualified and function-pointer \
+             calls, and only those"
+        );
+
+        // `new T(4)` and `sizeof(T)` are call-shaped but not call sites.
+        for (kind, label) in [
+            (Cpp::NewExpression as u16, "new_expression"),
+            (Cpp::SizeofExpression as u16, "sizeof_expression"),
+            (Cpp::InitDeclarator as u16, "init_declarator"),
+        ] {
+            let node = find_first_kind(&parser, kind).expect(label);
+            assert!(!CppCode::is_call(&node), "{label} must not be a call");
+        }
+    }
+
+    /// `Mozcpp` owns no file extension, so nothing routes to it and it
+    /// gets no integration-snapshot coverage. Pin it against its
+    /// extension-owning sibling instead: the Mozilla fork inherits
+    /// upstream C++'s aliasing, so the same source must yield the same
+    /// calls (grammar-dispatch, "sweep the rest").
+    #[test]
+    fn mozcpp_is_call_agrees_with_cpp() {
+        let source = CPP_CALL_SHAPES.as_bytes().to_vec();
+        let mozcpp = MozcppParser::new(source.clone(), &PathBuf::from("test.cpp"), None);
+        let cpp = CppParser::new(source, &PathBuf::from("test.cpp"), None);
+
+        assert_call_kinds_are_aliased(
+            &mozcpp,
+            "Mozcpp",
+            Mozcpp::CallExpression2 as u16,
+            Mozcpp::CallExpression as u16,
+        );
+
+        let mozcpp_calls = count(&mozcpp, &["call".to_string()]).0;
+        assert_eq!(
+            mozcpp_calls, 5,
+            "Mozcpp must count the same five calls as C++"
+        );
+        assert_eq!(
+            mozcpp_calls,
+            count(&cpp, &["call".to_string()]).0,
+            "Mozcpp is the Mozilla C++ fork; is_call must not diverge \
+             from CppCode on shared source"
+        );
+
+        let new_expr =
+            find_first_kind(&mozcpp, Mozcpp::NewExpression as u16).expect("new_expression");
+        assert!(
+            !MozcppCode::is_call(&new_expr),
+            "new_expression must not be a call"
+        );
+    }
+
     fn parse_python(src: &str) -> PythonParser {
         PythonParser::new(src.as_bytes().to_vec(), &PathBuf::from("test.py"), None)
     }
