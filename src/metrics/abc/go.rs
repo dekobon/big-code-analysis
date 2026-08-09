@@ -109,6 +109,21 @@ impl Abc for GoCode {
             G::AssignmentStatement | G::ShortVarDeclaration | G::IncStatement | G::DecStatement => {
                 stats.assignments += 1.;
             }
+            // `var x = 5` and `x := 5` are the same binding spelled two
+            // ways, and the cross-language policy counts an initialized
+            // declaration: Java the `EQ` in `int x = 5;`, C++ an
+            // `InitDeclarator` carrying `EQ`, Rust a `LetDeclaration` with
+            // a `value` field, JS a `let` / `var` initializer (#1278). The
+            // `value` field is what distinguishes `var z int` (no
+            // initializer, no assignment) position-independently across
+            // both `var x = 5` and `var y int = 6`. Matching the spec
+            // rather than the declaration counts each line of a grouped
+            // `var ( a = 1 \n b int )` block on its own; a multi-name
+            // `var p, q = 1, 2` is one spec and so scores 1, matching
+            // `p, q := 1, 2`. `const` stays excluded, as everywhere else.
+            G::VarSpec if node.child_by_field_name("value").is_some() => {
+                stats.assignments += 1.;
+            }
             // Every call expression — including method calls
             // (`r.Method()` parses as `call_expression` whose callee is
             // a `selector_expression`) — contributes one branch.
