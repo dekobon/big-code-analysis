@@ -79,44 +79,124 @@ pub enum Error {
     Cache(String),
 }
 
-impl Error {
-    /// Whether this error was caused by client-supplied input (a bad
-    /// path, revision, window, timestamp, formula, pattern, threshold,
-    /// trend parameter, file-type scope, or diff) as opposed to an
-    /// environment or backend failure (opening the repository, walking
-    /// history, diffing, `.mailmap`, blame, or the persistent cache).
-    ///
-    /// Front ends use this to choose a status: a web boundary maps
-    /// client-input errors to `400 Bad Request` and the rest to
-    /// `500 Internal Server Error` (see `vcs_error_response` in the web
-    /// crate).
-    ///
-    /// The match is intentionally exhaustive (no wildcard arm): adding a
-    /// new [`Error`] variant is a compile error here until it is
-    /// classified, which prevents the silent fall-through that twice
-    /// mis-mapped client-input variants to `500` (`InvalidFileTypeScope`,
-    /// `InvalidDiff`; see issue #641).
-    #[must_use]
-    pub fn is_client_input(&self) -> bool {
-        match self {
-            Self::NotARepository(_)
-            | Self::ResolveRef { .. }
-            | Self::InvalidBotPattern(_)
-            | Self::InvalidWindow(_)
-            | Self::InvalidTimestamp(_)
-            | Self::InvalidFormula(_)
-            | Self::InvalidFileTypeScope(_)
-            | Self::InvalidBusFactorThreshold(_)
-            | Self::InvalidAuthorHashKey(_)
-            | Self::InvalidTrend(_)
-            | Self::InvalidDiff(_) => true,
-            Self::OpenRepository(_)
-            | Self::Walk(_)
-            | Self::Diff(_)
-            | Self::Mailmap(_)
-            | Self::Blame(_)
-            | Self::Cache(_) => false,
+/// Emits [`Error::is_client_input`] and [`Error::client_input_samples`]
+/// from a single variant list.
+///
+/// Both halves are generated from the same `client_input` group, so they
+/// cannot drift. That coupling is the point. `is_client_input` alone is
+/// already compile-forced — its generated match has no wildcard arm, so
+/// adding an [`Error`] variant fails to build until it is listed in one
+/// group or the other (issue #641). But a front end that turns a
+/// client-input variant into its own machine-readable token cannot be
+/// compile-forced in the same way: [`Error`] is `#[non_exhaustive]`, so a
+/// match in any *other* crate must carry a wildcard and the compiler has
+/// nothing to complain about. `InvalidAuthorHashKey` reached the web
+/// crate's `vcs_error_kind` wildcard for exactly that reason and was
+/// reported to clients as an internal server fault (issue #1245).
+///
+/// Listing a variant under `client_input` therefore also yields a
+/// constructed sample of it, and the web crate's token guard iterates
+/// those samples rather than a hand-written copy of the list. Adding a
+/// twelfth client-input variant is a compile error here; fixing that
+/// compile error is what makes the token guard fail until a token is
+/// chosen.
+///
+/// `client_input` takes `pat_param`, not `pat`, so that one entry cannot
+/// quietly stand for two variants. `pat` admits a top-level or-pattern,
+/// and `Self::InvalidWindow(_) | Self::InvalidTimestamp(_) => <one
+/// sample>` would keep the match exhaustive and correct while yielding a
+/// sample for only the first — reopening #1245 for the second. That is
+/// the shape a maintainer reaches for, because it is how the arms were
+/// written before this macro existed. `pat_param` rejects the `|`
+/// outright ("no rules expected `|`"). The `environment` group keeps
+/// `pat` because it produces no samples and nothing depends on its
+/// entries being one-to-one.
+macro_rules! classify_error_variants {
+    (
+        client_input { $($client:pat_param => $sample:expr),+ $(,)? }
+        environment { $($environment:pat),+ $(,)? }
+    ) => {
+        impl Error {
+            /// Whether this error was caused by client-supplied input (a bad
+            /// path, revision, window, timestamp, formula, pattern, threshold,
+            /// author-hash key, trend parameter, file-type scope, or diff) as
+            /// opposed to an environment or backend failure (opening the
+            /// repository, walking history, diffing, `.mailmap`, blame, or the
+            /// persistent cache).
+            ///
+            /// Front ends use this to choose a status: a web boundary maps
+            /// client-input errors to `400 Bad Request` and the rest to
+            /// `500 Internal Server Error` (see `vcs_error_response` in the web
+            /// crate).
+            ///
+            /// The match is intentionally exhaustive (no wildcard arm): adding a
+            /// new [`Error`] variant is a compile error here until it is
+            /// classified, which prevents the silent fall-through that twice
+            /// mis-mapped client-input variants to `500` (`InvalidFileTypeScope`,
+            /// `InvalidDiff`; see issue #641).
+            #[must_use]
+            pub fn is_client_input(&self) -> bool {
+                match self {
+                    $($client => true,)+
+                    $($environment => false,)+
+                }
+            }
+
+            /// One constructed sample per client-input variant, in
+            /// declaration order.
+            ///
+            /// Test support for front ends that must map every
+            /// client-input variant onto something of their own — a
+            /// machine-readable error token, a help string, an exit code.
+            /// `#[non_exhaustive]` denies them an exhaustive match, so
+            /// iterating these samples is the only way such a mapping can
+            /// be checked for completeness (issue #1245).
+            ///
+            /// Not part of the stability contract: `#[doc(hidden)]`, and
+            /// the payloads are placeholders whose exact text may change
+            /// at any time. Assert on the *variant*, never on a sample's
+            /// rendered message.
+            #[doc(hidden)]
+            #[must_use]
+            pub fn client_input_samples() -> Vec<Self> {
+                vec![$($sample),+]
+            }
         }
+    };
+}
+
+// Adding an entry to `client_input` is a cross-crate obligation, not a
+// local one: every client-input variant owes the web surface its own
+// `error_kind` token (`vcs_error_kind` in `big-code-analysis-web`), plus
+// a line in the vocabulary lists in `STABILITY.md` and the book. Nothing
+// here can enforce that — `Error` is `#[non_exhaustive]`, so the web
+// match must carry a wildcard — which is why the sample below exists for
+// the guard test to iterate. One entry per variant; the samples are
+// throwaway payloads, deliberately unlike any real message.
+classify_error_variants! {
+    client_input {
+        Self::NotARepository(_) => Self::NotARepository(PathBuf::from("/not-a-repository")),
+        Self::ResolveRef { .. } => Self::ResolveRef {
+            reference: "HEAD".to_owned(),
+            reason: "unborn branch".to_owned(),
+        },
+        Self::InvalidBotPattern(_) => Self::InvalidBotPattern("[".to_owned()),
+        Self::InvalidWindow(_) => Self::InvalidWindow("banana".to_owned()),
+        Self::InvalidTimestamp(_) => Self::InvalidTimestamp("yesterday".to_owned()),
+        Self::InvalidFormula(_) => Self::InvalidFormula("astrology".to_owned()),
+        Self::InvalidFileTypeScope(_) => Self::InvalidFileTypeScope(String::new()),
+        Self::InvalidBusFactorThreshold(_) => Self::InvalidBusFactorThreshold("1.5".to_owned()),
+        Self::InvalidAuthorHashKey(_) => Self::InvalidAuthorHashKey("hunter2".to_owned()),
+        Self::InvalidTrend(_) => Self::InvalidTrend("1".to_owned()),
+        Self::InvalidDiff(_) => Self::InvalidDiff("not a unified diff".to_owned()),
+    }
+    environment {
+        Self::OpenRepository(_),
+        Self::Walk(_),
+        Self::Diff(_),
+        Self::Mailmap(_),
+        Self::Blame(_),
+        Self::Cache(_),
     }
 }
 

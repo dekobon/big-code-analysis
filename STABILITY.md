@@ -1166,11 +1166,13 @@ contract points are:
   `invalid_scope_flag`, `vcs_mode_conflict`, `payload_too_large`,
   `read_error`, `internal_error`, `parse_timeout`,
   `parse_pool_saturated`, `ast_build_failed`, `metrics_failed`,
-  `not_found`, `method_not_allowed`, `unsupported_media_type`, and the
+  `not_found`, `method_not_allowed`, `unsupported_media_type`,
+  `not_acceptable`, `serialize_failed`, and the
   per-cause vcs tokens `vcs_not_a_repository`, `vcs_invalid_revision`,
   `vcs_invalid_bot_pattern`, `vcs_invalid_window`,
   `vcs_invalid_timestamp`, `vcs_invalid_formula`,
   `vcs_invalid_file_type_scope`, `vcs_invalid_bus_factor_threshold`,
+  `vcs_invalid_author_hash_key`,
   `vcs_invalid_trend`, `vcs_invalid_diff`, and the catch-all
   `vcs_internal_error`. A `file_name` that maps to no supported
   language is a `422 Unprocessable Entity` carrying
@@ -1180,7 +1182,14 @@ contract points are:
   per-vcs-cause tokens replace the former single kitchen-sink `/vcs`
   400 message at `2.0` (#631): a bad window now answers
   `vcs_invalid_window` with the specific cause, not a sentence listing
-  every possible parameter.
+  every possible parameter. `vcs_invalid_author_hash_key` is new after
+  `2.1.0`, which does not carry it: a misused `author_hash_key` already
+  answered `400` there, but reported the catch-all `vcs_internal_error`,
+  so a client branching on the token saw its own mistake as a server
+  fault (#1245). Adding a token is additive, and correcting one that
+  named the wrong cause is a bug fix rather than a rename — but a client
+  that has to interoperate with both must treat `vcs_internal_error` on
+  a `400` as the older spelling of this case.
 - **`/vcs`-family defaults.** The web defaults match the CLI's bounded
   defaults so the same logical invocation returns the same-sized result
   on either surface (#636): `top` defaults to 50, `top_deltas` to 10,

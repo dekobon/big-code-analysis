@@ -225,8 +225,9 @@ pub(crate) fn not_acceptable_message() -> String {
 /// cause. The set is governed by `STABILITY.md`; adding a token is an
 /// additive change, renaming or removing one is a break. Clients branch
 /// on these tokens instead of string-matching the free-form `error`
-/// prose. The vcs-family mapping lives in [`vcs_error_kind`], keyed off
-/// `vcs::Error`'s own variants so a new variant forces a token decision.
+/// prose. The vcs-family mapping lives in [`vcs_error_kind`]; see there
+/// for why a new `vcs::Error` variant cannot be *compile*-forced to pick
+/// a token, and which test stands in for the compiler (#1245).
 pub(crate) mod error_kind {
     /// `file_name` (and content sniffing) mapped to no supported language.
     pub(crate) const UNSUPPORTED_LANGUAGE: &str = "unsupported_language";
@@ -277,6 +278,9 @@ pub(crate) mod error_kind {
     pub(crate) const VCS_INVALID_FILE_TYPE_SCOPE: &str = "vcs_invalid_file_type_scope";
     /// The bus-factor threshold was out of range.
     pub(crate) const VCS_INVALID_BUS_FACTOR_THRESHOLD: &str = "vcs_invalid_bus_factor_threshold";
+    /// The `author_hash_key` was empty, or was supplied without
+    /// `emit_author_details` (which it has no effect without) — #956.
+    pub(crate) const VCS_INVALID_AUTHOR_HASH_KEY: &str = "vcs_invalid_author_hash_key";
     /// A trend point-count / span option was malformed.
     pub(crate) const VCS_INVALID_TREND: &str = "vcs_invalid_trend";
     /// The unified diff passed to `/vcs/jit` was malformed.
@@ -298,12 +302,25 @@ pub(crate) mod error_kind {
 
 /// Stable `error_kind` token for a [`VcsError`] (#631).
 ///
-/// Keyed exhaustively off the library `vcs::Error` variants (no wildcard
-/// arm) so adding a variant is a compile error here until a token is
-/// chosen — the same forcing function `is_client_input` uses. Every
-/// environment / backend failure collapses onto
+/// Every environment / backend failure collapses onto
 /// [`error_kind::VCS_INTERNAL_ERROR`]; each client-input variant gets its
 /// own specific token.
+///
+/// **The wildcard is not a safety net, and the compiler cannot help
+/// here.** `vcs::Error` is `#[non_exhaustive]`, so this cross-crate match
+/// is *required* to carry a wildcard — an omitted client-input variant
+/// silently reaches it and is reported to the client as a server fault.
+/// That is not hypothetical: `InvalidAuthorHashKey` did exactly that from
+/// #956 until #1245, answering `400` (which `is_client_input` gets right
+/// on its own) with `vcs_internal_error`. `is_client_input` is the
+/// forcing function for *status*, and only for status; it forces nothing
+/// about this table.
+///
+/// The guard for this table is therefore a test, not the compiler:
+/// `vcs_error_kind_maps_each_client_variant_to_a_distinct_token` iterates
+/// `vcs::Error::client_input_samples()`, which the library generates from
+/// the same list as `is_client_input`'s arms. Adding a client-input
+/// variant there fails that test until a token is added below.
 pub(crate) fn vcs_error_kind(error: &VcsError) -> &'static str {
     match error {
         VcsError::NotARepository(_) => error_kind::VCS_NOT_A_REPOSITORY,
@@ -314,14 +331,14 @@ pub(crate) fn vcs_error_kind(error: &VcsError) -> &'static str {
         VcsError::InvalidFormula(_) => error_kind::VCS_INVALID_FORMULA,
         VcsError::InvalidFileTypeScope(_) => error_kind::VCS_INVALID_FILE_TYPE_SCOPE,
         VcsError::InvalidBusFactorThreshold(_) => error_kind::VCS_INVALID_BUS_FACTOR_THRESHOLD,
+        VcsError::InvalidAuthorHashKey(_) => error_kind::VCS_INVALID_AUTHOR_HASH_KEY,
         VcsError::InvalidTrend(_) => error_kind::VCS_INVALID_TREND,
         VcsError::InvalidDiff(_) => error_kind::VCS_INVALID_DIFF,
-        // Every environment / backend failure (`OpenRepository`, `Walk`,
-        // `Diff`, `Mailmap`, `Blame`, `Cache`) and any future
-        // `#[non_exhaustive]` variant collapses onto the generic internal
-        // token; `is_client_input` already owns the exhaustive
-        // client-vs-environment forcing function, so this wildcard cannot
-        // silently mis-classify a client error.
+        // Reached by every environment / backend failure
+        // (`OpenRepository`, `Walk`, `Diff`, `Mailmap`, `Blame`, `Cache`),
+        // which is what it is for, and by any future client-input variant
+        // whose token is still missing, which is what the samples-driven
+        // guard test above exists to catch.
         _ => error_kind::VCS_INTERNAL_ERROR,
     }
 }
