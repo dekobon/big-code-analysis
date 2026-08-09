@@ -424,23 +424,7 @@ pub(crate) fn expand_seed_paths(
             die(format_args!("path does not exist: {}", seed.display()));
         };
         if kind.is_file() {
-            // A single explicit file seed keeps the form the caller
-            // spelled (its emitted `name` must match the single-file
-            // `bca.analyze()` API). It bypasses the exclude deny-set: a
-            // file named directly on the command line is a direct request
-            // that a project's directory-walk ignore rules (`.bcaignore`,
-            // `--exclude`, manifest `exclude`) must not silently drop
-            // (#726), matching the ripgrep/fd convention that an explicit
-            // path overrides ignore rules. An `--include` allow-list still
-            // narrows which named files are analyzed, matched against the
-            // seed's CWD-relative form so `--include 'src/**'` treats
-            // `--paths "$PWD/src/f.rs"` and `--paths src/f.rs` alike.
-            let include_form = walk_seed::file_seed_match_path(&seed);
-            // Gated on the admission so an overlapping seed warns once
-            // rather than per mention (#1146).
-            if filters.includes(&include_form) && found.push_explicit(&seed) {
-                filters.warn_exclude_overridden(&seed, &include_form);
-            }
+            admit_file_seed(&seed, filters, &mut found);
             continue;
         }
         // The dedupe spans every seed, so it belongs to `found` rather
@@ -465,14 +449,37 @@ pub(crate) fn expand_seed_paths(
     // With ignore handling off nothing can be ignore-dropped, so the
     // measurement short-circuits to empty rather than reporting every
     // hidden-or-excluded child as a mystery.
-    let ignored = (measure_ignored && !no_ignore)
-        .then(|| measure_ignored_entries(&walked_dirs, &found.files, filters))
-        .unwrap_or_default();
+    let ignored = if measure_ignored && !no_ignore {
+        measure_ignored_entries(&walked_dirs, &found.files, filters)
+    } else {
+        IgnoredEntries::default()
+    };
     ResolvedFiles {
         files: found.files,
         explicit_files: found.explicit_files,
         walk_errors,
         ignored,
+    }
+}
+
+/// Admit an explicitly-named file seed into `found`.
+///
+/// A single explicit file seed keeps the form the caller spelled (its
+/// emitted `name` must match the single-file `bca.analyze()` API). It
+/// bypasses the exclude deny-set: a file named directly on the command
+/// line is a direct request that a project's directory-walk ignore
+/// rules (`.bcaignore`, `--exclude`, manifest `exclude`) must not
+/// silently drop (#726), matching the ripgrep/fd convention that an
+/// explicit path overrides ignore rules. An `--include` allow-list
+/// still narrows which named files are analyzed, matched against the
+/// seed's CWD-relative form so `--include 'src/**'` treats
+/// `--paths "$PWD/src/f.rs"` and `--paths src/f.rs` alike.
+fn admit_file_seed(seed: &Path, filters: &WalkFilters<'_>, found: &mut SeedSet) {
+    let include_form = walk_seed::file_seed_match_path(seed);
+    // Gated on the admission so an overlapping seed warns once rather
+    // than per mention (#1146).
+    if filters.includes(&include_form) && found.push_explicit(seed) {
+        filters.warn_exclude_overridden(seed, &include_form);
     }
 }
 
