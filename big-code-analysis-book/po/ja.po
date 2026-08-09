@@ -2,7 +2,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: big-code-analysis Documentation\n"
-"POT-Creation-Date: 2026-08-03T16:48:12-07:00\n"
+"POT-Creation-Date: 2026-08-08T21:40:41-07:00\n"
 "PO-Revision-Date: 2026-07-21\n"
 "Last-Translator: big-code-analysis maintainers\n"
 "Language-Team: Japanese\n"
@@ -86,7 +86,7 @@ msgstr "品質レポート"
 msgid "CI integration"
 msgstr "CI 連携"
 
-#: src/SUMMARY.md:20 src/commands/check.md:527
+#: src/SUMMARY.md:20 src/commands/check.md:578
 msgid "Baselines"
 msgstr "ベースライン"
 
@@ -488,10 +488,43 @@ msgstr ""
 "す。"
 
 #: src/languages.md:60
+msgid "K&R definitions with a wrapped return type"
+msgstr ""
+
+#: src/languages.md:62
+msgid ""
+"A pre-ANSI (K&R) function definition opens no function space under `C` or "
+"`Objective-C` when its return type wraps the declarator — `int *`, `char "
+"**`, `struct S *`, or a `static` pointer return all reproduce it:"
+msgstr ""
+
+#: src/languages.md:70
+msgid ""
+"`tree-sitter-c` 0.24.2 builds its old-style function definition from a "
+"declarator nested _inside_ the old-style declarator, so an outer "
+"`pointer_declarator` is unreachable and the parser prefers a plain "
+"`declaration` that swallows the first parameter declaration, orphaning the "
+"body as a bare `compound_statement`. No `ERROR` node is produced — the parse "
+"silently succeeds wrongly, and there is no dispatch arm missing on our side."
+msgstr ""
+
+#: src/languages.md:78
+msgid ""
+"The consequence is that the body's decisions are charged to the file's unit "
+"space: the line above reports `cyclomatic.sum` 2 and `nom.functions` 0, a "
+"file-level count no function-level row accounts for. A K&R definition whose "
+"return type does not wrap the declarator (`int krplain(a, b) int a; int b; "
+"{ … }`) is unaffected, as is any ANSI definition. `C/C++` and `Mozcpp` open "
+"no space for _either_ K&R form, because `tree-sitter-cpp` has no rule for "
+"the syntax at all. This is an upstream grammar limitation, tracked here as "
+"[\\#1209](https://github.com/dekobon/big-code-analysis/issues/1209)."
+msgstr ""
+
+#: src/languages.md:88
 msgid "Internal helper variants"
 msgstr "内部ヘルパーバリアント"
 
-#: src/languages.md:62
+#: src/languages.md:90
 msgid ""
 "The following `LANG` variants are not user-facing languages — they are "
 "internal helpers in the C-family analysis pipeline (they ride every C-family "
@@ -503,15 +536,15 @@ msgstr ""
 "`cpp`、`c`、`mozcpp` に同梱されます）、ソースファイルの分析時に直接選択される"
 "ことはありません："
 
-#: src/languages.md:67
+#: src/languages.md:95
 msgid "`Ccomment` — focuses on C/C++ comments."
 msgstr "`Ccomment` — C/C++ のコメントに特化しています。"
 
-#: src/languages.md:68
+#: src/languages.md:96
 msgid "`Preproc` — focuses on C/C++ preprocessor macros."
 msgstr "`Preproc` — C/C++ のプリプロセッサマクロに特化しています。"
 
-#: src/languages.md:70
+#: src/languages.md:98
 msgid ""
 "**Note:** Since #720 the Mozilla/Gecko C++ dialect is exposed as the "
 "`Mozcpp` `LANG` variant (backed by the vendored `bca-tree-sitter-mozcpp` "
@@ -1404,7 +1437,7 @@ msgstr ""
 "因は、この演算子カウントの選択です。"
 
 #: src/metrics.md:211 src/metrics.md:268 src/metrics.md:402 src/metrics.md:605
-#: src/metrics.md:698 src/metrics.md:1034 src/metrics-vcs.md:81
+#: src/metrics.md:698 src/metrics.md:1124 src/metrics-vcs.md:81
 #: src/metrics-vcs.md:119 src/metrics-vcs.md:182 src/metrics-vcs.md:223
 #: src/metrics-vcs.md:286 src/metrics-vcs.md:325 src/metrics-vcs.md:472
 #: src/metrics-vcs.md:513
@@ -1456,13 +1489,13 @@ msgstr ""
 "とに特殊化されています。"
 
 #: src/metrics.md:232 src/metrics.md:297 src/metrics.md:461 src/metrics.md:561
-#: src/metrics.md:623 src/metrics.md:707 src/metrics.md:798 src/metrics.md:836
-#: src/metrics.md:885 src/metrics.md:920 src/metrics.md:960 src/metrics.md:998
-#: src/metrics.md:1046 src/metrics-vcs.md:92 src/metrics-vcs.md:127
-#: src/metrics-vcs.md:152 src/metrics-vcs.md:192 src/metrics-vcs.md:232
-#: src/metrics-vcs.md:256 src/metrics-vcs.md:297 src/metrics-vcs.md:336
-#: src/metrics-vcs.md:404 src/metrics-vcs.md:434 src/metrics-vcs.md:482
-#: src/metrics-vcs.md:536
+#: src/metrics.md:623 src/metrics.md:707 src/metrics.md:829 src/metrics.md:867
+#: src/metrics.md:916 src/metrics.md:1009 src/metrics.md:1050
+#: src/metrics.md:1088 src/metrics.md:1136 src/metrics-vcs.md:92
+#: src/metrics-vcs.md:127 src/metrics-vcs.md:152 src/metrics-vcs.md:192
+#: src/metrics-vcs.md:232 src/metrics-vcs.md:256 src/metrics-vcs.md:297
+#: src/metrics-vcs.md:336 src/metrics-vcs.md:404 src/metrics-vcs.md:434
+#: src/metrics-vcs.md:482 src/metrics-vcs.md:536
 msgid "How to read it"
 msgstr "読み方"
 
@@ -1767,8 +1800,8 @@ msgstr "`k = lambda q: (yield a and b, c)`"
 msgid "`def f(a): g = lambda x: x`"
 msgstr "`def f(a): g = lambda x: x`"
 
-#: src/metrics.md:368 src/recipes/thresholds.md:381
-#: src/recipes/thresholds.md:382
+#: src/metrics.md:368 src/recipes/thresholds.md:384
+#: src/recipes/thresholds.md:385
 msgid "0"
 msgstr "0"
 
@@ -2581,6 +2614,7 @@ msgstr ""
 "は 3 引数を緩やかな上限として提案しています。"
 
 #: src/metrics.md:735
+#, fuzzy
 msgid ""
 "big-code-analysis splits the count by callable kind: every aggregate is "
 "reported separately for _functions_ and _closures_ so a Rust file heavy on "
@@ -2590,7 +2624,9 @@ msgid ""
 "`average`, `function_args_min`, `function_args_max`, `closure_args_min`, "
 "`closure_args_max`. The implementation handles default arguments, variadic "
 "arguments, keyword-only arguments, and destructured parameters consistently "
-"per language."
+"per language. Comments written inside the parameter list are not parameters, "
+"including the C++ idiom that puts one where an unused parameter's name would "
+"go — `void f(int /*unused*/)` is one argument."
 msgstr ""
 "big-code-analysis は、呼び出し可能要素の種類ごとにカウントを分割します。すべ"
 "ての集計値が 「関数」 と _クロージャ_ で別々に報告されるため、`|…| …` クロー"
@@ -2602,11 +2638,44 @@ msgstr ""
 "フォルト引数、可変長引数、キーワード専用引数、分割代入されたパラメータを言語"
 "ごとに一貫して処理します。"
 
-#: src/metrics.md:747
+#: src/metrics.md:749
+msgid "Macro-obscured C-family declarators"
+msgstr ""
+
+#: src/metrics.md:751
+msgid ""
+"C, C++, Mozcpp and Objective-C are parsed without running the preprocessor, "
+"so a function-like macro standing where the declared name belongs is still "
+"there in the tree. The idiom is the JNI shim:"
+msgstr ""
+
+#: src/metrics.md:761
+msgid ""
+"Read as written, `RUN_STATS_METHOD(allocate)` is the declarator and `(JNIEnv "
+"*env, jclass clazz)` belongs to the return type — one argument. big-code-"
+"analysis reads it the other way and reports **two**, because neither "
+"language lets a function return a function type (C11 6.7.6.3p1, C++ `[dcl."
+"fct]`): a declarator nested directly inside another one cannot be a "
+"declarator chain, so the outer list is the function's own. Every legitimate "
+"function-returning-a-function-pointer form — `int (*fp(int a, int b))(int "
+"c)` — puts parentheses in between and is unaffected, as is C++ `operator()`."
+msgstr ""
+
+#: src/metrics.md:771
+msgid ""
+"The space is named for the **macro**, not the function. There is no other "
+"candidate: the real symbol is assembled by `##` token pasting and never "
+"appears in the source. So several shims in one file share a name, which `bca "
+"check` shows as several rows with the same label at different lines, and "
+"which `.bca-baseline.toml` disambiguates by body hash the way it does an "
+"overload set."
+msgstr ""
+
+#: src/metrics.md:778
 msgid "What the threshold gate measures"
 msgstr "しきい値ゲートが測定するもの"
 
-#: src/metrics.md:749
+#: src/metrics.md:780
 msgid ""
 "`bca check --threshold nargs=N` gates each callable on **its own** parameter "
 "list, which is what every comparable tool measures — RuboCop `Metrics/"
@@ -2619,7 +2688,7 @@ msgstr ""
 "`too_many_arguments`、lizard、SonarQube の S107、Pylint の `R0913` は、いずれ"
 "も呼び出し可能要素を 1 つずつ数えます。"
 
-#: src/metrics.md:755
+#: src/metrics.md:786
 msgid ""
 "Note that this is _not_ the serialized `total`. The `function_args` and "
 "`closure_args` keys above are subtree sums: a function that declares two "
@@ -2638,7 +2707,7 @@ msgstr ""
 "示唆する対処であるパラメータ削減は、違反を解消できる対処ではありませんでし"
 "た。"
 
-#: src/metrics.md:764
+#: src/metrics.md:795
 msgid ""
 "Nothing escapes the narrower rule. In the twelve grammars whose closures "
 "open their own space — Rust, JavaScript, TypeScript, TSX, MozJS, C#, Go, "
@@ -2649,21 +2718,22 @@ msgid ""
 msgstr ""
 "この狭い方の規則から漏れるものはありません。クロージャが独自のスペースを開く"
 "12 の文法 — Rust、JavaScript、TypeScript、TSX、MozJS、C#、Go、PHP、Perl、"
-"Ruby、Lua、Elixir — では、クロージャは独自の違反者行でゲートされ、修正もそこに属し"
-"ます。Python、Java、Kotlin、C++ ではラムダはスペースを開かないため、その引数"
-"は外側の関数にしか帰属できません。その場合、違反者行は内訳を表示します。"
+"Ruby、Lua、Elixir — では、クロージャは独自の違反者行でゲートされ、修正もそこ"
+"に属します。Python、Java、Kotlin、C++ ではラムダはスペースを開かないため、そ"
+"の引数は外側の関数にしか帰属できません。その場合、違反者行は内訳を表示しま"
+"す。"
 
-#: src/metrics.md:775
+#: src/metrics.md:806
 msgid ""
 "so you can tell at a glance whether the lever is the signature or the lambda."
 msgstr ""
 "そのため、手を入れるべきはシグネチャなのかラムダなのかがひと目で分かります。"
 
-#: src/metrics.md:778
+#: src/metrics.md:809
 msgid "Languages where it reads 0"
 msgstr "0 と表示される言語"
 
-#: src/metrics.md:780
+#: src/metrics.md:811
 msgid ""
 "A metric that silently reports 0 reads as \"no offenders\" rather than \"not "
 "measured\", so it is worth knowing where the count is inert:"
@@ -2671,7 +2741,7 @@ msgstr ""
 "黙って 0 を報告するメトリクスは「測定されていない」ではなく「違反者なし」と読"
 "めてしまうため、カウントが不活性な箇所を知っておく価値があります。"
 
-#: src/metrics.md:783
+#: src/metrics.md:814
 msgid ""
 "**Bash** — correct and permanent. The shell has no formal parameter list; "
 "arguments arrive as `$1`, `$2`, and so on. It is the only language where "
@@ -2681,7 +2751,7 @@ msgstr ""
 "なく、引数は `$1`、`$2` などとして届きます。すべての関数が 0 と表示される唯一"
 "の言語です。"
 
-#: src/metrics.md:786
+#: src/metrics.md:817
 msgid ""
 "**Perl subs without a signature** — correct. Signatures (`sub add($x, $y)`) "
 "are counted; a sub that reads its arguments from `@_` declares no formal "
@@ -2691,7 +2761,7 @@ msgstr ""
 "add($x, $y)`）はカウントされます。`@_` から引数を読み取るサブルーチンは、数え"
 "るべき形式パラメータを宣言していません。"
 
-#: src/metrics.md:789
+#: src/metrics.md:820
 msgid ""
 "**Perl anonymous subs** — a gap, and an upstream one: the grammar parses an "
 "anonymous sub's signature inside an error node, so `my $f = sub ($x) {…}` "
@@ -2702,7 +2772,7 @@ msgstr ""
 "`my $f = sub ($x) {…}` はシグネチャを持っているにもかかわらず 0 と表示されま"
 "す。"
 
-#: src/metrics.md:793
+#: src/metrics.md:824
 msgid ""
 "A `nargs` limit is therefore inert on a Bash codebase and sparse on Perl "
 "written before `use v5.36`. Gate it per language rather than repository-"
@@ -2713,7 +2783,7 @@ msgstr ""
 "言語ごとにゲートしてください。[しきい値の選択](recipes/thresholds."
 "md#language-gaps)を参照してください。"
 
-#: src/metrics.md:800
+#: src/metrics.md:831
 msgid ""
 "A function with many arguments is hard to call correctly and even harder to "
 "test exhaustively — the test matrix grows roughly exponentially. The classic "
@@ -2726,7 +2796,7 @@ msgstr ""
 "グの助言は _パラメータオブジェクトの導入_ パターンです。関数が 4 つを超える関"
 "連した引数を取る場合、それらをレコード / 構造体 / データクラスにまとめます。"
 
-#: src/metrics.md:806
+#: src/metrics.md:837
 msgid ""
 "The emergent use is as a **review-blocking lint rule**: most modern linters "
 "(`pylint`'s `R0913`, ESLint's `max-params`, Checkstyle's `ParameterNumber`) "
@@ -2742,11 +2812,11 @@ msgstr ""
 "が時間とともにじわじわ増えている公開 API は、「あともう 1 つだけパラメータ"
 "を」という機能フラグを積み重ねてきた API であることが多いのです。"
 
-#: src/metrics.md:813
+#: src/metrics.md:844
 msgid "NExits"
 msgstr "NExits"
 
-#: src/metrics.md:815
+#: src/metrics.md:846
 msgid ""
 "**NExits** counts the number of distinct exit points from a function — every "
 "explicit `return`, every `throw` / `raise`, and (in Rust) every `?` early-"
@@ -2758,7 +2828,7 @@ msgstr ""
 "早期リターンです。関数末尾の暗黙的なフォールスルーのリターンは**数えません"
 "**。明示的な出口のみが対象です（issue #243 を参照）。"
 
-#: src/metrics.md:821
+#: src/metrics.md:852
 msgid ""
 "The metric goes back to the structured-programming literature of the 1970s, "
 "where Edsger Dijkstra and others argued that functions should have **a "
@@ -2776,7 +2846,7 @@ msgstr ""
 "ださい。同書は、ネストを減らせる場合の _早期リターン_ を、明確さを高めるパ"
 "ターンとして明示的に推奨しています。"
 
-#: src/metrics.md:830
+#: src/metrics.md:861
 msgid ""
 "big-code-analysis walks each function's syntax tree, identifies the language-"
 "specific exit nodes (see the per-language `Exit` trait in `src/metrics/"
@@ -2790,7 +2860,7 @@ msgstr ""
 "シリアライズされたフィールド名は `nexits` で、本文で使っている略語表記と一致"
 "します。"
 
-#: src/metrics.md:838
+#: src/metrics.md:869
 msgid ""
 "Strict SESE coding standards ([DO-178C](https://en.wikipedia.org/wiki/"
 "DO-178C) for avionics, MISRA C for embedded automotive — see [MISRA's "
@@ -2808,7 +2878,7 @@ msgstr ""
 "候です。ほとんどの場合、その関数がガード節で事前条件を処理し、その後フラット"
 "な本体で処理を進めていることを意味するからです。"
 
-#: src/metrics.md:847
+#: src/metrics.md:878
 msgid ""
 "A _very_ high NExits — say above 8 — is the warning sign. It usually means "
 "the function should have been split into several smaller functions, with "
@@ -2818,11 +2888,11 @@ msgstr ""
 "の関数は複数の小さな関数に分割されるべきであり、それぞれの「成功する分岐」が"
 "独自のヘルパーになるべきだったことを意味します。"
 
-#: src/metrics.md:851
+#: src/metrics.md:882
 msgid "NOM"
 msgstr "NOM"
 
-#: src/metrics.md:853
+#: src/metrics.md:884
 msgid ""
 "**NOM** stands for _Number Of Methods_ and counts every function, method, "
 "and closure defined inside a given scope (file, class, or namespace). For "
@@ -2840,7 +2910,7 @@ msgstr ""
 "Hall、ISBN 0-13-179292-X）で最初期に導入したメトリクスの 1 つであり、同書では"
 "主要なクラスサイズ指標として扱われています。"
 
-#: src/metrics.md:862
+#: src/metrics.md:893
 msgid ""
 "big-code-analysis reports the count split by callable kind in `src/metrics/"
 "nom.rs`. The serialised fields are `functions`, `closures`, "
@@ -2854,7 +2924,7 @@ msgstr ""
 "するスペース全体での平均）、および種類ごとの `functions_min`、"
 "`functions_max`、`closures_min`、`closures_max` です。"
 
-#: src/metrics.md:868
+#: src/metrics.md:899
 msgid ""
 "The split lets you ask different questions of the same code: a Rust crate "
 "with many closures and few functions is typical of iterator-heavy code; a "
@@ -2865,7 +2935,7 @@ msgstr ""
 "関数が少ない Rust クレートはイテレータ中心のコードに典型的であり、関数が多く"
 "クロージャが少ない Python モジュールはスクリプト風のコードに典型的です。"
 
-#: src/metrics.md:873
+#: src/metrics.md:904
 msgid ""
 "Some constructs that carry executable code are deliberately counted by "
 "neither field: Kotlin property accessors (`get()` / `set()`) and `init` "
@@ -2889,7 +2959,7 @@ msgstr ""
 "まいます。したがって、プロパティアクセサだけからなる Kotlin ファイルは、その"
 "複雑度を報告しつつ `nom.functions == 0` を報告します（#1184）。"
 
-#: src/metrics.md:887
+#: src/metrics.md:918
 msgid ""
 "NOM is the input to several other metrics — WMC sums _cyclomatic_ complexity "
 "across the same set of methods that NOM counts, and NPM filters that same "
@@ -2909,11 +2979,11 @@ msgstr ""
 "catalog/extractClass.html) に記述されている「コラボレーターの抽出」リファクタ"
 "リングの有力候補です。"
 
-#: src/metrics.md:897
+#: src/metrics.md:928
 msgid "NPA"
 msgstr "NPA"
 
-#: src/metrics.md:899
+#: src/metrics.md:930
 msgid ""
 "**NPA** counts the **number of public attributes** (a.k.a. fields, "
 "properties, instance variables) declared by a class or interface. It is part "
@@ -2932,7 +3002,7 @@ msgstr ""
 "が提案した MOOD（「Metrics for Object-Oriented Design」）スイートに取り込まれ"
 "ました。"
 
-#: src/metrics.md:907
+#: src/metrics.md:938
 msgid ""
 "big-code-analysis splits the count by definition-site kind: _classes_ "
 "(concrete types with state) and _interfaces_ (abstract contracts). The "
@@ -2957,7 +3027,80 @@ msgstr ""
 "C# の `public`、Rust の `pub`、Python の「先頭にアンダースコアを付けない」慣"
 "習など）、そして何を「メソッド」ではなく「属性」と見なすかを決定します。"
 
-#: src/metrics.md:922
+#: src/metrics.md:951
+msgid "Which spaces carry NPA, NPM and WMC"
+msgstr ""
+
+#: src/metrics.md:953
+msgid ""
+"NPA and NPM are emitted on **container spaces** — `class`, `struct`, "
+"`trait`, `impl`, `namespace`, `interface` — and on the whole-file `unit` "
+"root, which carries the roll-up across every container in the file. WMC "
+"follows the same rule wherever it is computed at all, which is narrower in "
+"two ways set out below. A **function space does not carry any of them**: a "
+"method owns no methods or attributes of its own, so the block would be all "
+"zeros. Before big-code-analysis 2.1.0, NPA and NPM did emit that all-zero "
+"block on function spaces in C#, JavaScript, MozJS, TypeScript, TSX, PHP and "
+"Ruby, and on the Kotlin, Java, Groovy and JS-family accessor / `init` / "
+"`static` spaces. In the same release Go, Rust, Python, C++, Objective-C and "
+"Elixir went the other way: they decided from their own grammar node kinds, "
+"so a `struct` declared inside a function put the block on that **function** "
+"space, while a `namespace` or a file root with no container at file scope "
+"carried none. Both deviations are gone — the space's kind is now the only "
+"input, for every language."
+msgstr ""
+
+#: src/metrics.md:971
+msgid ""
+"That rule governs the _block_, not the numbers behind it: the counts roll up "
+"through every enclosing space regardless. So a type declared inside a "
+"function body is reported by the nearest enclosing container, or by the file "
+"root when there is none."
+msgstr ""
+
+#: src/metrics.md:976
+msgid ""
+"Four things read differently. A Go file's NPA and NPM live on the `unit` "
+"root and nowhere else, because Go is the one language that emits them "
+"without having a container kind in its space tree — `type … struct` and "
+"`type … interface` open no space of their own. (Bash, C, Lua, Perl, Tcl and "
+"iRules have no container kind either, but they emit neither block anywhere, "
+"so the question does not arise.)"
+msgstr ""
+
+#: src/metrics.md:983
+msgid ""
+"Neither WMC narrowing moves NPA or NPM, which is why the rule above still "
+"holds as stated for those two. The first is language-level: **Go emits no "
+"`wmc` block at all**, on any space including the `unit` root, because its "
+"flat space model cannot attribute a method to a receiver class — so a Go "
+"file carries `npa` and `npm` at the root and `wmc` nowhere. The second is "
+"space-kind-level: a **`namespace` space carries `npa` and `npm` but no "
+"`wmc`**, because a namespace's member functions are free functions rather "
+"than methods of a class, so there is no per-class complexity to weight. That "
+"covers every construct mapping to `SpaceKind::Namespace` — a C++ or Mozcpp "
+"`namespace`, and a Ruby `module` — not just the C++ spelling. Objective-C "
+"has no namespace construct of its own, so the case does not arise there. The "
+"class _inside_ the namespace carries all three, and so does the file root."
+msgstr ""
+
+#: src/metrics.md:997
+msgid ""
+"Finally, the CSV projection is a fixed-column format: it writes the `npa."
+"*` / `npm.*` columns on **every** row regardless of space kind, carrying the "
+"real accessor values rather than eliding them."
+msgstr ""
+
+#: src/metrics.md:1002
+msgid ""
+"Thresholds are narrower still — `bca check` gates `npa` / `npm` on container "
+"spaces only, never the file root (see [Threshold scope](commands/check."
+"md#threshold-scope)). Taken with the paragraph above, that has a consequence "
+"worth stating outright: since a Go file's NPA and NPM are only ever reported "
+"at the root, **no `npa` or `npm` threshold can fire on Go source**."
+msgstr ""
+
+#: src/metrics.md:1011
 msgid ""
 "NPA is a _direct_ measure of encapsulation. Every public attribute is a "
 "piece of internal state that callers can read or write without going through "
@@ -2978,7 +3121,7 @@ msgstr ""
 "す — は、NPA をゼロまたはその近くに保ち、代わりに公開メソッドを通じて状態を公"
 "開することです。"
 
-#: src/metrics.md:933
+#: src/metrics.md:1022
 msgid ""
 "The emergent use is **API-stability auditing**: a public library class whose "
 "NPA grows over time accumulates breaking-change liability faster than its "
@@ -2988,11 +3131,11 @@ msgstr ""
 "イブラリのクラスは、公開メソッドの表面よりも速いペースで破壊的変更の負債を蓄"
 "積します。"
 
-#: src/metrics.md:937
+#: src/metrics.md:1026
 msgid "NPM"
 msgstr "NPM"
 
-#: src/metrics.md:939
+#: src/metrics.md:1028
 msgid ""
 "**NPM** counts the **number of public methods** declared by a class or "
 "interface. It is the method-side companion to NPA and was again codified by "
@@ -3002,14 +3145,16 @@ msgstr ""
 "ます。NPA のメソッド側の対になるもので、こちらも Lorenz と Kidd（1994 年）に"
 "よって体系化されました。"
 
-#: src/metrics.md:943
+#: src/metrics.md:1032
+#, fuzzy
 msgid ""
 "As with NPA, big-code-analysis splits NPM by definition-site kind (classes "
 "vs. interfaces). The serialised output (`src/metrics/npm.rs`) is "
 "`class_npm_sum` (sum of NPM across classes), `interface_npm_sum`, "
 "`class_methods` (sum of _all_ methods — public or not — across classes), "
 "`interface_methods`, `class_coa`, `interface_coa` (operation-accessibility "
-"_ratios_, not averages), `total`, `total_methods`, and `coa`. The language-"
+"_ratios_, not averages), `total`, `total_methods`, and `coa`. It follows the "
+"same emission rule as NPA ([above](#oop-emission-scope)). The language-"
 "specific `Npm` trait decides what counts as public — for example, Rust's "
 "`pub`, Python's leading-underscore convention, C++'s `public:` section — and "
 "folds together regular methods, constructors, and operator overloads as "
@@ -3026,7 +3171,7 @@ msgstr ""
 "ド、コンストラクタ、演算子オーバーロードを言語に応じて適切にまとめて扱いま"
 "す。"
 
-#: src/metrics.md:955
+#: src/metrics.md:1045
 msgid ""
 "NPM is also one of the inputs into [Mark Hitz and Behzad Montazeri's _Class "
 "Interface Size_ metric](https://link.springer.com/"
@@ -3038,7 +3183,7 @@ msgstr ""
 "Chidamber と Kemerer の _Response For a Class_（RFC）への入力の 1 つでもあり"
 "ます。"
 
-#: src/metrics.md:962
+#: src/metrics.md:1052
 msgid ""
 "NPM is the **public interface size**. A class with NPM in the dozens is a "
 "class with too large an API contract: every public method is something "
@@ -3056,7 +3201,7 @@ msgstr ""
 "く当てはまります。そこでは契約こそが、クライアントが依存の拠り所とする形その"
 "ものだからです。"
 
-#: src/metrics.md:971
+#: src/metrics.md:1061
 msgid ""
 "The emergent use is as a **public-API change tracker** for libraries: "
 "monitoring NPM at the package level catches accidental expansion of a "
@@ -3067,11 +3212,11 @@ msgstr ""
 "ケージレベルで NPM を監視すると、NPA が内部フィールドの偶発的な露出を捉えるの"
 "と同じように、ライブラリの表面積の偶発的な拡大を捉えられます。"
 
-#: src/metrics.md:976
+#: src/metrics.md:1066
 msgid "Tokens"
 msgstr "Tokens"
 
-#: src/metrics.md:978
+#: src/metrics.md:1068
 msgid ""
 "**Tokens** is a per-function and per-file count of the _tree-sitter leaf "
 "tokens_ — identifiers, literals, keywords, punctuation — excluding any token "
@@ -3089,7 +3234,7 @@ msgstr ""
 "ンツールでよく知られており、多くの読者がトークンカウントメトリクスを最初に目"
 "にするのはそこでしょう。）"
 
-#: src/metrics.md:987
+#: src/metrics.md:1077
 msgid ""
 "The implementation lives in `src/metrics/tokens.rs`. Because Tokens counts "
 "_every_ leaf, including punctuation that Halstead deliberately skips, the "
@@ -3110,7 +3255,7 @@ msgstr ""
 "省略可能な波括弧の追加、セミコロンが省略可能な言語でのセミコロンの挿入・削除 "
 "— はカウントを変化させます。"
 
-#: src/metrics.md:1000
+#: src/metrics.md:1090
 msgid ""
 "Tokens is the most **formatting-resilient size proxy** in the suite. It is "
 "the right size measure to use when you are normalising another metric across "
@@ -3123,7 +3268,7 @@ msgstr ""
 "スを正規化する際に使うべきサイズ指標です。`bugs per KSLOC` はフォーマットの影"
 "響を受けますが、`bugs per 1000 tokens` ははるかに受けにくいのです。"
 
-#: src/metrics.md:1006
+#: src/metrics.md:1096
 msgid ""
 "The emergent use is as the **defect-density denominator of choice** in cross-"
 "language research: a 1000-line Java file and a 1000-line Lisp file contain "
@@ -3138,11 +3283,11 @@ msgstr ""
 "れます。このため Tokens は、多くの言語にまたがって学習する機械学習ベースの"
 "コード品質モデルに特に有用です。"
 
-#: src/metrics.md:1014
+#: src/metrics.md:1104
 msgid "WMC"
 msgstr "WMC"
 
-#: src/metrics.md:1016
+#: src/metrics.md:1106
 msgid ""
 "**WMC** — _Weighted Methods per Class_ — is the first metric in the "
 "[Chidamber and Kemerer suite](https://www.eso.org/~tcsmgr/oowg-forum/"
@@ -3164,7 +3309,7 @@ msgstr ""
 "（NOM、NPA、NPM）を実装しており、継承ベース・結合ベースのものは今後の課題とし"
 "て追跡されています。"
 
-#: src/metrics.md:1026
+#: src/metrics.md:1116
 msgid ""
 "WMC is the **sum of the cyclomatic complexity of every method defined in a "
 "class**. The original paper deliberately left the \"weighting\" abstract — "
@@ -3179,7 +3324,7 @@ msgstr ""
 "と書いています。しかし、その後の経験的な追試文献はほぼ例外なく循環的複雑度を"
 "重みとして採用しており、big-code-analysis もそれを使用します。"
 
-#: src/metrics.md:1036
+#: src/metrics.md:1126
 msgid ""
 "For each class or interface found by the per-language parser, big-code-"
 "analysis sums the standard cyclomatic complexity of every method body inside "
@@ -3201,7 +3346,7 @@ msgstr ""
 "する report サブコマンドを使ってください（[Commands → Report](./commands/"
 "report.md) を参照）。"
 
-#: src/metrics.md:1048
+#: src/metrics.md:1138
 msgid ""
 "Chidamber and Kemerer offered three hypotheses about WMC, all of which have "
 "been validated repeatedly since:"
@@ -3209,7 +3354,7 @@ msgstr ""
 "Chidamber と Kemerer は WMC について 3 つの仮説を提示し、そのすべてがその後繰"
 "り返し検証されてきました。"
 
-#: src/metrics.md:1051
+#: src/metrics.md:1141
 msgid ""
 "**Higher WMC predicts higher maintenance effort.** A class whose methods are "
 "individually complex will resist comprehension."
@@ -3217,7 +3362,7 @@ msgstr ""
 "**WMC が高いほど保守工数の増加を予測します。** 個々のメソッドが複雑なクラス"
 "は、理解しにくくなります。"
 
-#: src/metrics.md:1053
+#: src/metrics.md:1143
 msgid ""
 "**Higher WMC reduces reuse.** Classes that do many complicated things are "
 "hard to drop into a new context."
@@ -3225,7 +3370,7 @@ msgstr ""
 "**WMC が高いほど再利用が減ります。** 多くの複雑なことを行うクラスは、新しいコ"
 "ンテキストに投入しにくいのです。"
 
-#: src/metrics.md:1055
+#: src/metrics.md:1145
 msgid ""
 "**Higher WMC suggests broader application-specific behaviour.** Such classes "
 "tend to be \"main loop\"-style coordinators rather than reusable building "
@@ -3235,7 +3380,7 @@ msgstr ""
 "ようなクラスは、再利用可能な部品ではなく「メインループ」型のコーディネーター"
 "になりがちです。"
 
-#: src/metrics.md:1059
+#: src/metrics.md:1149
 msgid ""
 "The emergent use is **God-class detection**: combined with NOM, WMC is one "
 "of the clearest signals that a class needs to be split. A class with high "
@@ -3250,12 +3395,12 @@ msgstr ""
 "割してください）。NOM と WMC の _両方_ が高いクラスが、古典的な God クラスで"
 "す。"
 
-#: src/metrics.md:1068 src/metrics-vcs.md:549 src/python/quick-start.md:93
+#: src/metrics.md:1158 src/metrics-vcs.md:549 src/python/quick-start.md:93
 #: src/python/traversal.md:128
 msgid "Where to go next"
 msgstr "次のステップ"
 
-#: src/metrics.md:1070
+#: src/metrics.md:1160
 msgid ""
 "The [Supported Languages](./languages.md) chapter lists every supported "
 "language and grammar. Metric coverage varies by language because some metric "
@@ -3265,7 +3410,7 @@ msgstr ""
 "います。一部のメトリクス定義（`NPA`、`NPM`、`WMC`）はクラスを持つ言語でしか意"
 "味をなさないため、メトリクスの対応範囲は言語によって異なります。"
 
-#: src/metrics.md:1074
+#: src/metrics.md:1164
 msgid ""
 "The [Supported Change-history (VCS) Metrics](./metrics-vcs.md) chapter "
 "covers the complementary family derived from version-control history — "
@@ -3276,7 +3421,7 @@ msgstr ""
 "ではなくバージョン管理履歴から導出される補完的なファミリー — コミット頻度、"
 "チャーン、所有権、複合的なリスクスコアとホットスポットスコア — を扱います。"
 
-#: src/metrics.md:1078
+#: src/metrics.md:1168
 msgid ""
 "The [Commands → Metrics](./commands/metrics.md) page documents how to invoke "
 "`bca metrics` to produce the JSON / YAML / TOML / CBOR output for any of "
@@ -3286,7 +3431,7 @@ msgstr ""
 "JSON / YAML / TOML / CBOR 出力を生成するための `bca metrics` の呼び出し方を説"
 "明しています。"
 
-#: src/metrics.md:1081
+#: src/metrics.md:1171
 msgid ""
 "The [Recipes](./recipes/quality-reports.md) chapter shows end-to-end "
 "examples of producing quality reports from these metrics, including "
@@ -4942,6 +5087,7 @@ msgid "Code"
 msgstr "コード"
 
 #: src/commands/index.md:48 src/commands/check.md:19 src/commands/check.md:47
+#: src/recipes/ci.md:909 src/recipes/ci.md:931
 msgid "`0`"
 msgstr "`0`"
 
@@ -4965,6 +5111,8 @@ msgstr ""
 "ではありません。"
 
 #: src/commands/index.md:50 src/commands/check.md:20 src/commands/check.md:49
+#: src/recipes/ci.md:910 src/recipes/ci.md:911 src/recipes/ci.md:930
+#: src/recipes/ci.md:932
 msgid "`2`"
 msgstr "`2`"
 
@@ -5464,10 +5612,20 @@ msgstr ""
 "す。"
 
 #: src/commands/index.md:257
+msgid ""
+"`bca check` additionally prints a one-line stderr summary whenever the "
+"detector dropped files from a gate run (`bca: 1 file not checked (1 "
+"generated) — pass --report-skipped to list them`), and its [`--strict` "
+"profile](check.md#strict-mode) disables the detector outright. A marker is "
+"content the branch under test controls, so a pull-request gate should not "
+"let it shrink the checked set."
+msgstr "さらに `bca check` は、ゲート実行で検出器がファイルを除外した場合に 1 行のサマリーを stderr に出力します（`bca: 1 file not checked (1 generated) — pass --report-skipped to list them`）。また、[`--strict` プロファイル](check.md#strict-mode)は検出器そのものを無効にします。マーカーはテスト対象のブランチが管理するコンテンツなので、プルリクエストのゲートでは、それによって検査対象のファイル集合が狭められるべきではありません。"
+
+#: src/commands/index.md:264
 msgid "Respecting `.gitignore`"
 msgstr "`.gitignore` の尊重"
 
-#: src/commands/index.md:259
+#: src/commands/index.md:266
 msgid ""
 "When a directory is passed to `--paths`, `bca` walks it with `.gitignore` "
 "awareness by default. Files matched by any of the following are skipped "
@@ -5477,19 +5635,19 @@ msgstr ""
 "慮して走査します。次のいずれかに一致するファイルは、パース前にスキップされま"
 "す:"
 
-#: src/commands/index.md:263
+#: src/commands/index.md:270
 msgid "`.gitignore` files inside the walked tree."
 msgstr "走査対象ツリー内の `.gitignore` ファイル。"
 
-#: src/commands/index.md:264
+#: src/commands/index.md:271
 msgid "`.ignore` files (the ripgrep / `fd` convention)."
 msgstr "`.ignore` ファイル（ripgrep / `fd` の慣習）。"
 
-#: src/commands/index.md:265
+#: src/commands/index.md:272
 msgid "`.git/info/exclude`."
 msgstr "`.git/info/exclude`。"
 
-#: src/commands/index.md:266
+#: src/commands/index.md:273
 msgid ""
 "The global gitignore (`~/.config/git/ignore`, or whatever `core."
 "excludesFile` points at)."
@@ -5497,7 +5655,7 @@ msgstr ""
 "グローバル gitignore（`~/.config/git/ignore`、または `core.excludesFile` が指"
 "す先）。"
 
-#: src/commands/index.md:268
+#: src/commands/index.md:275
 msgid ""
 "`.gitignore` files in ancestor directories of the seed (so `bca metrics src/"
 "` from a project root picks up the project's top-level `.gitignore`)."
@@ -5506,7 +5664,7 @@ msgstr ""
 "ルートから `bca metrics src/` を実行すると、プロジェクト最上位の `."
 "gitignore` が反映されます）。"
 
-#: src/commands/index.md:272
+#: src/commands/index.md:279
 msgid ""
 "The walker honors `.gitignore` even outside a checked-in git repository, so "
 "an extracted source tarball with a `.gitignore` file gets the same treatment "
@@ -5516,7 +5674,7 @@ msgstr ""
 "ます。そのため、`.gitignore` ファイルを含む展開済みのソース tarball も、`git "
 "clone` した直後と同じ扱いになります。"
 
-#: src/commands/index.md:276
+#: src/commands/index.md:283
 msgid ""
 "Hidden files (those whose basename starts with `.`) are filtered during the "
 "walk, matching the previous behavior."
@@ -5524,11 +5682,11 @@ msgstr ""
 "隠しファイル（ベース名が `.` で始まるもの）は走査中に除外され、以前の動作と一"
 "致します。"
 
-#: src/commands/index.md:279
+#: src/commands/index.md:286
 msgid "Explicit paths bypass the filter"
 msgstr "明示的なパスはフィルターを迂回する"
 
-#: src/commands/index.md:281
+#: src/commands/index.md:288
 msgid ""
 "Files passed by name — via `--paths`, `--paths-from`, or a trailing "
 "positional path — are always analyzed, even when the project's ignore rules "
@@ -5542,7 +5700,7 @@ msgstr ""
 "from -` を安全に実行でき、ワイルドカードの ignore ルールにたまたま該当する"
 "ファイルを失うことがありません。"
 
-#: src/commands/index.md:287
+#: src/commands/index.md:294
 msgid ""
 "The override is deliberate, and it is the same rule `rg` and `fd` apply: a "
 "path you named is a direct request. It spans every deny-set the walk "
@@ -5556,11 +5714,11 @@ msgstr ""
 "マニフェストの `exclude` リストのいずれにも — 及びます。`rg --glob '!x.txt' "
 "pattern x.txt` が `x.txt` を検索するのは、まさにこの理由からです。"
 
-#: src/commands/index.md:294
+#: src/commands/index.md:301
 msgid "Two boundaries on it:"
 msgstr "これには 2 つの境界があります。"
 
-#: src/commands/index.md:296
+#: src/commands/index.md:303
 msgid ""
 "**`-I` / `--include` still applies.** The allow-list narrows _which_ named "
 "files are analyzed, so `bca metrics -I '*.rs' notes.md` analyzes nothing. "
@@ -5570,7 +5728,7 @@ msgstr ""
 "ファイルの「どれ」を解析するかを絞り込むため、`bca metrics -I '*.rs' notes."
 "md` は何も解析しません。上書きされるのは拒否セットだけです。"
 
-#: src/commands/index.md:299
+#: src/commands/index.md:306
 msgid ""
 "**`[check] exclude` still applies.** The gate-exemption set (`--check-"
 "exclude` / `--check-exclude-from`, or `exclude` under `[check]` in `bca."
@@ -5592,7 +5750,7 @@ msgstr ""
 "リを基準に解決されるため、`bca` は `bca.toml` のあるディレクトリから実行して"
 "ください — CI とエージェントフックはすでにそうしています。"
 
-#: src/commands/index.md:310
+#: src/commands/index.md:317
 msgid ""
 "That second point is the one to reach for. A walker exclude shapes what gets "
 "**analyzed**; a check exclude shapes what gets **gated**. Anything you want "
@@ -5611,7 +5769,7 @@ msgstr ""
 "側は仮定の話ではありません。[エージェントフィードバックフック](../recipes/"
 "agent-feedback.md)がすべての編集で使っているのが、まさにこの形です。"
 
-#: src/commands/index.md:319
+#: src/commands/index.md:326
 msgid ""
 "When an explicitly named path does override a walker exclude, `bca` says so "
 "on stderr and names the glob:"
@@ -5619,19 +5777,22 @@ msgstr ""
 "明示的に名指しされたパスが実際にウォーカーの除外を上書きした場合、`bca` は "
 "stderr でそのことを伝え、該当するグロブを名指しします。"
 
-#: src/commands/index.md:326
+#: src/commands/index.md:333
 msgid "Path discovery flags"
 msgstr "パス探索フラグ"
 
-#: src/commands/index.md:328
+#: src/commands/index.md:335
 msgid ""
 "`--no-ignore` — disable `.gitignore` / `.ignore` / global-gitignore "
-"awareness when expanding directory seeds."
-msgstr ""
-"`--no-ignore` — ディレクトリの起点を展開する際の `.gitignore` / `.ignore` / "
-"グローバル gitignore の考慮を無効にします。"
+"awareness when expanding directory seeds. `bca check` counts the files "
+"ignore rules dropped from a gate run in its not-checked summary, lists them "
+"under `--report-skipped` (`note: skipped (ignored): <path>`), and disables "
+"the awareness under its [`--strict` profile](check.md#strict-mode), since an "
+"ignore file committed in the branch under test otherwise shrinks the checked "
+"set."
+msgstr "`--no-ignore` — ディレクトリシードを展開する際の `.gitignore` / `.ignore` / グローバル gitignore の解釈を無効にします。`bca check` は、ignore ルールによってゲート実行から除外されたファイルを not-checked サマリーで数え、`--report-skipped` で一覧表示し（`note: skipped (ignored): <path>`）、[`--strict` プロファイル](check.md#strict-mode)ではこの解釈自体を無効にします。テスト対象のブランチにコミットされた ignore ファイルが、検査対象のファイル集合を黙って狭めてしまうためです。"
 
-#: src/commands/index.md:330
+#: src/commands/index.md:343
 msgid ""
 "`--paths-from <FILE>` — read newline-separated input paths from `<FILE>`, or "
 "from stdin when `<FILE>` is `-`. Combined as a union with any `--paths` "
@@ -5648,7 +5809,7 @@ msgstr ""
 "は（コメントではなく）パスの文字として扱われます。文字どおり `-` という名前の"
 "ファイルを渡すには `./-` と書きます。"
 
-#: src/commands/index.md:337
+#: src/commands/index.md:350
 msgid ""
 "`--exclude-from <FILE>` — read newline-separated `--exclude` glob patterns "
 "from `<FILE>`, or from stdin when `<FILE>` is `-`. Patterns are unioned with "
@@ -5795,7 +5956,7 @@ msgstr "コマンド"
 msgid "Output"
 msgstr "出力"
 
-#: src/commands/metrics.md:58 src/commands/check.md:732
+#: src/commands/metrics.md:58 src/commands/check.md:783
 msgid "Audience"
 msgstr "対象"
 
@@ -6655,7 +6816,7 @@ msgstr ""
 "センタイルに再ランク付けし、その平均を取ります — 文献は、プロジェクト横断の頑"
 "健性のために、固定しきい値よりも相対的なトリガーを推奨しています。"
 
-#: src/commands/vcs.md:197 src/commands/report.md:41 src/commands/check.md:654
+#: src/commands/vcs.md:197 src/commands/report.md:41 src/commands/check.md:705
 #: src/commands/web-server.md:61 src/recipes/ci.md:533
 msgid "Flag"
 msgstr "フラグ"
@@ -9652,7 +9813,65 @@ msgstr ""
 "ルが実際に有効になっている場合だけです。インラインのグロブリストは和集合にな"
 "りますが、ファイルはそうなりません。"
 
+#: src/commands/check.md:527
+msgid "Untrusted-input mode (`--strict`)"
+msgstr "信頼できない入力に対するモード（`--strict`）"
+
 #: src/commands/check.md:529
+msgid ""
+"Two default behaviors shrink the set of files the gate looks at, and both "
+"read their inputs from the tree under test: the [generated-code detector]"
+"(index.html#skipping-generated-code) skips any file whose header carries a "
+"marker phrase, and the walker honors [`.gitignore` files](index."
+"html#respecting-gitignore) found inside the walked tree. Both are right for "
+"a trusted checkout. In a pull-request gate they are levers the change under "
+"review can pull: one added comment line or one `.gitignore` entry takes a "
+"file out of the gate. The [CI recipe](../recipes/ci.md#gate-trust-boundary) "
+"shows both reproductions."
+msgstr "ゲートが検査するファイル集合を狭める既定の動作が 2 つあり、どちらもテスト対象のツリーから入力を読み取ります。[生成コード検出器](index.html#skipping-generated-code)はヘッダにマーカー語句を含むファイルをスキップし、ウォーカーは走査対象ツリー内の [`.gitignore` ファイル](index.html#respecting-gitignore)を解釈します。どちらも信頼できるチェックアウトの分析には適切な既定値です。しかしプルリクエストのゲートでは、レビュー対象の変更が引けるレバーになります。コメント 1 行の追加、または `.gitignore` への 1 エントリで、ファイルがゲートから外れます。[CI レシピ](../recipes/ci.md#gate-trust-boundary)に両方の再現手順があります。"
+
+#: src/commands/check.md:540
+msgid ""
+"`--strict` turns both off in one flag, equivalent to passing `--no-skip-"
+"generated --no-ignore`:"
+msgstr "`--strict` は両者を 1 つのフラグで無効にします。`--no-skip-generated --no-ignore` を渡すのと等価です。"
+
+#: src/commands/check.md:547
+msgid "Projects opt in once in `bca.toml` instead of per workflow:"
+msgstr "プロジェクトはワークフローごとではなく、`bca.toml` で一度だけオプトインします。"
+
+#: src/commands/check.md:554
+msgid ""
+"The key is presence-only, like the top-level `exclude_tests`: it can turn "
+"the profile on, never off, so a CI workflow cannot silently weaken a "
+"committed policy (there is no `--no-strict`)."
+msgstr "このキーはトップレベルの `exclude_tests` と同様に presence-only です。プロファイルを有効にすることはできますが、無効に戻すことはできません（`--no-strict` はありません）。そのため CI ワークフローがコミット済みのポリシーを黙って弱めることはできません。"
+
+#: src/commands/check.md:558
+msgid ""
+"Even without the profile, `bca check` reports what it declined to look at. "
+"Whenever either mechanism dropped files, a one-line stderr summary gives the "
+"counts:"
+msgstr "プロファイルが無効でも、`bca check` は検査しなかったものを報告します。いずれかの仕組みがファイルを除外した場合は、1 行のサマリーを stderr に出力して件数を示します。"
+
+#: src/commands/check.md:566
+msgid ""
+"Clean runs print nothing, and the summary changes no exit code. `--report-"
+"skipped` lists each dropped file with a `note: skipped (generated): <path>` "
+"or `note: skipped (ignored): <path>` line. Under `--strict` nothing is "
+"skipped, so there is nothing to summarize."
+msgstr "クリーンな実行では何も出力されず、サマリーが終了コードを変えることもありません。`--report-skipped` は除外された各ファイルを `note: skipped (generated): <path>` または `note: skipped (ignored): <path>` の行で一覧表示します。`--strict` の下では何もスキップされないため、要約するものもありません。"
+
+#: src/commands/check.md:572
+msgid ""
+"With content sniffing off, genuinely generated trees still need an "
+"exemption; give them one the reviewers own, either a committed walker deny-"
+"set (`--exclude-from .bcaignore`) or a [`[check.exclude]`](#exempting-whole-"
+"file-categories-checkexclude) glob, rather than a marker the submitter "
+"controls."
+msgstr "コンテンツ判定を無効にした場合でも、本当に生成されたツリーには除外設定が必要です。提出者が管理するマーカーではなく、レビュアーが管理する仕組み、すなわちコミット済みのウォーカー用 deny-set（`--exclude-from .bcaignore`）か [`[check.exclude]`](#exempting-whole-file-categories-checkexclude) のグロブを使ってください。"
+
+#: src/commands/check.md:580
 msgid ""
 "When you adopt thresholds on an existing codebase you typically face a "
 "binary choice between \"raise the limit until nothing fires\" and \"fix "
@@ -9666,7 +9885,7 @@ msgstr ""
 "の違反を記録し、退行と新規違反のみを失敗させ、チームが負債を返済するにつれて"
 "ファイルを縮小していきます。"
 
-#: src/commands/check.md:536
+#: src/commands/check.md:587
 msgid ""
 "Baselines are **complementary to** the suppression markers from [Suppression "
 "markers](suppression.md), not a substitute. Suppressions express \"this "
@@ -9681,11 +9900,11 @@ msgstr ""
 "表現し、コミットされた TOML ファイルに置かれます。`bca check` はまず抑制を尊"
 "重し、残ったものにベースラインフィルターを適用します。"
 
-#: src/commands/check.md:543
+#: src/commands/check.md:594
 msgid "Writing a baseline"
 msgstr "ベースラインの書き出し"
 
-#: src/commands/check.md:550
+#: src/commands/check.md:601
 msgid ""
 "This walks the tree, captures every threshold violation that would otherwise "
 "fail the check, and writes them to the file as sorted TOML. The run exits "
@@ -9695,7 +9914,7 @@ msgstr ""
 "反を捕捉して、ソート済み TOML としてファイルに書き出します。この実行は違反数"
 "に関係なく `0` で終了します — 目的は違反を捕捉することだからです。"
 
-#: src/commands/check.md:555
+#: src/commands/check.md:606
 msgid ""
 "```toml\n"
 "# bca baseline file. Generated by `bca check --write-baseline`.\n"
@@ -9731,7 +9950,7 @@ msgstr ""
 "value = 22.0\n"
 "```"
 
-#: src/commands/check.md:572
+#: src/commands/check.md:623
 msgid ""
 "The `qualified` field is the function's qualified symbol (the `::`\\-joined "
 "chain of enclosing named containers plus the function name). An entry "
@@ -9749,7 +9968,7 @@ msgstr ""
 "baseline-fuzzy-match` を使うと、各エントリはリネーム耐性のあるマッチングのた"
 "めの `body_hash` も持ちます。"
 
-#: src/commands/check.md:581
+#: src/commands/check.md:632
 msgid ""
 "Functions already covered by an in-source suppression marker are excluded. "
 "Pass `--no-suppress` together with `--write-baseline` to record every "
@@ -9759,7 +9978,7 @@ msgstr ""
 "を記録するには、`--write-baseline` と一緒に `--no-suppress` を渡します（CI 監"
 "査フロー）。"
 
-#: src/commands/check.md:585
+#: src/commands/check.md:636
 msgid ""
 "`--write-baseline` cannot be combined with `--baseline`, `--report-format`, "
 "`--output`, `--since`, or `--changed-only` — the baseline file _is_ the "
@@ -9769,15 +9988,15 @@ msgstr ""
 "since`、`--changed-only` と組み合わせられません — ベースラインファイルが出力"
 "「そのもの」だからです。"
 
-#: src/commands/check.md:589
+#: src/commands/check.md:640
 msgid "Reading a baseline"
 msgstr "ベースラインの読み込み"
 
-#: src/commands/check.md:596
+#: src/commands/check.md:647
 msgid "A violation is suppressed when both conditions hold:"
 msgstr "違反は、次の両方の条件が成り立つときに抑制されます。"
 
-#: src/commands/check.md:598
+#: src/commands/check.md:649
 msgid ""
 "An entry matches by `(path, qualified_symbol, metric)` — independent of line "
 "number — or, failing that and with `--baseline-fuzzy-match`, by body hash. "
@@ -9789,11 +10008,11 @@ msgstr ""
 "シュで一致する。（完全な解決順序は[ベースラインレシピ](../recipes/baselines."
 "md#how-matching-works)を参照してください。）"
 
-#: src/commands/check.md:602
+#: src/commands/check.md:653
 msgid "The current `value` is **less than or equal to** the recorded value."
 msgstr "現在の `value` が記録された値**以下**である。"
 
-#: src/commands/check.md:604
+#: src/commands/check.md:655
 msgid ""
 "A function that gets worse than its baseline value still fails. New "
 "offenders not listed in the baseline still fail. Improvements pass silently "
@@ -9804,7 +10023,7 @@ msgstr ""
 "い新規違反も引き続き失敗します。改善は黙って通過します（エントリは次の `--"
 "write-baseline` による更新まで、古い高めの値のまま残ります）。"
 
-#: src/commands/check.md:609
+#: src/commands/check.md:660
 msgid ""
 "A baseline file that does not exist, is empty, has a missing or unsupported "
 "`version`, or fails to parse is a tool error (exit `1`), not a silent zero-"
@@ -9814,7 +10033,7 @@ msgstr ""
 "敗するベースラインファイルはツールエラー（終了コード `1`）であり、黙ってゼロ"
 "マッチ扱いにはなりません。"
 
-#: src/commands/check.md:613
+#: src/commands/check.md:664
 msgid ""
 "Path keys are canonicalised relative to the baseline file's own directory "
 "(the _anchor_), so `--paths .`, `--paths src/`, and `--paths \"$PWD\"` "
@@ -9828,11 +10047,11 @@ msgstr ""
 "く `--baseline` 実行はマッチします — `--write-baseline` を再実行せずに自由に"
 "切り替えられます。"
 
-#: src/commands/check.md:619 src/recipes/baselines.md:420
+#: src/commands/check.md:670 src/recipes/baselines.md:420
 msgid "Limitations"
 msgstr "制限事項"
 
-#: src/commands/check.md:621
+#: src/commands/check.md:672
 msgid ""
 "**Ambiguous symbols / anonymous functions.** Entries key on the qualified "
 "symbol, so inserting code above a _named_ function no longer re-keys it. The "
@@ -9848,7 +10067,7 @@ msgstr ""
 "どちらも移動すると「新規」として再キーされます。`--write-baseline` で更新して"
 "ください。"
 
-#: src/commands/check.md:627
+#: src/commands/check.md:678
 msgid ""
 "**OS portability.** Paths are stored with forward slashes so a baseline "
 "written on one OS matches the same tree on another. Paths that are not valid "
@@ -9860,7 +10079,7 @@ msgstr ""
 "は損失のある表示形式（U+FFFD 置換）にフォールバックし、正確にラウンドトリップ"
 "しない場合があります。"
 
-#: src/commands/check.md:632
+#: src/commands/check.md:683
 msgid ""
 "See the [Baselines recipe](../recipes/baselines.md) for the end-to-end "
 "adoption flow and CI integration patterns."
@@ -9868,11 +10087,11 @@ msgstr ""
 "エンドツーエンドの導入フローと CI 統合パターンについては、[ベースラインレシ"
 "ピ](../recipes/baselines.md)を参照してください。"
 
-#: src/commands/check.md:635
+#: src/commands/check.md:686
 msgid "Reporting without failing"
 msgstr "失敗させずに報告する"
 
-#: src/commands/check.md:637
+#: src/commands/check.md:688
 msgid ""
 "`--no-fail` reports offenders as usual but exits `0`. Useful while adopting "
 "baselines without flipping CI red. Other CI tools call this behavior `--"
@@ -9883,11 +10102,11 @@ msgstr ""
 "report-only` や `--soft-fail` と呼びますが、ここでは `--no-fail` という綴りで"
 "す。"
 
-#: src/commands/check.md:646 src/recipes/ci.md:322
+#: src/commands/check.md:697 src/recipes/ci.md:322
 msgid "Actionable failure output"
 msgstr "対処しやすい失敗出力"
 
-#: src/commands/check.md:648
+#: src/commands/check.md:699
 msgid ""
 "When `bca check` fails, five flags shape the failure stream so a developer "
 "skimming a CI log can see what tripped, where in their PR it tripped, and "
@@ -9901,46 +10120,46 @@ msgstr ""
 "ずれも GitHub Actions の環境変数から自動検出されるため、一般的な CI のケース"
 "では明示的な設定は不要です。"
 
-#: src/commands/check.md:654 src/commands/suppression.md:27
+#: src/commands/check.md:705 src/commands/suppression.md:27
 #: src/commands/suppression.md:128 src/recipes/ci.md:533
 msgid "Effect"
 msgstr "効果"
 
-#: src/commands/check.md:654
+#: src/commands/check.md:705
 msgid "Auto-detect env"
 msgstr "自動検出する環境変数"
 
-#: src/commands/check.md:656 src/recipes/ci.md:535
+#: src/commands/check.md:707 src/recipes/ci.md:535
 msgid "`--since <ref>`"
 msgstr "`--since <ref>`"
 
-#: src/commands/check.md:656
+#: src/commands/check.md:707
 msgid ""
 "Partition per-file footer into \"Files in this range\" + \"Other offenders\""
 msgstr ""
 "ファイル別フッターを \"Files in this range\" と \"Other offenders\" に分割"
 
-#: src/commands/check.md:656
+#: src/commands/check.md:707
 msgid "`BCA_DIFF_BASE`, `GITHUB_BASE_REF`, `GITHUB_EVENT_BEFORE`"
 msgstr "`BCA_DIFF_BASE`、`GITHUB_BASE_REF`、`GITHUB_EVENT_BEFORE`"
 
-#: src/commands/check.md:657 src/recipes/ci.md:536
+#: src/commands/check.md:708 src/recipes/ci.md:536
 msgid "`--changed-only`"
 msgstr "`--changed-only`"
 
-#: src/commands/check.md:657
+#: src/commands/check.md:708
 msgid "Drop violations outside the diff scope entirely"
 msgstr "diff スコープ外の違反を完全に除外"
 
-#: src/commands/check.md:657
+#: src/commands/check.md:708
 msgid "Requires a resolvable base (`--since` or one of the above)"
 msgstr "解決可能なベースが必要（`--since` または上記のいずれか）"
 
-#: src/commands/check.md:658 src/recipes/ci.md:537
+#: src/commands/check.md:709 src/recipes/ci.md:537
 msgid "`--github-annotations <auto\\|always\\|never>`"
 msgstr "`--github-annotations <auto\\|always\\|never>`"
 
-#: src/commands/check.md:658
+#: src/commands/check.md:709
 msgid ""
 "Emit `::error file=…::msg` workflow commands for inline file annotations "
 "(bare flag = `always`)"
@@ -9948,15 +10167,15 @@ msgstr ""
 "インラインのファイル注釈のために `::error file=…::msg` ワークフローコマンドを"
 "出力（フラグ単独指定 = `always`）"
 
-#: src/commands/check.md:658
+#: src/commands/check.md:709
 msgid "`auto` detects `GITHUB_ACTIONS == \"true\"`"
 msgstr "`auto` は `GITHUB_ACTIONS == \"true\"` を検出"
 
-#: src/commands/check.md:659 src/recipes/ci.md:538
+#: src/commands/check.md:710 src/recipes/ci.md:538
 msgid "`--summary-file <path\\|auto\\|never>`"
 msgstr "`--summary-file <path\\|auto\\|never>`"
 
-#: src/commands/check.md:659
+#: src/commands/check.md:710
 msgid ""
 "Append markdown digest (per-file rollup + breakdown + top-10 offenders); "
 "`never` suppresses it"
@@ -9964,23 +10183,23 @@ msgstr ""
 "Markdown ダイジェスト（ファイル別集計 + 内訳 + 違反トップ 10）を追記。"
 "`never` で抑止"
 
-#: src/commands/check.md:659
+#: src/commands/check.md:710
 msgid "`auto` detects `GITHUB_STEP_SUMMARY`"
 msgstr "`auto` は `GITHUB_STEP_SUMMARY` を検出"
 
-#: src/commands/check.md:660 src/recipes/ci.md:539
+#: src/commands/check.md:711 src/recipes/ci.md:539
 msgid "`--no-remediation`"
 msgstr "`--no-remediation`"
 
-#: src/commands/check.md:660 src/recipes/ci.md:539
+#: src/commands/check.md:711 src/recipes/ci.md:539
 msgid "Suppress the trailing `--- next steps ---` block"
 msgstr "末尾の `--- next steps ---` ブロックを抑止"
 
-#: src/commands/check.md:660
+#: src/commands/check.md:711
 msgid "Block emitted on failure unless this flag is passed"
 msgstr "このフラグを渡さない限り、失敗時にブロックを出力"
 
-#: src/commands/check.md:662
+#: src/commands/check.md:713
 msgid ""
 "The per-violation rows and the per-file rollup footer remain unchanged in "
 "_content_ when none of the above are active, so CI tooling that grep-anchors "
@@ -9992,7 +10211,7 @@ msgstr ""
 "引き続き動作します — ただし、それぞれが現在どのストリームに出力されるかは[ど"
 "のストリームか](#which-stream)を参照してください。"
 
-#: src/commands/check.md:667
+#: src/commands/check.md:718
 msgid ""
 "See the [CI integration recipe](../recipes/ci.md#actionable-failure-output) "
 "for worked examples — including a \"putting it all together\" GHA snippet "
@@ -10006,15 +10225,15 @@ msgstr ""
 "baseline` 更新フローについては[ベースラインレシピ](../recipes/baselines.md)を"
 "参照してください。"
 
-#: src/commands/check.md:673
+#: src/commands/check.md:724
 msgid "Diff-base auto-detection precedence"
 msgstr "diff ベース自動検出の優先順位"
 
-#: src/commands/check.md:675
+#: src/commands/check.md:726
 msgid "When `--since` is omitted, `bca` consults env vars in this order:"
 msgstr "`--since` が省略された場合、`bca` は次の順序で環境変数を参照します。"
 
-#: src/commands/check.md:677
+#: src/commands/check.md:728
 msgid ""
 "`BCA_DIFF_BASE` — explicit override hatch for local shells or non-GHA CI "
 "runners."
@@ -10022,7 +10241,7 @@ msgstr ""
 "`BCA_DIFF_BASE` — ローカルシェルや GHA 以外の CI ランナー向けの明示的なオー"
 "バーライド手段。"
 
-#: src/commands/check.md:679
+#: src/commands/check.md:730
 msgid ""
 "`GITHUB_BASE_REF` — set by GHA on `pull_request` events. Expanded to `origin/"
 "<value>`; the runner is responsible for the corresponding `git fetch` "
@@ -10032,7 +10251,7 @@ msgstr ""
 "<value>` に展開されます。対応する `git fetch` はランナーの責任です（`actions/"
 "checkout` の `fetch-depth: 0`）。"
 
-#: src/commands/check.md:682
+#: src/commands/check.md:733
 msgid ""
 "`GITHUB_EVENT_BEFORE` — set by GHA on `push` events to the SHA at HEAD "
 "before the push. The all-zeroes sentinel (force push, brand-new branch) is "
@@ -10042,7 +10261,7 @@ msgstr ""
 "設定します。すべてゼロのセンチネル（強制プッシュ、新規ブランチ）はシグナルな"
 "しとして扱われます。"
 
-#: src/commands/check.md:686
+#: src/commands/check.md:737
 msgid ""
 "Failing to resolve a base is non-fatal **unless `--changed-only` is "
 "passed**, in which case the gate dies — silently suppressing every violation "
@@ -10058,40 +10277,41 @@ msgstr ""
 "（部分的なベースラインは、次のフルツリー実行で diff スコープ外のすべての違反"
 "を黙って覆い隠してしまいます）。"
 
-#: src/commands/check.md:694
+#: src/commands/check.md:745
 msgid "CI example (GitHub Actions)"
 msgstr "CI の例（GitHub Actions）"
 
-#: src/commands/check.md:697 src/commands/check.md:709
-#: src/commands/check.md:780 src/commands/check.md:789
-#: src/commands/check.md:795 src/commands/check.md:881
-#: src/commands/check.md:888 src/commands/check.md:890 src/recipes/ci.md:119
+#: src/commands/check.md:748 src/commands/check.md:760
+#: src/commands/check.md:831 src/commands/check.md:840
+#: src/commands/check.md:846 src/commands/check.md:932
+#: src/commands/check.md:939 src/commands/check.md:941 src/recipes/ci.md:119
 #: src/recipes/ci.md:126 src/recipes/ci.md:140 src/recipes/ci.md:176
 #: src/recipes/ci.md:184 src/recipes/ci.md:186 src/recipes/ci.md:194
 #: src/recipes/ci.md:222 src/recipes/ci.md:233 src/recipes/ci.md:237
 #: src/recipes/ci.md:245 src/recipes/ci.md:289 src/recipes/ci.md:354
 #: src/recipes/ci.md:415 src/recipes/ci.md:442 src/recipes/ci.md:505
-#: src/recipes/ci.md:565 src/recipes/baselines.md:78
+#: src/recipes/ci.md:565 src/recipes/ci.md:960 src/recipes/baselines.md:78
 #: src/recipes/local-gates.md:414 src/recipes/local-gates.md:549
 #: src/recipes/local-gates.md:555 src/python/sarif.md:67 src/python/sarif.md:76
 msgid "name"
 msgstr "name"
 
-#: src/commands/check.md:697 src/recipes/baselines.md:78
+#: src/commands/check.md:748 src/recipes/baselines.md:78
 msgid "Check code complexity thresholds"
 msgstr "Check code complexity thresholds"
 
-#: src/commands/check.md:698 src/commands/check.md:710
-#: src/commands/check.md:790 src/commands/check.md:889
-#: src/commands/check.md:891 src/recipes/ci.md:128 src/recipes/ci.md:141
+#: src/commands/check.md:749 src/commands/check.md:761
+#: src/commands/check.md:841 src/commands/check.md:940
+#: src/commands/check.md:942 src/recipes/ci.md:128 src/recipes/ci.md:141
 #: src/recipes/ci.md:187 src/recipes/ci.md:238 src/recipes/ci.md:290
 #: src/recipes/ci.md:355 src/recipes/ci.md:416 src/recipes/ci.md:443
-#: src/recipes/ci.md:506 src/recipes/ci.md:566 src/recipes/baselines.md:79
-#: src/recipes/local-gates.md:415 src/python/sarif.md:68
+#: src/recipes/ci.md:506 src/recipes/ci.md:566 src/recipes/ci.md:961
+#: src/recipes/baselines.md:79 src/recipes/local-gates.md:415
+#: src/python/sarif.md:68
 msgid "run"
 msgstr "run"
 
-#: src/commands/check.md:698
+#: src/commands/check.md:749
 msgid ""
 "    bca check\n"
 "  # Thresholds and paths come from the auto-discovered `bca.toml`\n"
@@ -10104,7 +10324,7 @@ msgstr ""
 "  # ステップが失敗する — はまさにここで求めるものです。追加の配線は不要で"
 "す。\n"
 
-#: src/commands/check.md:705
+#: src/commands/check.md:756
 msgid ""
 "If you want to keep the job green and surface offenders as a build "
 "annotation while you reduce the count, swap in `--no-fail`:"
@@ -10112,19 +10332,19 @@ msgstr ""
 "違反数を減らしている間、ジョブをグリーンに保ちつつ違反をビルド注釈として表示"
 "したい場合は、`--no-fail` に置き換えます。"
 
-#: src/commands/check.md:709
+#: src/commands/check.md:760
 msgid "Surface complexity hot spots (non-blocking)"
 msgstr "Surface complexity hot spots (non-blocking)"
 
-#: src/commands/check.md:710
+#: src/commands/check.md:761
 msgid "    bca check --paths src/ --no-fail\n"
 msgstr "    bca check --paths src/ --no-fail\n"
 
-#: src/commands/check.md:714
+#: src/commands/check.md:765
 msgid "Exporting offender records"
 msgstr "違反レコードのエクスポート"
 
-#: src/commands/check.md:716
+#: src/commands/check.md:767
 msgid ""
 "`bca check` also emits a single CI/IDE document covering every offender in "
 "the walk. Pass `--report-format <fmt>` to pick the shape and `--output "
@@ -10140,7 +10360,7 @@ msgstr ""
 "削除されます。終了コードの契約はこれらのフラグの影響を受けません。クリーンな"
 "ら 0、違反があれば 2（`--no-fail` 時を除く）、ツールエラーなら 1 です。"
 
-#: src/commands/check.md:724
+#: src/commands/check.md:775
 msgid ""
 "When `--output` is given without `--report-format`, the format is **inferred "
 "from the output extension**: `.sarif` selects `sarif` and `.xml` selects "
@@ -10158,51 +10378,51 @@ msgstr ""
 "`--output` が黙って無視されることは決してありません。明示的な `--report-"
 "format` は常に拡張子より優先されます。"
 
-#: src/commands/check.md:732
+#: src/commands/check.md:783
 msgid "Format"
 msgstr "フォーマット"
 
-#: src/commands/check.md:734
+#: src/commands/check.md:785
 msgid "`checkstyle`"
 msgstr "`checkstyle`"
 
-#: src/commands/check.md:734
+#: src/commands/check.md:785
 msgid "Jenkins, SonarQube, GitLab, \"warnings plugin\" CI"
 msgstr "Jenkins、SonarQube、GitLab、\"warnings plugin\" 系 CI"
 
-#: src/commands/check.md:735
+#: src/commands/check.md:786
 msgid "`sarif`"
 msgstr "`sarif`"
 
-#: src/commands/check.md:735
+#: src/commands/check.md:786
 msgid "GitHub Code Scanning, modern IDEs / security tooling"
 msgstr "GitHub Code Scanning、モダンな IDE / セキュリティツール"
 
-#: src/commands/check.md:736
+#: src/commands/check.md:787
 msgid "`code-climate`"
 msgstr "`code-climate`"
 
-#: src/commands/check.md:736
+#: src/commands/check.md:787
 msgid "GitLab MR Code Quality widget"
 msgstr "GitLab MR の Code Quality ウィジェット"
 
-#: src/commands/check.md:737
+#: src/commands/check.md:788
 msgid "`clang-warning`"
 msgstr "`clang-warning`"
 
-#: src/commands/check.md:737
+#: src/commands/check.md:788
 msgid "Editor quickfix parsers, GitHub Actions problem matcher"
 msgstr "エディタの quickfix パーサー、GitHub Actions の problem matcher"
 
-#: src/commands/check.md:738
+#: src/commands/check.md:789
 msgid "`msvc-warning`"
 msgstr "`msvc-warning`"
 
-#: src/commands/check.md:738
+#: src/commands/check.md:789
 msgid "Visual Studio, VS Code, Windows CI runners"
 msgstr "Visual Studio、VS Code、Windows CI ランナー"
 
-#: src/commands/check.md:740
+#: src/commands/check.md:791
 msgid ""
 "When no offenders exist the writer emits a well-formed but empty document — "
 "empty `runs[].results` array for SARIF, empty JSON array (`[]`) for Code "
@@ -10216,11 +10436,11 @@ msgstr ""
 "つの警告行フォーマットでは 0 バイト — これにより CI コンシューマーは違反のな"
 "い実行結果もそのまま取り込めます。"
 
-#: src/commands/check.md:747
+#: src/commands/check.md:798
 msgid "Checkstyle (CI integration)"
 msgstr "Checkstyle（CI 統合）"
 
-#: src/commands/check.md:756
+#: src/commands/check.md:807
 msgid ""
 "The Checkstyle writer emits a single `<checkstyle version=\"4.3\">` document "
 "containing one `<file>` element per source path, each holding one `<error>` "
@@ -10234,11 +10454,11 @@ msgstr ""
 "の XSD で、Jenkins および SonarQube の「Warnings Next Generation」/「Generic "
 "Issue」インポーターが直接取り込めます。"
 
-#: src/commands/check.md:762
+#: src/commands/check.md:813
 msgid "SARIF (GitHub Code Scanning)"
 msgstr "SARIF（GitHub Code Scanning）"
 
-#: src/commands/check.md:771
+#: src/commands/check.md:822
 msgid ""
 "The SARIF writer emits a single SARIF 2.1.0 JSON document with one `runs[]` "
 "element. Each metric-threshold violation becomes a `result` under `runs[0]."
@@ -10250,75 +10470,75 @@ msgstr ""
 "`result` になり、実行結果に現れるメトリクス名は重複排除されて、短い説明ととも"
 "に `runs[0].tool.driver.rules[]` に格納されます。"
 
-#: src/commands/check.md:777
+#: src/commands/check.md:828
 msgid "To upload a SARIF file to GitHub Code Scanning from a workflow:"
 msgstr ""
 "ワークフローから GitHub Code Scanning に SARIF ファイルをアップロードするに"
 "は:"
 
-#: src/commands/check.md:780
+#: src/commands/check.md:831
 msgid "bca-sarif"
 msgstr "bca-sarif"
 
-#: src/commands/check.md:781 src/commands/check.md:882
+#: src/commands/check.md:832 src/commands/check.md:933
 msgid "push"
 msgstr "push"
 
-#: src/commands/check.md:781 src/commands/check.md:882 src/recipes/ci.md:224
+#: src/commands/check.md:832 src/commands/check.md:933 src/recipes/ci.md:224
 msgid "pull_request"
 msgstr "pull_request"
 
-#: src/commands/check.md:781 src/commands/check.md:882 src/recipes/ci.md:225
+#: src/commands/check.md:832 src/commands/check.md:933 src/recipes/ci.md:225
 msgid "jobs"
 msgstr "jobs"
 
-#: src/commands/check.md:783
+#: src/commands/check.md:834
 msgid "scan"
 msgstr "scan"
 
-#: src/commands/check.md:784 src/commands/check.md:885 src/recipes/ci.md:228
+#: src/commands/check.md:835 src/commands/check.md:936 src/recipes/ci.md:228
 msgid "runs-on"
 msgstr "runs-on"
 
-#: src/commands/check.md:784 src/commands/check.md:885 src/recipes/ci.md:228
+#: src/commands/check.md:835 src/commands/check.md:936 src/recipes/ci.md:228
 msgid "ubuntu-latest"
 msgstr "ubuntu-latest"
 
-#: src/commands/check.md:785 src/recipes/ci.md:229
+#: src/commands/check.md:836 src/recipes/ci.md:229
 msgid "permissions"
 msgstr "permissions"
 
-#: src/commands/check.md:786
+#: src/commands/check.md:837
 msgid "security-events"
 msgstr "security-events"
 
-#: src/commands/check.md:786 src/recipes/ci.md:230
+#: src/commands/check.md:837 src/recipes/ci.md:230
 msgid "write"
 msgstr "write"
 
-#: src/commands/check.md:787 src/commands/check.md:886 src/recipes/ci.md:111
+#: src/commands/check.md:838 src/commands/check.md:937 src/recipes/ci.md:111
 #: src/recipes/ci.md:231
 msgid "steps"
 msgstr "steps"
 
-#: src/commands/check.md:788 src/commands/check.md:796
-#: src/commands/check.md:887 src/recipes/ci.md:121 src/recipes/ci.md:177
+#: src/commands/check.md:839 src/commands/check.md:847
+#: src/commands/check.md:938 src/recipes/ci.md:121 src/recipes/ci.md:177
 #: src/recipes/ci.md:185 src/recipes/ci.md:195 src/recipes/ci.md:232
 #: src/recipes/ci.md:234 src/recipes/ci.md:246 src/recipes/ci.md:348
 #: src/recipes/ci.md:498 src/python/sarif.md:77
 msgid "uses"
 msgstr "uses"
 
-#: src/commands/check.md:788 src/commands/check.md:887 src/recipes/ci.md:232
+#: src/commands/check.md:839 src/commands/check.md:938 src/recipes/ci.md:232
 #: src/recipes/ci.md:348 src/recipes/ci.md:498
 msgid "actions/checkout@v4"
 msgstr "actions/checkout@v4"
 
-#: src/commands/check.md:789 src/commands/check.md:890
+#: src/commands/check.md:840 src/commands/check.md:941
 msgid "Run big-code-analysis"
 msgstr "Run big-code-analysis"
 
-#: src/commands/check.md:790
+#: src/commands/check.md:841
 msgid ""
 "          bca check --paths . \\\n"
 "              --report-format sarif \\\n"
@@ -10330,29 +10550,29 @@ msgstr ""
 "              --output report.sarif.json \\\n"
 "              --no-fail\n"
 
-#: src/commands/check.md:795
+#: src/commands/check.md:846
 msgid "Upload SARIF"
 msgstr "Upload SARIF"
 
-#: src/commands/check.md:796 src/python/sarif.md:77
+#: src/commands/check.md:847 src/python/sarif.md:77
 msgid "github/codeql-action/upload-sarif@v3"
 msgstr "github/codeql-action/upload-sarif@v3"
 
-#: src/commands/check.md:797 src/recipes/ci.md:122 src/recipes/ci.md:178
+#: src/commands/check.md:848 src/recipes/ci.md:122 src/recipes/ci.md:178
 #: src/recipes/ci.md:196 src/recipes/ci.md:235 src/recipes/ci.md:247
 #: src/recipes/ci.md:349 src/recipes/ci.md:499 src/python/sarif.md:78
 msgid "with"
 msgstr "with"
 
-#: src/commands/check.md:798 src/python/sarif.md:79
+#: src/commands/check.md:849 src/python/sarif.md:79
 msgid "sarif_file"
 msgstr "sarif_file"
 
-#: src/commands/check.md:798
+#: src/commands/check.md:849
 msgid "report.sarif.json"
 msgstr "report.sarif.json"
 
-#: src/commands/check.md:801
+#: src/commands/check.md:852
 msgid ""
 "`--no-fail` keeps the job green so the SARIF upload step still runs when "
 "offenders exist; remove it once you want a metric regression to fail the "
@@ -10362,11 +10582,11 @@ msgstr ""
 "アップロードステップは実行されます。メトリクスの悪化でワークフローを失敗させ"
 "たくなったら外してください。"
 
-#: src/commands/check.md:805
+#: src/commands/check.md:856
 msgid "GitLab Code Quality (Code Climate JSON)"
 msgstr "GitLab Code Quality（Code Climate JSON）"
 
-#: src/commands/check.md:814
+#: src/commands/check.md:865
 msgid ""
 "The Code Climate writer emits a single JSON array of issue objects matching "
 "[GitLab's strict subset](https://docs.gitlab.com/ci/testing/code_quality/) "
@@ -10396,78 +10616,78 @@ msgstr ""
 "`critical`/`blocker` ですが、`bca` が `info` を出力することはありません — し"
 "きい値違反は常に `minor` 以上になります。"
 
-#: src/commands/check.md:829
+#: src/commands/check.md:880
 msgid "To wire the artifact into GitLab's MR Code Quality widget:"
 msgstr ""
 "アーティファクトを GitLab の MR Code Quality ウィジェットに接続するには:"
 
-#: src/commands/check.md:832 src/recipes/ci.md:757
+#: src/commands/check.md:883 src/recipes/ci.md:757
 msgid "code_quality"
 msgstr "code_quality"
 
-#: src/commands/check.md:833 src/recipes/ci.md:677 src/recipes/ci.md:758
+#: src/commands/check.md:884 src/recipes/ci.md:677 src/recipes/ci.md:758
 #: src/recipes/ci.md:800
 msgid "stage"
 msgstr "stage"
 
-#: src/commands/check.md:833 src/recipes/ci.md:667 src/recipes/ci.md:677
+#: src/commands/check.md:884 src/recipes/ci.md:667 src/recipes/ci.md:677
 #: src/recipes/ci.md:758 src/recipes/ci.md:800
 msgid "quality"
 msgstr "quality"
 
-#: src/commands/check.md:834 src/recipes/ci.md:759 src/recipes/ci.md:807
+#: src/commands/check.md:885 src/recipes/ci.md:759 src/recipes/ci.md:807
 #: src/recipes/baselines.md:92
 msgid "script"
 msgstr "script"
 
-#: src/commands/check.md:835 src/recipes/ci.md:760
+#: src/commands/check.md:886 src/recipes/ci.md:760
 msgid "bca check --paths \"$CI_PROJECT_DIR\""
 msgstr "bca check --paths \"$CI_PROJECT_DIR\""
 
-#: src/commands/check.md:836 src/recipes/ci.md:706 src/recipes/ci.md:761
+#: src/commands/check.md:887 src/recipes/ci.md:706 src/recipes/ci.md:761
 msgid "--report-format code-climate"
 msgstr "--report-format code-climate"
 
-#: src/commands/check.md:837 src/recipes/ci.md:707 src/recipes/ci.md:762
+#: src/commands/check.md:888 src/recipes/ci.md:707 src/recipes/ci.md:762
 msgid "--output gl-code-quality-report.json"
 msgstr "--output gl-code-quality-report.json"
 
-#: src/commands/check.md:838 src/recipes/ci.md:708 src/recipes/ci.md:714
+#: src/commands/check.md:889 src/recipes/ci.md:708 src/recipes/ci.md:714
 #: src/recipes/ci.md:763
 msgid "--no-fail"
 msgstr "--no-fail"
 
-#: src/commands/check.md:839 src/recipes/ci.md:724 src/recipes/ci.md:764
+#: src/commands/check.md:890 src/recipes/ci.md:724 src/recipes/ci.md:764
 msgid "artifacts"
 msgstr "artifacts"
 
-#: src/commands/check.md:840 src/recipes/ci.md:725 src/recipes/ci.md:765
+#: src/commands/check.md:891 src/recipes/ci.md:725 src/recipes/ci.md:765
 msgid "when"
 msgstr "when"
 
-#: src/commands/check.md:840 src/recipes/ci.md:725 src/recipes/ci.md:765
+#: src/commands/check.md:891 src/recipes/ci.md:725 src/recipes/ci.md:765
 msgid "always"
 msgstr "always"
 
-#: src/commands/check.md:841 src/recipes/ci.md:726 src/recipes/ci.md:766
+#: src/commands/check.md:892 src/recipes/ci.md:726 src/recipes/ci.md:766
 msgid "reports"
 msgstr "reports"
 
-#: src/commands/check.md:842 src/recipes/ci.md:727 src/recipes/ci.md:767
+#: src/commands/check.md:893 src/recipes/ci.md:727 src/recipes/ci.md:767
 msgid "codequality"
 msgstr "codequality"
 
-#: src/commands/check.md:842 src/commands/check.md:844 src/recipes/ci.md:727
+#: src/commands/check.md:893 src/commands/check.md:895 src/recipes/ci.md:727
 #: src/recipes/ci.md:729 src/recipes/ci.md:767 src/recipes/ci.md:769
 msgid "gl-code-quality-report.json"
 msgstr "gl-code-quality-report.json"
 
-#: src/commands/check.md:843 src/recipes/ci.md:683 src/recipes/ci.md:728
+#: src/commands/check.md:894 src/recipes/ci.md:683 src/recipes/ci.md:728
 #: src/recipes/ci.md:768
 msgid "paths"
 msgstr "paths"
 
-#: src/commands/check.md:847
+#: src/commands/check.md:898
 msgid ""
 "See the [GitLab Code Quality widget recipe](../recipes/ci.md#gitlab-code-"
 "quality-widget) for the full pipeline (combined Code Climate + Checkstyle + "
@@ -10478,7 +10698,7 @@ msgstr ""
 "ウィジェットのレシピ](../recipes/ci.md#gitlab-code-quality-widget)を参照して"
 "ください。"
 
-#: src/commands/check.md:852
+#: src/commands/check.md:903
 msgid ""
 "`--no-fail` keeps the job green so the Code Quality report still uploads "
 "when offenders exist; remove it once you want a metric regression to fail "
@@ -10488,11 +10708,11 @@ msgstr ""
 "Quality レポートはアップロードされます。メトリクスの悪化でパイプラインを失敗"
 "させたくなったら外してください。"
 
-#: src/commands/check.md:856
+#: src/commands/check.md:907
 msgid "Clang/GCC warning lines (editor quickfix and CI annotators)"
 msgstr "Clang/GCC 警告行（エディタの quickfix と CI アノテーター）"
 
-#: src/commands/check.md:865
+#: src/commands/check.md:916
 msgid ""
 "The Clang format emits one offender per line in the conventional compiler-"
 "warning shape:"
@@ -10500,7 +10720,7 @@ msgstr ""
 "Clang フォーマットは、慣例的なコンパイラ警告の形式で違反を 1 行に 1 件ずつ出"
 "力します:"
 
-#: src/commands/check.md:872
+#: src/commands/check.md:923
 msgid ""
 "This is the format `clang -fdiagnostics-format=` produces and the shape "
 "every editor quickfix parser (VS Code, IntelliJ, Vim) and most CI annotators "
@@ -10510,7 +10730,7 @@ msgstr ""
 "ディタの quickfix パーサー（VS Code、IntelliJ、Vim）と大半の CI アノテーター"
 "が設定なしで解釈できる形式です。"
 
-#: src/commands/check.md:876
+#: src/commands/check.md:927
 msgid ""
 "GitHub Actions surfaces the lines as inline annotations on the PR diff via "
 "the built-in GCC problem matcher (or any community `compiler-problem-"
@@ -10520,23 +10740,23 @@ msgstr ""
 "製 `compiler-problem-matchers` アクション）を介して、これらの行を PR の差分上"
 "のインラインアノテーションとして表示します:"
 
-#: src/commands/check.md:881
+#: src/commands/check.md:932
 msgid "bca-clang-warnings"
 msgstr "bca-clang-warnings"
 
-#: src/commands/check.md:884
+#: src/commands/check.md:935
 msgid "lint"
 msgstr "lint"
 
-#: src/commands/check.md:888
+#: src/commands/check.md:939
 msgid "Enable GCC problem matcher"
 msgstr "Enable GCC problem matcher"
 
-#: src/commands/check.md:889
+#: src/commands/check.md:940
 msgid "echo \"::add-matcher::$RUNNER_TOOL_CACHE/problem-matchers/gcc.json\""
 msgstr "echo \"::add-matcher::$RUNNER_TOOL_CACHE/problem-matchers/gcc.json\""
 
-#: src/commands/check.md:891
+#: src/commands/check.md:942
 msgid ""
 "          bca check --paths . \\\n"
 "              --report-format clang-warning \\\n"
@@ -10546,7 +10766,7 @@ msgstr ""
 "              --report-format clang-warning \\\n"
 "              --no-fail\n"
 
-#: src/commands/check.md:897
+#: src/commands/check.md:948
 msgid ""
 "If your runner does not ship a GCC matcher, fall back to streaming the lines "
 "and re-emitting them as `::warning file=...,line=...::` workflow commands."
@@ -10555,11 +10775,11 @@ msgstr ""
 "て `::warning file=...,line=...::` ワークフローコマンドとして再出力する方法に"
 "フォールバックしてください。"
 
-#: src/commands/check.md:901
+#: src/commands/check.md:952
 msgid "MSVC warning lines (Visual Studio and Windows CI)"
 msgstr "MSVC 警告行（Visual Studio と Windows CI）"
 
-#: src/commands/check.md:910
+#: src/commands/check.md:961
 msgid ""
 "The MSVC format emits one offender per line in Visual Studio's `cl.exe` "
 "diagnostic shape:"
@@ -10567,7 +10787,7 @@ msgstr ""
 "MSVC フォーマットは、Visual Studio の `cl.exe` 診断形式で違反を 1 行に 1 件ず"
 "つ出力します:"
 
-#: src/commands/check.md:917
+#: src/commands/check.md:968
 msgid ""
 "Note the space before the colon after `warning`/`error` — that is the MSVC "
 "convention. On Windows the path is normalized to use `\\` separators "
@@ -12905,8 +13125,8 @@ msgstr "\"server\""
 
 #: src/commands/rest.md:541 src/commands/rest.md:542 src/commands/rest.md:592
 #: src/recipes/ci.md:106
-msgid "\"2.0.0\""
-msgstr "\"2.0.0\""
+msgid "\"2.1.0\""
+msgstr ""
 
 #: src/commands/rest.md:542
 msgid "\"library\""
@@ -14795,8 +15015,8 @@ msgstr ""
 "  BCA_SHA256"
 
 #: src/recipes/ci.md:110 src/recipes/ci.md:674
-msgid "\"a205fff13108d0f8c679a062e352ba8468109c4adfdd8c9e3567cf5fcc99c3d5\""
-msgstr "\"a205fff13108d0f8c679a062e352ba8468109c4adfdd8c9e3567cf5fcc99c3d5\""
+msgid "\"6904518ff57968408dd3fa46a3fb533b8ac42cd035d5dd503090e24e19d5232a\""
+msgstr "\"6904518ff57968408dd3fa46a3fb533b8ac42cd035d5dd503090e24e19d5232a\""
 
 #: src/recipes/ci.md:113
 msgid ""
@@ -14980,8 +15200,8 @@ msgid "tool"
 msgstr "tool"
 
 #: src/recipes/ci.md:179 src/recipes/ci.md:236
-msgid "big-code-analysis-cli@2.0.0"
-msgstr "big-code-analysis-cli@2.0.0"
+msgid "big-code-analysis-cli@2.1.0"
+msgstr "big-code-analysis-cli@2.1.0"
 
 #: src/recipes/ci.md:183
 msgid "# Option 2: cargo-binstall\n"
@@ -14996,8 +15216,8 @@ msgid "cargo-bins/cargo-binstall@main"
 msgstr "cargo-bins/cargo-binstall@main"
 
 #: src/recipes/ci.md:187
-msgid "cargo binstall --no-confirm big-code-analysis-cli --version 2.0.0"
-msgstr "cargo binstall --no-confirm big-code-analysis-cli --version 2.0.0"
+msgid "cargo binstall --no-confirm big-code-analysis-cli --version 2.1.0"
+msgstr "cargo binstall --no-confirm big-code-analysis-cli --version 2.1.0"
 
 #: src/recipes/ci.md:190
 msgid ""
@@ -15036,8 +15256,8 @@ msgstr ""
 "    key"
 
 #: src/recipes/ci.md:205
-msgid "bca-${{ runner.os }}-2.0.0"
-msgstr "bca-${{ runner.os }}-2.0.0"
+msgid "bca-${{ runner.os }}-2.1.0"
+msgstr "bca-${{ runner.os }}-2.1.0"
 
 #: src/recipes/ci.md:208
 msgid ""
@@ -16018,11 +16238,9 @@ msgstr "variables"
 
 #: src/recipes/ci.md:670
 msgid ""
-"\"2.0.0\"  # pin a published big-code-analysis-cli release\n"
+"\"2.1.0\"  # pin a published big-code-analysis-cli release\n"
 "  BCA_TARGET"
-msgstr ""
-"\"2.0.0\"  # 公開済みの big-code-analysis-cli リリースにピン留め\n"
-"  BCA_TARGET"
+msgstr "\"2.1.0\"  # 公開済みの big-code-analysis-cli リリースにピン留め\n  BCA_TARGET"
 
 #: src/recipes/ci.md:672
 msgid ""
@@ -16483,6 +16701,157 @@ msgstr ""
 "** デフォルトの `bca check` は [`bca: suppress` / `bca: suppress-file` マー"
 "カー](../commands/suppression.md)を尊重します。`--no-suppress` を渡すとそれら"
 "を無視するため、監査者は生の違反者リストを確認できます。"
+
+#: src/recipes/ci.md:888
+msgid "The gate's trust boundary"
+msgstr "ゲートの信頼境界"
+
+#: src/recipes/ci.md:890
+msgid ""
+"A pull-request gate analyzes code its author controls, and two of the inputs "
+"that decide _which files the gate looks at_ live in that same branch: file "
+"contents, which the [generated-code detector](../commands/index."
+"html#skipping-generated-code) sniffs, and the [`.gitignore` files](../"
+"commands/index.html#respecting-gitignore) the walker honors. Both defaults "
+"are right for analyzing a trusted checkout. In a PR gate they are levers the "
+"change under review can pull. `bca check` reports both by default (the "
+"summary below) and turns both off under [`--strict`](../commands/check."
+"md#strict-mode)."
+msgstr "プルリクエストのゲートは、その作成者が管理するコードを分析します。そして「ゲートがどのファイルを見るか」を決める入力のうち 2 つが、その同じブランチの中にあります。[生成コード検出器](../commands/index.html#skipping-generated-code)が判定するファイル内容と、ウォーカーが解釈する [`.gitignore` ファイル](../commands/index.html#respecting-gitignore)です。どちらの既定値も、信頼できるチェックアウトの分析には適切です。しかし PR ゲートでは、レビュー対象の変更が引けるレバーになります。`bca check` は既定でどちらも報告し（後述のサマリー）、[`--strict`](../commands/check.md#strict-mode) の下ではどちらも無効にします。"
+
+#: src/recipes/ci.md:901
+msgid "A generated-code marker removes a file from the gate"
+msgstr "生成コードマーカーはファイルをゲートから外す"
+
+#: src/recipes/ci.md:903
+msgid ""
+"Take a C file whose `f()` exceeds `cyclomatic=2`, checked with `bca check --"
+"no-config --paths . --threshold cyclomatic=2`:"
+msgstr "`f()` が `cyclomatic=2` を超える C ファイルを、`bca check --no-config --paths . --threshold cyclomatic=2` で検査した場合:"
+
+#: src/recipes/ci.md:906 src/recipes/ci.md:928
+msgid "state"
+msgstr "状態"
+
+#: src/recipes/ci.md:906 src/recipes/ci.md:928
+msgid "exit"
+msgstr "終了コード"
+
+#: src/recipes/ci.md:908
+msgid "baseline"
+msgstr "ベースライン"
+
+#: src/recipes/ci.md:908
+msgid "`2` (violation reported)"
+msgstr "`2`（違反が報告される）"
+
+#: src/recipes/ci.md:909
+msgid "prepend `// @generated` as line 1"
+msgstr "1 行目に `// @generated` を追加"
+
+#: src/recipes/ci.md:910
+msgid "same file, `--no-skip-generated`"
+msgstr "同じファイルで `--no-skip-generated` を指定"
+
+#: src/recipes/ci.md:911
+msgid "marker removed again"
+msgstr "マーカーを再び削除"
+
+#: src/recipes/ci.md:913
+msgid ""
+"One comment line takes the file out of the gate. Every recognized marker "
+"phrase works (`@generated`, `DO NOT EDIT`, `GENERATED CODE`, case-"
+"insensitive), and the detector scans the first ~50 lines / 5 KiB, not just "
+"line 1. Two forms worth knowing when reviewing a diff:"
+msgstr "コメント 1 行でファイルがゲートから外れます。認識されるマーカー語句はどれでも有効で（`@generated`、`DO NOT EDIT`、`GENERATED CODE`、大文字小文字を区別しない）、検出器は 1 行目だけでなく先頭の約 50 行 / 5 KiB を走査します。差分レビューの際に知っておくべき形が 2 つあります。"
+
+#: src/recipes/ci.md:918
+msgid ""
+"`// DO NOT EDIT, see docs/schema.md before changing` reads as ordinary "
+"housekeeping and passes review without comment."
+msgstr "`// DO NOT EDIT, see docs/schema.md before changing` は日常的な整備コメントに見え、指摘されずにレビューを通過します。"
+
+#: src/recipes/ci.md:920
+msgid ""
+"`@generated` buried on line 4 of a five-line license header still matches; a "
+"reviewer scanning for a suspicious first line will not see it."
+msgstr "5 行のライセンスヘッダの 4 行目に埋め込まれた `@generated` もマッチします。不審な 1 行目を探すレビュアーはこれを見つけられません。"
+
+#: src/recipes/ci.md:924
+msgid "A committed `.gitignore` removes a file from the walk"
+msgstr "コミットされた `.gitignore` はファイルをウォークから外す"
+
+#: src/recipes/ci.md:926
+msgid "Same gate, with the violator accompanied by one benign sibling file:"
+msgstr "同じゲートで、違反ファイルに無害な兄弟ファイルを 1 つ添えた場合:"
+
+#: src/recipes/ci.md:930
+msgid "violator + benign sibling"
+msgstr "違反ファイル + 無害な兄弟ファイル"
+
+#: src/recipes/ci.md:931
+msgid "+ `.gitignore` containing `violator.c`"
+msgstr "+ `violator.c` を含む `.gitignore`"
+
+#: src/recipes/ci.md:932
+msgid "same, `--no-ignore`"
+msgstr "同じ構成で `--no-ignore` を指定"
+
+#: src/recipes/ci.md:934
+msgid ""
+"The walker honors ignore files found inside the walked tree, so a `."
+"gitignore` committed in the branch under test shrinks the checked set. One "
+"nuance: when the ignored file is the _only_ analyzable input, the run exits "
+"`1` (\"no input files matched\") rather than `0`, so the clean bypass needs "
+"at least one other file to remain."
+msgstr "ウォーカーは走査対象ツリー内で見つかった ignore ファイルを解釈するため、テスト対象のブランチにコミットされた `.gitignore` は検査対象のファイル集合を狭めます。1 つ注意があります。無視されたファイルが唯一の分析可能な入力だった場合、実行は `0` ではなく `1`（\"no input files matched\"）で終了します。つまりクリーンなバイパスには、少なくとも 1 つ他のファイルが残っている必要があります。"
+
+#: src/recipes/ci.md:940
+msgid "The gate says what it skipped"
+msgstr "ゲートはスキップしたものを報告する"
+
+#: src/recipes/ci.md:942
+msgid ""
+"`bca check` prints a one-line stderr summary whenever either mechanism "
+"dropped files, so neither bypass is silent:"
+msgstr "`bca check` は、いずれかの仕組みがファイルを除外した場合に 1 行のサマリーを stderr に出力するため、どちらのバイパスも無音ではありません。"
+
+#: src/recipes/ci.md:949
+msgid ""
+"Clean runs print nothing. `--report-skipped` adds a `note: skipped "
+"(generated): <path>` / `note: skipped (ignored): <path>` line per file. The "
+"summary changes no exit code: a bypassed run still exits `0`, it just says "
+"so."
+msgstr "クリーンな実行では何も出力されません。`--report-skipped` はファイルごとに `note: skipped (generated): <path>` / `note: skipped (ignored): <path>` の行を追加します。サマリーは終了コードを変えません。バイパスされた実行は依然として `0` で終了し、その事実を表示するだけです。"
+
+#: src/recipes/ci.md:954
+msgid "`--strict` turns both mechanisms off"
+msgstr "`--strict` は両方の仕組みを無効にする"
+
+#: src/recipes/ci.md:956
+msgid ""
+"For a gate over untrusted input, turn both mechanisms off rather than "
+"auditing stderr:"
+msgstr "信頼できない入力に対するゲートでは、stderr を監査するのではなく、両方の仕組みを無効にしてください。"
+
+#: src/recipes/ci.md:960
+msgid "Threshold gate (PR)"
+msgstr "Threshold gate (PR)"
+
+#: src/recipes/ci.md:961
+msgid "bca check --strict --paths src/"
+msgstr "bca check --strict --paths src/"
+
+#: src/recipes/ci.md:964
+msgid ""
+"[`--strict`](../commands/check.md#strict-mode) is equivalent to `--no-skip-"
+"generated --no-ignore`; prefer the single flag, since a recipe that "
+"remembers one of the two constituents still has one open bypass. Projects "
+"opt in once with `strict = true` under `[check]` in `bca.toml` instead of "
+"editing every workflow. Genuinely generated trees then belong in an explicit "
+"deny-set the _reviewers_ own (the committed [`.bcaignore`](#baseline--"
+"ratchet-pattern) pattern), not in content sniffing the _submitter_ controls."
+msgstr "[`--strict`](../commands/check.md#strict-mode) は `--no-skip-generated --no-ignore` と等価です。2 つの構成フラグのうち片方だけを覚えているレシピにはもう片方のバイパスが残るため、単一のフラグを選んでください。プロジェクトは各ワークフローを編集する代わりに、`bca.toml` の `[check]` に `strict = true` を書いて一度だけオプトインします。本当に生成されたツリーは、提出者が管理するコンテンツ判定ではなく、レビュアーが管理する明示的な deny-set（コミット済みの [`.bcaignore`](#baseline--ratchet-pattern) パターン）に置くべきです。"
 
 #: src/recipes/baselines.md:1
 msgid "Baselines: ratcheting thresholds on existing code"
@@ -18761,7 +19130,7 @@ msgstr "`nargs`"
 
 #: src/recipes/thresholds.md:22 src/recipes/thresholds.md:23
 #: src/recipes/thresholds.md:100 src/recipes/thresholds.md:103
-#: src/recipes/thresholds.md:383
+#: src/recipes/thresholds.md:386
 msgid "5"
 msgstr "5"
 
@@ -18844,8 +19213,8 @@ msgid "`wmc`"
 msgstr "`wmc`"
 
 #: src/recipes/thresholds.md:28 src/recipes/thresholds.md:96
-#: src/recipes/thresholds.md:97 src/recipes/thresholds.md:363
-#: src/recipes/thresholds.md:364
+#: src/recipes/thresholds.md:97 src/recipes/thresholds.md:366
+#: src/recipes/thresholds.md:367
 msgid "60"
 msgstr "60"
 
@@ -19098,8 +19467,8 @@ msgstr "15000"
 msgid "1500"
 msgstr "1500"
 
-#: src/recipes/thresholds.md:101 src/recipes/thresholds.md:382
-#: src/recipes/thresholds.md:383
+#: src/recipes/thresholds.md:101 src/recipes/thresholds.md:385
+#: src/recipes/thresholds.md:386
 msgid "17"
 msgstr "17"
 
@@ -19113,7 +19482,7 @@ msgid "120000"
 msgstr "120000"
 
 #: src/recipes/thresholds.md:102 src/recipes/thresholds.md:103
-#: src/recipes/thresholds.md:381 src/recipes/thresholds.md:382
+#: src/recipes/thresholds.md:384 src/recipes/thresholds.md:385
 msgid "16"
 msgstr "16"
 
@@ -19181,8 +19550,8 @@ msgstr "900"
 msgid "25000"
 msgstr "25000"
 
-#: src/recipes/thresholds.md:111 src/recipes/thresholds.md:381
-#: src/recipes/thresholds.md:382
+#: src/recipes/thresholds.md:111 src/recipes/thresholds.md:384
+#: src/recipes/thresholds.md:385
 msgid "6"
 msgstr "6"
 
@@ -19383,12 +19752,15 @@ msgstr ""
 #: src/recipes/thresholds.md:185
 msgid ""
 "`wmc`, `npm`, and `npa` are only produced for languages with a class-like "
-"container. They are absent from Bash, C, Go, Lua, Perl, and Tcl output."
+"container. They are absent from Bash, C, Lua, Perl, and Tcl output. Go is a "
+"half case: it has no container space at all, so `wmc` is absent and `npm` / "
+"`npa` are reported only on the file `unit` root. `bca check` gates both on "
+"container spaces and never on the root, so **no `npm` or `npa` limit can "
+"fire on Go source** — see [Which spaces carry NPA, NPM and WMC](../metrics."
+"md#oop-emission-scope)."
 msgstr ""
-"`wmc`、`npm`、`npa` はクラスに類するコンテナを持つ言語に対してのみ生成されま"
-"す。Bash、C、Go、Lua、Perl、Tcl の出力には含まれません。"
 
-#: src/recipes/thresholds.md:188
+#: src/recipes/thresholds.md:191
 msgid ""
 "A per-language override cannot fix any of these. Bash `nargs` is `0` for "
 "every function, so no limit — not even `0`, which fires only on a value "
@@ -19401,11 +19773,11 @@ msgstr ""
 "ん。オーバーライド機構は制限を調整するものであり、文法が供給できない測定値を"
 "追加するものではありません。"
 
-#: src/recipes/thresholds.md:192
+#: src/recipes/thresholds.md:195
 msgid "Applying overrides"
 msgstr "オーバーライドの適用"
 
-#: src/recipes/thresholds.md:194
+#: src/recipes/thresholds.md:197
 msgid ""
 "Write them into `bca.toml` as `[thresholds.lang.<slug>]` tables. Each one "
 "layers over the project's `[thresholds]` per metric, so a language inherits "
@@ -19415,7 +19787,7 @@ msgstr ""
 "はメトリクスごとにプロジェクトの `[thresholds]` の上に重ねられるため、言語は"
 "再指定しなかったすべての制限を継承します。"
 
-#: src/recipes/thresholds.md:197
+#: src/recipes/thresholds.md:200
 msgid ""
 "```toml\n"
 "[thresholds]\n"
@@ -19472,7 +19844,7 @@ msgstr ""
 "cyclomatic = 8\n"
 "```"
 
-#: src/recipes/thresholds.md:223
+#: src/recipes/thresholds.md:226
 msgid ""
 "The key is the canonical language slug, the same vocabulary `--language` "
 "accepts (`cpp`, `csharp`, `objc`, `tsx`, `mozcpp`, `mozjs`); an unknown one "
@@ -19494,7 +19866,7 @@ msgstr ""
 "リファレンスは [`bca check`](../commands/check.md#per-language-limits) にあり"
 "ます。"
 
-#: src/recipes/thresholds.md:231
+#: src/recipes/thresholds.md:234
 msgid ""
 "Two things to watch when splitting a table this way. `.h` is analyzed with "
 "the C++ grammar, not the C one, so a C project's headers are gated by "
@@ -19510,7 +19882,7 @@ msgstr ""
 "のテーブルもすべて上書きします。これは一回限りの実行では望ましい挙動ですが、"
 "組み合わさることを期待していた場合には驚きになります。"
 
-#: src/recipes/thresholds.md:237
+#: src/recipes/thresholds.md:240
 msgid ""
 "The alternative is still available and still worse: keep one table sized for "
 "the loosest language and let per-file baselines carry the rest. It is "
@@ -19522,20 +19894,20 @@ msgstr ""
 "は簡単になりますが厳密に弱くなります。より厳格であるべき言語がまったくゲート"
 "されなくなるからです。"
 
-#: src/recipes/thresholds.md:241
+#: src/recipes/thresholds.md:244
 msgid "Per-use-case profiles"
 msgstr "ユースケース別プロファイル"
 
-#: src/recipes/thresholds.md:243
+#: src/recipes/thresholds.md:246
 msgid ""
 "The same codebase wants different limits depending on what the gate is for."
 msgstr "同じコードベースでも、ゲートの目的によって求められる制限は異なります。"
 
-#: src/recipes/thresholds.md:245
+#: src/recipes/thresholds.md:248
 msgid "Blocking CI gate"
 msgstr "ブロッキング CI ゲート"
 
-#: src/recipes/thresholds.md:247
+#: src/recipes/thresholds.md:250
 msgid ""
 "This is what the shipped defaults are for. A limit that fails a pull request "
 "has to be one the team agrees is a real problem, because the cost of a false "
@@ -19547,11 +19919,11 @@ msgstr ""
 "のブロックと論争になるからです。ベースラインと組み合わせて、ゲートが新規の違"
 "反とリグレッションでのみ失敗するようにし、そこから引き締めていきます。"
 
-#: src/recipes/thresholds.md:252
+#: src/recipes/thresholds.md:255
 msgid "Use the shipped defaults unchanged, plus:"
 msgstr "同梱のデフォルトを変更せずに使い、さらに次を追加します。"
 
-#: src/recipes/thresholds.md:254
+#: src/recipes/thresholds.md:257
 msgid ""
 "```toml\n"
 "[check]\n"
@@ -19563,11 +19935,11 @@ msgstr ""
 "baseline = \".bca-baseline.toml\"\n"
 "```"
 
-#: src/recipes/thresholds.md:259
+#: src/recipes/thresholds.md:262
 msgid "Agent feedback loop"
 msgstr "エージェントのフィードバックループ"
 
-#: src/recipes/thresholds.md:261
+#: src/recipes/thresholds.md:264
 msgid ""
 "When the consumer is a coding agent rather than a human reviewer, a false "
 "positive costs one wasted refactor rather than a blocked merge, and the "
@@ -19581,7 +19953,7 @@ msgstr ""
 "め、ファイルサイズとコンテナの制限は外してください。1 つの関数を編集している"
 "エージェントには対処のしようがないからです。"
 
-#: src/recipes/thresholds.md:266
+#: src/recipes/thresholds.md:269
 msgid ""
 "```toml\n"
 "[thresholds]\n"
@@ -19603,7 +19975,7 @@ msgstr ""
 "\"halstead.effort\" = 25000\n"
 "```"
 
-#: src/recipes/thresholds.md:276
+#: src/recipes/thresholds.md:279
 msgid ""
 "See [Feeding metrics to an agent](./agent-feedback.md) for wiring this into "
 "an edit loop, and [Suppression markers](../commands/suppression.md) for "
@@ -19613,11 +19985,11 @@ msgstr ""
 "feedback.md)を、複雑さが偶発的ではなく本質的である場合にそれをエージェントへ"
 "伝える方法は[抑制マーカー](../commands/suppression.md)を参照してください。"
 
-#: src/recipes/thresholds.md:280
+#: src/recipes/thresholds.md:283
 msgid "Legacy audit and triage"
 msgstr "レガシー監査とトリアージ"
 
-#: src/recipes/thresholds.md:282
+#: src/recipes/thresholds.md:285
 msgid ""
 "When the goal is to rank an unfamiliar codebase rather than to gate it, you "
 "want the handful of functions that are genuinely worst, not a list of "
@@ -19630,7 +20002,7 @@ msgstr ""
 "れ値だけが浮かび上がるよう制限をデフォルトのおよそ 2 倍に設定し、ベースライン"
 "なしで実行し、`bca check` ではなく `bca report markdown` を使います。"
 
-#: src/recipes/thresholds.md:287
+#: src/recipes/thresholds.md:290
 msgid ""
 "```toml\n"
 "[thresholds]\n"
@@ -19654,7 +20026,7 @@ msgstr ""
 "wmc = 120\n"
 "```"
 
-#: src/recipes/thresholds.md:298
+#: src/recipes/thresholds.md:301
 msgid ""
 "[Quality reports](./quality-reports.md) covers the report output. Adding `--"
 "vcs` ranks by change history as well, which is usually a better triage order "
@@ -19666,11 +20038,11 @@ msgstr ""
 "優れたトリアージ順序になります。3 年間誰も触れていない複雑な関数は、バグの在"
 "り処ではありません。"
 
-#: src/recipes/thresholds.md:302
+#: src/recipes/thresholds.md:305
 msgid "Safety-critical and regulated"
 msgstr "セーフティクリティカルおよび規制対象"
 
-#: src/recipes/thresholds.md:304
+#: src/recipes/thresholds.md:307
 msgid ""
 "Standards in this space specify limits directly, and the standard wins over "
 "any measurement. MISRA and NASA both cap cyclomatic complexity at 15; the "
@@ -19687,7 +20059,7 @@ msgstr ""
 "ルの 10 は、テスト予算がそれを支えられる場合に適用されます。この数値はスタイ"
 "ルに関する意見ではなく、基底パステスト数の境界だからです。"
 
-#: src/recipes/thresholds.md:311
+#: src/recipes/thresholds.md:314
 msgid ""
 "```toml\n"
 "[thresholds]\n"
@@ -19709,7 +20081,7 @@ msgstr ""
 "\"halstead.effort\" = 25000\n"
 "```"
 
-#: src/recipes/thresholds.md:321
+#: src/recipes/thresholds.md:324
 msgid ""
 "`nexits = 1` encodes the single-exit rule from MISRA C:2023 Rule 15.5. It is "
 "contentious outside regulated work, and in most codebases early returns make "
@@ -19721,11 +20093,11 @@ msgstr ""
 "コードを追いにくくするどころかむしろ単純にするため、一般的な推奨ではなくコン"
 "プライアンス設定として扱ってください。"
 
-#: src/recipes/thresholds.md:325
+#: src/recipes/thresholds.md:328
 msgid "Metrics not gated by default"
 msgstr "デフォルトではゲートされないメトリクス"
 
-#: src/recipes/thresholds.md:327
+#: src/recipes/thresholds.md:330
 msgid ""
 "These are computed and visible in `bca report markdown|html`. They are left "
 "out of the default table on purpose."
@@ -19733,7 +20105,7 @@ msgstr ""
 "これらは計算され、`bca report markdown|html` で確認できます。デフォルトのテー"
 "ブルからは意図的に除外されています。"
 
-#: src/recipes/thresholds.md:330
+#: src/recipes/thresholds.md:333
 msgid ""
 "`halstead.volume` has the most widely-cited threshold of any Halstead "
 "measure, the guideline that a function's volume should stay under 1000. "
@@ -19747,7 +20119,7 @@ msgstr ""
 "立ちます。つまりランク付けには有用でも、ゲートとしては使いものにならないとい"
 "うことです。"
 
-#: src/recipes/thresholds.md:335
+#: src/recipes/thresholds.md:338
 msgid ""
 "`mi.original`, `mi.sei`, and `mi.visual_studio` are the Maintainability "
 "Index family, and they are lower-is-worse: the violation is a value below "
@@ -19770,7 +20142,7 @@ msgstr ""
 "ントになります。数式は[対応コードメトリクス](../metrics.md)を参照してくださ"
 "い。"
 
-#: src/recipes/thresholds.md:343
+#: src/recipes/thresholds.md:346
 msgid ""
 "`npm`, `npa`, `tokens`, and `cyclomatic.modified` are omitted because each "
 "duplicates something already in the table, or because their distributions "
@@ -19780,11 +20152,11 @@ msgstr ""
 "テーブルに既にある何かと重複しているか、あるいはその分布が設計品質ではなく言"
 "語のイディオムに支配されているためです。"
 
-#: src/recipes/thresholds.md:347
+#: src/recipes/thresholds.md:350
 msgid "Tightening a limit onto a cluster"
 msgstr "クラスターに向けた制限の引き締め"
 
-#: src/recipes/thresholds.md:349
+#: src/recipes/thresholds.md:352
 msgid ""
 "**Converging a limit onto a cluster of existing values is never free while a "
 "proportional soft tier is active.** Measure a candidate at _both_ tiers "
@@ -19796,7 +20168,7 @@ msgstr ""
 "してください。自然に目が向くのはハード層の読み値ですが、誤解を招くのはまさに"
 "それです。"
 
-#: src/recipes/thresholds.md:353
+#: src/recipes/thresholds.md:356
 msgid ""
 "The soft tier measures distance to the limit. A limit chosen to sit exactly "
 "on a population's value therefore maximises soft-tier breach by "
@@ -19809,7 +20181,7 @@ msgstr ""
 "限が定まった瞬間にソフト帯の内側に入り、どれだけ整理しても外には出られませ"
 "ん。その値こそが制限「そのもの」だからです。"
 
-#: src/recipes/thresholds.md:357
+#: src/recipes/thresholds.md:360
 msgid ""
 "This project walked into it. `nargs` was at `7`, and tightening it to `6` "
 "looked free — every offender at the tighter limit was already in the "
@@ -19819,47 +20191,47 @@ msgstr ""
 "無償に見えました。より厳しい制限での違反はすべて既にベースラインに入ってお"
 "り、`bca check --threshold nargs=6` は何も報告しなかったのです。"
 
-#: src/recipes/thresholds.md:361 src/recipes/thresholds.md:379
+#: src/recipes/thresholds.md:364 src/recipes/thresholds.md:382
 msgid "`nargs` limit"
 msgstr "`nargs` の制限"
 
-#: src/recipes/thresholds.md:361 src/recipes/thresholds.md:379
+#: src/recipes/thresholds.md:364 src/recipes/thresholds.md:382
 msgid "hard offenders"
 msgstr "ハード違反"
 
-#: src/recipes/thresholds.md:361
+#: src/recipes/thresholds.md:364
 msgid "soft limit (`0.95`)"
 msgstr "ソフト制限（`0.95`）"
 
-#: src/recipes/thresholds.md:361 src/recipes/thresholds.md:379
+#: src/recipes/thresholds.md:364 src/recipes/thresholds.md:382
 msgid "soft offenders"
 msgstr "ソフトの違反"
 
-#: src/recipes/thresholds.md:363 src/recipes/thresholds.md:381
+#: src/recipes/thresholds.md:366 src/recipes/thresholds.md:384
 msgid "7 (kept)"
 msgstr "7（維持）"
 
-#: src/recipes/thresholds.md:363
+#: src/recipes/thresholds.md:366
 msgid "27"
 msgstr "27"
 
-#: src/recipes/thresholds.md:363
+#: src/recipes/thresholds.md:366
 msgid "6.65"
 msgstr "6.65"
 
-#: src/recipes/thresholds.md:364
+#: src/recipes/thresholds.md:367
 msgid "6 (proposed)"
 msgstr "6（提案）"
 
-#: src/recipes/thresholds.md:364
+#: src/recipes/thresholds.md:367
 msgid "5.7"
 msgstr "5.7"
 
-#: src/recipes/thresholds.md:364
+#: src/recipes/thresholds.md:367
 msgid "134"
 msgstr "134"
 
-#: src/recipes/thresholds.md:366
+#: src/recipes/thresholds.md:369
 msgid ""
 "Seventy-four functions sit at exactly `6`. A limit of `6` puts all of them "
 "`0.3` inside the soft band at once — 74 baseline entries bought for no hard-"
@@ -19877,7 +20249,7 @@ msgstr ""
 "analysis/issues/1143)、[\\#1169](https://github.com/dekobon/big-code-"
 "analysis/issues/1169)。）"
 
-#: src/recipes/thresholds.md:372
+#: src/recipes/thresholds.md:375
 msgid ""
 "Those figures were measured before [\\#1196](https://github.com/dekobon/big-"
 "code-analysis/issues/1196), when the `nargs` gate summed a function's own "
@@ -19896,27 +20268,27 @@ msgstr ""
 "身のパラメータのみをゲートする方式で同じツリーを再測定すると次のようになりま"
 "す。"
 
-#: src/recipes/thresholds.md:379
+#: src/recipes/thresholds.md:382
 msgid "new (unbaselined)"
 msgstr "新規（ベースライン未登録）"
 
-#: src/recipes/thresholds.md:379
+#: src/recipes/thresholds.md:382
 msgid "new"
 msgstr "新"
 
-#: src/recipes/thresholds.md:382 src/recipes/thresholds.md:383
+#: src/recipes/thresholds.md:385 src/recipes/thresholds.md:386
 msgid "38"
 msgstr "38"
 
-#: src/recipes/thresholds.md:383
+#: src/recipes/thresholds.md:386
 msgid "129"
 msgstr "129"
 
-#: src/recipes/thresholds.md:383
+#: src/recipes/thresholds.md:386
 msgid "99"
 msgstr "99"
 
-#: src/recipes/thresholds.md:385
+#: src/recipes/thresholds.md:388
 msgid ""
 "The cluster trap itself is unchanged and is the reason this section exists — "
 "91 functions now sit at exactly `5`, so a limit of `5` still puts every one "
@@ -19928,7 +20300,7 @@ msgstr ""
 "の内側に置きます。変わったのは、その背後にある実作業の規模です。混在したケー"
 "スではなく、シグネチャそのものになりました。"
 
-#: src/recipes/thresholds.md:389
+#: src/recipes/thresholds.md:392
 msgid ""
 "The convergence landed on that evidence. One thing measuring it clarified, "
 "which this section previously got wrong: the cluster effect is **structural "
@@ -19950,7 +20322,7 @@ msgstr ""
 "ように読んでください。それが妥当だったのはハード層の利得がゼロだったからで"
 "あって、`6` が最頻値の近くにあったからではありません。"
 
-#: src/recipes/thresholds.md:397
+#: src/recipes/thresholds.md:400
 msgid ""
 "That also means the soft tier carries little information for a small-integer "
 "metric, where `0.95 x L` and `L` differ by less than one. It is doing real "
@@ -19962,7 +20334,7 @@ msgstr ""
 "47500）では実質的な仕事をしていますが、`nargs`（5 対 4.75。上限ぎりぎりにある"
 "適合済みの関数すべてにフラグを立てます）ではほとんど何もしていません。"
 
-#: src/recipes/thresholds.md:402
+#: src/recipes/thresholds.md:405
 msgid ""
 "`bca check --explain-threshold <metric>=<limit>` measures both tiers in one "
 "walk and names the cluster when it finds one, without touching `bca.toml`:"
@@ -19971,7 +20343,7 @@ msgstr ""
 "なく、1 回の走査で両方の層を測定し、クラスターを見つけた場合はそれを名指しし"
 "ます。"
 
-#: src/recipes/thresholds.md:413
+#: src/recipes/thresholds.md:416
 msgid ""
 "The trap is not confined to the global table. A [per-language override](#per-"
 "language) is another way to converge a limit onto a population, and it has "
@@ -19983,7 +20355,7 @@ msgstr ""
 "す。`--explain-threshold` は、独自の制限を維持している言語をカウントに畳み込"
 "まず、別の行として報告します。"
 
-#: src/recipes/thresholds.md:418
+#: src/recipes/thresholds.md:421
 msgid ""
 "The rule generalises past the soft tier: a limit that lands on a cluster "
 "leaves the population with no room, so the _next_ tightening is the one that "
@@ -19997,11 +20369,11 @@ msgstr ""
 "ラグの完全な契約については[候補の制限をプレビューする](../commands/check."
 "md#explain-threshold)を参照してください。"
 
-#: src/recipes/thresholds.md:423
+#: src/recipes/thresholds.md:426
 msgid "Re-deriving for your own codebase"
 msgstr "自分のコードベースに合わせた再導出"
 
-#: src/recipes/thresholds.md:425
+#: src/recipes/thresholds.md:428
 msgid ""
 "Corpus percentiles are a starting point. Your own distribution is better "
 "evidence, and producing it takes one command plus a short script."
@@ -20009,15 +20381,15 @@ msgstr ""
 "コーパスのパーセンタイルは出発点にすぎません。自分自身の分布のほうが優れた証"
 "拠であり、それを得るにはコマンド 1 つと短いスクリプトで足ります。"
 
-#: src/recipes/thresholds.md:429
+#: src/recipes/thresholds.md:432
 msgid "'*.rs'"
 msgstr "'*.rs'"
 
-#: src/recipes/thresholds.md:429
+#: src/recipes/thresholds.md:432
 msgid "'**/tests/**'"
 msgstr "'**/tests/**'"
 
-#: src/recipes/thresholds.md:432
+#: src/recipes/thresholds.md:435
 msgid ""
 "Each line is one file's `FuncSpace` tree. Walk it, keep each space's own "
 "value for the metric you care about, filter by `kind` to match the metric's "
@@ -20031,7 +20403,7 @@ msgstr ""
 "にはコンテナの kind）、97.5 パーセンタイルを取ります。そこに制限を設定する"
 "と、最悪の 2.5% にフラグが立ちます。"
 
-#: src/recipes/thresholds.md:437
+#: src/recipes/thresholds.md:440
 msgid ""
 "Two checks are worth running afterwards. Count the offenders the limit "
 "produces: if it is more than a few percent of your spaces, the gate will be "
@@ -20051,7 +20423,7 @@ msgstr ""
 "トで実際に起こり、[issue #1138](https://github.com/dekobon/big-code-analysis/"
 "issues/1138) に記録されています。"
 
-#: src/recipes/thresholds.md:444
+#: src/recipes/thresholds.md:447
 msgid ""
 "`bca check --write-baseline` records today's offenders so you can adopt a "
 "stricter limit without failing on day one. [Baselines](./baselines.md) "
@@ -22243,11 +22615,12 @@ msgid "1. Add the crate"
 msgstr "1. クレートを追加する"
 
 #: src/library/quick-start.md:8
+#, fuzzy
 msgid ""
 "```toml\n"
 "# Cargo.toml\n"
 "[dependencies]\n"
-"big-code-analysis = \"2.0.0\"\n"
+"big-code-analysis = \"2.1.0\"\n"
 "```"
 msgstr ""
 "```toml\n"
@@ -23833,10 +24206,11 @@ msgstr ""
 "のデフォルト指定"
 
 #: src/library/cargo-features.md:7
+#, fuzzy
 msgid ""
 "```toml\n"
 "[dependencies]\n"
-"big-code-analysis = \"2.0.0\"\n"
+"big-code-analysis = \"2.1.0\"\n"
 "```"
 msgstr ""
 "```toml\n"
@@ -23869,10 +24243,11 @@ msgid "A downstream service that only analyses Rust and TypeScript:"
 msgstr "Rust と TypeScript だけを解析する下流のサービスの例です。"
 
 #: src/library/cargo-features.md:25
+#, fuzzy
 msgid ""
 "```toml\n"
 "[dependencies]\n"
-"big-code-analysis = { version = \"2.0.0\", default-features = false, "
+"big-code-analysis = { version = \"2.1.0\", default-features = false, "
 "features = [\"rust\", \"typescript\"] }\n"
 "```"
 msgstr ""
@@ -24689,8 +25064,9 @@ msgstr ""
 "ん。"
 
 #: src/library/stability.md:3
+#, fuzzy
 msgid ""
-"`big-code-analysis` is on the `2.x` line (currently `2.0.0`). The full "
+"`big-code-analysis` is on the `2.x` line (currently `2.1.0`). The full "
 "stability contract lives in [`STABILITY.md`](https://github.com/dekobon/big-"
 "code-analysis/blob/main/STABILITY.md) at the root of the repository — that "
 "file is the source of truth and is updated alongside the changelog at every "
@@ -24727,11 +25103,12 @@ msgstr ""
 "CHANGELOG.md) の `3.0.0` セクションに **(breaking)** として記載されます。"
 
 #: src/library/stability.md:21
+#, fuzzy
 msgid ""
 "**No value stability guarantee within `2.x`.** A grammar pin bump or a bug "
 "fix in a metric definition can shift any metric value on any file in any "
 "direction, even across a patch bump. Each such drift is flagged in the "
-"changelog. Pin to an exact version (`big-code-analysis = \"= 2.0.0\"`) if "
+"changelog. Pin to an exact version (`big-code-analysis = \"= 2.1.0\"`) if "
 "you need bit-for-bit reproducibility across runs."
 msgstr ""
 "**`2.x` 内での値の安定性は保証されません。** 文法ピンのバンプやメトリクス定義"
@@ -29030,6 +29407,26 @@ msgstr ""
 "ない）ため、更新する際はローカルで `tree-sitter generate` を実行するのではな"
 "く、アップストリームプロジェクトから生成済みの `src/` を再ベンダリングしま"
 "す。"
+
+#~ msgid ""
+#~ "`--no-ignore` — disable `.gitignore` / `.ignore` / global-gitignore "
+#~ "awareness when expanding directory seeds."
+#~ msgstr ""
+#~ "`--no-ignore` — ディレクトリの起点を展開する際の `.gitignore` / `."
+#~ "ignore` / グローバル gitignore の考慮を無効にします。"
+
+#~ msgid "\"2.0.0\""
+#~ msgstr "\"2.0.0\""
+
+#~ msgid "\"a205fff13108d0f8c679a062e352ba8468109c4adfdd8c9e3567cf5fcc99c3d5\""
+#~ msgstr "\"a205fff13108d0f8c679a062e352ba8468109c4adfdd8c9e3567cf5fcc99c3d5\""
+
+#~ msgid ""
+#~ "`wmc`, `npm`, and `npa` are only produced for languages with a class-like "
+#~ "container. They are absent from Bash, C, Go, Lua, Perl, and Tcl output."
+#~ msgstr ""
+#~ "`wmc`、`npm`、`npa` はクラスに類するコンテナを持つ言語に対してのみ生成され"
+#~ "ます。Bash、C、Go、Lua、Perl、Tcl の出力には含まれません。"
 
 #~ msgid ""
 #~ "Each operand of a `&&` / `\\|\\|` chain inside `expr {…}` counts as one "

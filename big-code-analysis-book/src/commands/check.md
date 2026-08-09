@@ -524,6 +524,57 @@ file rather than adding to it, so the manifest key is present only when
 the manifest's file is the one actually in effect. The inline glob
 lists union; the files do not.
 
+## Untrusted-input mode (`--strict`) {#strict-mode}
+
+Two default behaviors shrink the set of files the gate looks at, and
+both read their inputs from the tree under test: the
+[generated-code detector](index.html#skipping-generated-code) skips any
+file whose header carries a marker phrase, and the walker honors
+[`.gitignore` files](index.html#respecting-gitignore) found inside the
+walked tree. Both are right for a trusted checkout. In a pull-request
+gate they are levers the change under review can pull: one added
+comment line or one `.gitignore` entry takes a file out of the gate.
+The [CI recipe](../recipes/ci.md#gate-trust-boundary) shows both
+reproductions.
+
+`--strict` turns both off in one flag, equivalent to passing
+`--no-skip-generated --no-ignore`:
+
+```bash
+bca check --strict --paths src/
+```
+
+Projects opt in once in `bca.toml` instead of per workflow:
+
+```toml
+[check]
+strict = true
+```
+
+The key is presence-only, like the top-level `exclude_tests`: it can
+turn the profile on, never off, so a CI workflow cannot silently
+weaken a committed policy (there is no `--no-strict`).
+
+Even without the profile, `bca check` reports what it declined to
+look at. Whenever either mechanism dropped files, a one-line stderr
+summary gives the counts:
+
+```text
+bca: 2 files not checked (1 generated, 1 ignored) — pass --report-skipped to list them
+```
+
+Clean runs print nothing, and the summary changes no exit code.
+`--report-skipped` lists each dropped file with a
+`note: skipped (generated): <path>` or `note: skipped (ignored): <path>`
+line. Under `--strict` nothing is skipped, so there is nothing to
+summarize.
+
+With content sniffing off, genuinely generated trees still need an
+exemption; give them one the reviewers own, either a committed
+walker deny-set (`--exclude-from .bcaignore`) or a
+[`[check.exclude]`](#exempting-whole-file-categories-checkexclude)
+glob, rather than a marker the submitter controls.
+
 ## Baselines
 
 When you adopt thresholds on an existing codebase you typically face a
