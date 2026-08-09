@@ -184,7 +184,25 @@ for historical reference.
   The same gate stops counting the `<` that names an operator method
   (`def <(other)`). Real comparisons, `<=>`, the `<<` shovel and heredoc
   openers are unaffected. Ruby `abc` values drop by one per subclass
-  declaration and per operator-method definition (#1280).
+  declaration and per operator-method definition (#1280). The gate now
+  covers the sibling comparison and equality tokens too — `==`, `!=`,
+  `===`, `<=`, `>=`, `<=>`, `=~`, `!~` are each equally definable as an
+  operator method, so `def ==(other)` scored the same phantom condition
+  `def <(other)` did.
+- Bash ABC counted every I/O redirection as a condition. `>` and `<`
+  spell a redirect as well as a comparison, and the grammar parents the
+  redirect under `file_redirect`, so `echo hi > out.txt` reported
+  `conditions = 1` for a line with no test in it — the Bash instance of
+  the #1280 polarity, missed by that issue's cross-language sweep. Both
+  tokens now require a `binary_expression` parent; comparisons inside
+  `[[ … ]]` and `(( … ))` are unaffected. Bash `abc` values drop by one
+  per redirection (#1280).
+- Bash ABC scored no condition for the arithmetic ternary, so
+  `local m=$(( a > b ? a : b ))` reported 1 where the equivalent C
+  `int m = a > b ? a : b;` reports 2. #1268 brought Bash's only ternary
+  form into cyclomatic and cognitive; ABC now counts it too, matching
+  the C-family `ConditionalExpression`. Bash `abc` values rise by one
+  per arithmetic ternary (#1268).
 - `fix_includes` returned its diagnostics in a different order on every
   run for identical input, because both producers push while iterating a
   `HashMap` — `files` in `build_include_graph`, `nodes` in
