@@ -38,6 +38,17 @@
 #   tests/common/mod.rs        an `insta::with_settings!` invocation,
 #                              whose `key => value` token tree is not a
 #                              match at all
+#   src/vcs/error.rs           `classify_error_variants!` (#1245): its
+#                              matcher, plus the 11 `$pat => $sample`
+#                              entries at the invocation, which are
+#                              `pattern => expression` pairs and so
+#                              parse as neither. Deliberate: generating
+#                              `is_client_input` and
+#                              `client_input_samples` from one list is
+#                              what makes a new client-input variant a
+#                              compile error. Those 11 lines sit outside
+#                              `cargo fmt` — keep them one per line and
+#                              under 100 columns by hand.
 #
 # Every remaining entry is cause 1, and all of them share one shape:
 # a section comment sitting between `|` alternatives of a single long
@@ -126,4 +137,5 @@ src/metrics/cyclomatic/php.rs 4
 src/metrics/cyclomatic/ruby.rs 5
 src/metrics/loc/perl.rs 6
 src/metrics/loc/python.rs 6
+src/vcs/error.rs 12
 tests/common/mod.rs 2

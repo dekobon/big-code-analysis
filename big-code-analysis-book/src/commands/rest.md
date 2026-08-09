@@ -637,7 +637,8 @@ id}` body (its `error_kind` tokens are the `vcs_*` family — e.g.
 `vcs_not_a_repository`, `vcs_invalid_window`). A
 client mistake — `repo_path` does not exist or is not a git working tree
 (both carry `vcs_not_a_repository`), an unresolvable
-`ref`/`commit`, a malformed or non-diff `diff`, or a malformed window /
+`ref`/`commit`, a malformed or non-diff `diff`, an unusable
+`author_hash_key` (`vcs_invalid_author_hash_key`), or a malformed window /
 timestamp / formula / file-type / threshold / trend parameter — is a
 `400`; a failure of the history walk itself is a `500`. A nonexistent
 `repo_path` is a typo — the most common client error here — so it answers

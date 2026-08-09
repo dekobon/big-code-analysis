@@ -6,6 +6,10 @@ use std::path::PathBuf;
 // variant's wording so a refactor cannot silently degrade them.
 #[test]
 fn display_covers_every_variant() {
+    // One case per `Error` variant. The count is asserted below because
+    // nothing else notices an omission: this list sat at 16 of 17 from
+    // #956 until #1245, leaving `InvalidAuthorHashKey`'s wording — the
+    // `error` prose of a `400` — pinned by nothing.
     let cases: Vec<(Error, &str)> = vec![
         (
             Error::NotARepository(PathBuf::from("/tmp/x")),
@@ -56,6 +60,10 @@ fn display_covers_every_variant() {
             "invalid bus-factor threshold: 1.5",
         ),
         (
+            Error::InvalidAuthorHashKey("the key is empty".to_owned()),
+            "invalid author-hash key: the key is empty",
+        ),
+        (
             Error::InvalidTrend("one point".to_owned()),
             "invalid trend parameters: one point",
         ),
@@ -72,6 +80,11 @@ fn display_covers_every_variant() {
             "history cache error: disk full",
         ),
     ];
+    assert_eq!(
+        cases.len(),
+        VARIANT_COUNT,
+        "every `Error` variant needs a Display case; add the new one here",
+    );
     for (err, expected) in cases {
         let rendered = err.to_string();
         assert!(
@@ -105,31 +118,38 @@ fn invalid_formula_lists_the_accepted_names() {
     assert!(rendered.contains("percentile"), "{rendered:?}");
 }
 
+/// Number of [`Error`] variants, split into the two groups of
+/// `classify_error_variants!`.
+///
+/// Hand-maintained on purpose: these are the tripwires that fire when a
+/// variant is *moved* between the groups. Every other assertion in this
+/// file iterates one group or the other, so a move shrinks one list and
+/// grows the other and passes everything — see
+/// `is_client_input_classifies_every_variant`.
+const CLIENT_INPUT_COUNT: usize = 11;
+const ENVIRONMENT_COUNT: usize = 6;
+const VARIANT_COUNT: usize = CLIENT_INPUT_COUNT + ENVIRONMENT_COUNT;
+
 // Pin the client-input vs environment/backend classification of every
 // variant (issue #641). The web boundary maps `is_client_input()` to
-// `400`/`500`; a silent re-classification here would silently change the
-// HTTP contract, so each variant is asserted explicitly. Mirrors the
-// exhaustive match in `Error::is_client_input` — when a variant is added,
-// `is_client_input` fails to compile (forcing a decision) and this test
-// must gain a corresponding case.
+// `400`/`500`, so a silent re-classification changes the HTTP contract.
 #[test]
 fn is_client_input_classifies_every_variant() {
+    // The client-input half comes from `client_input_samples()`, which
+    // `classify_error_variants!` generates from the same list as
+    // `is_client_input`'s own arms, so it cannot fall behind the enum.
+    // The hand-written vec it replaces did exactly that: it held ten
+    // entries from #956 until #1245, silently omitting
+    // `InvalidAuthorHashKey` while claiming to cover every variant.
+    //
+    // The counts are the load-bearing part, and the reason they are not
+    // derived. Deriving them would defeat them: *moving* a variant from
+    // `client_input` to `environment` shrinks the sample set in step, so
+    // every per-variant assertion below still passes while a client
+    // mistake starts answering `500` — the inverse of the bug #1245
+    // fixed, and just as quiet.
     let s = || "x".to_owned();
-    let client_input: Vec<Error> = vec![
-        Error::NotARepository(PathBuf::from("/tmp/x")),
-        Error::ResolveRef {
-            reference: s(),
-            reason: s(),
-        },
-        Error::InvalidBotPattern(s()),
-        Error::InvalidWindow(s()),
-        Error::InvalidTimestamp(s()),
-        Error::InvalidFormula(s()),
-        Error::InvalidFileTypeScope(s()),
-        Error::InvalidBusFactorThreshold(s()),
-        Error::InvalidTrend(s()),
-        Error::InvalidDiff(s()),
-    ];
+    let client_input = Error::client_input_samples();
     let environment: Vec<Error> = vec![
         Error::OpenRepository(s()),
         Error::Walk(s()),
@@ -138,6 +158,17 @@ fn is_client_input_classifies_every_variant() {
         Error::Blame(s()),
         Error::Cache(s()),
     ];
+    assert_eq!(
+        client_input.len(),
+        CLIENT_INPUT_COUNT,
+        "the client-input group changed size; if that is deliberate, every \
+         new variant also needs an `error_kind` token in the web crate",
+    );
+    assert_eq!(
+        environment.len(),
+        ENVIRONMENT_COUNT,
+        "the environment group changed size; add or remove the case here",
+    );
     for err in client_input {
         assert!(err.is_client_input(), "{err:?} should be client input");
     }

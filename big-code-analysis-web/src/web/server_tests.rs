@@ -2883,81 +2883,203 @@ async fn vcs_error_response_maps_classification_to_status() {
 async fn vcs_error_kind_maps_each_client_variant_to_a_distinct_token() {
     // Locks the closed #631 token vocabulary: every `is_client_input`
     // variant gets its own distinct, non-internal token. `is_client_input`
-    // (#641) owns 400-vs-500; `vcs_error_kind` owns which 400 token — this
-    // pins all ten so a future variant or a renamed token cannot silently
-    // collapse onto the generic internal token or collide with a sibling.
+    // (#641) owns 400-vs-500; `vcs_error_kind` owns which 400 token.
+    //
+    // The case list is *derived from the enum*, not hand-written. The
+    // hand-written version of this test pinned ten variants and read as a
+    // completeness guard while `InvalidAuthorHashKey` — added to
+    // `is_client_input` by #956 — collapsed onto `vcs_internal_error` for
+    // the whole of its life (#1245). `client_input_samples()` is generated
+    // from the same list as `is_client_input`'s arms, so a variant cannot
+    // be classified as client input without appearing here.
     use std::collections::HashSet;
-    use std::path::PathBuf;
 
-    let cases: [(VcsError, &str); 10] = [
-        (
-            VcsError::NotARepository(PathBuf::from("/x")),
-            error_kind::VCS_NOT_A_REPOSITORY,
-        ),
-        (
-            VcsError::ResolveRef {
-                reference: "HEAD".to_owned(),
-                reason: "gone".to_owned(),
-            },
-            error_kind::VCS_INVALID_REVISION,
-        ),
-        (
-            VcsError::InvalidBotPattern("[".to_owned()),
-            error_kind::VCS_INVALID_BOT_PATTERN,
-        ),
-        (
-            VcsError::InvalidWindow("x".to_owned()),
-            error_kind::VCS_INVALID_WINDOW,
-        ),
-        (
-            VcsError::InvalidTimestamp("x".to_owned()),
-            error_kind::VCS_INVALID_TIMESTAMP,
-        ),
-        (
-            VcsError::InvalidFormula("x".to_owned()),
-            error_kind::VCS_INVALID_FORMULA,
-        ),
-        (
-            VcsError::InvalidFileTypeScope("x".to_owned()),
-            error_kind::VCS_INVALID_FILE_TYPE_SCOPE,
-        ),
-        (
-            VcsError::InvalidBusFactorThreshold("x".to_owned()),
-            error_kind::VCS_INVALID_BUS_FACTOR_THRESHOLD,
-        ),
-        (
-            VcsError::InvalidTrend("x".to_owned()),
-            error_kind::VCS_INVALID_TREND,
-        ),
-        (
-            VcsError::InvalidDiff("x".to_owned()),
-            error_kind::VCS_INVALID_DIFF,
-        ),
-    ];
+    // Expected tokens are spelled as *literals*, not as `error_kind::`
+    // constants. The vocabulary is a closed contract in `STABILITY.md`, so
+    // a changed constant value has to fail here; the previous version
+    // compared each constant against itself and pinned no wire string at
+    // all. The `None` arm is the completeness catch: `vcs::Error` is
+    // `#[non_exhaustive]`, so this match must carry a wildcard, and a
+    // sample reaching it is a client-input variant with no agreed token.
+    fn expected_token(error: &VcsError) -> Option<&'static str> {
+        match error {
+            VcsError::NotARepository(_) => Some("vcs_not_a_repository"),
+            VcsError::ResolveRef { .. } => Some("vcs_invalid_revision"),
+            VcsError::InvalidBotPattern(_) => Some("vcs_invalid_bot_pattern"),
+            VcsError::InvalidWindow(_) => Some("vcs_invalid_window"),
+            VcsError::InvalidTimestamp(_) => Some("vcs_invalid_timestamp"),
+            VcsError::InvalidFormula(_) => Some("vcs_invalid_formula"),
+            VcsError::InvalidFileTypeScope(_) => Some("vcs_invalid_file_type_scope"),
+            VcsError::InvalidBusFactorThreshold(_) => Some("vcs_invalid_bus_factor_threshold"),
+            VcsError::InvalidAuthorHashKey(_) => Some("vcs_invalid_author_hash_key"),
+            VcsError::InvalidTrend(_) => Some("vcs_invalid_trend"),
+            VcsError::InvalidDiff(_) => Some("vcs_invalid_diff"),
+            _ => None,
+        }
+    }
+
+    // Every assertion below iterates `samples`, so a sample set that lost
+    // an entry satisfies all of them. Pin the size, and pin the #1245
+    // subject by name: the count catches any variant leaving the
+    // client-input group, the `any` catches this one specifically.
+    let samples = VcsError::client_input_samples();
+    assert_eq!(
+        samples.len(),
+        11,
+        "the client-input variant set changed size; every entry needs a \
+         token in `vcs_error_kind` and a case in `expected_token` above",
+    );
+    assert!(
+        samples
+            .iter()
+            .any(|error| matches!(error, VcsError::InvalidAuthorHashKey(_))),
+        "the #1245 regression subject must stay in the sampled client-input set",
+    );
+
     let mut seen = HashSet::new();
-    for (err, expected) in &cases {
+    for error in &samples {
         assert!(
-            err.is_client_input(),
-            "{err:?} must classify as client input"
+            error.is_client_input(),
+            "{error:?} is sampled as client input but classifies as environment",
         );
-        let token = vcs_error_kind(err);
-        assert_eq!(token, *expected, "wrong token for {err:?}");
+        let token = vcs_error_kind(error);
+        let Some(expected) = expected_token(error) else {
+            panic!(
+                "client-input variant {error:?} has no agreed error_kind token; \
+                    add one to `vcs_error_kind`, to `expected_token` above, and to \
+                    the vocabulary lists in STABILITY.md and the book (got `{token}`)"
+            );
+        };
+        assert_eq!(token, expected, "wrong token for {error:?}");
+        // Production can no longer reach this — the `assert_eq!` above
+        // fires first. It guards the *expectation* table instead: it
+        // stops a future maintainer from silencing the `else` panic by
+        // writing `Some("vcs_internal_error")` into `expected_token`,
+        // which would re-bless the #1245 behaviour as intended.
         assert_ne!(
             token,
             error_kind::VCS_INTERNAL_ERROR,
-            "client variant {err:?} must not collapse onto the internal token",
+            "client variant {error:?} must not collapse onto the internal token",
         );
         assert!(
             seen.insert(token),
             "token `{token}` is not distinct across client variants"
         );
     }
+
     // An environment/backend variant collapses onto the internal token.
     assert!(!VcsError::Walk("boom".to_owned()).is_client_input());
     assert_eq!(
         vcs_error_kind(&VcsError::Walk("boom".to_owned())),
         error_kind::VCS_INTERNAL_ERROR,
     );
+}
+
+/// POSTs `payload` to `uri` through the production routing table and
+/// returns the response status alongside the decoded JSON body.
+///
+/// [`post_raw_json`] does almost the same thing and is the better helper
+/// when only the body matters; this one keeps the status, because an
+/// `error_kind` assertion is only half the contract without it.
+async fn post_vcs_json(uri: &str, payload: Value) -> (StatusCode, Value) {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let req = test::TestRequest::post()
+        .uri(uri)
+        .insert_header(ContentType::json())
+        .set_json(&payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    (status, test::read_body_json(resp).await)
+}
+
+#[actix_rt::test]
+async fn vcs_author_hash_key_without_emit_is_400_with_its_own_token() {
+    // #1245: the status was always right (`is_client_input` covers
+    // `InvalidAuthorHashKey`), but the machine token was
+    // `vcs_internal_error` — telling a client its own mistake was a server
+    // fault. Assert all three fields: a status-only assertion, which is
+    // what the sibling `*_is_400` tests do, is exactly what let this ship.
+    //
+    // A bare temp dir is enough for all three of these — the handler's
+    // `repo_path_must_exist` is a `Path::exists` call and `options_from`
+    // rejects the key before any history walk. Drop the validation and
+    // the request fails on the missing repository instead, which the
+    // `error_kind` assertion still catches, so the real git repository
+    // the sibling vcs tests build would buy nothing but four subprocesses.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (status, body) = post_vcs_json(
+        "/v1/vcs",
+        json!({
+            "id": "req-ahk",
+            "repo_path": dir.path().to_str().unwrap(),
+            "author_hash_key": "k",
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error_kind"], json!("vcs_invalid_author_hash_key"));
+    assert_eq!(
+        body["error"],
+        json!("invalid author-hash key: author_hash_key requires emit_author_details"),
+    );
+    assert_eq!(body["id"], json!("req-ahk"));
+}
+
+#[actix_rt::test]
+async fn vcs_trend_author_hash_key_without_emit_is_400_with_its_own_token() {
+    // `/vcs/trend` reaches the same `options_from`, so it carried the same
+    // mislabelling (#1245). Distinct `id` and endpoint from the `/vcs`
+    // case so a copy-paste that points both tests at one route shows up.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (status, body) = post_vcs_json(
+        "/v1/vcs/trend",
+        json!({
+            "id": "req-ahk-trend",
+            "repo_path": dir.path().to_str().unwrap(),
+            "author_hash_key": "k",
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error_kind"], json!("vcs_invalid_author_hash_key"));
+    assert_eq!(
+        body["error"],
+        json!("invalid author-hash key: author_hash_key requires emit_author_details"),
+    );
+    assert_eq!(body["id"], json!("req-ahk-trend"));
+}
+
+#[actix_rt::test]
+async fn vcs_empty_author_hash_key_is_400_with_its_own_token() {
+    // The second trigger: `AuthorHashKey::new` rejects an empty key even
+    // when `emit_author_details` is set (an unset environment variable
+    // expanding to `""`, #956). It reaches `InvalidAuthorHashKey` down a
+    // different path in `options_from`, and its prose differs from the
+    // requires-emit case above — so the two cannot pass for each other.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (status, body) = post_vcs_json(
+        "/v1/vcs",
+        json!({
+            "id": "req-ahk-empty",
+            "repo_path": dir.path().to_str().unwrap(),
+            "emit_author_details": true,
+            "author_hash_key": "",
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error_kind"], json!("vcs_invalid_author_hash_key"));
+    assert_eq!(
+        body["error"],
+        json!("invalid author-hash key: the key is empty"),
+    );
+    assert_eq!(body["id"], json!("req-ahk-empty"));
 }
 
 #[actix_rt::test]
