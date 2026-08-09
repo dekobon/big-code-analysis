@@ -96,6 +96,16 @@ for historical reference.
 
 ### Fixed
 
+- A Bash arithmetic ternary — the only ternary form Bash has —
+  contributed nothing to cyclomatic or cognitive complexity, so
+  `local m=$(( a > b ? a : b ))` reported cyclomatic 1 (base only) and
+  cognitive 0, where the same construct scores 2 / 1 in every sibling
+  that has a ternary. It is now a decision point in both cyclomatic
+  tiers and a nesting construct for cognitive, matching the C-family
+  `ConditionalExpression`. Both arithmetic contexts are covered — the
+  `$(( … ))` expansion and the bare `(( … ))` statement. Bash
+  `cyclomatic`, `cognitive` and the `mi` family derived from them shift
+  for files using arithmetic ternaries (#1268).
 - Go ABC scored zero assignments for a `var` declaration with an
   initializer. `var x = 5` and `x := 5` are the same binding spelled two
   ways, but only the latter is a `short_var_declaration`; the former is a

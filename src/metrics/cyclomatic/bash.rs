@@ -30,12 +30,22 @@ impl Cyclomatic for BashCode {
             Bash::CaseStatement => {
                 stats.cyclomatic_modified += 1.;
             }
-            // Both standard and modified.
+            // Both standard and modified. `TernaryExpression` is the
+            // arithmetic ternary inside `(( … ))` / `$(( … ))` — the only
+            // ternary form Bash has, and a decision point in every sibling
+            // that has one (#1268). The pinned grammar emits only kind 223
+            // in every arithmetic context; the `TernaryExpression2` alias
+            // is listed defensively per grammar-dispatch §1, following the
+            // ObjC `BinaryExpression | BinaryExpression2` precedent, and
+            // pinned unreachable by
+            // `bash_ternary_expression_alias_is_unreachable`.
             Bash::IfStatement
             | Bash::ElifClause
             | Bash::ForStatement
             | Bash::CStyleForStatement
             | Bash::WhileStatement
+            | Bash::TernaryExpression
+            | Bash::TernaryExpression2
             | Bash::AMPAMP
             | Bash::PIPEPIPE => {
                 stats.cyclomatic += 1.;
