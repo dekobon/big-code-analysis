@@ -684,6 +684,24 @@ fn merge_check_prefers_check_table_over_legacy_top_level() {
     assert_eq!(args.tier, crate::TierSpec::Soft(Some(0.95)));
 }
 
+/// `[check] strict` is presence-only, like `exclude_tests`: it can
+/// turn the untrusted-input profile on when the CLI left it off, and a
+/// CLI `--strict` cannot be turned back off by `strict = false`.
+#[test]
+fn merge_check_strict_is_presence_only() {
+    let m = manifest(toml::from_str("[check]\nstrict = true\n").expect("parse"));
+    let mut args = empty_check_args();
+    assert!(!args.strict, "clap default leaves the profile off");
+    m.merge_check(&mut args);
+    assert!(args.strict, "the manifest key turns the profile on");
+
+    let off = manifest(toml::from_str("[check]\nstrict = false\n").expect("parse"));
+    let mut args = empty_check_args();
+    args.strict = true;
+    off.merge_check(&mut args);
+    assert!(args.strict, "a CLI --strict wins over `strict = false`");
+}
+
 /// `merge_exemptions` reads the baseline from `[check]` too (#599), so
 /// the audit reflects exactly what `bca check` would skip.
 #[test]

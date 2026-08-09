@@ -13,8 +13,12 @@ pub(crate) use {
     effective_config::*, explain::*, footer::*, outcome::*, remediation::*, thresholds::*,
 };
 
+#[cfg(test)]
+#[path = "check_tests.rs"]
+mod tests;
+
 pub(crate) fn run_check(
-    globals: GlobalOpts,
+    mut globals: GlobalOpts,
     mut args: CheckArgs,
     manifest: Option<&Manifest>,
     preproc: Option<Arc<PreprocResults>>,
@@ -36,6 +40,18 @@ pub(crate) fn run_check(
         }
         None => ParsedThresholds::default(),
     };
+    // `--strict` (or `[check] strict`, folded into `args.strict` by the
+    // manifest merge above) is the untrusted-input gate profile: the
+    // branch under test controls file contents and ignore files alike,
+    // so neither a generated-code marker nor a committed `.gitignore`
+    // may shrink the checked set. Applied here — before the
+    // `--explain-threshold` preview, `--print-effective-config`, and
+    // the walk — so every downstream consumer sees the flipped
+    // defaults.
+    if args.strict {
+        globals.no_skip_generated = true;
+        globals.no_ignore = true;
+    }
     // Resolve the deprecated `--headroom` / `--strict-exit-codes` aliases
     // once (issues #688/#666). The manifest merge above has already
     // folded `[check] exit_codes` into `args.exit_codes` when the CLI
@@ -182,6 +198,9 @@ fn collect_check_violations(
     let scope = resolve_diff_scope(args);
     let globals_kept = globals.clone();
     let walk = run_check_walk(globals, args, preproc, thresholds);
+    // Before the empty-input guard, so a gate whose only input was
+    // ignore-dropped still says what happened above the exit-1 error.
+    report_unchecked_files(&walk, globals_kept.report_skipped);
     enforce_usable_input(&walk);
     let violations = apply_check_exclude(
         walk.violations,
@@ -239,6 +258,67 @@ struct CheckWalk {
     /// filters. Zero means nothing survived `--paths` expansion plus
     /// `--include` / `--exclude` filtering.
     files_dispatched: usize,
+    /// Files the generated-code detector dropped before parsing.
+    /// Counted (and reported by default) because a `@generated` marker
+    /// in the branch under test otherwise removes a file from the gate
+    /// with nothing on stderr (#1055's bypass A).
+    generated_skipped: usize,
+    /// Files a VCS ignore file dropped from the walk, sorted. Measured
+    /// by [`vcs_ignored_files`] because the walker itself never yields
+    /// them; a `.gitignore` committed in the branch under test otherwise
+    /// shrinks the checked set silently (#1055's bypass B).
+    ignored: Vec<PathBuf>,
+}
+
+/// Say, by default, what the gate declined to look at (#1055): each
+/// ignore-dropped file under `--report-skipped` (the generated listing
+/// is printed during dispatch), then the one-line count summary. A run
+/// that skipped nothing stays silent, so clean local runs are
+/// unchanged. Deliberately loud-not-strict: the counts change no gate
+/// behaviour and no exit code — `--strict` is the profile that does.
+fn report_unchecked_files(walk: &CheckWalk, report_skipped: bool) {
+    if report_skipped {
+        for path in &walk.ignored {
+            note(format_args!("skipped (ignored): {}", path.display()));
+        }
+    }
+    if let Some(summary) =
+        unchecked_summary(walk.generated_skipped, walk.ignored.len(), report_skipped)
+    {
+        // The severity-free `bca:` family the gate's other informational
+        // lines use (`bca: skipped N violations via [check.exclude]`) —
+        // a `note:` prefix after the namespace would be the #609 double
+        // prefix.
+        eprintln!("bca: {summary}");
+    }
+}
+
+/// The one-line not-checked summary, or `None` when nothing was
+/// skipped. Zero-count categories are omitted; the `--report-skipped`
+/// hint is dropped when the flag is already on (`listed`) and the
+/// per-file lines have therefore just been printed.
+fn unchecked_summary(generated: usize, ignored: usize, listed: bool) -> Option<String> {
+    let total = generated + ignored;
+    if total == 0 {
+        return None;
+    }
+    let mut breakdown = Vec::new();
+    if generated > 0 {
+        breakdown.push(format!("{generated} generated"));
+    }
+    if ignored > 0 {
+        breakdown.push(format!("{ignored} ignored"));
+    }
+    let noun = if total == 1 { "file" } else { "files" };
+    let hint = if listed {
+        ""
+    } else {
+        " — pass --report-skipped to list them"
+    };
+    Some(format!(
+        "{total} {noun} not checked ({}){hint}",
+        breakdown.join(", ")
+    ))
 }
 
 /// Fail the run when the walk saw no input files at all. A tool error
@@ -274,13 +354,24 @@ fn enforce_usable_input(walk: &CheckWalk) {
 /// metric)` so CI diff tooling sees identical output across runs over
 /// the same tree.
 fn run_check_walk(
-    globals: GlobalOpts,
+    mut globals: GlobalOpts,
     args: &CheckArgs,
     preproc: Option<Arc<PreprocResults>>,
     thresholds: Arc<LanguageThresholds>,
 ) -> CheckWalk {
     let (tx, rx) = crossbeam::channel::unbounded();
     let files_dispatched = Arc::new(AtomicUsize::new(0));
+    let generated_skipped = Arc::new(AtomicUsize::new(0));
+    // Materialize `--paths-from` before the seed list is expanded twice
+    // below: the source may be stdin (`-`), which the second read would
+    // find exhausted, silently emptying one side of the ignored-file
+    // measurement. Appending to `paths` is exactly what the walk's own
+    // expansion does with the list, so seed order is unchanged.
+    if let Some(src) = globals.paths_from.take() {
+        globals
+            .paths
+            .extend(crate::read_paths_from(&src).unwrap_or_else(|e| die(e)));
+    }
     // Compute only the metric families the resolved thresholds read
     // (#1113). A gate on one metric used to pay for the whole suite —
     // Halstead being the most expensive per node — and throw the rest
@@ -290,11 +381,12 @@ fn run_check_walk(
     // languages (#1141): a metric only a `[thresholds.lang.<slug>]` table
     // gates would otherwise stay at its zero default.
     let selected_metrics = Some(thresholds.selected_metrics());
-    let cfg = Config {
+    let mut cfg = Config {
         thresholds: Some(thresholds),
         selected_metrics,
         check_tx: Some(tx),
         files_dispatched: Some(Arc::clone(&files_dispatched)),
+        generated_skipped: Some(Arc::clone(&generated_skipped)),
         suppression_policy: SuppressionPolicy::from_no_suppress(args.no_suppress),
         report_suppressed: args.report_suppressed,
         // Compute body hashes during the walk only when fuzzy matching
@@ -303,9 +395,23 @@ fn run_check_walk(
         fuzzy_baseline: args.baseline_fuzzy_match.unwrap_or(false),
         ..Config::new(Action::Check, &globals, preproc)
     };
-    run_walk(globals, cfg);
+    // Expand the seeds here rather than through `run_walk`, so the same
+    // resolved set both feeds the workers and anchors the ignored-file
+    // measurement — a private re-resolve inside `run_walk` could not be
+    // diffed against anything. The three steps below are `run_walk`'s
+    // own body, with the measurement spliced between resolve and
+    // dispatch; the exit-1 incomplete-walk contract is unchanged.
+    let (resolved, num_jobs) = resolve_walk_files(globals.clone());
+    let ignored = vcs_ignored_files(globals, &resolved);
+    cfg.explicit_seeds = Arc::new(resolved.explicit_files);
+    crate::enforce_complete_walk(crate::run_walk_resolved_tallying(
+        resolved.files,
+        num_jobs,
+        cfg,
+        resolved.walk_errors,
+    ));
 
-    // Workers have all joined by the time `run_walk` returns, so the
+    // Workers have all joined by the time the walk returns, so the
     // sender side is dropped and `rx.into_iter()` terminates cleanly.
     let mut violations: Vec<Violation> = rx.into_iter().collect();
     // Stable, deterministic stderr output: by path, then start line, then
@@ -321,7 +427,42 @@ fn run_check_walk(
     CheckWalk {
         violations,
         files_dispatched: files_dispatched.load(Ordering::Relaxed),
+        generated_skipped: generated_skipped.load(Ordering::Relaxed),
+        ignored,
     }
+}
+
+/// Measure which files a VCS ignore file dropped from the gate's walk.
+///
+/// The `ignore` crate's walker prunes ignored entries internally and
+/// never yields them, so the set has to be derived: resolve the same
+/// seeds once more with ignore handling off and take the difference
+/// against the files the gate walk kept. The unfiltered set is a
+/// superset by construction — same seeds, same include/exclude/hidden
+/// filtering, and a gitignore negation (`!pattern`) can only re-include
+/// — so the difference is exactly the ignore-dropped files. Sorted so
+/// the `--report-skipped` listing is deterministic.
+///
+/// This is a metadata-only second traversal (no file is read), paid
+/// only by `bca check`, and skipped outright under `--no-ignore` /
+/// `--strict`, where the answer is empty by definition. The
+/// measurement resolve's own `walk_errors` tally is deliberately
+/// dropped: only the gate walk's tallies decide the exit code, and a
+/// traversal error there already fails the run.
+fn vcs_ignored_files(mut globals: GlobalOpts, resolved: &crate::ResolvedFiles) -> Vec<PathBuf> {
+    if globals.no_ignore {
+        return Vec::new();
+    }
+    globals.no_ignore = true;
+    let (unfiltered, _) = resolve_walk_files(globals);
+    let checked: std::collections::HashSet<&PathBuf> = resolved.files.iter().collect();
+    let mut ignored: Vec<PathBuf> = unfiltered
+        .files
+        .into_iter()
+        .filter(|path| !checked.contains(path))
+        .collect();
+    ignored.sort_unstable();
+    ignored
 }
 
 /// Serialize and write the collected violations as a baseline TOML

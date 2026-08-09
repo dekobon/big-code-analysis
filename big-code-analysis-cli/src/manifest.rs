@@ -97,6 +97,7 @@ const CHECK_KEYS: &[&str] = &[
     "baseline_line_tolerance",
     "baseline_fuzzy_match",
     "headroom",
+    "strict",
 ];
 
 /// Recognized keys inside the `[report]` sub-table (#843). See
@@ -252,6 +253,12 @@ struct RawCheck {
     /// Soft-tier scale ratio in `(0, 1]` (#599). Mirrors `--headroom`;
     /// the CLI value wins. Validated by [`Manifest::headroom`].
     headroom: Option<f64>,
+    /// When `true`, `bca check` runs its untrusted-input gate profile:
+    /// generated-code markers and VCS ignore files no longer drop files
+    /// from the run (the `--strict` flag's manifest spelling). Presence-
+    /// only like `exclude_tests`: it can turn the profile on, never off,
+    /// so a project opts in once instead of per CI workflow.
+    strict: Option<bool>,
 }
 
 /// Returns `manifest`, unless the caller supplied `cli` — the
@@ -572,7 +579,7 @@ impl Manifest {
 
     /// Merge check-only options (`baseline`, `baseline_line_tolerance`,
     /// `baseline_fuzzy_match`, the soft-tier `headroom` ratio,
-    /// `exit_codes`) into `args`. CLI values win.
+    /// `exit_codes`, the `strict` profile) into `args`. CLI values win.
     pub(crate) fn merge_check(&self, args: &mut CheckArgs) {
         // bca: suppress(cyclomatic)
         // Flat field-by-field config merge (`if args.x.is_none() { … }` per
@@ -639,6 +646,12 @@ impl Manifest {
                 self.raw.check.exclude_from.as_deref(),
             ),
         ));
+        // `[check] strict` is presence-only, like the top-level
+        // `exclude_tests`: it can only turn the untrusted-input profile
+        // on. A CLI `--strict` already set `args.strict = true` and
+        // wins; an absent flag lets the manifest enable it. There is no
+        // CLI value to override in the other direction.
+        args.strict = args.strict || self.raw.check.strict.unwrap_or(false);
         // `[check] exit_codes` (#385/#666). The value-taking
         // `--exit-codes <default|tiered>` flag is a full override: an
         // explicit CLI value wins in either direction, so the manifest

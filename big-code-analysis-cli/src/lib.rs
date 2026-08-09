@@ -189,6 +189,12 @@ struct Config {
     /// no violations) from "no files matched" (counter == 0), so a
     /// typo in `--paths` does not silently pass CI.
     files_dispatched: Option<Arc<AtomicUsize>>,
+    /// Counts files the generated-code detector skipped before parsing.
+    /// `Action::Check` reads this after the walk to say, by default, how
+    /// much of the input the gate declined to look at — a `@generated`
+    /// marker in a pull request otherwise removes a file from the gate
+    /// with nothing on stderr. `None` for flows that do not report it.
+    generated_skipped: Option<Arc<AtomicUsize>>,
     /// Counts input files whose contents could not be read at all —
     /// permission denied, a broken symlink, a path that vanished
     /// mid-walk. A failed read deliberately leaves `files_dispatched`
@@ -335,6 +341,7 @@ impl Config {
             check_tx: None,
             exemptions_tx: None,
             files_dispatched: None,
+            generated_skipped: None,
             read_failures: Arc::new(AtomicUsize::new(0)),
             write_failures: Arc::new(AtomicUsize::new(0)),
             explicit_seeds: Arc::new(std::collections::HashSet::new()),
