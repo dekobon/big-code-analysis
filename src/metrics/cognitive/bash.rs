@@ -30,7 +30,17 @@ impl Cognitive for BashCode {
             // covers both `for` and `select`. `CStyleForStatement` is the
             // `for ((…))` arithmetic form. `ElifClause` is a dedicated node,
             // not a nested `if`, so no `is_else_if` check is needed.
-            IfStatement | WhileStatement | ForStatement | CStyleForStatement | CaseStatement => {
+            // `TernaryExpression` is the arithmetic ternary inside
+            // `(( … ))` / `$(( … ))`, Bash's only ternary form. It nests
+            // like the C-family `ConditionalExpression`, so a ternary
+            // inside a ternary charges the inner one at +2 (#1268). The
+            // pinned grammar emits only kind 223; the
+            // `TernaryExpression2` alias is listed defensively per
+            // grammar-dispatch §1 and pinned unreachable by
+            // `bash_ternary_expression_alias_is_unreachable` in the
+            // cyclomatic test module.
+            IfStatement | WhileStatement | ForStatement | CStyleForStatement | CaseStatement
+            | TernaryExpression | TernaryExpression2 => {
                 increase_nesting(stats, &mut nesting);
             }
             ElifClause | ElseClause => {

@@ -6081,6 +6081,65 @@ mod tests {
     }
 
     #[test]
+    fn bash_arithmetic_ternary_increases_nesting() {
+        // Regression for #1268: Bash's only ternary form scored zero
+        // cognitive complexity. It nests like the C-family
+        // `ConditionalExpression`. Both arithmetic contexts are covered —
+        // the `$(( … ))` expansion and the bare `(( … ))` statement.
+        check_metrics::<BashParser>(
+            "f() {
+                 local m=$(( a > b ? a : b ))  # +1 ternary
+             }
+             g() {
+                 (( x = a ? b : c ))  # +1 ternary
+             }",
+            "foo.sh",
+            |metric| {
+                // One increment per function, at nesting 0 in each.
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r#"
+                {
+                  "sum": 2,
+                  "value": 0,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn bash_nested_arithmetic_ternary_charges_the_inner_one_twice() {
+        // A ternary inside a ternary is +1 for the outer and +2 for the
+        // inner (one increment plus one nesting level), the same charge
+        // every nesting construct carries (#1268).
+        check_metrics::<BashParser>(
+            "h() {
+                 local n=$(( a ? b : c ? d : e ))  # +1 outer, +2 inner
+             }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r#"
+                {
+                  "sum": 3,
+                  "value": 0,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
     fn bash_boolean_sequence() {
         // First if: a chain of `&&` is one boolean increment regardless of
         // length (consecutive same-operator chain). Second if: `&& … ||` is

@@ -4650,6 +4650,101 @@ f() {
     }
 
     #[test]
+    fn bash_arithmetic_ternary_is_a_decision() {
+        // Regression for #1268: the arithmetic ternary is the only ternary
+        // form Bash has, and it contributed nothing to either cyclomatic
+        // tier while every sibling with a ternary counts one. Both
+        // arithmetic contexts are covered — the `$(( … ))` expansion and
+        // the bare `(( … ))` statement — since the grammar admits the
+        // construct in both and only a fixture in each shows both reach
+        // the arm.
+        check_metrics::<BashParser>(
+            "#!/bin/bash
+f() {
+    local m=$(( a > b ? a : b ))
+}
+g() {
+    (( x = a ? b : c ))
+}",
+            "foo.sh",
+            |metric| {
+                // unit(1) + f(base 1 + ternary 1) + g(base 1 + ternary 1)
+                // = sum 5, max 2. Both tiers move: a ternary is a decision
+                // point in the modified count too.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 5);
+            },
+        );
+    }
+
+    #[test]
+    fn bash_ternary_expression_alias_is_unreachable() {
+        // Drift marker for the defensive `TernaryExpression2` arm (lesson
+        // 34 / grammar-dispatch §1). The Bash enum carries two kinds
+        // mapping to `"ternary_expression"`, but at the pinned grammar
+        // only 223 is ever emitted — verified across every arithmetic
+        // context the grammar admits: `$(( … ))` expansion, bare
+        // `(( … ))` statement, a c-style `for ((…))` header, `let`, an
+        // array subscript, an `if (( … ))` condition, and a `declare -i`
+        // initializer. Both cyclomatic and cognitive list the alias
+        // anyway; if a grammar bump starts emitting it, this assertion
+        // fails loudly rather than the metric silently doubling.
+        let src = "for ((i = a ? b : c; i < 10; i++)); do :; done\n\
+                   let \"y = a ? b : c\"\n\
+                   arr[$(( a ? b : c ))]=1\n\
+                   if (( a ? b : c )); then :; fi\n\
+                   declare -i z=$(( a ? b : c ))\n\
+                   w=$(( a ? b : c ))\n\
+                   (( v = a ? b : c ))\n";
+        let parser = BashParser::new(
+            src.as_bytes().to_vec(),
+            &std::path::PathBuf::from("foo.sh"),
+            None,
+        );
+        assert!(ast_has_kind_id(&parser, Bash::TernaryExpression as u16));
+        assert!(!ast_has_kind_id(&parser, Bash::TernaryExpression2 as u16));
+    }
+
+    // Walk the AST and return true iff any node has `kind_id == target`.
+    // Used as a drift marker for an alias kind id: a passing
+    // `!ast_has_kind_id(...)` assertion proves the kind is unreachable at
+    // the pinned grammar version, so a future grammar bump that starts
+    // emitting it fails loudly instead of silently changing the metric
+    // (lesson 34).
+    fn ast_has_kind_id<P: ParserTrait>(parser: &P, target: u16) -> bool {
+        let mut stack = vec![parser.root()];
+        while let Some(node) = stack.pop() {
+            if node.kind_id() == target {
+                return true;
+            }
+            for i in (0..node.child_count()).rev() {
+                if let Some(c) = node.child(i) {
+                    stack.push(c);
+                }
+            }
+        }
+        false
+    }
+
+    #[test]
+    fn bash_nested_arithmetic_ternary_counts_each_occurrence() {
+        // Each ternary is its own decision point (#1268).
+        check_metrics::<BashParser>(
+            "#!/bin/bash
+h() {
+    local n=$(( a ? b : c ? d : e ))
+}",
+            "foo.sh",
+            |metric| {
+                // unit(1) + h(base 1 + two ternaries) = sum 4, max 3.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
+            },
+        );
+    }
+
+    #[test]
     fn bash_simple_function() {
         check_metrics::<BashParser>(
             "#!/bin/bash
