@@ -163,9 +163,26 @@ blocked.
 **Bound runs with `-runs`, never `-max_total_time`.** A wall-clock bound
 makes a failure non-reproducible across machines of different speeds:
 the same command finds a crash on one host and not on another, and
-neither result can be checked. `FUZZ_TIMEOUT` is a separate thing — a
-per-input limit, so a complexity regression is reported as a failure
-rather than showing up as a run that is merely slow.
+neither result can be checked.
+
+`FUZZ_TIMEOUT` is a separate thing — a per-input limit — but it is
+wall-clock too, and that limits what it can be trusted to mean. It
+reliably catches an *unbounded* loop, where no timeout value would
+matter. It is **not** a complexity gate on a loaded machine, and the
+default of 10 seconds assumes the targets are running one at a time.
+
+Measured, because this bit a parallel sweep for #1154: `nested_depth`
+reported a timeout on a 7-byte input while ten sibling targets shared 16
+cores. The same input takes **2.4 s** alone under ASan, and the 3 KB
+JavaScript file it decodes to — 512 levels of nested parens and arrow
+functions — takes **0.07 s** through `bca metrics` in a plain release
+build. There was no complexity regression; there was contention. Raise
+`FUZZ_TIMEOUT` when running targets in parallel, and treat a timeout
+report from a loaded machine as a question rather than a finding.
+
+This is the same lesson as
+[Benchmarking](benchmarking.md): a timing assertion on a contended host
+measures the host.
 
 ## Seed corpora
 
