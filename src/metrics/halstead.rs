@@ -3379,18 +3379,20 @@ f() {
         // vocabulary. Since `$var` is the most common token class in
         // PHP, that roughly doubled N2 for real files.
         //
-        // Source (the issue's reproducer):
-        //   <?php $a = null; $b = true; $c = NULL;
+        // Source: the issue's reproducer plus a re-reference of `$a` and
+        // `$b`, so N2 exceeds n2 and the assertions can tell "counted
+        // once per occurrence" from "deduplicated into the vocabulary".
+        //   <?php $a = null; $b = true; $c = NULL; $a = $b;
         //
-        // Operands by text key: `$a`, `$b`, `$c`, `null`, `true`, `NULL`
-        // — one each ⇒ n2 = 6, N2 = 6. Before the fix the `a` / `b` / `c`
-        // leaves added 3 / 3 ⇒ 9 / 9.
+        // Operands by text key: `$a` × 2, `$b` × 2, `$c`, `null`, `true`,
+        // `NULL` ⇒ n2 = 6, N2 = 8. Before the fix the `a` / `b` / `c`
+        // leaves added 3 unique and 5 occurrences ⇒ 9 / 13.
         check_metrics::<PhpParser>(
-            "<?php\n$a = null;\n$b = true;\n$c = NULL;\n",
+            "<?php\n$a = null;\n$b = true;\n$c = NULL;\n$a = $b;\n",
             "foo.php",
             |metric| {
                 assert_eq!(metric.halstead.unique_operands(), 6);
-                assert_eq!(metric.halstead.total_operands(), 6);
+                assert_eq!(metric.halstead.total_operands(), 8);
             },
         );
     }
@@ -3403,17 +3405,24 @@ f() {
         // scored 3 for one reference, and `$$$b` scored 4. Only the
         // outermost wrapper may count.
         //
-        // Source: <?php $$a = 1; $$$b = 2; ${$c} = 3;
+        // Source: <?php $$a = 1; $$$b = 2; ${$c} = 3; $$a = 4;
+        // The trailing re-assignment repeats `$$a` so N2 exceeds n2 and
+        // the assertions can tell "counted once per occurrence" from
+        // "deduplicated into the vocabulary".
         //
-        // Operands: `$$a`, `$$$b`, `${$c}`, `1`, `2`, `3` — one each
-        // ⇒ n2 = 6, N2 = 6. Before the fix: 13 / 13 (measured), each
+        // Operands: `$$a` × 2, `$$$b`, `${$c}`, `1`, `2`, `3`, `4`
+        // ⇒ n2 = 7, N2 = 8. Before the fix: 14 / 17 (measured), each
         // target contributing its whole nesting chain — `$$a` → `$a` →
-        // `a` is 3, `$$$b` → `$$b` → `$b` → `b` is 4, `${$c}` → `$c` →
-        // `c` is 3, plus the three integers.
-        check_metrics::<PhpParser>("<?php $$a = 1; $$$b = 2; ${$c} = 3;", "foo.php", |metric| {
-            assert_eq!(metric.halstead.unique_operands(), 6);
-            assert_eq!(metric.halstead.total_operands(), 6);
-        });
+        // `a` is 3 (twice over), `$$$b` → `$$b` → `$b` → `b` is 4, and
+        // `${$c}` → `$c` → `c` is 3, plus the four integers.
+        check_metrics::<PhpParser>(
+            "<?php $$a = 1; $$$b = 2; ${$c} = 3; $$a = 4;",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operands(), 7);
+                assert_eq!(metric.halstead.total_operands(), 8);
+            },
+        );
     }
 
     #[test]
