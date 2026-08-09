@@ -299,10 +299,9 @@ fn report_skipped_lists_ignored_files_and_drops_the_hint() {
         .stderr(predicate::str::contains("pass --report-skipped").not());
 }
 
-/// `--paths-from -` (stdin) is read exactly once: the ignored-file
-/// measurement resolves the seed list twice, and a second read of an
-/// exhausted stdin would silently empty one side of the diff and
-/// suppress the summary.
+/// `--paths-from -` (stdin) feeds the gate and its summary: the walk
+/// consumes stdin exactly once, so the ignored-file measurement sees
+/// the same seed list the gate walked.
 #[test]
 fn paths_from_stdin_is_read_once() {
     let (dir, proj) = fixture(&[
@@ -384,6 +383,13 @@ fn ignored_directory_is_pruned_not_enumerated() {
     fs::create_dir(&build).unwrap();
     fs::write(build.join("junk.o"), b"\x7fELF").unwrap();
     fs::write(build.join("evil.rs"), branchy("hidden_offender")).unwrap();
+    // A walked (non-ignored) sibling directory, so the exact `1` below
+    // can only mean "the pruned one": verified by mutation, a
+    // measurement that counted every directory child reports 2 here
+    // and passed this test before `src/` existed.
+    let src = proj.join("src");
+    fs::create_dir(&src).unwrap();
+    fs::write(src.join("also_ok.rs"), CLEAN).unwrap();
 
     check(&dir, &proj, &["--report-skipped"])
         .success()
