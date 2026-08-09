@@ -61,7 +61,8 @@ and `cargo run -p big-code-analysis-web --`.
 - `utils/` — repo-maintenance helper scripts, including the gates run
   by `make pre-commit` / `make ci`: `check-versions.py`,
   `check-snapshot-anchors.py`, `check-rustfmt-bail.py`,
-  `check-manpage-assets.py`, `check-diagnostic-prefix.py`,
+  `check-manpage-assets.py`, `check-manpage-drift.py`,
+  `check-diagnostic-prefix.py`,
   `check-grammar-marker-sync.py`, `check-enums-codegen-drift.sh`,
   `check-grammar-crate.py`, `check-grammars-crates.sh`,
   `check-excluded-manifests.py`, `check-ruff-lockstep.py`,
@@ -267,8 +268,10 @@ cannot run), `cargo doc --no-deps --workspace
 --all-features` with `RUSTDOCFLAGS="-D warnings"`,
 `cargo +nightly udeps`, the markdown /
 TOML / shell / Makefile / GitHub Actions lint families, the man-page
-drift gate (`cargo xtask` + `git diff --exit-code -- man/`, mirroring
-the `manpage` CI job), the diagnostic-prefix gate
+drift gate (`cargo xtask` + `utils/check-manpage-drift.py`, mirroring
+the `manpage` CI job, which calls the same script — it fails on
+modified, deleted, **and** newly added pages, the last of which
+`git diff` alone cannot see, #1249), the diagnostic-prefix gate
 (`make check-diagnostic-prefix`, which blocks a capitalised
 `Warning:` / `Error:` / `Note:` string literal — see "Rust
 conventions"), the bca self-scan threshold gate at both
