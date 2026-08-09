@@ -3,11 +3,16 @@
 `bca.to_sarif(result, *, thresholds=None)` renders an analysis
 result (or an iterable of them) into a [SARIF
 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html)
-JSON document, ready for upload to GitHub Code Scanning or any
+JSON document, ready for upload to [GitHub Code
+Scanning](https://docs.github.com/en/code-security/code-scanning) or any
 other SARIF consumer. The output is produced by the same Rust
 writer that backs `bca check --report-format sarif`, so the schema URL, tool
 driver name / version, and rule descriptions match the CLI
 byte-for-byte.
+
+Examples on this page import the package as `bca`
+(`import big_code_analysis as bca`). A bare `bca` in a shell command is
+the CLI binary.
 
 ```python
 {{#include ../../../big-code-analysis-py/examples/sarif_output.py:17:33}}
@@ -17,10 +22,10 @@ byte-for-byte.
 
 * A single `dict` returned by `bca.analyze` or
   `bca.analyze_source`.
-* Any iterable yielding such dicts and / or `bca.AnalysisFailure`
+* Any iterable yielding such dicts or `bca.AnalysisFailure`
   instances (the natural shape of `bca.analyze_batch`'s return
   value). `AnalysisFailure` entries are skipped silently — they
-  represent files that could not be analysed, not findings.
+  represent files that could not be analyzed, not findings.
 
 ## Thresholds
 
@@ -41,8 +46,9 @@ run.
 
 `thresholds=None` (the default) and `thresholds={}` both produce
 a well-formed SARIF document with empty `results` and `rules`
-arrays. This matches the CLI's posture: there are **no built-in
-default thresholds**; every check run supplies its own limits.
+arrays. This matches `bca check`, which applies **no implicit
+limits**: every run supplies its own, from `--threshold` or a
+`bca.toml` (which `bca init` scaffolds with a starting table).
 
 ## Upload to GitHub Code Scanning
 
@@ -68,7 +74,7 @@ The upload action is documented under
 The bindings produce one SARIF run per call; the action handles
 the upload to the repository's Code Scanning alerts.
 
-## What "Unit" findings mean
+## Which spaces produce findings
 
 `to_sarif` emits a finding at every space — the file unit, each
 container, and each leaf function or closure — whose **own** value
@@ -80,9 +86,7 @@ The four subtree-aggregate metrics — `cyclomatic`,
 their per-space `value` field instead, so it reports an interior breach
 (for example a function whose own complexity breaches even though a
 nested closure's does not) without being fooled by the larger
-aggregate. Before the `value` field existed the binding could read only
-the aggregate and so emitted these four only at leaf spaces, missing
-genuine interior breaches the CLI reports (#958).
+aggregate.
 
 Unit findings carry `logicalLocations: [{"fullyQualifiedName":
 "<file>"}]`. Every other space carries its qualified symbol. Within

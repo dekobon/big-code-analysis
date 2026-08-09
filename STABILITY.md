@@ -1,12 +1,11 @@
 # Stability policy
 
-`big-code-analysis` is on the `2.x` line (currently `2.1.0`). The
-crate graduated from the rapid-iteration `0.x` window into a written
-stability contract and has now made its first major (`2.0`) break:
-callers can pin a minor version and expect a working tree against any
-subsequent patch or minor bump, without code edits. This document
-spells out exactly what that contract covers across the `2.x` line, and
-the narrow seams where it deliberately does not reach.
+`big-code-analysis` is on the `2.x` line (currently `2.1.0`). This
+document is the public-API stability contract: what is stable, what
+counts as an additive change, what is reserved for a major bump, and
+the narrow seams where the contract deliberately does not reach.
+Within `2.x`, callers can pin a minor version and expect a working
+tree against any subsequent patch or minor bump, without code edits.
 
 ## Versioning scheme
 
@@ -74,7 +73,7 @@ section.
     `MetricsOptions::default()` plus `with_*` setters; the contract is
     the builder methods, not the field representation (#533). The
     parser-generic `metrics` / `metrics_with_options` functions and the
-    `MetricsCfg` builder were removed at `2.0` in favour of `analyze` /
+    `MetricsCfg` builder were removed at `2.0` in favor of `analyze` /
     `Ast`.
   - `Metric`, `MetricSet` in `src/metric_set.rs`: `Metric` carries
     `#[non_exhaustive]`, so adding variants is additive. `MetricSet`
@@ -113,7 +112,7 @@ section.
     functions (`function`, `find`, `count`, `rm_comments`) are
     `pub(crate)`, not part of the public surface, and the
     parser-generic `operands_and_operators` function was removed in
-    favour of `Ast::ops`. `Ops::operators` and `Ops::operands` are
+    favor of `Ast::ops`. `Ops::operators` and `Ops::operands` are
     sorted in byte-lexicographic order **of the rendered strings**
     as of the `2.1` line; before that they were documented as
     arbitrary and did in fact vary run to run. The distinction
@@ -128,7 +127,7 @@ section.
     budget shared with a dedicated producer thread and `run` spawned
     `max(2, num_jobs) - 1` consumers; since #1114 dispatch happens on
     the calling thread and all `num_jobs` go to consumers. The signature
-    did not change, so this is a behavioural change, not a source break:
+    did not change, so this is a behavioral change, not a source break:
     a caller passing `n` gets one more worker than before.
     `without_path_verification` (added #1114) opts out of the per-path
     `is_file()` check for a caller whose own traversal already
@@ -253,7 +252,7 @@ rendered projections** (like the AST `bca report` output): the page
 round-trip format; do not parse them. The 2.0 line restructured the AST
 report's presentation deliberately: hotspot section titles now follow one
 `<Concept> hotspots (top N by <column>)` template (#677), the WMC table is
-labelled "Types" (#687), and the HTML section anchors derive from a stable
+labeled "Types" (#687), and the HTML section anchors derive from a stable
 `<Concept> hotspots` slug independent of `--top`, so a deep link minted
 against a `1.x` report may need re-fragmenting. The VCS report's `(total)`
 column headers became `(long)` (#592). These are presentation changes only;
@@ -284,7 +283,7 @@ surface: `big_code_analysis::vcs::{PerFunctionBlame, BlameSession,
 LineSpan}`, the
 `vcs::Error::Blame` variant, the `bca metrics --vcs-per-function` flag,
 and the `CodeMetrics::vcs` field now being populated on nested function
-spaces (not only the file space). The per-function block shares
+spaces (not just the file space). The per-function block shares
 `wire::Vcs`'s shape and the same `risk_score` / `*_version` contract
 above, but its numbers are a `git blame` *current snapshot* (`churn` is
 surviving-line count, not the file-level added+deleted churn), so values
@@ -357,7 +356,7 @@ by `bca vcs --no-cache` / `--clear-cache` / `--cache-dir` (and reused
 transparently by `bca metrics --vcs` / `bca report --vcs`), the
 `POST /vcs` `no_cache` / `cache_dir` fields, and the
 `vcs_metrics(no_cache=…, cache_dir=…)` parameters. The contract is purely
-behavioural (a cache hit produces output **bit-identical** to an uncached
+behavioral (a cache hit produces output **bit-identical** to an uncached
 `build_history_index` at the same reference time), so the cache never
 changes the `wire::Vcs` shape or any metric value. The **on-disk file
 format** (the `HistoryCache` / `CommitEvent` JSON, versioned by
@@ -588,7 +587,7 @@ reach the raw tree-sitter surface.
   the same value-not-stable sense as the re-export above. The former
   `Parser::from_tree` / `metrics_from_tree` entry points were removed
   at `2.0` (`Parser::from_tree` demoted to `pub(crate)` along with
-  `Parser`; the parser-generic `metrics_from_tree` deleted) in favour
+  `Parser`; the parser-generic `metrics_from_tree` deleted) in favor
   of this single explicit-name seam.
 - **`Ast`** is the parse-once seam and, as of `2.0`, the single
   public analysis entry point. `Ast::as_tree_sitter` exposes the held
@@ -607,7 +606,7 @@ reach the raw tree-sitter surface.
   is exposed. At `2.0` the path-positional `get_function_spaces*` /
   `metrics_from_tree` / `get_ops` shims, the parser-generic `metrics` /
   `metrics_with_options` / `operands_and_operators` functions, and the
-  `action` / `Callback` dispatch were all removed in favour of these
+  `action` / `Callback` dispatch were all removed in favor of these
   explicit-name `Source` / `Ast` seams (the old path-positional forms
   derived identity from a lossy path).
 - **`#[doc(hidden)]` items** are part of the macro / internal
@@ -655,7 +654,7 @@ mis-matching. Recent transitions:
   sole case matching consults it. Elsewhere the field re-rendered on
   every edit above the function, churning diffs and conflicting on
   every merge. v2–v5 baselines read unchanged: a recorded line is
-  still honoured exactly as before. A v6 file read by a pre-v6 bca
+  still honored exactly as before. A v6 file read by a pre-v6 bca
   fails to parse (a required field is missing) rather than
   mis-matching; upgrade bca or regenerate with `--write-baseline`.
   The optionality reaches four rendered surfaces, so an entry with no
@@ -671,11 +670,11 @@ mis-matching. Recent transitions:
   optional `body_hash` field backs `--baseline-fuzzy-match`. v2/v3
   baselines are still read: their bare `function` name maps to
   `qualified` via a serde alias and matching degrades to bare-name +
-  tolerance (equivalent to the old behaviour, now line-drift-tolerant)
+  tolerance (equivalent to the old behavior, now line-drift-tolerant)
   until the file is refreshed with `--write-baseline`. No re-analysis
   is performed at load time.
 - **v2 → v3** ([#376](https://github.com/dekobon/big-code-analysis/issues/376)):
-  path keys are canonicalised relative to the baseline file's own
+  path keys are canonicalized relative to the baseline file's own
   directory. ASCII-clean v2 baselines migrate transparently with
   a one-time stderr notice; v2 baselines with pre-encoded
   non-ASCII paths may need a `--write-baseline` refresh.
@@ -714,7 +713,7 @@ at the crate root from `src/output/`:
 | `write_csv` | `(space: &FuncSpace, source_path: &Path, writer: W) -> io::Result<()>` |
 | `write_csv_aggregate` | `(spaces: impl IntoIterator<Item = (&FuncSpace, &Path)>, writer: W) -> io::Result<()>`; one shared header, then every tree's rows |
 | `write_sarif` | `(offenders: &[OffenderRecord], writer: W) -> io::Result<()>` |
-| `write_sarif_with_suppressed` | `(active, in_source, baseline: &[OffenderRecord], writer: W) -> io::Result<()>`; the two suppressed slices are distinct because they render different `suppressions[].kind` values — `in_source` → `"inSource"`, `baseline` → `"external"` |
+| `write_sarif_with_suppressed` | `(active, in_source, baseline: &[OffenderRecord], writer: W) -> io::Result<()>`. The two suppressed slices stay separate because they render different `suppressions[].kind` values: `in_source` gives `"inSource"`, `baseline` gives `"external"` |
 | `write_checkstyle` | `(offenders: &[OffenderRecord], writer: W) -> io::Result<()>` |
 | `write_clang_warning` | `(offenders: &[OffenderRecord], …, writer: W) -> io::Result<()>` |
 | `write_msvc_warning` | `(offenders: &[OffenderRecord], writer: W) -> io::Result<()>` |
@@ -724,8 +723,9 @@ The shared types they consume (`OffenderRecord`, `Severity` (see
 *Offender / catalog enums*), `TOOL_ID` (the `"big-code-analysis"`
 tool name), `CSV_HEADER`, and `CSV_EXTENSION` (`".csv"`)) are part of
 the same surface. The AST dump entry points (`dump_node`, `dump_root`,
-`dump_ops`, which take no config, plus the `AstCfg` config type that
-`Ast::dump` consumes) are likewise re-exported and shape-stable. Each terminal dump entry point also has a
+and `dump_ops`, which take no config) are likewise re-exported and
+shape-stable, as is the `AstCfg` config type that `Ast::dump`
+consumes. Each terminal dump entry point also has a
 `*_with_color` sibling (`dump_node_with_color`, `dump_root_with_color`,
 `dump_ops_with_color`, `dump_function_spans_with_color`) that takes a
 `ColorMode` (`Auto` / `Always` / `Never`); the bare forms retain their
@@ -979,16 +979,15 @@ list, how the two are combined depends on the *meaning* of the list
 - **`--no-config` ignores the manifest entirely.** With it set the
   manifest contributes nothing, so excludes come only from the CLI.
 
-The negative-filter union is a behaviour change from the pre-2.0
+The negative-filter union is a behavior change from the pre-2.0
 contract, where CLI excludes *replaced* the manifest list. It landed
 as part of the 2.0 line.
 
 ## Python bindings
 
 `big-code-analysis-py` is the PyO3 wrapper published from this
-workspace. It is not yet on PyPI; the names below are the contract
-the **first** stable publish locks in, because none of them can
-change afterward without breaking every consumer's imports.
+workspace to PyPI. The names below are locked: none of them can
+change without breaking every consumer's imports.
 
 - **Distribution name** `big-code-analysis` (the `pip install`
   target / PyPI project name).
@@ -1135,7 +1134,7 @@ contract points are:
   special-cases the field names per endpoint. This shape-changes the
   published `Span` library type.
 - **Unknown fields.** Every request body and query string rejects an
-  unrecognised field with a `400` whose `error` names the offending key
+  unrecognized field with a `400` whose `error` names the offending key
   and whose `error_kind` is `unknown_field` (#633). A typo can no longer
   silently change analysis semantics; clients probing for feature
   support use the `GET /v1` route index (#643) instead. This is a
@@ -1187,7 +1186,7 @@ contract points are:
   on either surface (#636): `top` defaults to 50, `top_deltas` to 10,
   and `points` to 12 (formerly hard-required). An explicit `top: 0` /
   `top_deltas: 0` still returns all (the #602 `0 = all` escape).
-  Aligning these from the former unbounded "all" default is a behavioural
+  Aligning these from the former unbounded "all" default is a behavioral
   `2.0`-line break: payloads omitting these fields get a smaller result.
 - **Introspection.** `GET /v1/version` reports the server and
   library versions; `GET /v1/languages` reports the supported
