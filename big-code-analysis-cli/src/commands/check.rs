@@ -300,7 +300,7 @@ fn enforce_usable_input(walk: &CheckWalk) {
 /// metric)` so CI diff tooling sees identical output across runs over
 /// the same tree.
 fn run_check_walk(
-    mut globals: GlobalOpts,
+    globals: GlobalOpts,
     args: &CheckArgs,
     preproc: Option<Arc<PreprocResults>>,
     thresholds: Arc<LanguageThresholds>,
@@ -308,16 +308,6 @@ fn run_check_walk(
     let (tx, rx) = crossbeam::channel::unbounded();
     let files_dispatched = Arc::new(AtomicUsize::new(0));
     let generated_skipped = Arc::new(AtomicUsize::new(0));
-    // Materialize `--paths-from` before the seed list is expanded twice
-    // below: the source may be stdin (`-`), which the second read would
-    // find exhausted, silently emptying one side of the ignored-file
-    // measurement. Appending to `paths` is exactly what the walk's own
-    // expansion does with the list, so seed order is unchanged.
-    if let Some(src) = globals.paths_from.take() {
-        globals
-            .paths
-            .extend(crate::read_paths_from(&src).unwrap_or_else(|e| die(e)));
-    }
     // Compute only the metric families the resolved thresholds read
     // (#1113). A gate on one metric used to pay for the whole suite —
     // Halstead being the most expensive per node — and throw the rest
