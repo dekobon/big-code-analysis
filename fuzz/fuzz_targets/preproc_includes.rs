@@ -98,6 +98,5 @@ fuzz_target!(|data: &[u8]| {
 
     // The diagnostics are the return value; dropping them is fine, but
     // the call must not be optimised away.
-    let diagnostics = fix_includes(&mut results.files, &all_files);
-    std::hint::black_box(diagnostics);
+    std::hint::black_box(fix_includes(&mut results.files, &all_files));
 });

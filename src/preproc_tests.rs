@@ -246,32 +246,59 @@ fn self_inclusion_is_reported_as_diagnostic() {
 /// the assertion is about sequence rather than content.
 #[test]
 fn fix_includes_returns_diagnostics_in_a_stable_order() {
-    const FILES: [&str; 8] = ["e.h", "b.h", "h.h", "a.h", "g.h", "c.h", "f.h", "d.h"];
+    const FILES: [&str; 6] = ["e.h", "b.h", "f.h", "a.h", "c.h", "d.h"];
+    // Never preprocessed, only reachable through the graph — this is what
+    // produces the `NotPreprocessed` variant.
+    const GHOST: &str = "ghost.h";
 
-    fn run() -> Vec<String> {
+    fn run() -> Vec<PreprocDiagnostic> {
         let mut files: HashMap<PathBuf, PreprocFile> = HashMap::new();
         let mut all_files: HashMap<String, Vec<PathBuf>> = HashMap::new();
+
         // Every file includes itself, so each yields one `SelfInclusion`.
         for name in FILES {
             let path = PathBuf::from(name);
             let mut pf = PreprocFile::default();
-            pf.direct_includes.insert((*name).to_string());
+            pf.direct_includes.insert(name.to_string());
             files.insert(path.clone(), pf);
-            all_files.insert((*name).to_string(), vec![path]);
+            all_files.insert(name.to_string(), vec![path]);
         }
+
+        // `a.h` also includes a file nobody preprocessed.
+        files
+            .get_mut(&PathBuf::from("a.h"))
+            .expect("a.h was just inserted")
+            .direct_includes
+            .insert(GHOST.to_string());
+        all_files.insert(GHOST.to_string(), vec![PathBuf::from(GHOST)]);
+
         fix_includes(&mut files, &all_files)
-            .iter()
-            .map(std::string::ToString::to_string)
-            .collect()
     }
 
-    let expected: Vec<String> = {
+    // Sorted by variant first, then by field: every `SelfInclusion` in
+    // path order, then the `NotPreprocessed`. Spelling both kinds out is
+    // the point — with one variant the assertion could not distinguish
+    // "sorted" from "sorted within a kind", and the derived `Ord`'s
+    // cross-variant arms would never run.
+    // Compared as values, not as rendered strings. The contract under
+    // test is the *order*; asserting on `Display` output would also pin
+    // the wording, so a harmless rephrasing of a diagnostic would fail a
+    // test about sequencing. That is not hypothetical — the first draft
+    // of this test failed on a mis-guessed message while the ordering it
+    // exists to check was already correct.
+    let expected: Vec<PreprocDiagnostic> = {
         let mut names: Vec<&str> = FILES.to_vec();
         names.sort_unstable();
-        names
+        let mut want: Vec<PreprocDiagnostic> = names
             .iter()
-            .map(|n| format!("possible self inclusion {n}"))
-            .collect()
+            .map(|n| PreprocDiagnostic::SelfInclusion {
+                file: PathBuf::from(n),
+            })
+            .collect();
+        want.push(PreprocDiagnostic::NotPreprocessed {
+            file: PathBuf::from(GHOST),
+        });
+        want
     };
 
     // A fresh `HashMap` gets a fresh `RandomState`, so each iteration

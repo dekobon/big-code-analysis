@@ -624,7 +624,11 @@ pub fn fix_includes<S: ::std::hash::BuildHasher>(
     // Note the inner half of this was already fixed: `IncludeCycle`
     // sorts its own member list "so the emitted diagnostic is
     // deterministic across runs". Only the outer sequence was left.
-    diagnostics.sort();
+    // `sort_unstable` rather than `sort`: `Ord` and `Eq` are derived from
+    // the same fields, so two diagnostics that compare equal *are* equal
+    // and their relative order is unobservable. That makes the stable
+    // sort's temporary allocation pure cost.
+    diagnostics.sort_unstable();
     diagnostics
 }
 
