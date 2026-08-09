@@ -251,9 +251,10 @@ subtree-aggregate metrics (`cyclomatic`, `cyclomatic.modified`,
 `cognitive`, `abc`) read the per-space `value` field rather than the
 rolled-up aggregate (#958, #969). Unit findings carry
 `logicalLocations: [{"fullyQualifiedName":
-"<file>"}]`; nameless non-unit spaces (rare parse-failure case)
-carry `"<unnamed>"` — both matching the CLI's `function_token`
-placeholders. See the book's
+"<file>"}]`; every other space carries its qualified symbol. Within
+that symbol, a closure/lambda (the `<anonymous>` name every grammar
+emits) and the `None`-name parse-failure case both collapse to
+`<anon@L{start_line}>`, matching the CLI's `space_segment`. See the book's
 [SARIF output](https://dekobon.github.io/big-code-analysis/python/sarif.html)
 page for the full contract.
 

@@ -441,7 +441,7 @@ fn extract_space_fields(space: &Bound<'_, PyDict>) -> PyResult<SpaceFields> {
 
     // This space's own `::`-segment in the qualified-symbol chain.
     // Mirrors the CLI's `space_segment`
-    // (`big-code-analysis-cli/src/thresholds.rs`): a named space
+    // (`big-code-analysis-cli/src/qualified_name.rs`): a named space
     // contributes its AST name; an anonymous space — the literal
     // `<anonymous>` every grammar emits for closures/lambdas, plus the
     // `None`-name parse-failure case — collapses to `<anon@L{start_line}>`

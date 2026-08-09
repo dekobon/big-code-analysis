@@ -974,8 +974,10 @@ def to_sarif(
     ``abc``) read the per-space ``value`` field rather than the
     rolled-up aggregate (#958, #969).
     Unit-level findings carry ``logicalLocations: [{"fullyQualifiedName":
-    "<file>"}]``; nameless non-unit spaces carry ``"<unnamed>"`` —
-    matching the CLI's ``function_token`` placeholder.
+    "<file>"}]``; every other space carries its qualified symbol. Within
+    that symbol, a closure/lambda (the ``<anonymous>`` name every grammar
+    emits) and the ``None``-name parse-failure case both collapse to
+    ``<anon@L{start_line}>``, matching the CLI's ``space_segment``.
 
     Raises
     ------

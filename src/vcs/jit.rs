@@ -58,7 +58,7 @@
 //! # Scope
 //!
 //! [`score`] / [`JitReport`] cover a real commit (all five groups).
-//! Scoring an arbitrary unprovenanced diff (`bca vcs jit --diff <file>`)
+//! Scoring an arbitrary unprovenanced diff (`bca vcs commit --diff <file>`)
 //! is supported as a deliberately *partial* path (issue #580): a bare
 //! diff carries no author, parent, or file history, so only the size and
 //! diffusion groups are computable. That path produces a distinct

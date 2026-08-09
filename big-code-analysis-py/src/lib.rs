@@ -806,7 +806,7 @@ fn vcs_commit(
 }
 
 /// Score an arbitrary unified diff for partial just-in-time risk (issue
-/// #580). The programmatic analogue of `bca vcs jit --diff`; lives under
+/// #580). The programmatic analogue of `bca vcs commit --diff`; lives under
 /// `big_code_analysis.vcs.score_diff`.
 ///
 /// `diff` is a unified diff string. A bare diff has no author / parent /
@@ -896,7 +896,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
 /// `vcs.rank` / `vcs.trend` / `vcs.commit` / `vcs.score_diff` plus the
 /// shared `vcs.Options` object. The entry-point names mirror the `bca vcs`
 /// CLI subcommands (`bca vcs` → `rank`, `vcs trend` → `trend`,
-/// `vcs commit` → `commit`, `vcs jit --diff` → `score_diff`).
+/// `vcs commit` → `commit`, `vcs commit --diff` → `score_diff`).
 ///
 /// The submodule is registered with the dotted `module` path on each item
 /// so `repr()` / pickling report `big_code_analysis.vcs.*`, and inserted
