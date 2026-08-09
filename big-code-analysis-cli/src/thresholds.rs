@@ -695,7 +695,10 @@ pub(crate) fn render_violation_line(v: &Violation, tag: Option<&Coverage>) -> St
         None | Some(Coverage::Covered { .. }) => format!("{v}"),
         Some(Coverage::New) => format!("[new] {v}"),
         Some(Coverage::Regressed { recorded }) => {
-            format!("{} {v}", format_regressed_tag(*recorded, v.value))
+            format!(
+                "{} {v}",
+                format_regressed_tag(*recorded, v.value, v.lower_is_worse)
+            )
         }
     }
 }
@@ -707,23 +710,39 @@ pub(crate) fn render_violation_line(v: &Violation, tag: Option<&Coverage>) -> St
 /// - `pct > 9999` → `[regr +>9999%]` (cap; 100× the baseline is
 ///   already screaming-loud, exact number adds nothing).
 /// - else → `[regr +N%]` with N rounded to nearest integer.
-fn format_regressed_tag(recorded: f64, value: f64) -> String {
+///
+/// The magnitude is measured in the metric's own direction, so the tag
+/// always reads "worse by N%" and log parsers see one shape across every
+/// metric. For the lower-is-worse `mi.*` family that means inverting the
+/// difference, matching how [`Violation::ratio`] already inverts. Before
+/// #1242 this function assumed the higher-is-worse direction and printed
+/// a literal `+` in front of what was then a negative percentage, so an
+/// ordinary `mi.original` regression rendered the double-signed
+/// `[regr +-29%]`.
+fn format_regressed_tag(recorded: f64, value: f64, lower_is_worse: bool) -> String {
     if value.is_nan() {
         return "[regr NaN]".to_string();
     }
     if recorded == 0.0 {
         return "[regr from 0]".to_string();
     }
-    let pct = ((value - recorded) / recorded * 100.0).round();
+    let worse_by = if lower_is_worse {
+        recorded - value
+    } else {
+        value - recorded
+    };
+    let pct = (worse_by / recorded * 100.0).round();
     if pct > 9999.0 {
         return "[regr +>9999%]".to_string();
     }
     // `{:.0}` formats the rounded float with zero decimal digits, so
     // we avoid an f64-to-int cast that clippy flags as possibly
     // truncating. `pct` is finite (caller filtered NaN and zero
-    // `recorded`), bounded above by 9999 here, and bounded below by 0
-    // because the classifier only emits Regressed when
-    // `value > recorded`.
+    // `recorded`), bounded above by 9999 here, and non-negative because
+    // the classifier only emits Regressed when the value is worse than
+    // `recorded` *in the metric's direction* — which is the direction
+    // `worse_by` is now measured in. A regression too small to round to
+    // one percent renders `[regr +0%]`, as it always has.
     format!("[regr +{pct:.0}%]")
 }
 

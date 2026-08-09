@@ -726,6 +726,40 @@ fn render_regressed_integer_percent() {
 }
 
 #[test]
+fn render_regressed_lower_is_worse_tag_is_well_formed() {
+    // Regression for #1242. `Baseline::classify` is direction-aware, so
+    // for the lower-is-worse `mi.*` family it emits `Regressed` when the
+    // value *drops* below the recorded one. The tag formatter assumed
+    // the opposite direction and prefixed a literal `+` to what was then
+    // a negative percentage, rendering `[regr +-29%]` — a shape no log
+    // parser anchored on `[regr +N%]` can read. The magnitude is now
+    // measured in the metric's own direction, so it stays "worse by N%".
+    // Values are the issue's reproducer: `mi.original` recorded at
+    // 142.75 dropping to 101.03 is (142.75 - 101.03) / 142.75 ≈ 29%.
+    let mut v = sample_violation();
+    v.metric = "mi.original";
+    v.lower_is_worse = true;
+    v.value = 101.03;
+    v.limit = 160.0;
+    let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded: 142.75 }));
+    assert!(out.starts_with("[regr +29%] "), "got: {out}");
+    assert!(!out.contains("+-"), "double-signed percentage: {out}");
+}
+
+#[test]
+fn render_regressed_direction_is_not_a_blanket_sign_flip() {
+    // The companion to the test above: fixing the `mi.*` direction must
+    // not invert the higher-is-worse one. A cyclomatic rise from 20 to
+    // 30 is still `+50%`, not `-50%` — pinned here because a sign flip
+    // in the wrong branch would satisfy the test above on its own
+    // (#1242).
+    let v = sample_violation();
+    assert!(!v.lower_is_worse, "the fixture must be higher-is-worse");
+    let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded: 20.0 }));
+    assert!(out.starts_with("[regr +50%] "), "got: {out}");
+}
+
+#[test]
 fn render_regressed_rounds_half_to_nearest_even_or_away() {
     // Halstead can produce values that round to a nearby integer;
     // we use f64::round (half-away-from-zero) — pin the boundary.

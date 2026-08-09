@@ -489,11 +489,15 @@ impl Baseline {
             // parser also rejects nan/inf). Negative is the same idea
             // for the rendered-tag path: `format_regressed_tag` divides
             // by `recorded` to compute `+N%`, and a negative `recorded`
-            // produces a double-signed `[regr +-N%]` tag. Metric
-            // extractors never emit negative values, so the only way
-            // an entry can be negative is hand-editing — silently
-            // drop and treat the entry as if missing (the violation
-            // will surface as `New`).
+            // flips the quotient's sign, producing a double-signed
+            // `[regr +-N%]` tag. Metric extractors never emit negative
+            // values, so the only way an entry can be negative is
+            // hand-editing — silently drop and treat the entry as if
+            // missing (the violation will surface as `New`). This filter
+            // was never the only route to that malformed tag, though:
+            // until #1242 an ordinary `mi.*` regression produced it from
+            // a perfectly well-formed baseline, because the numerator
+            // was computed in the higher-is-worse direction.
             //
             // `is_sign_negative()` catches `-0.0` too (which `< 0.0`
             // misses under IEEE 754: `-0.0 < 0.0` is false). `-0.0`

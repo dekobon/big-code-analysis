@@ -302,10 +302,13 @@ so a developer can tell at a glance whether they are looking at a
 brand-new offender or a known one that has worsened:
 
 - `[new]` — no baseline entry for this function / metric.
-- `[regr +N%]` — current value exceeds the recorded baseline by `N`
-  percent. Special forms: `[regr from 0]` when the baseline value
-  was zero, `[regr +>9999%]` when the regression exceeds 100× the
-  baseline, `[regr NaN]` when the current value is NaN.
+- `[regr +N%]` — current value is `N` percent worse than the recorded
+  baseline, measured in the metric's own direction (for the
+  lower-is-worse `mi.*` family that is a drop, still rendered `+N%`, so
+  the tag has one greppable shape). Special forms: `[regr from 0]` when
+  the baseline value was zero, `[regr +>9999%]` when the regression
+  exceeds 100× the baseline, `[regr NaN]` when the current value is
+  NaN.
 
 The violation rows go to stdout; everything below goes to stderr.
 See [Which stream](../commands/check.md#which-stream) for the full
