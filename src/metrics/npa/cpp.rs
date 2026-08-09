@@ -49,7 +49,7 @@ impl Npa for CppCode {
                     // when declared without a body. They are counted
                     // by `Npm`, not as attributes — detect them by
                     // their `function_declarator` and skip.
-                    if cpp_has_function_declarator(&child) {
+                    if cpp_declares_function(&child) {
                         continue;
                     }
                     // Data field — count every `field_identifier` in
