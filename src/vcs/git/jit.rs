@@ -30,7 +30,7 @@ use crate::vcs::jit::{
     JIT_SCHEMA_VERSION, JIT_SCORE_VERSION, JitCommit, JitDiffusion, JitExperience, JitFeatures,
     JitHistory, JitPurpose, JitReport, JitSize, JitSource, score,
 };
-use crate::vcs::options::{Options, RiskFormula};
+use crate::vcs::options::{Options, RiskFormula, window_boundary};
 
 /// One text file the scored commit touched. Shared with the
 /// [`diff_parse`](super::diff_parse) sibling, which builds the same shape
@@ -483,11 +483,8 @@ fn experience_features(
     options: &Options,
     reference_time: i64,
 ) -> Result<JitExperience, Error> {
-    // Saturating window cutoffs: an extreme `reference_time` must not
-    // overflow the subtraction; saturating to i64::MIN yields an
-    // unbounded-past boundary (include all history). See history.rs.
-    let long_boundary = reference_time.saturating_sub(options.long_window_secs);
-    let recent_boundary = reference_time.saturating_sub(options.recent_window_secs);
+    let long_boundary = window_boundary(reference_time, options.long_window_secs);
+    let recent_boundary = window_boundary(reference_time, options.recent_window_secs);
 
     // Same participant identity as the file-level priors: author + co-authors,
     // bot-filtered when `--exclude-bots`.

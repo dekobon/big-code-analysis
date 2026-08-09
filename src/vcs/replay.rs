@@ -19,7 +19,7 @@ use super::cache::CommitEvent;
 use super::classify::Classification;
 use super::entropy::{self, CochangeGraph};
 use super::identity::AuthorId;
-use super::options::{Options, RiskFormula};
+use super::options::{Options, RiskFormula, window_boundary};
 use super::score;
 use super::stats::{Accumulator, ChangeRecord, Stats};
 
@@ -172,11 +172,8 @@ pub(crate) fn replay(
         .into_iter()
         .map(|(path, sloc)| (path, Accumulator::new(sloc)))
         .collect();
-    // Saturating window cutoffs: a garbage extreme `now` (i64::MIN) must
-    // not overflow; saturating to i64::MIN means "no lower bound", i.e.
-    // include all history — the safe total behavior. See history.rs.
-    let long_boundary = now.saturating_sub(options.long_window_secs);
-    let recent_boundary = now.saturating_sub(options.recent_window_secs);
+    let long_boundary = window_boundary(now, options.long_window_secs);
+    let recent_boundary = window_boundary(now, options.recent_window_secs);
     let mut graph = CochangeGraph::new();
     // Rebuilt newest-first across the whole log, exactly as the live walk
     // builds it — so a rename in a newer (possibly incremental) commit

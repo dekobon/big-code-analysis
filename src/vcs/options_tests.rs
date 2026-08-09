@@ -310,3 +310,30 @@ fn custom_scope_matches_only_listed_extensions_case_insensitively() {
     // An extension-less file never matches a custom list.
     assert!(!scope.includes(Path::new("Makefile")));
 }
+
+#[test]
+fn window_boundary_saturates_at_both_extremes() {
+    // The ordinary case: the boundary is `window_secs` before the
+    // reference, exactly.
+    assert_eq!(window_boundary(1_000_000, 90 * DAY), 1_000_000 - 90 * DAY);
+
+    // A degenerate clock. `--as-of` accepts any i64 and a committer
+    // timestamp is whatever an object header says, while `parse_window`
+    // admits a window up to roughly i64::MAX ("292471208677y" passes its
+    // checked multiply). A plain `-` panics here in a debug build and, in
+    // release, wraps to a boundary in the far *future* — reversing every
+    // comparison downstream. Saturating pins it at i64::MIN, an
+    // unbounded-past boundary that includes all history (#1271).
+    assert_eq!(window_boundary(i64::MIN, 1), i64::MIN);
+    assert_eq!(window_boundary(i64::MIN, i64::MAX), i64::MIN);
+    assert_eq!(window_boundary(-1, i64::MAX), i64::MIN);
+
+    // The mirror extreme: subtracting a negative window from a large
+    // positive reference saturates upward rather than wrapping negative,
+    // which would otherwise read as "unbounded past" for a nonsense input.
+    assert_eq!(window_boundary(i64::MAX, -1), i64::MAX);
+    assert_eq!(window_boundary(i64::MAX, i64::MIN), i64::MAX);
+
+    // A zero window reaches back nowhere.
+    assert_eq!(window_boundary(0, 0), 0);
+}

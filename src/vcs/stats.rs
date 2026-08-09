@@ -335,11 +335,14 @@ impl Accumulator {
     }
 }
 
-/// Whole days between an earlier timestamp and `now`, clamped at zero so
-/// a future-dated commit (clock skew) reads as "today" rather than a
-/// negative age.
 fn days_between(earlier: i64, now: i64) -> u32 {
-    let delta = (now - earlier).max(0);
+    // Saturating for the same reason the window boundaries are
+    // (`options::window_boundary`, #1271): `earlier` is a committer
+    // timestamp read out of an object header, so a crafted extreme makes
+    // the plain subtraction overflow — a panic in a debug build, and in
+    // release a wrapped delta that the `.max(0)` cannot repair because it
+    // wraps to a *positive* value. Saturating keeps the clamp meaningful.
+    let delta = now.saturating_sub(earlier).max(0);
     u32::try_from(delta / SECONDS_PER_DAY).unwrap_or(u32::MAX)
 }
 
