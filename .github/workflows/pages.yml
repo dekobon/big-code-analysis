@@ -119,10 +119,10 @@ jobs:
           rm -f "/tmp/${tarball}"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable tip
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable tip
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Install mdbook-i18n-helpers
         run: cargo install mdbook-i18n-helpers --version "=${MDBOOK_I18N_HELPERS_VERSION}" --locked
@@ -223,7 +223,7 @@ jobs:
       # Swatinem/rust-cache below keeps the cold-build cost
       # bounded — warm runs are dominated by incremental relink,
       # not full recompile.
-      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable tip
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable tip
         with:
           toolchain: stable
       # `shared-key` (vs `key`) lets Swatinem fall back to
@@ -232,7 +232,7 @@ jobs:
       # workspace. The `--release` profile here is intentionally
       # distinct from ci.yml's default-profile builds — mixing them
       # in one cache would thrash both.
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: pages-scan-release
       # `cargo install --path …` lands the binary in `~/.cargo/bin`
@@ -377,7 +377,7 @@ jobs:
       # distinct analysis from ci.yml's `category: clippy` upload.
       - name: Upload self-scan SARIF to code scanning
         if: always() && hashFiles('bca.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
           sarif_file: bca.sarif
           category: bca
