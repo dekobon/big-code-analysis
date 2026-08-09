@@ -780,7 +780,7 @@ mod tests {
         BashParser, JavascriptCode, JavascriptParser, MozjsParser, PhpParser, TsxParser,
         TypescriptParser,
     };
-    use crate::test_support::for_each_node_with_chain;
+    use crate::test_support::{ast_has_kind_id, for_each_node_with_chain};
     use std::fmt::Write as _;
     use std::path::PathBuf;
 
@@ -916,24 +916,6 @@ mod tests {
     }
 
     // ===== JS-family `is_string` regression tests (issue #283) =====
-
-    // Walk the AST and return true iff any node has `kind_id == target`.
-    // Used to confirm an alias kind actually surfaces in a real parse
-    // before asserting it routes through `is_string`.
-    fn ast_has_kind_id<P: ParserTrait>(parser: &P, target: u16) -> bool {
-        let mut stack = vec![parser.root()];
-        while let Some(node) = stack.pop() {
-            if node.kind_id() == target {
-                return true;
-            }
-            for i in (0..node.child_count()).rev() {
-                if let Some(c) = node.child(i) {
-                    stack.push(c);
-                }
-            }
-        }
-        false
-    }
 
     // For each language, count nodes whose kind_id is exactly `target`
     // *and* simultaneously match `is_string`. A non-zero result proves

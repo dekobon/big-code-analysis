@@ -307,3 +307,20 @@ pub(crate) fn for_each_node_with_chain<L: LanguageInfo>(
     }
     visited
 }
+
+/// Walks `parser`'s tree and reports whether any node has `kind_id ==
+/// target`.
+///
+/// The drift marker behind lesson 34. A passing `!ast_has_kind_id(…)`
+/// proves an enum variant is unreachable at the pinned grammar, so a
+/// defensive dispatch arm listing it is an explicit promise rather than
+/// silent dead code; a bump that starts emitting the kind fails the
+/// assertion instead of quietly changing a metric.
+///
+/// `preorder` rather than a hand-rolled index walk: three modules each
+/// carried their own copy pairing `node.child(i)` with an `if let
+/// Some(..)` whose `None` arm is unreachable for `i < child_count()`,
+/// which Codecov reported as a partial branch in each of them.
+pub(crate) fn ast_has_kind_id<P: ParserTrait>(parser: &P, target: u16) -> bool {
+    parser.root().preorder().any(|n| n.kind_id() == target)
+}
