@@ -45,7 +45,7 @@ value = 69608.24451083591
 path = "big-code-analysis-cli/src/commands/analyze.rs"
 qualified = "write_aggregate"
 metric = "halstead.effort"
-value = 48544.21441032752
+value = 54210.895759662584
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check.rs"
@@ -807,7 +807,7 @@ value = 64170.027458982564
 path = "src/getter/elixir.rs"
 qualified = "ElixirCode::get_op_type"
 metric = "halstead.effort"
-value = 56464.822908007496
+value = 54685.446169787065
 
 [[entry]]
 path = "src/getter/irules.rs"

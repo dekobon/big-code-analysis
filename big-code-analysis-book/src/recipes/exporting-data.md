@@ -34,6 +34,11 @@ JSON array of the per-file results):
 bca metrics -p src/ -O json --output /tmp/metrics.json
 ```
 
+Its elements are ordered by file path regardless of the order the
+parallel workers finished in, so the document is byte-identical between
+runs over unchanged sources. `bca ops --output <file>` orders its
+aggregate the same way.
+
 CBOR (`-O cbor`) is the most compact format; it is binary and so
 requires a destination (`--output` or `--output-dir`). JSON, TOML, and
 YAML can all be streamed to stdout when no destination is given, which

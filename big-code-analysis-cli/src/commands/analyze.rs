@@ -210,22 +210,36 @@ pub(crate) fn enforce_explicit_unrecognized(
 /// `resolve_structured_output`.
 pub(crate) fn write_aggregate(
     fmt: Option<MetricsFormat>,
-    items: Vec<AggregateItem>,
+    mut items: Vec<AggregateItem>,
     out: &Path,
     pretty: bool,
 ) {
     let Some(fmt) = fmt else {
         return;
     };
+    // Workers finish out of order, so items reach here in completion
+    // order — different on every run at `--jobs > 1`, and no longer the
+    // order `walk_directory_seed` sorted the file list into. Restore it
+    // before serializing so two runs over an unchanged tree write a
+    // byte-identical document (#1244). This is the crate's standing
+    // rule for a channel-collected result set — `run_check_walk` sorts
+    // violations, `collect_marker_rows` sorts exemption rows, #1091
+    // sorted the `Ops` vocabularies — so do not drop it as redundant
+    // with the walk's own sort, which does not survive the workers.
+    //
+    // Keyed on the emitted `PathBuf` rather than a string: path
+    // ordering is total and requires no UTF-8 validity, so a non-UTF-8
+    // path cannot reorder under a lossy rendering of itself.
+    items.sort_by(|a, b| a.emitted_path().cmp(b.emitted_path()));
     // `metrics` streams `FuncSpace`; `ops` streams `Ops`. The two never
     // mix in one run (separate subcommands), so the first item's variant
     // determines the element type for the whole aggregate.
-    let is_ops = matches!(items.first(), Some(AggregateItem::Ops(_)));
+    let is_ops = matches!(items.first(), Some(AggregateItem::Ops(..)));
     let result = if is_ops {
         let ops: Vec<Ops> = items
             .into_iter()
             .filter_map(|item| match item {
-                AggregateItem::Ops(o) => Some(*o),
+                AggregateItem::Ops(o, _) => Some(*o),
                 AggregateItem::Metrics(..) => None,
             })
             .collect();
@@ -244,7 +258,7 @@ pub(crate) fn write_aggregate(
             .into_iter()
             .filter_map(|item| match item {
                 AggregateItem::Metrics(space, path) => Some((*space, path)),
-                AggregateItem::Ops(_) => None,
+                AggregateItem::Ops(..) => None,
             })
             .collect();
         match fmt.dispatch() {

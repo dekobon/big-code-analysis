@@ -355,7 +355,7 @@ fn dispatch_ops(
             // Single-file aggregate mode (`--output <FILE>`, #669): stream
             // the ops tree to the post-walk collector.
             if let Some(tx) = &cfg.aggregate_tx {
-                let _ = tx.send(crate::AggregateItem::Ops(Box::new(ops)));
+                let _ = tx.send(crate::AggregateItem::Ops(Box::new(ops), path));
                 return Ok(());
             }
             // CSV is rejected upstream in `run()` for the Ops command,
