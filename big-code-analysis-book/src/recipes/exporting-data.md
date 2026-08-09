@@ -1,9 +1,11 @@
 # Exporting metric data
 
 The `metrics`, `ops`, and `preproc` subcommands all support structured
-output formats meant for machine consumption. Pair them with a JSON
-processor like [`jq`](https://jqlang.github.io/jq/) for ad-hoc
-analysis, or feed them into a database or dashboard.
+output formats meant for machine consumption. This page covers writing
+those documents, diffing two runs, discovering the metric catalog at
+runtime, and stripping comments for downstream tools. Pair the output
+with a JSON processor like [`jq`](https://jqlang.github.io/jq/) for
+ad-hoc analysis, or feed it into a database or dashboard.
 
 ## Export per-file metrics as JSON
 
@@ -101,15 +103,13 @@ bca diff --since main /path/to/other-checkout -p src/
 `--since` materializes the ref's tree into a temporary directory (via
 `git ls-tree` + `git cat-file`), runs the same metric walk against it,
 then diffs — the temp tree is removed automatically, including on
-error. The same
-`-p/--paths`, `-I/--include`, and `-X/--exclude` selection applies to
-both sides so they analyze the same file set. Selection paths are
-**repo-root-relative** and must be relative: the working-tree side is
-anchored at the repository root (matching the whole-tree
-materialization of the ref), so `bca diff --since` produces the same
-result from any
-subdirectory. An absolute `--paths` is rejected (exit 1) — it cannot
-address the extracted ref tree.
+error. The same `-p/--paths`, `-I/--include`, and `-X/--exclude`
+selection applies to both sides so they analyze the same file set.
+Selection paths are **repo-root-relative** and must be relative: the
+working-tree side is anchored at the repository root (matching the
+whole-tree materialization of the ref), so `bca diff --since` produces
+the same result from any subdirectory. An absolute `--paths` is
+rejected (exit 1) — it cannot address the extracted ref tree.
 
 Unlike `bca check --since` (best-effort), `bca diff --since` is an
 explicit request: an unresolvable ref, a missing `git`, or a non-git
@@ -119,9 +119,6 @@ positional (the after side); passing two is an error.
 `bca diff` exits 0 on success — it is informational, not a gate —
 unless the opt-in `--exit-code` flag is passed, which exits 2 when
 the filtered diff is non-empty.
-It replaces the former `json-minimal-tests` + `split-minimal-tests.py`
-chain used to validate that a grammar bump did not regress metrics; the
-`utils/check-grammar-crate.py` helper now calls `bca diff` internally.
 
 ## Pull a single metric across an entire tree
 
@@ -152,8 +149,9 @@ tab-completion.
 ## Extract operands and operators (Halstead)
 
 `ops` emits the raw operand and operator lists per file, which is the
-input to Halstead-style metric calculations beyond what the built-in
-report shows:
+input to
+[Halstead](https://en.wikipedia.org/wiki/Halstead_complexity_measures)-style
+metric calculations beyond what the built-in report shows:
 
 ```bash
 bca ops \

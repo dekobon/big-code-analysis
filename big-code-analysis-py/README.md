@@ -3,30 +3,29 @@
 Python bindings for the
 [`big-code-analysis`](https://github.com/dekobon/big-code-analysis)
 Rust library — compute maintainability metrics for source code in
-~20 languages using the same tree-sitter parsers the Rust crate
-ships with.
+~20 languages using the same
+[tree-sitter](https://tree-sitter.github.io/tree-sitter/) parsers the
+Rust crate ships with.
 
 **Full documentation:** the book's
 [Python Bindings chapter](https://dekobon.github.io/big-code-analysis/python/index.html)
-covers the install matrix, batch / async / SARIF recipes, and the
-full error taxonomy. The README below is the quick reference
-shown on PyPI.
+covers the install matrix, batch / async / [SARIF
+2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html)
+recipes, and the full error taxonomy. The README below is the quick
+reference shown on PyPI.
 
-All nine phases of the Python bindings work (issues #265–#273;
-parent #103) have landed. The crate now ships single-file
-analysis, the never-raise batch entry point, the `flatten_spaces`
-flat-record iterator, explicit metric selection (`metrics=`),
-SARIF 2.1.0 rendering (`to_sarif`), the strict ruff / mypy /
-pyright tooling gate, manylinux wheel CI on Linux x86_64 +
-aarch64, the book's "Python Bindings" chapter, and the end-user
-example set covered below. See the
-[CHANGELOG](../CHANGELOG.md) for the per-phase changes.
+The bindings provide single-file analysis, a never-raise batch entry
+point, the `flatten_spaces` flat-record iterator, explicit metric
+selection (`metrics=`), SARIF rendering (`to_sarif`), and manylinux
+wheels for Linux x86_64 and aarch64. See the
+[CHANGELOG](https://github.com/dekobon/big-code-analysis/blob/main/CHANGELOG.md)
+for what changed between releases.
 
 ## Runnable examples
 
 `big-code-analysis-py/examples/` is the canonical collection of
-copy-paste recipes. Every file is executed under CI either via
-`tests/test_book_examples.py` (the `.py` examples) or via
+copy-paste recipes. CI executes every file, either through
+`tests/test_book_examples.py` (the `.py` examples) or through
 `jupyter nbconvert --execute` (the notebook), so a renamed kwarg
 or removed function fails CI before the example can rot in the
 docs.
@@ -36,7 +35,7 @@ docs.
 | `quick_start.py` | Single-file analysis + headline metric. Embedded by the book's *Quick start*. |
 | `batch_processing.py` | `analyze_batch` + the `AnalysisFailure` discriminator. Embedded by *Batch processing*. |
 | `flat_records.py` | `flatten_spaces` → sqlite for one file. Embedded by *Flat-record iteration*. |
-| `metric_selection.py` | `metrics=` kwarg + dependency-pull behaviour. Embedded by *Metric selection*. |
+| `metric_selection.py` | `metrics=` kwarg + dependency-pull behavior. Embedded by *Metric selection*. |
 | `sarif_output.py` | Minimal SARIF rendering. Embedded by *SARIF output*. |
 | `errors_taxonomy.py` | The full exception map across the entry points. Embedded by *Error handling*. |
 | `async_patterns.py` | `asyncio.to_thread` (canonical) vs the in-loop anti-pattern. Embedded by *Async patterns*. |
@@ -50,7 +49,8 @@ docs.
 The package is published on PyPI: the distribution is
 **`big-code-analysis`** and the import name **`big_code_analysis`** —
 names locked by the stability contract (see
-[`STABILITY.md`](../STABILITY.md), *Python bindings*).
+[`STABILITY.md`](https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md),
+*Python bindings*).
 
 ```bash
 pip install big-code-analysis
@@ -80,15 +80,15 @@ Install `uv` via
 or `pipx install uv`. Alternative provisioning paths (`mise install`,
 direct `pipx install ruff/mypy/pyright/maturin`, plain
 `pip install -e ".[dev]"`) still work — see
-[CONTRIBUTING.md](../CONTRIBUTING.md) — but only the uv-managed path
-is pinned to `uv.lock`.
+[CONTRIBUTING.md](https://github.com/dekobon/big-code-analysis/blob/main/CONTRIBUTING.md)
+— but only the uv-managed path is pinned to `uv.lock`.
 
 ## Usage
 
 ```python
 import big_code_analysis as bca
 
-# Analyse a file by path. The returned dict matches the JSON
+# Analyze a file by path. The returned dict matches the JSON
 # emitted by `bca metrics --format json` for the same
 # file at the `FuncSpace` boundary — same field order, same
 # numeric formatting, same shape. Language detection mirrors the
@@ -104,20 +104,20 @@ result = bca.analyze("src/main.rs")
 if result is not None:
     print(result["metrics"]["cognitive"]["sum"])
 
-# Analyse a Rust file with `#[test]` subtrees pruned out — same
+# Analyze a Rust file with `#[test]` subtrees pruned out — same
 # result as `bca metrics --exclude-tests --format json`.
 prod_only = bca.analyze("src/main.rs", exclude_tests=True)
 
 # Non-UTF-8 paths raise `ValueError` by default so the `name`
 # field is always a round-trippable identifier. Pass
 # `allow_lossy_path=True` to opt into the CLI's U+FFFD
-# substitution behaviour (see `bca.analyze.__doc__` and #316).
+# substitution behavior (see `bca.analyze.__doc__` and #316).
 lossy = bca.analyze(weird_path, allow_lossy_path=True)
 
 # Force analysis of files marked `@generated` (default skips them).
 forced = bca.analyze("third_party/generated.pb.go", skip_generated=False)
 
-# Analyse an in-memory snippet (str, bytes, or bytearray accepted).
+# Analyze an in-memory snippet (str, bytes, or bytearray accepted).
 metrics = bca.analyze_source("fn main() {}\n", "rust")
 
 # Language detection helpers. `language_for_file` reads the file
@@ -154,7 +154,7 @@ assert "py" in bca.language_extensions(Lang.PYTHON)
 
 Pass `metrics=[…]` to compute only a subset of the metric suite.
 `metrics=None` (the default) preserves today's "compute everything"
-behaviour. Unrequested metrics are **absent** from the result dict
+behavior. Unrequested metrics are **absent** from the result dict
 (not present with `None` placeholders).
 
 ```python
@@ -179,7 +179,7 @@ assert "halstead" in bca.METRIC_NAMES
 assert bca.MetricName.HALSTEAD == "halstead"
 ```
 
-The same kwarg is honoured by `bca.analyze_source` and
+The same kwarg is honored by `bca.analyze_source` and
 `bca.analyze_batch` — the latter applies the selection uniformly to
 every file in the batch. Validation runs *before* any file I/O: an
 empty list or unknown name raises `ValueError` immediately and never
@@ -205,7 +205,7 @@ Duplicates are silently collapsed.
 result (or an iterable of them) into a SARIF 2.1.0 JSON document
 suitable for upload to GitHub Code Scanning or any other SARIF
 consumer. The output is produced by the same Rust writer that
-backs `bca check -O sarif`, so the schema URL, tool driver name /
+backs `bca check --report-format sarif`, so the schema URL, tool driver name /
 version, and rule descriptions match the CLI byte-for-byte.
 
 ```python
@@ -221,7 +221,7 @@ with open("metrics.sarif", "w", encoding="utf-8") as fh:
     fh.write(sarif)
 
 # Batch input — AnalysisFailure entries are skipped silently because
-# they represent files we couldn't analyse, not findings.
+# they represent files we couldn't analyze, not findings.
 batch = bca.analyze_batch(["src/a.py", "src/b.rs", "src/c.cpp"])
 sarif = bca.to_sarif(batch, thresholds={"cognitive": 20})
 ```
@@ -239,8 +239,9 @@ typo fails fast instead of silently producing an empty SARIF run.
 
 `thresholds=None` (the default) and `thresholds={}` both produce
 a well-formed SARIF document with empty `results` and `rules`
-arrays. This matches the CLI's posture: there are **no built-in
-default thresholds**; every check run supplies its own limits.
+arrays. This matches `bca check`, which applies **no implicit
+limits**: every run supplies its own, from `--threshold` or a
+`bca.toml` (which `bca init` scaffolds with a starting table).
 
 **Unit-level findings.** `to_sarif` emits a finding at every space
 whose **own** value breaches its limit, exactly matching
@@ -287,13 +288,13 @@ order, so `zip(inputs, results)` lines up by index **when no path is
 skipped**. `analyze_batch` accepts the same keyword-only options as
 `analyze` — `exclude_tests`, `allow_lossy_path`, `skip_generated`
 (default `True`), `metrics` — so migrating between the two is
-behaviour-preserving.
+behavior-preserving.
 
 With the default `skip_generated=True`, a generated file is *skipped*
 and produces no result element (matching single-file `analyze`, which
 returns `None`), so the result list can be shorter than the input.
 This default flipped at 2.0 — the pre-2.0 `analyze_batch` always
-analysed generated files (`skip_generated=False`); pass that
+analyzed generated files (`skip_generated=False`); pass that
 explicitly to restore one-element-per-input.
 
 ```python
@@ -309,9 +310,9 @@ for path, result in zip(paths, results):
 ```
 
 The pattern above keeps `paths` and `results` as separate
-materialised sequences. If you want to drive `analyze_batch` from
+materialized sequences. If you want to drive `analyze_batch` from
 a generator (e.g. `glob.iglob('**/*.py')`) for memory efficiency,
-materialise it into a list first — otherwise
+materialize it into a list first — otherwise
 `zip(generator, analyze_batch(generator))` yields nothing because
 `analyze_batch` exhausts the generator before `zip` re-iterates it:
 
@@ -346,7 +347,7 @@ parallel single-file calls. With the 2.0 default `skip_generated=True`,
 `analyze_batch` applies the CLI's `is_generated` walker filter, so a
 generated file is skipped and contributes no result element — the
 result list can be shorter than the input. Pass `skip_generated=False`
-to analyse every file and guarantee one `dict`-or-`AnalysisFailure`
+to analyze every file and guarantee one `dict`-or-`AnalysisFailure`
 element per input.
 
 ## Flatten to records
@@ -390,7 +391,7 @@ with sqlite3.connect("metrics.db") as db:
 ```
 
 The iterator is lazy and single-use: it walks the input once
-without materialising the whole list, and a second iteration is
+without materializing the whole list, and a second iteration is
 empty. Records always carry `path` (the analyzed file, or `None`
 for `analyze_source`), `name`, `kind`, `start_line`, `end_line`,
 `parent_name`, and `depth`. Anonymous spaces (Rust closures, JS
@@ -423,7 +424,7 @@ per-file failures — see the Batch processing section above).
 Exception types raised by `bca.analyze` / `bca.analyze_source`:
 
 - `bca.UnsupportedLanguageError` (subclass of `ValueError`) —
-  raised when a file extension is unrecognised, or when
+  raised when a file extension is unrecognized, or when
   `analyze_source(..., language="...")` is passed an unknown
   language name.
 - `bca.ParseError` (subclass of `ValueError`) — raised when the
@@ -470,7 +471,7 @@ Returned by `bca.analyze_batch` inside the result list:
   `error_kind` is a closed taxonomy: ``"IoError"`` covers both
   filesystem failures and the non-UTF-8 path case (kept at three
   kinds per the API contract); ``"ParseError"`` similarly covers
-  internal JSON-serialisation failures of the resulting
+  internal JSON-serialization failures of the resulting
   `FuncSpace` (rare; reserved upstream). The OS `errno` is
   preserved in the `error` string via Rust's ``"<msg> (os error
   <N>)"`` default formatting — parse with regex
