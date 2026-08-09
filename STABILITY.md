@@ -714,7 +714,7 @@ at the crate root from `src/output/`:
 | `write_csv` | `(space: &FuncSpace, source_path: &Path, writer: W) -> io::Result<()>` |
 | `write_csv_aggregate` | `(spaces: impl IntoIterator<Item = (&FuncSpace, &Path)>, writer: W) -> io::Result<()>`; one shared header, then every tree's rows |
 | `write_sarif` | `(offenders: &[OffenderRecord], writer: W) -> io::Result<()>` |
-| `write_sarif_with_suppressed` | `(active, suppressed: &[OffenderRecord], writer: W) -> io::Result<()>` |
+| `write_sarif_with_suppressed` | `(active, in_source, baseline: &[OffenderRecord], writer: W) -> io::Result<()>`; the two suppressed slices are distinct because they render different `suppressions[].kind` values — `in_source` → `"inSource"`, `baseline` → `"external"` |
 | `write_checkstyle` | `(offenders: &[OffenderRecord], writer: W) -> io::Result<()>` |
 | `write_clang_warning` | `(offenders: &[OffenderRecord], …, writer: W) -> io::Result<()>` |
 | `write_msvc_warning` | `(offenders: &[OffenderRecord], writer: W) -> io::Result<()>` |
@@ -724,8 +724,8 @@ The shared types they consume (`OffenderRecord`, `Severity` (see
 *Offender / catalog enums*), `TOOL_ID` (the `"big-code-analysis"`
 tool name), `CSV_HEADER`, and `CSV_EXTENSION` (`".csv"`)) are part of
 the same surface. The AST dump entry points (`dump_node`, `dump_root`,
-`dump_ops`, and the `Dump` / `DumpCfg` config types) are likewise
-re-exported and shape-stable. Each terminal dump entry point also has a
+`dump_ops`, which take no config, plus the `AstCfg` config type that
+`Ast::dump` consumes) are likewise re-exported and shape-stable. Each terminal dump entry point also has a
 `*_with_color` sibling (`dump_node_with_color`, `dump_root_with_color`,
 `dump_ops_with_color`, `dump_function_spans_with_color`) that takes a
 `ColorMode` (`Auto` / `Always` / `Never`); the bare forms retain their
@@ -801,7 +801,9 @@ canonical URI for the standard is
 `https://docs.oasis-open.org/sarif/sarif/v2.1.0/cs01/schemas/sarif-schema-2.1.0.json`.
 The pinned schema URI and version are stable within `2.x`. The
 `tool.driver.name` is `TOOL_ID` (`"big-code-analysis"`) and
-`tool.driver.version` is the CLI package version.
+`tool.driver.version` is the `big-code-analysis` library crate version
+(currently in lockstep with the CLI's). The writer is also reached from
+the Python bindings' `to_sarif`, where no CLI is involved.
 
 #### code-climate
 
