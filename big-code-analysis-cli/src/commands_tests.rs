@@ -432,6 +432,56 @@ fn format_remediation_block_contains_three_bullet_points() {
 }
 
 #[test]
+fn remediation_block_prints_the_command_the_builder_rendered() {
+    // The block and the builder were each tested, but nothing pinned
+    // the seam between them: every other test in this section calls
+    // `refresh_baseline_argv` / `refresh_baseline_command` directly.
+    // Hard-coding `TierSpec::Hard` at the block's call site — the
+    // exact mistake threading the resolved tier through exists to
+    // prevent — left the whole crate suite green.
+    let globals = GlobalOpts {
+        paths: vec![PathBuf::from("src")],
+        exclude_tests: true,
+        ..GlobalOpts::default()
+    };
+    let args = CheckArgs {
+        no_suppress: true,
+        ..base_check_args()
+    };
+    let tier = crate::TierSpec::Soft(Some(0.9));
+    let out = format_remediation_block(&globals, &args, tier).expect("remediation present");
+    let refresh: Vec<&str> = out
+        .lines()
+        .filter(|l| l.starts_with("* To refresh baseline: "))
+        .collect();
+    assert_eq!(refresh.len(), 1, "expected one refresh bullet, got:\n{out}");
+    assert_eq!(
+        refresh[0],
+        format!(
+            "* To refresh baseline: {}",
+            refresh_baseline_command(&globals, &args, tier)
+        ),
+        "the block must print the builder's own rendering, got:\n{out}"
+    );
+    // The three arguments the block forwards, each with a value the
+    // default cannot produce, so dropping any one of them shows up
+    // here rather than in a builder-level test that never runs
+    // through `format_remediation_block`.
+    for expected in [
+        "--paths src",
+        "--exclude-tests",
+        "--no-suppress",
+        "--tier=soft=0.9",
+    ] {
+        assert!(
+            refresh[0].contains(expected),
+            "missing {expected} in the printed command: {}",
+            refresh[0]
+        );
+    }
+}
+
+#[test]
 fn refresh_baseline_command_names_the_subcommand_before_its_flags() {
     // The walk flags are subcommand-scoped (#597), so `check` must
     // come first. This is the *shape* half of the #1243 guard; the
@@ -604,15 +654,25 @@ fn refresh_baseline_argv_defaults_paths_and_baseline_when_unset() {
     // clap re-materialises every default on the way back, so
     // `back.tier == Hard` holds whether or not a redundant
     // `--tier=hard` was printed.
-    for absent in ["--tier", "--exclude", "--exclude-tests", "--config"] {
-        let equals_form = format!("{absent}=");
-        assert!(
-            !argv
-                .iter()
-                .any(|a| a == absent || a.starts_with(&equals_form)),
-            "{absent} must not be emitted when unset, got: {argv:?}"
-        );
-    }
+    //
+    // Asserted as the *whole* argv, not as a deny-list of names. A
+    // deny-list only guards the flags someone thought to list — with
+    // four of the sixteen conditionally-emitted flags named, pinning
+    // `--cyclomatic-count-try=false` and `--baseline-fuzzy-match=true`
+    // onto a run that set neither passed. Any flag emitted
+    // unconditionally now fails here, including one added later.
+    let rendered: Vec<&str> = argv.iter().map(String::as_str).collect();
+    assert_eq!(
+        rendered,
+        vec![
+            "bca",
+            "check",
+            "--paths",
+            ".",
+            "--write-baseline",
+            ".bca-baseline.toml",
+        ],
+    );
 }
 
 #[test]
@@ -707,9 +767,24 @@ fn refresh_baseline_command_shell_quotes_values_needing_it() {
     // must survive the paste as one argument; a plain identifier
     // takes the fast no-quote branch so the common case reads
     // naturally.
+    //
+    // Each `--include` value carries exactly one metacharacter, alone.
+    // Every other fixture here pairs its metacharacter with a space or
+    // a `*` that forces the slow path by itself, so widening the
+    // fast-path allow-list to admit `$`, `~` or `&` changed no test —
+    // a value must isolate the character to test it. The empty string
+    // is the same gap in the other direction: it takes the fast path
+    // only because of an explicit `!s.is_empty()` guard, and unquoted
+    // it vanishes from the command entirely.
     let globals = GlobalOpts {
         paths: vec![PathBuf::from("dir with space"), PathBuf::from("src")],
         exclude: vec!["sub/**".to_string(), "it's/**".to_string()],
+        include: vec![
+            "$HOME".to_string(),
+            "~".to_string(),
+            "a&b".to_string(),
+            String::new(),
+        ],
         ..GlobalOpts::default()
     };
     let args = check_args_for_remediation(None, None, false);
@@ -730,6 +805,14 @@ fn refresh_baseline_command_shell_quotes_values_needing_it() {
         cmd.contains(r"--exclude 'it'\''s/**'"),
         "an embedded quote must be escaped POSIX-style, got: {cmd}"
     );
+    for expected in [
+        "--include '$HOME'",
+        "--include '~'",
+        "--include 'a&b'",
+        "--include ''",
+    ] {
+        assert!(cmd.contains(expected), "expected {expected}, got: {cmd}");
+    }
 }
 
 /// A path `bca` walked but cannot spell as UTF-8 becomes a visibly
@@ -775,10 +858,19 @@ fn refresh_baseline_command_survives_a_real_shell_round_trip() {
     let globals = GlobalOpts {
         paths: vec![PathBuf::from("dir with space")],
         exclude: vec!["sub/**".to_string(), "it's/**".to_string()],
-        // A value a shell would otherwise substitute away: `$(...)`
+        // Values a shell would otherwise substitute away: `$(...)`
         // reaching the parser as anything but these literal bytes
-        // means the quoting is injectable, not merely wrong.
-        include: vec!["$(echo pwned)".to_string()],
+        // means the quoting is injectable, not merely wrong. A bare
+        // `$HOME` is the same claim without the parentheses, which
+        // force the slow path on their own and so hide a fast path
+        // widened to admit `$`. The empty string tests the other
+        // fast-path guard: unquoted it is no word at all, and every
+        // later argument shifts left.
+        include: vec![
+            "$(echo pwned)".to_string(),
+            "$HOME".to_string(),
+            String::new(),
+        ],
         ..GlobalOpts::default()
     };
     let args = check_args_for_remediation(None, None, false);
@@ -811,7 +903,14 @@ fn refresh_baseline_command_survives_a_real_shell_round_trip() {
         back.selection.exclude,
         vec!["sub/**".to_string(), "it's/**".to_string()],
     );
-    assert_eq!(back.selection.include, vec!["$(echo pwned)".to_string()]);
+    assert_eq!(
+        back.selection.include,
+        vec![
+            "$(echo pwned)".to_string(),
+            "$HOME".to_string(),
+            String::new(),
+        ],
+    );
 }
 
 #[test]
