@@ -254,7 +254,14 @@ threshold engine.
   each file the detector excludes, so you can audit the exclusions and
   add an explicit include if a file was wrongly tagged.
 
-## Respecting `.gitignore`
+`bca check` additionally prints a one-line stderr summary whenever the
+detector dropped files from a gate run (`bca: 1 file not checked
+(1 generated) — pass --report-skipped to list them`), and its
+[`--strict` profile](check.md#strict-mode) disables the detector
+outright. A marker is content the branch under test controls, so a
+pull-request gate should not let it shrink the checked set.
+
+## Respecting `.gitignore` {#respecting-gitignore}
 
 When a directory is passed to `--paths`, `bca` walks
 it with `.gitignore` awareness by default. Files matched by any of the
@@ -326,7 +333,13 @@ bca: warning: utils/gate.py matches an exclude pattern (./utils/**) but was name
 ### Path discovery flags
 
 - `--no-ignore` — disable `.gitignore` / `.ignore` / global-gitignore
-  awareness when expanding directory seeds.
+  awareness when expanding directory seeds. `bca check` counts the
+  files ignore rules dropped from a gate run in its not-checked
+  summary, lists them under `--report-skipped`
+  (`note: skipped (ignored): <path>`), and disables the awareness
+  under its [`--strict` profile](check.md#strict-mode), since an
+  ignore file committed in the branch under test otherwise shrinks
+  the checked set.
 - `--paths-from <FILE>` — read newline-separated input paths from
   `<FILE>`, or from stdin when `<FILE>` is `-`. Combined as a union
   with any `--paths` values. `-I` globs still apply; `-X` globs do not

@@ -253,7 +253,7 @@ The same Markdown file is suitable for upload as a build artifact
 (`actions/upload-artifact@v7`) if you want it downloadable from the
 workflow run page in addition to the PR comment.
 
-### Baseline / ratchet pattern
+### Baseline / ratchet pattern {#baseline--ratchet-pattern}
 
 `bca check --baseline` is the native ratchet: record today's offenders
 in a committed TOML file, fail only on regressions and new offenders,
@@ -884,3 +884,88 @@ Applies regardless of provider:
   [`bca: suppress` / `bca: suppress-file` markers](../commands/suppression.md);
   passing `--no-suppress` ignores them so auditors see the raw
   offender list.
+
+## The gate's trust boundary {#gate-trust-boundary}
+
+A pull-request gate analyzes code its author controls, and two of the
+inputs that decide *which files the gate looks at* live in that same
+branch: file contents, which the
+[generated-code detector](../commands/index.html#skipping-generated-code)
+sniffs, and the
+[`.gitignore` files](../commands/index.html#respecting-gitignore) the
+walker honors. Both defaults are right for analyzing a trusted
+checkout. In a PR gate they are levers the change under review can
+pull. `bca check` reports both by default (the summary below) and
+turns both off under [`--strict`](../commands/check.md#strict-mode).
+
+### A generated-code marker removes a file from the gate
+
+Take a C file whose `f()` exceeds `cyclomatic=2`, checked with
+`bca check --no-config --paths . --threshold cyclomatic=2`:
+
+| state | exit |
+|---|---|
+| baseline | `2` (violation reported) |
+| prepend `// @generated` as line 1 | `0` |
+| same file, `--no-skip-generated` | `2` |
+| marker removed again | `2` |
+
+One comment line takes the file out of the gate. Every recognized
+marker phrase works (`@generated`, `DO NOT EDIT`, `GENERATED CODE`,
+case-insensitive), and the detector scans the first ~50 lines / 5 KiB,
+not just line 1. Two forms worth knowing when reviewing a diff:
+
+- `// DO NOT EDIT, see docs/schema.md before changing` reads as
+  ordinary housekeeping and passes review without comment.
+- `@generated` buried on line 4 of a five-line license header still
+  matches; a reviewer scanning for a suspicious first line will not
+  see it.
+
+### A committed `.gitignore` removes a file from the walk
+
+Same gate, with the violator accompanied by one benign sibling file:
+
+| state | exit |
+|---|---|
+| violator + benign sibling | `2` |
+| + `.gitignore` containing `violator.c` | `0` |
+| same, `--no-ignore` | `2` |
+
+The walker honors ignore files found inside the walked tree, so a
+`.gitignore` committed in the branch under test shrinks the checked
+set. One nuance: when the ignored file is the *only* analyzable input,
+the run exits `1` ("no input files matched") rather than `0`, so the
+clean bypass needs at least one other file to remain.
+
+### The gate says what it skipped
+
+`bca check` prints a one-line stderr summary whenever either mechanism
+dropped files, so neither bypass is silent:
+
+```text
+bca: 2 files not checked (1 generated, 1 ignored) — pass --report-skipped to list them
+```
+
+Clean runs print nothing. `--report-skipped` adds a
+`note: skipped (generated): <path>` / `note: skipped (ignored): <path>`
+line per file. The summary changes no exit code: a bypassed run still
+exits `0`, it just says so.
+
+### `--strict` turns both mechanisms off
+
+For a gate over untrusted input, turn both mechanisms off rather than
+auditing stderr:
+
+```yaml
+- name: Threshold gate (PR)
+  run: bca check --strict --paths src/
+```
+
+[`--strict`](../commands/check.md#strict-mode) is equivalent to
+`--no-skip-generated --no-ignore`; prefer the single flag, since a
+recipe that remembers one of the two constituents still has one open
+bypass. Projects opt in once with `strict = true` under `[check]` in
+`bca.toml` instead of editing every workflow. Genuinely generated
+trees then belong in an explicit deny-set the *reviewers* own (the
+committed [`.bcaignore`](#baseline--ratchet-pattern) pattern), not in
+content sniffing the *submitter* controls.
