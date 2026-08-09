@@ -254,9 +254,9 @@ impl BotFilter {
     ///
     /// Matching is **case-insensitive**, which is what
     /// [`DEFAULT_BOT_PATTERN`](crate::vcs::options::DEFAULT_BOT_PATTERN)
-    /// has always
-    /// documented and what the substring-style patterns users write
-    /// expect: `--bot-pattern renovate` matches `Renovate Bot`. The flag
+    /// has always documented, and what the substring-style patterns
+    /// users write expect: `--bot-pattern renovate` matches
+    /// `Renovate Bot`. The flag
     /// is only the *default* for the pattern, so an expert can restore
     /// case sensitivity for all or part of it with an inline `(?-i)` —
     /// `(?-i)Foo` does not match `foo`.
