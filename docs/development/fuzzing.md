@@ -245,10 +245,23 @@ Pinning it also keeps the CFLAGS triple and the build triple the same
 by construction; keyed to different triples the instrumentation attaches
 to nothing and the build still succeeds.
 
-Step 4 does not fit every finding, and the exception is worth naming: a
-*leak* is invisible to `cargo test`, because nothing outside a sanitizer
-build observes it. For those the durable artifact is the seed plus an
-entry in `fuzz/lsan-suppressions.txt` explaining the diagnosis.
+Step 4 does not fit every finding, and the exceptions are worth naming.
+
+**A leak is invisible to `cargo test`**, because nothing outside a
+sanitizer build observes it. For those the durable artifact is the seed
+plus an entry in `fuzz/lsan-suppressions.txt` explaining the diagnosis.
+
+**A crash you cannot fix yet must not be committed as a seed.** Step 4
+assumes the defect gets fixed in the same change. When it is upstream in
+a pinned grammar with no release to move to — #1289 is the live example,
+a `SIGSEGV` in tree-sitter-bash's scanner — committing the reproducer
+makes every future run, local and CI, die on it immediately and stay
+red. Record the bytes in the issue instead; the seed and the test land
+with the fix.
+
+**A `SIGSEGV` cannot be a normal `#[test]` either.** It kills the test
+process rather than failing an assertion, so the regression test has to
+drive a subprocess and assert it does not die by signal.
 
 ### Leak suppressions
 
