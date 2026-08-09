@@ -339,7 +339,7 @@ value = 66737.04848699087
 path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 554.0
+value = 562.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"
@@ -855,13 +855,13 @@ value = 15.0
 path = "src/metrics/abc/go.rs"
 qualified = "GoCode::compute"
 metric = "cyclomatic"
-value = 15.0
+value = 17.0
 
 [[entry]]
 path = "src/metrics/abc/go.rs"
 qualified = "GoCode::compute"
 metric = "halstead.effort"
-value = 50933.14135135399
+value = 55577.39635901512
 
 [[entry]]
 path = "src/metrics/abc/groovy.rs"
@@ -1257,7 +1257,7 @@ value = 6.0
 path = "src/vcs/git/cached.rs"
 qualified = "build_cached"
 metric = "halstead.effort"
-value = 76740.04063247392
+value = 73179.83359417088
 
 [[entry]]
 path = "src/vcs/git/cached.rs"
@@ -1315,7 +1315,7 @@ value = 8.0
 
 [[entry]]
 path = "src/vcs/git/history.rs"
-qualified = "diff_collect::<anon@L217>"
+qualified = "diff_collect::<anon@L213>"
 metric = "nexits"
 value = 6.0
 
