@@ -243,15 +243,28 @@ pub(crate) fn go_embedded_field_name<'a>(declaration: &Node<'a>) -> Option<Node<
 }
 
 // Name-based for cross-grammar correctness (see `cpp_count_field_identifiers`).
-pub(crate) fn cpp_has_function_declarator(node: &Node) -> bool {
+//
+// A `function_definition` child is accepted outright rather than
+// recursed into: it *is* a function, whatever declarator it carries.
+// Recursing would miss a conversion operator, whose declarator is an
+// `operator_cast` and not a `function_declarator` (#1258).
+//
+// The arm is inert at the `Npa` call sites, which only ever pass a
+// `field_declaration`: per both grammars' `node-types.json`, neither
+// `field_declaration` nor the `pointer_declarator` /
+// `reference_declarator` wrappers this recurses through can carry a
+// `function_definition` or a `declaration`, so the new arm is
+// unreachable from there at any depth. It fires only for `Npm`'s
+// `template_declaration`, whose child set does list `function_definition`.
+pub(crate) fn cpp_declares_function(node: &Node) -> bool {
     node.children().any(|child| match child.kind() {
-        "function_declarator" => true,
+        "function_declarator" | "function_definition" => true,
         // Recurse through declarator wrappers that can sit above the
         // function_declarator (`Foo* operator->()`,
         // `template<...> T fn();`, constructor / destructor
         // `declaration`s inside a class body).
         "pointer_declarator" | "reference_declarator" | "declaration" => {
-            cpp_has_function_declarator(&child)
+            cpp_declares_function(&child)
         }
         _ => false,
     })

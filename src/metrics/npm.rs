@@ -560,6 +560,12 @@ mod tests {
 
     check_metrics_only_shim!(check_metrics, Npm);
     check_func_space_only_shim!(check_func_space, Npm);
+    // `Npm` alongside the two metrics that count the same C++ members
+    // through independent walks: `Nom` (one per function space) and
+    // `Wmc` (each member's cyclomatic, rolled into the class). #1258
+    // was invisible to the `Npm`-only shim precisely because nothing
+    // asserted the three agree.
+    check_metrics_only_shim!(check_metrics_with_nom_wmc, Npm, Nom, Wmc);
 
     #[test]
     fn java_constructors() {
@@ -3449,6 +3455,160 @@ class C {
                 assert_eq!(metric.npm.class_nm_sum(), 3);
                 assert_eq!(metric.npm.class_npm_sum(), 3);
                 insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    // The C++ source shared by the `cpp_*` and `mozcpp_*` halves of the
+    // #1258 regression pair. `.mozcpp` owns no file extension, so the
+    // fork gets no integration-snapshot coverage and its clone of the
+    // `TemplateDeclaration` arm can only be pinned against its
+    // extension-owning sibling (grammar-dispatch, "sweep the rest").
+    const TEMPLATE_METHOD_WITH_BODY: &str = "class C {\n\
+         public:\n\
+             template<typename T> T get() { return T{}; }\n\
+             int plain() { return 1; }\n\
+         };";
+
+    // Every `template_declaration` payload the C++ grammar admits in
+    // class scope that is *not* a member function, per both grammars'
+    // `node-types.json`: a nested templated class (`type_specifier`),
+    // an `alias_declaration`, a templated static data member
+    // (`declaration` with no function declarator), and a
+    // `friend_declaration` — whose function is a free function the
+    // class merely grants access to, not a member of it.
+    //
+    // `real()` and `Nested::hidden()` are present so the expected
+    // totals are 2/1 rather than 0/0: a fixture that stopped parsing
+    // scores the default on every field, and an all-zero expectation
+    // cannot tell that apart from the payloads being correctly
+    // ignored. That the two differ also exercises the visibility flag,
+    // which an all-public fixture would leave pinned.
+    //
+    // `Nested` deliberately carries a *private* method rather than
+    // being empty. Its own class space contributes 1/0 to the subtree
+    // sums, so the expectation is 2/1 — and a helper that descended
+    // through `class_specifier` *and* `field_declaration_list` into the
+    // nested body would count the outer `template_declaration` as well
+    // and reach 3/2. (Both arms are needed to break it; adding either
+    // alone leaves the recursion one level short. Verified by
+    // perturbation.) An empty `Nested` would leave that descent
+    // untested in either direction.
+    const NON_METHOD_TEMPLATE_PAYLOADS: &str = "class C {\n\
+         public:\n\
+             template<typename T> class Nested { void hidden() {} };\n\
+             template<typename T> using Alias = T;\n\
+             template<typename T> static T value;\n\
+             template<typename T> friend void amigo() {}\n\
+             template<typename T> T real() { return T{}; }\n\
+         };";
+
+    #[test]
+    fn cpp_template_method_with_inline_body_counts() {
+        // A templated member *with a body* parses as
+        // `template_declaration > function_definition`, not the
+        // `template_declaration > declaration` shape that
+        // `cpp_template_methods_count` above pins. Before #1258 the
+        // guard could only reach a `function_declarator`, so `get()`
+        // scored zero: `npm` said the class had one method while `nom`
+        // opened two function spaces and `wmc` weighted two.
+        check_metrics_with_nom_wmc::<CppParser>(TEMPLATE_METHOD_WITH_BODY, "foo.cpp", |metric| {
+            assert_eq!(metric.npm.class_nm_sum(), 2);
+            assert_eq!(metric.npm.class_npm_sum(), 2);
+            // Both members carry a body, so all three walks must
+            // land on 2. Each method's cyclomatic is 1.
+            assert_eq!(metric.nom.functions_sum(), 2);
+            assert_eq!(metric.wmc.class_wmc_sum(), 2);
+        });
+    }
+
+    #[test]
+    fn cpp_template_method_with_inline_body_respects_visibility() {
+        // Deliberately asymmetric — 2 public, 1 private. A template arm
+        // that counted methods but ignored `current_is_public` lands on
+        // 3/3, and one that never reached the private section lands on
+        // 2/2; only the correct arm produces 3/2.
+        check_metrics_with_nom_wmc::<CppParser>(
+            "class C {\n\
+             public:\n\
+                 template<typename T> T a() { return T{}; }\n\
+                 template<typename T> T b() { return T{}; }\n\
+             private:\n\
+                 template<typename T> T c() { return T{}; }\n\
+             };",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.nom.functions_sum(), 3);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_template_conversion_operator_with_body_counts() {
+        // A conversion operator's declarator is an `operator_cast`, so
+        // there is no `function_declarator` anywhere in this subtree.
+        // This is why `cpp_declares_function` accepts a
+        // `function_definition` child outright rather than recursing
+        // into it — the recursion the #1258 plan proposed would score
+        // this member zero.
+        check_metrics_with_nom_wmc::<CppParser>(
+            "class C {\n\
+             public:\n\
+                 template<typename T> operator T() { return T{}; }\n\
+             };",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 1);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.nom.functions_sum(), 1);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_non_method_template_payloads_are_not_counted() {
+        check_metrics_with_nom_wmc::<CppParser>(
+            NON_METHOD_TEMPLATE_PAYLOADS,
+            "foo.cpp",
+            |metric| {
+                // `real()` (public, in C) plus `Nested::hidden()`
+                // (private, in its own class space).
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                // `nom` additionally counts the friend's body, which is
+                // a free function the class merely grants access to and
+                // not a member — an arm that leaked through
+                // `friend_declaration` would push `class_nm_sum` to 3.
+                assert_eq!(metric.nom.functions_sum(), 3);
+            },
+        );
+    }
+
+    #[test]
+    fn mozcpp_template_method_with_inline_body_counts() {
+        check_metrics_with_nom_wmc::<MozcppParser>(
+            TEMPLATE_METHOD_WITH_BODY,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.nom.functions_sum(), 2);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn mozcpp_non_method_template_payloads_are_not_counted() {
+        check_metrics_with_nom_wmc::<MozcppParser>(
+            NON_METHOD_TEMPLATE_PAYLOADS,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.nom.functions_sum(), 3);
             },
         );
     }
