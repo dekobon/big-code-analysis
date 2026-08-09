@@ -424,6 +424,19 @@ impl CheckArgs {
         )
     }
 
+    /// Apply the `--strict` untrusted-input profile to the resolved
+    /// walk options: the branch under test controls file contents and
+    /// ignore files alike, so the profile turns off both the
+    /// generated-code skip and the ignore-file handling. A no-op when
+    /// the profile is off. Callers run this after the manifest merge,
+    /// so a `[check] strict` key reaches the same seam as the flag.
+    pub(crate) fn apply_strict(&self, globals: &mut GlobalOpts) {
+        if self.strict {
+            globals.no_skip_generated = true;
+            globals.no_ignore = true;
+        }
+    }
+
     /// Resolve the effective [`TierSpec`], folding the deprecated
     /// `--headroom <R>` alias into `--tier=soft=<R>` (issue #688). When
     /// `--tier` is left at its `hard` default and `--headroom` is given,
