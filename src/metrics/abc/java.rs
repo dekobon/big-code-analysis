@@ -179,7 +179,9 @@ fn java_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
 }
 
 // Counts condition tokens: comparison operators, control-flow keywords,
-// and `<` / `>` outside generic-type contexts. The `default` arm of a
+// and the two tokens Java's generic syntax shares with an operator —
+// `<` / `>` count only in comparison position and `?` only as a ternary
+// head, each gated on its parent kind. The `default` arm of a
 // `switch` is excluded: it is the unconditional fallthrough, so
 // cyclomatic counts only the `Case` arms (issue #469). Java's classic
 // statement switch (`default:`) and arrow switch (`default ->`) both
@@ -192,13 +194,40 @@ fn java_count_token_condition<'a>(
 ) -> bool {
     use Java::*;
     match node.kind_id().into() {
-        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | QMARK | Try | Catch => {
+        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Try | Catch => {
             stats.conditions += 1.;
         }
-        // Excludes `<` / `>` used for generic types (`Box<T>`).
+        // `?` opens a ternary, but tree-sitter-java also emits it bare
+        // as the head of a `wildcard` type argument
+        // (`List<? extends T>`), which is type syntax and no more a
+        // decision than the `<` / `>` around it (#1274). Those two
+        // productions are the only ones that emit a bare `?`, so the
+        // same allowlist polarity used below settles it.
+        QMARK => {
+            if ancestors
+                .parent(node)
+                .is_some_and(|parent| matches!(parent.kind_id().into(), TernaryExpression))
+            {
+                stats.conditions += 1.;
+            }
+        }
+        // Counts `<` / `>` only as the operator token of a
+        // `binary_expression` — the polarity C / C++ / Rust / Go use.
+        // tree-sitter-java emits a bare `<` / `>` from exactly three
+        // productions (`binary_expression`, `type_arguments`,
+        // `type_parameters`), so this is the inverse of denying the two
+        // generic-type contexts, and it does not have to be revisited
+        // when a grammar bump adds a fourth type-syntax one. The
+        // previous denylist named only `type_arguments`, leaving every
+        // generic *declaration* — `class Gen<T>`, `<T> void m()`, both
+        // `type_parameters` — worth two conditions (#1274). A nested
+        // generic (`Map<String, List<T>>`) closes with two separate `>`
+        // tokens under their own `type_arguments`, not one `>>`; the
+        // shifts are distinct tokens and never reach this arm.
         GT | LT => {
-            if let Some(parent) = ancestors.parent(node)
-                && !matches!(parent.kind_id().into(), TypeArguments)
+            if ancestors
+                .parent(node)
+                .is_some_and(|parent| matches!(parent.kind_id().into(), BinaryExpression))
             {
                 stats.conditions += 1.;
             }

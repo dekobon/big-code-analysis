@@ -164,13 +164,40 @@ fn groovy_count_token_condition<'a>(
 ) -> bool {
     use Groovy::*;
     match node.kind_id().into() {
-        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | QMARK | Try | Catch => {
+        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Try | Catch => {
             stats.conditions += 1.;
         }
-        // Excludes `<` / `>` used for generic types (e.g. `List<String>`).
+        // As in Java: a bare `?` is either a ternary head or the head of
+        // a `wildcard` type argument (`List<? extends T>`), and only the
+        // first is a decision (#1274).
+        QMARK => {
+            if ancestors
+                .parent(node)
+                .is_some_and(|parent| matches!(parent.kind_id().into(), TernaryExpression))
+            {
+                stats.conditions += 1.;
+            }
+        }
+        // Counts `<` / `>` only as the operator token of a
+        // `binary_expression` — see `java_count_token_condition` for
+        // the polarity rationale. The dekobon Groovy grammar emits a
+        // bare `<` / `>` from four productions: `binary_expression`,
+        // `type_arguments`, `type_parameters`, and — unlike
+        // tree-sitter-java — a separate `method_type_parameters` for
+        // `def <U> U m(U x)`. The previous denylist named only
+        // `type_arguments`, leaving both generic-declaration forms
+        // worth two conditions (#1274). The positive form also copes
+        // with a construct this grammar cannot parse: an explicit type
+        // witness (`Collections.<String>emptyList()`) puts its `<`
+        // under an `ERROR` node that no denylist can name, so only the
+        // trailing `>` — which error recovery does hang off a
+        // `binary_expression` — is still counted. Groovy's `<=>` is a
+        // `spaceship_expression` carrying its own token, so it never
+        // reaches this arm.
         GT | LT => {
-            if let Some(parent) = ancestors.parent(node)
-                && !matches!(parent.kind_id().into(), TypeArguments)
+            if ancestors
+                .parent(node)
+                .is_some_and(|parent| matches!(parent.kind_id().into(), BinaryExpression))
             {
                 stats.conditions += 1.;
             }

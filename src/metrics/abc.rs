@@ -456,6 +456,20 @@ mod tests {
     // the same space), so the func-space shim carries Cyclomatic too.
     check_func_space_only_shim!(check_func_space, Abc, Cyclomatic);
 
+    // Recurse to the innermost function space and assert the invariant
+    // named above there. `conditions()` is that one space's own count,
+    // so it pairs with `cyclomatic()` and never `cyclomatic_sum()`,
+    // which folds in a base of 1 per nested space.
+    fn assert_deepest_conditions_match_cyclomatic(space: &crate::FuncSpace, expected: u64) {
+        let mut deepest = space;
+        while let Some(child) = deepest.spaces.last() {
+            deepest = child;
+        }
+        let decisions = deepest.metrics.cyclomatic.cyclomatic() - 1;
+        assert_eq!(decisions, expected);
+        assert_eq!(deepest.metrics.abc.conditions(), decisions);
+    }
+
     // Walk the AST and return true iff any node has `kind_id == target`.
     // Used as a drift marker for hidden-rule kind ids: a passing
     // `!ast_has_kind_id(...)` assertion proves the kind is unreachable
@@ -1395,6 +1409,94 @@ mod tests {
         );
     }
 
+    // Issue #1274: a generic *declaration* is type syntax, not a
+    // decision. `java_count_token_condition` denied only
+    // `type_arguments`, so `class Gen<T>` and `<U> U ident(U x)` — both
+    // `type_parameters` — each scored two conditions. The fix counts
+    // `<` / `>` only under `binary_expression`, the polarity C / C++ /
+    // Rust / Go already use; a `grammar.json` sweep proves the token is
+    // emitted from exactly three productions, so the two shapes agree on
+    // every well-formed input.
+    //
+    // One fixture per production the arm must ignore: the class-level
+    // `type_parameters` (`Gen<T …>`), its `extends` bound's nested
+    // `type_arguments` (`Comparable<T>`), the method-level
+    // `type_parameters` (`<U>`), and a nested generic
+    // (`Map<String, List<T>>`) whose two closing `>` lex as separate
+    // tokens under separate `type_arguments`. Pre-fix this file scored
+    // 4 conditions — two per `type_parameters` bracket pair; expected 0,
+    // the file contains no conditional construct at all.
+    #[test]
+    fn java_generic_declarations_are_not_conditions() {
+        check_metrics::<JavaParser>(
+            "class Gen<T extends Comparable<T>> {
+                <U> U ident(U x) { return x; }
+                List<T> pick(Map<String, List<T>> m) { return m.get(\"k\"); }
+            }",
+            "foo.java",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 0);
+                // Non-vacuity guard: 0 is also what an unparsed file
+                // scores, so pin a value only a walked body can produce
+                // — the `m.get("k")` invocation.
+                assert_eq!(metric.abc.branches_sum(), 1);
+            },
+        );
+    }
+
+    // Second half of #1274, same premise and same match: a wildcard type
+    // argument's `?` is type syntax, not a ternary. tree-sitter-java emits
+    // a bare `?` from exactly two productions — `ternary_expression` and
+    // `wildcard` — so the `QMARK` arm carries the same allowlist gate the
+    // `<` / `>` arm does.
+    //
+    // The body carries a real ternary over a real comparison so the
+    // expected total is 2, not 0. Asserting 0 on a wildcard-only fixture
+    // would have been vacuous — an unparsable file scores 0 too, so the
+    // test could not tell "the wildcard was ignored" from "the fixture
+    // stopped being recognised". Each failure mode now lands on its own
+    // number: 4 if the wildcard `?` counts again (the pre-fix value), 3
+    // if the gate is aimed at `Wildcard` instead, 1 if it swallows the
+    // genuine ternary, 0 if parsing breaks. Two wildcards against one
+    // ternary is deliberate — with one of each, aiming the gate at the
+    // wrong one of the two productions still totals 2 and the test
+    // cannot see the difference.
+    #[test]
+    fn java_generic_wildcard_is_not_a_condition() {
+        check_metrics::<JavaParser>(
+            "class A {
+                int m(List<? extends Number> xs, Map<String, ? extends Number> ys,
+                      int a, int b) { return a < b ? 1 : 2; }
+            }",
+            "foo.java",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+    }
+
+    // The other half of #1274: narrowing the `<` / `>` arm must not
+    // swallow real comparisons. `List<String>` in the signature keeps a
+    // generic in scope so the fixture proves both directions at once,
+    // and the assertion is the grammar-dispatch §8 pin — on the
+    // method's own space the ABC condition count must equal the
+    // cyclomatic decision count (`cyclomatic()` minus the per-space
+    // base of 1). Both are 2, one per `if`.
+    #[test]
+    fn java_comparison_operators_still_count_alongside_generics() {
+        check_func_space::<JavaParser, _>(
+            "class A {
+                int m(List<String> xs, int a, int b) {
+                    if (a < b) { return 1; }
+                    if (a > b) { return 2; }
+                    return 0;
+                }
+            }",
+            "foo.java",
+            |space| assert_deepest_conditions_match_cyclomatic(&space, 2),
+        );
+    }
+
     #[test]
     fn groovy_no_abc() {
         // Comment-only file has no executable code → all-zero ABC.
@@ -1587,6 +1689,89 @@ mod tests {
                 assert_eq!(metric.abc.assignments_sum(), 0);
                 assert_eq!(metric.abc.branches_sum(), 0);
             },
+        );
+    }
+
+    // Groovy half of #1274 — see `java_generic_declarations_are_not_conditions`.
+    // The class-level `type_parameters` and its bound's nested
+    // `type_arguments` mirror the Java fixture; pre-fix this file scored
+    // 2 conditions, expected 0.
+    #[test]
+    fn groovy_generic_declarations_are_not_conditions() {
+        check_metrics::<GroovyParser>(
+            "class Gen<T extends Comparable<T>> {
+                List<T> pick(Map<String, List<T>> m) { m.get(\"k\") }
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 0);
+                // Non-vacuity guard — see the Java counterpart.
+                assert_eq!(metric.abc.branches_sum(), 1);
+            },
+        );
+    }
+
+    // Groovy counterpart of `java_generic_wildcard_is_not_a_condition`,
+    // including its choice of a non-zero expected total and its
+    // two-wildcards-one-ternary shape; the dekobon grammar emits the
+    // same `wildcard` node. Pre-fix: 4.
+    #[test]
+    fn groovy_generic_wildcard_is_not_a_condition() {
+        check_metrics::<GroovyParser>(
+            "class A {
+                int m(List<? extends Number> xs, Map<String, ? extends Number> ys,
+                      int a, int b) { a < b ? 1 : 2 }
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+    }
+
+    // A generic *method* gets its own fixture because the dekobon
+    // grammar gives it its own production: `def <U> U ident(U x)` emits
+    // `method_type_parameters`, not the `type_parameters` the class form
+    // above uses. It is the fourth and last production from which that
+    // grammar emits a bare `<` / `>` (the others being
+    // `binary_expression`, `type_arguments` and `type_parameters`), and
+    // the one a denylist extended only with `TypeParameters` — the fix
+    // this issue's own plan proposed — would still miss. Revert-verified
+    // in both directions: under that denylist this test still fails
+    // while `groovy_generic_declarations_are_not_conditions` passes.
+    //
+    // The body carries a ternary over a comparison for the same
+    // non-vacuity reason as the wildcard tests: expected 2, pre-fix 4
+    // (the `<U>` bracket pair), 0 if the fixture stops parsing.
+    #[test]
+    fn groovy_method_type_parameters_are_not_conditions() {
+        check_metrics::<GroovyParser>(
+            "class A {
+                def <U> U ident(U x, int a, int b) { a < b ? x : null }
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+    }
+
+    // Groovy counterpart of
+    // `java_comparison_operators_still_count_alongside_generics`: the
+    // narrowed arm keeps counting real comparisons, pinned against the
+    // cyclomatic decision count on the method's own space (§8).
+    #[test]
+    fn groovy_comparison_operators_still_count_alongside_generics() {
+        check_func_space::<GroovyParser, _>(
+            "class A {
+                int m(List<String> xs, int a, int b) {
+                    if (a < b) { return 1 }
+                    if (a > b) { return 2 }
+                    return 0
+                }
+            }",
+            "foo.groovy",
+            |space| assert_deepest_conditions_match_cyclomatic(&space, 2),
         );
     }
 
@@ -2361,19 +2546,6 @@ mod tests {
     // #469 ABC `conditions()` was 3 here while cyclomatic stayed at 2.
     #[test]
     fn java_csharp_cpp_switch_default_cyclomatic_parity() {
-        // Recurse to the deepest function space (the method holding the
-        // switch) and assert per-space cyclomatic decisions == ABC
-        // conditions.
-        fn assert_deepest(space: &crate::FuncSpace) {
-            if let Some(child) = space.spaces.last() {
-                assert_deepest(child);
-                return;
-            }
-            // Per-space cyclomatic base is 1; the two case arms add 2.
-            let decisions = space.metrics.cyclomatic.cyclomatic() - 1;
-            assert_eq!(decisions, 2);
-            assert_eq!(space.metrics.abc.conditions(), decisions);
-        }
         check_func_space::<JavaParser, _>(
             "class A {
                 int m(int x) {
@@ -2381,7 +2553,7 @@ mod tests {
                 }
             }",
             "foo.java",
-            |space| assert_deepest(&space),
+            |space| assert_deepest_conditions_match_cyclomatic(&space, 2),
         );
         check_func_space::<CsharpParser, _>(
             "class A {
@@ -2390,14 +2562,14 @@ mod tests {
                 }
             }",
             "foo.cs",
-            |space| assert_deepest(&space),
+            |space| assert_deepest_conditions_match_cyclomatic(&space, 2),
         );
         check_func_space::<CppParser, _>(
             "void f(int x) {
                  switch (x) { case 1: return; case 2: return; default: return; }
              }",
             "foo.cpp",
-            |space| assert_deepest(&space),
+            |space| assert_deepest_conditions_match_cyclomatic(&space, 2),
         );
     }
 
@@ -2420,18 +2592,7 @@ mod tests {
                 }
             }",
             "foo.php",
-            |space| {
-                fn assert_deepest(space: &crate::FuncSpace) {
-                    if let Some(child) = space.spaces.last() {
-                        assert_deepest(child);
-                        return;
-                    }
-                    let decisions = space.metrics.cyclomatic.cyclomatic() - 1;
-                    assert_eq!(decisions, 2);
-                    assert_eq!(space.metrics.abc.conditions(), decisions);
-                }
-                assert_deepest(&space);
-            },
+            |space| assert_deepest_conditions_match_cyclomatic(&space, 2),
         );
     }
 
@@ -2453,18 +2614,7 @@ mod tests {
                 };
             }",
             "foo.php",
-            |space| {
-                fn assert_deepest(space: &crate::FuncSpace) {
-                    if let Some(child) = space.spaces.last() {
-                        assert_deepest(child);
-                        return;
-                    }
-                    let decisions = space.metrics.cyclomatic.cyclomatic() - 1;
-                    assert_eq!(decisions, 2);
-                    assert_eq!(space.metrics.abc.conditions(), decisions);
-                }
-                assert_deepest(&space);
-            },
+            |space| assert_deepest_conditions_match_cyclomatic(&space, 2),
         );
     }
 
