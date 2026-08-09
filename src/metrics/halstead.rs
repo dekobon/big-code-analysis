@@ -3329,11 +3329,18 @@ f() {
                 // After #695 only the opening delimiters count: `()` and
                 // `{}` fold to one operator each per balanced pair, so the
                 // former `)`/`}` closers no longer inflate n1/N1 (was
-                // 11 unique / 15 total). Operands are unchanged.
+                // 11 unique / 15 total).
+                //
+                // Operands after #1259, tallied by `get_id` (source bytes):
+                //   `avg` × 1, `int` × 8 (the `primitive_type` wrapper and
+                //   its `int` keyword child, at all four type positions),
+                //   `$a` / `$b` / `$c` × 2 each, `3` × 1 ⇒ n2 = 6, N2 = 16.
+                // Before the fix each `$v` also contributed its sigil-less
+                // `name` leaf ⇒ 9 / 22.
                 assert_eq!(metric.halstead.unique_operators(), 9);
                 assert_eq!(metric.halstead.total_operators(), 12);
-                assert_eq!(metric.halstead.unique_operands(), 9);
-                assert_eq!(metric.halstead.total_operands(), 22);
+                assert_eq!(metric.halstead.unique_operands(), 6);
+                assert_eq!(metric.halstead.total_operands(), 16);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -3348,11 +3355,91 @@ f() {
             |metric| {
                 // After #695 only opening delimiters count: the `)`/`}`
                 // closers no longer add operators (was 9 unique / 9 total).
+                //
+                // Operands after #1259: `inc` × 1, `int` × 4 (the
+                // `primitive_type` wrapper plus its `int` keyword child, at
+                // both type positions), `$x` × 2, `1` × 1 ⇒ n2 = 4, N2 = 8.
+                // Before the fix `$x` also contributed its `x` leaf twice
+                // ⇒ 5 / 10.
                 assert_eq!(metric.halstead.unique_operators(), 7);
                 assert_eq!(metric.halstead.total_operators(), 7);
-                assert_eq!(metric.halstead.unique_operands(), 5);
-                assert_eq!(metric.halstead.total_operands(), 10);
+                assert_eq!(metric.halstead.unique_operands(), 4);
+                assert_eq!(metric.halstead.total_operands(), 8);
                 insta::assert_json_snapshot!(metric.halstead);
+            },
+        );
+    }
+
+    #[test]
+    fn php_variable_reference_counts_once() {
+        // Regression: issue #1259. `$x` parses as a `variable_name`
+        // wrapping a `name` leaf, and both kinds were in the operand
+        // arm — so every variable reference contributed twice to N2 and
+        // planted a sigil-less twin (`x` beside `$x`) in the n2
+        // vocabulary. Since `$var` is the most common token class in
+        // PHP, that roughly doubled N2 for real files.
+        //
+        // Source (the issue's reproducer):
+        //   <?php $a = null; $b = true; $c = NULL;
+        //
+        // Operands by text key: `$a`, `$b`, `$c`, `null`, `true`, `NULL`
+        // — one each ⇒ n2 = 6, N2 = 6. Before the fix the `a` / `b` / `c`
+        // leaves added 3 / 3 ⇒ 9 / 9.
+        check_metrics::<PhpParser>(
+            "<?php\n$a = null;\n$b = true;\n$c = NULL;\n",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operands(), 6);
+                assert_eq!(metric.halstead.total_operands(), 6);
+            },
+        );
+    }
+
+    #[test]
+    fn php_dynamic_variable_name_counts_once_at_any_depth() {
+        // Regression: issue #1259. Variable-variable syntax nests the
+        // wrappers, so the double count compounds: `$$a` is a
+        // `dynamic_variable_name` → `variable_name` → `name` chain that
+        // scored 3 for one reference, and `$$$b` scored 4. Only the
+        // outermost wrapper may count.
+        //
+        // Source: <?php $$a = 1; $$$b = 2; ${$c} = 3;
+        //
+        // Operands: `$$a`, `$$$b`, `${$c}`, `1`, `2`, `3` — one each
+        // ⇒ n2 = 6, N2 = 6. Before the fix: 13 / 13 (measured), each
+        // target contributing its whole nesting chain — `$$a` → `$a` →
+        // `a` is 3, `$$$b` → `$$b` → `$b` → `b` is 4, `${$c}` → `$c` →
+        // `c` is 3, plus the three integers.
+        check_metrics::<PhpParser>("<?php $$a = 1; $$$b = 2; ${$c} = 3;", "foo.php", |metric| {
+            assert_eq!(metric.halstead.unique_operands(), 6);
+            assert_eq!(metric.halstead.total_operands(), 6);
+        });
+    }
+
+    #[test]
+    fn php_dynamic_variable_name_guard_is_parent_scoped() {
+        // Companion to the two tests above (#1259): the guards fire on
+        // the *parent* kind, never on the kind alone, so the two
+        // positions where a nested node is a reference in its own right
+        // keep counting.
+        //
+        // Source: <?php $y = "brace ${z} end"; $s = ${$a . 'b'};
+        //
+        // `"${z}"` is a `dynamic_variable_name` whose `name` child is
+        // suppressed (the wrapper `${z}` carries the reference), while
+        // `${$a . 'b'}` reaches its `$a` through a `binary_expression`,
+        // so that `variable_name`'s parent is not a
+        // `dynamic_variable_name` and it counts normally.
+        //
+        // Operands: `$y`, `${z}`, `$s`, `${$a . 'b'}`, `$a`, `'b'` — one
+        // each ⇒ n2 = 6, N2 = 6. A guard written as a blanket kind
+        // exclusion instead of a parent check would drop `$a` ⇒ 5 / 5.
+        check_metrics::<PhpParser>(
+            "<?php $y = \"brace ${z} end\"; $s = ${$a . 'b'};",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operands(), 6);
+                assert_eq!(metric.halstead.total_operands(), 6);
             },
         );
     }
@@ -3374,17 +3461,19 @@ f() {
         // Inert operand: `"world"` (no interpolation, still operand).
         // Operands by text key (`get_id` keys by source bytes):
         //   `$name` × 2 (assignment LHS and `$name` inside the
-        //   interpolated string), `name` × 2 (the `name` token inside
-        //   each `variable_name`), `"world"` × 1.
-        // u_operands = 3, N2 = 5.
-        // Without the fix the wrapping `"Hello $name!"` would also
-        // count → u_operands = 4, N2 = 6.
+        //   interpolated string), `"world"` × 1.
+        // u_operands = 2, N2 = 3.
+        // Without the #184 fix the wrapping `"Hello $name!"` would also
+        // count → 3 / 4. This test additionally pinned the *inner* `name`
+        // leaf of each `variable_name` (a further 2 occurrences, 1 unique
+        // ⇒ the historical 3 / 5) until #1259 recognised that as the same
+        // double count one level down.
         check_metrics::<PhpParser>(
             "<?php $name = \"world\"; echo \"Hello $name!\";",
             "foo.php",
             |metric| {
-                assert_eq!(metric.halstead.unique_operands(), 3);
-                assert_eq!(metric.halstead.total_operands(), 5);
+                assert_eq!(metric.halstead.unique_operands(), 2);
+                assert_eq!(metric.halstead.total_operands(), 3);
             },
         );
     }
@@ -3417,16 +3506,17 @@ f() {
         //   hi $name
         //   EOT;
         //
-        // Operands by text key: `$name` × 2, `name` × 2, `"x"` × 1
-        // (inert single-interp encapsed string also operand). With
-        // the fix u_operands = 3, N2 = 5. Without the fix the
-        // wrapping heredoc text would add one more unique operand.
+        // Operands by text key: `$name` × 2, `"x"` × 1 (inert encapsed
+        // string, still an operand). With the fix u_operands = 2,
+        // N2 = 3. Without it the wrapping heredoc text would add one
+        // more unique operand. The sigil-less `name` leaf inside each
+        // `variable_name` was counted too until #1259.
         check_metrics::<PhpParser>(
             "<?php $name = \"x\"; echo <<<EOT\nhi $name\nEOT;\n",
             "foo.php",
             |metric| {
-                assert_eq!(metric.halstead.unique_operands(), 3);
-                assert_eq!(metric.halstead.total_operands(), 5);
+                assert_eq!(metric.halstead.unique_operands(), 2);
+                assert_eq!(metric.halstead.total_operands(), 3);
             },
         );
     }
@@ -3472,19 +3562,20 @@ f() {
         // Operands tallied by `get_id` (keyed on source bytes):
         //   `$obj`        × 3 (LHS assignment, member-access target,
         //                      inside the interpolated string)
-        //   `obj`  (name) × 3 (one per `variable_name`)
-        //   `prop` (name) × 2 (member-access RHS twice)
+        //   `prop` (name) × 2 (member-access RHS twice — a bare `name`
+        //                      outside any `variable_name`, so #1259's
+        //                      guard leaves it an operand)
         //   `stdClass`    × 1
         //   `"x"`         × 1
-        // ⇒ u_operands = 5, N2 = 10.
+        // ⇒ u_operands = 4, N2 = 7.
         // With the bug the wrapping `"Hi $obj->prop!"` text adds one
-        // more unique operand and one more occurrence ⇒ 6 / 11.
+        // more unique operand and one more occurrence ⇒ 5 / 8.
         check_metrics::<PhpParser>(
             "<?php $obj = new stdClass; $obj->prop = \"x\"; echo \"Hi $obj->prop!\";",
             "foo.php",
             |metric| {
-                assert_eq!(metric.halstead.unique_operands(), 5);
-                assert_eq!(metric.halstead.total_operands(), 10);
+                assert_eq!(metric.halstead.unique_operands(), 4);
+                assert_eq!(metric.halstead.total_operands(), 7);
             },
         );
     }
@@ -3500,15 +3591,17 @@ f() {
         //   <?php $arr = [1]; echo "Hi $arr[0]!";
         //
         // Operands tallied by `get_id`:
-        //   `$arr` × 2, `arr` × 2 (inner `name`), `1` × 1, `0` × 1.
-        // ⇒ u_operands = 4, N2 = 6.
+        //   `$arr` × 2, `1` × 1, `0` × 1.
+        // ⇒ u_operands = 3, N2 = 4.
         // With the bug the wrapping `"Hi $arr[0]!"` text adds 1 / 1.
+        // The inner `arr` leaf of each `variable_name` added a further
+        // 1 / 2 until #1259.
         check_metrics::<PhpParser>(
             "<?php $arr = [1]; echo \"Hi $arr[0]!\";",
             "foo.php",
             |metric| {
-                assert_eq!(metric.halstead.unique_operands(), 4);
-                assert_eq!(metric.halstead.total_operands(), 6);
+                assert_eq!(metric.halstead.unique_operands(), 3);
+                assert_eq!(metric.halstead.total_operands(), 4);
             },
         );
     }
@@ -3525,13 +3618,14 @@ f() {
         //
         // Source: `<?php $out = ` + backtick `ls` + backtick + `;`
         // Operands tallied by `get_id`:
-        //   `$out` × 1, `out` × 1 (inner `name`), backtick literal × 1.
-        // ⇒ u_operands = 3, N2 = 3.
-        // Before the fix the backtick literal vanished from the count
+        //   `$out` × 1, backtick literal × 1.
         // ⇒ u_operands = 2, N2 = 2.
+        // Before the fix the backtick literal vanished from the count
+        // ⇒ u_operands = 1, N2 = 1. (The inner `out` leaf of the
+        // `variable_name` added another 1 / 1 until #1259.)
         check_metrics::<PhpParser>("<?php $out = `ls`;", "foo.php", |metric| {
-            assert_eq!(metric.halstead.unique_operands(), 3);
-            assert_eq!(metric.halstead.total_operands(), 3);
+            assert_eq!(metric.halstead.unique_operands(), 2);
+            assert_eq!(metric.halstead.total_operands(), 2);
         });
     }
 
@@ -3550,17 +3644,17 @@ f() {
         //
         // Operands tallied by `get_id`:
         //   `$dir` × 2 (assignment LHS, inside backticks),
-        //   `dir`  × 2 (inner `name`),
-        //   `$out` × 1, `out` × 1, `"/tmp"` × 1.
-        // ⇒ u_operands = 5, N2 = 7.
+        //   `$out` × 1, `"/tmp"` × 1.
+        // ⇒ u_operands = 3, N2 = 4.
         // Without the interpolation guard the wrapping backtick literal
-        // would also count ⇒ u_operands = 6, N2 = 8.
+        // would also count ⇒ u_operands = 4, N2 = 5. The sigil-less
+        // `dir` / `out` leaves added a further 2 / 3 until #1259.
         check_metrics::<PhpParser>(
             "<?php $dir = \"/tmp\"; $out = `ls $dir`;",
             "foo.php",
             |metric| {
-                assert_eq!(metric.halstead.unique_operands(), 5);
-                assert_eq!(metric.halstead.total_operands(), 7);
+                assert_eq!(metric.halstead.unique_operands(), 3);
+                assert_eq!(metric.halstead.total_operands(), 4);
             },
         );
     }
