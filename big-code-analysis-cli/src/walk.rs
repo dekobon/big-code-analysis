@@ -385,10 +385,6 @@ pub(crate) fn expand_seed_paths(
     // per-call decision (only the gate pays for it), and none of the six
     // bundle under a name worth having — see `walk_directory_seed` for
     // the same trade.
-    // With ignore handling off nothing can be ignore-dropped, so the
-    // measurement short-circuits to empty rather than reporting every
-    // hidden-or-excluded child as a mystery.
-    let measure = measure_ignored && !no_ignore;
     if let Some(src) = paths_from {
         paths.extend(read_paths_from(&src).unwrap_or_else(|e| die(e)));
     }
@@ -453,9 +449,9 @@ pub(crate) fn expand_seed_paths(
         for path in walk.files {
             found.push_walked(path);
         }
-        if measure {
-            walked_dirs.push((seed, walk.dirs));
-        }
+        // Retained unconditionally — a few thousand paths at most — so
+        // the loop stays free of measurement branches.
+        walked_dirs.push((seed, walk.dirs));
     }
     // A walk that resolved zero files is almost always a mistake — an
     // over-narrow `--include`, an `--exclude` that swept everything, or
@@ -466,11 +462,12 @@ pub(crate) fn expand_seed_paths(
     if found.files.is_empty() {
         warn("0 files matched");
     }
-    let ignored = if measure {
-        measure_ignored_entries(&walked_dirs, &found.files, filters)
-    } else {
-        IgnoredEntries::default()
-    };
+    // With ignore handling off nothing can be ignore-dropped, so the
+    // measurement short-circuits to empty rather than reporting every
+    // hidden-or-excluded child as a mystery.
+    let ignored = (measure_ignored && !no_ignore)
+        .then(|| measure_ignored_entries(&walked_dirs, &found.files, filters))
+        .unwrap_or_default();
     ResolvedFiles {
         files: found.files,
         explicit_files: found.explicit_files,
@@ -493,12 +490,14 @@ fn measure_ignored_entries(
     kept_files: &[PathBuf],
     filters: &WalkFilters<'_>,
 ) -> IgnoredEntries {
-    let visited: std::collections::HashSet<&Path> = walked_dirs
-        .iter()
-        .flat_map(|(_, dirs)| dirs)
-        .map(PathBuf::as_path)
-        .collect();
-    let kept: std::collections::HashSet<&Path> = kept_files.iter().map(PathBuf::as_path).collect();
+    let walked = WalkedSets {
+        dirs: walked_dirs
+            .iter()
+            .flat_map(|(_, dirs)| dirs)
+            .map(PathBuf::as_path)
+            .collect(),
+        files: kept_files.iter().map(PathBuf::as_path).collect(),
+    };
     let mut ignored = IgnoredEntries::default();
     for (seed, dirs) in walked_dirs {
         for dir in dirs {
@@ -506,7 +505,7 @@ fn measure_ignored_entries(
                 continue;
             };
             for entry in entries.flatten() {
-                classify_dropped_child(&entry, seed, filters, &visited, &kept, &mut ignored);
+                classify_dropped_child(&entry, seed, filters, &walked, &mut ignored);
             }
         }
     }
@@ -520,46 +519,46 @@ fn measure_ignored_entries(
     ignored
 }
 
+/// What the walk produced, as membership sets: the directories it
+/// entered and the files it kept. [`classify_dropped_child`] consults
+/// both to tell "the walk saw this" from "an ignore rule dropped it".
+struct WalkedSets<'a> {
+    dirs: std::collections::HashSet<&'a Path>,
+    files: std::collections::HashSet<&'a Path>,
+}
+
 /// Classify one directory child the walk did not keep, recording it in
 /// `ignored` when only an ignore rule can explain the drop. Hidden
 /// entries and symlinks are what the walker skips unconditionally;
 /// exclude globs and unrecognized extensions are the walk's own
-/// filters; a directory the walker entered is in `visited`. What
-/// remains was pruned by ignore rules.
-// bca: suppress(nargs)
-// Six parameters: the three lookup structures and the two identity
-// arguments are each independently meaningful, and bundling them would
-// name a struct used by exactly one caller.
+/// filters; anything in `walked` the walk saw. What remains was pruned
+/// by ignore rules.
 fn classify_dropped_child(
     entry: &std::fs::DirEntry,
     seed: &Path,
     filters: &WalkFilters<'_>,
-    visited: &std::collections::HashSet<&Path>,
-    kept: &std::collections::HashSet<&Path>,
+    walked: &WalkedSets<'_>,
     ignored: &mut IgnoredEntries,
 ) {
-    // Hidden entries are dropped by `.hidden(true)` whether or not any
-    // ignore rule exists, so they carry no ignore signal.
-    if entry.file_name().as_encoded_bytes().starts_with(b".") {
-        return;
-    }
     // `DirEntry::file_type` does not follow symlinks, matching the
-    // walk's `follow_links(false)`: a symlink is dropped as a symlink,
-    // not as an ignore match.
+    // walk's `follow_links(false)`.
     let Ok(file_type) = entry.file_type() else {
         return;
     };
-    if file_type.is_symlink() {
+    // Hidden entries are dropped by `.hidden(true)` and symlinks by
+    // `follow_links(false)` whether or not any ignore rule exists, so
+    // neither carries an ignore signal.
+    if entry.file_name().as_encoded_bytes().starts_with(b".") || file_type.is_symlink() {
         return;
     }
     let path = entry.path();
     if file_type.is_dir() {
-        if !visited.contains(path.as_path()) {
+        if !walked.dirs.contains(path.as_path()) {
             ignored.dirs.push(path);
         }
         return;
     }
-    if !file_type.is_file() || kept.contains(path.as_path()) {
+    if !file_type.is_file() || walked.files.contains(path.as_path()) {
         return;
     }
     // A file no parser owns would have been read and skipped, not
@@ -567,13 +566,11 @@ fn classify_dropped_child(
     // `--language` forces every file to a parser. The extension half of
     // the language guess is all the walk can apply (the modeline and
     // shebang fallbacks need the bytes), mirroring
-    // `warn_exclude_overridden`.
-    if !filters.language_forced && get_language_for_file(&path).is_none() {
-        return;
-    }
-    // The walk's own include/exclude globs drop the file with ignore
-    // handling off too, so they own the explanation.
-    if filters.passes(&path, &walk_seed::match_path_for(seed, &path)) {
+    // `warn_exclude_overridden`. The walk's own include/exclude globs
+    // drop the file with ignore handling off too, so they own their
+    // explanation likewise.
+    let analyzable = filters.language_forced || get_language_for_file(&path).is_some();
+    if analyzable && filters.passes(&path, &walk_seed::match_path_for(seed, &path)) {
         ignored.files.push(path);
     }
 }
