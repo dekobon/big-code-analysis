@@ -150,14 +150,6 @@ fn dispatch_action(
     }
 }
 
-/// Apply the three pre-dispatch filters every CLI subcommand shares:
-/// read the file (bumping `files_dispatched` on success and
-/// `read_failures` on failure), skip empty files, skip
-/// generated files (unless we're producing preproc data — that
-/// pipeline genuinely needs every C/C++ file walked), and resolve
-/// the source language. Returns `Ok(None)` when the file should be
-/// skipped (logging the per-`cfg.warning` reason inline). Returns
-/// `Ok(Some((path, source, lang)))` to hand off to dispatch.
 /// Bump one of the `Config`'s optional post-walk tallies. Each counter
 /// is `None` for the flows that never read it, and every increment is
 /// a Relaxed add from a worker thread.
@@ -167,6 +159,14 @@ fn bump_tally(counter: Option<&Arc<std::sync::atomic::AtomicUsize>>) {
     }
 }
 
+/// Apply the three pre-dispatch filters every CLI subcommand shares:
+/// read the file (bumping `files_dispatched` on success and
+/// `read_failures` on failure), skip empty files, skip
+/// generated files (unless we're producing preproc data — that
+/// pipeline genuinely needs every C/C++ file walked), and resolve
+/// the source language. Returns `Ok(None)` when the file should be
+/// skipped (logging the per-`cfg.warning` reason inline). Returns
+/// `Ok(Some((path, source, lang)))` to hand off to dispatch.
 fn validate_and_resolve_file(
     path: PathBuf,
     cfg: &Config,
