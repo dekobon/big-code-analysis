@@ -96,6 +96,16 @@ for historical reference.
 
 ### Fixed
 
+- `bca check --baseline` rendered a malformed, double-signed
+  `[regr +-29%]` tag for every `mi.*` regression. `Baseline::classify`
+  has been direction-aware since #827 — for the lower-is-worse `mi.*`
+  family a *drop* below the recorded value is the regression — but the
+  tag formatter still computed `(value - recorded) / recorded` and
+  prefixed a literal `+`, so the percentage carried its own minus sign.
+  Anything grepping the documented `[regr +N%]` shape mis-parsed it. The
+  magnitude is now measured in the metric's own direction, keeping one
+  tag shape across every metric; the higher-is-worse rendering is
+  unchanged (#1242).
 - The VCS bot-author filter was case-sensitive despite
   `DEFAULT_BOT_PATTERN`'s doc promising the opposite since the option
   shipped. `BotFilter::new` compiled with a plain `Regex`, and

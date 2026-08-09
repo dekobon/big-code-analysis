@@ -199,7 +199,11 @@ Tag prefixes:
   written. See [Matching](#how-matching-works) for the resolution
   order.
 - `[regr +N%]` — the baseline contains a recorded value and the
-  current value is `N%` higher. Cases:
+  current value is `N%` worse. "Worse" is measured in the metric's own
+  direction, so for the lower-is-worse `mi.*` family a *drop* of `N%`
+  below the recorded value reads `+N%` like any other regression; the
+  tag has one shape across every metric, which is what makes it safe to
+  grep for. Cases:
   - `[regr from 0]` when the recorded value is `0.0` and a non-zero
     percentage would divide by zero.
   - `[regr +>9999%]` caps once the regression exceeds 100× the
