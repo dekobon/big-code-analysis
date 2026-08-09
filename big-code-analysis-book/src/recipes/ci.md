@@ -464,9 +464,18 @@ digest from above):
 * Adoption guide: https://dekobon.github.io/big-code-analysis/recipes/baselines.html
 ```
 
-The refresh invocation mirrors the gate's resolved `--paths`,
-`--exclude`, `--exclude-from`, `--config`, and `--baseline` so a
-first-time reader of a failing CI log can copy-paste it verbatim.
+The refresh invocation mirrors every flag the gate ran with that
+decides what a baseline records: the walk scope (`--paths`,
+`--include`, `--exclude`, `--exclude-from`, `--paths-from`), the
+walker tuning (`--language`, `--exclude-tests`,
+`--cyclomatic-count-try`, `--no-ignore`, `--no-skip-generated`,
+`--no-config`), and the gate's own inputs (`--config`, `--threshold`,
+`--tier`, `--no-suppress`, `--check-exclude`, `--check-exclude-from`,
+`--baseline-fuzzy-match`, `--baseline`). So a first-time reader of a
+failing CI log can copy-paste it verbatim. Flags that change only
+reporting or the exit code — `--jobs`, `--report-format`,
+`--output`, `--no-fail`, `--exit-codes` — are left off, since none
+can move an entry into or out of the file.
 The artifact URL is derived from `$GITHUB_REPOSITORY` and
 `$GITHUB_RUN_ID` when both are present (always true in GHA); local
 runs — where there is no upload to point at — instead suggest
