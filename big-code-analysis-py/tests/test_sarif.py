@@ -957,7 +957,7 @@ def test_to_sarif_unit_space_emits_file_placeholder() -> None:
     """A unit-level finding (for a File-scoped metric, #969) emits
     ``logicalLocations: [{fullyQualifiedName: '<file>'}]`` rather than
     duplicating the path that already appears in
-    ``artifactLocation.uri``. Matches the CLI's ``function_token``.
+    ``artifactLocation.uri``. Matches the CLI's ``qualified_symbol``.
     """
     code = "class A:\n    def m(self): pass\n"
     result = bca.analyze_source(code, "python")

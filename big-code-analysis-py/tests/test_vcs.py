@@ -486,9 +486,9 @@ def test_vcs_metrics_no_cache_writes_nothing(tmp_path: Path) -> None:
 
 
 def test_vcs_jit_commit_returns_report(tmp_path: Path) -> None:
-    """vcs_jit(repo, commit) returns the full commit JIT report (issue
+    """vcs.commit(repo, commit) returns the full commit JIT report (issue
     #331). The commit-mode report carries the score plus every feature
-    group, mirroring ``bca vcs jit``."""
+    group, mirroring ``bca vcs commit``."""
     repo = _build_repo(tmp_path)
     report = bca_vcs.commit(repo, commit="HEAD")
     assert report["jit_schema_version"] == 3
@@ -522,7 +522,7 @@ _SAMPLE_DIFF = (
 
 
 def test_vcs_jit_diff_mode_marks_unavailable_groups() -> None:
-    """vcs_jit(diff=...) scores an arbitrary diff (issue #580). Only size and
+    """vcs.score_diff(diff) scores an arbitrary diff (issue #580). Only size and
     diffusion are computable, so the report is marked ``source == "diff"``
     and the unavailable groups are ABSENT (not present as zero) — a consumer
     cannot read a missing group as "low risk"."""

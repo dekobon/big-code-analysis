@@ -85,9 +85,10 @@ the aggregate and so emitted these four only at leaf spaces, missing
 genuine interior breaches the CLI reports (#958).
 
 Unit findings carry `logicalLocations: [{"fullyQualifiedName":
-"<file>"}]`. Nameless non-unit spaces (rare parse-failure case)
-carry `"<unnamed>"` — both matching the CLI's `function_token`
-placeholders.
+"<file>"}]`. Every other space carries its qualified symbol. Within
+that symbol, a closure/lambda (the `<anonymous>` name every grammar
+emits) and the `None`-name parse-failure case both collapse to
+`<anon@L{start_line}>`, matching the CLI's `space_segment`.
 
 ## See also
 
