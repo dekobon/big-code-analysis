@@ -119,9 +119,9 @@ pub(crate) fn compute_since_diff(
     // creating any temp state, so nothing needs cleaning up on this path.
     diff::validate_since_ref(since_ref).unwrap_or_else(|reason| die(reason));
 
-    // Both sides are rooted at their own tree top (a `git archive`
-    // extraction of `<ref>` for the before side, the repo root for the
-    // after side) and pair on root-relative keys. Selection — `--paths`
+    // Both sides are rooted at their own tree top (the materialized
+    // `<ref>` tree for the before side, the repo root for the after
+    // side) and pair on root-relative keys. Selection — `--paths`
     // and the optional positional scope — must therefore be *relative*:
     // an absolute path addresses the live filesystem, not the extracted
     // <ref> tree, so it would walk the current tree for both sides and
@@ -143,11 +143,11 @@ pub(crate) fn compute_since_diff(
     // out of the `/tmp/…` extraction of `<ref>` (reaching unrelated host
     // files or nothing), while on the after side it climbs out of the
     // repo root — so the two sides walk different trees and the diff
-    // silently mis-pairs. `git archive` extractions never contain `..`
-    // path components, so any `..` in a selector cannot address real
-    // tracked files on the before side regardless. Reject it with the
-    // same clear message rather than produce a bogus all-zero / partial
-    // diff.
+    // silently mis-pairs. `materialize_tree` routes every path it
+    // materializes through `bytes_to_rel_path`, which rejects `..` and
+    // absolute components, so no `..` selector addresses a real tracked
+    // file on the before side regardless. Reject it with the same clear
+    // message rather than produce a bogus all-zero / partial diff.
     let escaping_selector = selectors().find(|p| escapes_root(p));
     if let Some(esc) = escaping_selector {
         die(format_args!(
@@ -184,8 +184,8 @@ pub(crate) fn compute_since_diff(
 
     // After side: always the working tree, rooted at the *git repo root*
     // (not the process CWD) so its root-relative keys line up with the
-    // before side — a `git archive` of the whole ref tree, always rooted
-    // at the repo top. This lets `bca diff --since` run from any
+    // before side — a materialization of the whole ref tree, always
+    // rooted at the repo top. This lets `bca diff --since` run from any
     // subdirectory. The optional positional is a relative *scope* folded
     // into both sides by `side_globals` (#497), never an alternate root,
     // so a subtree positional (`bca diff --since HEAD src`) selects the
@@ -232,7 +232,7 @@ pub(crate) fn side_globals(globals: &GlobalOpts, scope: Option<&Path>) -> Global
     // The `--since` positional is a relative path *scope*, not a tree
     // root: merge it into `--paths` so both sides walk the same subtree
     // and pair on the same keys (#497). Both sides are rooted at their
-    // own tree top (the `git archive` extraction / the repo root), so a
+    // own tree top (the materialized `<ref>` tree / the repo root), so a
     // scope of `src` selects `src/…` on each — never re-roots one side.
     if let Some(scope) = scope {
         side.paths.push(scope.to_path_buf());
