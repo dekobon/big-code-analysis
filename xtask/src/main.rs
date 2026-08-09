@@ -472,6 +472,29 @@ mod tests {
         );
     }
 
+    // Classifying before unlinking also means every conflict is known
+    // by the time the error is built, so a contributor renaming two
+    // commands at once fixes both in one pass instead of rediscovering
+    // the second on the next run. Order is `fs::read_dir` order and so
+    // unspecified — assert presence, never position.
+    #[test]
+    fn sweep_error_names_every_case_only_rename() {
+        let tmp = TempDir::new().expect("tempdir");
+        touch(tmp.path(), "bca.1");
+        touch(tmp.path(), "bca-web.1");
+
+        let err = sweep_orphans(tmp.path(), &["BCA.1".to_string(), "BCA-WEB.1".to_string()])
+            .expect_err("case-only renames must not be swept silently");
+
+        let msg = err.to_string();
+        for stale in ["bca.1", "bca-web.1"] {
+            assert!(
+                msg.contains(&format!("`rm man/{stale}`")),
+                "error must name every conflict; `{stale}` missing from: {msg}"
+            );
+        }
+    }
+
     // The shared relation is `eq_ignore_ascii_case`, which folds only
     // ASCII — so a non-ASCII case difference is *not* a match and the
     // entry is swept as an ordinary orphan. That limitation is the one
