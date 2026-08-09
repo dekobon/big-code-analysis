@@ -335,6 +335,9 @@ impl Accumulator {
     }
 }
 
+/// Whole days between an earlier timestamp and `now`, clamped at zero so
+/// a future-dated commit (clock skew) reads as "today" rather than a
+/// negative age.
 fn days_between(earlier: i64, now: i64) -> u32 {
     // Saturating for the same reason the window boundaries are
     // (`options::window_boundary`, #1271): `earlier` is a committer
