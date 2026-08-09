@@ -167,7 +167,7 @@ make fuzz-tmin FUZZ_TARGET=parse_cpp FUZZ_INPUT=fuzz/artifacts/parse_cpp/<file>
 --all` stops at the workspace, and `fuzz/` is excluded from it.
 
 Both run targets take `FUZZ_RUNS` (default 100 000) and `FUZZ_TIMEOUT`
-(default 10 seconds per input). Every recipe skips with a printed reason
+(default 60 seconds per input). Every recipe skips with a printed reason
 when nightly or `cargo-fuzz` is absent, so a stable-only checkout is not
 blocked.
 
@@ -179,8 +179,15 @@ neither result can be checked.
 `FUZZ_TIMEOUT` is a separate thing — a per-input limit — but it is
 wall-clock too, and that limits what it can be trusted to mean. It
 reliably catches an *unbounded* loop, where no timeout value would
-matter. It is **not** a complexity gate on a loaded machine, and the
-default of 10 seconds assumes the targets are running one at a time.
+matter. It is **not** a complexity gate, even on an idle machine: the
+slowest *legitimate* input measured so far — `nested_depth`'s 5-byte
+seed decoding to 508 alternating `Block`/`Lambda` levels of
+JavaScript — takes **11 s** when run solo under ASan plus the harness's
+ten-walk fan-out, while the 4.8 KB JavaScript file it generates costs
+0.06 s through `bca metrics` in a plain release build. The default of
+60 seconds is that measurement plus ~5x headroom (#1308; the previous
+default of 10 failed on correct behaviour), and it still assumes the
+targets are running one at a time.
 
 Measured, because this bit a parallel sweep for #1154: `nested_depth`
 reported a timeout on a 7-byte input while ten sibling targets shared 16
