@@ -90,6 +90,10 @@ for historical reference.
   against a lockfile resolving 0.15.22), which stays invisible until the two
   versions disagree and then presents as "works locally, red in CI" (#1230).
 
+- **web:** `error_kind` token `vcs_invalid_author_hash_key`. The
+  `STABILITY.md` vocabulary list also gains `not_acceptable` and
+  `serialize_failed`, added by #657 and never documented (#1245).
+
 ### Fixed
 
 - `fix_includes` returned its diagnostics in a different order on every
@@ -117,6 +121,93 @@ for historical reference.
   `cpp_ast_source_reflects_preproc_expansion`; the `C` arm had nothing.
   Found while verifying that the new `preproc_macro` fuzz target is not
   vacuous (#1154).
+
+- **Halstead, PHP:** variable references no longer count twice. `$x` parses
+  as a `variable_name` wrapping a `name` leaf and both were classified as
+  operands, so `N2` roughly doubled on variable-dense PHP and `n2` carried a
+  sigil-less twin per variable; variable-variable syntax compounded it (`$$a`
+  scored 3, `$$$b` scored 4). `Name` is now suppressed under a
+  `variable_name` or `dynamic_variable_name` parent, and those wrappers under
+  a `dynamic_variable_name` parent, so every reference counts once at any
+  nesting depth. Volume, difficulty, effort and MI change for every PHP file
+  (#1259).
+
+- **Halstead, Elixir and C#:** `true` / `false` / `nil` / `null` literals no
+  longer count twice in `N2`. The grammar wraps the keyword leaf in a named
+  literal node and `get_op_type` classified both as operands; because
+  operands are keyed by source text, `n2` hid the duplication while `N2` —
+  and the length, volume, difficulty and effort derived from it — inflated by
+  one per literal occurrence. Elixir drops the leaves outright; C# parent-
+  guards them, because `operator true` emits a bare leaf with no
+  `boolean_literal` wrapper (#1253).
+
+- **ABC, Java and Groovy:** generic type syntax is no longer counted as
+  conditions. A generic declaration (`class Gen<T>`, `<T> void m()`, Groovy's
+  `def <U> U m(U x)`) scored two conditions per bracket pair, and a wildcard
+  bound (`List<? extends T>`) scored one as a phantom ternary. Both tokens
+  are now gated on their parent node kind, matching the polarity C, C++,
+  Objective-C, mozcpp, Rust and Go already use (#1274).
+
+- **npm, C++ and Mozcpp:** a templated member function with an inline body
+  was not counted. The `template_declaration` guard resolves through a shared
+  helper that hunted a `function_declarator`, but a templated member *with a
+  body* parses as `template_declaration > function_definition` and has no
+  such node at that level — so the method scored zero while `nom` opened a
+  function space for it and `wmc` weighted its cyclomatic, leaving three
+  metrics disagreeing about one class. The helper now accepts a
+  `function_definition` child outright rather than recursing into it, which
+  also fixes a templated conversion operator (whose declarator is an
+  `operator_cast`, so no `function_declarator` exists at any depth). C++
+  `npm` values rise on classes with templated inline-bodied members (#1258).
+
+- `bca count -t call` and `bca find call` reported 0 on all C, C++ and Mozcpp
+  source. `Checker::is_call` matched only the unsuffixed `CallExpression`
+  kind_id, which is the grammar's always-aliased `preproc_call_expression`
+  and never reaches `kind_id()`; every real call carries the aliased variant.
+  No metric values are affected (#1254).
+
+- **web:** a misused `author_hash_key` on `POST /v1/vcs` and `/v1/vcs/trend`
+  reported `error_kind: "vcs_internal_error"`, the token reserved for backend
+  faults, so a client branching on the token saw its own mistake as a server
+  failure. It now carries `vcs_invalid_author_hash_key`. The status was
+  already correct (`400`) (#1245).
+
+- `bca metrics --output <FILE>` and `bca ops --output <FILE>` wrote the
+  aggregate document's per-file elements in worker-completion order, so two
+  runs over an unchanged tree produced differently-ordered files at
+  `--jobs > 1`. The elements are now sorted by emitted path in every format
+  (JSON, YAML, TOML, CBOR, CSV), making the artifact diffable and usable as a
+  cache key. Multi-seed runs change too: the walk sorts per seed and
+  concatenates, so `bca metrics -p b -p a --output x.json` previously emitted
+  `b`'s files first and now emits one globally sorted document (#1244).
+
+- `bca check`'s remediation block printed a baseline-refresh command in the
+  pre-#597 flag order (`bca --paths … check …`), which exits 1 with a clap
+  usage error. The command now names the `check` subcommand first and mirrors
+  every flag that decides what `--write-baseline` records — including
+  `--threshold`, `--no-config`, `--check-exclude` and `--check-exclude-from`,
+  without which the suggested refresh wrote a different baseline than the
+  gate measured, or failed outright (#1243).
+
+- The man-page drift gate now fails on a *newly generated* page.
+  `git diff --exit-code -- man/` reports tracked content only, so the page
+  `cargo xtask` writes for a brand-new subcommand passed both the CI
+  `manpage` job and `make manpages-check` green and silently never shipped.
+  The check moved out of the two hand-mirrored shell blocks into
+  `utils/check-manpage-drift.py`, which both sites now call, and covers
+  modified, deleted, and added pages (#1249).
+
+- `cargo xtask` deleted the man page it had just written when a command was
+  renamed case-only, on macOS/APFS and Windows/NTFS, while still exiting 0.
+  `render_man_page`'s collision guard folded ASCII case; `sweep_orphans`
+  compared byte-for-byte. Because case-insensitive filesystems are also
+  case-preserving, the write for `BCA.1` landed in the existing `bca.1`
+  directory entry and the case-sensitive sweep then unlinked it as an orphan.
+  The relation now has a single definition that both sites call, and the
+  sweep classifies three ways rather than two: byte-equal keeps, no match
+  removes, and a case-only match is refused with an error naming every
+  conflicting spelling (#1250).
+
 - The pre-tag `cargo publish --dry-run` for `big-code-analysis` was skipped
   on every release, not only the first. It was gated on a crates.io sparse
   index probe for a leaf version that the Lockstep policy guarantees is the
