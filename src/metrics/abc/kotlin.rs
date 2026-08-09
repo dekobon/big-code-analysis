@@ -190,7 +190,11 @@ impl Abc for KotlinCode {
             // access (`arr[i]`) is NOT a branch (it's an operator on a
             // sequence), matching the Java rule of "method invocation
             // only".
-            CallExpression => {
+            // `ConstructorDelegationCall` is a secondary constructor's
+            // `: super(…)` / `: this(…)`. It is a distinct production
+            // rather than a `CallExpression`, so it scored zero while the
+            // same source in Java, C# and Groovy scores one (#1279).
+            CallExpression | ConstructorDelegationCall => {
                 stats.branches += 1.;
             }
             // Conditions: comparison operators, identity equality,

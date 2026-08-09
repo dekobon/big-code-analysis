@@ -1498,6 +1498,93 @@ mod tests {
     }
 
     #[test]
+    fn java_constructor_delegation_is_a_branch() {
+        // Regression for #1279: `super(…)` / `this(…)` parse as
+        // `explicit_constructor_invocation`, not `method_invocation`, so
+        // each scored zero branches while Groovy scored one for identical
+        // source. Both constructors delegate, and neither body contains any
+        // other call.
+        // expected: 2 branches — one delegation each.
+        check_metrics::<JavaParser>(
+            "class Sub extends Base {
+                Sub() { super(1); }
+                Sub(int a) { this(); }
+            }",
+            "foo.java",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn java_constructor_delegation_does_not_double_count_arguments() {
+        // The delegation node does not wrap a `method_invocation` for the
+        // call itself, so `super(f())` is exactly two branches — the
+        // delegation and the argument call — not three (#1279).
+        // expected: 2 branches.
+        check_metrics::<JavaParser>(
+            "class Sub extends Base {
+                Sub() { super(f()); }
+            }",
+            "foo.java",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_constructor_initializer_is_a_branch() {
+        // C# spells the same delegation as a `constructor_initializer`
+        // (`: base(…)` / `: this(…)`), which likewise scored zero (#1279).
+        // expected: 2 branches — one initializer each, no other calls.
+        check_metrics::<CsharpParser>(
+            "class Sub : Base {
+                Sub() : base(1) { }
+                Sub(int a) : this() { }
+            }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_constructor_delegation_is_a_branch() {
+        // Kotlin's secondary-constructor delegation is a
+        // `constructor_delegation_call`, a distinct production from
+        // `CallExpression`, so it scored zero for the same reason (#1279).
+        // expected: 1 branch — the `: super(x)` delegation.
+        check_metrics::<KotlinParser>(
+            "class Sub : Base {
+                constructor(x: Int) : super(x) { }
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 1);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_constructor_delegation_is_a_branch() {
+        // Groovy already counted this shape before #1279; the assertion
+        // pins the JVM-family parity the Java and Kotlin fixes restore.
+        // expected: 1 branch — the `super(1)` delegation.
+        check_metrics::<GroovyParser>(
+            "class Sub extends Base {
+                Sub() { super(1) }
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 1);
+            },
+        );
+    }
+
+    #[test]
     fn groovy_no_abc() {
         // Comment-only file has no executable code → all-zero ABC.
         check_metrics::<GroovyParser>(
