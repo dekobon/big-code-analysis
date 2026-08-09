@@ -51,8 +51,24 @@ impl Checker for CppCode {
         node.kind_id() == Cpp::LambdaExpression
     }
 
+    // See `CCode::is_call` (#1254): the unsuffixed variant is the
+    // grammar's always-aliased `preproc_call_expression` and never
+    // reaches `kind_id()`, so every real call — free, member (`o.m()` /
+    // `p->m()`), qualified (`ns::f()`) and through a function pointer —
+    // arrives as `CallExpression2`. Kept listed defensively.
+    //
+    // `new_expression` is deliberately not listed: object creation is an
+    // ABC concern rather than a call site, matching Groovy / Java / C#
+    // (#430) — note the ABC walker in `src/metrics/abc/cpp.rs` *does*
+    // count it. This excludes `new T(4)` and declaration-position
+    // `T t(1)` only. Functional-style construction (`return T(4)`) is
+    // still counted, because tree-sitter-cpp emits it as an ordinary
+    // `call_expression` and nothing in the tree distinguishes it.
     fn is_call(node: &Node) -> bool {
-        node.kind_id() == Cpp::CallExpression
+        matches!(
+            node.kind_id().into(),
+            Cpp::CallExpression | Cpp::CallExpression2
+        )
     }
 
     // C's `(void)` marker, shared with C++, Mozcpp and Objective-C.

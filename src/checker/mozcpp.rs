@@ -51,8 +51,16 @@ impl Checker for MozcppCode {
         node.kind_id() == Mozcpp::LambdaExpression
     }
 
+    // See `CCode::is_call` (#1254). The Mozilla fork inherits upstream
+    // C++'s always-aliased `preproc_call_expression`, so the unsuffixed
+    // variant never reaches `kind_id()` here either. Kept listed
+    // defensively; `new_expression` deliberately not listed, with the same
+    // scope and the same functional-style caveat as `CppCode::is_call`.
     fn is_call(node: &Node) -> bool {
-        node.kind_id() == Mozcpp::CallExpression
+        matches!(
+            node.kind_id().into(),
+            Mozcpp::CallExpression | Mozcpp::CallExpression2
+        )
     }
 
     // C's `(void)` marker, shared with C++, Mozcpp and Objective-C.
