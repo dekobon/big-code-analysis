@@ -30,6 +30,14 @@ impl Getter for PhpCode {
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> HalsteadType {
         use Php::*;
+        // FIXME(#1314): `LBRACE` is both the compound-statement
+        // brace and the complex-interpolation opener (documented
+        // below for the operand decision), so `"dq {$y} end"`
+        // fabricates a block. Unlike #1312's Ruby/Perl mirrors this
+        // needs a policy call first: Kotlin's `${` and C#'s
+        // `interpolation_brace` are distinct kinds and are not
+        // counted, while Ruby's `#{` is. Settle the rule across all
+        // four before guarding here.
         match node.kind_id().into() {
             // Operator: control-flow keywords
             If | Else | Elseif | Endif

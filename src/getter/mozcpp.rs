@@ -76,6 +76,10 @@ impl Getter for MozcppCode {
 
         // `LPAREN2` is a defensive arm (collapsed to `LPAREN` before
         // `kind_id()`; #768, see the Cpp note).
+        //
+        // FIXME(#1314): a raw string's `R"(` delimiter is an `LPAREN`
+        // child of `RawStringLiteral` and fabricates a call; see the
+        // Cpp sibling, which carries the same gap.
         match node.kind_id().into() {
             DOT | DOTSTAR | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return
             | Break | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do

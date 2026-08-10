@@ -14,15 +14,37 @@ impl Getter for PerlCode {
         }
     }
 
-    fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> HalsteadType {
         use Perl as P;
 
         match node.kind_id().into() {
-            // FIXME(#1312): regex delimiter counted as division — the
-            // `SLASH` arm below also matches a bare `PatternMatcher`
-            // literal's delimiter tokens; see #1256's parent-guard
-            // pattern.
+            // Regex delimiter punctuation. The bare match form is the
+            // only one of Perl's five regex literals that spells its
+            // delimiters with an operator token kind: `bca dump` at the
+            // pinned grammar shows `/abc/` emitting two `SLASH` under
+            // `PatternMatcher`, while `m//`, `qr//`, `s///` and `tr///`
+            // use the dedicated `StartDelimiter` / `SeparatorDelimiter`
+            // / `EndDelimiter` kinds that no arm here classifies. So
+            // `$s =~ /abc/` fabricated two division operators (#1312,
+            // the Perl sibling of Elixir #1256). Suppress them exactly
+            // when their parent is the literal — the compound-leaf
+            // guard of grammar-dispatch §5 — which leaves the bare form
+            // contributing what its four synonyms already contribute.
             //
+            // FIXME(#1314): what all five contribute is *nothing* — no
+            // Perl regex wrapper is in the operand arm below, so the
+            // literal itself never counts, unlike Ruby's `Regex` and
+            // Elixir's `Sigil`. Promoting only the bare form would
+            // score `/abc/` at one operand and its synonyms at zero,
+            // so it is the same gap #1314 records for the JS family
+            // and wants closed across all five wrappers at once.
+            P::SLASH
+                if ancestors
+                    .parent(node)
+                    .is_some_and(|p| p.kind_id() == P::PatternMatcher as u16) =>
+            {
+                HalsteadType::Unknown
+            }
             // Control-flow and declaration keywords. `Perl::Sub` is the
             // `sub` keyword (token id 16); `Perl::SUB` is the `__SUB__`
             // literal (token id 7) — that one is an operand, not an

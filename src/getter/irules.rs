@@ -18,6 +18,9 @@ impl Getter for IrulesCode {
     }
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> HalsteadType {
+        // FIXME(#1314): a braced *word* carries its `{` as an
+        // `LBRACE` child and fabricates a block; see the Tcl
+        // sibling, which carries the same gap.
         match node.kind_id().into() {
             // Anonymous keyword tokens (the `*2` aliases are the keyword
             // literals; the unsuffixed high-id variants are the statement
