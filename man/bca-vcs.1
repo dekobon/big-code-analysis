@@ -4,10 +4,16 @@
 .SH NAME
 bca\-vcs \- Rank files by change\-history (VCS) risk: churn, commit and author counts, ownership dilution, and bug\- / security\-fix history over a git working tree. Errors clearly outside a repo
 .SH SYNOPSIS
-\fBbca\-vcs\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-no\-config\fR] [\fB\-j\fR|\fB\-\-jobs\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-cyclomatic\-count\-try\fR] [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-pretty\fR] [\fB\-\-long\-window\fR] [\fB\-\-recent\-window\fR] [\fB\-\-top\fR] [\fB\-\-file\-types\fR] [\fB\-\-ref\fR] [\fB\-\-full\-history\fR] [\fB\-\-include\-merges\fR] [\fB\-\-no\-follow\-renames\fR] [\fB\-\-no\-exclude\-bots\fR] [\fB\-\-bot\-pattern\fR] [\fB\-\-as\-of\fR] [\fB\-\-risk\-formula\fR] [\fB\-\-emit\-author\-details\fR] [\fB\-\-author\-hash\-key\fR] [\fB\-\-include\-deleted\fR] [\fB\-\-bus\-factor\-threshold\fR] [\fB\-\-no\-cache\fR] [\fB\-\-clear\-cache\fR] [\fB\-\-cache\-dir\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIsubcommands\fR]
+\fBbca\-vcs\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-w\fR|\fB\-\-warnings\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-\-report\-skipped\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-no\-config\fR] [\fB\-j\fR|\fB\-\-jobs\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-cyclomatic\-count\-try\fR] [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-pretty\fR] [\fB\-\-long\-window\fR] [\fB\-\-recent\-window\fR] [\fB\-\-top\fR] [\fB\-\-file\-types\fR] [\fB\-\-ref\fR] [\fB\-\-full\-history\fR] [\fB\-\-include\-merges\fR] [\fB\-\-no\-follow\-renames\fR] [\fB\-\-no\-exclude\-bots\fR] [\fB\-\-bot\-pattern\fR] [\fB\-\-as\-of\fR] [\fB\-\-risk\-formula\fR] [\fB\-\-emit\-author\-details\fR] [\fB\-\-author\-hash\-key\fR] [\fB\-\-include\-deleted\fR] [\fB\-\-bus\-factor\-threshold\fR] [\fB\-\-no\-cache\fR] [\fB\-\-clear\-cache\fR] [\fB\-\-cache\-dir\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIsubcommands\fR]
 .SH DESCRIPTION
 Rank files by change\-history (VCS) risk: churn, commit and author counts, ownership dilution, and bug\- / security\-fix history over a git working tree. Errors clearly outside a repo
 .SH OPTIONS
+.TP
+\fB\-w\fR, \fB\-\-warnings\fR
+Print warnings (skipped files, unrecognized languages). `\-\-warning` (singular) is kept as a hidden alias for one release cycle and is slated for removal in the next major
+.TP
+\fB\-\-report\-skipped\fR
+Log a "skipped (generated): <path>" line to stderr for each file auto\-skipped by the generated\-code detector. Useful for auditing which files were excluded
 .TP
 \fB\-O\fR, \fB\-\-format\fR \fI<FORMAT>\fR
 Output format. When omitted, the human\-readable ranked `text` table is printed; pass `\-\-format text` to request it explicitly. `markdown` / `html` render a sortable report page like `bca report`; `json` / `yaml` / `toml` / `cbor` / `csv` emit structured data. `\-\-output\-format` is accepted as a deprecated alias

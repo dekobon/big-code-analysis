@@ -4,13 +4,16 @@
 .SH NAME
 bca\-vcs\-commit \- Score a single commit for defect\-induction risk — the just\-in\-time (JIT) defect\-prediction unit a CI gate reviews at check\-in. Emits a JSON breakdown of size / diffusion / history / experience / purpose features, their contributions, and an ordinal composite score. Window / `\-\-ref` / bot / merge / rename behaviour comes from the parent `vcs` flags. The old `jit` spelling stays a hidden alias for one release cycle
 .SH SYNOPSIS
-\fBbca\-vcs\-commit\fR [\fB\-\-diff\fR] [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-pretty\fR] [\fB\-\-fail\-above\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fICOMMIT\fR] 
+\fBbca\-vcs\-commit\fR [\fB\-\-diff\fR] [\fB\-w\fR|\fB\-\-warnings\fR] [\fB\-O\fR|\fB\-\-format\fR] [\fB\-\-report\-skipped\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-pretty\fR] [\fB\-\-fail\-above\fR] [\fB\-\-long\-window\fR] [\fB\-\-recent\-window\fR] [\fB\-\-ref\fR] [\fB\-\-full\-history\fR] [\fB\-\-include\-merges\fR] [\fB\-\-no\-follow\-renames\fR] [\fB\-\-no\-exclude\-bots\fR] [\fB\-\-bot\-pattern\fR] [\fB\-\-as\-of\fR] [\fB\-\-risk\-formula\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fICOMMIT\fR] 
 .SH DESCRIPTION
 Score a single commit for defect\-induction risk — the just\-in\-time (JIT) defect\-prediction unit a CI gate reviews at check\-in. Emits a JSON breakdown of size / diffusion / history / experience / purpose features, their contributions, and an ordinal composite score. Window / `\-\-ref` / bot / merge / rename behaviour comes from the parent `vcs` flags. The old `jit` spelling stays a hidden alias for one release cycle
 .SH OPTIONS
 .TP
 \fB\-\-diff\fR \fI<FILE>\fR
 Score a `git diff` instead of a commit. Reads the diff from the given file, or from stdin when the value is `\-`. The input must be a git\-style unified diff with `diff \-\-git` file headers (as produced by `git diff` / `git format\-patch`); plain `diff \-u` output without those headers and combined / merge diffs (`git diff \-\-cc`, `@@@` headers) are not supported. A bare diff has no author / parent / history, so ONLY the size and diffusion groups are scored; the result is a deliberately PARTIAL report (history / experience / purpose are marked unavailable, not zero) and its score is NOT comparable to a commit score. Mutually exclusive with the positional commit spec
+.TP
+\fB\-w\fR, \fB\-\-warnings\fR
+Print warnings (skipped files, unrecognized languages). `\-\-warning` (singular) is kept as a hidden alias for one release cycle and is slated for removal in the next major
 .TP
 \fB\-O\fR, \fB\-\-format\fR \fI<FORMAT>\fR [default: json]
 Output format (`json` default, plus `yaml` / `toml` / `cbor`)
@@ -29,6 +32,9 @@ toml
 cbor
 .RE
 .TP
+\fB\-\-report\-skipped\fR
+Log a "skipped (generated): <path>" line to stderr for each file auto\-skipped by the generated\-code detector. Useful for auditing which files were excluded
+.TP
 \fB\-o\fR, \fB\-\-output\fR \fI<OUTPUT>\fR
 Output file. Stdout if omitted (CBOR requires this flag — it is binary)
 .TP
@@ -38,8 +44,48 @@ Pretty\-print JSON / TOML output
 \fB\-\-fail\-above\fR \fI<SCORE>\fR
 Fail the gate (exit code 2, the `check` "metric gate" convention) when the composite score is at or above this threshold. For use as a CI gate. The score is ordinal, so calibrate the threshold against the repository\*(Aqs own commit\-score distribution. The old `\-\-fail\-over` spelling stays a hidden alias for one release cycle
 .TP
+\fB\-\-long\-window\fR \fI<LONG_WINDOW>\fR [default: 12mo]
+Long observation window (`12mo`, `2y`, `52w`, `365d`, or ISO 8601 `P1Y`). Accepted in the parent or subcommand position
+.TP
+\fB\-\-recent\-window\fR \fI<RECENT_WINDOW>\fR [default: 90d]
+Recent observation window. Accepted in the parent or subcommand position
+.TP
+\fB\-\-ref\fR \fI<REFERENCE>\fR
+Revision to analyze (defaults to `HEAD`). Accepted in the parent or `trend` subcommand position, but rejected under `commit`, which names its commit positionally
+.TP
+\fB\-\-full\-history\fR
+Walk the full commit DAG rather than first\-parent only
+.TP
+\fB\-\-include\-merges\fR
+Include merge commits (skipped by default)
+.TP
+\fB\-\-no\-follow\-renames\fR
+Do not follow file renames across history
+.TP
+\fB\-\-no\-exclude\-bots\fR
+Do not exclude bot author identities
+.TP
+\fB\-\-bot\-pattern\fR \fI<BOT_PATTERN>\fR
+Override the bot\-author exclusion regex. Matched case\-insensitively against both the author name and the email; prefix `(?\-i)` to match case exactly
+.TP
+\fB\-\-as\-of\fR \fI<AS_OF>\fR
+Reference "now" for reproducible runs (RFC 3339, `@unix`, or any git date spelling). Defaults to wall\-clock time
+.TP
+\fB\-\-risk\-formula\fR \fI<RISK_FORMULA>\fR [default: weighted]
+Composite risk\-score formula
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+weighted: Log\-scaled weighted sum with categorical bumps (default)
+.IP \(bu 2
+percentile: Per\-signal percentile rank within the analyzed set, averaged
+.RE
+.TP
 \fB\-h\fR, \fB\-\-help\fR
-Print help
+Print help (see a summary with \*(Aq\-h\*(Aq)
 .TP
 [\fICOMMIT\fR] [default: HEAD]
 Commit / revision to score (any git revision spelling: a SHA, a tag, `HEAD`, `main~3`, …). Scored against its first parent. Mutually exclusive with `\-\-diff`

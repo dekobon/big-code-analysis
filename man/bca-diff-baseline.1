@@ -4,7 +4,7 @@
 .SH NAME
 bca\-diff\-baseline \- Diff two `.bca\-baseline.toml` files and report what was added, removed, worsened, or improved. Replaces the in\-the\-head TOML diff parsing the book\*(Aqs PR\-review recipe used to walk through. Exits 0 on success by default — the diff is informational, not a gate. With `\-\-exit\-code`, exits 2 when the filtered diff is non\-empty
 .SH SYNOPSIS
-\fBbca\-diff\-baseline\fR [\fB\-O\fR|\fB\-\-format\fR] [\fB\-\-added\-only\fR] [\fB\-\-removed\-only\fR] [\fB\-\-worsened\-only\fR] [\fB\-\-improved\-only\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-strip\-prefix\fR] [\fB\-\-exit\-code\fR] [\fB\-h\fR|\fB\-\-help\fR] <\fIOLD\fR> <\fINEW\fR> 
+\fBbca\-diff\-baseline\fR [\fB\-O\fR|\fB\-\-format\fR] [\fB\-w\fR|\fB\-\-warnings\fR] [\fB\-\-added\-only\fR] [\fB\-\-report\-skipped\fR] [\fB\-\-removed\-only\fR] [\fB\-\-worsened\-only\fR] [\fB\-\-improved\-only\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-strip\-prefix\fR] [\fB\-\-exit\-code\fR] [\fB\-h\fR|\fB\-\-help\fR] <\fIOLD\fR> <\fINEW\fR> 
 .SH DESCRIPTION
 Diff two `.bca\-baseline.toml` files and report what was added, removed, worsened, or improved. Replaces the in\-the\-head TOML diff parsing the book\*(Aqs PR\-review recipe used to walk through. Exits 0 on success by default — the diff is informational, not a gate. With `\-\-exit\-code`, exits 2 when the filtered diff is non\-empty
 .SH OPTIONS
@@ -24,8 +24,14 @@ markdown
 json
 .RE
 .TP
+\fB\-w\fR, \fB\-\-warnings\fR
+Print warnings (skipped files, unrecognized languages). `\-\-warning` (singular) is kept as a hidden alias for one release cycle and is slated for removal in the next major
+.TP
 \fB\-\-added\-only\fR
 Render only the "Added" section (combinable with the other `\-\-*\-only` flags). Ignored by `\-\-format json`
+.TP
+\fB\-\-report\-skipped\fR
+Log a "skipped (generated): <path>" line to stderr for each file auto\-skipped by the generated\-code detector. Useful for auditing which files were excluded
 .TP
 \fB\-\-removed\-only\fR
 Render only the "Removed" section. Ignored by `\-\-format json`

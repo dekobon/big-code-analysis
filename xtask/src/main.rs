@@ -63,13 +63,13 @@ fn run_manpages(workspace_root: &Path) -> io::Result<()> {
     // pointless `bca metrics --version` at runtime.
     let mut expected = Vec::<String>::new();
     render_tree(
-        &big_code_analysis_cli::Cli::command(),
+        big_code_analysis_cli::Cli::command(),
         &out_dir,
         &mut expected,
     )?;
     // `bca-web` has no subcommands; the recursion is a no-op for it.
     render_tree(
-        &big_code_analysis_web::cli::Opts::command(),
+        big_code_analysis_web::cli::Opts::command(),
         &out_dir,
         &mut expected,
     )?;
@@ -84,6 +84,26 @@ fn run_manpages(workspace_root: &Path) -> io::Result<()> {
 
     println!("Wrote man pages to {}", out_dir.display());
     Ok(())
+}
+
+/// Build a root `Command` so its `global = true` args reach every
+/// subcommand before we render any page from the tree.
+///
+/// clap copies a global arg into its subcommands only inside
+/// `Command::build()` (`_build_self` -> `_propagate_global_args`).
+/// `clap_mangen::Man::new` does call `build()`, but on the *isolated*
+/// clone it is handed — a subcommand plucked out of an unbuilt parent
+/// has no parent left to inherit from, so the globals were simply
+/// absent. That silently dropped `-w/--warnings` and `--report-skipped`
+/// from all 18 subcommand pages, and the whole `vcs` history-tuning
+/// family from `bca-vcs-commit.1` / `bca-vcs-trend.1` (#1248).
+///
+/// `build()` is recursive, so one call per root also fixes the nested
+/// `vcs commit` / `vcs trend` pages, and re-building inside `Man::new`
+/// is idempotent (guarded by clap's `AppSettings::Built`).
+fn built(mut cmd: clap::Command) -> clap::Command {
+    cmd.build();
+    cmd
 }
 
 /// Whether two `*.1` filenames can name the same physical file.
@@ -216,10 +236,17 @@ fn sweep_orphans(out_dir: &Path, expected: &[String]) -> io::Result<()> {
     Ok(())
 }
 
-fn render_tree(cmd: &clap::Command, out_dir: &Path, expected: &mut Vec<String>) -> io::Result<()> {
-    let version = cmd.get_version().unwrap_or("unknown").to_string();
-    render_man_page(cmd, &version, out_dir, expected)?;
-    render_subcommands(cmd, cmd.get_name(), &version, out_dir, expected)
+/// Render `root` and every subcommand under it.
+///
+/// Takes the root **by value** and builds it here rather than accepting
+/// a `&Command` the caller prepared: rendering from an *unbuilt* root is
+/// precisely the #1248 bug, and owning the build is what stops a future
+/// caller from reintroducing it.
+fn render_tree(root: clap::Command, out_dir: &Path, expected: &mut Vec<String>) -> io::Result<()> {
+    let root = built(root);
+    let version = root.get_version().unwrap_or("unknown").to_string();
+    render_man_page(&root, &version, out_dir, expected)?;
+    render_subcommands(&root, root.get_name(), &version, out_dir, expected)
 }
 
 fn render_subcommands(
@@ -234,10 +261,22 @@ fn render_subcommands(
             continue;
         }
         let full_name = format!("{prefix}-{}", sub.get_name());
-        // Recurse first so we can hand ownership of `full_name` to clap
-        // on the last line — avoids cloning it for the recursion.
         render_subcommands(sub, &full_name, version, out_dir, expected)?;
-        let sub_cmd = sub.clone().name(full_name);
+        // Re-pin the bin name alongside the page name. Building the root
+        // (see `built`) also runs clap's `_build_bin_names_internal`,
+        // which stamps each subcommand with a space-separated bin name
+        // (`bca metrics`) that `clap_mangen` renders into SYNOPSIS —
+        // and `Man::new`'s own `build()` is a no-op on an already-built
+        // command, so that bin name would survive the `name` rename and
+        // churn every SYNOPSIS line away from the committed
+        // `bca\-metrics` spelling. #1248 is about restoring missing
+        // *options*; keeping both names in step holds that diff to pure
+        // additions. (`display_name` needs no pin — clap derives it with
+        // the same hyphen this rename applies.)
+        // The clone is a real allocation — `bin_name` takes an owned
+        // `String` and `Str::Inner::Owned` is a `Box<str>`, so neither
+        // side is a cheap handle copy. One short string per page.
+        let sub_cmd = sub.clone().bin_name(full_name.clone()).name(full_name);
         render_man_page(&sub_cmd, version, out_dir, expected)?;
     }
     Ok(())
@@ -667,6 +706,220 @@ mod tests {
             fs::read(&outside_target).expect("read target"),
             b"keep me",
             "symlink target contents must be intact",
+        );
+    }
+}
+
+/// Global-arg propagation into subcommand pages (#1248).
+///
+/// These render the *real* `bca` tree rather than a fixture, because the
+/// bug was that a subcommand plucked from an unbuilt parent silently
+/// loses its inherited options — a shape only a live parent/child pair
+/// exhibits. The synthetic case at the end isolates the same contract
+/// from the CLI's own churn, so a flag rename cannot leave the
+/// propagation itself unguarded.
+#[cfg(test)]
+mod global_arg_propagation {
+    use super::{built, render_tree};
+    use clap::{Arg, ArgAction, Command, CommandFactory};
+    use std::{fs, path::Path};
+    use tempfile::TempDir;
+
+    /// Render `root`'s whole tree into `dir` and return the page `page`.
+    fn render_page(root: Command, dir: &Path, page: &str) -> String {
+        let mut expected = Vec::<String>::new();
+        render_tree(root, dir, &mut expected).expect("render tree");
+        assert!(
+            expected.iter().any(|n| n == page),
+            "`{page}` must be among the rendered pages; got {expected:?}",
+        );
+        fs::read_to_string(dir.join(page)).expect("read page")
+    }
+
+    /// The OPTIONS section of `page`, i.e. everything after `.SH OPTIONS`.
+    ///
+    /// Slicing here rather than searching the whole page is what makes
+    /// the assertions below discriminating. `bca-vcs-commit.1`'s
+    /// DESCRIPTION already quotes `\-\-ref` in prose, so a page-wide
+    /// `contains` would pass for an option that never got an entry.
+    fn options_section(page: &str) -> &str {
+        page.split_once("\n.SH OPTIONS\n")
+            .expect("page must have an OPTIONS section")
+            .1
+    }
+
+    /// How man(7) spells `flag` where it heads its own OPTIONS entry:
+    /// bold, with every literal hyphen escaped as `\-`.
+    fn option_entry(flag: &str) -> String {
+        format!(r"\fB{}\fR", flag.replace('-', r"\-"))
+    }
+
+    fn assert_documents(page_name: &str, page: &str, flags: &[&str]) {
+        let options = options_section(page);
+        for flag in flags {
+            let entry = option_entry(flag);
+            assert!(
+                options.contains(&entry),
+                "`{page_name}` must document the inherited global `{flag}` \
+                 (looked for `{entry}` in its OPTIONS section)",
+            );
+        }
+    }
+
+    fn cli_page(dir: &Path, page: &str) -> String {
+        render_page(big_code_analysis_cli::Cli::command(), dir, page)
+    }
+
+    // The two `UniversalArgs` flags (`cli_args/mod.rs`) are `global =
+    // true`, so `bca metrics --help` prints them and the page must too.
+    #[test]
+    fn top_level_globals_reach_a_subcommand_page() {
+        let tmp = TempDir::new().expect("tempdir");
+        let page = cli_page(tmp.path(), "bca-metrics.1");
+        assert_documents("bca-metrics.1", &page, &["--warnings", "--report-skipped"]);
+    }
+
+    // One level deeper: `vcs`' own history-tuning globals
+    // (`cli_args/vcs.rs`) must reach `vcs commit`, which is reachable
+    // only because `Command::build()` recurses.
+    #[test]
+    fn group_level_globals_reach_a_nested_subcommand_page() {
+        let tmp = TempDir::new().expect("tempdir");
+        let page = cli_page(tmp.path(), "bca-vcs-commit.1");
+        assert_documents(
+            "bca-vcs-commit.1",
+            &page,
+            &["--long-window", "--recent-window"],
+        );
+    }
+
+    // Building the root also stamps subcommands with a space-separated
+    // bin name (`bca metrics`), which clap_mangen renders into SYNOPSIS.
+    // `render_subcommands` re-pins it so the fix adds options without
+    // renaming every page's synopsis; without that pin this fails.
+    #[test]
+    fn synopsis_keeps_the_hyphenated_page_name() {
+        let tmp = TempDir::new().expect("tempdir");
+        // Both depths, because clap derives the bin name from the whole
+        // command path: `commit` is stamped `bca vcs commit`, so a pin
+        // applied only to top-level subcommands would still churn the
+        // nested pages.
+        for (page_name, want) in [
+            ("bca-metrics.1", r"\fBbca\-metrics\fR "),
+            ("bca-vcs-commit.1", r"\fBbca\-vcs\-commit\fR "),
+        ] {
+            let page = cli_page(tmp.path(), page_name);
+            let synopsis = page
+                .split_once("\n.SH SYNOPSIS\n")
+                .expect("page must have a SYNOPSIS section")
+                .1
+                .lines()
+                .next()
+                .expect("SYNOPSIS must have a line");
+            assert!(
+                synopsis.starts_with(want),
+                "`{page_name}` SYNOPSIS must open with `{want}`, got: {synopsis}"
+            );
+        }
+    }
+
+    // Hidden args stay hidden through the rebuild: `--headroom` is
+    // `hide = true` on `check` and must not surface now that the page is
+    // rendered from a built command.
+    #[test]
+    fn building_does_not_surface_hidden_args() {
+        let tmp = TempDir::new().expect("tempdir");
+        // Assert the subject still exists and is still hidden. Without
+        // this the negative below passes just as well once `--headroom`
+        // is deleted — and its help text schedules exactly that ("pass
+        // `--tier=soft=<RATIO>` instead"), so the test would quietly
+        // become a tautology while staying green.
+        let root = built(big_code_analysis_cli::Cli::command());
+        let check = root
+            .find_subcommand("check")
+            .expect("the CLI must have a `check` subcommand");
+        assert!(
+            check
+                .get_arguments()
+                .any(|a| a.get_long() == Some("headroom") && a.is_hide_set()),
+            "`check` must still carry a hidden `--headroom` for this test to mean anything",
+        );
+
+        let page = cli_page(tmp.path(), "bca-check.1");
+        assert!(
+            !page.contains(&option_entry("--headroom")),
+            "`--headroom` is `hide = true` and must stay out of the page"
+        );
+        // Guards against a silently-empty page: the globals this fix
+        // adds prove the same page really was rendered from a built
+        // command.
+        assert_documents("bca-check.1", &page, &["--warnings"]);
+    }
+
+    // clap's auto-inserted `help` subcommand exists on the built root
+    // (it is added during `build()`), and `render_subcommands` skips it
+    // by name — so no `bca-help.1` may appear.
+    #[test]
+    fn the_auto_inserted_help_subcommand_gets_no_page() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut expected = Vec::<String>::new();
+        let root = built(big_code_analysis_cli::Cli::command());
+        assert!(
+            root.get_subcommands().any(|s| s.get_name() == "help"),
+            "building the root must insert clap's `help` subcommand, \
+             otherwise this test cannot observe the skip",
+        );
+        render_tree(root, tmp.path(), &mut expected).expect("render tree");
+        assert!(
+            !expected.iter().any(|n| n == "bca-help.1"),
+            "the auto-inserted `help` subcommand must get no page; got {expected:?}",
+        );
+    }
+
+    // The same contract, isolated from the live CLI: a global on a
+    // synthetic parent must appear in its subcommand's page. This keeps
+    // the propagation guarded even if `--warnings` / `--long-window` are
+    // renamed or lose their `global = true` some day.
+    #[test]
+    fn a_synthetic_parents_global_reaches_its_subcommand_page() {
+        let tmp = TempDir::new().expect("tempdir");
+        let root = Command::new("root").version("0.0.0").arg(
+            Arg::new("g")
+                .long("global-flag")
+                .action(ArgAction::SetTrue)
+                .global(true),
+        );
+        let page = render_page(
+            root.subcommand(Command::new("sub")),
+            tmp.path(),
+            "root-sub.1",
+        );
+        assert_documents("root-sub.1", &page, &["--global-flag"]);
+    }
+
+    // The negative control for the test above: an arg that is *not*
+    // global must stay on the parent's page only. Without this, the
+    // propagation assertions would also pass for an implementation that
+    // copied every parent arg down.
+    #[test]
+    fn a_non_global_parent_arg_stays_off_the_subcommand_page() {
+        let tmp = TempDir::new().expect("tempdir");
+        let root = Command::new("root")
+            .version("0.0.0")
+            .arg(Arg::new("l").long("local-flag").action(ArgAction::SetTrue))
+            .subcommand(Command::new("sub"));
+        let mut expected = Vec::<String>::new();
+        render_tree(root, tmp.path(), &mut expected).expect("render tree");
+
+        let parent = fs::read_to_string(tmp.path().join("root.1")).expect("read parent page");
+        assert!(
+            options_section(&parent).contains(&option_entry("--local-flag")),
+            "the parent's own page must document its non-global arg"
+        );
+        let sub = fs::read_to_string(tmp.path().join("root-sub.1")).expect("read sub page");
+        assert!(
+            !sub.contains(&option_entry("--local-flag")),
+            "a non-global parent arg must not reach the subcommand page"
         );
     }
 }

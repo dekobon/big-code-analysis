@@ -4,7 +4,7 @@
 .SH NAME
 bca\-dump \- Dump the AST to stdout. Each file\*(Aqs tree is prefixed with a `== <path> ==` banner so a multi\-file dump is attributable. Requires an explicit path — unlike the other walking subcommands, bare `bca dump` errors instead of dumping the whole current directory (a whole\-tree AST dump has no plausible use)
 .SH SYNOPSIS
-\fBbca\-dump\fR [\fB\-\-line\-start\fR] [\fB\-\-line\-end\fR] [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-no\-config\fR] [\fB\-j\fR|\fB\-\-jobs\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-cyclomatic\-count\-try\fR] [\fB\-\-preproc\-data\fR] [\fB\-\-color\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIPATHS\fR] 
+\fBbca\-dump\fR [\fB\-\-line\-start\fR] [\fB\-w\fR|\fB\-\-warnings\fR] [\fB\-\-line\-end\fR] [\fB\-\-report\-skipped\fR] [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-no\-config\fR] [\fB\-j\fR|\fB\-\-jobs\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-cyclomatic\-count\-try\fR] [\fB\-\-preproc\-data\fR] [\fB\-\-color\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIPATHS\fR] 
 .SH DESCRIPTION
 Dump the AST to stdout. Each file\*(Aqs tree is prefixed with a `== <path> ==` banner so a multi\-file dump is attributable. Requires an explicit path — unlike the other walking subcommands, bare `bca dump` errors instead of dumping the whole current directory (a whole\-tree AST dump has no plausible use)
 .SH OPTIONS
@@ -12,8 +12,14 @@ Dump the AST to stdout. Each file\*(Aqs tree is prefixed with a `== <path> ==` b
 \fB\-\-line\-start\fR \fI<LINE_START>\fR
 First line of the range to analyze (1\-based, inclusive)
 .TP
+\fB\-w\fR, \fB\-\-warnings\fR
+Print warnings (skipped files, unrecognized languages). `\-\-warning` (singular) is kept as a hidden alias for one release cycle and is slated for removal in the next major
+.TP
 \fB\-\-line\-end\fR \fI<LINE_END>\fR
 Last line of the range to analyze (1\-based, inclusive)
+.TP
+\fB\-\-report\-skipped\fR
+Log a "skipped (generated): <path>" line to stderr for each file auto\-skipped by the generated\-code detector. Useful for auditing which files were excluded
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)
