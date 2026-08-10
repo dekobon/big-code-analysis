@@ -114,7 +114,13 @@ for historical reference.
   `Command::build()`. The drift gate could not catch it: the committed
   pages faithfully matched the wrong generator output. The regenerated
   pages gain the missing options and keep their existing
-  `bca-metrics`-style synopsis spelling (#1248).
+  `bca-metrics`-style synopsis spelling (#1248). The same pass removes
+  two dangling cross-references: `man/bca.1` pointed at `bca-help(1)`
+  and `man/bca-vcs.1` at `bca-vcs-help(1)`, pages the renderer listed
+  in SUBCOMMANDS but deliberately never wrote. clap's auto-inserted
+  `help` subcommand is now suppressed in the rendering tree, so it is
+  neither listed nor referenced; `bca help <cmd>` is unaffected at
+  runtime.
 - C++ function-pointer data members (`int (*fp)(int);`) were counted as
   methods and skipped as attributes — both backwards. The
   `function_declarator` arm is now gated on the declarator child not

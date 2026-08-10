@@ -101,7 +101,23 @@ fn run_manpages(workspace_root: &Path) -> io::Result<()> {
 /// `build()` is recursive, so one call per root also fixes the nested
 /// `vcs commit` / `vcs trend` pages, and re-building inside `Man::new`
 /// is idempotent (guarded by clap's `AppSettings::Built`).
-fn built(mut cmd: clap::Command) -> clap::Command {
+///
+/// The same `build()` also inserts clap's own `help` subcommand, which
+/// `clap_mangen` then lists in SUBCOMMANDS as `bca\-help(1)` — a page
+/// nothing writes, because a `help` page documents the `-h` flag every
+/// other page already documents. Both halves of that were true before
+/// this function existed, so `man/bca.1` and `man/bca-vcs.1` shipped a
+/// cross-reference to a nonexistent page. Suppressing the subcommand
+/// removes the reference at its source, which listing it and writing a
+/// contentless page would not.
+///
+/// This affects only the throwaway `Command` xtask renders from: the
+/// shipped binary builds its own, so `bca help metrics` keeps working.
+fn built(cmd: clap::Command) -> clap::Command {
+    // `disable_help_subcommand` is a *global* setting, so one call on
+    // the root reaches `vcs` and every future nested group during
+    // `build()` — there is no per-level call to forget.
+    let mut cmd = cmd.disable_help_subcommand(true);
     cmd.build();
     cmd
 }
@@ -257,9 +273,6 @@ fn render_subcommands(
     expected: &mut Vec<String>,
 ) -> io::Result<()> {
     for sub in parent.get_subcommands() {
-        if sub.get_name() == "help" {
-            continue;
-        }
         let full_name = format!("{prefix}-{}", sub.get_name());
         render_subcommands(sub, &full_name, version, out_dir, expected)?;
         // Re-pin the bin name alongside the page name. Building the root
@@ -856,23 +869,96 @@ mod global_arg_propagation {
         assert_documents("bca-check.1", &page, &["--warnings"]);
     }
 
-    // clap's auto-inserted `help` subcommand exists on the built root
-    // (it is added during `build()`), and `render_subcommands` skips it
-    // by name — so no `bca-help.1` may appear.
+    // A plain `build()` inserts clap's `help` subcommand at every level
+    // that has subcommands; `built` suppresses it so neither a page nor
+    // a SUBCOMMANDS cross-reference to one is produced. Both halves are
+    // asserted, because the suppression is only observable against a
+    // baseline that shows `help` would otherwise be there.
     #[test]
-    fn the_auto_inserted_help_subcommand_gets_no_page() {
-        let tmp = TempDir::new().expect("tempdir");
-        let mut expected = Vec::<String>::new();
+    fn built_suppresses_the_auto_inserted_help_subcommand() {
+        let mut baseline = big_code_analysis_cli::Cli::command();
+        baseline.build();
+        assert!(
+            baseline.get_subcommands().any(|s| s.get_name() == "help"),
+            "a plain `build()` must insert clap's `help` subcommand, \
+             otherwise this test cannot observe the suppression",
+        );
+        let vcs = baseline
+            .get_subcommands()
+            .find(|s| s.get_name() == "vcs")
+            .expect("the CLI has a `vcs` subcommand group");
+        assert!(
+            vcs.get_subcommands().any(|s| s.get_name() == "help"),
+            "the nested group must get one too, otherwise the global \
+             setting's propagation is untested",
+        );
+
         let root = built(big_code_analysis_cli::Cli::command());
         assert!(
-            root.get_subcommands().any(|s| s.get_name() == "help"),
-            "building the root must insert clap's `help` subcommand, \
-             otherwise this test cannot observe the skip",
+            !root.get_subcommands().any(|s| s.get_name() == "help"),
+            "`built` must suppress the root's `help` subcommand",
         );
-        render_tree(root, tmp.path(), &mut expected).expect("render tree");
+        let vcs = root
+            .get_subcommands()
+            .find(|s| s.get_name() == "vcs")
+            .expect("the CLI has a `vcs` subcommand group");
         assert!(
-            !expected.iter().any(|n| n == "bca-help.1"),
-            "the auto-inserted `help` subcommand must get no page; got {expected:?}",
+            !vcs.get_subcommands().any(|s| s.get_name() == "help"),
+            "the suppression is a global setting and must reach nested \
+             groups — `bca-vcs.1` referenced `bca-vcs-help(1)` when it \
+             did not",
+        );
+    }
+
+    // Every `name(1)` a page cross-references must be a page the same
+    // run wrote. `man/bca.1` shipped `bca\-help(1)` and `man/bca-vcs.1`
+    // shipped `bca\-vcs\-help(1)` for exactly as long as the renderer
+    // listed a subcommand it declined to write, and no test could see
+    // it: both halves were individually reasonable.
+    #[test]
+    fn no_page_cross_references_a_page_that_is_not_written() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut expected = Vec::<String>::new();
+        render_tree(
+            big_code_analysis_cli::Cli::command(),
+            tmp.path(),
+            &mut expected,
+        )
+        .expect("render tree");
+
+        let mut refs = 0_usize;
+        for name in &expected {
+            let page = fs::read_to_string(tmp.path().join(name)).expect("read page");
+            for line in page.lines() {
+                // A cross-reference is a whole line of its own, in the
+                // `.TP` entry above each subcommand's blurb. roff
+                // escapes the hyphens, so `bca\-vcs(1)` is the page
+                // `bca-vcs.1`.
+                let Some(target) = line.strip_suffix("(1)") else {
+                    continue;
+                };
+                let target = target.replace("\\-", "-");
+                if !target
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+                {
+                    continue;
+                }
+                refs += 1;
+                let want = format!("{target}.1");
+                assert!(
+                    expected.contains(&want),
+                    "`{name}` cross-references `{target}(1)`, which no page satisfies; \
+                     written pages: {expected:?}",
+                );
+            }
+        }
+        // A selector that matches nothing makes the loop above
+        // vacuously true — the CLI's ~18 subcommands are all listed in
+        // `bca.1`, so a single-digit count means the parse broke.
+        assert!(
+            refs > 15,
+            "expected the SUBCOMMANDS sections to yield many cross-references, found {refs}",
         );
     }
 
