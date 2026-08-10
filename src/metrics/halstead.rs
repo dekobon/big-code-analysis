@@ -1600,6 +1600,86 @@ mod tests {
         check_metrics::<TsxParser>(SRC, "foo.tsx", check);
     }
 
+    /// Drift marker for #1261 (lesson 34 / grammar-dispatch §2): the
+    /// anonymous `string` type-keyword token appears **only** as a
+    /// `predefined_type` child.
+    ///
+    /// That is the whole argument for classifying the keyword without a
+    /// parent guard — the wrapper is guaranteed to be there to carry the
+    /// operator. The two tests above measure the consequence and would
+    /// still pass if the grammar started emitting the keyword somewhere
+    /// else, as long as their own two fixtures kept their counts; this one
+    /// measures the premise, over every position #1261's dump probes
+    /// covered: annotation, parameter and return type, union member,
+    /// generic argument, and template-literal type. A string *literal*
+    /// spelling `"string"` is a different kind and must not be confused
+    /// for the keyword, so one is in the fixture too.
+    #[test]
+    fn ts_family_type_keyword_only_appears_under_predefined_type_1261() {
+        // Exercises each position the keyword can take. Valid in both
+        // grammars: no angle-bracket cast, which TSX would read as JSX.
+        const SRC: &str = "const a: string = \"string\";\n\
+                           function f(x: string): string {\n\
+                               return x;\n\
+                           }\n\
+                           type U = string | number;\n\
+                           type A = Array<string>;\n\
+                           type M = Map<string, number>;\n\
+                           type T = `id-${string}`;\n";
+        // Seven type positions: `a`, `x`, `f`'s return, the union member,
+        // `Array`'s argument, `Map`'s first argument, and the template
+        // placeholder. The `"string"` initialiser is a literal, not the
+        // keyword, and must not be among them.
+        const EXPECTED_OCCURRENCES: usize = 7;
+
+        fn keyword_occurrences<P: ParserTrait>(
+            path: &str,
+            keyword: u16,
+            predefined_type: u16,
+        ) -> usize {
+            let parser = P::new(SRC.as_bytes().to_vec(), &PathBuf::from(path), None);
+            parser
+                .root()
+                .preorder()
+                .filter(|node| node.kind_id() == keyword)
+                .inspect(|node| {
+                    assert_eq!(
+                        node.parent().map(|parent| parent.kind_id()),
+                        Some(predefined_type),
+                        "the `string` type keyword surfaced outside \
+                         `predefined_type` in {path}; the operator is carried \
+                         by the wrapper, so `get_op_type` needs a parent guard \
+                         before that arm can be trusted (#1261)",
+                    );
+                })
+                .count()
+        }
+
+        // Kind ids re-read from the generated enums, not carried over: TS
+        // `String2` = 135, TSX `String3` = 141 (TSX's `String2` = 261 is the
+        // string-literal production and stays an operand).
+        assert_eq!(
+            keyword_occurrences::<TypescriptParser>(
+                "foo.ts",
+                Typescript::String2 as u16,
+                Typescript::PredefinedType as u16,
+            ),
+            EXPECTED_OCCURRENCES,
+            "TypeScript no longer emits the `string` type keyword in every \
+             position #1261 probed",
+        );
+        assert_eq!(
+            keyword_occurrences::<TsxParser>(
+                "foo.tsx",
+                Tsx::String3 as u16,
+                Tsx::PredefinedType as u16,
+            ),
+            EXPECTED_OCCURRENCES,
+            "TSX no longer emits the `string` type keyword in every position \
+             #1261 probed",
+        );
+    }
+
     // Issue #453: a `void` return type must contribute exactly one
     // Halstead operator. The TS / TSX grammars parse `: void` as a
     // `predefined_type` wrapper around an inner `void` token. `is_primitive`
