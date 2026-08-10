@@ -54,6 +54,13 @@ impl Cognitive for TclCode {
             Command if tcl_switch_decision_arms(node, code).is_some() => {
                 increase_nesting(stats, &mut nesting);
             }
+            // Tcl `for` is likewise a generic `command` with no dedicated
+            // kind (issue #1264): a loop adds +1 plus current nesting and
+            // nests its body, matching `While`/`Foreach` above and the
+            // dedicated iRules `For`.
+            Command if tcl_command_is_for(node, code) => {
+                increase_nesting(stats, &mut nesting);
+            }
             BinopExpr => {
                 compute_booleans(node, stats, AMPAMP, PIPEPIPE);
             }

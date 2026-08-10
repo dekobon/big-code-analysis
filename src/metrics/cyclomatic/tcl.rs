@@ -37,6 +37,13 @@ impl Cyclomatic for TclCode {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }
+            // Tcl `for` is likewise a generic `command` with no dedicated
+            // kind (issue #1264): one loop decision in both tiers, matching
+            // `Foreach`/`While` above and the dedicated iRules `For`.
+            Tcl::Command if crate::metrics::cognitive::tcl_command_is_for(node, code) => {
+                stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
+            }
             _ => {}
         }
     }
