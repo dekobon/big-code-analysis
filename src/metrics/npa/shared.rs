@@ -246,19 +246,30 @@ pub(crate) fn go_embedded_field_name<'a>(declaration: &Node<'a>) -> Option<Node<
 //
 // A `function_definition` child is accepted outright rather than
 // recursed into: it *is* a function, whatever declarator it carries.
-// Recursing would miss a conversion operator, whose declarator is an
-// `operator_cast` and not a `function_declarator` (#1258).
+// Recursing would miss a conversion operator with an inline body,
+// whose declarator is an `operator_cast` and not a
+// `function_declarator` (#1258).
 //
-// The arm is inert at the `Npa` call sites, which only ever pass a
+// A conversion operator declared *without* a body has no
+// `function_definition` to accept either — it parses as a bare
+// `declaration > operator_cast`, or `template_declaration >
+// declaration > operator_cast` in the templated form, with only an
+// `abstract_function_declarator` underneath. `operator_cast` is
+// therefore matched in its own right; matching the
+// `abstract_function_declarator` instead would also claim ordinary
+// function-pointer type positions (#1298).
+//
+// Neither `function_definition` nor `operator_cast` can be reached
+// from the `Npa` call sites, which only ever pass a
 // `field_declaration`: per both grammars' `node-types.json`, neither
 // `field_declaration` nor the `pointer_declarator` /
 // `reference_declarator` wrappers this recurses through can carry a
-// `function_definition` or a `declaration`, so the new arm is
-// unreachable from there at any depth. It fires only for `Npm`'s
-// `template_declaration`, whose child set does list `function_definition`.
+// `function_definition`, an `operator_cast`, or a `declaration` — so
+// there is no path to either at any depth. Both are live only for
+// `Npm`'s `declaration` / `template_declaration` children.
 pub(crate) fn cpp_declares_function(node: &Node) -> bool {
     node.children().any(|child| match child.kind() {
-        "function_declarator" | "function_definition" => true,
+        "function_declarator" | "function_definition" | "operator_cast" => true,
         // Recurse through declarator wrappers that can sit above the
         // function_declarator (`Foo* operator->()`,
         // `template<...> T fn();`, constructor / destructor

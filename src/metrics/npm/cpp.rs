@@ -66,10 +66,17 @@ impl Npm for CppCode {
                 //   templated member fn *with* an inline body. This
                 //   shape was missed until #1258, leaving `npm`
                 //   disagreeing with `nom` and `wmc` on the same class.
+                // - `declaration > operator_cast` for a conversion
+                //   operator declared without a body, and
+                //   `template_declaration > declaration >
+                //   operator_cast` for its templated form. Neither
+                //   carries a `function_declarator` anywhere in its
+                //   subtree. Missed until #1298, which left both forms
+                //   invisible to `npm` *and* `npa`.
                 //
                 // The shared `cpp_declares_function` helper walks the
                 // declarator subtree (including `declaration` wrappers)
-                // so all four shapes collapse into one arm. The guard
+                // so every shape above collapses into one arm. The guard
                 // is what keeps the `template_declaration` payloads
                 // that are *not* member functions out: a nested
                 // templated class (a `type_specifier` the helper does
