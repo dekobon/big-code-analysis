@@ -4,10 +4,16 @@
 .SH NAME
 bca\-ops \- Extract per\-file operands and operators
 .SH SYNOPSIS
-\fBbca\-ops\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-no\-config\fR] [\fB\-j\fR|\fB\-\-jobs\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-cyclomatic\-count\-try\fR] [\fB\-\-preproc\-data\fR] [\fB\-\-color\fR] [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-output\-dir\fR] [\fB\-\-pretty\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIPATHS\fR] 
+\fBbca\-ops\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-w\fR|\fB\-\-warnings\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-\-report\-skipped\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-no\-config\fR] [\fB\-j\fR|\fB\-\-jobs\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-cyclomatic\-count\-try\fR] [\fB\-\-preproc\-data\fR] [\fB\-\-color\fR] [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-output\-dir\fR] [\fB\-\-pretty\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIPATHS\fR] 
 .SH DESCRIPTION
 Extract per\-file operands and operators
 .SH OPTIONS
+.TP
+\fB\-w\fR, \fB\-\-warnings\fR
+Print warnings (skipped files, unrecognized languages). `\-\-warning` (singular) is kept as a hidden alias for one release cycle and is slated for removal in the next major
+.TP
+\fB\-\-report\-skipped\fR
+Log a "skipped (generated): <path>" line to stderr for each file auto\-skipped by the generated\-code detector. Useful for auditing which files were excluded
 .TP
 \fB\-O\fR, \fB\-\-format\fR \fI<FORMAT>\fR
 Output format. When omitted, the default `text` format prints a human\-readable colored tree to stdout (`metrics` shows the metric tree, `ops` the operator/operand tree); pass `\-\-format text` to request that default explicitly (e.g. to override a `bca.toml` that set a structured format). `json` / `yaml` / `toml` / `cbor` / `csv` emit structured per\-file data. `\-\-output\-format` is accepted as a deprecated alias; it is hidden from help and slated for removal in the next major

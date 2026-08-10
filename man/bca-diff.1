@@ -4,10 +4,16 @@
 .SH NAME
 bca\-diff \- Compare two metric\-output runs and report, per metric, which files changed (old to new), plus files added/removed between the two sets. Each side is a per\-file JSON file or a directory tree of them (the form `bca metrics \-O json \-\-output\-dir DIR` writes). Replaces the grammar\-bump glue chain — the external `json\-minimal\-tests` binary plus `split\-minimal\-tests.py` — with one native command. Exits 0 on success by default; the diff is informational, not a gate. With `\-\-exit\-code`, exits 2 when the filtered diff is non\-empty
 .SH SYNOPSIS
-\fBbca\-diff\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-no\-config\fR] [\fB\-j\fR|\fB\-\-jobs\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-cyclomatic\-count\-try\fR] [\fB\-\-since\fR] [\fB\-O\fR|\fB\-\-format\fR] [\fB\-\-min\-change\fR] [\fB\-\-metric\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-strip\-prefix\fR] [\fB\-\-exit\-code\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIOLD\fR] [\fINEW\fR] 
+\fBbca\-diff\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-w\fR|\fB\-\-warnings\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-\-report\-skipped\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-no\-config\fR] [\fB\-j\fR|\fB\-\-jobs\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-cyclomatic\-count\-try\fR] [\fB\-\-since\fR] [\fB\-O\fR|\fB\-\-format\fR] [\fB\-\-min\-change\fR] [\fB\-\-metric\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-strip\-prefix\fR] [\fB\-\-exit\-code\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIOLD\fR] [\fINEW\fR] 
 .SH DESCRIPTION
 Compare two metric\-output runs and report, per metric, which files changed (old to new), plus files added/removed between the two sets. Each side is a per\-file JSON file or a directory tree of them (the form `bca metrics \-O json \-\-output\-dir DIR` writes). Replaces the grammar\-bump glue chain — the external `json\-minimal\-tests` binary plus `split\-minimal\-tests.py` — with one native command. Exits 0 on success by default; the diff is informational, not a gate. With `\-\-exit\-code`, exits 2 when the filtered diff is non\-empty
 .SH OPTIONS
+.TP
+\fB\-w\fR, \fB\-\-warnings\fR
+Print warnings (skipped files, unrecognized languages). `\-\-warning` (singular) is kept as a hidden alias for one release cycle and is slated for removal in the next major
+.TP
+\fB\-\-report\-skipped\fR
+Log a "skipped (generated): <path>" line to stderr for each file auto\-skipped by the generated\-code detector. Useful for auditing which files were excluded
 .TP
 \fB\-\-since\fR \fI<SINCE>\fR
 Analyze the tree at this git ref for the "before" side instead of reading a captured metric set. Hard\-errors (exit 1) if the process is not in a git checkout, `git` is missing, or the ref does not resolve. Honors the same `\-\-paths` / `\-\-include` / `\-\-exclude` selection as the rest of the CLI so both sides analyze the same file set.

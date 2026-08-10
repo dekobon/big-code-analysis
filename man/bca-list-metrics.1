@@ -4,10 +4,16 @@
 .SH NAME
 bca\-list\-metrics \- List the metrics this tool can compute and exit
 .SH SYNOPSIS
-\fBbca\-list\-metrics\fR [\fB\-h\fR|\fB\-\-help\fR] [\fIMODE\fR] 
+\fBbca\-list\-metrics\fR [\fB\-w\fR|\fB\-\-warnings\fR] [\fB\-\-report\-skipped\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIMODE\fR] 
 .SH DESCRIPTION
 List the metrics this tool can compute and exit
 .SH OPTIONS
+.TP
+\fB\-w\fR, \fB\-\-warnings\fR
+Print warnings (skipped files, unrecognized languages). `\-\-warning` (singular) is kept as a hidden alias for one release cycle and is slated for removal in the next major
+.TP
+\fB\-\-report\-skipped\fR
+Log a "skipped (generated): <path>" line to stderr for each file auto\-skipped by the generated\-code detector. Useful for auditing which files were excluded
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)

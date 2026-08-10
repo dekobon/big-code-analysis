@@ -4,13 +4,19 @@
 .SH NAME
 bca\-vcs\-trend \- Sample the change\-history metrics at several points in time and emit a per\-file time series, surfacing whether code is improving or degrading over the project\*(Aqs life. Each point re\-anchors at the mainline tip of that moment, so it is a faithful historical snapshot. Window / `\-\-ref` / bot / merge / rename / as\-of (the most\-recent anchor) and `\-\-top` (files kept) come from the parent `vcs` flags
 .SH SYNOPSIS
-\fBbca\-vcs\-trend\fR [\fB\-\-points\fR] [\fB\-\-span\fR] [\fB\-\-top\-deltas\fR] [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-pretty\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBbca\-vcs\-trend\fR [\fB\-\-points\fR] [\fB\-w\fR|\fB\-\-warnings\fR] [\fB\-\-report\-skipped\fR] [\fB\-\-span\fR] [\fB\-\-top\-deltas\fR] [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-pretty\fR] [\fB\-\-long\-window\fR] [\fB\-\-recent\-window\fR] [\fB\-\-ref\fR] [\fB\-\-full\-history\fR] [\fB\-\-include\-merges\fR] [\fB\-\-no\-follow\-renames\fR] [\fB\-\-no\-exclude\-bots\fR] [\fB\-\-bot\-pattern\fR] [\fB\-\-as\-of\fR] [\fB\-\-risk\-formula\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
 Sample the change\-history metrics at several points in time and emit a per\-file time series, surfacing whether code is improving or degrading over the project\*(Aqs life. Each point re\-anchors at the mainline tip of that moment, so it is a faithful historical snapshot. Window / `\-\-ref` / bot / merge / rename / as\-of (the most\-recent anchor) and `\-\-top` (files kept) come from the parent `vcs` flags
 .SH OPTIONS
 .TP
 \fB\-\-points\fR \fI<POINTS>\fR [default: 12]
 Number of evenly\-spaced sample points across `\-\-span`, inclusive of both endpoints (the oldest is `as\-of − span`, the newest is `as\-of`). Minimum 2, maximum 120 — the cap bounds the per\-point history walks on deep histories
+.TP
+\fB\-w\fR, \fB\-\-warnings\fR
+Print warnings (skipped files, unrecognized languages). `\-\-warning` (singular) is kept as a hidden alias for one release cycle and is slated for removal in the next major
+.TP
+\fB\-\-report\-skipped\fR
+Log a "skipped (generated): <path>" line to stderr for each file auto\-skipped by the generated\-code detector. Useful for auditing which files were excluded
 .TP
 \fB\-\-span\fR \fI<SPAN>\fR [default: 12mo]
 Total look\-back window the points span (`12mo`, `2y`, `52w`, `365d`, or ISO 8601 `P1Y`). With the default 12 points this yields roughly monthly snapshots over the past year
@@ -39,5 +45,45 @@ Output file. Stdout if omitted (CBOR requires this flag — it is binary)
 \fB\-\-pretty\fR
 Pretty\-print JSON output
 .TP
+\fB\-\-long\-window\fR \fI<LONG_WINDOW>\fR [default: 12mo]
+Long observation window (`12mo`, `2y`, `52w`, `365d`, or ISO 8601 `P1Y`). Accepted in the parent or subcommand position
+.TP
+\fB\-\-recent\-window\fR \fI<RECENT_WINDOW>\fR [default: 90d]
+Recent observation window. Accepted in the parent or subcommand position
+.TP
+\fB\-\-ref\fR \fI<REFERENCE>\fR
+Revision to analyze (defaults to `HEAD`). Accepted in the parent or `trend` subcommand position, but rejected under `commit`, which names its commit positionally
+.TP
+\fB\-\-full\-history\fR
+Walk the full commit DAG rather than first\-parent only
+.TP
+\fB\-\-include\-merges\fR
+Include merge commits (skipped by default)
+.TP
+\fB\-\-no\-follow\-renames\fR
+Do not follow file renames across history
+.TP
+\fB\-\-no\-exclude\-bots\fR
+Do not exclude bot author identities
+.TP
+\fB\-\-bot\-pattern\fR \fI<BOT_PATTERN>\fR
+Override the bot\-author exclusion regex. Matched case\-insensitively against both the author name and the email; prefix `(?\-i)` to match case exactly
+.TP
+\fB\-\-as\-of\fR \fI<AS_OF>\fR
+Reference "now" for reproducible runs (RFC 3339, `@unix`, or any git date spelling). Defaults to wall\-clock time
+.TP
+\fB\-\-risk\-formula\fR \fI<RISK_FORMULA>\fR [default: weighted]
+Composite risk\-score formula
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+weighted: Log\-scaled weighted sum with categorical bumps (default)
+.IP \(bu 2
+percentile: Per\-signal percentile rank within the analyzed set, averaged
+.RE
+.TP
 \fB\-h\fR, \fB\-\-help\fR
-Print help
+Print help (see a summary with \*(Aq\-h\*(Aq)

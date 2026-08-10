@@ -4,13 +4,19 @@
 .SH NAME
 bca\-count \- Count nodes of one or more types
 .SH SYNOPSIS
-\fBbca\-count\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-no\-config\fR] [\fB\-j\fR|\fB\-\-jobs\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-cyclomatic\-count\-try\fR] [\fB\-\-preproc\-data\fR] [\fB\-h\fR|\fB\-\-help\fR] <\fB\-t\fR|\fB\-\-type\fR> [\fIPATHS\fR] 
+\fBbca\-count\fR [\fB\-w\fR|\fB\-\-warnings\fR] [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-\-report\-skipped\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-no\-config\fR] [\fB\-j\fR|\fB\-\-jobs\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-cyclomatic\-count\-try\fR] [\fB\-\-preproc\-data\fR] [\fB\-h\fR|\fB\-\-help\fR] <\fB\-t\fR|\fB\-\-type\fR> [\fIPATHS\fR] 
 .SH DESCRIPTION
 Count nodes of one or more types
 .SH OPTIONS
 .TP
 \fB\-t\fR, \fB\-\-type\fR \fI<NODE_TYPE>\fR
 Node\-type name to match. Repeat the flag to match several (`\-t function_item \-t struct_item`). Required: pass at least one
+.TP
+\fB\-w\fR, \fB\-\-warnings\fR
+Print warnings (skipped files, unrecognized languages). `\-\-warning` (singular) is kept as a hidden alias for one release cycle and is slated for removal in the next major
+.TP
+\fB\-\-report\-skipped\fR
+Log a "skipped (generated): <path>" line to stderr for each file auto\-skipped by the generated\-code detector. Useful for auditing which files were excluded
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)
