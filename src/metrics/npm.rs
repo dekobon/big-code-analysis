@@ -566,6 +566,11 @@ mod tests {
     // was invisible to the `Npm`-only shim precisely because nothing
     // asserted the three agree.
     check_metrics_only_shim!(check_metrics_with_nom_wmc, Npm, Nom, Wmc);
+    // `Npm` alongside `Npa`, for members a bug counted as *neither*.
+    // Asserting one metric alone cannot tell "now counted correctly"
+    // apart from "moved to the other counter" — #1298's conversion
+    // operators read as absent from both, so both must be pinned.
+    check_metrics_only_shim!(check_metrics_with_npa, Npm, Npa);
 
     #[test]
     fn java_constructors() {
@@ -3470,6 +3475,31 @@ class C {
              int plain() { return 1; }\n\
          };";
 
+    // Conversion operators declared *without* a body, shared by the
+    // `cpp_*` and `mozcpp_*` halves of the #1298 regression pair for
+    // the same no-file-extension reason as above. Neither form has a
+    // `function_declarator` or a `function_definition` anywhere in its
+    // subtree — the plain one parses as `declaration > operator_cast`
+    // and the templated one as `template_declaration > declaration >
+    // operator_cast` — so before #1298 both were counted as neither
+    // method nor attribute.
+    //
+    // Deliberately asymmetric on all three axes the arm can get wrong:
+    // 2 public conversion operators against 1 private, so an arm that
+    // ignored `current_is_public` lands on 3/3 and one that never
+    // reached the private section on 2/2; and a real public data
+    // member, so `class_na`/`class_npa` are 1/1 rather than the
+    // default 0 that a leak into `Npa` would be indistinguishable
+    // from.
+    const CONVERSION_OPERATORS_WITHOUT_BODIES: &str = "class C {\n\
+         public:\n\
+             operator float();\n\
+             template<typename T> operator T();\n\
+             int width;\n\
+         private:\n\
+             operator double();\n\
+         };";
+
     // Every `template_declaration` payload the C++ grammar admits in
     // class scope that is *not* a member function, per both grammars'
     // `node-types.json`: a nested templated class (`type_specifier`),
@@ -3549,10 +3579,12 @@ class C {
     fn cpp_template_conversion_operator_with_body_counts() {
         // A conversion operator's declarator is an `operator_cast`, so
         // there is no `function_declarator` anywhere in this subtree.
-        // This is why `cpp_declares_function` accepts a
-        // `function_definition` child outright rather than recursing
-        // into it — the recursion the #1258 plan proposed would score
-        // this member zero.
+        // This shape is `template_declaration > function_definition >
+        // operator_cast`, and `cpp_declares_function` accepts the
+        // `function_definition` outright: it is not in the helper's
+        // recursion set, so dropping that alternative would score this
+        // member zero even though #1298 has since taught the helper to
+        // match `operator_cast` one level further down.
         check_metrics_with_nom_wmc::<CppParser>(
             "class C {\n\
              public:\n\
@@ -3563,6 +3595,37 @@ class C {
                 assert_eq!(metric.npm.class_nm_sum(), 1);
                 assert_eq!(metric.npm.class_npm_sum(), 1);
                 assert_eq!(metric.nom.functions_sum(), 1);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_conversion_operators_without_bodies_count_as_methods() {
+        check_metrics_with_npa::<CppParser>(
+            CONVERSION_OPERATORS_WITHOUT_BODIES,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                // `width` only. The three conversion operators must
+                // not have been swept into `Npa` on the way out of
+                // being invisible to both.
+                assert_eq!(metric.npa.class_na_sum(), 1);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+            },
+        );
+    }
+
+    #[test]
+    fn mozcpp_conversion_operators_without_bodies_count_as_methods() {
+        check_metrics_with_npa::<MozcppParser>(
+            CONVERSION_OPERATORS_WITHOUT_BODIES,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.npa.class_na_sum(), 1);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
             },
         );
     }
