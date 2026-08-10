@@ -13,15 +13,16 @@ use super::*;
 /// parse as a `Call` carrying the block argument — the parent is not a
 /// `Lambda` — so they still classify exactly once.
 ///
-/// One helper shared by [`Checker::is_closure`] and
-/// [`Checker::is_func_space_with_code`], so the closure count and the
-/// space tree cannot drift apart
+/// One helper shared by [`Checker::is_closure`],
+/// [`Checker::is_func_space_with_code`], and the cognitive lambda-nesting
+/// arm (`crate::metrics::cognitive`'s Ruby impl), so the closure count,
+/// the space tree, and the nesting surcharge cannot drift apart
 /// (`.claude/rules/grammar-dispatch.md` §6).
 ///
-/// The parent comes off the caller's chain: both consumers run per node
+/// The parent comes off the caller's chain: all consumers run per node
 /// from a walk, and `Node::parent` costs `O(depth)` because
 /// `tree_sitter` resolves it by descending from the root (#1088).
-fn is_stabby_lambda_body<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+pub(crate) fn is_stabby_lambda_body<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     ancestors
         .parent(node)
         .is_some_and(|parent| parent.kind_id() == Ruby::Lambda)
@@ -53,15 +54,17 @@ impl Checker for RubyCode {
         )
     }
 
+    // Derives from `is_func_space` so the kind set lives in one place;
+    // this override only subtracts the stabby-lambda body blocks the
+    // byte-less spelling over-approximates on.
     fn is_func_space_with_code<'a>(
         node: &Node<'a>,
         _code: &[u8],
         ancestors: Ancestors<'a, '_>,
     ) -> bool {
-        match node.kind_id().into() {
-            Ruby::Block | Ruby::DoBlock => !is_stabby_lambda_body(node, ancestors),
-            _ => Self::is_func_space(node),
-        }
+        Self::is_func_space(node)
+            && !(matches!(node.kind_id().into(), Ruby::Block | Ruby::DoBlock)
+                && is_stabby_lambda_body(node, ancestors))
     }
 
     fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {

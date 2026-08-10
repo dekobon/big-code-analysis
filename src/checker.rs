@@ -519,7 +519,7 @@ mod perl;
 mod php;
 mod preproc;
 mod python;
-mod ruby;
+pub(crate) mod ruby;
 mod rust;
 mod tcl;
 mod tsx;

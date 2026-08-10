@@ -120,6 +120,16 @@ for historical reference.
   trees for Ruby files with stabby lambdas lose the phantom entries,
   which also removes their zero contributions from `function_spaces`
   averages and per-file minimums (#1257).
+- Ruby cognitive complexity charged a stabby lambda's body twice for
+  lambda nesting: both the `Lambda` wrapper and its own body `Block` /
+  `DoBlock` incremented the surcharge, so `f = ->(a) { if a then 1
+  end }` scored 3 where the equivalent keyword form `f = lambda { |a|
+  if a then 1 end }` scored 2. The body block is now excluded via the
+  same shared stabby-lambda-body predicate as the closure count and
+  the space tree (the sweep #1257's rationale mandated), and both
+  forms score 2. Cognitive values drop by 1 per nesting-sensitive
+  construct inside each stabby lambda; keyword lambdas, `proc`, and
+  iterator blocks are unchanged.
 - Elixir sigil delimiter tokens (`/`, `(`, `{`, `[`, `<`, `>`, `|`)
   counted as ordinary Halstead operators, so the delimiter choice
   changed `n1`/`N1` and `~r/abc/` fabricated two division operators.
