@@ -12,7 +12,7 @@ impl Getter for TclCode {
         }
     }
 
-    fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> HalsteadType {
         match node.kind_id().into() {
             // Anonymous keyword tokens (control-flow and declaration keywords).
             Tcl::Proc
@@ -77,13 +77,31 @@ impl Getter for TclCode {
             // Ternary conditional operator.
             | Tcl::QMARK => HalsteadType::Operator,
 
+            // The anonymous `id` token (`Id2`) is the kind the parser
+            // actually emits, in *both* of its positions: as a standalone
+            // `set` target (`set s …` → `s`, a real operand) and as the
+            // inner leaf of every `variable_substitution` (`$s` →
+            // `(variable_substitution (id "s"))`), whose wrapper is already
+            // the operand for the reference. A blanket `Id2` exclusion
+            // therefore dropped every `set` target from n2/N2 (#1294); the
+            // correct guard is a parent check, the same shape as iRules'
+            // `Id` arm. The named `Id` never surfaces at the pinned grammar
+            // (drift marker: `tcl_named_id_variant_is_unreachable`) and is
+            // listed defensively so a grammar bump that starts emitting it
+            // classifies it identically.
+            Tcl::Id | Tcl::Id2 => {
+                if ancestors
+                    .parent(node)
+                    .is_some_and(|p| p.kind_id() == Tcl::VariableSubstitution as u16)
+                {
+                    HalsteadType::Unknown
+                } else {
+                    HalsteadType::Operand
+                }
+            }
+
             // Operands: identifiers and literals.
-            // Id2 (anonymous "id" token, kind_id=85) is intentionally excluded: it only
-            // appears as a leaf child of VariableSubstitution ($varname syntax), which is
-            // already counted as an operand. Including Id2 would double-count each bare
-            // variable reference.
-            Tcl::Id
-            | Tcl::SimpleWord
+            Tcl::SimpleWord
             | Tcl::Number
             | Tcl::BracedWord
             | Tcl::BracedWordSimple
