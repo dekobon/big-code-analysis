@@ -6776,6 +6776,79 @@ mod tests {
         });
     }
 
+    /// Drift marker for #1266 (lesson 34 / grammar-dispatch §2): the
+    /// iRules `on_handler` / `trap_handler` kinds are emitted **only**
+    /// under `try`.
+    ///
+    /// Statement-level `on <event> { … }` and `trap { … }` inside an event
+    /// body are generic `command` nodes at the pinned grammar, which is
+    /// what lets Cognitive and Cyclomatic charge those two kinds
+    /// unconditionally as catch clauses. A bump that promoted the
+    /// statement-level spelling to the same kinds would silently turn
+    /// every one of those commands into a decision point — and, since the
+    /// checker treats handler kinds as part of the `try` shape, would
+    /// re-run the mistake #1266 fixed, where the handlers were read as
+    /// `when`-style event handlers and opened function spaces of their
+    /// own. Nothing else in the suite would go red.
+    #[test]
+    fn irules_try_handler_kinds_appear_only_under_try() {
+        use std::path::PathBuf;
+
+        use crate::test_support::ast_has_kind_id;
+
+        let path = PathBuf::from("foo.irule");
+
+        let statement_level = "when HTTP_REQUEST {\n\
+                               \x20   on scriptbody { log \"x\" }\n\
+                               \x20   trap { log \"y\" }\n\
+                               }\n";
+        let parser = IrulesParser::new(statement_level.as_bytes().to_vec(), &path, None);
+        // Non-vacuity: both spellings must really be in this parse, as
+        // `command`s whose leading word is the handler keyword. Asserting
+        // only the absence below would pass just as well against a source
+        // the grammar rejected outright.
+        let command_names: Vec<&str> = parser
+            .root()
+            .preorder()
+            .filter(|node| node.kind_id() == Irules::Command as u16)
+            .filter_map(|node| {
+                node.child_by_field_name("name")
+                    .and_then(|name| name.utf8_text(statement_level.as_bytes()))
+            })
+            .collect();
+        assert!(
+            command_names.contains(&"on") && command_names.contains(&"trap"),
+            "statement-level `on` / `trap` no longer parse as commands: {command_names:?}",
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Irules::OnHandler as u16),
+            "statement-level `on` now emits `on_handler`; re-derive the \
+             Cognitive / Cyclomatic handler arms and the checker's `try` \
+             shape before trusting them",
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Irules::TrapHandler as u16),
+            "statement-level `trap` now emits `trap_handler`; re-derive the \
+             Cognitive / Cyclomatic handler arms and the checker's `try` \
+             shape before trusting them",
+        );
+
+        // And the kinds are reachable, so the assertions above discriminate
+        // rather than naming variants the grammar never emits at all.
+        let under_try = "when HTTP_REQUEST {\n\
+                         \x20   try { risky } on error {e} { log $e } trap {POSIX} {e} { log $e }\n\
+                         }\n";
+        let parser = IrulesParser::new(under_try.as_bytes().to_vec(), &path, None);
+        assert!(
+            ast_has_kind_id(&parser, Irules::OnHandler as u16),
+            "`on error` under `try` no longer emits `on_handler`",
+        );
+        assert!(
+            ast_has_kind_id(&parser, Irules::TrapHandler as u16),
+            "`trap` under `try` no longer emits `trap_handler`",
+        );
+    }
+
     #[test]
     fn lua_cognitive_no_cognitive() {
         // Top-level local assignment, no control flow → cognitive complexity is zero.
