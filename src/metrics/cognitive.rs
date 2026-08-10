@@ -6550,6 +6550,28 @@ mod tests {
     }
 
     #[test]
+    fn tcl_switch_split_form_adds_no_cognitive() {
+        // The split arm form passes each arm body as its own sibling
+        // `braced_word` argument, so `tcl_switch_arm_list` finds no
+        // single wrapping arm list and declines the construct (issue
+        // #467). Cognitive then treats it as an ordinary command: no
+        // structural increment and no nesting for its bodies, which is
+        // why the inner `if` here charges 1 rather than 2.
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    switch $x a { puts a } b { if {$x} { puts b } }
+}",
+            "foo.tcl",
+            |metric| {
+                // The `switch` adds nothing; the `if` sits at proc-body
+                // nesting 0 and charges +1.
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
+            },
+        );
+    }
+
+    #[test]
     fn tcl_for_cognitive() {
         // Tcl `for` is a generic command — the grammar has no `for` rule —
         // so it is detected by leading word (issue #1264): a loop adds +1
@@ -9784,6 +9806,41 @@ end",
         // this scored 3.
         check_metrics::<RubyParser>(
             "def foo\n  f = ->(a) { if a then 1 end }\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_do_block_spelling_matches_brace_spelling() {
+        // The lambda-nesting arm is gated on `Block | DoBlock`, and the
+        // two alternatives are separate dispatch paths: every other Ruby
+        // cognitive fixture uses the brace spelling, so the `do … end`
+        // half of both the arm and its stabby-lambda-body gate went
+        // unexercised. A block's spelling is pure syntax — the same
+        // closure must score identically either way (lesson 11).
+        //
+        // expected: the `Lambda` wrapper pays the one lambda-nesting
+        // level and its `do_block` body is gated out, so `if` charges
+        // 1 + nesting(1) = 2 — the same figure the brace form reports in
+        // `ruby_stabby_and_keyword_lambda_nesting_parity`.
+        check_metrics::<RubyParser>(
+            "f = ->(a) do\n  if a then 1 end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
+            },
+        );
+        // expected: an iterator `do … end` has a `Call` parent, not a
+        // `Lambda`, so the gate lets it through and the `do_block` is
+        // itself the closure: `if`(+1) + lambda nesting(+1) = 2. This is
+        // the arm-taken direction of the same gate.
+        check_metrics::<RubyParser>(
+            "[1].each do |x|\n  if x then 1 end\nend\n",
             "foo.rb",
             |metric| {
                 assert_eq!(metric.cognitive.cognitive_sum(), 2);

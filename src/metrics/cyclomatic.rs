@@ -3908,6 +3908,32 @@ f() {
     }
 
     #[test]
+    fn tcl_switch_split_form_stays_uncounted() {
+        // The split arm form (`switch $x a {…} b {…}`) passes each arm
+        // body as its own sibling `braced_word` argument instead of
+        // wrapping the whole arm list in one, so there is no arm node to
+        // count and `tcl_switch_arm_list` deliberately declines it
+        // (issue #467). The construct is then left uncounted in BOTH
+        // tiers, exactly as an unrecognised command is — not counted as a
+        // container in modified CCN.
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    switch $x a { puts a } b { puts b }
+}",
+            "foo.tcl",
+            |metric| {
+                // unit(1) + proc(base 1) and nothing else, in either
+                // tier; the brace-list spelling of the same two-arm
+                // switch scores 4 / 3 (see `tcl_switch_cyclomatic`).
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 1);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 1);
+            },
+        );
+    }
+
+    #[test]
     fn tcl_for_cyclomatic() {
         // Tcl `for` is a generic command — the grammar has no `for` rule —
         // so it is detected by leading word (issue #1264): one loop decision
@@ -5530,6 +5556,31 @@ f() {
             |metric| {
                 assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
                 assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
+            },
+        );
+    }
+
+    // A zero-arity multi-clause `fn` is the one shape whose clauses
+    // carry an *empty* pattern list (`()`), so neither clause has a sole
+    // pattern for the default-arm exclusion to inspect. The head clause
+    // is still free (#776) and the second clause is still a real
+    // dispatch decision — "no pattern" must not be mistaken for the bare
+    // `_ ->` catch-all, which is only free under a non-`fn` container
+    // anyway (#1272). Standard = 4 entries (Unit, defmodule, def,
+    // anon-fn) + 1 branch = 5; modified = 4 entries, the `fn` itself
+    // being no container Call.
+    #[test]
+    fn elixir_zero_arity_multi_clause_fn_counts_second_clause() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f do\n    both = fn () -> :a; () -> :b end\n    both.()\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
+                // The anonymous fn's own space carries base 1 + the one
+                // counted clause; every enclosing space stays at base 1.
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 1);
             },
         );
     }
