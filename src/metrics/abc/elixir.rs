@@ -204,10 +204,21 @@ impl Abc for ElixirCode {
                     stats.conditions += 1.;
                 }
             }
+            // Sigil delimiter `<` / `>` (`~s<hi>`) are spelling, not
+            // comparisons — suppressed with the same parent-is-`Sigil`
+            // guard the Halstead getter uses (#1256). Of the other
+            // delimiter kinds the getter guards (`SLASH` / `LPAREN` /
+            // `LBRACE` / `LBRACK` / `PIPE`), none has an arm in this
+            // impl, so `LT` / `GT` are the only overlap to guard.
+            E::LT | E::GT
+                if ancestors
+                    .parent(node)
+                    .is_some_and(|p| p.kind_id() == E::Sigil as u16) => {}
             // Comparison operator tokens. `Elixir::LT` / `Elixir::GT`
-            // are unambiguously comparison ops here — unlike Go's
-            // generic-instantiation `<` / `>`, Elixir has no type
-            // parameter brackets that share the token.
+            // reach here only outside a sigil (the guard arm above
+            // consumes the delimiter case); Elixir has no Go-style
+            // generic-instantiation brackets, so what remains is a
+            // genuine comparison.
             E::EQEQ | E::EQEQEQ | E::BANGEQ | E::BANGEQEQ
             | E::LT | E::GT | E::LTEQ | E::GTEQ
             // Guard `when` token: introduces the guard clause of a

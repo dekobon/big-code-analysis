@@ -5454,37 +5454,44 @@ f() {
     // alongside the Unit / defmodule Class / def Function entries.
     // The FIRST `stab_clause` is the closure's head/definition and does
     // NOT count (issue #776); only the 2nd+ clauses are pattern-dispatch
-    // branches. The head-clause skip and the bare-`_` default-arm
-    // exclusion (issue #1272) compose: the 2nd clause here IS the
-    // dispatch's catch-all, so it is excluded for the wildcard reason
-    // while the head is excluded for the head reason. The anon-fn
-    // itself is not a `Call`, so it adds no modified-CCN container
-    // decision. Standard = 4 entries (Unit, defmodule, def, anon-fn)
-    // + 0 counted branches = 4; modified = 4 entries = 4.
+    // branches. The bare-`_` default-arm exclusion (issue #1272) does
+    // NOT apply inside a `fn`: the head skip already grants the free
+    // base path, so the trailing `_ ->` here is a real dispatch
+    // decision — a two-clause fn must report the same one decision as
+    // the identical two-arm `case`. The anon-fn itself is not a
+    // `Call`, so it adds no modified-CCN container decision.
+    // Standard = 4 entries (Unit, defmodule, def, anon-fn) + 1 counted
+    // branch (`_ ->`) = 5; modified = 4 entries = 4.
     #[test]
     fn elixir_anonymous_fn_arms_count() {
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def f do\n    multi = fn 0 -> :zero; _ -> :other end\n    multi.(0)\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
                 assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
             },
         );
     }
 
-    // Three-clause anonymous fn ending in a catch-all: the head clause
-    // is skipped (#776), the middle `1 ->` clause is a real dispatch
-    // branch and counts, and the final bare `_ ->` is the dispatch's
-    // default arm and does not (issue #1272). Standard = 4 entries
-    // (Unit, defmodule, def, anon-fn) + 1 branch = 5; modified = 4.
+    // Three-clause anonymous fn ending in a catch-all: a multi-clause
+    // `fn` is a dispatch like `case` — n clauses are n−1 decisions —
+    // and its free base path is the head-clause skip (#776), so the
+    // bare-`_` exclusion (issue #1272) must not stack on top of it:
+    // when both applied, this fn contributed ZERO decisions while the
+    // identical `case 0/1/_` contributed one per counted arm. The head
+    // is skipped, and BOTH the `1 ->` clause and the final `_ ->`
+    // count, matching the 2 decisions of a 3-arm `case` ending in
+    // `_ ->` (2 counted arms there: the bare `_ ->` is free but the
+    // container's arms 1 and 2 count). Standard = 4 entries (Unit,
+    // defmodule, def, anon-fn) + 2 branches = 6; modified = 4.
     #[test]
     fn elixir_multi_clause_fn_catchall_composition() {
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def f do\n    multi = fn 0 -> :zero; 1 -> :one; _ -> :other end\n    multi.(0)\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6);
                 assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
             },
         );
@@ -5558,6 +5565,26 @@ f() {
             "foo.ex",
             |metric| {
                 assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
+            },
+        );
+    }
+
+    // The `cond` `true ->` exclusion is shape-based, not positional: a
+    // NON-final unguarded `true ->` (which shadows every later arm) is
+    // excluded exactly like the idiomatic final one. This is the
+    // deliberate, Rust-convention-matching choice — Rust's bare-`_`
+    // MatchArm exclusion is equally position-blind, so the sibling
+    // family sets the precedent (issue #1272). standard = 3 entries +
+    // 1 counted stab (`x > 5 ->`; the shadowing `true ->` is free)
+    // = 4; modified = 3 entries + 1 cond Call = 4.
+    #[test]
+    fn elixir_cond_shadowing_true_arm_also_excluded() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x) do\n    cond do\n      true -> :forced\n      x > 5 -> :b\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
                 assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
             },
         );
