@@ -96,6 +96,38 @@ for historical reference.
 
 ### Fixed
 
+- Ruby regex literals and Perl bare match literals fabricated division
+  operators: the delimiter tokens under the literal wrapper were
+  classified through the generic `/` operator arm, so `x = /abc/`
+  reported a division with none in the source. Both are now
+  parent-guarded to `Unknown` under `regex` / `pattern_matcher`, the
+  same compound-leaf shape #1256 applied to Elixir sigils. Ruby's
+  `%r{…}` spellings alias onto the same token and are covered; a
+  standalone `a / b` division still counts. Ruby and Perl Halstead
+  operator counts drop accordingly (#1312). The remaining eight
+  languages with this defect are tracked in #1314.
+- Every `bca` subcommand man page omitted the CLI's global options
+  (`-w`/`--warnings`, `--report-skipped`), and `bca-vcs-commit.1` /
+  `bca-vcs-trend.1` additionally omitted the whole vcs history-tuning
+  family. `xtask` rendered pages from a never-built `clap::Command`, and
+  clap propagates global args into subcommands only during
+  `Command::build()`. The drift gate could not catch it: the committed
+  pages faithfully matched the wrong generator output. The regenerated
+  pages gain the missing options and keep their existing
+  `bca-metrics`-style synopsis spelling (#1248).
+- C++ function-pointer data members (`int (*fp)(int);`) were counted as
+  methods and skipped as attributes — both backwards. The
+  `function_declarator` arm is now gated on the declarator child not
+  being an indirection inside parentheses, and the attribute counter
+  recurses through `function_declarator` / `parenthesized_declarator`
+  so the field is reachable. Parenthesised method names
+  (`void (f)();`) and `Foo* operator->();` still count as methods
+  (#1300).
+- C++ conversion operators declared without a body (`operator float();`
+  and `template<typename T> operator T();`) were counted as neither a
+  method nor an attribute — their declarator is an `operator_cast`, not
+  a `function_declarator`, so both `npm` and `npa` skipped them. They
+  now count as methods, in both the Cpp and Mozcpp grammars (#1298).
 - In TypeScript and TSX, a `: string` type annotation counted as both a
   Halstead operator (the `predefined_type` wrapper) and an operand (its
   inner anonymous `"string"` keyword token, added by #313 for parity
