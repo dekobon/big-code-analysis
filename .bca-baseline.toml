@@ -888,12 +888,6 @@ metric = "cyclomatic"
 value = 16.0
 
 [[entry]]
-path = "src/metrics/cognitive.rs"
-qualified = "tcl_switch_decision_arms"
-metric = "nexits"
-value = 6.0
-
-[[entry]]
 path = "src/metrics/cognitive/bash.rs"
 qualified = "BashCode::compute"
 metric = "nargs"
@@ -1000,6 +994,12 @@ path = "src/metrics/cognitive/rust.rs"
 qualified = "RustCode::compute"
 metric = "nargs"
 value = 5.0
+
+[[entry]]
+path = "src/metrics/cognitive/tcl.rs"
+qualified = "TclCode::compute"
+metric = "cyclomatic"
+value = 15.0
 
 [[entry]]
 path = "src/metrics/cognitive/tcl.rs"

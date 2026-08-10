@@ -7,10 +7,11 @@ impl Getter for IrulesCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
         match node.kind_id().into() {
             // Event handlers and procs are the function units (see the
-            // `IrulesCode` Checker impl for the handler-as-function rationale).
-            Irules::Procedure | Irules::WhenEvent | Irules::OnHandler | Irules::TrapHandler => {
-                SpaceKind::Function
-            }
+            // `IrulesCode` Checker impl for the handler-as-function
+            // rationale, and for why `try` handlers are excluded — this arm
+            // must stay gated by the same set as `is_func_space`,
+            // grammar-dispatch §6/§7).
+            Irules::Procedure | Irules::WhenEvent => SpaceKind::Function,
             Irules::SourceFile => SpaceKind::Unit,
             _ => SpaceKind::Unknown,
         }

@@ -48,6 +48,15 @@ impl Cognitive for IrulesCode {
             Catch => {
                 increase_nesting(stats, &mut nesting);
             }
+            // `try` handlers are conditional error paths too: +1 plus current
+            // nesting, and the handler body nests (issue #1266). The grammar
+            // wraps each in a dedicated node (unlike Tcl's flat tokens), and
+            // emits them only inside `try` — they are catch clauses, not the
+            // `when`-style event handlers they were once mistaken for. `Try`
+            // itself and `Finally` are unconditional and stay free.
+            OnHandler | TrapHandler => {
+                increase_nesting(stats, &mut nesting);
+            }
             // iRules `switch` is a dedicated node (unlike Tcl): +1 plus current
             // nesting, with the `default` arm free, matching the C-family
             // `SwitchStatement` cognitive handling (lesson 11).
@@ -61,15 +70,10 @@ impl Cognitive for IrulesCode {
                     matches!(id.into(), AMPAMP | PIPEPIPE | And | Or)
                 });
             }
-            // All four function-space kinds reset nesting and bump the
+            // The two function-space kinds reset nesting and bump the
             // function depth (see the `IrulesCode` Checker impl).
-            Procedure | WhenEvent | OnHandler | TrapHandler => {
-                enter_function_boundary(
-                    &mut nesting,
-                    node,
-                    ancestors,
-                    &[Procedure, WhenEvent, OnHandler, TrapHandler],
-                );
+            Procedure | WhenEvent => {
+                enter_function_boundary(&mut nesting, node, ancestors, &[Procedure, WhenEvent]);
             }
             _ => {}
         }

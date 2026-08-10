@@ -16,32 +16,25 @@ impl Checker for IrulesCode {
     // bodies are recursively-parsed `braced_word`s, so nested control flow
     // is attributed correctly.
     //
-    // `OnHandler` / `TrapHandler` are defensive arms (lesson #34): the
-    // grammar declares dedicated `on_handler` / `trap_handler` nodes, but at
-    // statement level a bare `on …` / `trap …` parses as a generic `command`
-    // (the `command` rule wins), so these kinds do not surface in practice
-    // and have no dedicated test. They are listed here so that if a future
-    // grammar revision starts emitting them they are handled as spaces
-    // rather than silently dropped — never removed in favour of an
-    // `unreachable!` (lesson #5).
+    // `OnHandler` / `TrapHandler` are deliberately NOT spaces. The grammar
+    // references `on_handler` / `trap_handler` from the `try` rule alone,
+    // so they surface only as `try` error-handler clauses — the `catch`
+    // analogue, not the `when`-style event handlers their names suggest.
+    // Listing them here fabricated an anonymous nested function space (and
+    // a `nom` function) per handler; they are branch points, counted by
+    // the Cognitive / Cyclomatic impls instead (issue #1266).
     fn is_func_space(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),
-            Irules::SourceFile
-                | Irules::Procedure
-                | Irules::WhenEvent
-                | Irules::OnHandler
-                | Irules::TrapHandler
+            Irules::SourceFile | Irules::Procedure | Irules::WhenEvent
         )
     }
 
-    // Handlers count as functions (not closures): `nom.functions` on a
-    // typical iRules file is then the handler count, the intuitive metric.
+    // Event handlers count as functions (not closures): `nom.functions` on
+    // a typical iRules file is then the handler count, the intuitive
+    // metric. `try` handlers are excluded — see `is_func_space`.
     fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Irules::Procedure | Irules::WhenEvent | Irules::OnHandler | Irules::TrapHandler
-        )
+        matches!(node.kind_id().into(), Irules::Procedure | Irules::WhenEvent)
     }
 
     // iRules has no anonymous lambda node (`apply` is an ordinary command).

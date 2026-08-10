@@ -684,6 +684,46 @@ pub(crate) fn tcl_switch_decision_arms(node: &Node, code: &[u8]) -> Option<usize
     Some(decision_arms)
 }
 
+// Tcl's `try` has a dedicated kind (unlike `switch`/`for`), but its error
+// handler is a flat run of sibling tokens rather than a wrapper node
+// (issue #1266):
+//
+//   (try "try" <body> ["on" "error" (arguments) <body>] [(finally)])
+//
+// The vendored grammar permits at most one `on error` handler and has no
+// `trap` rule at all — Tcl 8.6's multi-handler and `trap` forms degrade to
+// an `ERROR` node, a grammar limitation like the `for` condition in #1264.
+// The scan still tolerates repetition so a grammar bump that adds those
+// forms keeps counting without an edit here.
+//
+// Each handler body is located by structural position, never fixed index
+// (grammar-dispatch §3): it is the child that follows the `arguments` node
+// of a preceding `on` token. The `finally` clause is a wrapper kind
+// (`Tcl::Finally`) and is never yielded — unconditional cleanup costs
+// nothing, matching the cross-language `finally` convention (#416).
+//
+// Shared by Cognitive (which also seeds each body's nesting slot) and
+// Cyclomatic (which counts the bodies); both call it from their `Tcl::Try`
+// dispatch arm.
+pub(crate) fn tcl_try_handler_bodies<'a>(node: &Node<'a>) -> impl Iterator<Item = Node<'a>> {
+    let mut saw_on = false;
+    let mut saw_arguments = false;
+    node.children().filter(move |child| {
+        let kind = child.kind_id();
+        if kind == Tcl::On as u16 {
+            saw_on = true;
+            saw_arguments = false;
+        } else if saw_on && !saw_arguments {
+            saw_arguments = kind == Tcl::Arguments as u16;
+        } else if saw_on {
+            saw_on = false;
+            saw_arguments = false;
+            return true;
+        }
+        false
+    })
+}
+
 // iRules counterpart to [`tcl_switch_decision_arms`]. Unlike Tcl, the iRules
 // grammar models `switch` as a dedicated node with `switch_arm` children, so
 // the arms are read off the tree directly instead of re-parsing a generic
@@ -6605,6 +6645,139 @@ mod tests {
                 assert_eq!(metric.cognitive.cognitive_max(), 1);
             },
         );
+    }
+
+    #[test]
+    fn tcl_try_on_error_cognitive() {
+        // Tcl `try`'s `on error` handler is a conditional error path:
+        // +1 plus current nesting (issue #1266), matching `catch`;
+        // `finally` is unconditional and free.
+        check_metrics::<TclParser>(
+            "proc f {} {
+    try {
+        risky
+    } on error {msg} {
+        puts $msg
+    } finally {
+        cleanup
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                // One handler at proc-body nesting 0 → +1.
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_try_finally_only_cognitive() {
+        // A `try` with only a `finally` has no conditional path and must
+        // stay at zero (issue #1266, the cross-language `finally`
+        // convention of #416).
+        check_metrics::<TclParser>(
+            "proc f {} {
+    try {
+        risky
+    } finally {
+        cleanup
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
+                assert_eq!(metric.cognitive.cognitive_max(), 0);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_try_handler_nesting_cognitive() {
+        // Only the handler body nests (issue #1266): the `try` body and
+        // `finally` body run unconditionally and stay at the inherited
+        // level, so an `if` inside each of the three blocks is charged
+        // differently. This pins the per-child nesting seed — charging
+        // `increase_nesting` at the whole `try` node instead would score
+        // the try-body and finally-body `if`s +2 each (sum 7).
+        check_metrics::<TclParser>(
+            "proc f {} {
+    try {
+        if {1} {
+            a
+        }
+    } on error {msg} {
+        if {1} {
+            b
+        }
+    } finally {
+        if {1} {
+            c
+        }
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                // handler(+1) + try-body if(+1, nesting 0)
+                // + handler-body if(+2, nesting 1)
+                // + finally-body if(+1, nesting 0) = 5.
+                assert_eq!(metric.cognitive.cognitive_sum(), 5);
+                assert_eq!(metric.cognitive.cognitive_max(), 5);
+            },
+        );
+    }
+
+    #[test]
+    fn irules_try_trap_cognitive() {
+        // iRules wraps each `try` handler in a dedicated `on_handler` /
+        // `trap_handler` node: +1 each plus nesting, and the handler body
+        // nests (issue #1266). Before this the handlers opened anonymous
+        // function spaces, which reset nesting and hid the construct from
+        // the enclosing proc entirely.
+        check_metrics::<IrulesParser>(
+            "proc f {} {
+    try {
+        risky
+    } on error {msg} {
+        puts $msg
+    } trap {POSIX} {msg} {
+        if {1} {
+            puts $msg
+        }
+    }
+}",
+            "foo.irule",
+            |metric| {
+                // on(+1) + trap(+1) + if at nesting 1 inside trap (+2) = 4.
+                assert_eq!(metric.cognitive.cognitive_sum(), 4);
+                assert_eq!(metric.cognitive.cognitive_max(), 4);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_irules_try_parity() {
+        // The same single-handler `try` must score identically in Tcl
+        // (flat `on`/`error` tokens under `try`, per-child nesting seed)
+        // and iRules (a dedicated `on_handler` wrapper) — issue #1266.
+        // handler(+1) + if at nesting 1 inside the handler (+2) = 3.
+        let source = "proc f {} {
+    try {
+        risky
+    } on error {msg} {
+        if {1} {
+            puts $msg
+        }
+    }
+}";
+        check_metrics::<TclParser>(source, "foo.tcl", |metric| {
+            assert_eq!(metric.cognitive.cognitive_sum(), 3);
+            assert_eq!(metric.cognitive.cognitive_max(), 3);
+        });
+        check_metrics::<IrulesParser>(source, "foo.irule", |metric| {
+            assert_eq!(metric.cognitive.cognitive_sum(), 3);
+            assert_eq!(metric.cognitive.cognitive_max(), 3);
+        });
     }
 
     #[test]
