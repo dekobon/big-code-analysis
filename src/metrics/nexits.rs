@@ -317,12 +317,10 @@ impl Exit for BashCode {
 impl Exit for TclCode {
     fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
         // Tcl has no return keyword node; `return` is a generic Command whose
-        // name field is a simple_word with text "return".
-        if node.kind_id() == Tcl::Command
-            && let Some(name) = node.child_by_field_name("name")
-            && name.kind_id() == Tcl::SimpleWord
-            && name.utf8_text(code) == Some("return")
-        {
+        // name field is a simple_word with text "return" — the same
+        // leading-word resolution the Cognitive / Cyclomatic `switch` and
+        // `for` detectors use, shared rather than restated here.
+        if crate::metrics::cognitive::tcl_command_name(node, code) == Some("return") {
             stats.exit += 1;
         }
     }

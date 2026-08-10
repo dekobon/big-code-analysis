@@ -62,22 +62,34 @@ impl Cognitive for TclCode {
                     nesting_map.insert(body.id(), handler_nesting);
                 }
             }
-            // Tcl `switch` is a generic `command`, not a dedicated kind, so it
-            // would otherwise fall through to `_` (issue #467). It is a
-            // switch-like structure: +1 plus current nesting, with the
-            // `default` arm free, matching C-family `SwitchStatement` cognitive
-            // handling (lesson 11). `tcl_switch_decision_arms` returns `Some`
-            // only for a leading-word `switch` command.
-            Command if tcl_switch_decision_arms(node, code).is_some() => {
-                increase_nesting(stats, &mut nesting);
-            }
-            // Tcl `for` is likewise a generic `command` with no dedicated
-            // kind (issue #1264): a loop adds +1 plus current nesting and
-            // nests its body, matching `While`/`Foreach` above and the
-            // dedicated iRules `For`.
-            Command if tcl_command_is_for(node, code) => {
-                increase_nesting(stats, &mut nesting);
-            }
+            // Tcl `switch` and `for` are generic `command`s, not dedicated
+            // kinds, so they would otherwise fall through to `_` (issues
+            // #467, #1264). The leading word is resolved once here and
+            // dispatched on; the two constructs used to re-resolve it
+            // independently.
+            //
+            // `for` has a second, unrepairable consequence: with no grammar
+            // rule there is no `expr` slot, so the loop condition
+            // (`{$i < $n}`) stays an opaque `braced_word` and its comparison
+            // never surfaces as a condition token for ABC — a grammar
+            // limitation, not a metric-layer bug.
+            Command => match tcl_command_name(node, code) {
+                // A switch-like structure: +1 plus current nesting, with the
+                // `default` arm free, matching C-family `SwitchStatement`
+                // cognitive handling (lesson 11). The arm list must be the
+                // supported brace-list form, the same scoping cyclomatic
+                // applies; cognitive needs no arm count.
+                Some("switch") if tcl_switch_arm_list(node).is_some() => {
+                    increase_nesting(stats, &mut nesting);
+                }
+                // A loop adds +1 plus current nesting and nests its body,
+                // matching `While`/`Foreach` above and the dedicated iRules
+                // `For`.
+                Some("for") => {
+                    increase_nesting(stats, &mut nesting);
+                }
+                _ => {}
+            },
             BinopExpr => {
                 compute_booleans(node, stats, AMPAMP, PIPEPIPE);
             }

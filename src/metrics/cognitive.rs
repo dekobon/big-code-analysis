@@ -598,6 +598,18 @@ pub(crate) fn elixir_call_keyword<'a>(node: &'a Node<'a>, code: &'a [u8]) -> Opt
 // statically resolvable to a builtin), and for non-UTF-8 bytes. Shared by
 // the out-of-band control-flow detectors below (grammar-dispatch §10:
 // identity questions read the bytes).
+//
+// A *literal* name in a quoted or braced spelling is also unresolved, and
+// that is a deliberate limitation: `"for" {set i 0} {$i < 3} {incr i} {…}`
+// and `{for} …` are legal Tcl that still invoke the builtin, but the
+// grammar parses their name as `quoted_word` / `braced_word` rather than
+// `simple_word`, so they score as plain commands. The `simple_word` gate
+// is what keeps the computed forms out; matching the quoted spellings
+// would mean unquoting the bytes for a style no real Tcl uses.
+//
+// Callers dispatch on the returned name so each `command` node resolves it
+// exactly once per metric walk — the helpers below take the resolved
+// identity as a precondition rather than re-deriving it.
 pub(crate) fn tcl_command_name<'a>(node: &'a Node<'a>, code: &'a [u8]) -> Option<&'a str> {
     if node.kind_id() != Tcl::Command as u16 {
         return None;
@@ -609,55 +621,38 @@ pub(crate) fn tcl_command_name<'a>(node: &'a Node<'a>, code: &'a [u8]) -> Option
     name.utf8_text(code)
 }
 
-// Tcl's `for` is a generic `command` — the grammar has no `for` rule, so
-// the enum carries no `For` variant and the Cognitive / Cyclomatic kind
-// dispatch never sees the loop (issue #1264, the grammar-dispatch §9 class
-// that #467 fixed for `switch`). Detected by leading word instead. ABC
-// cannot be repaired the same way: with no grammar rule there is no `expr`
-// slot, so the loop condition (`{$i < $n}`) stays an opaque `braced_word`
-// and its comparison never surfaces as a condition token — a grammar
-// limitation, not a metric-layer bug.
-pub(crate) fn tcl_command_is_for(node: &Node<'_>, code: &[u8]) -> bool {
-    tcl_command_name(node, code) == Some("for")
-}
-
 // Tcl's `switch` is a generic `command` (no dedicated kind_id, unlike
 // `if`/`while`/`foreach`/`catch`), so the kind-dispatch in the Cognitive
-// and Cyclomatic impls never sees it (issue #467, lesson 19). This helper
-// is shared by both metrics: it detects a `switch` command and returns the
-// number of *decision* arms — every non-`default` arm.
+// and Cyclomatic impls never sees it (issue #467, lesson 19). Both metrics
+// reach it through `tcl_command_name` and then through this pair: the arm
+// list locates the supported form, and `tcl_switch_decision_arms` counts
+// it. Cognitive needs only the former — it charges one structure whatever
+// the arm count is — so the count stays out of its path.
 //
 // Grammar shape (tree-sitter-tcl 0.x), canonical brace-list form:
 //
 //   (command name: (simple_word "switch")
 //     (word_list <options…> <value> (braced_word (command (simple_word PAT) …) …)))
 //
-// The arm list is the LAST `braced_word` argument, which makes the helper
-// robust to leading options (`-exact`, `-glob`, `-regexp`, `-nocase`, `--`)
-// and the matched value, all of which precede it in the `word_list`. Each
-// arm is itself a nested `command` whose leading word is the pattern; the
-// `default` arm is excluded, matching the C-family `default:` convention
-// (lesson 11). The rarer split form (`switch $x a {b} c {d}` — arms as
-// separate `word_list` arguments rather than wrapped in one `braced_word`)
-// is intentionally NOT counted: its body braces are sibling arguments, not
-// nested commands, so there is no reliable arm node to count. Idiomatic
-// Tcl uses the brace-list form, so this scoping under-counts only the
-// uncommon style.
+// The arm list is the sole `braced_word` argument inside the command's
+// `word_list`, which makes the lookup robust to leading options (`-exact`,
+// `-glob`, `-regexp`, `-nocase`, `--`) and the matched value, all of which
+// precede it and never parse as `braced_word`. The rarer split form
+// (`switch $x a {b} c {d}` — arms as separate `word_list` arguments rather
+// than wrapped in one `braced_word`) produces *several* sibling
+// `braced_word`s, one per arm body, so requiring exactly one distinguishes
+// the brace-list form and excludes the split form, where the last
+// `braced_word` is merely a body rather than the full arm list. The split
+// form is intentionally NOT counted: its body braces are sibling
+// arguments, not nested commands, so there is no reliable arm node to
+// count. Idiomatic Tcl uses the brace-list form, so this scoping
+// under-counts only the uncommon style.
 //
-// Returns `None` for any command that is not a leading-word `switch`, so
-// callers can leave non-switch commands untouched.
-pub(crate) fn tcl_switch_decision_arms(node: &Node, code: &[u8]) -> Option<usize> {
-    if tcl_command_name(node, code) != Some("switch") {
-        return None;
-    }
-
-    // The arm list is the sole `braced_word` argument inside the command's
-    // `word_list`; the matched value and any leading options precede it and
-    // never parse as `braced_word`. The split form (`switch $x a {b} c {d}`)
-    // produces *several* sibling `braced_word`s — one per arm body — so
-    // requiring exactly one direct `braced_word` child distinguishes the
-    // brace-list form and excludes the unsupported split form, where the last
-    // `braced_word` is merely a body rather than the full arm list.
+// **Precondition**: `node` is a `command` whose leading word resolved to
+// `"switch"` — the callers' `tcl_command_name` dispatch establishes that,
+// and re-checking it here would resolve the name a second time on every
+// switch.
+pub(crate) fn tcl_switch_arm_list<'a>(node: &Node<'a>) -> Option<Node<'a>> {
     let word_list = node
         .children()
         .find(|child| child.kind_id() == Tcl::WordList as u16)?;
@@ -665,17 +660,22 @@ pub(crate) fn tcl_switch_decision_arms(node: &Node, code: &[u8]) -> Option<usize
         .children()
         .filter(|child| child.kind_id() == Tcl::BracedWord as u16);
     let arm_list = braced_words.next()?;
-    if braced_words.next().is_some() {
-        return None;
-    }
+    braced_words.next().is_none().then_some(arm_list)
+}
 
-    let decision_arms = arm_list
+// The number of *decision* arms of a `switch` — every arm but `default`,
+// which is the fallback and does not contribute a decision point, matching
+// the C-family `default:` convention (lesson 11). Each arm is a nested
+// `command` whose leading word is the pattern.
+//
+// Carries [`tcl_switch_arm_list`]'s precondition, and returns `None` for
+// the same unsupported split form, so callers leave it untouched exactly
+// as they leave a non-switch command.
+pub(crate) fn tcl_switch_decision_arms(node: &Node, code: &[u8]) -> Option<usize> {
+    let decision_arms = tcl_switch_arm_list(node)?
         .children()
         .filter(|arm| arm.kind_id() == Tcl::Command as u16)
         .filter(|arm| {
-            // The arm pattern is the arm command's leading word; the
-            // `default` arm is the switch fallback and does not contribute a
-            // decision point.
             arm.child_by_field_name("name")
                 .and_then(|pat| pat.utf8_text(code))
                 != Some("default")
@@ -697,31 +697,27 @@ pub(crate) fn tcl_switch_decision_arms(node: &Node, code: &[u8]) -> Option<usize
 // forms keeps counting without an edit here.
 //
 // Each handler body is located by structural position, never fixed index
-// (grammar-dispatch §3): it is the child that follows the `arguments` node
-// of a preceding `on` token. The `finally` clause is a wrapper kind
-// (`Tcl::Finally`) and is never yielded — unconditional cleanup costs
-// nothing, matching the cross-language `finally` convention (#416).
+// (grammar-dispatch §3): it is the child directly following the handler's
+// `arguments` node. That makes the scan pairwise — every child paired with
+// its predecessor, yielding the successor of each `arguments` — rather
+// than a state machine over the `on` / `error` / `arguments` run. The
+// grammar's extras are whitespace-only, so nothing can interpose between
+// the `arguments` node and the body it introduces, and `arguments` appears
+// among a `try`'s direct children only in handler position. Repetition
+// costs nothing here: a grammar bump that admits several handlers (or
+// `trap`) is counted without an edit, because each `arguments` yields its
+// own successor. The `finally` clause is a wrapper kind (`Tcl::Finally`)
+// and is never yielded — unconditional cleanup costs nothing, matching the
+// cross-language `finally` convention (#416).
 //
 // Shared by Cognitive (which also seeds each body's nesting slot) and
 // Cyclomatic (which counts the bodies); both call it from their `Tcl::Try`
 // dispatch arm.
 pub(crate) fn tcl_try_handler_bodies<'a>(node: &Node<'a>) -> impl Iterator<Item = Node<'a>> {
-    let mut saw_on = false;
-    let mut saw_arguments = false;
-    node.children().filter(move |child| {
-        let kind = child.kind_id();
-        if kind == Tcl::On as u16 {
-            saw_on = true;
-            saw_arguments = false;
-        } else if saw_on && !saw_arguments {
-            saw_arguments = kind == Tcl::Arguments as u16;
-        } else if saw_on {
-            saw_on = false;
-            saw_arguments = false;
-            return true;
-        }
-        false
-    })
+    node.children()
+        .zip(node.children().skip(1))
+        .filter(|(previous, _)| previous.kind_id() == Tcl::Arguments as u16)
+        .map(|(_, body)| body)
 }
 
 // iRules counterpart to [`tcl_switch_decision_arms`]. Unlike Tcl, the iRules
