@@ -52,16 +52,20 @@ impl Getter for TsxCode {
         bound_name.map_or(Some("<anonymous>"), |name| node_text(code, &name))
     }
 
-    // TSX exposes two anonymous `"string"` aliases: `String2` (the
-    // string-literal alias, kind_id 261) and `String3` (the
-    // type-annotation keyword, kind_id 141 — the role TS's `String2`
-    // plays). `Checker::is_string` matches both (#283); including
-    // `String3` here closes the audit gap surfaced by #313 (the same
-    // class of inconsistency that #313 fixed for TS::String2).
+    // TSX exposes two anonymous `"string"` aliases: `String2` (kind_id
+    // 261, the string-literal alias — ordinary and JSX-attribute
+    // literals both parse as it), which is an operand like any other
+    // string literal, and `String3` (kind_id 141, the `: string` type
+    // keyword — the role TS's `String2` plays, emitted only as the
+    // child of a `predefined_type` wrapper). `String3` is deliberately
+    // NOT an operand: the wrapper already counts as the text-keyed
+    // `"string"` operator, so #313's listing of the child too counted
+    // one source token as operator AND operand while `: number` /
+    // `: boolean` counted once (#1261; see the TS invocation).
     impl_js_family_get_op_type!(
         Tsx,
         op_extras: [QMARKDOT, PredefinedType],
-        operand_extras: [Identifier2, String2, String3, NestedIdentifier, MemberExpression4],
+        operand_extras: [Identifier2, String2, NestedIdentifier, MemberExpression4],
         predefined_void: PredefinedType,
     );
 

@@ -52,16 +52,21 @@ impl Getter for TypescriptCode {
         bound_name.map_or(Some("<anonymous>"), |name| node_text(code, &name))
     }
 
-    // TS exposes `String2` as the anonymous `"string"` alias for the
-    // type-annotation keyword (kind_id 135, in the type-keyword block
-    // of the enum). `Checker::is_string` already matches it (#283);
-    // including it here closes the Checker/Getter agreement gap
-    // (#313). `NestedIdentifier` and `MemberExpression4` are TS-only
-    // member-expression productions.
+    // `NestedIdentifier` and `MemberExpression4` are TS-only
+    // member-expression productions. TS's anonymous `"string"` alias
+    // `String2` (kind_id 135, the `: string` type keyword, emitted only
+    // as the child of a `predefined_type` wrapper) is deliberately NOT
+    // an operand: the wrapper already counts as the text-keyed
+    // `"string"` operator via `is_primitive`, so #313's listing of the
+    // child too counted one source token as operator AND operand — the
+    // mirror image of the #453 `void` collision — while `: number` /
+    // `: boolean` counted once (#1261). `Checker::is_string` no longer
+    // matches the keyword either, so the #313 parity rationale is
+    // retired rather than contradicted.
     impl_js_family_get_op_type!(
         Typescript,
         op_extras: [QMARKDOT, PredefinedType],
-        operand_extras: [String2, NestedIdentifier, MemberExpression4],
+        operand_extras: [NestedIdentifier, MemberExpression4],
         predefined_void: PredefinedType,
     );
 
