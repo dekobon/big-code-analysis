@@ -2377,6 +2377,13 @@ mod nameless_construct_spaces {
                 (Some("<anonymous>"), SpaceKind::Function),
             ],
         );
+        // `shape` flattens preorder, so the same list would also match a
+        // wrongly *nested* arrangement: pin the three lambda spaces as
+        // leaf siblings under `m`.
+        assert_eq!(root.spaces.len(), 1);
+        let m = &root.spaces[0];
+        assert_eq!(m.spaces.len(), 3);
+        assert!(m.spaces.iter().all(|s| s.spaces.is_empty()));
         // expected: closures = keyword lambda + each-block + stabby
         // lambda = 3; total adds the named method `m` = 4.
         assert_eq!(root.metrics.nom.closures_sum(), 3);
