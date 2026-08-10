@@ -18,6 +18,11 @@ impl Getter for PerlCode {
         use Perl as P;
 
         match node.kind_id().into() {
+            // FIXME(#1312): regex delimiter counted as division — the
+            // `SLASH` arm below also matches a bare `PatternMatcher`
+            // literal's delimiter tokens; see #1256's parent-guard
+            // pattern.
+            //
             // Control-flow and declaration keywords. `Perl::Sub` is the
             // `sub` keyword (token id 16); `Perl::SUB` is the `__SUB__`
             // literal (token id 7) — that one is an operand, not an
