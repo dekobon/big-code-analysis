@@ -48,6 +48,12 @@ impl Checker for TypescriptCode {
         )
     }
 
+    // TS's only anonymous `"string"` alias, `String2` (kind_id 135),
+    // is the `: string` type-annotation keyword — not a literal — so
+    // it is deliberately excluded: `find string` / `count string`
+    // report literals, and `Getter::get_op_type` classifies the
+    // keyword's `predefined_type` wrapper as an operator (#1261,
+    // retiring the #313 parity that made the keyword an operand).
     impl_js_family_is_string!(Typescript);
 
     impl_is_else_if_parent_clause!(Typescript, IfStatement, ElseClause);

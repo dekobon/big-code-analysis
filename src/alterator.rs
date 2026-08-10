@@ -448,10 +448,12 @@ impl Alterator for TypescriptCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         match Typescript::from(node.kind_id()) {
-            // `TemplateString` joins `String`/`String2` so the dump
-            // matches `Checker::is_string`; its `${…}` interpolations
-            // collapse into the flat text payload (#699).
-            Typescript::String | Typescript::String2 | Typescript::TemplateString => {
+            // `TemplateString` joins `String` so the dump matches
+            // `Checker::is_string`; its `${…}` interpolations collapse
+            // into the flat text payload (#699). TS's `String2` (the
+            // `: string` type keyword, a childless leaf for which this
+            // arm is a no-op anyway) left the string set with #1261.
+            Typescript::String | Typescript::TemplateString => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
                 AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
@@ -469,10 +471,13 @@ impl Alterator for TsxCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         match Tsx::from(node.kind_id()) {
-            // `TemplateString` joins `String`/`String2`/`String3` so the
-            // dump matches `Checker::is_string`; its `${…}` interpolations
-            // collapse into the flat text payload (#699).
-            Tsx::String | Tsx::String2 | Tsx::String3 | Tsx::TemplateString => {
+            // `TemplateString` joins `String`/`String2` (the
+            // string-literal alias) so the dump matches
+            // `Checker::is_string`; its `${…}` interpolations collapse
+            // into the flat text payload (#699). `String3` (the
+            // `: string` type keyword, a childless leaf for which this
+            // arm is a no-op anyway) left the string set with #1261.
+            Tsx::String | Tsx::String2 | Tsx::TemplateString => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
                 AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }

@@ -1364,17 +1364,17 @@ mod tests {
         // TypeScript — the four JS-family `get_op_type` impls share
         // the same template-literal handling.
         //
-        // After #313 the `: string` annotation's `String2` child also
-        // counts as an operand (text `"string"`), so unique operands
-        // are `f`, `` `hello` ``, `string` (3 each). The headline of
-        // this test — that the plain template literal contributes one
-        // operand — is unaffected.
+        // The `: string` annotation contributes no operand — its
+        // keyword counts once, as the text-keyed operator (#1261) — so
+        // the operands are `f` and `` `hello` `` (2 each). The headline
+        // of this test — that the plain template literal contributes
+        // one operand — is unaffected.
         check_metrics::<TypescriptParser>(
             "function f(): string { return `hello`; }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.halstead.unique_operands(), 3);
-                assert_eq!(metric.halstead.total_operands(), 3);
+                assert_eq!(metric.halstead.unique_operands(), 2);
+                assert_eq!(metric.halstead.total_operands(), 2);
             },
         );
     }
@@ -1385,18 +1385,17 @@ mod tests {
         // `javascript_template_string_interpolation_no_double_count`
         // for TypeScript.
         //
-        // After #313 each `: string` annotation contributes one
-        // `"string"` operand. Unique operands: `f`, `name`, `string`
-        // (3). Total operands: `f`, `name` (param), `name` (in the
-        // interpolation), `string`, `string` (5). The interpolation
+        // The `: string` annotations contribute no operands (#1261).
+        // Unique operands: `f`, `name` (2). Total operands: `f`, `name`
+        // (param), `name` (in the interpolation) (3). The interpolation
         // guard from #192 still holds — the wrapping `` `Hi ${name}!` ``
         // is `Unknown`, not double-counted.
         check_metrics::<TypescriptParser>(
             "function f(name: string): string { return `Hi ${name}!`; }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.halstead.unique_operands(), 3);
-                assert_eq!(metric.halstead.total_operands(), 5);
+                assert_eq!(metric.halstead.unique_operands(), 2);
+                assert_eq!(metric.halstead.total_operands(), 3);
             },
         );
     }
@@ -1407,14 +1406,15 @@ mod tests {
         // `javascript_template_string_plain_is_operand` for the
         // TSX (TypeScript + JSX) variant.
         //
-        // After #313 TSX's type-keyword `string` (`String3`) also
-        // counts as an operand, mirroring TS::String2.
+        // TSX's type-keyword `string` (`String3`) contributes no
+        // operand, mirroring TS::String2 (#1261): operands are `f` and
+        // `` `hello` `` (2 each).
         check_metrics::<TsxParser>(
             "function f(): string { return `hello`; }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.halstead.unique_operands(), 3);
-                assert_eq!(metric.halstead.total_operands(), 3);
+                assert_eq!(metric.halstead.unique_operands(), 2);
+                assert_eq!(metric.halstead.total_operands(), 2);
             },
         );
     }
@@ -1425,15 +1425,15 @@ mod tests {
         // `javascript_template_string_interpolation_no_double_count`
         // for the TSX (TypeScript + JSX) variant.
         //
-        // After #313 each `: string` annotation contributes one
-        // `String3` operand; see `typescript_template_string_…` for
-        // the count derivation.
+        // The `: string` annotations contribute no `String3` operands
+        // (#1261); see `typescript_template_string_…` for the count
+        // derivation.
         check_metrics::<TsxParser>(
             "function f(name: string): string { return `Hi ${name}!`; }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.halstead.unique_operands(), 3);
-                assert_eq!(metric.halstead.total_operands(), 5);
+                assert_eq!(metric.halstead.unique_operands(), 2);
+                assert_eq!(metric.halstead.total_operands(), 3);
             },
         );
     }
@@ -1505,8 +1505,9 @@ mod tests {
     // Verified by test-via-revert: dropping `OptionalChain` from
     // JS/MozJS, or `QMARKDOT` from TS/TSX, trips the test
     // (u_operators 6→5). This input does NOT exercise every operand
-    // alias in the per-language `operand_extras` (`Identifier2`,
-    // `String2`, `NestedIdentifier`, `MemberExpression4`); drift in
+    // alias in the per-language `operand_extras` (`Identifier2`, the
+    // JS/MozJS/TSX string-literal `String2`, `NestedIdentifier`,
+    // `MemberExpression4`); drift in
     // those is out of scope for this regression guard and would need a
     // separate fixture. The `PredefinedType` operator path (`: void`
     // double-count) is now covered by `ts_void_return_type_single_operator_453`
@@ -1531,12 +1532,14 @@ mod tests {
         check_metrics::<TsxParser>(SRC, "foo.tsx", check);
     }
 
-    // Issue #313: parity guard for the `"string"` type-keyword aliases
-    // that the TS / TSX grammars expose. `Checker::is_string` matches
-    // these aliases (#283), so `Getter::get_op_type` must also classify
-    // them — otherwise the same node disagrees between the two
-    // predicates and Halstead silently undercounts every `: string`
-    // annotation by one operand.
+    // Issue #1261 (inverting the #313 pin): the `"string"` type-keyword
+    // aliases the TS / TSX grammars expose must contribute NO operand.
+    // #313 put them in `operand_extras` for parity with the then-wider
+    // `Checker::is_string`, but the `predefined_type` wrapper already
+    // counts as the text-keyed `"string"` operator, so one `: string`
+    // token tallied as operator AND operand while `: number` counted
+    // once. #1261 drops the aliases from both `operand_extras` and
+    // `is_string`, so the keyword counts once, as the operator.
     //
     // For the input `let x: string = "y";`:
     //
@@ -1544,29 +1547,53 @@ mod tests {
     //   keyword (kind_id 135, in the type-keyword block of the enum).
     // * TSX emits `Tsx::String3` for the same role (kind_id 141).
     //
-    // After #313 both kinds are in `operand_extras` and contribute one
-    // `"string"` operand. Verified by test-via-revert: dropping
-    // `String2` from TS's `operand_extras` (or `String3` from TSX's)
-    // trips this test on `u_operands` / `operands` for the affected
-    // language.
+    // Verified by test-via-revert: restoring `String2` to TS's
+    // `operand_extras` (or `String3` to TSX's) trips this test on
+    // `u_operands` / `operands` for the affected language.
     #[test]
-    fn ts_family_string2_string3_type_keyword_parity_313() {
+    fn ts_family_type_keyword_counts_once_1261() {
         const SRC: &str = "let x: string = \"y\";";
         // Operators (n1 = 5, N1 = 5):
         //   `let`, `:`, `=`, `;`, plus `string` (PredefinedType wrapper,
         //   routed through `is_primitive` so it's keyed by its lexeme
         //   `"string"` in `primitive_operators`).
-        // Operands (n2 = 3, N2 = 3):
-        //   `x`, the `"y"` literal, and `string` (the type-keyword
-        //   child of `predefined_type`, classified via the operand
-        //   extras added by #313). Pre-fix the TS column reported
-        //   n2 = 2 / N2 = 2 because String2 fell through to `Unknown`;
-        //   the TSX column had the same gap for String3.
+        // Operands (n2 = 2, N2 = 2):
+        //   `x` and the `"y"` literal. Under #313 the type-keyword
+        //   child of `predefined_type` added a third, phantom
+        //   `"string"` operand (n2 = 3 / N2 = 3).
         let check = |m: crate::CodeMetrics| {
             assert_eq!(m.halstead.unique_operators(), 5);
             assert_eq!(m.halstead.total_operators(), 5);
-            assert_eq!(m.halstead.unique_operands(), 3);
-            assert_eq!(m.halstead.total_operands(), 3);
+            assert_eq!(m.halstead.unique_operands(), 2);
+            assert_eq!(m.halstead.total_operands(), 2);
+        };
+
+        check_metrics::<TypescriptParser>(SRC, "foo.ts", check);
+        check_metrics::<TsxParser>(SRC, "foo.tsx", check);
+    }
+
+    // Issue #1261 regression, the issue's reproducer plus a literal
+    // whose contents spell the keyword: `: string` and `: number` must
+    // contribute symmetrically — one text-keyed operator each, zero
+    // operands — while a string *literal* `"string"` stays an operand
+    // (distinct from the keyword: TS kind `String`, TSX kind `String2`,
+    // both quoted in the operand key).
+    #[test]
+    fn ts_family_string_annotation_symmetric_with_number_1261() {
+        const SRC: &str = "let x: string = \"a\";\nlet y: number = 1;\nlet s = \"string\";";
+        // Operators (n1 = 6, N1 = 13):
+        //   `let` ×3, `:` ×2, `=` ×3, `;` ×3, `string` ×1, `number` ×1.
+        //   Pre-fix N1 was identical — the wrapper operator was always
+        //   counted; the defect was the extra operand below.
+        // Operands (n2 = 6, N2 = 6):
+        //   `x`, `"a"`, `y`, `1`, `s`, `"string"` — one each. Pre-fix
+        //   the `: string` keyword added a bare `string` operand
+        //   (n2 = 7 / N2 = 7) that `: number` had no analogue of.
+        let check = |m: crate::CodeMetrics| {
+            assert_eq!(m.halstead.unique_operators(), 6);
+            assert_eq!(m.halstead.total_operators(), 13);
+            assert_eq!(m.halstead.unique_operands(), 6);
+            assert_eq!(m.halstead.total_operands(), 6);
         };
 
         check_metrics::<TypescriptParser>(SRC, "foo.ts", check);

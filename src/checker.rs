@@ -203,18 +203,20 @@ macro_rules! is_js_func_and_closure_checker {
     };
 }
 
-// Generate an `is_string` impl for a JS-family `Checker` block. The
-// MozJS / JavaScript / TypeScript grammars expose `String2` as the
-// anonymous `"string"` keyword alias for `String`; TSX additionally
-// exposes `String3` (the JSX-attribute string production). The
-// alterator flattens these aliases; the generic `string` filter must
-// agree (issue #283).
+// Generate an `is_string` impl for a JS-family `Checker` block: the
+// named `String` literal, `TemplateString`, plus per-language
+// anonymous *literal* aliases passed as extras. The alterator
+// flattens the same kinds; the generic `string` filter must agree
+// (issue #283). Type-keyword aliases (`: string`, which parses as an
+// anonymous `"string"` token under a `predefined_type` wrapper) are
+// not literals and stay out (#1261); per-call rationale sits above
+// each invocation.
 macro_rules! impl_js_family_is_string {
     ($lang:ident $(, $extra:ident)* $(,)?) => {
         fn is_string(node: &Node) -> bool {
             matches!(
                 node.kind_id().into(),
-                $lang::String | $lang::String2 | $lang::TemplateString
+                $lang::String | $lang::TemplateString
                     $(| $lang::$extra)*
             )
         }
@@ -984,38 +986,52 @@ mod tests {
     }
 
     #[test]
-    fn typescript_is_string_matches_string2_alias() {
-        // TypeScript exposes both the primary `String` literal and
-        // a `String2` alias (kind_id 135). The latter sits among the
-        // type-keyword tokens in the enum, so a `: string` annotation
-        // is a reliable producer.
+    fn typescript_is_string_excludes_type_keyword_alias_1261() {
+        // TypeScript's only anonymous `"string"` alias, `String2`
+        // (kind_id 135), is the `: string` type-annotation keyword —
+        // not a literal. #313 made it match `is_string` for parity
+        // with the operand classification; #1261 dropped it from both,
+        // so `find string` / `count string` report literals only.
+        // The `String` literal kinds must keep matching (the fixture's
+        // `'x'` / `'y'`), otherwise this test would pass by
+        // over-narrowing.
         let src = "const a: string = 'x';\nfunction f(): string { return 'y'; }\n";
         let parser = TypescriptParser::new(src.as_bytes().to_vec(), &PathBuf::from("t.ts"), None);
         assert!(
             ast_has_kind_id(&parser, Typescript::String2 as u16),
             "expected Typescript::String2 to appear in the parse",
         );
-        assert!(
+        assert_eq!(
             count_string_matches_for_kind(
                 &parser,
                 Typescript::String2 as u16,
                 TypescriptCode::is_string,
+            ),
+            0,
+            "Typescript::String2 (type keyword) must not match is_string",
+        );
+        assert!(
+            count_string_matches_for_kind(
+                &parser,
+                Typescript::String as u16,
+                TypescriptCode::is_string,
             ) > 0,
-            "Typescript::String2 nodes must match is_string",
+            "Typescript::String literals must still match is_string",
         );
     }
 
     #[test]
-    fn tsx_is_string_matches_string2_and_string3_aliases() {
+    fn tsx_is_string_matches_literal_alias_not_type_keyword_1261() {
         // TSX uniquely carries two anonymous `"string"` aliases:
         // `String3` (kind_id 141, the type-annotation keyword) and
-        // `String2` (kind_id 261). Both must appear in this fixture:
-        // the `: string` annotation produces `String3`, and the
-        // `'x'` / `"y"` / `"m"` / `"c"` literals produce `String2`.
-        // Asserting presence of both *before* checking `is_string`
-        // ensures a future grammar bump that stops emitting either
-        // alias fails loudly here rather than silently dropping
-        // coverage (which would invalidate the regression for #283).
+        // `String2` (kind_id 261, the string-literal alias). Both must
+        // appear in this fixture: the `: string` annotation produces
+        // `String3`, and the `'x'` / `"y"` / `"m"` / `"c"` literals
+        // produce `String2`. Asserting presence of both *before*
+        // checking `is_string` ensures a future grammar bump that
+        // stops emitting either alias fails loudly here rather than
+        // silently dropping coverage. The literal alias matches
+        // (#283); the type keyword must not (#1261).
         let src = "const a: string = 'x';\n\
                    const b = \"y\";\n\
                    import \"m\";\n\
@@ -1029,13 +1045,14 @@ mod tests {
             ast_has_kind_id(&parser, Tsx::String2 as u16),
             "expected Tsx::String2 (string-literal alias) in the parse",
         );
-        assert!(
-            count_string_matches_for_kind(&parser, Tsx::String3 as u16, TsxCode::is_string) > 0,
-            "Tsx::String3 nodes must match is_string",
+        assert_eq!(
+            count_string_matches_for_kind(&parser, Tsx::String3 as u16, TsxCode::is_string),
+            0,
+            "Tsx::String3 (type keyword) must not match is_string",
         );
         assert!(
             count_string_matches_for_kind(&parser, Tsx::String2 as u16, TsxCode::is_string) > 0,
-            "Tsx::String2 nodes must match is_string",
+            "Tsx::String2 (string-literal alias) nodes must match is_string",
         );
     }
 

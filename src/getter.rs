@@ -76,20 +76,17 @@ macro_rules! get_operator {
 // `$operand_extras` per language:
 //   * JavaScript / MozJS: `Identifier2`, `String2` — anonymous keyword
 //     aliases the JS grammar exposes for `Identifier` and `String`.
-//   * TypeScript: `String2`, `NestedIdentifier`, `MemberExpression4`.
-//     `String2` is the TS-only anonymous `"string"` alias the grammar
-//     emits for the `string` type-annotation keyword (kind_id 135, in
-//     the type-keyword range alongside `Boolean` / `Symbol`); it must
-//     be in `operand_extras` to agree with `Checker::is_string` which
-//     also matches it (issue #313, parallel to #283).
-//     `NestedIdentifier` and `MemberExpression4` are other TS-only
-//     productions.
-//   * TSX: union of the above plus `String3`. TSX uniquely exposes
-//     *two* anonymous `"string"` aliases: `String2` (kind_id 261, the
-//     string-literal alias) and `String3` (kind_id 141, the
-//     type-annotation keyword — the role TS's `String2` plays).
-//     `Checker::is_string` matches both, so both must be operands
-//     (#313).
+//   * TypeScript: `NestedIdentifier`, `MemberExpression4` — TS-only
+//     member-expression productions.
+//   * TSX: union of the above. TSX's `String2` (kind_id 261) is its
+//     string-literal alias, so it stays an operand like JS's.
+//     The `: string` type-keyword aliases (TS `String2`, kind_id 135;
+//     TSX `String3`, kind_id 141) are deliberately absent: they are
+//     emitted only as the child of a `predefined_type` wrapper, which
+//     already contributes the text-keyed `"string"` operator, and
+//     #313's listing of the keyword child as an operand counted one
+//     source token twice (#1261, which also narrowed
+//     `Checker::is_string` to match).
 //
 // The `TemplateString` interpolation guard is shared verbatim (issue
 // #192): a bare `` `...` `` mirrors a `"..."` operand, but an
@@ -111,9 +108,11 @@ macro_rules! impl_js_family_get_op_type {
             // `primitive_operators` map as `"void"`) and the inner `Void`
             // token (a standalone expression operator, e.g. `void 0`) would
             // otherwise classify as operators, double-counting one source
-            // `void` as two Halstead operators (issue #453). Other predefined
-            // types (`: string`, `: number`, …) do not have an operator-kind
-            // child, so only `void` collides. Suppress the wrapper here and
+            // `void` as two Halstead operators (issue #453). Only `void` has
+            // an operator-kind child; the `string` keyword's child is an
+            // operand-kind alias, which collided in the other direction
+            // (operator + operand) until #1261 dropped it from the operand
+            // extras. Suppress the wrapper here and
             // let the inner `Void` token carry the single operator, keeping
             // the kind_id-keyed count consistent with expression `void 0`
             // (the lesson-4 `n1 == dedupe(ops.operators)` invariant).

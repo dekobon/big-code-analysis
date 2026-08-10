@@ -45,7 +45,10 @@ impl Checker for MozjsCode {
         )
     }
 
-    impl_js_family_is_string!(Mozjs);
+    // `String2` is MozJS's anonymous string-*literal* alias (same
+    // production as JS's, e.g. `import "m"` module strings), so it
+    // counts as a string alongside `String` (#283).
+    impl_js_family_is_string!(Mozjs, String2);
 
     impl_is_else_if_parent_clause!(Mozjs, IfStatement, ElseClause);
 }

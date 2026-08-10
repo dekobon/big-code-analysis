@@ -96,6 +96,18 @@ for historical reference.
 
 ### Fixed
 
+- In TypeScript and TSX, a `: string` type annotation counted as both a
+  Halstead operator (the `predefined_type` wrapper) and an operand (its
+  inner anonymous `"string"` keyword token, added by #313 for parity
+  with `Checker::is_string`) — one source token, two tallies, while
+  `: number` / `: boolean` counted once. The keyword now counts exactly
+  once, as the text-keyed `string` operator, symmetric with every other
+  predefined type; Halstead length and vocabulary drop accordingly for
+  annotation-dense TS/TSX code. `Checker::is_string` was narrowed in
+  the same direction, so `bca find --type string` / `bca count --type
+  string` report string literals and templates only, no longer the
+  `: string` annotation keyword; string *literals* whose contents spell
+  `"string"` are unaffected (#1261).
 - A Ruby stabby lambda (`->(z) { … }` / `->(z) do … end`) opened two
   nested anonymous Function spaces — one for the `Lambda` node and a
   phantom zero-metric one for the `Block` / `DoBlock` that is the

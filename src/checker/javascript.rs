@@ -46,7 +46,10 @@ impl Checker for JavascriptCode {
         )
     }
 
-    impl_js_family_is_string!(Javascript);
+    // `String2` (kind_id 221) is JS's anonymous string-*literal* alias
+    // (e.g. the module string in `import "m"`), so it counts as a
+    // string alongside `String` (#283).
+    impl_js_family_is_string!(Javascript, String2);
 
     impl_is_else_if_parent_clause!(Javascript, IfStatement, ElseClause);
 }

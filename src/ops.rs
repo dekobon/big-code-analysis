@@ -662,11 +662,11 @@ mod tests {
 
     #[test]
     fn typescript_ops() {
-        // Issue #313: the `: string` annotation's `String2` child now
-        // emits a `"string"` operand alongside the `string`
-        // primitive-typed operator (PredefinedType wrapper). Other
-        // type-keyword annotations (`: number`, `: boolean`) are not
-        // string-named kinds, so they only contribute an operator.
+        // Issue #1261: the `: string` annotation counts exactly once,
+        // as the text-keyed `string` operator (PredefinedType wrapper)
+        // — symmetric with `: number` / `: boolean`. Under #313 its
+        // `String2` child also emitted a `"string"` operand, so one
+        // source token tallied twice.
         check_ops(
             LANG::Typescript,
             "var a, b, c, avg;
@@ -697,16 +697,15 @@ mod tests {
                 "console",
                 "log",
                 "\"{}\"",
-                "string",
             ],
         );
     }
 
     #[test]
     fn typescript_function_ops() {
-        // Issue #313: see `typescript_ops` — the `string` type keyword
-        // appears as both an operator (primitive-typed) and an operand
-        // (text `"string"`) once Checker/Getter parity is enforced.
+        // Issue #1261: see `typescript_ops` — the `string` type keyword
+        // contributes only the primitive-typed operator, never a
+        // `"string"` operand.
         check_ops(
             LANG::Typescript,
             "function main() {
@@ -740,17 +739,15 @@ mod tests {
                 "console",
                 "log",
                 "\"{}\"",
-                "string",
             ],
         );
     }
 
     #[test]
     fn tsx_ops() {
-        // Issue #313: TSX exposes the `: string` type-keyword child as
-        // `String3` (vs. TS's `String2`); both are now in the operand
-        // classification, so `"string"` appears as a TSX operand for
-        // the same reason as the TS case above.
+        // Issue #1261: TSX exposes the `: string` type-keyword child as
+        // `String3` (vs. TS's `String2`); like TS, the keyword counts
+        // only as the `string` operator, never as an operand.
         check_ops(
             LANG::Tsx,
             "var a, b, c, avg;
@@ -781,15 +778,14 @@ mod tests {
                 "console",
                 "log",
                 "\"{}\"",
-                "string",
             ],
         );
     }
 
     #[test]
     fn tsx_function_ops() {
-        // Issue #313: see `tsx_ops` — TSX::String3 (type-keyword
-        // `string`) is now an operand.
+        // Issue #1261: see `tsx_ops` — TSX::String3 (type-keyword
+        // `string`) is an operator only, never an operand.
         check_ops(
             LANG::Tsx,
             "function main() {
@@ -823,7 +819,6 @@ mod tests {
                 "console",
                 "log",
                 "\"{}\"",
-                "string",
             ],
         );
     }
