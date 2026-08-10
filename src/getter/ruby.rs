@@ -22,6 +22,10 @@ impl Getter for RubyCode {
         use Ruby as R;
 
         match node.kind_id().into() {
+            // FIXME(#1312): regex delimiter counted as division — the
+            // `SLASH` arm below also matches a `Regex` literal's
+            // delimiter tokens; see #1256's parent-guard pattern.
+            //
             // Control-flow keyword tokens. tree-sitter-ruby gives each
             // keyword its own anonymous numbered variant (e.g. `If2` is
             // the `if` keyword token; `If` is the named statement node).
