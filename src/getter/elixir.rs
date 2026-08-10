@@ -139,10 +139,33 @@ impl Getter for ElixirCode {
         Some("<anonymous>")
     }
 
-    fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> HalsteadType {
         use Elixir as E;
 
         match node.kind_id().into() {
+            // Sigil delimiter punctuation. The delimiter choice is
+            // spelling, not semantics — `~r/abc/` is not two divisions
+            // and `~w(a b)` opens no call — so counting these tokens
+            // made `n1`/`N1` vary with the author's delimiter choice
+            // (#1256). The `Sigil` node itself is the operand (below)
+            // and `~` the single per-sigil operator; the delimiters are
+            // suppressed exactly when their parent is the sigil — the
+            // compound-leaf guard of grammar-dispatch §5, mirroring
+            // Bash's `SimpleExpansion` parent check. Verified via
+            // `bca dump` at the pinned grammar: `/ ( { [ < > |` are the
+            // only delimiter kinds surfacing as `Sigil` children that
+            // the operator arm below also matches; the quote delimiters
+            // (`"`, `'`, `"""`, `'''`) and the closers `) } ]` have no
+            // operator arm and need no guard. Same-kind tokens outside
+            // a sigil (division `a / b`, comparison `<`, pipe `|`) fall
+            // through to the operator arm and still count.
+            E::SLASH | E::LPAREN | E::LBRACE | E::LBRACK | E::LT | E::GT | E::PIPE
+                if ancestors
+                    .parent(node)
+                    .is_some_and(|p| p.kind_id() == E::Sigil as u16) =>
+            {
+                HalsteadType::Unknown
+            }
             // Reserved-word keywords that have dedicated token kinds in
             // the grammar — block delimiters, exception clauses, the
             // `fn` keyword, and word-form logical / membership operators.
@@ -172,7 +195,10 @@ impl Getter for ElixirCode {
             | E::LT | E::GT | E::LTEQ | E::GTEQ
             // Logical
             | E::AMPAMP | E::PIPEPIPE | E::BANG
-            // Bitwise / Erlang-band
+            // Bitwise / Erlang-band. `TILDE` is only reachable as the
+            // sigil marker in this grammar (Elixir has no unary `~`;
+            // the Erlang-style ops are `~~~` etc.) and is kept as the
+            // deliberate single per-sigil operator (#1256).
             | E::AMP | E::PIPE | E::CARET | E::TILDE
             | E::AMPAMPAMP | E::PIPEPIPEPIPE | E::CARETCARETCARET | E::TILDETILDETILDE
             | E::LTLTLT | E::GTGTGT
@@ -194,10 +220,11 @@ impl Getter for ElixirCode {
             // the interpolated expressions are already walked and counted
             // as operands in their own right; counting the wrapping
             // literal as well would double-count the inner identifiers'
-            // contribution (issue #180). The interpolation markers
-            // `#{` / `}` are classified as operators via `HASHLBRACE` /
-            // `RBRACE`, so an interpolated literal still adds operator
-            // weight without inflating `N2`.
+            // contribution (issue #180). The `#{` marker is classified
+            // as an operator via `HASHLBRACE` (the closing `}` is not —
+            // #695 removed every closing-delimiter arm), so an
+            // interpolated literal still adds operator weight without
+            // inflating `N2`.
             E::String | E::Charlist | E::Sigil => {
                 Self::string_operand_type(node, &[E::Interpolation as u16])
             }
