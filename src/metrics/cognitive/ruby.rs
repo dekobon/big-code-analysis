@@ -12,6 +12,7 @@
 )]
 
 use super::*;
+use crate::checker::ruby::is_stabby_lambda_body;
 
 /// Folds a Ruby `binary`'s short-circuit operator children into the
 /// boolean-sequence counter — Ruby has four (`&&`, `||`, word-form
@@ -35,6 +36,10 @@ impl Cognitive for RubyCode {
     ) {
         use Ruby as R;
 
+        // bca: suppress(halstead) — exhaustive one-arm-per-grammar-kind
+        // dispatch table (see the rationale on `abc/perl.rs`'s compute):
+        // effort here counts distinct enum operands, not reasoning a
+        // reader must do.
         let mut nesting = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
@@ -138,7 +143,16 @@ impl Cognitive for RubyCode {
                 );
             }
             // Blocks, do-blocks and lambdas are the closure/lambda forms.
-            R::Block | R::DoBlock | R::Lambda => {
+            // A stabby lambda's own body block is skipped: the wrapping
+            // `Lambda` node already paid the surcharge, so counting the
+            // body too made a stabby lambda's contents inherit
+            // lambda-nesting 2 where the keyword form (`lambda { … }`)
+            // inherits 1. Same shared discriminator as `is_closure` and
+            // the space tree (#1257).
+            R::Lambda => {
+                nesting.lambda += 1;
+            }
+            R::Block | R::DoBlock if !is_stabby_lambda_body(node, ancestors) => {
                 nesting.lambda += 1;
             }
             _ => {}

@@ -9684,6 +9684,46 @@ end",
     }
 
     #[test]
+    fn ruby_stabby_and_keyword_lambda_nesting_parity() {
+        // A stabby lambda parses as a `Lambda` node CONTAINING its own
+        // body `Block`; the keyword form parses as a `Call` carrying the
+        // block argument. Only the `Lambda` wrapper pays the lambda
+        // nesting surcharge — its body block must not pay again, or the
+        // same logical construct scores differently across the two
+        // spellings (lesson #11; the #1257 shared discriminator).
+        //
+        // expected: `if`(+1) + one level of lambda nesting(+1) = 2.
+        check_metrics::<RubyParser>("f = ->(a) { if a then 1 end }\n", "foo.rb", |metric| {
+            assert_eq!(metric.cognitive.cognitive_sum(), 2);
+        });
+        // expected: identical derivation for the keyword form — the
+        // `Block` under the `lambda` call is the sole closure node:
+        // `if`(+1) + lambda nesting(+1) = 2.
+        check_metrics::<RubyParser>("f = lambda { |a| if a then 1 end }\n", "foo.rb", |metric| {
+            assert_eq!(metric.cognitive.cognitive_sum(), 2);
+        });
+    }
+
+    #[test]
+    fn ruby_if_inside_stabby_lambda_inside_method() {
+        // expected: the method boundary resets nesting for its contents
+        // (top-level method, so function_depth stays 0); the stabby
+        // lambda adds exactly ONE lambda-nesting level (`Lambda` wrapper
+        // only — its body `Block` is gated out); the `if` then charges
+        // 1 + nesting(0 conditional + 0 function_depth + 1 lambda) = 2.
+        // Before the gate the body block paid a second surcharge and
+        // this scored 3.
+        check_metrics::<RubyParser>(
+            "def foo\n  f = ->(a) { if a then 1 end }\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
+            },
+        );
+    }
+
+    #[test]
     fn javascript_labeled_break_continue() {
         // Per SonarSource Cognitive Complexity §B2 (issue #435), a labeled
         // `break LABEL` / `continue LABEL` is an unstructured jump and adds
