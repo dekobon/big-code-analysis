@@ -3908,6 +3908,86 @@ f() {
     }
 
     #[test]
+    fn tcl_for_cyclomatic() {
+        // Tcl `for` is a generic command — the grammar has no `for` rule —
+        // so it is detected by leading word (issue #1264): one loop decision
+        // in both standard and modified CCN, matching `foreach`/`while`.
+        check_metrics::<TclParser>(
+            "proc f {n} {
+    for {set i 0} {$i < $n} {incr i} {
+        puts $i
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                // unit(1) + proc(base 1 + for 1) = sum 3, max 2, both tiers.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_for_cyclomatic_name_gate() {
+        // The detection reads the command's `name` field: a command whose
+        // name merely starts with "for" (`format`, with `for`-shaped braced
+        // arguments) and a `for` word in argument position (`puts for`) must
+        // both stay at zero (issue #1264).
+        check_metrics::<TclParser>(
+            "proc f {} {
+    format {a} {b} {c} {d}
+    puts for
+}",
+            "foo.tcl",
+            |metric| {
+                // unit(1) + proc(base 1) only; no decision points.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 1);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_irules_for_parity() {
+        // iRules models `for` as a dedicated kind counted by the kind
+        // dispatch; Tcl detects it by leading word (issue #1264). The same
+        // loop must score identically in both — and the iRules figure also
+        // pins that its dedicated kind is not double-counted through the
+        // Tcl command-name path.
+        // unit(1) + container(base 1 + for 1) = sum 3, max 2, both tiers.
+        check_metrics::<TclParser>(
+            "proc f {} {
+    for {set i 0} {$i < 10} {incr i} {
+        puts $i
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3);
+            },
+        );
+        check_metrics::<IrulesParser>(
+            "when HTTP_REQUEST {
+    for {set i 0} {$i < 10} {incr i} {
+        puts $i
+    }
+}
+",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3);
+            },
+        );
+    }
+
+    #[test]
     fn mozjs_for_loop() {
         check_metrics::<MozjsParser>(
             "function f(n) { // +2 (+1 unit)

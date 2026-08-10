@@ -591,6 +591,36 @@ pub(crate) fn elixir_call_keyword<'a>(node: &'a Node<'a>, code: &'a [u8]) -> Opt
     target.utf8_text(code)
 }
 
+// Reads the leading word of a Tcl `command` node when it is a plain
+// `simple_word` (`switch`, `for`, `puts`, …). Returns `None` for any other
+// node kind, for commands whose leading word is computed (`$cmd`, `[cmd]`
+// parse it as `variable_substitution` / `command_substitution`, never
+// statically resolvable to a builtin), and for non-UTF-8 bytes. Shared by
+// the out-of-band control-flow detectors below (grammar-dispatch §10:
+// identity questions read the bytes).
+pub(crate) fn tcl_command_name<'a>(node: &'a Node<'a>, code: &'a [u8]) -> Option<&'a str> {
+    if node.kind_id() != Tcl::Command as u16 {
+        return None;
+    }
+    let name = node.child_by_field_name("name")?;
+    if name.kind_id() != Tcl::SimpleWord as u16 {
+        return None;
+    }
+    name.utf8_text(code)
+}
+
+// Tcl's `for` is a generic `command` — the grammar has no `for` rule, so
+// the enum carries no `For` variant and the Cognitive / Cyclomatic kind
+// dispatch never sees the loop (issue #1264, the grammar-dispatch §9 class
+// that #467 fixed for `switch`). Detected by leading word instead. ABC
+// cannot be repaired the same way: with no grammar rule there is no `expr`
+// slot, so the loop condition (`{$i < $n}`) stays an opaque `braced_word`
+// and its comparison never surfaces as a condition token — a grammar
+// limitation, not a metric-layer bug.
+pub(crate) fn tcl_command_is_for(node: &Node<'_>, code: &[u8]) -> bool {
+    tcl_command_name(node, code) == Some("for")
+}
+
 // Tcl's `switch` is a generic `command` (no dedicated kind_id, unlike
 // `if`/`while`/`foreach`/`catch`), so the kind-dispatch in the Cognitive
 // and Cyclomatic impls never sees it (issue #467, lesson 19). This helper
@@ -617,11 +647,7 @@ pub(crate) fn elixir_call_keyword<'a>(node: &'a Node<'a>, code: &'a [u8]) -> Opt
 // Returns `None` for any command that is not a leading-word `switch`, so
 // callers can leave non-switch commands untouched.
 pub(crate) fn tcl_switch_decision_arms(node: &Node, code: &[u8]) -> Option<usize> {
-    if node.kind_id() != Tcl::Command as u16 {
-        return None;
-    }
-    let name = node.child_by_field_name("name")?;
-    if name.kind_id() != Tcl::SimpleWord as u16 || name.utf8_text(code) != Some("switch") {
+    if tcl_command_name(node, code) != Some("switch") {
         return None;
     }
 
@@ -6483,6 +6509,100 @@ mod tests {
                 // outer switch(+1) + inner switch at nesting 1 (+2) = 3.
                 assert_eq!(metric.cognitive.cognitive_sum(), 3);
                 assert_eq!(metric.cognitive.cognitive_max(), 3);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_for_cognitive() {
+        // Tcl `for` is a generic command — the grammar has no `for` rule —
+        // so it is detected by leading word (issue #1264): a loop adds +1
+        // plus current nesting, matching `while`/`foreach`.
+        check_metrics::<TclParser>(
+            "proc f {n} {
+    for {set i 0} {$i < $n} {incr i} {
+        puts $i
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                // One `for` at proc-body nesting 0 → +1.
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_for_cognitive_nested() {
+        // The `for` also nests its body: constructs inside it pay the
+        // nesting penalty the missing loop previously swallowed (#1264).
+        check_metrics::<TclParser>(
+            "proc f {n} {
+    for {set i 0} {$i < $n} {incr i} {
+        if {$i == 2} {
+            puts $i
+        }
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                // for(+1, nesting 0) + if at nesting 1 (+2) = 3.
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_for_cognitive_name_gate() {
+        // The detection reads the command's `name` field: a command whose
+        // name merely starts with "for" (`format`, with `for`-shaped braced
+        // arguments) and a `for` word in argument position (`puts for`) must
+        // both stay at zero (issue #1264).
+        check_metrics::<TclParser>(
+            "proc f {} {
+    format {a} {b} {c} {d}
+    puts for
+}",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
+                assert_eq!(metric.cognitive.cognitive_max(), 0);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_irules_for_parity() {
+        // iRules models `for` as a dedicated kind counted by the kind
+        // dispatch; Tcl detects it by leading word (issue #1264). The same
+        // loop must score identically in both — and the iRules figure also
+        // pins that its dedicated kind is not double-counted through the
+        // Tcl command-name path. One loop at nesting 0 → +1 in each.
+        check_metrics::<TclParser>(
+            "proc f {} {
+    for {set i 0} {$i < 10} {incr i} {
+        puts $i
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
+            },
+        );
+        check_metrics::<IrulesParser>(
+            "when HTTP_REQUEST {
+    for {set i 0} {$i < 10} {incr i} {
+        puts $i
+    }
+}
+",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
             },
         );
     }
