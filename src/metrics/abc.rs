@@ -9023,6 +9023,33 @@ function f(int $a, int $b): int {
     }
 
     #[test]
+    fn tcl_computed_command_name_is_not_an_assignment() {
+        // A command whose leading word is computed (`$cmd args`) names no
+        // builtin the parser can resolve, so it stays a branch. Pins the
+        // field-addressed, `simple_word`-gated read the classifier shares
+        // with the Cognitive / Cyclomatic detectors (grammar-dispatch §3):
+        // the earlier `child(0)` byte-slice addressed the slot by position
+        // and compared whatever literal text sat there, which agrees with
+        // the gated read on today's grammar only because no mutator name is
+        // spelled with a leading `$`. A grammar that moved the name out of
+        // `child(0)`, or a mutator list that grew a computed-looking entry,
+        // would diverge — this fixture is where that surfaces.
+        check_metrics::<TclParser>(
+            "proc f {cmd x} {\n\
+                 $cmd $x\n\
+                 incr x\n\
+             }",
+            "foo.tcl",
+            |metric| {
+                // `incr x` is the only assignment; `$cmd $x` is a branch.
+                assert_eq!(metric.abc.assignments_sum(), 1);
+                assert_eq!(metric.abc.branches_sum(), 1);
+                assert_eq!(metric.abc.conditions_sum(), 0);
+            },
+        );
+    }
+
+    #[test]
     fn tcl_generic_commands_are_branches() {
         // Anything that isn't `set` or a known mutator command
         // counts as a branch — including builtins like `puts` and

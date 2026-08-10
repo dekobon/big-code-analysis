@@ -22,7 +22,7 @@ use crate::*;
 // left as branches; treating them as assignments would require
 // inspecting the command's second word, and the additional
 // fidelity is not worth the complexity for the ABC magnitude.
-const TCL_ASSIGNMENT_COMMANDS: &[&[u8]] = &[b"incr", b"append", b"lappend"];
+const TCL_ASSIGNMENT_COMMANDS: &[&str] = &["incr", "append", "lappend"];
 
 // Fitzpatrick's ABC rules adapted for Tcl.
 //
@@ -302,20 +302,15 @@ impl Abc for TclCode {
     }
 }
 
-// Returns true when the `command` node's first word is one of the
-// recognised Tcl assignment commands. The first word is the leftmost
-// non-comment child; we slice the source bytes directly using the
-// child node's byte range, which is robust to `simple_word` wrappers
-// and avoids depending on a particular grammar shape.
+// Returns true when the `command` node's leading word is one of the
+// recognised Tcl assignment commands. The word is read through the shared
+// `tcl_command_name` — field-addressed (`name`) and gated on `simple_word`
+// (grammar-dispatch §3) — rather than by slicing `child(0)`'s byte range,
+// which addressed the slot positionally and read the literal text of
+// whatever sat there. A command with a computed leading word (`$cmd x`,
+// `[pick] x`) therefore stays a branch: it is not statically a builtin,
+// which is what the assignment classification claims.
 fn tcl_command_is_assignment(node: &Node, code: &[u8]) -> bool {
-    let Some(first) = node.child(0) else {
-        return false;
-    };
-    let start = first.start_byte();
-    let end = first.end_byte();
-    if end > code.len() || start >= end {
-        return false;
-    }
-    let word = &code[start..end];
-    TCL_ASSIGNMENT_COMMANDS.contains(&word)
+    crate::metrics::cognitive::tcl_command_name(node, code)
+        .is_some_and(|name| TCL_ASSIGNMENT_COMMANDS.contains(&name))
 }
