@@ -124,7 +124,7 @@ src/getter/perl.rs 2
 src/getter/php.rs 8
 src/getter/python.rs 7
 src/getter/ruby.rs 2
-src/getter/tcl.rs 4
+src/getter/tcl.rs 5
 src/macros/mod.rs 38
 src/metrics/abc/elixir.rs 5
 src/metrics/abc/perl.rs 8

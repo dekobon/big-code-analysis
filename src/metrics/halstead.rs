@@ -466,7 +466,7 @@ mod tests {
     use std::collections::HashSet;
     use std::path::PathBuf;
 
-    use crate::test_support::check_metrics_only_shim;
+    use crate::test_support::{ast_has_kind_id, check_metrics_only_shim};
 
     use super::*;
 
@@ -3381,12 +3381,15 @@ f() {
 }",
             "foo.tcl",
             |metric| {
-                // Operands: `f`, `s`, `"hello world"` — 3 unique, 3 total.
-                // The wrapping `QuotedWord` must still contribute exactly
-                // one operand when it carries no interpolation children;
-                // dropping to 2 would mean the inert case was over-guarded.
-                assert_eq!(metric.halstead.unique_operands(), 3);
-                assert_eq!(metric.halstead.total_operands(), 3);
+                // Operands: `f`, the proc-body `braced_word`, the `set`
+                // target `s`, `"hello world"` — 4 unique, 4 total. Before
+                // #1294 this read 3/3 with `s` missing (the body operand
+                // made the count coincidentally plausible). The wrapping
+                // `QuotedWord` must still contribute exactly one operand
+                // when it carries no interpolation children; dropping to 3
+                // would mean the inert case was over-guarded.
+                assert_eq!(metric.halstead.unique_operands(), 4);
+                assert_eq!(metric.halstead.total_operands(), 4);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -3406,11 +3409,13 @@ f() {
 }",
             "foo.tcl",
             |metric| {
-                // Operands: `f`, `x`, `y` (proc args), `s`, `$x`, `$y` — 6
-                // unique, 6 total. The wrapping `QuotedWord` contributes
-                // nothing. Pre-fix this read 7/7 (double-counted wrapper).
-                assert_eq!(metric.halstead.unique_operands(), 6);
-                assert_eq!(metric.halstead.total_operands(), 6);
+                // Operands: `f`, `x`, `y` (proc args), the proc-body
+                // `braced_word`, the `set` target `s`, `$x`, `$y` — 7
+                // unique, 7 total. The wrapping `QuotedWord` contributes
+                // nothing. Before #1294 this read 6/6 with `s` missing;
+                // before #277 the wrapper double-counted.
+                assert_eq!(metric.halstead.unique_operands(), 7);
+                assert_eq!(metric.halstead.total_operands(), 7);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -3430,14 +3435,85 @@ f() {
 }",
             "foo.tcl",
             |metric| {
-                // Operands: `f`, `s`, `foo` — 3 unique, 3 total. The
-                // wrapping `QuotedWord` and the inert text `result: ` do
-                // not contribute extra operands. Pre-fix this read 4/4
-                // (double-counted wrapper).
-                assert_eq!(metric.halstead.unique_operands(), 3);
-                assert_eq!(metric.halstead.total_operands(), 3);
+                // Operands: `f`, the proc-body `braced_word`, the `set`
+                // target `s`, `foo` — 4 unique, 4 total. The wrapping
+                // `QuotedWord` and the inert text `result: ` do not
+                // contribute extra operands. Before #1294 this read 3/3
+                // with `s` missing; before #277 the wrapper double-counted.
+                assert_eq!(metric.halstead.unique_operands(), 4);
+                assert_eq!(metric.halstead.total_operands(), 4);
                 insta::assert_json_snapshot!(metric.halstead);
             },
+        );
+    }
+
+    /// Regression for #1294. The `set` target parses as the anonymous
+    /// `id` token (`Tcl::Id2`) — the same kind as the leaf inside a
+    /// `variable_substitution` — and the getter used to exclude that kind
+    /// wholesale, so every variable a Tcl script assigned was absent from
+    /// n2/N2. The guard is now parent-scoped: a target `id` counts, a
+    /// var-sub leaf does not. Exact occurrence counts distinguish this
+    /// fix from a regression in either direction: a re-blanketed
+    /// exclusion drops `s`/`t` (total 2), while losing the guard
+    /// double-counts the `$s` leaf as a second `s` (total 5).
+    #[test]
+    fn tcl_set_target_is_operand() {
+        let source = "set s 1\nset t $s\n";
+        let path = PathBuf::from("foo.tcl");
+        let parser = TclParser::new(source.as_bytes().to_vec(), &path, None);
+        let ops = crate::ops::ops_inner(&parser, None).expect("ops walk succeeds");
+        // expected operands: targets `s` and `t`, literal `1`, reference
+        // `$s` (wrapper only) — 4 total, each exactly once.
+        for operand in ["s", "t", "1", "$s"] {
+            assert_eq!(
+                ops.operands
+                    .iter()
+                    .filter(|o| o.as_str() == operand)
+                    .count(),
+                1,
+                "`{operand}` must be exactly one operand; operands were {:?}",
+                ops.operands
+            );
+        }
+        assert_eq!(
+            ops.operands.len(),
+            4,
+            "operands must be exactly s, t, 1, $s; got {:?}",
+            ops.operands
+        );
+
+        check_metrics::<TclParser>(source, "foo.tcl", |metric| {
+            // expected: n2 = 4 (s, t, 1, $s), N2 = 4; operators are the
+            // two `set` keywords — n1 = 1, N1 = 2.
+            assert_eq!(metric.halstead.unique_operands(), 4);
+            assert_eq!(metric.halstead.total_operands(), 4);
+            assert_eq!(metric.halstead.unique_operators(), 1);
+            assert_eq!(metric.halstead.total_operators(), 2);
+        });
+    }
+
+    /// Drift marker for #1294 (lesson 34 / grammar-dispatch §2): the
+    /// *named* `id` rule (`Tcl::Id`, kind_id 84) never surfaces at the
+    /// pinned tree-sitter-tcl — the parser emits the anonymous `Id2` in
+    /// both positions the getter guards (the `set` target and the
+    /// var-sub leaf). The `Tcl::Id` arm in `get_op_type` is therefore
+    /// defensive; if a grammar bump starts emitting 84 this fails and
+    /// the arm's classification must be re-derived instead of trusted.
+    #[test]
+    fn tcl_named_id_variant_is_unreachable() {
+        let source = "proc f {x} {\n    set s $x\n    foreach v {1 2} { puts \"$v\" }\n}\n";
+        let path = PathBuf::from("foo.tcl");
+        let parser = TclParser::new(source.as_bytes().to_vec(), &path, None);
+        // Non-vacuity: the anonymous token must be present in this parse
+        // (both the `set` target and the `$x` / `$v` leaves emit it).
+        assert!(
+            ast_has_kind_id(&parser, Tcl::Id2 as u16),
+            "expected the anonymous Tcl::Id2 token to appear in the parse",
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Tcl::Id as u16),
+            "the named Tcl::Id rule surfaced; re-derive the defensive \
+             `Tcl::Id` arm in TclCode::get_op_type against the new grammar",
         );
     }
 
@@ -3987,9 +4063,9 @@ f() {
     /// interpolation child) contributes exactly **one** operand — the
     /// wrapping `QuotedWord`. Operands are `f`, `s`, `"hello world"`, and
     /// the proc-body `braced_word` (counted as an operand in the Tcl
-    /// family). iRules additionally counts the `set` target `s`, which
-    /// tree-sitter-tcl's grammar structure omits — hence n2=4 here vs Tcl's
-    /// 3. Mirrors `tcl_inert_quoted_word_counts_as_operand` (#277).
+    /// family) — n2=4, the same as Tcl since #1294 restored its `set`
+    /// target to the operand count. Mirrors
+    /// `tcl_inert_quoted_word_counts_as_operand` (#277).
     #[test]
     fn irules_inert_quoted_word_counts_as_operand() {
         let source = "proc f {} {\n    set s \"hello world\"\n}\n";

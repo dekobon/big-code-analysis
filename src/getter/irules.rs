@@ -110,11 +110,12 @@ impl Getter for IrulesCode {
             // already the operand for the reference, so counting its inner
             // `Id` too would double-count every `$var` (inflating n2/N2 and
             // every derived Halstead value). Exclude `Id` exactly in that
-            // position. NB: unlike Tcl — whose var-sub leaf is the anonymous
-            // `Id2` token (so a blanket `Id2` exclusion sufficed) — iRules'
-            // grammar emits the *named* `Id` there, so the guard must be a
-            // parent check, not a kind exclusion (`Id2` here is a different,
-            // non-surfacing token).
+            // position. NB: Tcl has the identical shape — its anonymous
+            // `Id2` token is emitted both as the `set` target and as the
+            // var-sub leaf, so it needs this same parent guard; the blanket
+            // `Id2` kind exclusion it used to carry dropped every `set`
+            // target from n2/N2 (#1294). (`Id2` here is a different,
+            // non-surfacing token.)
             Irules::Id => {
                 if ancestors
                     .parent(node)
