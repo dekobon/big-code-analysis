@@ -97,6 +97,11 @@ impl Getter for GroovyCode {
         // `NumberLiteral` is the new grammar's consolidated numeric
         // literal — the prior grammar split numbers by radix
         // (Hex/Octal/Binary/Decimal Integer/Float).
+        //
+        // FIXME(#1314): a slashy string's closing delimiter is a
+        // `SLASH` child of `StringLiteral`, so `def b = /xyz/`
+        // fabricates a division — the class #1256 fixed for Elixir
+        // and #1312 for Ruby/Perl. Parent-guard it to `Unknown`.
         match node.kind_id().into() {
             // Control-flow + keyword operators (mirrors Java's set,
             // minus tokens that no longer exist in the dekobon grammar

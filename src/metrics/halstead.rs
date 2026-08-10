@@ -502,6 +502,41 @@ mod tests {
         assert_eq!(got, expected_operands);
     }
 
+    /// Asserts the root space's `[n1, N1, n2, N2]`, naming `label` when
+    /// it does not hold.
+    ///
+    /// The delimiter-invariance tests (#1256 Elixir, #1312 Ruby and
+    /// Perl) each loop over spellings of one literal and need the
+    /// spelling in the failure message; `check_metrics` expands to a
+    /// plain `fn` that cannot capture a loop variable, so they reach
+    /// for the closure-taking helper it wraps. Three copies of that
+    /// dance is two too many.
+    fn assert_halstead_counts<T: crate::ParserTrait>(
+        source: &str,
+        file: &str,
+        expected: [u64; 4],
+        label: &str,
+    ) {
+        crate::test_support::check_func_space_only::<T, _>(
+            source,
+            file,
+            &[crate::Metric::Halstead],
+            |space| {
+                let halstead = &space.metrics.halstead;
+                assert_eq!(
+                    [
+                        halstead.unique_operators(),
+                        halstead.total_operators(),
+                        halstead.unique_operands(),
+                        halstead.total_operands(),
+                    ],
+                    expected,
+                    "{label}"
+                );
+            },
+        );
+    }
+
     #[test]
     fn python_operators_and_operands() {
         check_metrics::<PythonParser>(
@@ -2544,6 +2579,127 @@ mod tests {
     }
 
     #[test]
+    fn perl_bare_pattern_delimiters_are_not_operators() {
+        // Regression: issue #1312, the Perl sibling of Elixir #1256.
+        // The bare match form is the only one of Perl's regex literals
+        // whose delimiters are spelled with an operator token kind —
+        // `bca dump` shows `/abc/` emitting two `SLASH` under
+        // `PatternMatcher` — so `$s =~ /abc/;` reported a `/` operator
+        // with no division in the source.
+        //
+        // expected: operators `$` (the `scalar_variable` sigil), `=~`
+        // and `;` → n1 = N1 = 3. Operand `$s` → n2 = N2 = 1; the
+        // `PatternMatcher` wrapper is not classified (see
+        // `perl_every_pattern_spelling_scores_alike`). Before the guard
+        // the two delimiters added `/` → n1 = 4, N1 = 5.
+        check_metrics::<PerlParser>("$s =~ /abc/;\n", "foo.pl", |metric| {
+            assert_eq!(metric.halstead.unique_operators(), 3);
+            assert_eq!(metric.halstead.total_operators(), 3);
+            assert_eq!(metric.halstead.unique_operands(), 1);
+            assert_eq!(metric.halstead.total_operands(), 1);
+        });
+    }
+
+    #[test]
+    fn perl_every_pattern_spelling_scores_alike() {
+        // Companion to the test above (#1312). `m/abc/` is exactly
+        // `/abc/` in Perl, and the delimiter pair is free, so all of
+        // these must score identically. The suffixed forms already did
+        // before the fix: `bca dump` shows `m//`, `qr//`, `s///`,
+        // `tr///` and `y///` using the dedicated `StartDelimiter` /
+        // `SeparatorDelimiter` / `EndDelimiter` kinds, which no arm in
+        // `PerlCode::get_op_type` classifies — so they are here as
+        // no-change guards, and the bare row is the one the guard
+        // moved onto the same footing.
+        //
+        // That shared footing is also why this fix deliberately does
+        // *not* take up the issue's suggestion to classify
+        // `PatternMatcher` as an operand for parity with Ruby's `Regex`
+        // and Elixir's `Sigil`: doing it for the bare form alone would
+        // score `/abc/` at one operand and its four synonyms at zero,
+        // reintroducing the spelling sensitivity this test pins.
+        //
+        // The fixture matches twice against one variable so that no two
+        // of `[n1, N1, n2, N2]` are equal. A square tuple would leave
+        // `assert_halstead_counts`' unique-vs-total axes unpinned —
+        // transposing n1 with N1 inside the helper failed no test while
+        // all three of its callers expected a square tuple.
+        //
+        // expected per variant: operators `$` × 2 (one per
+        // `scalar_variable`), `=~` × 2, `and`, `;` → n1 = 4, N1 = 6.
+        // The pattern contributes no operator (that is the point) and
+        // no operand (see the note above); operand `$s` twice → n2 = 1,
+        // N2 = 2.
+        for pattern in [
+            "/abc/", "m/abc/", "m{abc}", "qr/abc/", "s/a/b/", "s{a}{b}", "tr/a/b/", "y/a/b/",
+        ] {
+            assert_halstead_counts::<PerlParser>(
+                &format!("$s =~ {pattern} and $s =~ {pattern};\n"),
+                "foo.pl",
+                [4, 6, 1, 2],
+                &format!("pattern {pattern}"),
+            );
+        }
+    }
+
+    #[test]
+    fn perl_division_emits_no_slash_token() {
+        // Drift marker, not an endorsement. Ruby's counterpart
+        // (`ruby_division_survives_the_regex_guard`) proves #1312's
+        // guard cannot swallow a real division; Perl has no such
+        // fixture to write, because at the pinned grammar `$a / $b`
+        // emits *no* `SLASH` token at all — `binary_expression`'s
+        // children skip straight from one `scalar_variable` to the
+        // other. Perl division therefore counts zero operators today,
+        // a pre-existing grammar gap this fix neither causes nor
+        // repairs.
+        //
+        // Pinning it keeps the gap in CI: a bump that starts emitting
+        // the token turns this red, at which point the division would
+        // begin counting (its parent is `BinaryExpression`, not
+        // `PatternMatcher`, so the guard leaves it alone) and the
+        // expectations above need re-deriving.
+        //
+        // The same gap is why no Perl test can distinguish the
+        // parent-scoped guard from an ancestor-scoped one: with no
+        // `SLASH` reachable below a `PatternMatcher`, that mutant is
+        // unobservable here — measured, not assumed. Perl's guard is
+        // parent-scoped for correctness by construction and for
+        // symmetry with Ruby's, where the distinction *is* observable
+        // and is pinned by
+        // `ruby_regex_guard_is_parent_scoped_not_ancestor_scoped`.
+        let path = PathBuf::from("foo.pl");
+        let source = "my $z = $a / $b;\n";
+        let parser = PerlParser::new(source.as_bytes().to_vec(), &path, None);
+        assert!(
+            !ast_has_kind_id(&parser, Perl::SLASH as u16),
+            "tree-sitter-perl still emits no SLASH for `{source}`"
+        );
+        // Anchor the negative assertion to *this* fixture. Without it
+        // the test stays green when `source` is edited to something
+        // containing no division at all — measured: swapping in
+        // `my $z = 1;` failed nothing.
+        //
+        // expected: operators `my`, `=`, `$` × 3 (one per
+        // `scalar_variable`), `;` → n1 = 4, N1 = 6, with no `/` among
+        // them. Operands `$z`, `$a`, `$b` → n2 = N2 = 3.
+        check_metrics::<PerlParser>(source, "foo.pl", |metric| {
+            assert_eq!(metric.halstead.unique_operators(), 4);
+            assert_eq!(metric.halstead.total_operators(), 6);
+            assert_eq!(metric.halstead.unique_operands(), 3);
+            assert_eq!(metric.halstead.total_operands(), 3);
+        });
+        // Positive control: the same kind *is* reachable in this
+        // grammar, so the assertion above is about division and not
+        // about `Perl::SLASH` being enum-only dead weight.
+        let matcher = PerlParser::new(b"$s =~ /abc/;\n".to_vec(), &path, None);
+        assert!(
+            ast_has_kind_id(&matcher, Perl::SLASH as u16),
+            "Perl::SLASH must be the bare pattern delimiter kind"
+        );
+    }
+
+    #[test]
     fn lua_operators_and_operands() {
         check_metrics::<LuaParser>(
             "local function add(a, b)
@@ -3379,23 +3535,11 @@ f() {
             ("\"", "\""),
             ("'", "'"),
         ] {
-            let source = format!("x = ~w{open}one two{close}\n");
-            // `check_metrics` takes a plain `fn` and cannot capture the
-            // delimiter for the failure message; use the closure-taking
-            // `FuncSpace` helper it wraps.
-            crate::test_support::check_func_space_only::<ElixirParser, _>(
-                &source,
+            assert_halstead_counts::<ElixirParser>(
+                &format!("x = ~w{open}one two{close}\n"),
                 "foo.ex",
-                &[crate::Metric::Halstead],
-                |space| {
-                    let counts = [
-                        space.metrics.halstead.unique_operators(),
-                        space.metrics.halstead.total_operators(),
-                        space.metrics.halstead.unique_operands(),
-                        space.metrics.halstead.total_operands(),
-                    ];
-                    assert_eq!(counts, [2, 2, 3, 3], "delimiter pair {open} {close}");
-                },
+                [2, 2, 3, 3],
+                &format!("delimiter pair {open} {close}"),
             );
         }
     }
@@ -4230,17 +4374,132 @@ f() {
 
     #[test]
     fn ruby_halstead_regex_operand() {
-        // `/foo/` parses as a `Regex` node — one operand. The slash
-        // delimiters around it are emitted as `SLASH` tokens and
-        // classified as arithmetic-or-divide operators by the shared
-        // arm; they count once toward the distinct-operator set.
-        // expected: u_operators = {def, (, =~, /, end} = 5 (only the
-        // `(` opener counts after #695 — the `)` closer was dropped);
-        // u_operands = {f, s, /foo/} = 3.
+        // `/foo/` parses as a `Regex` node — one operand. Its two
+        // `SLASH` delimiters used to fall through to the shared
+        // arithmetic arm and add a `/` operator that is nowhere in the
+        // source; #1312 parent-guards them to `Unknown`.
+        // expected: u_operators = {def, (, =~, end} = 4, N1 = 4 (only
+        // the `(` opener counts after #695 — the `)` closer was
+        // dropped; was 5 with the fabricated `/`); u_operands =
+        // {f, s, /foo/} = 3, N2 = 4 (`s` twice: parameter and use).
         check_metrics::<RubyParser>("def f(s)\n  s =~ /foo/\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.halstead.unique_operators(), 5);
+            assert_eq!(metric.halstead.unique_operators(), 4);
+            assert_eq!(metric.halstead.total_operators(), 4);
             assert_eq!(metric.halstead.unique_operands(), 3);
+            assert_eq!(metric.halstead.total_operands(), 4);
         });
+    }
+
+    #[test]
+    fn ruby_regex_delimiters_are_not_operators() {
+        // Regression: issue #1312, the Ruby sibling of Elixir #1256.
+        // Both of a `Regex` literal's delimiter tokens are `SLASH` —
+        // the same kind id real division uses — so `x = /abc/`
+        // reported a `/` operator with no division in the source.
+        //
+        // expected: operators `=` → n1 = N1 = 1. Operands `x` and the
+        // `/abc/` literal → n2 = N2 = 2. Before the guard the two
+        // delimiters added `/` → n1 = 2, N1 = 3.
+        check_metrics::<RubyParser>("x = /abc/\n", "foo.rb", |metric| {
+            assert_eq!(metric.halstead.unique_operators(), 1);
+            assert_eq!(metric.halstead.total_operators(), 1);
+            assert_eq!(metric.halstead.unique_operands(), 2);
+            assert_eq!(metric.halstead.total_operands(), 2);
+        });
+    }
+
+    #[test]
+    fn ruby_regex_delimiter_choice_is_invariant() {
+        // Companion to the test above (#1312): `%r`-form regexes are
+        // the same literal spelled differently, so every delimiter
+        // choice must produce identical counts. tree-sitter-ruby
+        // aliases all of them to `SLASH` — verified with `bca dump`,
+        // which shows `%r{`/`}`, `%r(`/`)`, `%r[`/`]`, `%r<`/`>`,
+        // `%r|`/`|` and `%r!`/`!` every one emitting kind `SLASH` —
+        // so each row here genuinely exercises the guard rather than
+        // reaching a different, already-clean path.
+        //
+        // expected per variant: operator `=` → n1 = N1 = 1; operands
+        // `x` and the literal → n2 = N2 = 2.
+        for literal in [
+            "/abc/", "%r{abc}", "%r(abc)", "%r[abc]", "%r<abc>", "%r|abc|", "%r!abc!",
+        ] {
+            assert_halstead_counts::<RubyParser>(
+                &format!("x = {literal}\n"),
+                "foo.rb",
+                [1, 1, 2, 2],
+                &format!("regex literal {literal}"),
+            );
+        }
+    }
+
+    #[test]
+    fn ruby_division_survives_the_regex_guard() {
+        // Control for #1312: the guard is scoped to a `Regex` parent,
+        // so real division still counts. Two divisions, so a mutant
+        // that collapsed repeated hits would move `N1` even though
+        // `n1` held (the #1294 count-only-anchor lesson).
+        //
+        // expected: operators `=` and `/` × 2 → n1 = 2, N1 = 3.
+        // Operands `z`, `a`, `b`, `c` → n2 = N2 = 4.
+        check_metrics::<RubyParser>("z = a / b / c\n", "foo.rb", |metric| {
+            assert_eq!(metric.halstead.unique_operators(), 2);
+            assert_eq!(metric.halstead.total_operators(), 3);
+            assert_eq!(metric.halstead.unique_operands(), 4);
+            assert_eq!(metric.halstead.total_operands(), 4);
+        });
+    }
+
+    #[test]
+    fn ruby_regex_guard_is_parent_scoped_not_ancestor_scoped() {
+        // The one input that separates the correct parent-scoped guard
+        // from the ancestor-scoped mutant of it (#1312, mirroring
+        // #1256's Elixir case): a division *inside* a regex's `#{…}`
+        // interpolation. Its `/` has `Binary` as its parent but the
+        // `Regex` as a further ancestor, so an ancestor scan would
+        // swallow it. Every other fixture in this file passes under
+        // both spellings. Two interpolations, so the mutant moves both
+        // n1 (3 → 2) and N1 (5 → 3).
+        //
+        // expected: operators `=`, `#{` × 2, `/` × 2 → n1 = 3, N1 = 5.
+        // Operands `w`, `p`, `q`, `r`, `t` → n2 = N2 = 5; the wrapping
+        // `Regex` is skipped because it carries an `Interpolation`
+        // child (the #180 double-count guard).
+        check_metrics::<RubyParser>("w = /a#{p / q}c#{r / t}b/\n", "foo.rb", |metric| {
+            assert_eq!(metric.halstead.unique_operators(), 3);
+            assert_eq!(metric.halstead.total_operators(), 5);
+            assert_eq!(metric.halstead.unique_operands(), 5);
+            assert_eq!(metric.halstead.total_operands(), 5);
+        });
+    }
+
+    #[test]
+    fn ruby_regex_start_alias_never_reaches_kind_id() {
+        // Drift marker for the `R::SLASH2` half of #1312's guard.
+        // `SLASH2` is the aliased regex-start token: it sits in the
+        // enum beside the other literal-start aliases (`DQUOTE`,
+        // `COLONDQUOTE`, `BQUOTE2`, `PERCENTwLPAREN`) and the runtime
+        // `public_symbol_map` collapses it to `SLASH` before
+        // `kind_id()`, exactly like `LPAREN2` in #768. It is listed in
+        // the guard rather than the arithmetic arm because a regex
+        // delimiter is the only thing it could ever be; this pins that
+        // it is currently unreachable, so a grammar bump that starts
+        // emitting it fails here instead of silently changing a metric.
+        let path = PathBuf::from("foo.rb");
+        for source in ["x = /abc/\n", "x = %r{abc}\n"] {
+            let parser = RubyParser::new(source.as_bytes().to_vec(), &path, None);
+            assert!(
+                !ast_has_kind_id(&parser, Ruby::SLASH2 as u16),
+                "Ruby::SLASH2 must stay collapsed to Ruby::SLASH for `{source}`"
+            );
+            // Positive control: the id the guard actually fires on is
+            // present, so the assertion above cannot pass merely
+            // because no delimiter was parsed at all.
+            assert!(
+                ast_has_kind_id(&parser, Ruby::SLASH as u16),
+                "Ruby::SLASH must be the delimiter kind for `{source}`"
+            );
+        }
     }
 
     /// Comprehensive iRules Halstead test exercising every operator family

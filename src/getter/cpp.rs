@@ -84,6 +84,11 @@ impl Getter for CppCode {
         // folding to its pair glyph in `get_operator_id_as_str`. The
         // invariant is pinned by `second_alias_opener_collapses_to_base_kind_id`
         // in `metrics/halstead.rs` (issue #768).
+        //
+        // FIXME(#1314): a raw string's `R"(` delimiter is an `LPAREN`
+        // child of `RawStringLiteral`, so `R"(raw)"` fabricates a
+        // call — the class #1256 fixed for Elixir and #1312 for
+        // Ruby/Perl. Parent-guard it to `Unknown`; `mozcpp` too.
         match node.kind_id().into() {
             DOT | DOTSTAR | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return
             | Break | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do

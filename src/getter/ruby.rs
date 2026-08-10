@@ -18,14 +18,39 @@ impl Getter for RubyCode {
         }
     }
 
-    fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> HalsteadType {
         use Ruby as R;
 
         match node.kind_id().into() {
-            // FIXME(#1312): regex delimiter counted as division — the
-            // `SLASH` arm below also matches a `Regex` literal's
-            // delimiter tokens; see #1256's parent-guard pattern.
-            //
+            // Regex delimiter punctuation. tree-sitter-ruby aliases
+            // every regex delimiter spelling to `/`: `bca dump` at the
+            // pinned grammar shows `/…/`, `%r{…}` and `%r|…|` all
+            // emitting `SLASH` (kind 85) for both delimiters — the very
+            // kind id real division uses. Counting them fabricated two
+            // `/` operators per regex literal and made n1/N1 depend on
+            // the author's delimiter choice (#1312, the Ruby sibling of
+            // Elixir #1256). The `Regex` node itself is the operand
+            // (below), so the delimiters are suppressed exactly when
+            // their parent is that node — the compound-leaf guard of
+            // grammar-dispatch §5. Parent, not ancestor: a `/` nested
+            // deeper, such as a division inside `#{…}` interpolation,
+            // has `Binary` as its parent and must still count.
+            // `SLASH2` is the aliased regex-start token; the runtime
+            // `public_symbol_map` collapses it to `SLASH` so it never
+            // reaches `kind_id()` (the `LPAREN2` class of #768, pinned
+            // by `ruby_regex_start_alias_never_reaches_kind_id`). It
+            // appears here and *only* here — it was dropped from the
+            // arithmetic arm below, because a regex delimiter is the
+            // only thing it could ever be. Should a bump surface it
+            // outside a `Regex`, it now falls to `Unknown` rather than
+            // being counted as a division.
+            R::SLASH | R::SLASH2
+                if ancestors
+                    .parent(node)
+                    .is_some_and(|p| p.kind_id() == R::Regex as u16) =>
+            {
+                HalsteadType::Unknown
+            }
             // Control-flow keyword tokens. tree-sitter-ruby gives each
             // keyword its own anonymous numbered variant (e.g. `If2` is
             // the `if` keyword token; `If` is the named statement node).
@@ -65,7 +90,7 @@ impl Getter for RubyCode {
             | R::LBRACKRBRACK | R::LBRACKRBRACKEQ
             // Arithmetic
             | R::PLUS | R::DASH | R::DASH2 | R::DASH3 | R::DASH4 | R::STAR | R::STAR2 | R::STAR3
-            | R::SLASH | R::SLASH2 | R::PERCENT
+            | R::SLASH | R::PERCENT
             | R::STARSTAR | R::STARSTAR2 | R::STARSTAR3
             // Comparison
             | R::EQEQ | R::BANGEQ | R::EQEQEQ

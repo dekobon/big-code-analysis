@@ -13,6 +13,12 @@ impl Getter for TclCode {
     }
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> HalsteadType {
+        // FIXME(#1314): a braced *word* carries its `{` as an
+        // `LBRACE` child, so the value `{braced word}` fabricates a
+        // block — the class #1256 fixed for Elixir and #1312 for
+        // Ruby/Perl. Only `BracedWordSimple` is the value form
+        // (script bodies are `BracedWord`, `expr` bodies `Expr`), so
+        // parent-guarding on it is safe; iRules carries the same gap.
         match node.kind_id().into() {
             // Anonymous keyword tokens (control-flow and declaration keywords).
             Tcl::Proc

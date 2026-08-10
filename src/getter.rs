@@ -102,6 +102,15 @@ macro_rules! impl_js_family_get_op_type {
         fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
             use $lang::*;
 
+            // FIXME(#1314): two defects in the regex literal, identical
+            // across all four callers so they stay in the macro body
+            // rather than at each invocation. A `Regex`'s two delimiters
+            // are `SLASH`, so `/abc/g` fabricates a division (the class
+            // #1256 fixed for Elixir and #1312 for Ruby/Perl — parent-
+            // guard them to `Unknown` under `Regex`). And `Regex` is in
+            // neither the operator nor the operand arm below, so the
+            // literal itself contributes no operand at all.
+
             // TS/TSX only: a `void` return / parameter type is parsed as a
             // `predefined_type` wrapper around an inner `void` token. Both
             // the wrapper (routed through `is_primitive` into the text-keyed
