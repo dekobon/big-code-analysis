@@ -36,6 +36,13 @@ impl Cyclomatic for IrulesCode {
             | Irules::While
             | Irules::DictFor
             | Irules::Catch
+            // `try` handlers: the grammar wraps each `on error` / `trap`
+            // group in a dedicated node (unlike Tcl's flat tokens), so each
+            // is one decision point here (issue #1266), matching `Catch`
+            // and the C-family `CatchClause`. `Try` itself and `Finally`
+            // are unconditional and stay free.
+            | Irules::OnHandler
+            | Irules::TrapHandler
             | Irules::TernaryExpr
             // Short-circuit logical operators, both symbolic and the iRules
             // keyword forms (`and`/`or`) — Tcl has no keyword forms, so these

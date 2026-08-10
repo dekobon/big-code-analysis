@@ -3988,6 +3988,113 @@ f() {
     }
 
     #[test]
+    fn tcl_try_on_error_cyclomatic() {
+        // Tcl `try` is a dedicated kind whose single permitted `on error`
+        // handler is a flat token run (issue #1266): the handler is one
+        // decision point in both tiers, matching `catch`; `finally` is
+        // unconditional and free.
+        check_metrics::<TclParser>(
+            "proc f {} {
+    try {
+        risky
+    } on error {msg} {
+        puts $msg
+    } finally {
+        cleanup
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                // unit(1) + proc(base 1 + handler 1) = sum 3, max 2, both tiers.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_try_finally_only_cyclomatic() {
+        // A `try` with no handler has no decision point: `finally` is
+        // unconditional cleanup and must stay +0 (issue #1266, the
+        // cross-language `finally` convention of #416).
+        check_metrics::<TclParser>(
+            "proc f {} {
+    try {
+        risky
+    } finally {
+        cleanup
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                // unit(1) + proc(base 1) only.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 1);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn irules_try_handlers_cyclomatic() {
+        // iRules wraps each `try` handler in a dedicated `on_handler` /
+        // `trap_handler` node (unlike Tcl's flat tokens): one decision
+        // point each in both tiers (issue #1266). The figure also pins
+        // that the handlers no longer open anonymous function spaces —
+        // as spaces each would carry its own base 1, making the sum 6.
+        check_metrics::<IrulesParser>(
+            "proc f {} {
+    try {
+        risky
+    } on error {msg} {
+        puts $msg
+    } trap {POSIX} {msg} {
+        puts $msg
+    } finally {
+        cleanup
+    }
+}",
+            "foo.irule",
+            |metric| {
+                // unit(1) + proc(base 1 + on 1 + trap 1) = sum 4, max 3.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 3);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_irules_try_parity() {
+        // The same single-handler `try` must score identically in Tcl
+        // (flat `on`/`error` tokens under `try`) and iRules (a dedicated
+        // `on_handler` wrapper) — issue #1266.
+        // unit(1) + proc(base 1 + handler 1) = sum 3, max 2, both tiers.
+        let source = "proc f {} {
+    try {
+        risky
+    } on error {msg} {
+        puts $msg
+    } finally {
+        cleanup
+    }
+}";
+        check_metrics::<TclParser>(source, "foo.tcl", |metric| {
+            assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+            assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
+            assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3);
+        });
+        check_metrics::<IrulesParser>(source, "foo.irule", |metric| {
+            assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+            assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
+            assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3);
+        });
+    }
+
+    #[test]
     fn mozjs_for_loop() {
         check_metrics::<MozjsParser>(
             "function f(n) { // +2 (+1 unit)

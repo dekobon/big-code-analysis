@@ -44,6 +44,17 @@ impl Cyclomatic for TclCode {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }
+            // `try` itself is free; each `on error` handler is one decision
+            // point in both tiers (issue #1266), matching `Catch` above, the
+            // C-family `CatchClause`, and the iRules `OnHandler` — modified
+            // CCN collapses only switch-like arm lists, never catch
+            // handlers. `finally` is unconditional cleanup and stays free.
+            Tcl::Try => {
+                let handlers =
+                    crate::metrics::cognitive::tcl_try_handler_bodies(node).count() as f64;
+                stats.cyclomatic += handlers;
+                stats.cyclomatic_modified += handlers;
+            }
             _ => {}
         }
     }

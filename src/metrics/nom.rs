@@ -2331,10 +2331,11 @@ outer() {
         );
     }
 
-    /// iRules counts event handlers (`when` / `on` / `trap`) and `proc`
-    /// definitions as functions; the language has no closures. A file with
-    /// two handlers and one proc reports three functions, zero closures.
-    /// Confirms the handlers-as-functions decision end to end.
+    /// iRules counts `when` event handlers and `proc` definitions as
+    /// functions; the language has no closures. A file with two handlers
+    /// and one proc reports three functions, zero closures. Confirms the
+    /// handlers-as-functions decision end to end. (`try`'s `on` / `trap`
+    /// handlers are branch points, not functions — issue #1266.)
     #[test]
     fn irules_nom_handlers_and_procs() {
         check_metrics::<IrulesParser>(
@@ -2353,6 +2354,33 @@ proc helper { x } {
                 assert_eq!(metric.nom.functions_sum(), 3);
                 assert_eq!(metric.nom.closures_sum(), 0);
                 assert_eq!(metric.nom.total(), 3);
+            },
+        );
+    }
+
+    /// iRules `try` handlers (`on error` / `trap`) are error-handler
+    /// clauses, not functions: a proc containing both must report exactly
+    /// one function (issue #1266). Before the fix each handler's dedicated
+    /// `on_handler` / `trap_handler` node was classified as a function
+    /// space, so this fixture reported three.
+    #[test]
+    fn irules_try_handlers_are_not_functions() {
+        check_metrics::<IrulesParser>(
+            "proc f {} {
+    try {
+        risky
+    } on error {msg} {
+        puts $msg
+    } trap {POSIX} {msg} {
+        puts $msg
+    }
+}
+",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 1);
+                assert_eq!(metric.nom.closures_sum(), 0);
+                assert_eq!(metric.nom.total(), 1);
             },
         );
     }

@@ -45,6 +45,23 @@ impl Cognitive for TclCode {
             Catch => {
                 increase_nesting(stats, &mut nesting);
             }
+            // `try` itself is free; each `on error` handler is a conditional
+            // error path: +1 plus current nesting, nesting only the handler
+            // body (issue #1266). The `try` body and `finally` run
+            // unconditionally and stay at the inherited level, matching the
+            // C-family split of a free `try` and a charged `CatchClause`.
+            // The grammar exposes no handler wrapper node, so the body's
+            // slot is seeded here directly — the walker's
+            // `propagate_nesting_to_children` uses `or_insert`, so a slot
+            // written by the parent survives propagation (the #421
+            // comprehension-clause pattern).
+            Try => {
+                for body in tcl_try_handler_bodies(node) {
+                    let mut handler_nesting = nesting;
+                    increase_nesting(stats, &mut handler_nesting);
+                    nesting_map.insert(body.id(), handler_nesting);
+                }
+            }
             // Tcl `switch` is a generic `command`, not a dedicated kind, so it
             // would otherwise fall through to `_` (issue #467). It is a
             // switch-like structure: +1 plus current nesting, with the
