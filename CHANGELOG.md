@@ -96,6 +96,18 @@ for historical reference.
 
 ### Fixed
 
+- A Ruby stabby lambda (`->(z) { … }` / `->(z) do … end`) opened two
+  nested anonymous Function spaces — one for the `Lambda` node and a
+  phantom zero-metric one for the `Block` / `DoBlock` that is the
+  lambda's own body. #465 had fixed the closure *count* half; the
+  space-promotion walk still promoted the body block a second time.
+  The `Block | DoBlock` promotion is now gated on the same
+  parent-is-not-`Lambda` predicate `is_closure` uses, so each stabby
+  lambda opens exactly one space; keyword forms (`lambda { }`,
+  `proc { }`) and iterator blocks are unchanged. Serialized space
+  trees for Ruby files with stabby lambdas lose the phantom entries,
+  which also removes their zero contributions from `function_spaces`
+  averages and per-file minimums (#1257).
 - The `enums` code generator minted collision-breaking names
   (`Foo` → `Foo2`) without registering them, so a minted suffix could
   silently duplicate a node kind whose own sanitized name is literally

@@ -139,8 +139,14 @@ pub(super) fn fixture(lang: LANG) -> (&'static str, &'static str) {
              return $g($a) + 1;\n}\n",
             "php",
         ),
+        // The stabby lambda exercises the #1257 lambda-body gate: the
+        // `Lambda` wrapper opens the space and its own `Block` must
+        // not. Both walks reach the gate through
+        // `is_func_space_with_code`, so a caller reverted to the
+        // byte-less `is_func_space` (the #1130 shape) would re-open
+        // the phantom body space on one side only and diverge here.
         LANG::Ruby => (
-            "def f(a)\n  g = lambda { |b| b * 2 }\n  g.call(a) + 1\nend\n",
+            "def f(a)\n  g = lambda { |b| b * 2 }\n  h = ->(b) { b + 1 }\n  g.call(a) + 1\nend\n",
             "rb",
         ),
         LANG::Groovy => (

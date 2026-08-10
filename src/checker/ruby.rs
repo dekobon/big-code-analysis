@@ -3,11 +3,41 @@
 
 use super::*;
 
+/// Whether `node` — a `Block` / `DoBlock` — is the body of a stabby
+/// lambda (`->(z) { … }` / `->(z) do … end`), which parses as a `Lambda`
+/// node that CONTAINS the block. The `Lambda` wrapper already counts as
+/// the closure (#465) and opens the function space (#1257), so
+/// classifying the body again would double-count one lambda as two
+/// closures, or open a phantom nested Function space. The keyword forms
+/// `lambda { }` / `proc { }` and iterator blocks (`[1].each { |x| x }`)
+/// parse as a `Call` carrying the block argument — the parent is not a
+/// `Lambda` — so they still classify exactly once.
+///
+/// One helper shared by [`Checker::is_closure`] and
+/// [`Checker::is_func_space_with_code`], so the closure count and the
+/// space tree cannot drift apart
+/// (`.claude/rules/grammar-dispatch.md` §6).
+///
+/// The parent comes off the caller's chain: both consumers run per node
+/// from a walk, and `Node::parent` costs `O(depth)` because
+/// `tree_sitter` resolves it by descending from the root (#1088).
+fn is_stabby_lambda_body<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors
+        .parent(node)
+        .is_some_and(|parent| parent.kind_id() == Ruby::Lambda)
+}
+
 impl Checker for RubyCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Ruby::Comment
     }
 
+    // Over-approximates for `Block` / `DoBlock`: a stabby lambda's own
+    // body block is NOT a space of its own (the wrapping `Lambda` is),
+    // but telling the two apart needs the parent and this spelling has
+    // no ancestor access. The walker promotes through the
+    // [`Checker::is_func_space_with_code`] override below, which
+    // carries the lambda-body gate (#1257).
     fn is_func_space(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),
@@ -23,29 +53,29 @@ impl Checker for RubyCode {
         )
     }
 
+    fn is_func_space_with_code<'a>(
+        node: &Node<'a>,
+        _code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        match node.kind_id().into() {
+            Ruby::Block | Ruby::DoBlock => !is_stabby_lambda_body(node, ancestors),
+            _ => Self::is_func_space(node),
+        }
+    }
+
     fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         matches!(node.kind_id().into(), Ruby::Method | Ruby::SingletonMethod)
     }
 
+    // Ruby is the one non-JS grammar whose closure test is not
+    // answerable from the node's own kind: a `Block` / `DoBlock` counts
+    // only when it is not a stabby lambda's own body (#465, see
+    // `is_stabby_lambda_body`).
     fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
         match node.kind_id().into() {
             Ruby::Lambda => true,
-            // A stabby lambda `->(z) { … }` parses as a `Lambda` node that
-            // CONTAINS the `Block`/`DoBlock` for its body, so the `Lambda`
-            // arm above already counts it. Counting the inner block again
-            // would double-count one closure as two (#465). The keyword
-            // forms `lambda { }` / `proc { }` parse as a `Call` carrying a
-            // `Block`/`DoBlock` argument (parent is not a `Lambda`), so they
-            // still count exactly once.
-            //
-            // The parent comes off the caller's chain: `is_closure` runs
-            // per node from `Nom` / `NArgs`, and `Node::parent` costs
-            // `O(depth)` because `tree_sitter` resolves it by descending
-            // from the root (#1088). Ruby is the one non-JS grammar whose
-            // closure test is not answerable from the node's own kind.
-            Ruby::Block | Ruby::DoBlock => ancestors
-                .parent(node)
-                .is_none_or(|parent| parent.kind_id() != Ruby::Lambda),
+            Ruby::Block | Ruby::DoBlock => !is_stabby_lambda_body(node, ancestors),
             _ => false,
         }
     }
