@@ -238,11 +238,36 @@ fn switch_with_default_parity() {
             "irule",
         ),
     );
+    // Elixir `case` with a bare `_ ->` catch-all: the wildcard is the
+    // construct's default arm and is skipped, like Rust's `_ =>`
+    // (issue #1272). `def` must live inside a `defmodule`, which opens
+    // a Class space — the same structural offset as Java.
+    sums.insert(
+        "elixir",
+        ccn_sum(
+            LANG::Elixir,
+            r"defmodule Parity do
+  def f(x) do
+    case x do
+      1 -> :one
+      2 -> :two
+      3 -> :three
+      _ -> :other
+    end
+  end
+end
+",
+            "ex",
+        ),
+    );
     let offsets = BTreeMap::from([
         ("java", JAVA_CLASS_OFFSET),
         // C# requires every function to live inside a class, same as
         // Java — this is a language-mandated structural difference.
         ("csharp", JAVA_CLASS_OFFSET),
+        // Elixir requires every `def` to live inside a `defmodule` —
+        // the same structural difference as Java's class requirement.
+        ("elixir", JAVA_CLASS_OFFSET),
     ]);
     assert_parity("switch_with_default", &sums, &offsets);
 
@@ -389,7 +414,31 @@ f() {
             "tcl",
         ),
     );
-    let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET), ("csharp", JAVA_CLASS_OFFSET)]);
+    // Elixir `case` with no `_ ->` fallback: every arm is a real
+    // decision and counts (issue #1272 skips only the bare wildcard).
+    // `defmodule` opens a Class space — the Java structural offset.
+    sums.insert(
+        "elixir",
+        ccn_sum(
+            LANG::Elixir,
+            r"defmodule Parity do
+  def f(x) do
+    case x do
+      1 -> :one
+      2 -> :two
+      3 -> :three
+    end
+  end
+end
+",
+            "ex",
+        ),
+    );
+    let offsets = BTreeMap::from([
+        ("java", JAVA_CLASS_OFFSET),
+        ("csharp", JAVA_CLASS_OFFSET),
+        ("elixir", JAVA_CLASS_OFFSET),
+    ]);
     assert_parity("switch_without_default", &sums, &offsets);
 
     // Anchor the absolute magnitude (lessons #6 / #23 / #468):
@@ -579,7 +628,30 @@ f() {
             "m",
         ),
     );
-    let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET)]);
+    // Elixir has no `else if` chain keyword; `cond` is the idiomatic
+    // multi-way conditional, and its final `true ->` arm is the
+    // designated default — the analogue of the free `else`, skipped
+    // post-#1272. Three condition arms count. `defmodule` opens a
+    // Class space — the Java structural offset.
+    sums.insert(
+        "elixir",
+        ccn_sum(
+            LANG::Elixir,
+            r"defmodule Parity do
+  def f(x) do
+    cond do
+      x == 1 -> 10
+      x == 2 -> 20
+      x == 3 -> 30
+      true -> 0
+    end
+  end
+end
+",
+            "ex",
+        ),
+    );
+    let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET), ("elixir", JAVA_CLASS_OFFSET)]);
     assert_parity("if_else_if_else_chain", &sums, &offsets);
 
     // Anchor the absolute magnitude (lessons #6 / #23 / #468):
@@ -864,7 +936,31 @@ function f($x) {
             "kt",
         ),
     );
-    let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET), ("csharp", JAVA_CLASS_OFFSET)]);
+    // Elixir 2-arm `case` with a bare `_ ->` catch-all (issue #1272):
+    // the minimal form that catches both an over-count of the wildcard
+    // and an under-count of the explicit arm. `defmodule` opens a
+    // Class space — the Java structural offset.
+    sums.insert(
+        "elixir",
+        ccn_sum(
+            LANG::Elixir,
+            r"defmodule Parity do
+  def f(x) do
+    case x do
+      1 -> :one
+      _ -> :other
+    end
+  end
+end
+",
+            "ex",
+        ),
+    );
+    let offsets = BTreeMap::from([
+        ("java", JAVA_CLASS_OFFSET),
+        ("csharp", JAVA_CLASS_OFFSET),
+        ("elixir", JAVA_CLASS_OFFSET),
+    ]);
     assert_parity("two_arm_switch_with_wildcard", &sums, &offsets);
 
     // Anchor the absolute magnitude (lessons #6 / #23 / #468):
