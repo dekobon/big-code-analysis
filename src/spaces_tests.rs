@@ -2324,6 +2324,88 @@ mod nameless_construct_spaces {
         assert_class_static_block_space(LANG::Mozjs);
     }
 
+    /// Regression for #1257: a stabby lambda (`->(z) { … }` /
+    /// `->(z) do … end`) parses as a `Lambda` node that CONTAINS the
+    /// `Block` / `DoBlock` for its body, and the unconditional
+    /// `Block | DoBlock` arm in `RubyCode::is_func_space` promoted
+    /// both — the `Lambda` space plus a phantom zero-metric anonymous
+    /// Function nested inside it. The phantom inflated every
+    /// space-count consumer: per-space threshold evaluation, the
+    /// `function_spaces` average divisor (pinning per-file `min` at 0),
+    /// and the ops tree. Each stabby form must open exactly one space.
+    #[test]
+    #[cfg(feature = "ruby")]
+    fn ruby_stabby_lambda_opens_exactly_one_space() {
+        for source in [
+            "def m\n  h = ->(z) { z + 1 }\nend\n",
+            "def m\n  h = ->(z) do\n    z + 1\n  end\nend\n",
+        ] {
+            let root = analyse(LANG::Ruby, source);
+            assert_eq!(
+                shape(&root),
+                vec![
+                    (None, SpaceKind::Unit),
+                    (Some("m"), SpaceKind::Function),
+                    (Some("<anonymous>"), SpaceKind::Function),
+                ],
+                "phantom lambda-body space for {source:?}"
+            );
+        }
+    }
+
+    /// The #1257 fixture end to end: a keyword `lambda`, an iterator
+    /// block, and a `do…end` stabby lambda. The first two hang their
+    /// `Block` off a `Call` — not a `Lambda` — so the block itself must
+    /// STILL open its space; only the stabby form's own body is
+    /// suppressed. `nom` is asserted alongside because the closure
+    /// count (#465) and the space tree now share one lambda-body
+    /// predicate and must move together: 3 closures, 4 functions total.
+    #[test]
+    #[cfg(feature = "ruby")]
+    fn ruby_mixed_lambda_forms_open_one_space_each() {
+        let root = analyse(
+            LANG::Ruby,
+            "def m\n  g = lambda { |z| z + 1 }\n  [1].each { |x| x }\n  h = ->(z) do z end\nend\n",
+        );
+        assert_eq!(
+            shape(&root),
+            vec![
+                (None, SpaceKind::Unit),
+                (Some("m"), SpaceKind::Function),
+                (Some("<anonymous>"), SpaceKind::Function),
+                (Some("<anonymous>"), SpaceKind::Function),
+                (Some("<anonymous>"), SpaceKind::Function),
+            ],
+        );
+        // expected: closures = keyword lambda + each-block + stabby
+        // lambda = 3; total adds the named method `m` = 4.
+        assert_eq!(root.metrics.nom.closures_sum(), 3);
+        assert_eq!(root.metrics.nom.total(), 4);
+    }
+
+    /// A stabby lambda nested inside another's body: the inner `Lambda`
+    /// still opens its own space (its parent is the outer body block,
+    /// not a `Lambda`), nested under the outer's — one space per
+    /// lambda, no phantoms at either depth.
+    #[test]
+    #[cfg(feature = "ruby")]
+    fn ruby_nested_stabby_lambdas_open_one_space_each() {
+        let root = analyse(LANG::Ruby, "f = ->(x) { ->(y) { x + y } }\n");
+        assert_eq!(
+            shape(&root),
+            vec![
+                (None, SpaceKind::Unit),
+                (Some("<anonymous>"), SpaceKind::Function),
+                (Some("<anonymous>"), SpaceKind::Function),
+            ],
+        );
+        // `shape` flattens preorder, so pin the nesting explicitly: the
+        // inner lambda's space sits inside the outer's, not beside it.
+        assert_eq!(root.spaces.len(), 1);
+        assert_eq!(root.spaces[0].spaces.len(), 1);
+        assert!(root.spaces[0].spaces[0].spaces.is_empty());
+    }
+
     /// Sibling constructs with the same synthesised name are allowed to
     /// collide, exactly as multiple `<anonymous>` siblings already do.
     /// Pinned so the collision reads as a decision rather than an
