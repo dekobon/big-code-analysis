@@ -3335,6 +3335,21 @@ f() {
             assert_eq!(metric.halstead.unique_operands(), 3);
             assert_eq!(metric.halstead.total_operands(), 3);
         });
+
+        // A guarded kind *inside* the interpolation: the `/` in
+        // `#{a / b}` has `binary_operator` as its parent but the
+        // `Sigil` as a further ancestor, so this input is the one
+        // discriminator between the correct parent-scoped guard and a
+        // wrong ancestor-scoped one that would swallow it.
+        //
+        // expected: operators `=`, `~`, `#{`, `/` → n1 = N1 = 4;
+        // operands `v`, `s`, `a`, `b` → n2 = N2 = 4.
+        check_metrics::<ElixirParser>("v = ~s{x #{a / b} y}\n", "foo.ex", |metric| {
+            assert_eq!(metric.halstead.unique_operators(), 4);
+            assert_eq!(metric.halstead.total_operators(), 4);
+            assert_eq!(metric.halstead.unique_operands(), 4);
+            assert_eq!(metric.halstead.total_operands(), 4);
+        });
     }
 
     #[test]
