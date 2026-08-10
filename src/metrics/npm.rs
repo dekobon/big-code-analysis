@@ -3630,6 +3630,145 @@ class C {
         );
     }
 
+    // Function-pointer *data* members, shared by the `cpp_*` and
+    // `mozcpp_*` halves of the #1300 regression pair for the same
+    // no-file-extension reason as the two fixtures above.
+    //
+    // `int (*fp)(int);` nests as `field_declaration >
+    // function_declarator > parenthesized_declarator >
+    // pointer_declarator > field_identifier`, so an unconditional
+    // `function_declarator` arm claimed it and both counters were
+    // wrong in opposite directions at once: it scored as a method and
+    // was skipped as an attribute.
+    //
+    // Every member is load-bearing:
+    // - `plainData` is the control for the unwrapped path.
+    // - `fps[4]` puts an `array_declarator` under the parenthesis,
+    //   which the widened `cpp_count_field_identifiers` must compose
+    //   with rather than stop at.
+    // - `operator->()` reaches its `function_declarator` through a
+    //   `pointer_declarator`; a gate that declined on any nesting at
+    //   all would silently drop it.
+    // - the two conversion operators are #1298's shapes, which carry
+    //   no `function_declarator` anywhere in their subtree. They pin
+    //   that the gate left the `operator_cast` arm they depend on
+    //   alone.
+    // - `(parenMethod)` and `(operator+)` are the boundary the gate
+    //   introduces, and the reason it asks whether the parentheses
+    //   interpose an *indirection* rather than merely whether they are
+    //   there. Both are ordinary member functions written in the
+    //   macro-defence idiom (`int (max)(int, int);`), and a gate that
+    //   declined every parenthesised declarator demotes the first to
+    //   an attribute and loses the second from both counters, its name
+    //   being an `operator_name` the attribute counter does not match.
+    // - the two `((doubleParen…))` members are the same distinction one
+    //   nesting deeper, and the only fixtures that reach the helper's
+    //   recursive `parenthesized_declarator` arm. They cover it in both
+    //   directions: without the `*` the member is still a function,
+    //   with it a field.
+    // - the `private:` section makes public and total differ on both
+    //   metrics, so neither pair can be reached by an arm that ignores
+    //   `current_is_public`.
+    const FUNCTION_POINTER_MEMBERS: &str = "class F {\n\
+         public:\n\
+             int (*fp)(int);\n\
+             int plainData;\n\
+             int (*fps[4])(int);\n\
+             void realMethod();\n\
+             Foo* operator->();\n\
+             operator float();\n\
+             template<typename T> operator T();\n\
+             void (parenMethod)();\n\
+             int (operator+)(int);\n\
+             void ((doubleParenMethod))();\n\
+             int ((*doubleParenFp))(int);\n\
+         private:\n\
+             int (*privFp)(int);\n\
+             void privMethod();\n\
+         };";
+
+    // A member function whose *return type* is a function pointer.
+    // `int (*getFp(int))(int);` nests like a function-pointer data
+    // member for one level longer: the `parenthesized_declarator`
+    // holds a `pointer_declarator` wrapping `getFp`'s own
+    // `function_declarator`. `fp` sits alongside it so the fixture
+    // separates the two readings: the pre-#1300 unconditional arm
+    // counts both as methods, and a gate that declined every
+    // parenthesised declarator outright counts neither — verified by
+    // perturbation, which scores this class 0 methods.
+    //
+    // Each shape appears once per visibility, so all four expected
+    // values are 2/1 rather than the 1/1/1/1 an all-public version
+    // would give — which an arm ignoring `current_is_public` would
+    // satisfy on both metrics at once.
+    const METHOD_RETURNING_FUNCTION_POINTER: &str = "class F {\n\
+         public:\n\
+             int (*getFp(int))(int);\n\
+             int (*fp)(int);\n\
+         private:\n\
+             int (*privGetFp(int))(int);\n\
+             int (*privFp)(int);\n\
+         };";
+
+    #[test]
+    fn cpp_function_pointer_members_are_attributes_not_methods() {
+        check_metrics_with_npa::<CppParser>(FUNCTION_POINTER_MEMBERS, "foo.cpp", |metric| {
+            // Everything but the four function-pointer fields:
+            // `realMethod`, `operator->`, the two conversion
+            // operators, `parenMethod`, `operator+`, and
+            // `privMethod`. Before #1300 the function-pointer members
+            // inflated this pair to 10/8.
+            assert_eq!(metric.npm.class_nm_sum(), 8);
+            assert_eq!(metric.npm.class_npm_sum(), 7);
+            // `fp`, `plainData`, `fps`, `privFp`. Before #1300 only
+            // `plainData` was reachable, leaving 1/1 — and gating the
+            // predicate *without* widening the counter leaves it
+            // there, because the declined field's `field_identifier`
+            // is still buried under the two declarator kinds the
+            // counter did not recurse through.
+            assert_eq!(metric.npa.class_na_sum(), 5);
+            assert_eq!(metric.npa.class_npa_sum(), 4);
+        });
+    }
+
+    #[test]
+    fn mozcpp_function_pointer_members_are_attributes_not_methods() {
+        check_metrics_with_npa::<MozcppParser>(FUNCTION_POINTER_MEMBERS, "foo.cpp", |metric| {
+            assert_eq!(metric.npm.class_nm_sum(), 8);
+            assert_eq!(metric.npm.class_npm_sum(), 7);
+            assert_eq!(metric.npa.class_na_sum(), 5);
+            assert_eq!(metric.npa.class_npa_sum(), 4);
+        });
+    }
+
+    #[test]
+    fn cpp_method_returning_a_function_pointer_stays_a_method() {
+        check_metrics_with_npa::<CppParser>(
+            METHOD_RETURNING_FUNCTION_POINTER,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+            },
+        );
+    }
+
+    #[test]
+    fn mozcpp_method_returning_a_function_pointer_stays_a_method() {
+        check_metrics_with_npa::<MozcppParser>(
+            METHOD_RETURNING_FUNCTION_POINTER,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+            },
+        );
+    }
+
     #[test]
     fn cpp_non_method_template_payloads_are_not_counted() {
         check_metrics_with_nom_wmc::<CppParser>(

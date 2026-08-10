@@ -259,6 +259,13 @@ pub(crate) fn go_embedded_field_name<'a>(declaration: &Node<'a>) -> Option<Node<
 // `abstract_function_declarator` instead would also claim ordinary
 // function-pointer type positions (#1298).
 //
+// A `function_declarator`, by contrast, is *not* accepted outright:
+// the same node spells two opposite things, and only its `declarator`
+// field tells them apart. A name (`realMethod()`) or an
+// `operator_name` (`operator->()`) is a member function; a
+// `parenthesized_declarator` may be either, so it is handed to
+// `cpp_parenthesized_declares_function` (#1300).
+//
 // Neither `function_definition` nor `operator_cast` can be reached
 // from the `Npa` call sites, which only ever pass a
 // `field_declaration`: per both grammars' `node-types.json`, neither
@@ -269,7 +276,13 @@ pub(crate) fn go_embedded_field_name<'a>(declaration: &Node<'a>) -> Option<Node<
 // `Npm`'s `declaration` / `template_declaration` children.
 pub(crate) fn cpp_declares_function(node: &Node) -> bool {
     node.children().any(|child| match child.kind() {
-        "function_declarator" | "function_definition" | "operator_cast" => true,
+        "function_declarator" => match child.child_by_field_name("declarator") {
+            Some(inner) if inner.kind() == "parenthesized_declarator" => {
+                cpp_parenthesized_declares_function(&inner)
+            }
+            _ => true,
+        },
+        "function_definition" | "operator_cast" => true,
         // Recurse through declarator wrappers that can sit above the
         // function_declarator (`Foo* operator->()`,
         // `template<...> T fn();`, constructor / destructor
@@ -278,6 +291,35 @@ pub(crate) fn cpp_declares_function(node: &Node) -> bool {
             cpp_declares_function(&child)
         }
         _ => false,
+    })
+}
+
+// Given the `parenthesized_declarator` in a `function_declarator`'s
+// `declarator` field, says whether the enclosing declaration is still
+// a function. Parentheses alone do not make it a function *pointer* —
+// what does is an indirection interposed inside them:
+//
+// - `void (f)();` and `int (operator+)(int);` are ordinary member
+//   functions written with redundant parentheses. This is the
+//   macro-defence idiom (`int (max)(int, int);`), which suppresses
+//   expansion of a function-like macro of the same name.
+// - `int (*fp)(int);` interposes a `*`, so the parameter list belongs
+//   to the pointee and the member is data.
+// - `int (*getFp(int))(int);` interposes a `*` too, but wraps a
+//   further `function_declarator`, so it is a function *returning* a
+//   function pointer. Neither language lets a function return a
+//   function type, so that inner nesting is the only reading — the
+//   same grammar fact `crate::c_declarator` relies on.
+//
+// Hence: every child must still read as a function. An indirection
+// qualifies only when `cpp_declares_function` finds a function under
+// it; a bare name, an `operator_name`, or an `ms_call_modifier`
+// (`int (__cdecl *f)(int)`) never disqualifies on its own.
+fn cpp_parenthesized_declares_function(paren: &Node) -> bool {
+    paren.children().all(|child| match child.kind() {
+        "pointer_declarator" | "reference_declarator" => cpp_declares_function(&child),
+        "parenthesized_declarator" => cpp_parenthesized_declares_function(&child),
+        _ => true,
     })
 }
 
@@ -293,7 +335,19 @@ pub(crate) fn cpp_count_field_identifiers(node: &Node) -> usize {
     for child in node.children() {
         match child.kind() {
             "field_identifier" => count += 1,
-            "pointer_declarator"
+            // `function_declarator` / `parenthesized_declarator` are
+            // in the set for the function-pointer data member
+            // `int (*fp)(int);`, whose name is buried under both
+            // (#1300). A member function's name cannot arrive through
+            // them: reaching here means `cpp_declares_function`
+            // declined the declaration, and it declines a
+            // `function_declarator` only when an indirection inside
+            // the parentheses makes the name the pointee's, never the
+            // function's — `void (f)();` stays a function precisely so
+            // that `f` is never counted here.
+            "function_declarator"
+            | "parenthesized_declarator"
+            | "pointer_declarator"
             | "array_declarator"
             | "init_declarator"
             | "reference_declarator" => {
