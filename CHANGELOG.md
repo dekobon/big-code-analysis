@@ -120,6 +120,40 @@ for historical reference.
   trees for Ruby files with stabby lambdas lose the phantom entries,
   which also removes their zero contributions from `function_spaces`
   averages and per-file minimums (#1257).
+- Elixir sigil delimiter tokens (`/`, `(`, `{`, `[`, `<`, `>`, `|`)
+  counted as ordinary Halstead operators, so the delimiter choice
+  changed `n1`/`N1` and `~r/abc/` fabricated two division operators.
+  The delimiters are now suppressed when their parent is the sigil
+  node (which is already the operand); `~` remains the single
+  per-sigil operator, and standalone `/`, `<`, `|`, … in ordinary
+  expressions — including inside a sigil's interpolation — still
+  count (#1256).
+- Elixir's bare `_ ->` catch-all arm (`case` / `fn` / `receive`) and
+  `cond`'s idiomatic `true ->` final arm counted toward standard
+  cyclomatic complexity, while every sibling language excludes its
+  default arm (Rust `_ =>`, Python `case _:`, Kotlin `else ->`,
+  C-family `default:`, …). Both are now excluded; guarded wildcards
+  (`_ when …`), named discards (`_x ->`), and `true ->` under a
+  `case` still count (#1272).
+- A Tcl `try { … } on error { … }` construct contributed zero to
+  cyclomatic and cognitive complexity. Each `on` / `trap` handler now
+  counts +1 in both metrics (`finally` stays free), matching `catch`
+  and every exception-bearing sibling language, and the iRules `Try`
+  sibling counts the same way — its `on_handler` / `trap_handler`
+  nodes previously opened spurious anonymous function spaces,
+  inflating `nom`, instead of counting as decisions (#1266).
+- A Tcl `for` loop contributed zero to cyclomatic and cognitive
+  complexity because the grammar has no `for` rule — the loop parses
+  as a generic `command` node. It is now recognised by command name
+  at the same out-of-band slot as `switch` (#467) and counts like
+  `while` / `foreach`, nesting increments included (#1264).
+- Every variable a Tcl script assigned was absent from Halstead
+  operands: the parser emits the anonymous `id` kind in both of its
+  positions, and the getter excluded it wholesale on the false
+  premise that it only appears inside `$var` substitutions (whose
+  wrapper is already the operand). The exclusion is now scoped to
+  the substitution-leaf position, so `set` targets count in
+  `n2`/`N2`, matching the iRules parent guard (#1294).
 - The `enums` code generator minted collision-breaking names
   (`Foo` → `Foo2`) without registering them, so a minted suffix could
   silently duplicate a node kind whose own sanitized name is literally
