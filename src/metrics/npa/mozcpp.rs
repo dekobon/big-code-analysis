@@ -48,7 +48,12 @@ impl Npa for MozcppCode {
                     // Member functions surface as `field_declaration`
                     // when declared without a body. They are counted
                     // by `Npm`, not as attributes — detect them by
-                    // their `function_declarator` and skip.
+                    // their declarator subtree and skip. A
+                    // `function_declarator` alone does not settle it:
+                    // `int (*fp)(int);` is a function-pointer data
+                    // member (#1300), which is why the helper reads
+                    // the node's `declarator` field rather than its
+                    // kind alone.
                     if cpp_declares_function(&child) {
                         continue;
                     }
