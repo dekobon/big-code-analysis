@@ -44,15 +44,17 @@ fn elixir_is_anonymous_fn_head_clause<'a>(node: &Node<'a>, ancestors: Ancestors<
 /// kind is compared as a string because the grammar aliases several
 /// internal rules to `arguments` with distinct kind ids
 /// (`Arguments2`..`Arguments5`); grammar-dispatch §1 prefers the one
-/// string comparison over enumerating them. Named-children filtering
-/// skips the anonymous `(` `)` tokens a parenthesised clause head
-/// carries. Clauses with zero (`fn -> … end`) or several patterns
-/// return `None`.
+/// string comparison over enumerating them. A zero-arity clause carries
+/// no `left` field at all (`fn -> … end`), which the same `filter` folds
+/// into "no plain pattern list" — the two spellings of "nothing to
+/// inspect" are one question, so they share one exit. Named-children
+/// filtering skips the anonymous `(` `)` tokens a parenthesised clause
+/// head carries, so an empty pair (`fn () -> … end`) also yields zero
+/// patterns. Clauses with zero or several patterns return `None`.
 fn elixir_sole_unguarded_pattern<'a>(node: &Node<'a>) -> Option<Node<'a>> {
-    let left = node.child_by_field_name("left")?;
-    if left.kind() != "arguments" {
-        return None;
-    }
+    let left = node
+        .child_by_field_name("left")
+        .filter(|left| left.kind() == "arguments")?;
     let mut patterns = left.children().filter(Node::is_named);
     let sole = patterns.next()?;
     patterns.next().is_none().then_some(sole)
@@ -119,10 +121,9 @@ fn elixir_is_default_clause<'a>(
                 return false;
             }
             let mut chain = ancestors.iter(node);
-            let Some((parent, _)) = chain.next() else {
-                return false;
-            };
-            parent.kind_id() == E::DoBlock as u16
+            chain
+                .next()
+                .is_some_and(|(parent, _)| parent.kind_id() == E::DoBlock as u16)
                 && chain.next().is_some_and(|(grandparent, _)| {
                     crate::metrics::cognitive::elixir_call_keyword(&grandparent, code)
                         == Some("cond")
