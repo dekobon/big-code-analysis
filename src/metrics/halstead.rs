@@ -3225,6 +3225,119 @@ f() {
     }
 
     #[test]
+    fn elixir_sigil_delimiters_are_not_operators() {
+        // Regression: issue #1256. Sigil delimiter tokens share their
+        // kind ids with real operators (`SLASH`, `LPAREN`, `LBRACE`,
+        // …) and were classified unconditionally, so `~r/abc/`
+        // fabricated two division operators and the author's delimiter
+        // choice moved n1/N1. The parent guard suppresses them under
+        // `Sigil`; `~` stays the single per-sigil operator.
+        //
+        // expected: operators `=` × 3 and `~` × 3 → n1 = 2, N1 = 6.
+        // Without the guard the delimiters added `/` × 2, `(`, `{` →
+        // n1 = 5, N1 = 10. Operands: `a`, `~r/abc/i`, `r`, `i` (sigil
+        // modifiers), `b`, `~w(one two)`, `w`, `c`, `~s{hi}`, `s` →
+        // n2 = N2 = 10.
+        check_metrics::<ElixirParser>(
+            "a = ~r/abc/i\nb = ~w(one two)\nc = ~s{hi}\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operators(), 2);
+                assert_eq!(metric.halstead.total_operators(), 6);
+                assert_eq!(metric.halstead.unique_operands(), 10);
+                assert_eq!(metric.halstead.total_operands(), 10);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_sigil_delimiter_choice_is_invariant() {
+        // Companion to the test above (#1256): two sigils differing
+        // only in delimiter are the same literal, so every delimiter
+        // choice must produce identical Halstead counts. `(` `[` `{`
+        // `<` `/` `|` are the operator-kind delimiters the guard
+        // covers; `"` and `'` never had an operator arm and pin the
+        // already-correct path.
+        //
+        // expected per variant: operators `=`, `~` → n1 = 2, N1 = 2;
+        // operands `x`, the sigil literal text, `w` (sigil name) →
+        // n2 = 3, N2 = 3.
+        for (open, close) in [
+            ("(", ")"),
+            ("[", "]"),
+            ("{", "}"),
+            ("<", ">"),
+            ("/", "/"),
+            ("|", "|"),
+            ("\"", "\""),
+            ("'", "'"),
+        ] {
+            let source = format!("x = ~w{open}one two{close}\n");
+            // `check_metrics` takes a plain `fn` and cannot capture the
+            // delimiter for the failure message; use the closure-taking
+            // `FuncSpace` helper it wraps.
+            crate::test_support::check_func_space_only::<ElixirParser, _>(
+                &source,
+                "foo.ex",
+                &[crate::Metric::Halstead],
+                |space| {
+                    let counts = [
+                        space.metrics.halstead.unique_operators(),
+                        space.metrics.halstead.total_operators(),
+                        space.metrics.halstead.unique_operands(),
+                        space.metrics.halstead.total_operands(),
+                    ];
+                    assert_eq!(counts, [2, 2, 3, 3], "delimiter pair {open} {close}");
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn elixir_standalone_operators_survive_the_sigil_guard() {
+        // Control for #1256: the guard is parent-scoped, so the same
+        // token kinds outside a sigil still count. Covers every guarded
+        // kind standalone: `/` (division), `<` / `>` (comparison), `[`
+        // and `|` (list cons), `(` (call), `{` (map literal, with its
+        // `%`).
+        //
+        // expected: operators `=` × 6, `/`, `<`, `>`, `[`, `|`, `(`,
+        // `%`, `{` → n1 = 9, N1 = 14. Operands: `x`, `a`, `b`, `y`,
+        // `c`, `d`, `z`, `e`, `f`, `q`, `h`, `t`, `p`, `g`, `1`, `m`,
+        // the `k:` keyword, `2` → n2 = N2 = 18.
+        check_metrics::<ElixirParser>(
+            "x = a / b\ny = c < d\nz = e > f\nq = [h | t]\np = g(1)\nm = %{k: 2}\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operators(), 9);
+                assert_eq!(metric.halstead.total_operators(), 14);
+                assert_eq!(metric.halstead.unique_operands(), 18);
+                assert_eq!(metric.halstead.total_operands(), 18);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_interpolated_sigil_keeps_inner_nodes_counting() {
+        // Interpolation inside a sigil after #1256: the `{` delimiter
+        // is suppressed (its parent is the `Sigil`), while the
+        // `interpolation` child is a separate node whose `#{` marker
+        // and inner identifier must still count — the guard must not
+        // reach past the delimiter tokens.
+        //
+        // expected: operators `=`, `~`, `#{` → n1 = N1 = 3. Operands:
+        // `v`, `s` (sigil name), `b` (interpolated identifier); the
+        // wrapping sigil is skipped (`Interpolation` child, #180) and
+        // `quoted_content` is unclassified → n2 = N2 = 3.
+        check_metrics::<ElixirParser>("v = ~s{a#{b} c}\n", "foo.ex", |metric| {
+            assert_eq!(metric.halstead.unique_operators(), 3);
+            assert_eq!(metric.halstead.total_operators(), 3);
+            assert_eq!(metric.halstead.unique_operands(), 3);
+            assert_eq!(metric.halstead.total_operands(), 3);
+        });
+    }
+
+    #[test]
     fn bash_all_expansion_kinds_skip_wrapper() {
         // Exercises every node kind tested by
         // `bash_string_has_expansion`: `simple_expansion` (`$v`),
