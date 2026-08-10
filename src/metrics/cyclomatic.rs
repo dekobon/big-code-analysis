@@ -5281,18 +5281,70 @@ f() {
 
     // `case`/`cond`/`with` arms surface as `stab_clause` nodes and
     // contribute to standard CCN, mirroring the C-family `case:` arm
-    // treatment. The container Call (`case`) contributes once to
+    // treatment — including its `default:` exclusion: the bare `_ ->`
+    // catch-all is the construct's default arm and adds no decision
+    // (issue #1272). The container Call (`case`) contributes once to
     // modified CCN, collapsing arms back to a single decision point.
     // Three func spaces (Unit + defmodule Class + def Function) each
-    // seed one entry: standard = 3 entries + 3 stabs = 6; modified =
-    // 3 entries + 1 case Call = 4.
+    // seed one entry: standard = 3 entries + 2 counted stabs = 5;
+    // modified = 3 entries + 1 case Call = 4.
     #[test]
     fn elixir_case_arms() {
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def classify(x) do\n    case x do\n      1 -> :one\n      2 -> :two\n      _ -> :other\n    end\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
+            },
+        );
+    }
+
+    // A guarded wildcard (`_ when g ->`) is a real decision — the
+    // guard can fail, so control can fall through — and must keep
+    // counting, matching Rust's `_ if guard` rule (issue #1272).
+    // standard = 3 entries + `1 ->` + `_ when x > 5 ->` = 5 (only the
+    // final bare `_ ->` is excluded); modified = 3 entries + case = 4.
+    #[test]
+    fn elixir_case_guarded_wildcard_counts() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def classify(x) do\n    case x do\n      1 -> :one\n      _ when x > 5 -> :big\n      _ -> :other\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
+            },
+        );
+    }
+
+    // A named discard (`_x ->`) binds a value the body can read; only
+    // the bare `_` is the default arm, matching Rust's bare-`_`-only
+    // MatchArm rule (issue #1272). standard = 3 entries + `1 ->` +
+    // `_x ->` = 5; modified = 3 entries + case Call = 4.
+    #[test]
+    fn elixir_case_named_discard_counts() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def classify(x) do\n    case x do\n      1 -> :one\n      _x -> :named\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
+            },
+        );
+    }
+
+    // `true ->` under `case` is an ordinary boolean pattern, not a
+    // designated default — the cond-only exclusion must not leak here
+    // (issue #1272, grammar-dispatch §8: anchor the exclusion to the
+    // owning construct). standard = 3 entries + `true ->` +
+    // `false ->` = 5; modified = 3 entries + case Call = 4.
+    #[test]
+    fn elixir_case_true_pattern_counts() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x) do\n    case x do\n      true -> :t\n      false -> :f\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
                 assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
             },
         );
@@ -5402,14 +5454,51 @@ f() {
     // alongside the Unit / defmodule Class / def Function entries.
     // The FIRST `stab_clause` is the closure's head/definition and does
     // NOT count (issue #776); only the 2nd+ clauses are pattern-dispatch
-    // branches. The anon-fn itself is not a `Call`, so it adds no
-    // modified-CCN container decision. Standard = 4 entries (Unit,
-    // defmodule, def, anon-fn) + 1 branch (2nd clause) = 5; modified =
-    // 4 entries = 4.
+    // branches. The head-clause skip and the bare-`_` default-arm
+    // exclusion (issue #1272) compose: the 2nd clause here IS the
+    // dispatch's catch-all, so it is excluded for the wildcard reason
+    // while the head is excluded for the head reason. The anon-fn
+    // itself is not a `Call`, so it adds no modified-CCN container
+    // decision. Standard = 4 entries (Unit, defmodule, def, anon-fn)
+    // + 0 counted branches = 4; modified = 4 entries = 4.
     #[test]
     fn elixir_anonymous_fn_arms_count() {
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def f do\n    multi = fn 0 -> :zero; _ -> :other end\n    multi.(0)\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
+            },
+        );
+    }
+
+    // Three-clause anonymous fn ending in a catch-all: the head clause
+    // is skipped (#776), the middle `1 ->` clause is a real dispatch
+    // branch and counts, and the final bare `_ ->` is the dispatch's
+    // default arm and does not (issue #1272). Standard = 4 entries
+    // (Unit, defmodule, def, anon-fn) + 1 branch = 5; modified = 4.
+    #[test]
+    fn elixir_multi_clause_fn_catchall_composition() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f do\n    multi = fn 0 -> :zero; 1 -> :one; _ -> :other end\n    multi.(0)\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
+            },
+        );
+    }
+
+    // A non-head `true ->` clause of an anonymous fn is an ordinary
+    // dispatch branch — its parent is the `anonymous_function`, not a
+    // `cond`'s `do_block`, so the cond-default exclusion must not fire
+    // (issue #1272). Standard = 4 entries (Unit, defmodule, def,
+    // anon-fn) + 1 branch (the `true ->` clause) = 5; modified = 4.
+    #[test]
+    fn elixir_fn_true_clause_counts() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f do\n    flag = fn false -> :f; true -> :t end\n    flag.(true)\n  end\nend\n",
             "foo.ex",
             |metric| {
                 assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
@@ -5439,18 +5528,56 @@ f() {
     }
 
     // `cond do ... end` is the standard Elixir multi-way conditional.
-    // Each clause is a `stab_clause` (standard CCN), and the `cond`
-    // Call is a multi-arm container (modified CCN, once).
+    // Each clause is a `stab_clause` (standard CCN), except the
+    // idiomatic `true ->` final arm — the construct's designated
+    // default, the analogue of `if`/`elif`/`else`'s free `else`
+    // (issue #1272). The `cond` Call is a multi-arm container
+    // (modified CCN, once).
     #[test]
     fn elixir_cond_arms() {
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def f(x) do\n    cond do\n      x < 0 -> :neg\n      x == 0 -> :zero\n      true -> :pos\n    end\n  end\nend\n",
             "foo.ex",
             |metric| {
-                // standard: 3 entries + 3 stabs = 6
+                // standard: 3 entries + 2 counted stabs (`true ->` free) = 5
                 // modified: 3 entries + 1 cond Call = 4
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
                 assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
+            },
+        );
+    }
+
+    // A `cond` with no `true ->` default counts every arm — the
+    // exclusion targets only the designated-default clause, not the
+    // container's last arm (issue #1272). standard = 3 entries +
+    // 2 stabs = 5; modified = 3 entries + 1 cond Call = 4.
+    #[test]
+    fn elixir_cond_without_default_counts_all_arms() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x) do\n    cond do\n      x > 10 -> :big\n      x > 5 -> :mid\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
+            },
+        );
+    }
+
+    // Nesting keeps each exclusion anchored to its own construct
+    // (issue #1272, grammar-dispatch §8): the outer `cond`'s `true ->`
+    // is free (cond default), the inner `case`'s `true ->` counts
+    // (ordinary pattern — its container is the case, not the cond),
+    // and the inner bare `_ ->` is free (case default).
+    // standard: 3 entries + outer `x > 1 ->` + inner `true ->` = 5;
+    // modified: 3 entries + cond Call + case Call = 5.
+    #[test]
+    fn elixir_nested_case_inside_cond_keeps_exclusions_scoped() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x, y) do\n    cond do\n      x > 1 ->\n        case y do\n          true -> :t\n          _ -> :o\n        end\n      true -> :d\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 5);
             },
         );
     }

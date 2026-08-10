@@ -34,6 +34,82 @@ fn elixir_is_anonymous_fn_head_clause<'a>(node: &Node<'a>, ancestors: Ancestors<
         .is_some_and(|first| first.id() == node.id())
 }
 
+/// Returns the sole pattern of a `stab_clause` whose left-hand side
+/// carries no `when` guard, or `None` otherwise.
+///
+/// The grammar's `left` field is an `arguments` node for a plain
+/// pattern list, but a guarded clause (`_ when g ->`) re-shapes it
+/// into a `binary_operator` wrapping the patterns and the guard — so
+/// checking the field's kind answers "is there a guard" for free. The
+/// kind is compared as a string because the grammar aliases several
+/// internal rules to `arguments` with distinct kind ids
+/// (`Arguments2`..`Arguments5`); grammar-dispatch §1 prefers the one
+/// string comparison over enumerating them. Named-children filtering
+/// skips the anonymous `(` `)` tokens a parenthesised clause head
+/// carries. Clauses with zero (`fn -> … end`) or several patterns
+/// return `None`.
+fn elixir_sole_unguarded_pattern<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+    let left = node.child_by_field_name("left")?;
+    if left.kind() != "arguments" {
+        return None;
+    }
+    let mut patterns = left.children().filter(Node::is_named);
+    let sole = patterns.next()?;
+    patterns.next().is_none().then_some(sole)
+}
+
+/// Returns `true` when `node` is a bare catch-all `stab_clause`: a
+/// single `_` pattern with no `when` guard (`_ -> …`).
+///
+/// Elixir has no dedicated wildcard token — `_` parses as an ordinary
+/// `identifier` — so the bytes decide (grammar-dispatch §10). A named
+/// discard (`_x ->`) binds a value the body can read and keeps
+/// counting, matching Rust's bare-`_`-only `MatchArm` rule; guarded
+/// wildcards never reach the text check because
+/// [`elixir_sole_unguarded_pattern`] rejects them.
+fn elixir_is_bare_catchall_clause<'a>(node: &Node<'a>, code: &'a [u8]) -> bool {
+    use Elixir as E;
+
+    elixir_sole_unguarded_pattern(node).is_some_and(|pattern| {
+        pattern.kind_id() == E::Identifier as u16 && pattern.utf8_text(code) == Some("_")
+    })
+}
+
+/// Returns `true` when `node` is the idiomatic `true -> …` default
+/// clause of a `cond` container.
+///
+/// `cond`'s final `true ->` arm is the construct's designated default
+/// — the direct analogue of `if`/`elif`/`else`'s free `else` — but
+/// the same clause under `case` is an ordinary boolean pattern match,
+/// so the exclusion is anchored to the owning construct
+/// (grammar-dispatch §8): the clause's parent must be the `do_block`
+/// of a `Call` whose target spells `cond`. A guarded `true when g ->`
+/// is a real decision and never reaches the container check.
+fn elixir_is_cond_default_clause<'a>(
+    node: &Node<'a>,
+    code: &'a [u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    use Elixir as E;
+
+    let is_literal_true = elixir_sole_unguarded_pattern(node).is_some_and(|pattern| {
+        pattern.kind_id() == E::Boolean as u16 && pattern.utf8_text(code) == Some("true")
+    });
+    if !is_literal_true {
+        return false;
+    }
+    let mut chain = ancestors.iter(node);
+    let Some((parent, _)) = chain.next() else {
+        return false;
+    };
+    if parent.kind_id() != E::DoBlock as u16 {
+        return false;
+    }
+    chain.next().is_some_and(|(grandparent, _)| {
+        crate::metrics::cognitive::elixir_call_keyword(&grandparent, code) == Some("cond")
+    })
+}
+
 impl Cyclomatic for ElixirCode {
     // Elixir's control-flow constructs are not distinct grammar
     // productions: `if`/`unless`/`for`/`while`/`with`/`case`/`cond`/`try`
@@ -73,7 +149,27 @@ impl Cyclomatic for ElixirCode {
             // `fn` are real branches. `case`/`cond`/`with` arms have a
             // `do_block` parent — not `anonymous_function` — so they are
             // unaffected and keep counting.
-            E::StabClause if elixir_is_anonymous_fn_head_clause(node, ancestors) => {}
+            //
+            // Two further clause shapes are the construct's default arm
+            // and are excluded to match the sibling family — Rust's
+            // `_ =>`, Python's `case _:`, Ruby's `in _`, Kotlin's
+            // `else ->`, C#'s `_ =>`, Bash's `*)`, C-family `default:`
+            // (issue #1272, lesson 11): a bare `_ ->` catch-all
+            // (any container — `case`, `receive`, and a multi-clause
+            // `fn`'s dispatch all use it as their default; a `rescue`
+            // arm's `_ ->` is likewise free, a deliberate divergence
+            // from C-family `catch (...)` — the bare-`_` rescue form
+            // is vanishingly rare and the `try` container still pays
+            // modified), and `cond`'s
+            // idiomatic `true ->` final arm (only under a `cond`
+            // container; `true ->` under `case` is an ordinary pattern
+            // and keeps counting). Guarded forms (`_ when g ->`,
+            // `true when g ->`) and named discards (`_x ->`) are real
+            // decisions and still count.
+            E::StabClause
+                if elixir_is_anonymous_fn_head_clause(node, ancestors)
+                    || elixir_is_bare_catchall_clause(node, code)
+                    || elixir_is_cond_default_clause(node, code, ancestors) => {}
             E::StabClause => {
                 stats.cyclomatic += 1.;
             }
