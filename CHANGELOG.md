@@ -127,14 +127,20 @@ for historical reference.
   node (which is already the operand); `~` remains the single
   per-sigil operator, and standalone `/`, `<`, `|`, … in ordinary
   expressions — including inside a sigil's interpolation — still
-  count (#1256).
-- Elixir's bare `_ ->` catch-all arm (`case` / `fn` / `receive`) and
-  `cond`'s idiomatic `true ->` final arm counted toward standard
-  cyclomatic complexity, while every sibling language excludes its
-  default arm (Rust `_ =>`, Python `case _:`, Kotlin `else ->`,
-  C-family `default:`, …). Both are now excluded; guarded wildcards
-  (`_ when …`), named discards (`_x ->`), and `true ->` under a
-  `case` still count (#1272).
+  count. The ABC condition count had the same delimiter sensitivity
+  through `<` / `>` (`x = ~s<hi>` scored 2 conditions, `x = ~s(hi)`
+  zero) and now applies the same parent-is-sigil guard (#1256).
+- Elixir's bare `_ ->` catch-all arm (`case` / `receive` / `rescue`)
+  and any unguarded `true ->` directly under a `cond` (shape-based,
+  whatever the arm's position — matching Rust's position-blind
+  bare-`_` rule) counted toward standard cyclomatic complexity, while
+  every sibling language excludes its default arm (Rust `_ =>`,
+  Python `case _:`, Kotlin `else ->`, C-family `default:`, …). Both
+  are now excluded; guarded wildcards (`_ when …`), named discards
+  (`_x ->`), `true ->` under a `case`, and a multi-clause `fn`'s
+  trailing `_ ->` (its free base path is the #776 head-clause skip,
+  so its 2nd+ clauses all count, in parity with the identical `case`)
+  still count (#1272).
 - A Tcl `try { … } on error { … }` construct contributed zero to
   cyclomatic and cognitive complexity. Each `on` / `trap` handler now
   counts +1 in both metrics (`finally` stays free), matching `catch`

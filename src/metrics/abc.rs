@@ -6930,6 +6930,39 @@ function f(int $a, int $b): int {
         );
     }
 
+    // Sigil delimiter choice must not move ABC: `~s<hi>` and `~s(hi)`
+    // are the same value spelled differently, but the `<` / `>`
+    // delimiter tokens carry the comparison kind ids, so the unguarded
+    // condition arm scored `~s<hi>` as 2 conditions and `~s(hi)` as 0.
+    // The parent-is-`Sigil` guard (mirroring the Halstead getter's,
+    // #1256) suppresses the delimiter case. expected, for each
+    // spelling: A = 1 (the `x =` pattern match), B = 0 (a bare sigil
+    // is not a `Call` node — verified by AST dump: `binary_operator`
+    // wrapping `identifier`, `=`, `sigil`), C = 0 (no comparison, no
+    // guard, no keyword Call).
+    #[test]
+    fn elixir_sigil_delimiter_choice_is_abc_invariant() {
+        for src in ["x = ~s<hi>\n", "x = ~s(hi)\n"] {
+            check_metrics::<ElixirParser>(src, "foo.ex", |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 1);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
+            });
+        }
+    }
+
+    // Control for the guard above: `<` *outside* a sigil is a genuine
+    // comparison and must keep counting even with a `<`-delimited
+    // sigil in the same unit. expected: A = 2 (`x =`, `y =`), C = 1
+    // (only `a < b`; the sigil's `<` / `>` delimiters are guarded).
+    #[test]
+    fn elixir_lt_comparison_still_counts_beside_sigil() {
+        check_metrics::<ElixirParser>("x = ~s<hi>\ny = a < b\n", "foo.ex", |metric| {
+            assert_eq!(metric.abc.assignments_sum(), 2);
+            assert_eq!(metric.abc.conditions_sum(), 1);
+        });
+    }
+
     // ----- C++ -----
 
     #[test]
