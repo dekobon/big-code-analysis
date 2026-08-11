@@ -2834,36 +2834,43 @@ mod tests {
         // with no division in the source.
         //
         // expected: operators `$` (the `scalar_variable` sigil), `=~`
-        // and `;` → n1 = N1 = 3. Operand `$s` → n2 = N2 = 1; the
-        // `PatternMatcher` wrapper is not classified (see
-        // `perl_every_pattern_spelling_scores_alike`). Before the guard
-        // the two delimiters added `/` → n1 = 4, N1 = 5.
+        // and `;` → n1 = N1 = 3. Operands `$s` and the `/abc/` pattern
+        // → n2 = N2 = 2. Before the guard the two delimiters added `/`
+        // → n1 = 4, N1 = 5; the pattern operand arrived with #1314,
+        // which promoted all three pattern spellings together (see
+        // `perl_every_pattern_value_spelling_scores_alike`).
         check_metrics::<PerlParser>("$s =~ /abc/;\n", "foo.pl", |metric| {
             assert_eq!(metric.halstead.unique_operators(), 3);
             assert_eq!(metric.halstead.total_operators(), 3);
-            assert_eq!(metric.halstead.unique_operands(), 1);
-            assert_eq!(metric.halstead.total_operands(), 1);
+            assert_eq!(metric.halstead.unique_operands(), 2);
+            assert_eq!(metric.halstead.total_operands(), 2);
         });
     }
 
     #[test]
-    fn perl_every_pattern_spelling_scores_alike() {
-        // Companion to the test above (#1312). `m/abc/` is exactly
-        // `/abc/` in Perl, and the delimiter pair is free, so all of
-        // these must score identically. The suffixed forms already did
-        // before the fix: `bca dump` shows `m//`, `qr//`, `s///`,
-        // `tr///` and `y///` using the dedicated `StartDelimiter` /
-        // `SeparatorDelimiter` / `EndDelimiter` kinds, which no arm in
-        // `PerlCode::get_op_type` classifies — so they are here as
-        // no-change guards, and the bare row is the one the guard
-        // moved onto the same footing.
+    fn perl_every_pattern_value_spelling_scores_alike() {
+        // Companion to the test above (#1312, extended by #1314).
+        // `m/abc/` is exactly `/abc/` in Perl and `qr/abc/` is the same
+        // pattern as a value, so the three spellings of a pattern
+        // *value* must score identically whatever delimiters they use.
         //
-        // That shared footing is also why this fix deliberately does
-        // *not* take up the issue's suggestion to classify
-        // `PatternMatcher` as an operand for parity with Ruby's `Regex`
-        // and Elixir's `Sigil`: doing it for the bare form alone would
-        // score `/abc/` at one operand and its four synonyms at zero,
+        // Until #1314 they scored alike at *zero*: no Perl pattern
+        // wrapper was in the operand arm, so the literal never counted,
+        // unlike Ruby's `Regex` and Elixir's `Sigil`. #1312 declined to
+        // promote the bare form on its own precisely because that would
+        // have scored `/abc/` at one operand and its synonyms at zero,
         // reintroducing the spelling sensitivity this test pins.
+        // Promoting all three together closes the gap and keeps the
+        // equality, which is what this test now asserts.
+        //
+        // `s///` and `tr///` are deliberately *not* rows here any more.
+        // They are operations applied to a target rather than pattern
+        // values, so #1314 made them operators; their own equality is
+        // pinned by `perl_every_pattern_operation_spelling_scores_alike`
+        // below. Splitting the one loop in two is the substantive
+        // disagreement #1314 had with the reasoning recorded here: this
+        // test governs *synonyms*, and `s///` is not a synonym of
+        // `/abc/`.
         //
         // The fixture matches twice against one variable so that no two
         // of `[n1, N1, n2, N2]` are equal. A square tuple would leave
@@ -2873,17 +2880,83 @@ mod tests {
         //
         // expected per variant: operators `$` × 2 (one per
         // `scalar_variable`), `=~` × 2, `and`, `;` → n1 = 4, N1 = 6.
-        // The pattern contributes no operator (that is the point) and
-        // no operand (see the note above); operand `$s` twice → n2 = 1,
-        // N2 = 2.
-        for pattern in [
-            "/abc/", "m/abc/", "m{abc}", "qr/abc/", "s/a/b/", "s{a}{b}", "tr/a/b/", "y/a/b/",
-        ] {
+        // The pattern contributes no *operator* — that is #1312's half
+        // — and one operand, so with `$s` twice and the pattern twice
+        // → n2 = 2, N2 = 4.
+        for pattern in ["/abc/", "m/abc/", "m{abc}", "qr/abc/"] {
             assert_halstead_counts::<PerlParser>(
                 &format!("$s =~ {pattern} and $s =~ {pattern};\n"),
                 "foo.pl",
-                [4, 6, 1, 2],
+                [4, 6, 2, 4],
                 &format!("pattern {pattern}"),
+            );
+        }
+    }
+
+    #[test]
+    fn perl_every_pattern_operation_spelling_scores_alike() {
+        // The other half of the split (#1314). Substitution and
+        // transliteration are operations applied to a target, so they
+        // are operators — and like the value spellings, their delimiter
+        // choice must not move the count. `y///` is a synonym of
+        // `tr///` and shares `TransliterationTrOrY`, so the two fold to
+        // one operator entry, which is why all four rows agree on n1.
+        //
+        // expected per variant: operators `$` × 2, `=~` × 2, `and`,
+        // `;`, and the operation itself × 2 → n1 = 5, N1 = 8. The
+        // pattern and replacement text is invisible to this grammar —
+        // `substitution_pattern_s` emits only its keyword and
+        // delimiters, no content node — so the sole operand is `$s`,
+        // twice → n2 = 1, N2 = 2.
+        for pattern in ["s/a/b/", "s{a}{b}", "tr/a/b/", "y/a/b/"] {
+            assert_halstead_counts::<PerlParser>(
+                &format!("$s =~ {pattern} and $s =~ {pattern};\n"),
+                "foo.pl",
+                [5, 8, 1, 2],
+                &format!("pattern {pattern}"),
+            );
+        }
+    }
+
+    #[test]
+    fn perl_interpolated_pattern_operands_agree_but_operators_do_not() {
+        // Two things at once (#1314), because they are the same
+        // measurement: why the three pattern-value spellings route
+        // through `string_operand_type` rather than a plain operand
+        // arm, and what that routing does *not* fix.
+        //
+        // `m/$x/` and `qr/$x/` emit a real `Interpolation` wrapping a
+        // `scalar_variable`, while the bare form keeps its `$x` inside
+        // an unclassified `regex_pattern_content`. So:
+        //
+        // * Operands agree at n2 = N2 = 2 (`$s` plus one contribution
+        //   from the pattern) only because of the interpolation guard.
+        //   A plain operand arm would count the wrapper *and* the inner
+        //   `$x` for the suffixed forms — n2 = 3 — reintroducing
+        //   through the back door the divergence
+        //   `perl_every_pattern_value_spelling_scores_alike` exists to
+        //   prevent. Which node carries the one operand still differs
+        //   by spelling: the wrapper for the bare form, the inner `$x`
+        //   for the other two.
+        // * Operators do *not* agree: the exposed `scalar_variable`
+        //   brings a `$` sigil, an operator here, that the bare form
+        //   has no node for. N1 is 3 for `/$x/` and 4 for the other
+        //   two.
+        //
+        // The operator asymmetry is a grammar gap this classifier
+        // cannot repair — there is nothing to classify in the bare
+        // form — so it is pinned rather than papered over, the same
+        // treatment `perl_division_emits_no_slash_token` gives the
+        // missing division token. A bump that starts exposing the bare
+        // form's interpolation turns this red, at which point the
+        // expectations above need re-deriving.
+        assert_halstead_counts::<PerlParser>("$s =~ /$x/;\n", "foo.pl", [3, 3, 2, 2], "bare /$x/");
+        for pattern in ["m/$x/", "qr/$x/"] {
+            assert_halstead_counts::<PerlParser>(
+                &format!("$s =~ {pattern};\n"),
+                "foo.pl",
+                [3, 4, 2, 2],
+                &format!("suffixed {pattern}"),
             );
         }
     }

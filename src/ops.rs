@@ -456,6 +456,34 @@ mod tests {
     }
 
     #[test]
+    fn perl_pattern_operations_render_as_source_spellings() {
+        // #1314 classifies `s///` and `tr///` as Halstead operators.
+        // They are *named* nodes rather than punctuation tokens, so the
+        // `get_operator!` macro's fallback would render each kind's own
+        // name — `substitution_pattern_s`, `transliteration_tr_or_y` —
+        // into `bca ops`, which reads as a bug rather than as Perl.
+        // `PerlCode::get_operator_id_as_str` is hand-written to map
+        // them, and this is what pins that mapping: the counts alone
+        // cannot see it.
+        //
+        // `y///` is a synonym of `tr///` and shares one kind, so the
+        // two source spellings collapse to a single `tr///` entry —
+        // asserted here by the *absence* of a `y///` row in an
+        // exhaustive expectation, not by a negative assertion.
+        //
+        // The trailing `/pat/` keeps a pattern *value* in the fixture,
+        // so the test also shows the split: the operation spellings are
+        // operators while the value is an operand.
+        check_ops(
+            LANG::Perl,
+            "$s =~ s/a/b/;\n$s =~ tr/c/d/;\n$s =~ y/e/f/;\n$t = /pat/;",
+            "foo.pl",
+            &mut ["$", ";", "=", "=~", "s///", "tr///"],
+            &mut ["$s", "$t", "/pat/"],
+        );
+    }
+
+    #[test]
     fn python_function_ops() {
         check_ops(
             LANG::Python,
