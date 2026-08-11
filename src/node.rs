@@ -579,6 +579,24 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         }
     }
 
+    /// Whether `node`'s parent has kind id `kind`.
+    ///
+    /// The compound-leaf guard of `.claude/rules/grammar-dispatch.md`
+    /// section 5 asks this and nothing else: a delimiter or keyword
+    /// token is suppressed *only* directly under the construct that
+    /// owns it, never under an arbitrary ancestor. Seventeen dispatch
+    /// arms across `getter`, `checker` and the metric walkers spelled
+    /// it out as `.parent(node).is_some_and(|p| p.kind_id() == X as
+    /// u16)`, which wraps onto four rustfmt lines inside a match guard
+    /// and buries the question under the plumbing.
+    ///
+    /// A `false` when `node` has no parent is the answer every one of
+    /// those call sites wants: a root node's token is not inside the
+    /// construct, so it is not suppressed.
+    pub(crate) fn parent_has_kind(self, node: &Node<'tree>, kind: u16) -> bool {
+        self.parent(node).is_some_and(|p| p.kind_id() == kind)
+    }
+
     /// The sibling immediately before `node`, or `None` when `node` is
     /// its parent's first child or has no parent.
     ///

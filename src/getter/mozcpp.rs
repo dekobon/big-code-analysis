@@ -76,11 +76,18 @@ impl Getter for MozcppCode {
 
         // `LPAREN2` is a defensive arm (collapsed to `LPAREN` before
         // `kind_id()`; #768, see the Cpp note).
-        //
-        // FIXME(#1314): a raw string's `R"(` delimiter is an `LPAREN`
-        // child of `RawStringLiteral` and fabricates a call; see the
-        // Cpp sibling, which carries the same gap.
         match node.kind_id().into() {
+            // Raw-string delimiter punctuation — the twin of the Cpp
+            // arm, which carries the derivation (#1314). `.mozcpp` owns
+            // no file extension, so nothing routes to it and it gets no
+            // integration-snapshot coverage; the parity assertion in
+            // `tests/parity/cpp_mozcpp_parity.rs` is what keeps this
+            // clone from drifting.
+            LPAREN
+                if ancestors.parent_has_kind(node, RawStringLiteral as u16) =>
+            {
+                HalsteadType::Unknown
+            }
             DOT | DOTSTAR | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return
             | Break | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do
             | Delete | New | Try | Try2 | Catch | Throw | EQ | AMPAMP | PIPEPIPE | DASH

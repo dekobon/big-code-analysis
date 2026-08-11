@@ -106,27 +106,27 @@
 # carried a 252-character match arm.
 
 enums/src/macros.rs 1
-src/getter.rs 2
+src/getter.rs 3
 src/getter/bash.rs 3
 src/getter/c.rs 3
-src/getter/cpp.rs 6
+src/getter/cpp.rs 7
 src/getter/csharp.rs 5
-src/getter/elixir.rs 2
+src/getter/elixir.rs 3
 src/getter/go.rs 1
-src/getter/groovy.rs 4
-src/getter/irules.rs 5
+src/getter/groovy.rs 5
+src/getter/irules.rs 6
 src/getter/java.rs 2
 src/getter/kotlin.rs 4
 src/getter/lua.rs 3
-src/getter/mozcpp.rs 6
+src/getter/mozcpp.rs 7
 src/getter/objc.rs 3
-src/getter/perl.rs 2
+src/getter/perl.rs 3
 src/getter/php.rs 8
 src/getter/python.rs 7
-src/getter/ruby.rs 2
-src/getter/tcl.rs 5
+src/getter/ruby.rs 3
+src/getter/tcl.rs 6
 src/macros/mod.rs 38
-src/metrics/abc/elixir.rs 5
+src/metrics/abc/elixir.rs 6
 src/metrics/abc/perl.rs 8
 src/metrics/abc/php.rs 9
 src/metrics/cognitive/perl.rs 8

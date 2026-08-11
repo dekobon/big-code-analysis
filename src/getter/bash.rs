@@ -111,9 +111,7 @@ impl Getter for BashCode {
             // `variable_substitution`.
             Bash::VariableName | Bash::VariableName2 | Bash::VariableName3
             | Bash::SpecialVariableName | Bash::SpecialVariableName2 => {
-                if ancestors
-                    .parent(node)
-                    .is_some_and(|p| p.kind_id() == Bash::SimpleExpansion as u16)
+                if ancestors.parent_has_kind(node, Bash::SimpleExpansion as u16)
                 {
                     HalsteadType::Unknown
                 } else {

@@ -807,25 +807,25 @@ value = 5.0
 path = "src/getter/bash.rs"
 qualified = "BashCode::get_op_type"
 metric = "halstead.effort"
-value = 64170.027458982564
+value = 59128.4908004283
 
 [[entry]]
 path = "src/getter/elixir.rs"
 qualified = "ElixirCode::get_op_type"
 metric = "halstead.effort"
-value = 74457.74988084711
+value = 69065.79907514916
 
 [[entry]]
 path = "src/getter/irules.rs"
 qualified = "IrulesCode::get_op_type"
 metric = "halstead.effort"
-value = 53163.06867422894
+value = 53745.73829541664
 
 [[entry]]
 path = "src/getter/perl.rs"
 qualified = "PerlCode::get_op_type"
 metric = "halstead.effort"
-value = 91534.67237440146
+value = 85258.94234296979
 
 [[entry]]
 path = "src/getter/php.rs"
@@ -843,7 +843,7 @@ value = 48346.66496041094
 path = "src/getter/ruby.rs"
 qualified = "RubyCode::get_op_type"
 metric = "halstead.effort"
-value = 100458.58684134025
+value = 93711.92421824159
 
 [[entry]]
 path = "src/metrics/abc/csharp.rs"

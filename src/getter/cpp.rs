@@ -84,12 +84,31 @@ impl Getter for CppCode {
         // folding to its pair glyph in `get_operator_id_as_str`. The
         // invariant is pinned by `second_alias_opener_collapses_to_base_kind_id`
         // in `metrics/halstead.rs` (issue #768).
-        //
-        // FIXME(#1314): a raw string's `R"(` delimiter is an `LPAREN`
-        // child of `RawStringLiteral`, so `R"(raw)"` fabricates a
-        // call — the class #1256 fixed for Elixir and #1312 for
-        // Ruby/Perl. Parent-guard it to `Unknown`; `mozcpp` too.
         match node.kind_id().into() {
+            // Raw-string delimiter punctuation. A `raw_string_literal`
+            // carries its `R"(` opener as a bare `LPAREN` child — the
+            // kind id a call or a grouping uses — so `R"(raw)"`
+            // reported a `()` operator with no call in the source
+            // (#1314, the C++ sibling of Elixir #1256 and Ruby/Perl
+            // #1312). The literal is already an operand (below), so the
+            // delimiter is suppressed exactly when its parent is that
+            // node — the compound-leaf guard of grammar-dispatch
+            // section 5. Verified across `R"(x)"`, the custom-delimiter
+            // `R"tag(x)tag"` (which adds a `raw_string_delimiter` but
+            // keeps the same `(`), and the `LR` / `u8R` prefixed forms;
+            // the closing `)` needs no arm because #695 dropped every
+            // closer from the operator set.
+            //
+            // Parent, not ancestor. That distinction is unobservable
+            // here — `raw_string_content` is a leaf, so no `LPAREN` is
+            // ever a deeper descendant of a raw string — but parent
+            // scoping is correct by construction and keeps this arm the
+            // same shape as its siblings. `mozcpp` carries the twin.
+            LPAREN
+                if ancestors.parent_has_kind(node, RawStringLiteral as u16) =>
+            {
+                HalsteadType::Unknown
+            }
             DOT | DOTSTAR | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return
             | Break | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do
             | Delete | New | Try | Try2 | Catch | Throw | EQ | AMPAMP | PIPEPIPE | DASH

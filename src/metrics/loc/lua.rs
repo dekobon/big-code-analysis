@@ -37,9 +37,7 @@ impl Loc for LuaCode {
             // string nodes, so we guard on the parent kind to avoid skipping them there.
             Lua::DASHDASH | Lua::CommentContent | Lua::CommentContent2 => {}
             Lua::LBRACKLBRACK | Lua::RBRACKRBRACK
-                if ancestors
-                    .parent(node)
-                    .is_some_and(|p| p.kind_id() == Lua::Comment) => {}
+                if ancestors.parent_has_kind(node, Lua::Comment as u16) => {}
 
             Lua::Comment => {
                 add_cloc_lines(stats, start, end);

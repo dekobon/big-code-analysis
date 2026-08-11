@@ -125,9 +125,7 @@ impl Getter for GroovyCode {
             // `UnaryExpression` wrapping the same `StringLiteral`, so
             // its `~` still counts.
             SLASH
-                if ancestors
-                    .parent(node)
-                    .is_some_and(|p| p.kind_id() == StringLiteral as u16) =>
+                if ancestors.parent_has_kind(node, StringLiteral as u16) =>
             {
                 HalsteadType::Unknown
             }

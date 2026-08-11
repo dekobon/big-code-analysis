@@ -38,9 +38,6 @@ impl Checker for GoCode {
 
     #[inline]
     fn is_else_if<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-        node.kind_id() == Go::IfStatement
-            && ancestors
-                .parent(node)
-                .is_some_and(|p| p.kind_id() == Go::IfStatement)
+        node.kind_id() == Go::IfStatement && ancestors.parent_has_kind(node, Go::IfStatement as u16)
     }
 }

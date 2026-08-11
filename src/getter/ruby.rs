@@ -45,9 +45,7 @@ impl Getter for RubyCode {
             // outside a `Regex`, it now falls to `Unknown` rather than
             // being counted as a division.
             R::SLASH | R::SLASH2
-                if ancestors
-                    .parent(node)
-                    .is_some_and(|p| p.kind_id() == R::Regex as u16) =>
+                if ancestors.parent_has_kind(node, R::Regex as u16) =>
             {
                 HalsteadType::Unknown
             }

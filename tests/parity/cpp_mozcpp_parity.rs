@@ -96,3 +96,45 @@ fn cpp_and_mozcpp_agree_on_plain_cpp() {
         "fixture should exercise assignments and branches: {cpp:?}"
     );
 }
+
+#[test]
+fn cpp_and_mozcpp_agree_on_raw_string_delimiters() {
+    // #1314 guards `LPAREN` under a `RawStringLiteral` parent in both
+    // `CppCode::get_op_type` and its `MozcppCode` clone. Mozcpp owns no
+    // file extension, so nothing else exercises its copy — this is the
+    // whole coverage the clone has.
+    //
+    // The fixture pairs two raw strings with a real call, so the
+    // assertion below separates "the delimiter stopped counting" from
+    // "every `(` stopped counting": a guard widened past the literal
+    // would drop `f(a)`'s parenthesis too and take N1 to 7.
+    let source = "auto a = R\"(raw)\";\nauto b = R\"tag(raw)tag\";\nint c = f(a);\n";
+
+    let cpp = metric_sums(LANG::Cpp, source, "cpp");
+    let mozcpp = metric_sums(LANG::Mozcpp, source, "cpp");
+    assert_eq!(
+        cpp, mozcpp,
+        "Cpp and Mozcpp must agree on raw-string delimiter classification"
+    );
+
+    let get = |key: &str| {
+        cpp.iter()
+            .find(|(k, _)| *k == key)
+            .map_or_else(|| panic!("metric_sums omitted {key}: {cpp:?}"), |(_, v)| *v)
+    };
+    // Operators: `;` x 3, `=` x 3, `int`, and the one `()` from `f(a)`
+    // -> N1 = 8. Before the guard the two raw-string openers added two
+    // more `()` -> N1 = 10.
+    assert_eq!(
+        get("halstead.operators"),
+        8,
+        "raw-string openers must not count, and the real call must: {cpp:?}"
+    );
+    // Operands: the two raw-string literals (distinct text), `a` twice,
+    // `b`, `c`, `f` -> N2 = 7.
+    assert_eq!(
+        get("halstead.operands"),
+        7,
+        "both raw-string literals must still count as operands: {cpp:?}"
+    );
+}

@@ -160,9 +160,7 @@ impl Getter for ElixirCode {
             // a sigil (division `a / b`, comparison `<`, pipe `|`) fall
             // through to the operator arm and still count.
             E::SLASH | E::LPAREN | E::LBRACE | E::LBRACK | E::LT | E::GT | E::PIPE
-                if ancestors
-                    .parent(node)
-                    .is_some_and(|p| p.kind_id() == E::Sigil as u16) =>
+                if ancestors.parent_has_kind(node, E::Sigil as u16) =>
             {
                 HalsteadType::Unknown
             }
