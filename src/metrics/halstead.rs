@@ -4290,9 +4290,10 @@ f() {
         // `a`, `b`, `c`, `$a`, `{braced word}` × 2 and its inner
         // `braced` / `word` × 2 each → n2 = 7, N2 = 10. (The inner
         // words counting alongside the word that contains them is a
-        // separate, pre-existing defect filed off #1314; this test
-        // pins today's totals rather than endorsing them.) Before the
-        // guard the two openers added `{}` → n1 = 2, N1 = 5.
+        // separate, pre-existing defect, filed off #1314 as #1317;
+        // this test pins today's totals rather than endorsing them.)
+        // Before the guard the two openers added `{}` → n1 = 2,
+        // N1 = 5.
         check_metrics::<TclParser>(
             "set a {braced word}\nset b {braced word}\nset c $a\n",
             "foo.tcl",
@@ -4318,9 +4319,16 @@ f() {
         //
         // expected: operators `proc`, `set` × 2, `if`, `>`, and `{}`
         // × 4 (the proc parameter list, the proc body, the `if`
-        // condition, the `if` body) → n1 = 5, N1 = 9. Operands `p`,
-        // `x`, `a`, `{v w}`, `v`, `w`, `$x`, `1`, `b`, `{y}`, `y` and
-        // the second `x` occurrence → n2 = N2 = 13.
+        // condition, the `if` body) → n1 = 5, N1 = 9. Operands, all
+        // distinct → n2 = N2 = 13: the words `p`, `x`, `a`, `v`, `w`,
+        // `$x`, `1`, `b`, `y`, the two braced *words* `{v w}` and
+        // `{y}`, and — the part worth noting — the two *script* bodies
+        // `{\n  set a …\n}` and `{ set b {y} }`, which are
+        // `BracedWord` operands in their own right. A script body
+        // therefore counts twice over: once as this operand and once
+        // as the `{}` operator above. That is pre-existing and not
+        // what this test guards; it is spelled out so the count is
+        // re-derivable.
         check_metrics::<TclParser>(
             "proc p {x} {\n  set a {v w}\n  if {$x > 1} { set b {y} }\n}\n",
             "foo.tcl",
