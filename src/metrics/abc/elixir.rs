@@ -211,9 +211,7 @@ impl Abc for ElixirCode {
             // `LBRACE` / `LBRACK` / `PIPE`), none has an arm in this
             // impl, so `LT` / `GT` are the only overlap to guard.
             E::LT | E::GT
-                if ancestors
-                    .parent(node)
-                    .is_some_and(|p| p.kind_id() == E::Sigil as u16) => {}
+                if ancestors.parent_has_kind(node, E::Sigil as u16) => {}
             // Comparison operator tokens. `Elixir::LT` / `Elixir::GT`
             // reach here only outside a sigil (the guard arm above
             // consumes the delimiter case); Elixir has no Go-style

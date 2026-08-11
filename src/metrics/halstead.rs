@@ -872,6 +872,39 @@ mod tests {
     }
 
     #[test]
+    fn cpp_raw_string_delimiter_is_not_an_operator() {
+        // Regression: issue #1314, the C++ sibling of Elixir #1256 and
+        // Ruby/Perl #1312. A `raw_string_literal` carries its `R"(`
+        // opener as a bare `LPAREN` child — the kind id a call uses —
+        // so `auto a = R"(raw)";` reported a `()` operator with no call
+        // in the source.
+        //
+        // The fixture holds both sides at once: two raw strings and one
+        // real call. A guard widened past the literal would drop
+        // `f(a)`'s parenthesis and fail here rather than silently
+        // passing.
+        //
+        // The second literal uses the custom-delimiter form to pin that
+        // shape too — it adds a `raw_string_delimiter` child but keeps
+        // the same `(` — and its distinct text makes n2 differ from N2.
+        //
+        // expected: operators `;` × 3, `=` × 3, `int`, `()` × 1 →
+        // n1 = 4, N1 = 8. Operands the two literals, `a` × 2, `b`, `c`,
+        // `f` → n2 = 6, N2 = 7. Before the guard the two openers added
+        // two more `()` → N1 = 10.
+        check_metrics::<CppParser>(
+            "auto a = R\"(raw)\";\nauto b = R\"tag(raw)tag\";\nint c = f(a);\n",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operators(), 4);
+                assert_eq!(metric.halstead.total_operators(), 8);
+                assert_eq!(metric.halstead.unique_operands(), 6);
+                assert_eq!(metric.halstead.total_operands(), 7);
+            },
+        );
+    }
+
+    #[test]
     fn rust_operators_and_operands() {
         check_metrics::<RustParser>(
             "fn main() {
@@ -3938,6 +3971,18 @@ f() {
 }",
             "foo.tcl",
             |metric| {
+                // Anchored per the snapshot policy in AGENTS.md, which
+                // this call predates. N1 fell 33 → 31 with #1314: the
+                // `if` condition's `{x}` and `{y}` are braced *words*,
+                // so their openers stopped fabricating a `{}` operator.
+                // n1 is unchanged at 18 because the `{}` entry survives
+                // on the proc body and the `expr` braces — which is
+                // exactly why the fabrication was invisible in n1 and
+                // is the reason to assert N1 as well (#1294).
+                assert_eq!(metric.halstead.unique_operators(), 18);
+                assert_eq!(metric.halstead.total_operators(), 31);
+                assert_eq!(metric.halstead.unique_operands(), 17);
+                assert_eq!(metric.halstead.total_operands(), 30);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -4106,6 +4151,61 @@ f() {
             !ast_has_kind_id(&parser, Tcl::Id as u16),
             "the named Tcl::Id rule surfaced; re-derive the defensive \
              `Tcl::Id` arm in TclCode::get_op_type against the new grammar",
+        );
+    }
+
+    #[test]
+    fn tcl_braced_word_delimiter_is_not_an_operator() {
+        // Regression: issue #1314, the Tcl sibling of Elixir #1256 and
+        // Ruby/Perl #1312. A braced *word* — a literal value, not a
+        // script — carries its `{` as an `LBRACE` child, the kind id a
+        // real block uses, so `set a {braced word}` reported a `{}`
+        // operator with no block in the source.
+        //
+        // expected: operator `set` × 3 → n1 = 1, N1 = 3. Operands
+        // `a`, `b`, `c`, `$a`, `{braced word}` × 2 and its inner
+        // `braced` / `word` × 2 each → n2 = 7, N2 = 10. (The inner
+        // words counting alongside the word that contains them is a
+        // separate, pre-existing defect filed off #1314; this test
+        // pins today's totals rather than endorsing them.) Before the
+        // guard the two openers added `{}` → n1 = 2, N1 = 5.
+        check_metrics::<TclParser>(
+            "set a {braced word}\nset b {braced word}\nset c $a\n",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operators(), 1);
+                assert_eq!(metric.halstead.total_operators(), 3);
+                assert_eq!(metric.halstead.unique_operands(), 7);
+                assert_eq!(metric.halstead.total_operands(), 10);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_script_bodies_keep_their_braces() {
+        // Control for #1314, and the reason a kind-scoped guard is safe
+        // in Tcl where it would not be elsewhere: the grammar gives the
+        // literal and the block *different* kinds. A `proc` body, an
+        // `if` body and an `if` condition are `BracedWord` (88) and
+        // `Expr` (97); only the value form is `BracedWordSimple` (89).
+        // This fixture nests a braced word inside a real script body,
+        // so a guard that keyed on the brace alone would drop the
+        // block's `{}` and fail here.
+        //
+        // expected: operators `proc`, `set` × 2, `if`, `>`, and `{}`
+        // × 4 (the proc parameter list, the proc body, the `if`
+        // condition, the `if` body) → n1 = 5, N1 = 9. Operands `p`,
+        // `x`, `a`, `{v w}`, `v`, `w`, `$x`, `1`, `b`, `{y}`, `y` and
+        // the second `x` occurrence → n2 = N2 = 13.
+        check_metrics::<TclParser>(
+            "proc p {x} {\n  set a {v w}\n  if {$x > 1} { set b {y} }\n}\n",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operators(), 5);
+                assert_eq!(metric.halstead.total_operators(), 9);
+                assert_eq!(metric.halstead.unique_operands(), 13);
+                assert_eq!(metric.halstead.total_operands(), 13);
+            },
         );
     }
 
@@ -4921,6 +5021,36 @@ f() {
             bare_var, 1,
             "bare $x must be exactly one operand (inner id leaf not double-counted); operands were {:?}",
             ops.operands
+        );
+    }
+
+    #[test]
+    fn irules_braced_word_delimiter_is_not_an_operator() {
+        // Regression: issue #1314. The iRules twin of
+        // `tcl_braced_word_delimiter_is_not_an_operator` — the two
+        // getters are deliberate clones, so the guard lands in both and
+        // is asserted in both.
+        //
+        // One fixture covers the guard and its control: `{braced word}`
+        // and `{y}` are values whose openers must not count, while the
+        // handler body, the `if` condition and the `if` body are
+        // `BracedWord` / `Expr` and must keep theirs. A guard keyed on
+        // the brace alone would take `{}` out of the operator set
+        // entirely and fail here.
+        //
+        // expected: operators `when`, `set` × 2, `if`, `contains`,
+        // `[]`, `{}` × 3 → n1 = 6, N1 = 9. Every operand is distinct →
+        // n2 = N2 = 12. Before the guard the two value openers added
+        // two more `{}` occurrences → N1 = 11.
+        check_metrics::<IrulesParser>(
+            "when HTTP_REQUEST {\n  set a {braced word}\n  if {[HTTP::uri] contains \"x\"} { set b {y} }\n}\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operators(), 6);
+                assert_eq!(metric.halstead.total_operators(), 9);
+                assert_eq!(metric.halstead.unique_operands(), 12);
+                assert_eq!(metric.halstead.total_operands(), 12);
+            },
         );
     }
 

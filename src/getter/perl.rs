@@ -39,9 +39,7 @@ impl Getter for PerlCode {
             // so it is the same gap #1314 records for the JS family
             // and wants closed across all five wrappers at once.
             P::SLASH
-                if ancestors
-                    .parent(node)
-                    .is_some_and(|p| p.kind_id() == P::PatternMatcher as u16) =>
+                if ancestors.parent_has_kind(node, P::PatternMatcher as u16) =>
             {
                 HalsteadType::Unknown
             }

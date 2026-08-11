@@ -239,10 +239,7 @@ impl Abc for KotlinCode {
             // else-clause and `when`'s `else ->` entry. Only count it
             // when it belongs to an `if_expression`; the `WhenEntry`
             // wrapper above already covers the `when` case.
-            Else if ancestors
-                .parent(node)
-                .is_some_and(|p| p.kind_id() == IfExpression) =>
-            {
+            Else if ancestors.parent_has_kind(node, IfExpression as u16) => {
                 stats.conditions += 1.;
             }
             // `<` and `>` may appear as type-argument brackets

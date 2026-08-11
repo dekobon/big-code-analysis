@@ -13,13 +13,37 @@ impl Getter for TclCode {
     }
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> HalsteadType {
-        // FIXME(#1314): a braced *word* carries its `{` as an
-        // `LBRACE` child, so the value `{braced word}` fabricates a
-        // block — the class #1256 fixed for Elixir and #1312 for
-        // Ruby/Perl. Only `BracedWordSimple` is the value form
-        // (script bodies are `BracedWord`, `expr` bodies `Expr`), so
-        // parent-guarding on it is safe; iRules carries the same gap.
         match node.kind_id().into() {
+            // Braced-word delimiter punctuation. A braced *word* — a
+            // literal value such as `set a {braced word}` — carries its
+            // `{` as an `LBRACE` child, the kind id a real block uses,
+            // so the value reported a `{}` operator with no block in
+            // the source (#1314, the Tcl sibling of Elixir #1256 and
+            // Ruby/Perl #1312). `BracedWordSimple` is already an
+            // operand (below), so the delimiter is suppressed exactly
+            // when its parent is that node — the compound-leaf guard of
+            // grammar-dispatch section 5.
+            //
+            // The discriminator is clean, and that is what makes a
+            // kind-scoped guard safe here where it would not be
+            // elsewhere: every *script* body is a `BracedWord` (88) —
+            // verified across `proc`, `if`, `catch`, `eval`, `after`
+            // and `uplevel` — an `if`/`while` condition is an `Expr`
+            // (97), and a `proc` parameter list is `Arguments` (94).
+            // All three keep their braces as operators.
+            //
+            // Parent, not ancestor, though the distinction is
+            // unobservable: a braced word contains only `SimpleWord`s
+            // and nested `BracedWordSimple`s, so every `{` below one
+            // has it as an immediate parent, and no script body ever
+            // nests inside a value word. Parent scoping is correct by
+            // construction and keeps this arm the shape of its
+            // siblings. iRules carries the twin.
+            Tcl::LBRACE
+                if ancestors.parent_has_kind(node, Tcl::BracedWordSimple as u16) =>
+            {
+                HalsteadType::Unknown
+            }
             // Anonymous keyword tokens (control-flow and declaration keywords).
             Tcl::Proc
             | Tcl::If2
@@ -96,9 +120,7 @@ impl Getter for TclCode {
             // listed defensively so a grammar bump that starts emitting it
             // classifies it identically.
             Tcl::Id | Tcl::Id2 => {
-                if ancestors
-                    .parent(node)
-                    .is_some_and(|p| p.kind_id() == Tcl::VariableSubstitution as u16)
+                if ancestors.parent_has_kind(node, Tcl::VariableSubstitution as u16)
                 {
                     HalsteadType::Unknown
                 } else {

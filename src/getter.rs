@@ -164,9 +164,7 @@ macro_rules! impl_js_family_get_op_type {
                 // is the one place this differs from Ruby's guard,
                 // where `SLASH2` had to be moved off the arithmetic arm.
                 SLASH
-                    if ancestors
-                        .parent(node)
-                        .is_some_and(|p| p.kind_id() == Regex as u16) =>
+                    if ancestors.parent_has_kind(node, Regex as u16) =>
                 {
                     HalsteadType::Unknown
                 }
