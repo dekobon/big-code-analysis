@@ -2182,34 +2182,33 @@ mod tests {
             }",
             "foo.groovy",
             |metric| {
-                // Each Groovy-specific operator kind contributes one
-                // distinct entry to the operator set. The 20-operator
-                // floor breaks down as: 16 Groovy-specific tokens
-                // exercised by the fixture (`?:`, `?.`, `??.`, `*.`,
-                // `.&`, `.@`, `===`, `!==`, `<=>`, `=~`, `==~`, `..<`,
-                // `<..`, `<..<`, `as`, `?[`) plus a handful of
-                // ambient Java-shaped operators the fixture also
-                // uses (`def`, `=`, `{`, `(`, `,`, `return`). A
-                // grammar regression that drops one of the 16
-                // Groovy-specific tokens would push the count below
-                // this floor.
                 // Exact pin: with the dekobon Groovy grammar this
                 // fixture exercises 16 Groovy-specific tokens (`?:`,
                 // `?.`, `??.`, `*.`, `.&`, `.@`, `===`, `!==`, `<=>`,
                 // `=~`, `==~`, `..<`, `<..`, `<..<`, `as`, `?[`) plus
-                // 7 ambient Java-shaped operators the fixture also
-                // uses (`def`, `=`, `,`, `{`, `(`, `[`, `return`),
-                // for a total of 23 distinct operator kinds. A
-                // regression that drops any one of the 16 #247
-                // operators would push the count below 23 and fail
-                // this assertion. The complementary AST walk below
-                // pins each #247 operator's identity individually so
-                // a grammar change that adds an unrelated operator
-                // (lifting `u_operators` to 24) still flags the loss
-                // of a #247 operator at the per-token level.
+                // 6 ambient Java-shaped operators the fixture also
+                // uses (`def`, `=`, `,`, `{}`, `()`, `return`), for a
+                // total of 22 distinct operator kinds. A regression
+                // that drops any one of the 16 #247 operators would
+                // push the count below 22 and fail this assertion. The
+                // complementary AST walk below pins each #247
+                // operator's identity individually so a grammar change
+                // that adds an unrelated operator (lifting
+                // `u_operators` to 23) still flags the loss of a #247
+                // operator at the per-token level.
+                //
+                // Was 23 until #1314. The extra entry was a `/` — the
+                // fixture's two slashy literals (`/pat/`, `/^pat\$/`)
+                // each spelled their closing delimiter with the
+                // division kind, and the arm now guards them. The
+                // enumeration above was wrong in two ways at that
+                // count: it listed an ambient `[`, which this fixture
+                // never emits (`list?[0]` is the single `?[` token),
+                // and omitted the fabricated `/` that made up the
+                // difference. Both are corrected here.
                 assert_eq!(
                     metric.halstead.unique_operators(),
-                    23,
+                    22,
                     "u_operators changed; check whether a #247 operator was dropped or an unrelated operator added (and update the comment / token list above accordingly)",
                 );
             },
@@ -2276,6 +2275,111 @@ mod tests {
             assert_eq!(metric.halstead.total_operands(), 2);
         });
         assert_ops_operands::<GroovyParser>(src, "foo.groovy", 2, vec!["f", "\"plain\""]);
+    }
+
+    #[test]
+    fn groovy_slashy_string_delimiter_is_not_an_operator() {
+        // Regression: issue #1314, the Groovy sibling of Elixir #1256
+        // and Ruby/Perl #1312. A slashy string is a `StringLiteral`
+        // whose closing delimiter is a `SLASH` — the kind id real
+        // division uses — so `def b = /xyz/` reported a `/` operator
+        // with no division in the source. Only the closer is a child
+        // (the grammar folds the opening `/` into the literal's span),
+        // so this fabricated one `/` per literal rather than Ruby's two.
+        //
+        // expected: operators `def` × 3, `=` × 3 → n1 = 2, N1 = 6.
+        // Operands `b`, `/xyz/` × 2, `c`, `s` → n2 = 4, N2 = 6. Before
+        // the guard the two closers added `/` → n1 = 3, N1 = 8.
+        check_metrics::<GroovyParser>(
+            "def b = /xyz/\ndef c = /xyz/\ndef s = b\n",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operators(), 2);
+                assert_eq!(metric.halstead.total_operators(), 6);
+                assert_eq!(metric.halstead.unique_operands(), 4);
+                assert_eq!(metric.halstead.total_operands(), 6);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_division_survives_the_slashy_guard() {
+        // Control for #1314: the guard is scoped to a `StringLiteral`
+        // parent, so real division must still count. Both sides are in
+        // one fixture — two divisions and one slashy literal — so a
+        // guard widened to every `SLASH` fails here rather than
+        // silently passing the test above.
+        //
+        // expected: operators `def` × 2, `=` × 2, `/` × 2 → n1 = 3,
+        // N1 = 6. Operands `q`, `a`, `b`, `c`, `r`, `/x/` → n2 = N2 = 6.
+        check_metrics::<GroovyParser>("def q = a / b / c\ndef r = /x/\n", "foo.groovy", |metric| {
+            assert_eq!(metric.halstead.unique_operators(), 3);
+            assert_eq!(metric.halstead.total_operators(), 6);
+            assert_eq!(metric.halstead.unique_operands(), 6);
+            assert_eq!(metric.halstead.total_operands(), 6);
+        });
+    }
+
+    #[test]
+    fn groovy_slashy_guard_is_parent_scoped_not_ancestor_scoped() {
+        // The input that separates the parent-scoped guard from the
+        // ancestor-scanning mutant of it — the mutant #1256's
+        // post-mortem says survives every ordinary fixture. Groovy is
+        // one of only two languages in #1314 where such an input
+        // exists at all: a slashy string may carry a GString
+        // interpolation, so `/x${a / b}y/` puts a real division under a
+        // `StringLiteral` *ancestor* while its parent is the
+        // `binary_expression`. An ancestor scan swallows it; the parent
+        // check leaves it alone. (The JS, C++ and Tcl/iRules guards
+        // have no such input — see
+        // `js_regex_delimiter_guard_is_parent_scoped_is_unobservable`.)
+        //
+        // expected: operators `def` × 2, `=` × 2, `/` (the
+        // interpolated division) → n1 = 3, N1 = 5. The wrapping literal
+        // is not an operand — it carries an interpolation, so
+        // `string_operand_type` yields `Unknown` and the inner
+        // expression's operands carry the count (#454) — leaving `r`,
+        // `a`, `b`, `s` → n2 = 4, with `a` twice → N2 = 5. Under the
+        // ancestor-scoped mutant the division vanishes: n1 = 2, N1 = 4.
+        check_metrics::<GroovyParser>(
+            "def r = /x${a / b}y/\ndef s = a\n",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operators(), 3);
+                assert_eq!(metric.halstead.total_operators(), 5);
+                assert_eq!(metric.halstead.unique_operands(), 4);
+                assert_eq!(metric.halstead.total_operands(), 5);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_every_string_spelling_scores_alike() {
+        // Companion to the three above (#1314). Groovy has five ways to
+        // write an inert one-character string, and the choice is
+        // spelling rather than semantics, so all five must score
+        // identically. Before the guard the two slashy forms reported
+        // an extra `/` operator that the other three did not — the
+        // author's delimiter choice moved n1/N1.
+        //
+        // The dollar-slashy and quoted forms are no-change controls:
+        // `$/…/$` closes with `/$` (kind 144) and `"…"` with `"` (134),
+        // neither of which the operator arm classifies. `'x'` is a
+        // childless leaf. The escaped-slash row is the one that would
+        // regress if the guard were ever narrowed to a literal whose
+        // *only* child is the closer.
+        //
+        // expected per spelling: operators `def` × 3, `=` × 3 → n1 = 2,
+        // N1 = 6; operands `a`, the literal, `b`, `c` → n2 = 4, with
+        // `a` used three times → N2 = 6.
+        for literal in ["/x/", "$/x/$", "'x'", "\"x\"", r"/esc\/aped/"] {
+            assert_halstead_counts::<GroovyParser>(
+                &format!("def a = {literal}\ndef b = a\ndef c = a\n"),
+                "foo.groovy",
+                [2, 6, 4, 6],
+                &format!("literal {literal}"),
+            );
+        }
     }
 
     #[test]

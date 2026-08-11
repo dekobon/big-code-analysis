@@ -80,7 +80,7 @@ impl Getter for GroovyCode {
         }
     }
 
-    fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> HalsteadType {
         use Groovy::*;
         // Mirrors `JavaCode`'s minimal classification — modifiers
         // (`Public`, `Static`, …), declaration keywords (`Class`,
@@ -97,12 +97,40 @@ impl Getter for GroovyCode {
         // `NumberLiteral` is the new grammar's consolidated numeric
         // literal — the prior grammar split numbers by radix
         // (Hex/Octal/Binary/Decimal Integer/Float).
-        //
-        // FIXME(#1314): a slashy string's closing delimiter is a
-        // `SLASH` child of `StringLiteral`, so `def b = /xyz/`
-        // fabricates a division — the class #1256 fixed for Elixir
-        // and #1312 for Ruby/Perl. Parent-guard it to `Unknown`.
         match node.kind_id().into() {
+            // Slashy-string delimiter punctuation. A slashy string
+            // (`/xyz/`) is a `StringLiteral` whose closing delimiter is
+            // a `SLASH` — the kind id real division uses — so
+            // `def b = /xyz/` reported a `/` operator with no division
+            // in the source (#1314, the Groovy sibling of Elixir #1256
+            // and Ruby/Perl #1312). Only the *closer* is a child: the
+            // grammar folds the opening `/` into the literal's own
+            // span, so this fabricated one `/` per literal rather than
+            // Ruby's two. The `StringLiteral` is already the operand
+            // (below), so the delimiter is suppressed exactly when its
+            // parent is that node — the compound-leaf guard of
+            // grammar-dispatch section 5.
+            //
+            // Parent, not ancestor, and here that distinction is
+            // *observable*: a GString interpolation inside a slashy
+            // string (`/x${a / b}y/`) puts a real division under a
+            // `StringLiteral` ancestor, and an ancestor-scanning guard
+            // would swallow it. Pinned by
+            // `groovy_slashy_guard_is_parent_scoped_not_ancestor_scoped`.
+            //
+            // The other string forms need no arm: `'plain'` is a
+            // childless leaf, `"dq"` closes with `"` (134), and
+            // dollar-slashy `$/…/$` closes with `/$` (144) — none of
+            // which this match classifies. `~/ab.c/` is a
+            // `UnaryExpression` wrapping the same `StringLiteral`, so
+            // its `~` still counts.
+            SLASH
+                if ancestors
+                    .parent(node)
+                    .is_some_and(|p| p.kind_id() == StringLiteral as u16) =>
+            {
+                HalsteadType::Unknown
+            }
             // Control-flow + keyword operators (mirrors Java's set,
             // minus tokens that no longer exist in the dekobon grammar
             // — `This`, `VoidType`, `Throws2`).
