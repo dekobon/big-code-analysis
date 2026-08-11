@@ -4766,12 +4766,12 @@ f() {
         // section 11) — a fixture covering only `encapsed_string`
         // leaves the other three dead.
         //
-        // Row 2 is a heredoc, whose brace hangs off `heredoc_body`
-        // rather than `heredoc`; row 3 is a backtick
-        // `shell_command_expression`; row 4 is a bare `${$y}`
-        // variable-variable, whose brace belongs to
-        // `dynamic_variable_name` and which is the one position that
-        // is not inside a string at all.
+        // One row per parent, so a failure names the leg that broke.
+        // The heredoc's brace hangs off `heredoc_body` rather than
+        // `heredoc`; the backtick form is `shell_command_expression`;
+        // and the bare `${$y}` variable-variable is a
+        // `dynamic_variable_name`, the one position that is not inside
+        // a string at all.
         //
         // expected per row: operators `=` × 2, `;` × 2 → n1 = 2,
         // N1 = 4; three distinct operands with one repeated → n2 = 3,
@@ -4782,8 +4782,12 @@ f() {
                 "<?php\n$s = \"dq {$y} end\";\n$t = \"dq {$y} end\";\n",
             ),
             (
-                "heredoc_body and shell_command_expression",
-                "<?php\n$h = <<<EOT\na {$y} b\nEOT;\n$b = `ls {$y}`;\n",
+                "heredoc_body",
+                "<?php\n$h = <<<EOT\na {$y} b\nEOT;\n$i = <<<EOT\na {$y} b\nEOT;\n",
+            ),
+            (
+                "shell_command_expression",
+                "<?php\n$b = `ls {$y}`;\n$c = `ls {$y}`;\n",
             ),
             ("dynamic_variable_name", "<?php\n$q = ${$y};\n$r = ${$y};\n"),
         ] {
