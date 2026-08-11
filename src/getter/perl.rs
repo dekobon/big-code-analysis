@@ -29,15 +29,9 @@ impl Getter for PerlCode {
             // the Perl sibling of Elixir #1256). Suppress them exactly
             // when their parent is the literal — the compound-leaf
             // guard of grammar-dispatch §5 — which leaves the bare form
-            // contributing what its four synonyms already contribute.
-            //
-            // FIXME(#1314): what all five contribute is *nothing* — no
-            // Perl regex wrapper is in the operand arm below, so the
-            // literal itself never counts, unlike Ruby's `Regex` and
-            // Elixir's `Sigil`. Promoting only the bare form would
-            // score `/abc/` at one operand and its synonyms at zero,
-            // so it is the same gap #1314 records for the JS family
-            // and wants closed across all five wrappers at once.
+            // contributing what its three synonyms already contribute
+            // (#1314 made that "one operand" rather than "nothing";
+            // see the pattern-value arm below).
             P::SLASH
                 if ancestors.parent_has_kind(node, P::PatternMatcher as u16) =>
             {
@@ -66,6 +60,21 @@ impl Getter for PerlCode {
             | P::AMPEQ | P::PIPEEQ | P::CARETEQ | P::LTLTEQ | P::GTGTEQ | P::AMPAMPEQ
             | P::PIPEPIPEEQ | P::SLASHSLASHEQ | P::DOTEQ | P::XEQ
             | P::LTEQGT | P::AMPDOTEQ | P::PIPEDOTEQ | P::CARETDOTEQ | P::Isa
+            // Substitution and transliteration. These are *operations
+            // applied to a target*, not pattern values, so they are
+            // operators while the three pattern spellings below are
+            // operands (#1314). `y///` is a synonym of `tr///` and
+            // shares `TransliterationTrOrY`, so the two fold to one
+            // entry, which is what synonyms should do.
+            //
+            // Their pattern and replacement text is invisible to this
+            // grammar either way: `bca dump` shows
+            // `substitution_pattern_s` emitting only the `s` keyword
+            // and its `start` / `separator` / `end` delimiters, with no
+            // content node, so nothing is lost by not treating them as
+            // values. `get_operator_id_as_str` below renders them
+            // `s///` and `tr///` rather than as raw kind names.
+            | P::SubstitutionPatternS | P::TransliterationTrOrY
                 => HalsteadType::Operator,
             // Operands: identifiers and literals. Non-interpolating
             // string literals (`'…'`, `q{…}`) are leaf operands; the
@@ -92,13 +101,57 @@ impl Getter for PerlCode {
             // it is interpolation-capable, so it joins the same
             // dispatch — inert heredocs are one operand, interpolating
             // heredocs let the inner variables carry the count.
+            // The pattern *values* — `/abc/`, `m/abc/`, `qr/abc/` —
+            // join the same dispatch (#1314). `m/abc/` is exactly
+            // `/abc/` and `qr/abc/` is the same pattern as a value, so
+            // all three must score alike; that equality is what
+            // `perl_every_pattern_value_spelling_scores_alike` protects
+            // and why #1312 declined to promote the bare form on its
+            // own. Promoting the three together closes the gap without
+            // reintroducing the spelling sensitivity: each contributes
+            // one operand, matching Ruby's `Regex` and Elixir's
+            // `Sigil`. `s///` and `tr///` are *not* here — they are
+            // operations applied to a target and sit in the operator
+            // arm above.
+            //
+            // Sharing the string dispatch is not incidental, which is
+            // why the arms are merged rather than duplicated: the bare
+            // form keeps an interpolated variable inside an
+            // unclassified `regex_pattern_content`, but `m/$x/` and
+            // `qr/$x/` emit a real `Interpolation` whose
+            // `scalar_variable` is already counted. A plain operand arm
+            // would score `/$x/` at one operand and `m/$x/` at two —
+            // the very divergence the equality above exists to prevent.
             P::StringDoubleQuoted | P::StringQqQuoted | P::BacktickQuoted
-            | P::CommandQxQuoted | P::HeredocBodyStatement => {
+            | P::CommandQxQuoted | P::HeredocBodyStatement
+            | P::PatternMatcher | P::PatternMatcherM | P::RegexPatternQr => {
                 Self::string_operand_type(node, &[P::Interpolation as u16])
             }
             _ => HalsteadType::Unknown,
         }
     }
 
-    get_operator!(Perl);
+    /// Folds paired delimiters to one glyph, and names the two
+    /// pattern *operations* after their source spelling.
+    ///
+    /// Hand-written rather than `get_operator!(Perl)` because
+    /// `SubstitutionPatternS` and `TransliterationTrOrY` are named
+    /// nodes rather than punctuation tokens (#1314): the macro's
+    /// fallback renders a kind's own name, so `bca ops` would list
+    /// `substitution_pattern_s` and `transliteration_tr_or_y` among
+    /// the operators, which reads as a bug rather than as `s///`.
+    /// `tr///` covers `y///` too — one kind, one glyph, because they
+    /// are synonyms.
+    #[inline]
+    fn get_operator_id_as_str(id: u16) -> &'static str {
+        let typ = id.into();
+        match typ {
+            Perl::LPAREN => "()",
+            Perl::LBRACK => "[]",
+            Perl::LBRACE => "{}",
+            Perl::SubstitutionPatternS => "s///",
+            Perl::TransliterationTrOrY => "tr///",
+            _ => typ.into(),
+        }
+    }
 }
