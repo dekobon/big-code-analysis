@@ -831,7 +831,7 @@ value = 85258.94234296979
 path = "src/getter/php.rs"
 qualified = "PhpCode::get_op_type"
 metric = "halstead.effort"
-value = 71190.04074846079
+value = 84318.81385575322
 
 [[entry]]
 path = "src/getter/python.rs"
@@ -843,7 +843,7 @@ value = 48346.66496041094
 path = "src/getter/ruby.rs"
 qualified = "RubyCode::get_op_type"
 metric = "halstead.effort"
-value = 93711.92421824159
+value = 93042.67141704941
 
 [[entry]]
 path = "src/metrics/abc/csharp.rs"
