@@ -92,6 +92,15 @@ macro_rules! get_operator {
 // #192): a bare `` `...` `` mirrors a `"..."` operand, but an
 // interpolated template must yield `Unknown` because its inner
 // `TemplateSubstitution` expressions are walked separately.
+//
+// The `Regex` arms are shared the same way (issue #1314), and for the
+// same reason: all four grammars spell a regex literal identically —
+// a `regex` wrapper whose two delimiters are `SLASH`, the kind id real
+// division uses — so neither arm has a per-language delta to hoist to
+// a call site. Only the ids differ (`SLASH` 87/81/90/87, `Regex`
+// 224/250/264/225) and the macro names both through the enum, so no
+// invocation mentions either. See the arms themselves for the
+// fabrication and the missing-operand halves.
 macro_rules! impl_js_family_get_op_type {
     (
         $lang:ident,
@@ -99,17 +108,8 @@ macro_rules! impl_js_family_get_op_type {
         operand_extras: [$($operand_extra:ident),* $(,)?]
         $(, predefined_void: $predefined_type:ident)? $(,)?
     ) => {
-        fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
+        fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> HalsteadType {
             use $lang::*;
-
-            // FIXME(#1314): two defects in the regex literal, identical
-            // across all four callers so they stay in the macro body
-            // rather than at each invocation. A `Regex`'s two delimiters
-            // are `SLASH`, so `/abc/g` fabricates a division (the class
-            // #1256 fixed for Elixir and #1312 for Ruby/Perl — parent-
-            // guard them to `Unknown` under `Regex`). And `Regex` is in
-            // neither the operator nor the operand arm below, so the
-            // literal itself contributes no operand at all.
 
             // TS/TSX only: a `void` return / parameter type is parsed as a
             // `predefined_type` wrapper around an inner `void` token. Both
@@ -136,6 +136,40 @@ macro_rules! impl_js_family_get_op_type {
             )?
 
             match node.kind_id().into() {
+                // Regex delimiter punctuation. A `regex` literal spells
+                // both of its delimiters with the same kind id real
+                // division uses, so `const a = /abc/g;` reported a `/`
+                // operator with no division in the source and n1/N1
+                // counted the literal's punctuation as arithmetic
+                // (#1314, the JS-family sibling of Elixir #1256 and
+                // Ruby/Perl #1312). The `Regex` node itself is the
+                // operand (below), so the delimiters are suppressed
+                // exactly when their parent is that node — the
+                // compound-leaf guard of grammar-dispatch section 5.
+                //
+                // Parent, not ancestor, for correctness by
+                // construction rather than by observation: unlike
+                // Ruby's `#{…}`, a JS regex admits no nested
+                // expression at all (`regex_pattern` and `regex_flags`
+                // are leaves), so no fixture can tell this guard from
+                // an ancestor-scanning one. The halstead test
+                // `js_regex_delimiter_guard_is_parent_scoped_is_unobservable`
+                // records that, and pins the grammar property it rests
+                // on, rather than implying coverage the suite lacks.
+                //
+                // `SLASH2` — the aliased regex-start token every one of
+                // these grammars carries — needs no arm: it is absent
+                // from the operator list below, so it already lands on
+                // `Unknown`, which is what a delimiter should be. That
+                // is the one place this differs from Ruby's guard,
+                // where `SLASH2` had to be moved off the arithmetic arm.
+                SLASH
+                    if ancestors
+                        .parent(node)
+                        .is_some_and(|p| p.kind_id() == Regex as u16) =>
+                {
+                    HalsteadType::Unknown
+                }
                 Export | Import | Import2 | Extends | DOT | From | LPAREN | COMMA | As | STAR
                 | GTGT | GTGTGT | COLON | Return | Delete | Throw | Break | Continue | If
                 | Else | Switch | Case | Default | Async | Do | For | In | Of | While | Try
@@ -154,9 +188,20 @@ macro_rules! impl_js_family_get_op_type {
                 // code (#695).
                 | Set | Get
                 $(| $op_extra)* => HalsteadType::Operator,
+                // `Regex` is the literal's own node and contributes one
+                // operand, the way Ruby's `Regex` and Elixir's `Sigil`
+                // do. It was in neither arm before #1314, so `/abc/g`
+                // reached the vocabulary from *neither* side: a
+                // fabricated `/` operator and no operand at all. Its
+                // `regex_pattern` / `regex_flags` children stay
+                // unclassified, so the wrapper cannot double-count
+                // them, and no interpolation is possible inside a JS
+                // regex — hence a plain arm here rather than the
+                // `string_operand_type` dispatch the template literal
+                // below needs.
                 Identifier | MemberExpression | MemberExpression2 | MemberExpression3
                 | PropertyIdentifier | String | Number | True | False | Null | This | Super
-                | Undefined
+                | Undefined | Regex
                 $(| $operand_extra)* => HalsteadType::Operand,
                 // A `` `...` `` is a string literal; without interpolation it
                 // mirrors `"..."` and contributes one operand. When it has a

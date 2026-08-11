@@ -466,7 +466,7 @@ mod tests {
     use std::collections::HashSet;
     use std::path::PathBuf;
 
-    use crate::test_support::{ast_has_kind_id, check_metrics_only_shim};
+    use crate::test_support::{ast_has_kind_id, check_metrics_only_shim, for_each_node_with_chain};
 
     use super::*;
 
@@ -1470,6 +1470,115 @@ mod tests {
                 assert_eq!(metric.halstead.unique_operands(), 2);
                 assert_eq!(metric.halstead.total_operands(), 3);
             },
+        );
+    }
+
+    /// The JS-family regex fixture, asserted against all four grammars.
+    ///
+    /// `impl_js_family_get_op_type!` is instantiated four times against
+    /// four distinct `kind_id` enums (`SLASH` 87/81/90/87, `Regex`
+    /// 224/250/264/225), so each expansion is a separate compiled arm
+    /// and a drift in one grammar is invisible if only one is checked
+    /// (grammar-dispatch section 11).
+    fn assert_js_family_counts(source: &str, expected: [u64; 4]) {
+        assert_halstead_counts::<JavascriptParser>(source, "foo.js", expected, "javascript");
+        assert_halstead_counts::<MozjsParser>(source, "foo.jsm", expected, "mozjs");
+        assert_halstead_counts::<TypescriptParser>(source, "foo.ts", expected, "typescript");
+        assert_halstead_counts::<TsxParser>(source, "foo.tsx", expected, "tsx");
+    }
+
+    #[test]
+    fn js_family_regex_delimiters_are_not_operators() {
+        // Regression: issue #1314, the JS-family sibling of Elixir
+        // #1256 and Ruby/Perl #1312. A `regex` literal spells both of
+        // its delimiters `SLASH` — the kind id real division uses — so
+        // `const a = /abc/g;` reported a `/` operator with no division
+        // in the source, and n1/N1 counted the literal's punctuation as
+        // arithmetic.
+        //
+        // The same fixture pins the second, independent half: `Regex`
+        // was in neither arm, so the literal contributed no operand
+        // either and reached the vocabulary from *neither* side.
+        //
+        // expected: operators `const`, `=`, `;`, `let` → n1 = 4;
+        // `const` `=` `;` on line 1, `let` `=` `;` on line 2, `=` `;`
+        // on line 3 → N1 = 8. Operands `a`, `/abc/g`, `b` → n2 = 3,
+        // with `a` used three times and `b` twice → N2 = 6.
+        //
+        // Before the fix: n1 = 5 and N1 = 10 (the two fabricated `/`),
+        // n2 = 2 and N2 = 5 (no operand for the literal).
+        //
+        // The four values are deliberately distinct so no transposition
+        // of the unique-vs-total axes inside `assert_halstead_counts`
+        // can pass (#1312).
+        assert_js_family_counts("const a = /abc/g;\nlet b = a;\nb = a;\n", [4, 8, 3, 6]);
+    }
+
+    #[test]
+    fn js_family_division_survives_the_regex_guard() {
+        // Control for #1314: the guard is scoped to a `Regex` parent,
+        // so real division must still count. This fixture holds both
+        // sides at once — two divisions and one regex literal — so a
+        // guard widened to every `SLASH` fails here rather than
+        // silently passing the test above.
+        //
+        // expected: operators `const`, `=`, `;`, `/` → n1 = 4; two
+        // `const`, two `=`, two `;` and two `/` → N1 = 8. Operands
+        // `q`, `a`, `b`, `c`, `r`, `/x/` → n2 = N2 = 6.
+        assert_js_family_counts("const q = a / b / c;\nconst r = /x/;\n", [4, 8, 6, 6]);
+    }
+
+    #[test]
+    fn js_regex_delimiter_guard_is_parent_scoped_is_unobservable() {
+        // Companion to the two above, and a statement of what they do
+        // *not* cover. Ruby's guard has
+        // `ruby_regex_guard_is_parent_scoped_not_ancestor_scoped`
+        // because a division inside `#{…}` sits under a `Regex`
+        // ancestor without being its child. No JS fixture can do that:
+        // a regex literal admits no nested expression at all, its
+        // `regex_pattern` and `regex_flags` children being leaves. So
+        // the ancestor-scoped mutant of this guard — the one #1256's
+        // post-mortem says survives every ordinary fixture — is
+        // unobservable here. Measured, not assumed.
+        //
+        // Rather than write a fixture that would pass under both
+        // spellings and read as coverage, pin the grammar property the
+        // claim rests on: within a fixture that puts a division, a
+        // template substitution and a regex in one file, every `SLASH`
+        // reachable *below* a `Regex` is its immediate child. Should a
+        // bump start nesting expressions inside a regex, this turns red
+        // and the distinction becomes both observable and worth a real
+        // test.
+        let source = b"const a = /abc/g;\nconst q = x / y;\nconst t = `p ${x / y} ${/zz/} q`;\n";
+        let mut slashes_below_a_regex = 0;
+        let visited = for_each_node_with_chain::<crate::langs::JavascriptCode>(
+            source,
+            |node: &Node<'_>, chain| {
+                if node.kind_id() != Javascript::SLASH as u16 {
+                    return;
+                }
+                let regex_id = Javascript::Regex as u16;
+                let Some(depth) = chain.iter().position(|a| a.kind_id() == regex_id) else {
+                    return;
+                };
+                slashes_below_a_regex += 1;
+                assert_eq!(
+                    depth,
+                    chain.len() - 1,
+                    "a SLASH at row {} has a Regex ancestor that is not its parent, so the \
+                     parent-vs-ancestor mutant is now observable and needs a real test",
+                    node.start_row()
+                );
+            },
+        );
+        assert!(visited > 20, "fixture is too small to prove much");
+        // Without this the assertion above is vacuous whenever the
+        // fixture stops containing a regex at all — the failure mode a
+        // filter that matches nothing always has.
+        assert_eq!(
+            slashes_below_a_regex, 4,
+            "expected the two regex literals' four delimiters; the fixture no longer \
+             exercises what this test claims"
         );
     }
 
