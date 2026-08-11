@@ -542,9 +542,9 @@ tokens involved the same way they spell real operators:
   the score would move with the author's choice of delimiter, which
   says nothing about the code.
 - **A string-interpolation opener is not an operator.** `"{$x}"` in
-  PHP, `"#{x}"` in Ruby, `"${x}"` in Kotlin and Groovy and `$"{x}"`
-  in C# all count the interpolated expression's own operators and
-  nothing for the opener itself.
+  PHP, `"#{x}"` in Ruby and Elixir, `"${x}"` in Kotlin and Groovy and
+  `$"{x}"` in C# all count the interpolated expression's own operators
+  and nothing for the opener itself.
 
 ### Derived metrics
 

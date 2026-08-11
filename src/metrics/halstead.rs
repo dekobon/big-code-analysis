@@ -1582,36 +1582,74 @@ mod tests {
         // bump start nesting expressions inside a regex, this turns red
         // and the distinction becomes both observable and worth a real
         // test.
+        //
+        // Checked against all four grammars, not just JavaScript: the
+        // guard is instantiated four times against four distinct enums,
+        // and the property this test exists to watch could hold in one
+        // and lapse in another.
         let source = b"const a = /abc/g;\nconst q = x / y;\nconst t = `p ${x / y} ${/zz/} q`;\n";
-        let mut slashes_below_a_regex = 0;
-        let visited = for_each_node_with_chain::<crate::langs::JavascriptCode>(
+        assert_regex_slashes_are_immediate_children::<crate::langs::JavascriptCode>(
             source,
-            |node: &Node<'_>, chain| {
-                if node.kind_id() != Javascript::SLASH as u16 {
-                    return;
-                }
-                let regex_id = Javascript::Regex as u16;
-                let Some(depth) = chain.iter().position(|a| a.kind_id() == regex_id) else {
-                    return;
-                };
-                slashes_below_a_regex += 1;
-                assert_eq!(
-                    depth,
-                    chain.len() - 1,
-                    "a SLASH at row {} has a Regex ancestor that is not its parent, so the \
-                     parent-vs-ancestor mutant is now observable and needs a real test",
-                    node.start_row()
-                );
-            },
+            Javascript::SLASH as u16,
+            Javascript::Regex as u16,
+            "javascript",
         );
-        assert!(visited > 20, "fixture is too small to prove much");
+        assert_regex_slashes_are_immediate_children::<crate::langs::MozjsCode>(
+            source,
+            Mozjs::SLASH as u16,
+            Mozjs::Regex as u16,
+            "mozjs",
+        );
+        assert_regex_slashes_are_immediate_children::<crate::langs::TypescriptCode>(
+            source,
+            Typescript::SLASH as u16,
+            Typescript::Regex as u16,
+            "typescript",
+        );
+        assert_regex_slashes_are_immediate_children::<crate::langs::TsxCode>(
+            source,
+            Tsx::SLASH as u16,
+            Tsx::Regex as u16,
+            "tsx",
+        );
+    }
+
+    /// Asserts every `slash` token below a `regex` node in `source` is
+    /// that node's *immediate* child, for one grammar.
+    ///
+    /// Backs `js_regex_delimiter_guard_is_parent_scoped_is_unobservable`
+    /// — see there for why the property is worth pinning.
+    fn assert_regex_slashes_are_immediate_children<L: crate::traits::LanguageInfo>(
+        source: &[u8],
+        slash: u16,
+        regex: u16,
+        label: &str,
+    ) {
+        let mut slashes_below_a_regex = 0;
+        let visited = for_each_node_with_chain::<L>(source, |node: &Node<'_>, chain| {
+            if node.kind_id() != slash {
+                return;
+            }
+            let Some(depth) = chain.iter().position(|a| a.kind_id() == regex) else {
+                return;
+            };
+            slashes_below_a_regex += 1;
+            assert_eq!(
+                depth,
+                chain.len() - 1,
+                "{label}: a slash at row {} has a regex ancestor that is not its parent, so \
+                 the parent-vs-ancestor mutant is now observable and needs a real test",
+                node.start_row()
+            );
+        });
+        assert!(visited > 20, "{label}: fixture is too small to prove much");
         // Without this the assertion above is vacuous whenever the
         // fixture stops containing a regex at all — the failure mode a
         // filter that matches nothing always has.
         assert_eq!(
             slashes_below_a_regex, 4,
-            "expected the two regex literals' four delimiters; the fixture no longer \
-             exercises what this test claims"
+            "{label}: expected the two regex literals' four delimiters; the fixture no \
+             longer exercises what this test claims"
         );
     }
 
@@ -2940,8 +2978,8 @@ mod tests {
         //   for the other two.
         // * Operators do *not* agree: the exposed `scalar_variable`
         //   brings a `$` sigil, an operator here, that the bare form
-        //   has no node for. N1 is 3 for `/$x/` and 4 for the other
-        //   two.
+        //   has no node for. Over two matches N1 is 6 for `/$x/` and
+        //   8 for the other two.
         //
         // The operator asymmetry is a grammar gap this classifier
         // cannot repair — there is nothing to classify in the bare
@@ -2950,12 +2988,20 @@ mod tests {
         // missing division token. A bump that starts exposing the bare
         // form's interpolation turns this red, at which point the
         // expectations above need re-deriving.
-        assert_halstead_counts::<PerlParser>("$s =~ /$x/;\n", "foo.pl", [3, 3, 2, 2], "bare /$x/");
+        // Each fixture matches twice, so `N1 > n1` and `N2 > n2` and no
+        // row is a square tuple that a transposition inside
+        // `assert_halstead_counts` could pass (#1312).
+        assert_halstead_counts::<PerlParser>(
+            "$s =~ /$x/ and $s =~ /$x/;\n",
+            "foo.pl",
+            [4, 6, 2, 4],
+            "bare /$x/",
+        );
         for pattern in ["m/$x/", "qr/$x/"] {
             assert_halstead_counts::<PerlParser>(
-                &format!("$s =~ {pattern};\n"),
+                &format!("$s =~ {pattern} and $s =~ {pattern};\n"),
                 "foo.pl",
-                [3, 4, 2, 2],
+                [4, 8, 2, 4],
                 &format!("suffixed {pattern}"),
             );
         }
@@ -3677,16 +3723,18 @@ f() {
         // child), so `name` is the only repeated operand:
         // u_operands = 4 (def, greet, name, msg), N2 = 5. Without the
         // fix, the wrapping literal would also count → u_operands = 5,
-        // N2 = 6. Operators: `do`, `end`, `(`, `=`, `#{` → u = N = 5.
+        // N2 = 6. Operators: `do`, `end`, `(`, `=` → u = N = 4.
         // Only the *opening* delimiters count after #695, so the `)`
-        // and the `}` interpolation closer no longer add operators (the
-        // `(` and `#{` openers still do); before #695 this was 7.
+        // and the `}` interpolation closer add no operator; #1314 then
+        // dropped the `#{` opener too, on the rule that an
+        // interpolation opener is spelling rather than an operation
+        // (was 5 here, and 7 before #695).
         check_metrics::<ElixirParser>(
             "def greet(name) do\n  msg = \"Hi #{name}\"\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.halstead.unique_operators(), 5);
-                assert_eq!(metric.halstead.total_operators(), 5);
+                assert_eq!(metric.halstead.unique_operators(), 4);
+                assert_eq!(metric.halstead.total_operators(), 4);
                 assert_eq!(metric.halstead.unique_operands(), 4);
                 assert_eq!(metric.halstead.total_operands(), 5);
                 insta::assert_json_snapshot!(metric.halstead);
@@ -3891,17 +3939,18 @@ f() {
     fn elixir_interpolated_sigil_keeps_inner_nodes_counting() {
         // Interpolation inside a sigil after #1256: the `{` delimiter
         // is suppressed (its parent is the `Sigil`), while the
-        // `interpolation` child is a separate node whose `#{` marker
-        // and inner identifier must still count — the guard must not
-        // reach past the delimiter tokens.
+        // `interpolation` child is a separate node whose inner
+        // identifier must still count — the guard must not reach past
+        // the delimiter tokens.
         //
-        // expected: operators `=`, `~`, `#{` → n1 = N1 = 3. Operands:
+        // expected: operators `=`, `~` → n1 = N1 = 2. Operands:
         // `v`, `s` (sigil name), `b` (interpolated identifier); the
         // wrapping sigil is skipped (`Interpolation` child, #180) and
-        // `quoted_content` is unclassified → n2 = N2 = 3.
+        // `quoted_content` is unclassified → n2 = N2 = 3. The `#{`
+        // marker was a third operator until #1314 dropped it.
         check_metrics::<ElixirParser>("v = ~s{a#{b} c}\n", "foo.ex", |metric| {
-            assert_eq!(metric.halstead.unique_operators(), 3);
-            assert_eq!(metric.halstead.total_operators(), 3);
+            assert_eq!(metric.halstead.unique_operators(), 2);
+            assert_eq!(metric.halstead.total_operators(), 2);
             assert_eq!(metric.halstead.unique_operands(), 3);
             assert_eq!(metric.halstead.total_operands(), 3);
         });
@@ -3912,11 +3961,13 @@ f() {
         // discriminator between the correct parent-scoped guard and a
         // wrong ancestor-scoped one that would swallow it.
         //
-        // expected: operators `=`, `~`, `#{`, `/` → n1 = N1 = 4;
-        // operands `v`, `s`, `a`, `b` → n2 = N2 = 4.
+        // expected: operators `=`, `~`, `/` → n1 = N1 = 3 (the `#{`
+        // opener stopped counting with #1314); operands `v`, `s`, `a`,
+        // `b` → n2 = N2 = 4. The division is what this row is for, and
+        // it still counts — the ancestor-scoped mutant drops it.
         check_metrics::<ElixirParser>("v = ~s{x #{a / b} y}\n", "foo.ex", |metric| {
-            assert_eq!(metric.halstead.unique_operators(), 4);
-            assert_eq!(metric.halstead.total_operators(), 4);
+            assert_eq!(metric.halstead.unique_operators(), 3);
+            assert_eq!(metric.halstead.total_operators(), 3);
             assert_eq!(metric.halstead.unique_operands(), 4);
             assert_eq!(metric.halstead.total_operands(), 4);
         });
@@ -4278,6 +4329,58 @@ f() {
                 assert_eq!(metric.halstead.total_operators(), 9);
                 assert_eq!(metric.halstead.unique_operands(), 13);
                 assert_eq!(metric.halstead.total_operands(), 13);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_braced_word_guard_is_parent_scoped_not_ancestor_scoped() {
+        // The input that separates the parent-scoped guard from the
+        // ancestor-scanning mutant. I first recorded this distinction
+        // as *unobservable* in Tcl, reasoning that a braced word holds
+        // only simple words and nested braced words. `bca dump` says
+        // otherwise: the grammar parses a `[…]` command substitution
+        // inside a braced word, and the `if` inside it brings an `Expr`
+        // condition and a `BracedWord` body, each with its own `{`,
+        // both of them non-immediate descendants of the
+        // `BracedWordSimple`. An ancestor scan swallows both.
+        //
+        // (Real Tcl does not substitute inside braces — this is the
+        // grammar modelling structure it will not evaluate. What the
+        // classifier sees is what the metric reports, so it is the
+        // right fixture regardless.)
+        //
+        // expected: operators `set`, `[]`, `if`, and `{}` × 2 (the
+        // `if` condition's `Expr` and its `BracedWord` body; the outer
+        // value word's own `{` is suppressed) → n1 = 4, N1 = 5.
+        // Operands `z`, `x`, `$q`, `puts`, `w`, `v` and the two braced
+        // words → n2 = N2 = 8. Under the ancestor-scoped mutant both
+        // surviving braces vanish: n1 = 3, N1 = 3.
+        check_metrics::<TclParser>("set z {x [if {$q} {puts w}] v}\n", "foo.tcl", |metric| {
+            assert_eq!(metric.halstead.unique_operators(), 4);
+            assert_eq!(metric.halstead.total_operators(), 5);
+            assert_eq!(metric.halstead.unique_operands(), 8);
+            assert_eq!(metric.halstead.total_operands(), 8);
+        });
+    }
+
+    #[test]
+    fn irules_braced_word_guard_is_parent_scoped_not_ancestor_scoped() {
+        // The iRules twin of the test above — the two getters are
+        // clones, so the mutant must fail in both.
+        //
+        // expected: operators `when`, `set`, `[]`, `if`, `{}` × 3 (the
+        // handler body, the `if` condition and the `if` body) → n1 = 5,
+        // N1 = 7. Operands `HTTP_REQUEST`, `z`, `x`, `$q`, `log`, `w`,
+        // `v` and the braced words → n2 = N2 = 10.
+        check_metrics::<IrulesParser>(
+            "when HTTP_REQUEST {\n  set z {x [if {$q} {log w}] v}\n}\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operators(), 5);
+                assert_eq!(metric.halstead.total_operators(), 7);
+                assert_eq!(metric.halstead.unique_operands(), 10);
+                assert_eq!(metric.halstead.total_operands(), 10);
             },
         );
     }

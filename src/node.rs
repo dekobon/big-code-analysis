@@ -584,11 +584,14 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// The compound-leaf guard of `.claude/rules/grammar-dispatch.md`
     /// section 5 asks this and nothing else: a delimiter or keyword
     /// token is suppressed *only* directly under the construct that
-    /// owns it, never under an arbitrary ancestor. Seventeen dispatch
+    /// owns it, never under an arbitrary ancestor. Eleven dispatch
     /// arms across `getter`, `checker` and the metric walkers spelled
     /// it out as `.parent(node).is_some_and(|p| p.kind_id() == X as
     /// u16)`, which wraps onto four rustfmt lines inside a match guard
-    /// and buries the question under the plumbing.
+    /// and buries the question under the plumbing; #1314 added six more
+    /// and folded all seventeen onto this. The same shape survives in
+    /// `impl_is_else_if_parent_clause!` (`src/checker.rs`), which
+    /// spells its binding `|parent|` and was left alone.
     ///
     /// A `false` when `node` has no parent is the answer every one of
     /// those call sites wants: a root node's token is not inside the
