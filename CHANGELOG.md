@@ -106,6 +106,34 @@ for historical reference.
   standalone `a / b` division still counts. Ruby and Perl Halstead
   operator counts drop accordingly (#1312). The remaining eight
   languages with this defect are tracked in #1314.
+- Literal delimiters fabricated operators in eight more languages, the
+  rest of the class #1256 and #1312 fixed. A JavaScript, TypeScript,
+  TSX or MozJS regex spelled both delimiters `/`; a Groovy slashy
+  string spelled its closer `/`; a C++ or MozC++ raw string spelled its
+  `R"(` opener `(`; and a Tcl or iRules braced *word* spelled its `{`
+  the way a script block does. Each reported an operation absent from
+  the source, and each moved with the author's choice of delimiter. All
+  are now parent-guarded to `Unknown` under the literal wrapper, so a
+  real division, call or block still counts (#1314).
+- JavaScript-family regex literals contributed **no operand** either —
+  `Regex` was in neither the operator nor the operand arm, so `/abc/g`
+  reached the Halstead vocabulary from neither side. It now counts as
+  one operand, matching Ruby's `regex` and Elixir's sigils. `n2`/`N2`
+  rise for JS-family code containing regex literals (#1314).
+- Perl's five pattern wrappers all scored zero, and are now split by
+  what they are: `/abc/`, `m/abc/` and `qr/abc/` are pattern *values*
+  and count as one operand each, while `s///` and `tr///` (with its
+  `y///` synonym) are operations applied to a target and count as
+  operators, rendered in `bca ops` as `s///` and `tr///`. Perl
+  `n1`/`N1`/`n2`/`N2` all move for code using patterns (#1314).
+- PHP string-interpolation openers fabricated a block operator. `{` is
+  both the compound-statement brace and the complex-interpolation
+  opener, so `"{$x}"` inflated the same `{}` vocabulary entry a real
+  block uses — the worst case of the five interpolating languages, and
+  the only one where the two share a token. Guarded in all four
+  positions the grammar puts it (`encapsed_string`, `heredoc_body`,
+  `shell_command_expression`, and the deprecated `"${x}"` form's
+  `dynamic_variable_name`); a real block still counts (#1314).
 - Every `bca` subcommand man page omitted the CLI's global options
   (`-w`/`--warnings`, `--report-skipped`), and `bca-vcs-commit.1` /
   `bca-vcs-trend.1` additionally omitted the whole vcs history-tuning
@@ -480,6 +508,16 @@ for historical reference.
 
 ### Changed
 
+- Ruby's `#{` interpolation opener no longer counts as a Halstead
+  operator. Unlike PHP's `{`, which aliases the compound-statement
+  brace and was fabricating a block (see Fixed), Ruby's is a token of
+  its own and nothing was miscounted — this is a deliberate change of
+  rule, so that the five interpolating languages agree. Kotlin, C# and
+  Groovy already declined to count theirs; an interpolation opener is
+  spelling rather than an operation, and the interpolated expression's
+  own operators are counted either way. Ruby Halstead operator counts
+  drop for every literal that interpolates: string, symbol, regex,
+  heredoc and subshell (#1314).
 - The `enums` generator's `sanitize_string` / `get_token_names` lost their
   `escape: bool` parameter. No production caller passed `true`: #862
   established that the JSON generator, the last one, was double-escaping

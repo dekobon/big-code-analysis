@@ -531,6 +531,21 @@ basis; the rules deliberately exclude pure layout punctuation like
 parentheses and statement separators, which is why the Halstead
 totals are *not* the same as the Tokens count.
 
+Two classification rules are worth knowing because they are choices
+rather than consequences, and because several grammars spell the
+tokens involved the same way they spell real operators:
+
+- **A literal's own delimiters are not operators.** A JavaScript
+  regex, a Groovy slashy string, a C++ raw string, a Tcl braced word
+  and a Perl or Ruby pattern each contribute *one operand* — the
+  literal — and no operator for the punctuation around it. Otherwise
+  the score would move with the author's choice of delimiter, which
+  says nothing about the code.
+- **A string-interpolation opener is not an operator.** `"{$x}"` in
+  PHP, `"#{x}"` in Ruby, `"${x}"` in Kotlin and Groovy and `$"{x}"`
+  in C# all count the interpolated expression's own operators and
+  nothing for the opener itself.
+
 ### Derived metrics
 
 Halstead then derives a small zoo of formulas. big-code-analysis
