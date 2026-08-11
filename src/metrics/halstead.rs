@@ -4561,6 +4561,139 @@ f() {
     }
 
     #[test]
+    fn php_interpolation_opener_is_not_an_operator() {
+        // Regression: issue #1314. `Php::LBRACE` is *both* the
+        // compound-statement brace and the complex-interpolation
+        // opener, so `"dq {$y} end"` reported a `{}` operator — and
+        // reported it against the same vocabulary entry a real block
+        // uses, which no other language does.
+        //
+        // expected: operators `=` × 2, `;` × 2 → n1 = 2, N1 = 4.
+        // Operands `$s`, `$t`, `$y` × 2 → n2 = 3, N2 = 4. Before the
+        // guard the two openers added `{}` → n1 = 3, N1 = 6.
+        check_metrics::<PhpParser>(
+            "<?php\n$s = \"dq {$y} end\";\n$t = \"dq {$y} end\";\n",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operators(), 2);
+                assert_eq!(metric.halstead.total_operators(), 4);
+                assert_eq!(metric.halstead.unique_operands(), 3);
+                assert_eq!(metric.halstead.total_operands(), 4);
+            },
+        );
+    }
+
+    #[test]
+    fn php_interpolation_opener_guard_covers_every_wrapper() {
+        // The opener is a direct child of four distinct parents, and
+        // each is an independent leg of the guard (grammar-dispatch
+        // section 11) — a fixture covering only `encapsed_string`
+        // leaves the other three dead.
+        //
+        // Row 2 is a heredoc, whose brace hangs off `heredoc_body`
+        // rather than `heredoc`; row 3 is a backtick
+        // `shell_command_expression`; row 4 is a bare `${$y}`
+        // variable-variable, whose brace belongs to
+        // `dynamic_variable_name` and which is the one position that
+        // is not inside a string at all.
+        //
+        // expected per row: operators `=` × 2, `;` × 2 → n1 = 2,
+        // N1 = 4; three distinct operands with one repeated → n2 = 3,
+        // N2 = 4.
+        for (label, source) in [
+            (
+                "encapsed_string",
+                "<?php\n$s = \"dq {$y} end\";\n$t = \"dq {$y} end\";\n",
+            ),
+            (
+                "heredoc_body and shell_command_expression",
+                "<?php\n$h = <<<EOT\na {$y} b\nEOT;\n$b = `ls {$y}`;\n",
+            ),
+            ("dynamic_variable_name", "<?php\n$q = ${$y};\n$r = ${$y};\n"),
+        ] {
+            assert_halstead_counts::<PhpParser>(source, "foo.php", [2, 4, 3, 4], label);
+        }
+    }
+
+    #[test]
+    fn php_every_interpolation_spelling_scores_alike() {
+        // The policy stated as a test (#1314). PHP writes one
+        // interpolation three ways; the choice is spelling, so all
+        // three must score identically. Before the guard the two
+        // braced forms reported a `{}` the bare `$y` form did not.
+        //
+        // `"${y}"` is deprecated as of PHP 8.2 and removed in 9.0, but
+        // the pinned grammar still parses it and it is still in the
+        // wild, so it stays a row here.
+        //
+        // The fixture deliberately omits a `$y = …` declaration: with
+        // one, the bare and `{$y}` forms key their operand as `$y` and
+        // collapse into the declaration's entry while `${y}` keys as
+        // `${y}` and does not, so n2 would differ for a reason that has
+        // nothing to do with this guard.
+        //
+        // expected per spelling: operators `=` × 2, `;` × 2 → n1 = 2,
+        // N1 = 4; operands `$s`, `$t`, the interpolated reference × 2
+        // → n2 = 3, N2 = 4.
+        for literal in ["\"a $y b\"", "\"a {$y} b\"", "\"a ${y} b\""] {
+            assert_halstead_counts::<PhpParser>(
+                &format!("<?php\n$s = {literal};\n$t = {literal};\n"),
+                "foo.php",
+                [2, 4, 3, 4],
+                &format!("interpolation {literal}"),
+            );
+        }
+    }
+
+    #[test]
+    fn php_compound_statement_brace_still_counts() {
+        // Control for #1314: the guard is scoped to the four
+        // interpolating wrappers, so a real block keeps its `{}`. A
+        // guard widened to every `LBRACE` would take `{}` out of the
+        // operator set entirely and fail here.
+        //
+        // expected: operators `function`, `()`, `{}` × 2, `if`,
+        // `return`, `;` → n1 = 6, N1 = 8. Operands `f`, `1`, `2` →
+        // n2 = N2 = 3.
+        check_metrics::<PhpParser>(
+            "<?php\nfunction f() { if (1) { return 2; } }\n",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operators(), 6);
+                assert_eq!(metric.halstead.total_operators(), 8);
+                assert_eq!(metric.halstead.unique_operands(), 3);
+                assert_eq!(metric.halstead.total_operands(), 3);
+            },
+        );
+    }
+
+    #[test]
+    fn php_interpolation_guard_is_parent_scoped_not_ancestor_scoped() {
+        // The input that separates the parent-scoped guard from the
+        // ancestor-scanning mutant — the mutant #1256's post-mortem
+        // says survives every ordinary fixture. PHP is one of only two
+        // languages in #1314 where such an input exists: a closure
+        // inside a complex interpolation puts a *compound-statement*
+        // brace under an `encapsed_string` ancestor while its parent is
+        // the `compound_statement`. An ancestor scan swallows it.
+        //
+        // expected: operators `=`, `;` × 2, `->`, `()` × 2, `function`,
+        // `{}`, `return` → n1 = 7, N1 = 9. Operands `$s`, `$o`, `m`,
+        // `1` → n2 = N2 = 4. Under the ancestor-scoped mutant the
+        // closure's brace vanishes: n1 = 6, N1 = 8.
+        check_metrics::<PhpParser>(
+            "<?php\n$s = \"{$o->m(function() { return 1; })}\";\n",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operators(), 7);
+                assert_eq!(metric.halstead.total_operators(), 9);
+                assert_eq!(metric.halstead.unique_operands(), 4);
+                assert_eq!(metric.halstead.total_operands(), 4);
+            },
+        );
+    }
+
+    #[test]
     fn elixir_operators_and_operands() {
         // Exercises every Halstead family classified in Elixir's
         // `get_op_type`: control-flow keywords (`do`, `end`, `fn`),
@@ -4772,15 +4905,20 @@ f() {
         // `Regex` as a further ancestor, so an ancestor scan would
         // swallow it. Every other fixture in this file passes under
         // both spellings. Two interpolations, so the mutant moves both
-        // n1 (3 → 2) and N1 (5 → 3).
+        // n1 (2 → 1) and N1 (3 → 1).
         //
-        // expected: operators `=`, `#{` × 2, `/` × 2 → n1 = 3, N1 = 5.
-        // Operands `w`, `p`, `q`, `r`, `t` → n2 = N2 = 5; the wrapping
-        // `Regex` is skipped because it carries an `Interpolation`
-        // child (the #180 double-count guard).
+        // expected: operators `=`, `/` × 2 → n1 = 2, N1 = 3. Operands
+        // `w`, `p`, `q`, `r`, `t` → n2 = N2 = 5; the wrapping `Regex`
+        // is skipped because it carries an `Interpolation` child (the
+        // #180 double-count guard).
+        //
+        // Was n1 = 3, N1 = 5 until #1314 dropped `#{` from the operator
+        // arm. The mutant still moves both axes, so this fixture is as
+        // discriminating as it was — it just no longer counts the two
+        // interpolation openers alongside the two divisions.
         check_metrics::<RubyParser>("w = /a#{p / q}c#{r / t}b/\n", "foo.rb", |metric| {
-            assert_eq!(metric.halstead.unique_operators(), 3);
-            assert_eq!(metric.halstead.total_operators(), 5);
+            assert_eq!(metric.halstead.unique_operators(), 2);
+            assert_eq!(metric.halstead.total_operators(), 3);
             assert_eq!(metric.halstead.unique_operands(), 5);
             assert_eq!(metric.halstead.total_operands(), 5);
         });
@@ -4813,6 +4951,55 @@ f() {
                 "Ruby::SLASH must be the delimiter kind for `{source}`"
             );
         }
+    }
+
+    #[test]
+    fn ruby_interpolation_opener_is_not_an_operator() {
+        // Behaviour change, not a fabrication fix: #1314 drops
+        // `HASHLBRACE` from Ruby's operator arm. `#{` is a token of its
+        // own here — unlike PHP's `{`, which aliases the
+        // compound-statement brace — so nothing was being miscounted;
+        // the question was whether an interpolation opener is an
+        // operation at all, and across the five interpolating languages
+        // three already said no. Ruby Halstead operator counts drop for
+        // interpolated literals as a result.
+        //
+        // Asserted as an invariance: the interpolated and plain
+        // spellings of one string must now score identically, which is
+        // the policy rather than a magic number. Before the change the
+        // interpolated row was n1 = 2, N1 = 3.
+        //
+        // expected per row: operator `=` × 2 → n1 = 1, N1 = 2; operands
+        // `s`, `t`, and the literal's content contribution × 2 →
+        // n2 = 3, N2 = 4.
+        for literal in ["\"a #{y} b\"", "\"a b\""] {
+            assert_halstead_counts::<RubyParser>(
+                &format!("s = {literal}\nt = {literal}\n"),
+                "foo.rb",
+                [1, 2, 3, 4],
+                &format!("literal {literal}"),
+            );
+        }
+    }
+
+    #[test]
+    fn ruby_interpolation_opener_drop_covers_every_literal() {
+        // `HASHLBRACE` is one arm, but it fires under every Ruby
+        // literal that interpolates, so the drop is not specific to
+        // double-quoted strings. A symbol and a regex — two literals
+        // whose `#{…}` reaches the same token — must contribute no
+        // operator for the opener either.
+        //
+        // expected: operator `=` × 3 → n1 = 1, N1 = 3. Operands `y`,
+        // `1`, `a`, `b`, plus the two interpolated `y` references →
+        // n2 = 4, N2 = 6. Before the change each `#{` added one →
+        // n1 = 2, N1 = 5.
+        check_metrics::<RubyParser>("y = 1\na = :\"s#{y}\"\nb = /r#{y}/\n", "foo.rb", |metric| {
+            assert_eq!(metric.halstead.unique_operators(), 1);
+            assert_eq!(metric.halstead.total_operators(), 3);
+            assert_eq!(metric.halstead.unique_operands(), 4);
+            assert_eq!(metric.halstead.total_operands(), 6);
+        });
     }
 
     /// Comprehensive iRules Halstead test exercising every operator family

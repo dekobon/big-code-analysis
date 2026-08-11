@@ -67,9 +67,22 @@ impl Getter for RubyCode {
             | R::Undef2 | R::Alias2
             // Logical / definedness keywords
             | R::And | R::Or | R::Not | R::DefinedQMARK
-            // Structural punctuation acting as operators. Only the
-            // *opening* delimiter counts (the pair folds to one glyph in
-            // `get_operator_id_as_str`); the former closing arms
+            // Structural punctuation acting as operators. `HASHLBRACE`
+            // — the `#{` interpolation opener — was here until #1314
+            // and is deliberately gone: an interpolation opener is
+            // spelling rather than an operation, the interpolated
+            // expression's own operators being counted already. Unlike
+            // PHP's `{`, Ruby's is a token of its own, so it needs no
+            // parent guard; dropping the arm is the whole change, and
+            // it applies to every literal that interpolates — string,
+            // symbol, regex, heredoc, subshell. See the PHP sibling in
+            // `src/getter/php.rs` for the cross-language measurement
+            // this policy rests on. This half is a behaviour change,
+            // not a fabrication fix: Ruby Halstead operator counts drop
+            // for interpolated literals.
+            //
+            // Only the *opening* delimiter counts (the pair folds to
+            // one glyph in `get_operator_id_as_str`); the former closing arms
             // (`RPAREN`/`RPAREN2`/`RBRACE`/`RBRACK`) double-counted every
             // balanced pair, inflating n1/N1 (#695). The `LBRACKRBRACK` /
             // `LBRACKRBRACKEQ` indexer *method names* below (`def [](i)`)
@@ -81,7 +94,7 @@ impl Getter for RubyCode {
             | R::LPAREN | R::LPAREN2
             | R::LBRACE | R::LBRACK | R::LBRACK2 | R::LBRACK3
             | R::COMMA | R::SEMI | R::DOT | R::COLONCOLON | R::COLONCOLON2 | R::AMPDOT
-            | R::COLON | R::COLON2 | R::HASHLBRACE | R::DASHGT
+            | R::COLON | R::COLON2 | R::DASHGT
             // Method-name operator markers (`def +@`, `def -@`, `def ~@`)
             // and indexer methods.
             | R::PLUSAT | R::DASHAT | R::TILDEAT

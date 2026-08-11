@@ -30,15 +30,56 @@ impl Getter for PhpCode {
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> HalsteadType {
         use Php::*;
-        // FIXME(#1314): `LBRACE` is both the compound-statement
-        // brace and the complex-interpolation opener (documented
-        // below for the operand decision), so `"dq {$y} end"`
-        // fabricates a block. Unlike #1312's Ruby/Perl mirrors this
-        // needs a policy call first: Kotlin's `${` and C#'s
-        // `interpolation_brace` are distinct kinds and are not
-        // counted, while Ruby's `#{` is. Settle the rule across all
-        // four before guarding here.
         match node.kind_id().into() {
+            // String-interpolation opener. `LBRACE` is *both* the
+            // compound-statement brace and the complex-interpolation
+            // opener, so `"dq {$y} end"` reported a `{}` operator —
+            // and reported it against the same vocabulary entry a real
+            // block uses, which no other language does (#1314).
+            //
+            // An interpolation opener is spelling, not an operation:
+            // the interpolated expression's own operators are already
+            // counted, and no reader performs a `{`. Measured across
+            // the five interpolating languages here, `[n1, N1]` on one
+            // fixture with and without an interpolation: kotlin
+            // [5,7]->[5,7], csharp [8,11]->[8,11], groovy's `${` (142)
+            // absent from its operator arm, ruby [1,2]->[2,3], php
+            // [2,4]->[3,5]. Three of five already declined to count it;
+            // this arm and the Ruby `#{` drop in the same commit make
+            // it five of five.
+            //
+            // Four parents, not one. The opener is a direct child of
+            // `encapsed_string` (`"{$y}"`), of `heredoc_body` — the
+            // body, not `heredoc` — of `shell_command_expression`
+            // (`` `ls {$y}` ``), and of `dynamic_variable_name`, which
+            // covers both the in-string `"${y}"` form and a bare
+            // `${$y}` variable-variable. `"${y}"` is deprecated as of
+            // PHP 8.2 and removed in 9.0, but the grammar still parses
+            // it and it is still in the wild.
+            //
+            // Parent, not ancestor, and PHP is one of only two
+            // languages in #1314 where that is observable: a closure
+            // inside an interpolation (`"{$o->m(function() { … })}"`)
+            // puts a compound-statement brace under an
+            // `encapsed_string` ancestor. Pinned by
+            // `php_interpolation_guard_is_parent_scoped_not_ancestor_scoped`.
+            //
+            // A literal brace in string text (`"lit { brace"`) never
+            // reaches here — the grammar folds it into `string_content`
+            // — so nothing is over-suppressed.
+            LBRACE
+                if matches!(
+                    ancestors.parent(node).map(|p| p.kind_id().into()),
+                    Some(
+                        EncapsedString
+                            | HeredocBody
+                            | ShellCommandExpression
+                            | DynamicVariableName
+                    )
+                ) =>
+            {
+                HalsteadType::Unknown
+            }
             // Operator: control-flow keywords
             If | Else | Elseif | Endif
             | Switch | Case | Default | Endswitch
