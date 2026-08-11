@@ -40,13 +40,14 @@ impl Getter for PhpCode {
             // An interpolation opener is spelling, not an operation:
             // the interpolated expression's own operators are already
             // counted, and no reader performs a `{`. Measured across
-            // the five interpolating languages here, `[n1, N1]` on one
+            // the six interpolating languages here, `[n1, N1]` on one
             // fixture with and without an interpolation: kotlin
             // [5,7]->[5,7], csharp [8,11]->[8,11], groovy's `${` (142)
             // absent from its operator arm, ruby [1,2]->[2,3], php
-            // [2,4]->[3,5]. Three of five already declined to count it;
-            // this arm and the Ruby `#{` drop in the same commit make
-            // it five of five.
+            // [2,4]->[3,5], and elixir counting it through the same
+            // `HASHLBRACE` token as Ruby. Three of six already
+            // declined to count it; this arm plus the Ruby and Elixir
+            // `#{` drops on this branch make it six of six.
             //
             // Four parents, not one. The opener is a direct child of
             // `encapsed_string` (`"{$y}"`), of `heredoc_body` — the

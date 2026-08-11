@@ -47,7 +47,7 @@ impl Getter for TclCode {
             // Guarding that kind too would drop every real block, so
             // closing it needs command-name recognition
             // (grammar-dispatch §9) rather than another kind arm —
-            // tracked separately. iRules carries the twin.
+            // FIXME(#1318). iRules carries the twin.
             Tcl::LBRACE
                 if ancestors.parent_has_kind(node, Tcl::BracedWordSimple as u16) =>
             {
