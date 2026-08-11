@@ -67,12 +67,15 @@ impl Getter for PerlCode {
             // shares `TransliterationTrOrY`, so the two fold to one
             // entry, which is what synonyms should do.
             //
-            // Their pattern and replacement text is invisible to this
-            // grammar either way: `bca dump` shows
-            // `substitution_pattern_s` emitting only the `s` keyword
-            // and its `start` / `separator` / `end` delimiters, with no
-            // content node, so nothing is lost by not treating them as
-            // values. `get_operator_id_as_str` below renders them
+            // Their *literal* pattern and replacement text is
+            // invisible either way: `bca dump` shows `s/a/b/` emitting
+            // only the `s` keyword and its `start` / `separator` /
+            // `end` delimiters, with no content node, so classifying
+            // them as operators loses nothing that treating them as
+            // values would have kept. An *interpolated* `s/$x/$y/` does
+            // emit `Interpolation` children, and those count as
+            // operands under either choice — so the reason for the
+            // split is the semantic one above, not this. `get_operator_id_as_str` below renders them
             // `s///` and `tr///` rather than as raw kind names.
             | P::SubstitutionPatternS | P::TransliterationTrOrY
                 => HalsteadType::Operator,

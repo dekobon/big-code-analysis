@@ -24,21 +24,30 @@ impl Getter for TclCode {
             // when its parent is that node — the compound-leaf guard of
             // grammar-dispatch section 5.
             //
-            // The discriminator is clean, and that is what makes a
-            // kind-scoped guard safe here where it would not be
-            // elsewhere: every *script* body is a `BracedWord` (88) —
-            // verified across `proc`, `if`, `catch`, `eval`, `after`
-            // and `uplevel` — an `if`/`while` condition is an `Expr`
-            // (97), and a `proc` parameter list is `Arguments` (94).
-            // All three keep their braces as operators.
+            // A *script* body is a `BracedWord` (88) — verified across
+            // `proc`, `if`, `catch`, `eval`, `after` and `uplevel` — an
+            // `if`/`while` condition is an `Expr` (97), and a `proc`
+            // parameter list is `Arguments` (94). All three keep their
+            // braces as operators, which is what makes keying the guard
+            // on `BracedWordSimple` safe.
             //
-            // Parent, not ancestor, though the distinction is
-            // unobservable: a braced word contains only `SimpleWord`s
-            // and nested `BracedWordSimple`s, so every `{` below one
-            // has it as an immediate parent, and no script body ever
-            // nests inside a value word. Parent scoping is correct by
-            // construction and keeps this arm the shape of its
-            // siblings. iRules carries the twin.
+            // Parent, not ancestor, and here the distinction is
+            // *observable*: the grammar parses a `[…]` command
+            // substitution inside a braced word, so
+            // `set z {x [if {$q} {puts w}] v}` nests an `Expr` and a
+            // `BracedWord` — each with its own `{` — under a
+            // `BracedWordSimple` ancestor. An ancestor scan swallows
+            // both. Pinned by
+            // `tcl_braced_word_guard_is_parent_scoped_not_ancestor_scoped`.
+            //
+            // What this arm does *not* reach: the grammar emits
+            // `BracedWordSimple` only in the value slot of the commands
+            // it special-cases, so `lappend x {a b}` parses its literal
+            // as a `BracedWord` script and still fabricates a `{}`.
+            // Guarding that kind too would drop every real block, so
+            // closing it needs command-name recognition
+            // (grammar-dispatch §9) rather than another kind arm —
+            // tracked separately. iRules carries the twin.
             Tcl::LBRACE
                 if ancestors.parent_has_kind(node, Tcl::BracedWordSimple as u16) =>
             {

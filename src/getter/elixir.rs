@@ -185,7 +185,7 @@ impl Getter for ElixirCode {
             | E::LPAREN | E::LPAREN2 | E::LBRACE
             | E::LBRACK | E::LBRACK2 | E::LTLT | E::GTGT
             | E::COMMA | E::SEMI | E::COLON | E::COLONCOLON | E::DOT
-            | E::DOTDOT | E::DOTDOTDOT | E::PERCENT | E::HASHLBRACE | E::AT
+            | E::DOTDOT | E::DOTDOTDOT | E::PERCENT | E::AT
             // Arithmetic / unary
             | E::PLUS | E::DASH | E::STAR | E::STARSTAR | E::SLASH
             // Comparison
@@ -218,11 +218,18 @@ impl Getter for ElixirCode {
             // the interpolated expressions are already walked and counted
             // as operands in their own right; counting the wrapping
             // literal as well would double-count the inner identifiers'
-            // contribution (issue #180). The `#{` marker is classified
-            // as an operator via `HASHLBRACE` (the closing `}` is not —
-            // #695 removed every closing-delimiter arm), so an
-            // interpolated literal still adds operator weight without
-            // inflating `N2`.
+            // contribution (issue #180).
+            //
+            // The `#{` marker itself contributes nothing. It was an
+            // operator via `HASHLBRACE` until #1314, which settled the
+            // rule across every interpolating language: an
+            // interpolation opener is spelling, not an operation, and
+            // the interpolated expression's own operators are counted
+            // either way. Elixir spells the marker with the *same*
+            // token as Ruby, so leaving it counted here would have made
+            // the two disagree on one construct — the divergence that
+            // rule exists to remove. Elixir Halstead operator counts
+            // drop for interpolated strings, charlists and sigils.
             E::String | E::Charlist | E::Sigil => {
                 Self::string_operand_type(node, &[E::Interpolation as u16])
             }

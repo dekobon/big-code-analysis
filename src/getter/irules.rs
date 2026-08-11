@@ -20,10 +20,10 @@ impl Getter for IrulesCode {
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> HalsteadType {
         match node.kind_id().into() {
             // Braced-word delimiter punctuation — the twin of the Tcl
-            // arm, which carries the derivation (#1314). The same
-            // discriminator holds at this grammar's own ids: handler
-            // and `if` bodies are `BracedWord` (132), conditions are
-            // `Expr` (141), and only the value form is
+            // arm, which carries the derivation and both caveats
+            // (#1314). The same split holds at this grammar's own ids:
+            // handler and `if` bodies are `BracedWord` (132),
+            // conditions are `Expr` (141), and only the value form is
             // `BracedWordSimple` (133).
             Irules::LBRACE
                 if ancestors.parent_has_kind(node, Irules::BracedWordSimple as u16) =>

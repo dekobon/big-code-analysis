@@ -508,16 +508,19 @@ for historical reference.
 
 ### Changed
 
-- Ruby's `#{` interpolation opener no longer counts as a Halstead
-  operator. Unlike PHP's `{`, which aliases the compound-statement
-  brace and was fabricating a block (see Fixed), Ruby's is a token of
-  its own and nothing was miscounted — this is a deliberate change of
-  rule, so that the five interpolating languages agree. Kotlin, C# and
-  Groovy already declined to count theirs; an interpolation opener is
-  spelling rather than an operation, and the interpolated expression's
-  own operators are counted either way. Ruby Halstead operator counts
-  drop for every literal that interpolates: string, symbol, regex,
-  heredoc and subshell (#1314).
+- Ruby's and Elixir's `#{` interpolation opener no longer counts as a
+  Halstead operator. Unlike PHP's `{`, which aliases the
+  compound-statement brace and was fabricating a block (see Fixed),
+  `#{` is a token of its own and nothing was miscounted — this is a
+  deliberate change of rule, so that the six interpolating languages
+  agree. Kotlin, C# and Groovy already declined to count theirs; an
+  interpolation opener is spelling rather than an operation, and the
+  interpolated expression's own operators are counted either way. Ruby
+  and Elixir spell the marker with the same token, so leaving either
+  counted would have made the two disagree on one construct. Halstead
+  operator counts drop for every literal that interpolates: Ruby
+  strings, symbols, regexes, heredocs and subshells, and Elixir
+  strings, charlists and sigils (#1314).
 - The `enums` generator's `sanitize_string` / `get_token_names` lost their
   `escape: bool` parameter. No production caller passed `true`: #862
   established that the JSON generator, the last one, was double-escaping
