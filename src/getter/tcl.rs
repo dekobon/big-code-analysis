@@ -120,8 +120,7 @@ impl Getter for TclCode {
             // listed defensively so a grammar bump that starts emitting it
             // classifies it identically.
             Tcl::Id | Tcl::Id2 => {
-                if ancestors.parent_has_kind(node, Tcl::VariableSubstitution as u16)
-                {
+                if ancestors.parent_has_kind(node, Tcl::VariableSubstitution as u16) {
                     HalsteadType::Unknown
                 } else {
                     HalsteadType::Operand
