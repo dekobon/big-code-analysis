@@ -129,8 +129,7 @@ impl Getter for IrulesCode {
             // target from n2/N2 (#1294). (`Id2` here is a different,
             // non-surfacing token.)
             Irules::Id => {
-                if ancestors.parent_has_kind(node, Irules::VariableSubstitution as u16)
-                {
+                if ancestors.parent_has_kind(node, Irules::VariableSubstitution as u16) {
                     HalsteadType::Unknown
                 } else {
                     HalsteadType::Operand
