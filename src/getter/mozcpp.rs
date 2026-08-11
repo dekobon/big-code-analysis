@@ -109,12 +109,13 @@ impl Getter for MozcppCode {
             | Signed | Unsigned | Long | Short => HalsteadType::Operator,
             Identifier | TypeIdentifier | FieldIdentifier | RawStringLiteral | StringLiteral
             | NumberLiteral | True | False | Null | DOTDOTDOT => HalsteadType::Operand,
-            NamespaceIdentifier => match ancestors.parent(node) {
-                Some(parent) if matches!(parent.kind_id().into(), NamespaceDefinition) => {
-                    HalsteadType::Operand
-                }
-                _ => HalsteadType::Unknown,
-            },
+            // A namespace identifier is an operand only where it
+            // *names* a namespace; the same kind also spells the
+            // qualifier in `ns::thing`, which the final arm leaves
+            // `Unknown` (#1096).
+            NamespaceIdentifier if ancestors.parent_has_kind(node, NamespaceDefinition as u16) => {
+                HalsteadType::Operand
+            }
             _ => HalsteadType::Unknown,
         }
     }
