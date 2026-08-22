@@ -37,7 +37,6 @@
 //! of the limit it breached. One walk at the soft limit therefore yields
 //! coverage tags that are correct for both tiers.
 
-use super::super::*;
 use super::*;
 
 /// Minimum number of soft-band offenders before a shared value is called

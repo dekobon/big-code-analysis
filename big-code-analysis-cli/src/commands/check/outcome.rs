@@ -1,6 +1,5 @@
 //! `bca check` exit-code outcome classification (#385).
 
-use super::super::*;
 use super::*;
 
 /// Severity category of a `bca check` run, used to derive the process

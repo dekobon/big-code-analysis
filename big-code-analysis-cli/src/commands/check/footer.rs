@@ -1,6 +1,5 @@
 //! `bca check` per-file stderr summary footer rendering.
 
-use super::super::*;
 use super::*;
 
 struct FooterRow<'a> {

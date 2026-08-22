@@ -69,7 +69,7 @@ const FINGERPRINT_BYTE_LEN: usize = 16;
 ///
 /// Returns any [`io::Error`] produced by `writer` while emitting
 /// the JSON document, or a `serde_json::Error` (mapped to
-/// `io::Error` via [`io::Error::new`]) if a record cannot be
+/// `io::Error` via `io::Error::new`) if a record cannot be
 /// serialised.
 pub fn write_code_climate<W: Write>(offenders: &[OffenderRecord], mut writer: W) -> io::Result<()> {
     if offenders.is_empty() {

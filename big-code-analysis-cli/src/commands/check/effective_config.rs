@@ -1,6 +1,5 @@
 //! `bca check --print-effective-config`: the resolved-config view and its serializer.
 
-use super::super::*;
 use super::*;
 use crate::walk_seed::ManifestExcludes;
 

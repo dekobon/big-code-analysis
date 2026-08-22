@@ -2,7 +2,6 @@
 
 use std::collections::BTreeSet;
 
-use super::super::*;
 use super::*;
 
 /// Default soft-tier scale applied when `--tier=soft` is requested with

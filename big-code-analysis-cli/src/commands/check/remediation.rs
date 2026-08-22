@@ -1,6 +1,5 @@
 //! `bca check` stderr remediation block (next-steps, baseline-refresh command).
 
-use super::super::*;
 use super::*;
 
 pub(crate) fn format_remediation_block(
