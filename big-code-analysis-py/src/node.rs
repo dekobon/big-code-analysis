@@ -55,7 +55,7 @@
 //! the iterator's own keep-alive.
 //!
 //! `tree_sitter::Tree`, `Node`, and `TreeCursor` are `Send + Sync` under
-//! the pinned `=0.26.11`, so the pyclasses are sendable (no `unsendable`)
+//! the pinned `=0.26.12`, so the pyclasses are sendable (no `unsendable`)
 //! and compose with `ThreadPoolExecutor` fan-out like [`PyAst`] itself.
 
 use big_code_analysis::tree_sitter::{Node as TsNode, TreeCursor};
