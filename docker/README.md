@@ -60,6 +60,37 @@ The container mounts this repository at
 (`id -u` / `id -g`) so files written in the mounted checkout keep the right
 ownership on the host.
 
+One directory inside that checkout is deliberately *not* shared:
+`big-code-analysis-py/.venv`. `make dev-env-run` mounts
+`~/.cache/big-code-analysis-dev/py-venv` over it (`$XDG_CACHE_HOME` wins
+where it is set), so the container gets its own virtualenv. A venv records absolute interpreter paths in
+`pyvenv.cfg` and in every console-script shebang, so a single directory
+cannot serve both sides of the bind mount — whichever environment ran
+`uv sync` last owns it, and the other gets
+
+```text
+bash: .venv/bin/mypy: /…/.venv/bin/python: bad interpreter
+```
+
+from `py-typecheck`, `py-test`, `py-stubtest` and friends. Because the
+in-container path is still spelled `.venv`, no `py-*` recipe needs to
+know about the split. Run `make py-bootstrap` once inside the container
+to populate it; the host's own venv contents are untouched.
+
+The cache directory outlives the container, but the container's home —
+and with it the uv-managed interpreter the venv points at — does not. So
+after a `make dev-env-rm` / `make dev-env-run` cycle the cached venv can
+name an interpreter that no longer exists, and uv cannot repair it in
+place because a mount point cannot be deleted. Reset it from the host:
+
+```bash
+rm -rf ~/.cache/big-code-analysis-dev/py-venv/*
+```
+
+then `make py-bootstrap` inside the container again. For the same reason
+`make py-clean` empties `.venv` in place rather than removing it when it
+is the mount point.
+
 ## Authentication
 
 Claude Code state lives in the container's home directory, which persists
