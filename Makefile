@@ -1353,7 +1353,14 @@ lint:
 # `.SHELLFLAGS := -eu -o pipefail -c`.
 py-clean:
 	@echo "Removing Python build artifacts..."
-	@rm -rf "$(BCA_PY_DIR)/.venv"
+	@# `.venv` is a bind-mount point inside the dev container
+	@# (see dev-env-run), and a mount point cannot be unlinked:
+	@# plain `rm -rf` would abort the recipe with EBUSY. Empty it in
+	@# place when the directory itself refuses to go away.
+	@rm -rf "$(BCA_PY_DIR)/.venv" 2>/dev/null || \
+	  { find "$(BCA_PY_DIR)/.venv" -mindepth 1 -maxdepth 1 \
+	      -exec rm -rf {} + && \
+	    echo "  .venv is a mount point; emptied it in place."; }
 	@rm -rf "$(BCA_PY_DIR)/.pytest_cache"
 	@rm -rf "$(BCA_PY_DIR)/.mypy_cache"
 	@rm -rf "$(BCA_PY_DIR)/.ruff_cache"
@@ -2095,6 +2102,25 @@ DEV_IMAGE      := big-code-analysis-dev:latest
 DEV_CONTAINER  := big-code-analysis-dev
 DEV_MOUNT      := /home/dev/source/big-code-analysis
 
+# The container needs its own big-code-analysis-py/.venv. A venv records
+# absolute interpreter paths in every console-script shebang and in
+# pyvenv.cfg, so the one directory cannot serve both sides of the bind
+# mount: whichever environment ran `uv sync` last owns it, and the other
+# gets `bad interpreter: .../.venv/bin/python: No such file or directory`
+# from every py-* recipe. Mounting a host-side directory over that path
+# keeps the in-container path spelled `.venv`, so none of the recipes
+# that resolve `$(BCA_PY_DIR)/.venv/bin/*` need to know this exists.
+# Ownership lines up because dev-env-build passes the caller's UID/GID.
+#
+# The cache outlives the container while the container's home — and the
+# uv-managed interpreter the venv points at — does not, so after
+# `dev-env-rm` + `dev-env-run` a stale venv can name a missing
+# interpreter. uv's remediation is to delete and recreate `.venv`, which
+# cannot work on a mount point; empty the cache dir on the host instead.
+# See docker/README.md.
+DEV_VENV       := $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/big-code-analysis-dev/py-venv
+DEV_PY_VENV    := $(DEV_MOUNT)/big-code-analysis-py/.venv
+
 dev-env-build:
 	docker build \
 	  --build-arg USER_UID=$(shell id -u) \
@@ -2103,13 +2129,24 @@ dev-env-build:
 	  --file $(BASE_DIR)Dockerfile "$(BASE_DIR)"
 
 dev-env-run:
+	mkdir -p "$(DEV_VENV)"
+	@# Pre-create the mount target too. Docker mounts the repo first and
+	@# then creates the deeper target if it is missing — as root, and on
+	@# the host, since that path lives inside the bind-mounted checkout.
+	@# A contributor who has not yet run `make py-bootstrap` on the host
+	@# would otherwise find a root-owned `.venv` in their working tree
+	@# and host-side `uv sync` failing with permission denied.
+	mkdir -p "$(BCA_PY_DIR)/.venv"
 	docker run --detach --init \
 	  --name $(DEV_CONTAINER) \
 	  --volume "$(BASE_DIR):$(DEV_MOUNT)" \
+	  --volume "$(DEV_VENV):$(DEV_PY_VENV)" \
 	  --env ANTHROPIC_API_KEY \
 	  --env CODEGRAPH_LLM_API_KEY \
 	  $(DEV_IMAGE) sleep infinity
 	@echo "Started $(DEV_CONTAINER). Open a shell with: make dev-env-shell"
+	@echo "Run 'make py-bootstrap' inside it once to populate $(DEV_PY_VENV)"
+	@echo "  (backed by $(DEV_VENV) on the host)."
 
 dev-env-shell:
 	docker exec --interactive --tty --workdir $(DEV_MOUNT) $(DEV_CONTAINER) bash
