@@ -508,6 +508,21 @@ for historical reference.
 
 ### Changed
 
+- The `tree-sitter` runtime is `=0.26.12`, up one upstream patch
+  release, pinned in lockstep across the root manifest, `enums`, and
+  the five vendored `bca-tree-sitter-*` crates. `tree_sitter` is
+  re-exported from the library root, so the resolved version is visible
+  to consumers. Nothing in the release reaches this workspace's
+  behaviour: `include/tree_sitter/api.h` and the Rust bindings are
+  byte-identical to `0.26.11`, so `TREE_SITTER_LANGUAGE_VERSION` stays
+  at 15 and the vendored `parser.c` sources are unaffected, as is the
+  `Send + Sync` argument the PyO3 bindings rest on. The three C fixes
+  are an error-recovery restart when the parser is already in
+  `ERROR_STATE`, a `has_later_named_siblings` correction in the tree
+  cursor, and query-anchor semantics for skipped quantifiers — the
+  last inert here, since this workspace uses no tree-sitter query API.
+  No metric value moves.
+
 - Ruby's and Elixir's `#{` interpolation opener no longer counts as a
   Halstead operator. Unlike PHP's `{`, which aliases the
   compound-statement brace and was fabricating a block (see Fixed),
