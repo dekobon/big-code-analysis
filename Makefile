@@ -2118,6 +2118,13 @@ DEV_MOUNT      := /home/dev/source/big-code-analysis
 # interpreter. uv's remediation is to delete and recreate `.venv`, which
 # cannot work on a mount point; empty the cache dir on the host instead.
 # See docker/README.md.
+#
+# Default XDG_CACHE_HOME to empty so the `:=` expansion below does not
+# trip `--warn-undefined-variables` when it is unset (the common case
+# off XDG-configured desktops); an environment value still wins, since
+# `?=` only assigns when undefined. Without this the warning fires once
+# per recursive sub-make -- 45 times in one `make pre-commit`.
+XDG_CACHE_HOME ?=
 DEV_VENV       := $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/big-code-analysis-dev/py-venv
 DEV_PY_VENV    := $(DEV_MOUNT)/big-code-analysis-py/.venv
 
