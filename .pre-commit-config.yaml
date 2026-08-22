@@ -21,7 +21,7 @@ repos:
     # locked version, so the comment is documentation rather than the
     # mechanism it used to be (#1230). `ruff-check` and `ruff-format`
     # are the current hook IDs (the legacy `ruff` alias is deprecated).
-    rev: v0.16.2
+    rev: v0.16.4
     hooks:
     -   id: ruff-check
         args: [--fix]
