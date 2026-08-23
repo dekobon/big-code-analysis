@@ -37,7 +37,8 @@ pub mod vcs_fixture;
 
 #[allow(dead_code)]
 const REPO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/", "repositories");
-const SNAPSHOT_PATH: &str = concat!(
+#[allow(dead_code)]
+pub const SNAPSHOT_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/",
     "repositories/big-code-analysis-output/snapshots"
@@ -55,6 +56,41 @@ struct Config {
     /// can still silently skip its snapshot. Shared across the runner's
     /// consumer threads, hence the atomic.
     snapshotted: Arc<AtomicUsize>,
+}
+
+/// The on-disk snapshot file [`act_on_file`] asserts for `source_file`.
+///
+/// This is the single source of the corpus-file-to-snapshot mapping:
+/// `act_on_file` derives insta's `snapshot_path` from it, and the orphan
+/// guard in [`compare_rca_output_with_files_under`] uses it to decide
+/// which on-disk snapshots are accounted for. Keeping both on one helper
+/// means a mapping change cannot make the guard silently disagree with
+/// what insta actually writes.
+fn expected_snapshot_path(source_root: &Path, source_file: &Path) -> PathBuf {
+    Path::new(SNAPSHOT_PATH)
+        .join(source_file.strip_prefix(source_root).unwrap())
+        .with_added_extension("snap")
+}
+
+/// The `.snap` files under `snapshot_root` that `expected` does not
+/// account for, sorted for deterministic reporting. `.snap.new` files
+/// (pending, not yet accepted) and hidden entries are ignored, and a
+/// missing `snapshot_root` yields no orphans rather than an error.
+#[allow(dead_code)]
+pub fn orphan_snapshots(snapshot_root: &Path, expected: &HashSet<PathBuf>) -> Vec<PathBuf> {
+    let mut orphans: Vec<PathBuf> = WalkDir::new(snapshot_root)
+        .into_iter()
+        .filter_entry(|e| !is_hidden(e))
+        .filter_map(Result::ok)
+        .map(walkdir::DirEntry::into_path)
+        .filter(|path| {
+            path.is_file()
+                && path.extension().is_some_and(|ext| ext == "snap")
+                && !expected.contains(path)
+        })
+        .collect();
+    orphans.sort();
+    orphans
 }
 
 fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
@@ -90,10 +126,8 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
 
     cfg.snapshotted.fetch_add(1, Ordering::Relaxed);
 
-    insta::with_settings!({snapshot_path => Path::new(SNAPSHOT_PATH)
-                .join(path.strip_prefix(&cfg.source_root).unwrap())
-                .parent()
-                .unwrap(),
+    let snapshot_file = expected_snapshot_path(&cfg.source_root, &path);
+    insta::with_settings!({snapshot_path => snapshot_file.parent().unwrap(),
                 prepend_module_to_snapshot => false,
                 sort_maps => true,
     }, {
@@ -239,24 +273,12 @@ pub fn compare_rca_output_with_files_under(
     // addition or corpus change must delete the snapshots it strands.
     let expected_snapshots: HashSet<PathBuf> = paths
         .iter()
-        .map(|path| {
-            Path::new(SNAPSHOT_PATH)
-                .join(path.strip_prefix(source_root).unwrap())
-                .with_added_extension("snap")
-        })
+        .map(|path| expected_snapshot_path(source_root, path))
         .collect();
-    let mut orphans: Vec<PathBuf> = WalkDir::new(Path::new(SNAPSHOT_PATH).join(repo_name))
-        .into_iter()
-        .filter_entry(|e| !is_hidden(e))
-        .filter_map(Result::ok)
-        .map(walkdir::DirEntry::into_path)
-        .filter(|path| {
-            path.is_file()
-                && path.extension().is_some_and(|ext| ext == "snap")
-                && !expected_snapshots.contains(path)
-        })
-        .collect();
-    orphans.sort();
+    let orphans = orphan_snapshots(
+        &Path::new(SNAPSHOT_PATH).join(repo_name),
+        &expected_snapshots,
+    );
     assert!(
         orphans.is_empty(),
         "{} orphan snapshot(s) under snapshots/{repo_name} match no \
