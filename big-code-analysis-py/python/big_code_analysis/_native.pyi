@@ -512,8 +512,9 @@ def analyze(
       matches the CLI walker's ``is_generated`` predicate — see
       ``skip_generated`` below.
 
-    A UTF-8 / UTF-16 BOM is stripped and CR/CRLF line endings are
-    normalised to LF before analysis, matching the CLI byte-for-byte.
+    A UTF-8 BOM is stripped and CR/CRLF line endings are normalised to
+    LF before analysis, matching the CLI byte-for-byte. A UTF-16 BOM is
+    not stripped — it is one of the binary signals above (#803).
     Callers must therefore handle the optional return:
 
     .. code-block:: python
@@ -699,20 +700,30 @@ def analyze_batch(
     metrics: Sequence[str] | None = None,
     vcs: bool = False,
     vcs_per_function: bool = False,
-) -> list[FuncSpaceDict | AnalysisFailure]:
+) -> list[FuncSpaceDict | AnalysisFailure | None]:
     """Compute metrics for every path in ``paths``.
 
     Returns a list whose elements preserve the input order, so
     ``zip(paths, results)`` lines up by index **when no path is
     skipped**. Each element is either:
 
-    * a ``dict`` matching :func:`analyze`'s output shape, or
-    * an :class:`AnalysisFailure` describing the per-file failure.
+    * a ``dict`` matching :func:`analyze`'s output shape,
+    * an :class:`AnalysisFailure` describing the per-file failure, or
+    * ``None`` for a file the read gate declines to parse — three
+      bytes or fewer, a UTF-16 BOM, or a leading window that is not
+      valid UTF-8. This is the same ``None`` :func:`analyze` returns
+      for those files, and it appears only under
+      ``skip_generated=False``.
 
     A path that is skipped (``skip_generated=True`` and the file is
-    generated) produces **no** element, so with skipping enabled the
-    result list can be shorter than the input iterable. Pass
-    ``skip_generated=False`` to guarantee one element per input.
+    generated *or* declined by the read gate) produces **no** element,
+    so with skipping enabled the result list can be shorter than the
+    input iterable. Pass ``skip_generated=False`` to guarantee one
+    element per input: the generated-file filter is then off, and the
+    read gate — which is unconditional — holds its slot with ``None``
+    instead of dropping it (#1238). Before that fix a tiny or binary
+    file silently shrank the list even with ``skip_generated=False``,
+    so the endorsed ``zip`` mis-paired every later entry.
 
     The function **never raises on per-file errors** — a missing
     file, an unknown extension, or a parser failure becomes an
@@ -759,7 +770,8 @@ def analyze_batch(
     CLI walker and :func:`analyze`'s ``None`` return. This default
     flipped at 2.0 — the pre-2.0 ``analyze_batch`` hardcoded
     ``skip_generated=False`` (always one element per input). Pass
-    ``skip_generated=False`` to restore that behaviour.
+    ``skip_generated=False`` to restore that behaviour; a file the read
+    gate declines occupies its slot as ``None`` rather than a ``dict``.
 
     The GIL is released across each file's read + tree-sitter
     parse via PyO3's ``Python::detach``, so a multi-threaded
@@ -795,7 +807,7 @@ def analyze_paths(
     metrics: Sequence[str] | None = None,
     vcs: bool = False,
     vcs_per_function: bool = False,
-) -> list[FuncSpaceDict | AnalysisFailure]:
+) -> list[FuncSpaceDict | AnalysisFailure | None]:
     """Walk one or more path seeds and analyse every discovered file (#658).
 
     Each positional ``path`` may be a file or a directory; directories
@@ -826,8 +838,15 @@ def analyze_paths(
     Returns the :func:`analyze_batch` result shape with the same
     never-raise semantics: a per-file failure becomes an
     :class:`AnalysisFailure` element rather than a raise, and a generated
-    file (under ``skip_generated=True``) yields no element. The result
-    order follows the walk, not any caller-supplied ordering.
+    file (under ``skip_generated=True``) yields no element. Under
+    ``skip_generated=False`` a discovered file the read gate declines to
+    parse (tiny, UTF-16-BOM, or binary) contributes a ``None`` element
+    (#1238). There is no caller-supplied input position to pair it
+    against here — the result order follows the walk — so it is not
+    there for a ``zip``; it keeps a file the walk *found* but could not
+    analyse visible in the output instead of dropping it. On a tree with
+    many binary assets that is a lot of elements; filter with
+    ``[r for r in results if r is not None]`` if you only want records.
 
     A seed that does not exist (or whose symlink dangles) is surfaced as
     an :class:`AnalysisFailure` element (``error_kind="IoError"``,

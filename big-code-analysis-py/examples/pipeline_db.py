@@ -94,7 +94,10 @@ def run(
     dashboard. Pass ``False`` to opt into the batch entry point with
     ``skip_generated=False`` explicitly, ingesting every file —
     generated or not — with one result element per input so the
-    ``zip(..., strict=True)`` against ``inputs`` holds.
+    ``zip(..., strict=True)`` against ``inputs`` holds. A file the read
+    gate declines to parse (three bytes or fewer, a UTF-16 BOM, a binary
+    leading window) holds its slot as ``None`` rather than vanishing
+    from the list (#1238), and is bucketed as ``skipped``.
 
     Returns a small summary dict (``analyzed``, ``errors``,
     ``skipped``, ``rows``, ``top_n``) so the caller can assert
@@ -139,15 +142,18 @@ def run(
                 errors += 1
                 print(f"  skip {path}: ({batch_result.error_kind}) {batch_result.error}")
                 continue
+            if batch_result is None:
+                # The read gate declined this file; the slot is held
+                # open so the strict zip above stays aligned (#1238).
+                skipped += 1
+                print(f"  skip {path}: nothing to parse (empty or binary)")
+                continue
             analyzed += 1
             flat_rows.extend(dict(record) for record in bca.flatten_spaces(batch_result))
 
     inserted = _persist(db_path, flat_rows)
     top = _top_n_cyclomatic(db_path, top_n)
-    print(
-        f"persisted {inserted} rows from {analyzed} files "
-        f"({errors} errors, {skipped} generated skipped)"
-    )
+    print(f"persisted {inserted} rows from {analyzed} files ({errors} errors, {skipped} skipped)")
     # ASCII '-' separator (not U+2014 EM DASH) — non-UTF Windows
     # console code pages (cp1252 on default Windows) raise
     # UnicodeEncodeError on the em-dash and crash this happy-path

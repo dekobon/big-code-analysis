@@ -22,10 +22,13 @@ the CLI binary.
 
 * A single `dict` returned by `bca.analyze` or
   `bca.analyze_source`.
-* Any iterable yielding such dicts or `bca.AnalysisFailure`
-  instances (the natural shape of `bca.analyze_batch`'s return
-  value). `AnalysisFailure` entries are skipped silently — they
-  represent files that could not be analyzed, not findings.
+* Any iterable yielding such dicts, `bca.AnalysisFailure`
+  instances, and/or `None` (the natural shape of
+  `bca.analyze_batch`'s return value). `AnalysisFailure` and `None`
+  entries are skipped silently — they represent files for which no
+  record was emitted, not findings.
+* A scalar `None`, the documented return of `bca.analyze` for a
+  skipped file; it yields an empty SARIF run.
 
 ## Thresholds
 

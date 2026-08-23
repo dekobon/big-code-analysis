@@ -179,6 +179,11 @@ def report(paths: list[str]) -> None:
             log.warning(
                 "skip %s (%s): %s", path, slot.error_kind, slot.error
             )
+        elif slot is None:
+            # Nothing to parse: three bytes or fewer, a UTF-16 BOM, or a
+            # binary leading window. The slot is held open so the zip
+            # above stays aligned (#1238) — it is not a failure.
+            log.info("skip %s: empty or binary", path)
         else:
             log.info(
                 "ok %s sloc=%s", path,

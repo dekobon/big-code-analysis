@@ -2,16 +2,16 @@
 
 `bca.analyze_batch(paths)` runs the same analysis as `bca.analyze`
 over every path in an iterable and **never raises on per-file
-errors**: each result element is either an analysis `dict` or a
-`bca.AnalysisFailure` describing the failure. Results preserve input
-order, so `zip(inputs, results)` lines up by index **when no path
-is skipped**. `analyze_batch` shares `analyze`'s keyword-only
-options — `exclude_tests`, `allow_lossy_path`, `skip_generated`
+errors**: each result element is an analysis `dict`, a
+`bca.AnalysisFailure` describing the failure, or `None`. Results
+preserve input order, so `zip(inputs, results)` lines up by index
+**when no path is skipped**. `analyze_batch` shares `analyze`'s
+keyword-only options — `exclude_tests`, `allow_lossy_path`, `skip_generated`
 (default `True`), and `metrics` — so the two entry points are
 behaviour-preserving.
 
 ```python
-{{#include ../../../big-code-analysis-py/examples/batch_processing.py:18:44}}
+{{#include ../../../big-code-analysis-py/examples/batch_processing.py:18:58}}
 ```
 
 A few key contracts:
@@ -30,6 +30,15 @@ A few key contracts:
   (the pre-2.0 default). This default flipped at 2.0 so that
   switching between `analyze` and `analyze_batch` no longer
   silently changes generated-file handling.
+* A file that cannot be parsed at all still holds its slot under
+  `skip_generated=False`, as `None`. The read gate shared with the
+  CLI walker declines a file of three bytes or fewer, one carrying
+  a UTF-16 BOM, and one whose leading window is not valid UTF-8;
+  that gate is unconditional, so before #1238 those files shrank
+  the list even with the flag off and the `zip` above mis-paired
+  every later entry. `None` is the same value single-file
+  `analyze` returns for them, and `bca.to_sarif` skips it, so a
+  batch list can be passed straight through.
 
 ## Walking a directory: `analyze_paths`
 
@@ -52,10 +61,19 @@ a file directly is always analysed regardless of `exclude` — an
 explicit request overrides ignore-style rules — while `include`
 still narrows it by basename. `respect_gitignore=False` opts into
 walking ignored files. The
-result is the same `list[FuncSpaceDict | AnalysisFailure]` shape and
-never-raise contract as `analyze_batch`, and it forwards the same
-`exclude_tests` / `allow_lossy_path` / `skip_generated` / `metrics` /
-`vcs` / `vcs_per_function` kwargs.
+result is the same `list[FuncSpaceDict | AnalysisFailure | None]`
+shape and never-raise contract as `analyze_batch`, and it forwards
+the same `exclude_tests` / `allow_lossy_path` / `skip_generated` /
+`metrics` / `vcs` / `vcs_per_function` kwargs.
+
+The `None` slots reach this entry point too, under
+`skip_generated=False`, one per discovered file the read gate
+declined. There is no caller-supplied ordering to pair against here —
+results follow the walk — so they are not there for a `zip`. What
+they buy is that a file the walk found but could not analyse stays
+visible in the output instead of disappearing from it. On a tree with
+many binary assets that is a lot of `None`s; filter them with
+`[r for r in results if r is not None]` if you only want records.
 
 ## Attaching change-history metrics
 
@@ -77,7 +95,7 @@ sequential sweep. For parallelism, fan the per-file `analyze`
 call out across a thread pool:
 
 ```python
-{{#include ../../../big-code-analysis-py/examples/batch_processing.py:47:59}}
+{{#include ../../../big-code-analysis-py/examples/batch_processing.py:61:73}}
 ```
 
 PyO3's `Python::detach` releases the GIL across each file's read +

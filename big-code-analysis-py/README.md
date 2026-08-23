@@ -282,13 +282,13 @@ page for the full contract.
 
 `bca.analyze_batch(paths)` runs the same analysis as `bca.analyze`
 over every path in an iterable and **never raises on per-file
-errors**: each result element is either an analysis ``dict`` or a
-`bca.AnalysisFailure` describing the failure. Results preserve input
-order, so `zip(inputs, results)` lines up by index **when no path is
-skipped**. `analyze_batch` accepts the same keyword-only options as
-`analyze` — `exclude_tests`, `allow_lossy_path`, `skip_generated`
-(default `True`), `metrics` — so migrating between the two is
-behavior-preserving.
+errors**: each result element is an analysis `dict`, a
+`bca.AnalysisFailure` describing the failure, or `None`. Results
+preserve input order, so `zip(inputs, results)` lines up by index
+**when no path is skipped**. `analyze_batch` accepts the same
+keyword-only options as `analyze` — `exclude_tests`,
+`allow_lossy_path`, `skip_generated` (default `True`), `metrics` — so
+migrating between the two is behavior-preserving.
 
 With the default `skip_generated=True`, a generated file is *skipped*
 and produces no result element (matching single-file `analyze`, which
@@ -296,6 +296,15 @@ returns `None`), so the result list can be shorter than the input.
 This default flipped at 2.0 — the pre-2.0 `analyze_batch` always
 analyzed generated files (`skip_generated=False`); pass that
 explicitly to restore one-element-per-input.
+
+`skip_generated=False` really is one element per input, including for
+files that cannot be parsed at all. The read gate `analyze` shares with
+the CLI walker declines a file of three bytes or fewer, one carrying a
+UTF-16 BOM, and one whose leading window is not valid UTF-8; those hold
+their slot as `None` — the same value single-file `analyze` returns for
+them — rather than dropping out of the list. Before #1238 they dropped
+regardless of the flag, so one binary file in a corpus silently
+mis-attributed every later result to the wrong path.
 
 ```python
 import big_code_analysis as bca
@@ -324,6 +333,10 @@ results = bca.analyze_batch(paths)
 # now zip(paths, results) works
 ```
 
+A `None` slot means "no record emitted": the file exists and was read,
+but there was nothing to parse. `bca.to_sarif` skips those entries, so
+a batch list can be handed to it verbatim.
+
 `bca.AnalysisFailure` is a frozen value type with `path: str`,
 `error: str`, and `error_kind: Literal["UnsupportedLanguage",
 "ParseError", "IoError"]`. It implements `__eq__`, `__hash__`,
@@ -347,8 +360,8 @@ parallel single-file calls. With the 2.0 default `skip_generated=True`,
 `analyze_batch` applies the CLI's `is_generated` walker filter, so a
 generated file is skipped and contributes no result element — the
 result list can be shorter than the input. Pass `skip_generated=False`
-to analyze every file and guarantee one `dict`-or-`AnalysisFailure`
-element per input.
+to analyze every file and guarantee one
+`dict`-or-`AnalysisFailure`-or-`None` element per input.
 
 ## Flatten to records
 
@@ -413,7 +426,9 @@ be observed in later records.
 
 `flatten_spaces` raises `TypeError` if the input is not a mapping;
 callers must filter `None` returns from `bca.analyze` (e.g. when
-`skip_generated=True` matched a generated file) before passing.
+`skip_generated=True` matched a generated file) before passing — and
+likewise the `None` slots `analyze_batch` emits under
+`skip_generated=False`.
 
 ## Errors
 
