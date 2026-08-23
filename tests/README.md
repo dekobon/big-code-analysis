@@ -132,9 +132,9 @@ files the current `tree-sitter-*` grammar mis-parses.
 
 | Language | Submodule | Pinned at | Source files (post-exclude) | Snapshots | Grammar-bug excludes |
 |---|---|---|---|---|---|
-| C++ (DeepSpeech) | `mozilla/DeepSpeech` | `v0.10.0-alpha.3-137-gaa1d2853` | 869 (`*.cc`/`*.cpp`/`*.h`/`*.hh`) | 1047 | 7 files (→ [#83](https://github.com/dekobon/big-code-analysis/issues/83), tracked in [#86](https://github.com/dekobon/big-code-analysis/issues/86)) plus `tensorflow/**` and `kenlm/**` (vendored, ~8500+ files, no snapshot coverage) |
-| JavaScript (pdf.js) | `mozilla/pdf.js` | `65c4a4b3f` | 384 (`*.js`) | 384 | **118** files (→ [#84](https://github.com/dekobon/big-code-analysis/issues/84)) — `tests/corpus/pdf_js_test.rs` is 143 lines, almost entirely this exclude list |
-| Rust (serde) | `serde-rs/serde` | `v1.0.159` | 172 (`*.rs`) | 172 | none — the only clean Pattern-A corpus |
+| C++ (DeepSpeech) | `mozilla/DeepSpeech` | `v0.10.0-alpha.3-137-gaa1d2853` | 1042 (`*.cc`/`*.cpp`/`*.h`/`*.hh`) | 1042 | 5 files (→ [#83](https://github.com/dekobon/big-code-analysis/issues/83), tracked in [#86](https://github.com/dekobon/big-code-analysis/issues/86)) plus `tensorflow/**` and `kenlm/**` (vendored, ~8500+ files, no snapshot coverage) |
+| JavaScript (pdf.js) | `mozilla/pdf.js` | `65c4a4b3f` | 384 (`*.js`) | 384 | none — the mozjs-era 118-file exclude list was retired by [#1282](https://github.com/dekobon/big-code-analysis/issues/1282); every file parses cleanly under the post-[#507](https://github.com/dekobon/big-code-analysis/issues/507) upstream grammar |
+| Rust (serde) | `serde-rs/serde` | `v1.0.159` | 172 (`*.rs`) | 172 | none |
 
 ### Pattern B: synthetic curated fixtures
 

@@ -520,6 +520,16 @@ for historical reference.
 
 ### Changed
 
+- The pdf.js corpus test now covers all 384 files: the 118-entry
+  exclude list frozen in the mozjs-default era (#84) was retired
+  (#1282), since every entry parses without ERROR nodes under the
+  post-#507 upstream `tree-sitter-javascript` grammar. The issue's own
+  probe had reported 3 residual failures, but those were `rg ERROR`
+  matching source text (`MAX_ERROR`, a regex literal) rather than
+  parse-error nodes. The 118 orphaned mozjs-era snapshots were
+  refreshed to current metric output, and the 5 DeepSpeech orphan
+  snapshots (files still excluded under #86) were deleted, so on-disk
+  snapshot counts match the asserted counts for every corpus.
 - The `tree-sitter` runtime is `=0.26.12`, up one upstream patch
   release, pinned in lockstep across the root manifest, `enums`, and
   the five vendored `bca-tree-sitter-*` crates. `tree_sitter` is
