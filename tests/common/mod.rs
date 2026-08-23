@@ -10,6 +10,7 @@
     clippy::too_many_lines
 )]
 
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::path::PathBuf;
@@ -229,6 +230,40 @@ pub fn compare_rca_output_with_files_under(
          alongside the snapshots. If the corpus is only partially \
          checked out, `make worktree-setup` repairs it.",
         corpus_root.display(),
+    );
+
+    // The inverse gap: insta is loud about a *missing* snapshot, but a
+    // stale extra `.snap` is asserted by nothing and silently pins values
+    // no test verifies — which is how 118 pdf.js and 5 DeepSpeech
+    // snapshots came to pin grammar-era-old output (#1282). An exclude
+    // addition or corpus change must delete the snapshots it strands.
+    let expected_snapshots: HashSet<PathBuf> = paths
+        .iter()
+        .map(|path| {
+            Path::new(SNAPSHOT_PATH)
+                .join(path.strip_prefix(source_root).unwrap())
+                .with_added_extension("snap")
+        })
+        .collect();
+    let mut orphans: Vec<PathBuf> = WalkDir::new(Path::new(SNAPSHOT_PATH).join(repo_name))
+        .into_iter()
+        .filter_entry(|e| !is_hidden(e))
+        .filter_map(Result::ok)
+        .map(walkdir::DirEntry::into_path)
+        .filter(|path| {
+            path.is_file()
+                && path.extension().is_some_and(|ext| ext == "snap")
+                && !expected_snapshots.contains(path)
+        })
+        .collect();
+    orphans.sort();
+    assert!(
+        orphans.is_empty(),
+        "{} orphan snapshot(s) under snapshots/{repo_name} match no \
+         resolved corpus file, so no test verifies the values they pin. \
+         Delete them from the big-code-analysis-output submodule — or fix \
+         the include/exclude globs if the files should be analyzed: {orphans:#?}",
+        orphans.len(),
     );
 
     let files_data = FilesData { paths };
