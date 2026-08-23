@@ -103,6 +103,14 @@ both are needed to make a silent coverage loss loud. **After a
 deliberate corpus bump, update this count alongside the snapshots** —
 a legitimate corpus growth is expected to fail these assertions first.
 
+The harness also asserts the inverse direction: every on-disk `.snap`
+under `snapshots/<repo>/` must correspond to a resolved corpus file.
+insta is loud about a *missing* snapshot, but a stale extra one is
+asserted by nothing and silently pins values no test verifies — which
+is how 118 pdf.js and 5 DeepSpeech snapshots came to pin
+grammar-era-old output (#1282). Excluding or removing a corpus file
+therefore requires deleting its snapshot in the same change.
+
 Floats are rounded to 3 decimal places before comparison (machine
 portability) and the `name` field is redacted to `[filepath]` (path
 portability).

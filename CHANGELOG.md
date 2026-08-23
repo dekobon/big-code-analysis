@@ -529,7 +529,10 @@ for historical reference.
   parse-error nodes. The 118 orphaned mozjs-era snapshots were
   refreshed to current metric output, and the 5 DeepSpeech orphan
   snapshots (files still excluded under #86) were deleted, so on-disk
-  snapshot counts match the asserted counts for every corpus.
+  snapshot counts match the asserted counts for every corpus. The
+  corpus harness now asserts that inverse direction — a `.snap` with no
+  corresponding corpus file fails the test naming the orphan — so a
+  future exclude or corpus change cannot strand snapshots silently.
 - The `tree-sitter` runtime is `=0.26.12`, up one upstream patch
   release, pinned in lockstep across the root manifest, `enums`, and
   the five vendored `bca-tree-sitter-*` crates. `tree_sitter` is
