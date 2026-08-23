@@ -62,7 +62,7 @@ and `cargo run -p big-code-analysis-web --`.
   by `make pre-commit` / `make ci`: `check-versions.py`,
   `check-snapshot-anchors.py`, `check-rustfmt-bail.py`,
   `check-manpage-assets.py`, `check-manpage-drift.py`,
-  `check-diagnostic-prefix.py`,
+  `check-diagnostic-prefix.py`, `check-safety-doc-pin.py`,
   `check-grammar-marker-sync.py`, `check-enums-codegen-drift.sh`,
   `check-grammar-crate.py`, `check-grammars-crates.sh`,
   `check-excluded-manifests.py`, `check-ruff-lockstep.py`,
@@ -200,7 +200,12 @@ and `cargo run -p big-code-analysis-web --`.
   keeping the owning tree alive through a strong `Py<...>` handle. The
   canonical soundness argument lives at
   `big-code-analysis-py/src/node.rs` (the `# Safety` module doc and
-  `detach`). Any `unsafe` outside this exact pattern remains banned and
+  `detach`), and the node/`Ast` pairing that argument depends on is
+  enforced by the `owned` module boundary there — private fields, so a
+  handle can only be built by `wrap` / `rewrap` / `rooted_at` and not by
+  a struct literal that pairs a node with the wrong tree (#1057). The
+  version the doc names is gated by `make check-safety-doc-pin`. Any
+  `unsafe` outside this exact pattern remains banned and
   needs a deliberate amendment to this rule. (The PyO3-macro-generated
   FFI shims under `#![allow(unsafe_op_in_unsafe_fn)]` in `src/lib.rs`
   are source-level `unsafe`-free and not covered by this exception.)
@@ -274,7 +279,12 @@ modified, deleted, **and** newly added pages, the last of which
 `git diff` alone cannot see, #1249), the diagnostic-prefix gate
 (`make check-diagnostic-prefix`, which blocks a capitalised
 `Warning:` / `Error:` / `Note:` string literal — see "Rust
-conventions"), the bca self-scan threshold gate at both
+conventions"), the safety-doc pin gate
+(`make check-safety-doc-pin`, which fails when the `tree-sitter`
+version cited by the `unsafe` soundness argument in
+`big-code-analysis-py/src/node.rs` is not the version
+`[workspace.dependencies]` pins, or when the citation is dropped
+altogether — #1057), the bca self-scan threshold gate at both
 tiers (`make self-scan` mirroring the `Threshold gate` step in
 `.github/workflows/pages.yml`, plus `make self-scan-headroom`
 which scales every limit by `BCA_HEADROOM` — default `0.95` — so
@@ -721,6 +731,15 @@ depending on `tree-sitter-language` against one external dependent
 pins it at `=0.26.12` with the workspace resolving. Its ABI version is
 also what each vendored `parser.c` was generated against, so an
 accidental bump is precisely the drift the gate exists to catch.
+
+A runtime bump also has to carry the `unsafe` soundness argument with
+it. `big-code-analysis-py/src/node.rs` reasons about a *named*
+tree-sitter release — `Tree(NonNull<ffi::TSTree>)`,
+`Node<'tree>(ffi::TSNode, PhantomData<&'tree ()>)`,
+`Tree::edit(&mut self)`, `Send + Sync` — and `make
+check-safety-doc-pin` fails until the literal in that doc matches the
+new pin. Re-read the argument against the new release before editing
+the line; the forced diff is the prompt, not the fix (#1057).
 
 Treat the pinned version as fixed:
 

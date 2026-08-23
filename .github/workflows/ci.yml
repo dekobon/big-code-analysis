@@ -613,6 +613,19 @@ jobs:
         run: python3 utils/check-diagnostic-prefix.py
       - name: check-diagnostic-prefix self-tests (explicit)
         run: python3 -m unittest -q utils/check-diagnostic-prefix-test.py
+      # Defensive twin for the safety-doc pin gate (#1057): the
+      # module doc of big-code-analysis-py/src/node.rs is the
+      # canonical soundness argument for this workspace's only
+      # sanctioned `unsafe` block, and it reasons about a named
+      # tree-sitter release. A bump that leaves the literal behind
+      # leaves an argument that reads as verified against a crate
+      # nobody compiles. Its self-tests run as their own step for the
+      # usual reason: a source-scanning gate that stops matching
+      # reports a clean tree.
+      - name: check-safety-doc-pin (explicit)
+        run: python3 utils/check-safety-doc-pin.py
+      - name: check-safety-doc-pin self-tests (explicit)
+        run: python3 -m unittest -q utils/check-safety-doc-pin-test.py
       # Defensive twin for the grammar-marker-sync gate (#400): bumping
       # the notification-only marker in tree-sitter-{mozjs,mozcpp}/
       # Cargo.toml without re-running the matching generate-*.sh
