@@ -88,7 +88,7 @@ find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name 
 NEXTEST        := $(shell command -v cargo-nextest 2>/dev/null)
 TEST_CMD       = $(if $(NEXTEST),$(NEXTEST) nextest run --workspace --all-features,cargo test --workspace --all-features --lib --bins --tests)
 
-.PHONY: help check-tools worktree-setup worktree-setup-test build build-release check test test-doc chain-audit fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors snapshot-anchors-test rustfmt-bail rustfmt-bail-test grammar-marker-sync grammar-marker-sync-test check-versions check-excluded-manifests check-excluded-manifests-test check-ruff-lockstep check-ruff-lockstep-test check-publish-metadata check-publish-metadata-test check-manpage-assets check-manpage-drift-test check-diagnostic-prefix check-diagnostic-prefix-test gate-status-test check-tools-test enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-pot book-po-update book-ja book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib bench bench-scaling bench-walk fuzz-check fuzz-smoke fuzz-replay fuzz-run fuzz-tmin _check-find _pc-all _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-ruff-lockstep _pc-check-ruff-lockstep-test _pc-check-publish-metadata _pc-check-publish-metadata-test _pc-check-manpage-assets _pc-check-manpage-drift-test _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-all _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-manpage-drift-test _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
+.PHONY: help check-tools worktree-setup worktree-setup-test build build-release check test test-doc chain-audit fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors snapshot-anchors-test rustfmt-bail rustfmt-bail-test grammar-marker-sync grammar-marker-sync-test check-versions check-excluded-manifests check-excluded-manifests-test check-ruff-lockstep check-ruff-lockstep-test check-publish-metadata check-publish-metadata-test check-manpage-assets check-manpage-drift-test check-diagnostic-prefix check-diagnostic-prefix-test check-safety-doc-pin check-safety-doc-pin-test gate-status-test check-tools-test enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-pot book-po-update book-ja book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib bench bench-scaling bench-walk fuzz-check fuzz-smoke fuzz-replay fuzz-run fuzz-tmin _check-find _pc-all _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-ruff-lockstep _pc-check-ruff-lockstep-test _pc-check-publish-metadata _pc-check-publish-metadata-test _pc-check-manpage-assets _pc-check-manpage-drift-test _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-check-safety-doc-pin _pc-check-safety-doc-pin-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-all _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-manpage-drift-test _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-check-safety-doc-pin _ci-check-safety-doc-pin-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
 
 # Default target
 help:
@@ -146,6 +146,8 @@ help:
 	@echo "  check-manpage-drift-test             Self-tests for the man-page drift gate"
 	@echo "  check-diagnostic-prefix              Block capitalised Warning:/Error:/Note: literals"
 	@echo "  check-diagnostic-prefix-test         Self-tests for the diagnostic-prefix gate"
+	@echo "  check-safety-doc-pin                 Assert node.rs's unsafe soundness doc cites the live tree-sitter pin"
+	@echo "  check-safety-doc-pin-test            Self-tests for the safety-doc-pin gate"
 	@echo "  worktree-setup-test                  Self-tests for the worktree-setup submodule classifier"
 	@echo "  gate-status-test                     Self-tests for the pre-commit/ci BCA_GATE verdict line"
 	@echo "  check-tools-test                     Self-tests for the check-tools tool probes and hints"
@@ -631,6 +633,23 @@ check-diagnostic-prefix:
 check-diagnostic-prefix-test:
 	@echo "Running check-diagnostic-prefix self-tests..."
 	@(cd $(BASE_DIR) && python3 -m unittest -q utils/check-diagnostic-prefix-test.py)
+
+# Safety-doc pin gate (#1057). The module doc of
+# big-code-analysis-py/src/node.rs is the canonical soundness argument
+# for this workspace's only sanctioned `unsafe` block, and it reasons
+# about a named tree-sitter release. When the pin moves and that literal
+# does not, the argument keeps reading as verified while describing a
+# crate nobody compiles against. Static lint - no network, no cargo.
+check-safety-doc-pin:
+	@echo "Checking the unsafe soundness doc's tree-sitter citation..."
+	@python3 $(BASE_DIR)utils/check-safety-doc-pin.py
+
+# Self-tests for the safety-doc-pin gate. Separate target for the same
+# reason as the other gate self-tests: a source-scanning gate that stops
+# matching reports a clean tree.
+check-safety-doc-pin-test:
+	@echo "Running check-safety-doc-pin self-tests..."
+	@(cd $(BASE_DIR) && python3 -m unittest -q utils/check-safety-doc-pin-test.py)
 
 # Sync gate for check-grammar-crate.py's EXTENSIONS table. Re-derives
 # the grammar -> extension mapping from src/langs.rs `mk_langs!` and
@@ -1330,7 +1349,7 @@ lint:
 	$(MAKE) -j --output-sync=target \
 	  _ci-clippy \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-manpage-drift-test _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test
+	  _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-manpage-drift-test _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-check-safety-doc-pin _ci-check-safety-doc-pin-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test
 
 # ---------------------------------------------------------------------------
 # Maintenance
@@ -1502,7 +1521,7 @@ _pc-all:
 	$(MAKE) -j --output-sync=target \
 	  _pc-test \
 	  _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check \
-	  _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-ruff-lockstep _pc-check-ruff-lockstep-test _pc-check-publish-metadata _pc-check-publish-metadata-test _pc-check-manpage-assets _pc-check-manpage-drift-test _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test \
+	  _pc-actionlint _pc-snapshot-anchors _pc-snapshot-anchors-test _pc-rustfmt-bail _pc-rustfmt-bail-test _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-excluded-manifests _pc-check-excluded-manifests-test _pc-check-ruff-lockstep _pc-check-ruff-lockstep-test _pc-check-publish-metadata _pc-check-publish-metadata-test _pc-check-manpage-assets _pc-check-manpage-drift-test _pc-check-diagnostic-prefix _pc-check-diagnostic-prefix-test _pc-check-safety-doc-pin _pc-check-safety-doc-pin-test _pc-worktree-setup-test _pc-gate-status-test _pc-check-tools-test _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test \
 	  _pc-manpages \
 	  _pc-self-scan _pc-self-scan-headroom \
 	  _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest
@@ -1512,7 +1531,7 @@ _ci-all:
 	$(MAKE) -j --output-sync=target \
 	  _ci-cargo-pipeline \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-manpage-drift-test _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test \
+	  _ci-actionlint _ci-snapshot-anchors _ci-snapshot-anchors-test _ci-rustfmt-bail _ci-rustfmt-bail-test _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-excluded-manifests _ci-check-excluded-manifests-test _ci-check-ruff-lockstep _ci-check-ruff-lockstep-test _ci-check-publish-metadata _ci-check-publish-metadata-test _ci-check-manpage-assets _ci-check-manpage-drift-test _ci-check-diagnostic-prefix _ci-check-diagnostic-prefix-test _ci-check-safety-doc-pin _ci-check-safety-doc-pin-test _ci-worktree-setup-test _ci-gate-status-test _ci-check-tools-test _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test \
 	  _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
 
 # ---------------------------------------------------------------------------
@@ -1552,6 +1571,8 @@ _ci-all:
 #    ├── _pc-check-publish-metadata-test
 #    ├── _pc-check-diagnostic-prefix
 #    ├── _pc-check-diagnostic-prefix-test
+#    ├── _pc-check-safety-doc-pin
+#    ├── _pc-check-safety-doc-pin-test
 #    ├── _pc-worktree-setup-test
 #    ├── _pc-gate-status-test
 #    ├── _pc-check-tools-test
@@ -1674,6 +1695,12 @@ _pc-check-diagnostic-prefix: _pc-fmt
 
 _pc-check-diagnostic-prefix-test: _pc-fmt
 	$(MAKE) check-diagnostic-prefix-test
+
+_pc-check-safety-doc-pin: _pc-fmt
+	$(MAKE) check-safety-doc-pin
+
+_pc-check-safety-doc-pin-test: _pc-fmt
+	$(MAKE) check-safety-doc-pin-test
 
 _pc-worktree-setup-test: _pc-fmt
 	$(MAKE) worktree-setup-test
@@ -1871,6 +1898,12 @@ _ci-check-diagnostic-prefix:
 
 _ci-check-diagnostic-prefix-test:
 	$(MAKE) check-diagnostic-prefix-test
+
+_ci-check-safety-doc-pin:
+	$(MAKE) check-safety-doc-pin
+
+_ci-check-safety-doc-pin-test:
+	$(MAKE) check-safety-doc-pin-test
 
 _ci-worktree-setup-test:
 	$(MAKE) worktree-setup-test

@@ -57,6 +57,38 @@
 //! `tree_sitter::Tree`, `Node`, and `TreeCursor` are `Send + Sync` under
 //! the pinned `=0.26.12`, so the pyclasses are sendable (no `unsendable`)
 //! and compose with `ThreadPoolExecutor` fan-out like [`PyAst`] itself.
+//! That version literal is a premise, not decoration — the layouts and
+//! the `&mut self` on `Tree::edit` are what make the argument above
+//! checkable, and only at a named release. `utils/check-safety-doc-pin.py`
+//! fails the build when the pin moves and this line does not (#1057).
+//!
+//! ## What has been checked
+//!
+//! The invariants above were probed against a built `_native.abi3.so`,
+//! not argued from the source alone. Nothing below broke; it is recorded
+//! here because a future auditor of this `unsafe` block cannot cheaply
+//! re-derive it (#1057).
+//!
+//! * `Node` is not GC-tracked. It declares no `__traverse__`, so
+//!   `Py_TPFLAGS_HAVE_GC` is unset and the collector has no mechanism to
+//!   clear a keep-alive; `PyAst` holds no Python-object fields, so a
+//!   cycle through one is not constructible either.
+//! * No Python-reachable constructor exists — `Node.__new__` rejects, and
+//!   copy / deepcopy / pickle all raise — so a `Node` cannot exist
+//!   without an `Ast`. A mispaired handle is therefore unconstructible
+//!   from Python, which is why the pairing is enforced at the Rust module
+//!   boundary ([`owned`]) rather than by a runtime test that could only
+//!   pass vacuously.
+//! * [`PyNodeWalk::next_node`] bumps the refcount per yielded node rather
+//!   than sharing the iterator's own handle, so a yielded node safely
+//!   outlives the walk that produced it.
+//! * 3,000 parse-and-drop cycles under `gc.set_threshold(1, 1, 1)` with a
+//!   survivor pool, and 8 threads x 4,000 iterations plus 6 threads
+//!   racing `next()` on a shared `NodeWalk`: no crash, no
+//!   `PyBorrowMutError`.
+//!
+//! The residual risk is source-level — a future Rust change — rather than
+//! input-level, which is what invariant 3 says from the other direction.
 
 use big_code_analysis::tree_sitter::{Node as TsNode, TreeCursor};
 use pyo3::prelude::*;
@@ -105,45 +137,153 @@ fn push_children_for_preorder(
     stack[first_child..].reverse();
 }
 
-/// A lazy handle to one node of a parsed [`Ast`](big_code_analysis::Ast).
+/// Ownership boundary for the erased-lifetime pair (#1057).
 ///
-/// Reached from [`Ast.root_node`](PyAst) or [`Ast.find`](PyAst), then walked
-/// with `children` / `parent` / `walk()` / `descendants_by_kind()`. Holds a
-/// strong reference to its `Ast`, so it stays valid even after the caller
-/// drops every other reference to the parse.
-#[pyclass(name = "Node", module = "big_code_analysis._native", frozen)]
-pub(crate) struct PyNode {
-    // Keep-alive: owns the `Ast` (Tree + source) the erased node borrows.
-    ast: Py<PyAst>,
-    node: TsNode<'static>,
-}
+/// Both pyclasses pair an erased `Node<'static>` / `TreeCursor<'static>`
+/// with the `Py<PyAst>` that keeps the owning tree alive, and that
+/// pairing *is* [`detach`]'s precondition: a handle paired with the
+/// wrong `Ast` outlives its tree and dereferences freed memory. Rust
+/// field privacy alone does not enforce it — `PyNode { ast, node }`
+/// compiles anywhere in the defining module, which is how three
+/// construction sites accumulated on one precondition. Fields private
+/// to *this* module make the struct literal unavailable to the
+/// `#[pymethods]` blocks outside it, so every handle is built by one of
+/// the constructors below and the pairing is structural rather than
+/// reviewed. The accessors are the price.
+///
+/// Everything except [`PyNode::wrap`] is `pub(super)`, not
+/// `pub(crate)`: `wrap` is the one entry point another module needs
+/// (`ast.rs` builds the root handle), while `node` + `rewrap` together
+/// *are* the mispairing primitive — `a.rewrap(py, b.node())` pairs one
+/// tree's node with another tree's keep-alive. Keeping them file-local
+/// is what makes the boundary above true beyond this file.
+mod owned {
+    use pyo3::prelude::*;
 
-impl PyNode {
-    /// Wrap `node`, erasing its lifetime brand and keeping its owning `Ast`
-    /// alive through `ast`.
+    use super::{PyAst, TreeCursor, TsNode, detach, push_children_for_preorder};
+
+    /// A lazy handle to one node of a parsed [`Ast`](big_code_analysis::Ast).
     ///
-    /// `node` must have come from the tree held by `ast` (the only callers
-    /// are [`PyAst::root_node`] / [`PyAst::find`] and this module's own
-    /// navigation, which always pass a node from `self.ast`'s tree).
-    pub(crate) fn wrap(ast: Py<PyAst>, node: TsNode<'_>) -> Self {
-        // SAFETY: `ast` is the very `Ast` whose `Tree` produced `node`, and
-        // it is stored here for the whole life of the returned `PyNode`, so
-        // the erased node never outlives its tree.
-        let node = unsafe { detach(node) };
-        Self { ast, node }
+    /// Reached from [`Ast.root_node`](PyAst) or [`Ast.find`](PyAst), then walked
+    /// with `children` / `parent` / `walk()` / `descendants_by_kind()`. Holds a
+    /// strong reference to its `Ast`, so it stays valid even after the caller
+    /// drops every other reference to the parse.
+    #[pyclass(name = "Node", module = "big_code_analysis._native", frozen)]
+    pub(crate) struct PyNode {
+        // Keep-alive: owns the `Ast` (Tree + source) the erased node borrows.
+        ast: Py<PyAst>,
+        node: TsNode<'static>,
     }
 
-    /// Re-wrap a sibling/child node discovered during navigation, sharing
-    /// this node's keep-alive `Ast`. The input already carries the erased
-    /// `'static` brand (it came from `self.node`), so no further `detach`
-    /// is needed — only a refcount bump on the `Ast`.
-    fn rewrap(&self, py: Python<'_>, node: TsNode<'static>) -> Self {
-        Self {
-            ast: self.ast.clone_ref(py),
-            node,
+    impl PyNode {
+        /// Wrap `node`, erasing its lifetime brand and keeping its owning
+        /// `Ast` alive through `ast`.
+        ///
+        /// The one place the pairing is a *caller* obligation: `node` must
+        /// have come from the tree held by `ast`. Both callers are
+        /// [`PyAst::root_node`] / [`PyAst::find`], which pass a node from
+        /// the very `Ast` they are wrapping. Every other handle in this
+        /// module is derived from an existing one by [`rewrap`](Self::rewrap)
+        /// or [`PyNodeWalk::next_node`], which carry the pairing over
+        /// instead of restating it.
+        pub(crate) fn wrap(ast: Py<PyAst>, node: TsNode<'_>) -> Self {
+            // SAFETY: `ast` is the very `Ast` whose `Tree` produced `node`, and
+            // it is stored here for the whole life of the returned `PyNode`, so
+            // the erased node never outlives its tree.
+            let node = unsafe { detach(node) };
+            Self { ast, node }
+        }
+
+        /// Re-wrap a sibling/child node discovered during navigation, sharing
+        /// this node's keep-alive `Ast`. The input already carries the erased
+        /// `'static` brand (it came from `self.node`), so no further `detach`
+        /// is needed — only a refcount bump on the `Ast`.
+        ///
+        /// Callers pass a node reached from `self.node` by a `tree_sitter`
+        /// navigation call, so it belongs to the same tree by construction.
+        pub(super) fn rewrap(&self, py: Python<'_>, node: TsNode<'static>) -> Self {
+            Self {
+                ast: self.ast.clone_ref(py),
+                node,
+            }
+        }
+
+        /// The keep-alive handle to the `Ast` this node borrows from.
+        pub(super) fn ast(&self) -> &Py<PyAst> {
+            &self.ast
+        }
+
+        /// The erased node. `Node<'static>` is `Copy`, so this hands out a
+        /// value rather than a borrow — it is only valid while `self` (and
+        /// therefore [`ast`](Self::ast)) is alive.
+        pub(super) fn node(&self) -> TsNode<'static> {
+            self.node
+        }
+    }
+
+    /// Lazy pre-order iterator over a node and its descendants, returned by
+    /// [`PyNode::walk`].
+    ///
+    /// Holds a work stack of not-yet-visited erased nodes plus the keep-alive
+    /// `Py<PyAst>`. Each `__next__` pops the next node, pushes its children
+    /// (leftmost on top), and yields the popped node — pre-order, one node at a
+    /// time, so traversal never materialises the whole subtree at once.
+    ///
+    /// The `TreeCursor` is held for the whole walk rather than built per
+    /// step, for [`push_children_for_preorder`]'s reason. It is branded
+    /// `'static` by the same erasure as the nodes it enumerates, and stays
+    /// valid for the same reason: `ast` keeps the owning parse alive.
+    ///
+    /// Field order is load-bearing. Rust drops fields in declaration order,
+    /// so `cursor` is declared *before* the `ast` that keeps its tree alive
+    /// — otherwise the keep-alive would be released first and the doc claim
+    /// above would be false by construction. Today's `Drop for TreeCursor`
+    /// only frees the cursor's own stack and never reads the tree, so the
+    /// current order is not unsound; this makes the stated invariant hold
+    /// regardless, and survives a future tree-sitter destructor that does
+    /// touch it. (`Vec<TsNode>` has no drop glue, so `cursor` is the only
+    /// field that raises the question.)
+    #[pyclass(name = "NodeWalk", module = "big_code_analysis._native")]
+    pub(crate) struct PyNodeWalk {
+        cursor: TreeCursor<'static>,
+        stack: Vec<TsNode<'static>>,
+        ast: Py<PyAst>,
+    }
+
+    impl PyNodeWalk {
+        /// Root a walk at `node`, sharing its keep-alive `Ast`.
+        ///
+        /// Takes the `PyNode` rather than a `(Ast, node)` pair, so the
+        /// cursor, the seed node, and the keep-alive all come from one
+        /// already-valid handle: there is no argument to get wrong.
+        pub(super) fn rooted_at(node: &PyNode, py: Python<'_>) -> Self {
+            Self {
+                cursor: node.node.walk(),
+                stack: vec![node.node],
+                ast: node.ast.clone_ref(py),
+            }
+        }
+
+        /// Pop the next node in pre-order, pushing its children first.
+        ///
+        /// Lives here rather than in `__next__` because it is the walk's
+        /// only reader of `stack` / `cursor` / `ast`, and the node it
+        /// yields is paired with the `Ast` the walk was rooted at.
+        pub(super) fn next_node(&mut self, py: Python<'_>) -> Option<PyNode> {
+            let node = self.stack.pop()?;
+            push_children_for_preorder(&mut self.stack, &mut self.cursor, node);
+            // Each yielded node carries its own keep-alive `Py<PyAst>`: it may
+            // outlive this iterator, so the per-node refcount bump is required
+            // for soundness, not an optimisation to hoist out of the loop.
+            Some(PyNode {
+                ast: self.ast.clone_ref(py),
+                node,
+            })
         }
     }
 }
+
+pub(crate) use owned::{PyNode, PyNodeWalk};
 
 #[pymethods]
 impl PyNode {
@@ -154,7 +294,7 @@ impl PyNode {
     /// altered nodes (string literals, etc.).
     #[getter]
     fn kind(&self) -> &'static str {
-        self.node.kind()
+        self.node().kind()
     }
 
     /// py-tree-sitter-compatible alias for [`kind`](PyNode::kind).
@@ -164,71 +304,71 @@ impl PyNode {
     /// py-tree-sitter spelling so an existing matcher ports over unchanged.
     #[getter]
     fn r#type(&self) -> &'static str {
-        self.node.kind()
+        self.node().kind()
     }
 
     /// The numeric grammar id behind [`kind`](PyNode::kind).
     #[getter]
     fn kind_id(&self) -> u16 {
-        self.node.kind_id()
+        self.node().kind_id()
     }
 
     /// Whether this node is a *named* grammar production (as opposed to an
     /// anonymous token such as punctuation or a keyword literal).
     #[getter]
     fn is_named(&self) -> bool {
-        self.node.is_named()
+        self.node().is_named()
     }
 
     /// Whether this node is an `ERROR` node produced by the parser.
     #[getter]
     fn is_error(&self) -> bool {
-        self.node.is_error()
+        self.node().is_error()
     }
 
     /// Whether this node is a zero-width `MISSING` node the parser inserted
     /// to recover from a syntax error.
     #[getter]
     fn is_missing(&self) -> bool {
-        self.node.is_missing()
+        self.node().is_missing()
     }
 
     /// Whether this node is an `extra` (a node that may appear anywhere,
     /// such as a comment in most grammars).
     #[getter]
     fn is_extra(&self) -> bool {
-        self.node.is_extra()
+        self.node().is_extra()
     }
 
     /// Whether this node or any node beneath it is an error or missing node.
     #[getter]
     fn has_error(&self) -> bool {
-        self.node.has_error()
+        self.node().has_error()
     }
 
     /// Start byte offset (inclusive) into [`PyAst::source`].
     #[getter]
     fn start_byte(&self) -> usize {
-        self.node.start_byte()
+        self.node().start_byte()
     }
 
     /// End byte offset (exclusive) into [`PyAst::source`].
     #[getter]
     fn end_byte(&self) -> usize {
-        self.node.end_byte()
+        self.node().end_byte()
     }
 
     /// 0-based `(row, column)` of the node's start — py-tree-sitter parity.
     #[getter]
     fn start_point(&self) -> (usize, usize) {
-        let p = self.node.start_position();
+        let p = self.node().start_position();
         (p.row, p.column)
     }
 
     /// 0-based `(row, column)` of the node's end — py-tree-sitter parity.
     #[getter]
     fn end_point(&self) -> (usize, usize) {
-        let p = self.node.end_position();
+        let p = self.node().end_position();
         (p.row, p.column)
     }
 
@@ -236,28 +376,28 @@ impl PyNode {
     /// vocabulary (`start_line == start_point[0] + 1`).
     #[getter]
     fn start_line(&self) -> usize {
-        self.node.start_position().row + 1
+        self.node().start_position().row + 1
     }
 
     /// 1-based end line (`end_line == end_point[0] + 1`).
     #[getter]
     fn end_line(&self) -> usize {
-        self.node.end_position().row + 1
+        self.node().end_position().row + 1
     }
 
     /// The node's span as the same 1-based dict `dump()` emits:
     /// `{start_line, start_col, end_line, end_col, start_byte, end_byte}`.
     #[getter]
     fn span<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-        let start = self.node.start_position();
-        let end = self.node.end_position();
+        let start = self.node().start_position();
+        let end = self.node().end_position();
         let dict = PyDict::new(py);
         dict.set_item("start_line", start.row + 1)?;
         dict.set_item("start_col", start.column + 1)?;
         dict.set_item("end_line", end.row + 1)?;
         dict.set_item("end_col", end.column + 1)?;
-        dict.set_item("start_byte", self.node.start_byte())?;
-        dict.set_item("end_byte", self.node.end_byte())?;
+        dict.set_item("start_byte", self.node().start_byte())?;
+        dict.set_item("end_byte", self.node().end_byte())?;
         Ok(dict)
     }
 
@@ -266,8 +406,8 @@ impl PyNode {
     /// parent reaches without a field.
     #[getter]
     fn field_name(&self) -> Option<&'static str> {
-        let parent = self.node.parent()?;
-        let id = self.node.id();
+        let parent = self.node().parent()?;
+        let id = self.node().id();
         let mut cursor = parent.walk();
         if !cursor.goto_first_child() {
             return None;
@@ -285,20 +425,20 @@ impl PyNode {
     /// The number of direct children (named and anonymous).
     #[getter]
     fn child_count(&self) -> usize {
-        self.node.child_count()
+        self.node().child_count()
     }
 
     /// The number of direct *named* children.
     #[getter]
     fn named_child_count(&self) -> usize {
-        self.node.named_child_count()
+        self.node().named_child_count()
     }
 
     /// All direct children (named and anonymous), in document order.
     #[getter]
     fn children(&self, py: Python<'_>) -> Vec<PyNode> {
-        let mut cursor = self.node.walk();
-        self.node
+        let mut cursor = self.node().walk();
+        self.node()
             .children(&mut cursor)
             .map(|c| self.rewrap(py, c))
             .collect()
@@ -307,8 +447,8 @@ impl PyNode {
     /// The direct *named* children, in document order.
     #[getter]
     fn named_children(&self, py: Python<'_>) -> Vec<PyNode> {
-        let mut cursor = self.node.walk();
-        self.node
+        let mut cursor = self.node().walk();
+        self.node()
             .named_children(&mut cursor)
             .map(|c| self.rewrap(py, c))
             .collect()
@@ -317,31 +457,31 @@ impl PyNode {
     /// This node's parent, or `None` at the root.
     #[getter]
     fn parent(&self, py: Python<'_>) -> Option<PyNode> {
-        self.node.parent().map(|p| self.rewrap(py, p))
+        self.node().parent().map(|p| self.rewrap(py, p))
     }
 
     /// The next sibling (named or anonymous), or `None`.
     #[getter]
     fn next_sibling(&self, py: Python<'_>) -> Option<PyNode> {
-        self.node.next_sibling().map(|n| self.rewrap(py, n))
+        self.node().next_sibling().map(|n| self.rewrap(py, n))
     }
 
     /// The previous sibling (named or anonymous), or `None`.
     #[getter]
     fn prev_sibling(&self, py: Python<'_>) -> Option<PyNode> {
-        self.node.prev_sibling().map(|n| self.rewrap(py, n))
+        self.node().prev_sibling().map(|n| self.rewrap(py, n))
     }
 
     /// The next *named* sibling, or `None`.
     #[getter]
     fn next_named_sibling(&self, py: Python<'_>) -> Option<PyNode> {
-        self.node.next_named_sibling().map(|n| self.rewrap(py, n))
+        self.node().next_named_sibling().map(|n| self.rewrap(py, n))
     }
 
     /// The previous *named* sibling, or `None`.
     #[getter]
     fn prev_named_sibling(&self, py: Python<'_>) -> Option<PyNode> {
-        self.node.prev_named_sibling().map(|n| self.rewrap(py, n))
+        self.node().prev_named_sibling().map(|n| self.rewrap(py, n))
     }
 
     /// The child at `index` (named and anonymous children counted), or
@@ -350,7 +490,7 @@ impl PyNode {
     fn child(&self, py: Python<'_>, index: usize) -> Option<PyNode> {
         u32::try_from(index)
             .ok()
-            .and_then(|i| self.node.child(i))
+            .and_then(|i| self.node().child(i))
             .map(|c| self.rewrap(py, c))
     }
 
@@ -359,14 +499,14 @@ impl PyNode {
     fn named_child(&self, py: Python<'_>, index: usize) -> Option<PyNode> {
         u32::try_from(index)
             .ok()
-            .and_then(|i| self.node.named_child(i))
+            .and_then(|i| self.node().named_child(i))
             .map(|c| self.rewrap(py, c))
     }
 
     /// The first child reached through the grammar field `name`, or `None`.
     #[pyo3(signature = (name, /))]
     fn child_by_field_name(&self, py: Python<'_>, name: &str) -> Option<PyNode> {
-        self.node
+        self.node()
             .child_by_field_name(name)
             .map(|c| self.rewrap(py, c))
     }
@@ -374,8 +514,8 @@ impl PyNode {
     /// Every child reached through the grammar field `name`, in order.
     #[pyo3(signature = (name, /))]
     fn children_by_field_name(&self, py: Python<'_>, name: &str) -> Vec<PyNode> {
-        let mut cursor = self.node.walk();
-        self.node
+        let mut cursor = self.node().walk();
+        self.node()
             .children_by_field_name(name, &mut cursor)
             .map(|c| self.rewrap(py, c))
             .collect()
@@ -387,7 +527,7 @@ impl PyNode {
     fn field_name_for_child(&self, index: usize) -> Option<&'static str> {
         u32::try_from(index)
             .ok()
-            .and_then(|i| self.node.field_name_for_child(i))
+            .and_then(|i| self.node().field_name_for_child(i))
     }
 
     /// This node's source text, the `source[start_byte:end_byte]` slice of
@@ -398,11 +538,11 @@ impl PyNode {
     /// is hot.
     #[getter]
     fn text<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        let source = self.ast.bind(py).get().ast_ref().source();
+        let source = self.ast().bind(py).get().ast_ref().source();
         // Tree-sitter guarantees the span lies within the source, but slice
         // defensively rather than risk a panic on a malformed input.
         let slice = source
-            .get(self.node.start_byte()..self.node.end_byte())
+            .get(self.node().start_byte()..self.node().end_byte())
             .unwrap_or(&[]);
         PyBytes::new(py, slice)
     }
@@ -414,11 +554,7 @@ impl PyNode {
     /// early without materialising the whole subtree — the memory payoff of
     /// the lazy surface. Mirrors the Rust `Node::preorder` (#728).
     fn walk(&self, py: Python<'_>) -> PyNodeWalk {
-        PyNodeWalk {
-            cursor: self.node.walk(),
-            stack: vec![self.node],
-            ast: self.ast.clone_ref(py),
-        }
+        PyNodeWalk::rooted_at(self, py)
     }
 
     /// Collect every node in this subtree (this node included) whose
@@ -433,9 +569,9 @@ impl PyNode {
     #[allow(clippy::needless_pass_by_value)]
     fn descendants_by_kind(&self, py: Python<'_>, kinds: Vec<String>) -> Vec<PyNode> {
         let mut out = Vec::new();
-        let mut stack = vec![self.node];
+        let mut stack = vec![self.node()];
         // One cursor for the whole subtree, not one per visited node.
-        let mut cursor = self.node.walk();
+        let mut cursor = self.node().walk();
         while let Some(node) = stack.pop() {
             // Only matches pay the `rewrap` (a keep-alive refcount bump), so
             // a selective filter does not allocate a handle per visited node.
@@ -455,9 +591,9 @@ impl PyNode {
     /// deallocated, so its address cannot be recycled for a *different*
     /// `Ast`. Pointer equality therefore implies the same `Ast` instance.
     fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
-        other
-            .extract::<PyRef<'_, PyNode>>()
-            .is_ok_and(|o| self.ast.as_ptr() == o.ast.as_ptr() && self.node.id() == o.node.id())
+        other.extract::<PyRef<'_, PyNode>>().is_ok_and(|o| {
+            self.ast().as_ptr() == o.ast().as_ptr() && self.node().id() == o.node().id()
+        })
     }
 
     /// Hash consistent with [`__eq__`](PyNode::__eq__): the `(Ast object
@@ -468,51 +604,22 @@ impl PyNode {
     fn __hash__(&self) -> isize {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        (self.ast.as_ptr() as usize).hash(&mut hasher);
-        self.node.id().hash(&mut hasher);
+        (self.ast().as_ptr() as usize).hash(&mut hasher);
+        self.node().id().hash(&mut hasher);
         hasher.finish() as isize
     }
 
     fn __repr__(&self) -> String {
-        let start = self.node.start_position();
+        let start = self.node().start_position();
         format!(
             "Node(kind='{}', start_point=({}, {}), byte_range={}..{})",
-            self.node.kind(),
+            self.node().kind(),
             start.row,
             start.column,
-            self.node.start_byte(),
-            self.node.end_byte(),
+            self.node().start_byte(),
+            self.node().end_byte(),
         )
     }
-}
-
-/// Lazy pre-order iterator over a node and its descendants, returned by
-/// [`PyNode::walk`].
-///
-/// Holds a work stack of not-yet-visited erased nodes plus the keep-alive
-/// `Py<PyAst>`. Each `__next__` pops the next node, pushes its children
-/// (leftmost on top), and yields the popped node — pre-order, one node at a
-/// time, so traversal never materialises the whole subtree at once.
-///
-/// The `TreeCursor` is held for the whole walk rather than built per
-/// step, for [`push_children_for_preorder`]'s reason. It is branded
-/// `'static` by the same erasure as the nodes it enumerates, and stays
-/// valid for the same reason: `ast` keeps the owning parse alive.
-///
-/// Field order is load-bearing. Rust drops fields in declaration order,
-/// so `cursor` is declared *before* the `ast` that keeps its tree alive
-/// — otherwise the keep-alive would be released first and the doc claim
-/// above would be false by construction. Today's `Drop for TreeCursor`
-/// only frees the cursor's own stack and never reads the tree, so the
-/// current order is not unsound; this makes the stated invariant hold
-/// regardless, and survives a future tree-sitter destructor that does
-/// touch it. (`Vec<TsNode>` has no drop glue, so `cursor` is the only
-/// field that raises the question.)
-#[pyclass(name = "NodeWalk", module = "big_code_analysis._native")]
-pub(crate) struct PyNodeWalk {
-    cursor: TreeCursor<'static>,
-    stack: Vec<TsNode<'static>>,
-    ast: Py<PyAst>,
 }
 
 #[pymethods]
@@ -522,14 +629,6 @@ impl PyNodeWalk {
     }
 
     fn __next__(&mut self, py: Python<'_>) -> Option<PyNode> {
-        let node = self.stack.pop()?;
-        push_children_for_preorder(&mut self.stack, &mut self.cursor, node);
-        // Each yielded node carries its own keep-alive `Py<PyAst>`: it may
-        // outlive this iterator, so the per-node refcount bump is required
-        // for soundness, not an optimisation to hoist out of the loop.
-        Some(PyNode {
-            ast: self.ast.clone_ref(py),
-            node,
-        })
+        self.next_node(py)
     }
 }

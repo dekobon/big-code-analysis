@@ -411,6 +411,31 @@ repos:
         entry: python3 -m unittest -q utils/check-diagnostic-prefix-test.py
         pass_filenames: false
 
+      # Safety-doc pin gate — the module doc of
+      # big-code-analysis-py/src/node.rs is the canonical soundness
+      # argument for this workspace's only sanctioned `unsafe` block,
+      # and it reasons about a named tree-sitter release. #1057: the
+      # pin moved twice while the literal stayed at `=0.26.9`, leaving
+      # an argument that read as verified against a crate nobody was
+      # compiling. Fires on the root manifest as well as the file, so
+      # a bump cannot land without the citation being re-checked.
+      - id: check-safety-doc-pin
+        name: check-safety-doc-pin
+        language: system
+        files: '^(Cargo\.toml|big-code-analysis-py/src/node\.rs|utils/check-safety-doc-pin\.py)$'
+        entry: python3 utils/check-safety-doc-pin.py
+        pass_filenames: false
+
+      # Self-tests for the safety-doc-pin gate, for the same reason as
+      # the diagnostic-prefix pair above: a source-scanning gate that
+      # stops matching reports a clean tree.
+      - id: check-safety-doc-pin-test
+        name: check-safety-doc-pin-test
+        language: system
+        files: '^utils/check-safety-doc-pin(-test)?\.py$'
+        entry: python3 -m unittest -q utils/check-safety-doc-pin-test.py
+        pass_filenames: false
+
       # The `enums/` crate is workspace-excluded, so the workspace
       # clippy/test hooks above never touch it. Add a dedicated check
       # so warnings here cannot drift (see #164).

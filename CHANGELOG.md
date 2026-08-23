@@ -89,6 +89,18 @@ for historical reference.
   by a comment alone and had already drifted silently once (`v0.15.14`
   against a lockfile resolving 0.15.22), which stays invisible until the two
   versions disagree and then presents as "works locally, red in CI" (#1230).
+- A `check-safety-doc-pin` gate (`make check-safety-doc-pin`, wired into
+  `make lint` / `pre-commit` / `ci`, the pre-commit hooks, and its own CI
+  step) holds the `tree-sitter` version cited by the `unsafe` soundness
+  argument in `big-code-analysis-py/src/node.rs` equal to the version
+  `[workspace.dependencies]` pins. That module doc is the canonical
+  justification for the workspace's only sanctioned `unsafe` block and
+  reasons about a *named* release — the `Node<'tree>` layout, `Tree::edit`
+  taking `&mut self`, `Send + Sync` — so a pin that moves while the literal
+  does not leaves an argument reading as verified against a crate nobody
+  compiles. The gate also fails when the literal is dropped altogether,
+  since a version-free phrasing hides the staleness rather than fixing it.
+  No library behaviour changes (#1057).
 
 - **web:** `error_kind` token `vcs_invalid_author_hash_key`. The
   `STABILITY.md` vocabulary list also gains `not_acceptable` and
