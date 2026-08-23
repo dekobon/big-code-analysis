@@ -18,8 +18,8 @@ from big_code_analysis import FuncSpaceDict
 def run(paths: Iterable[Path]) -> dict[str, int]:
     """Analyse ``paths`` as a batch and bucket successes vs failures.
 
-    Returns a small summary dict (`ok`, `errors`, `total`) so the
-    accompanying test can assert on it without re-parsing.
+    Returns a small summary dict (`ok`, `errors`, `skipped`, `total`) so
+    the accompanying test can assert on it without re-parsing.
     """
     materialised = list(paths)
     # `skip_generated=False` guarantees one result element per input
@@ -32,16 +32,30 @@ def run(paths: Iterable[Path]) -> dict[str, int]:
 
     ok = 0
     errors = 0
+    skipped = 0
     for path, result in zip(materialised, results, strict=True):
         if isinstance(result, bca.AnalysisFailure):
             errors += 1
             print(f"  skip {path}: ({result.error_kind}) {result.error}")
+        elif result is None:
+            # A slot the read gate declined to parse — three bytes or
+            # fewer, a UTF-16 BOM, or a binary leading window (#1238).
+            # `skip_generated=False` keeps the position rather than
+            # dropping it, which is what makes the strict zip safe; the
+            # third branch is the price of that guarantee.
+            skipped += 1
+            print(f"  skip {path}: nothing to parse (empty or binary)")
         else:
             ok += 1
             sloc = result["metrics"]["loc"]["sloc"]
             print(f"  ok   {path}: sloc = {sloc:.0f}")
 
-    return {"ok": ok, "errors": errors, "total": len(materialised)}
+    return {
+        "ok": ok,
+        "errors": errors,
+        "skipped": skipped,
+        "total": len(materialised),
+    }
 
 
 def run_parallel(paths: Iterable[Path], *, workers: int = 4) -> list[FuncSpaceDict | None]:

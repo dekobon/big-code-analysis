@@ -83,22 +83,26 @@ def _write(root: Path, rel: str, content: str) -> Path:
     return path
 
 
-def _names(results: list[FuncSpaceDict | bca.AnalysisFailure]) -> set[str]:
+def _names(results: list[FuncSpaceDict | bca.AnalysisFailure | None]) -> set[str]:
     """Repo-relative-ish basenames of the analysed (dict) results.
 
-    Drops ``AnalysisFailure`` elements, so this set answers only "which
-    files were *analysed*". Negative assertions ("file X must not
-    appear") must additionally consult ``_failure_paths`` — a file that
-    degrades into the failure stream is invisible here (#921).
+    Drops ``AnalysisFailure`` and ``None`` elements, so this set answers
+    only "which files were *analysed*". Negative assertions ("file X
+    must not appear") must additionally consult ``_failure_paths`` — a
+    file that degrades into the failure stream is invisible here
+    (#921) — and, under ``skip_generated=False``, ``_placeholders``,
+    which counts the read-gate slots (#1238).
     """
     return {
         Path(name).name
         for r in results
-        if not isinstance(r, bca.AnalysisFailure) and (name := r["name"]) is not None
+        if r is not None
+        and not isinstance(r, bca.AnalysisFailure)
+        and (name := r["name"]) is not None
     }
 
 
-def _failure_paths(results: list[FuncSpaceDict | bca.AnalysisFailure]) -> set[str]:
+def _failure_paths(results: list[FuncSpaceDict | bca.AnalysisFailure | None]) -> set[str]:
     """Basenames of every ``AnalysisFailure`` element.
 
     The complement of ``_names``: lets a negative assertion catch a file
@@ -106,6 +110,13 @@ def _failure_paths(results: list[FuncSpaceDict | bca.AnalysisFailure]) -> set[st
     skipped (#921).
     """
     return {Path(r.path).name for r in results if isinstance(r, bca.AnalysisFailure)}
+
+
+def _placeholders(results: list[FuncSpaceDict | bca.AnalysisFailure | None]) -> int:
+    """Count of ``None`` slots — files the read gate declined to parse
+    but which keep their position under ``skip_generated=False`` (#1238).
+    """
+    return sum(1 for r in results if r is None)
 
 
 def test_analyze_paths_walks_a_directory(tmp_path: Path) -> None:
@@ -207,6 +218,39 @@ def test_analyze_paths_skips_generated_by_default(tmp_path: Path) -> None:
     # AnalysisFailure elements, so it cannot distinguish "skipped" from
     # "errored"; assert gen.rs appears in neither result kind (#921).
     assert "gen.rs" not in _names(results) | _failure_paths(results)
+
+
+def test_analyze_paths_placeholders_unreadable_files_when_not_skipping(
+    tmp_path: Path,
+) -> None:
+    """#1238: the walker shares ``analyze_batch``'s slot vocabulary, so
+    ``skip_generated=False`` turns a read-gate skip into a ``None``
+    element instead of dropping it.
+
+    There is no caller-supplied ordering to pair against here — the
+    point is that the two entry points agree on what a slot can be.
+    """
+    _write(tmp_path, "real.rs", "fn real() {}\n")
+    # Three bytes: the read gate treats the file as empty. Written as
+    # bytes because `_write` would append nothing and the size is the
+    # whole point.
+    (tmp_path / "tiny.rs").write_bytes(b"ab\n")
+
+    kept = bca.analyze_paths(tmp_path, skip_generated=False)
+    assert _names(kept) == {"real.rs"}
+    assert _placeholders(kept) == 1, (
+        "with skip_generated=False the unreadable file holds a None slot"
+    )
+    assert "tiny.rs" not in _failure_paths(kept), (
+        "an unparseable file is a skip, not an AnalysisFailure"
+    )
+
+    dropped = bca.analyze_paths(tmp_path)
+    assert _names(dropped) == {"real.rs"}
+    assert _placeholders(dropped) == 0, (
+        "the default still omits the slot entirely — #1238 changed only "
+        "the skip_generated=False behaviour"
+    )
 
 
 def test_analyze_paths_failure_is_a_failure_element_not_raise(

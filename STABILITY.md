@@ -1035,6 +1035,31 @@ the existing values are frozen.
 
 ### Error mapping
 
+A batch slot is not always a result or a failure. `analyze_batch` /
+`analyze_paths` emit a `None` element, under `skip_generated=False`
+only, for a file the shared read gate declines to parse — three bytes
+or fewer, a UTF-16 BOM, or a leading window that is not valid UTF-8.
+That gate is unconditional, so before #1238 those files produced no
+element at all and the documented `zip(inputs, results)` mis-paired
+every later entry; the placeholder is what makes `skip_generated=False`
+genuinely one-element-per-input. `None` is the same value single-file
+`analyze` returns for those files, and `to_sarif` skips it. The
+`skip_generated=True` default is unchanged: a skipped file, generated
+or unreadable, still yields no element.
+
+The placeholder is a **behaviour break for existing
+`skip_generated=False` callers**, in both directions. A caller that
+looped over the results untyped — `for r in results: r["metrics"]` —
+previously ran to completion on a batch containing such a file (having
+silently mis-paired every later entry) and now raises `TypeError:
+'NoneType' object is not subscriptable` at the placeholder. A caller
+that counted `len(results)` sees a larger number. Both are the intended
+direction: the failure is now loud and local instead of silent and
+downstream, and the count is now the truth. `analyze_paths` shares the
+change, so a directory walk under `skip_generated=False` gains one
+element per discovered file the gate declined — on a tree with binary
+assets that can be a substantial fraction of the list.
+
 Per-file failures from `analyze_batch` / `analyze_paths` are
 **returned**, not raised, as `AnalysisFailure` values (not `Exception`
 subclasses: the class is deliberately not raisable; it was renamed from
@@ -1066,7 +1091,9 @@ as the library: additive in minor bumps, breaking only at a major.
 The analysis-result wire shape is also expressed as exported
 `TypedDict`s (#623): `analyze` / `analyze_source` return
 `FuncSpaceDict | None` / `FuncSpaceDict`, `analyze_batch` /
-`analyze_paths` return `list[FuncSpaceDict | AnalysisFailure]`, and the
+`analyze_paths` return `list[FuncSpaceDict | AnalysisFailure | None]`
+(the `None` slot is the read-gate placeholder described under *Error
+mapping* above, #1238), and the
 nested metric blocks (`CodeMetricsDict`, `LocDict`, `HalsteadDict`,
 `VcsDict`, …) are re-exported from the package. Like the enums, these are
 **generated** from the `big_code_analysis::wire` structs (`src/wire.rs`,
@@ -1092,6 +1119,17 @@ definitions are. The VCS *report* dicts are now single-sourced and typed too
 structs moved into `big_code_analysis::wire` and the jit shapes are
 mirrored from `src/vcs/jit.rs`, so the former `dict[str, Any]` returns are
 gone. The same additive / major-only shape contract applies.
+
+One documented exception to that contract, on the 2.x line: #1238
+widened the `analyze_batch` / `analyze_paths` return element to
+`FuncSpaceDict | AnalysisFailure | None`. Widening a *return* union is
+not additive — a `mypy --strict` consumer that indexed a slot without a
+`None` check newly fails to type-check, which is the point: the runtime
+values it would have received were already wrong. It landed in a minor
+rather than waiting for the next major because the alternative was
+leaving a silent data-corruption defect in the released line, and
+because the runtime contract the widening makes true is the one both
+entry points already documented.
 
 [strenum]: https://docs.python.org/3/library/enum.html#enum.StrEnum
 [pep561]: https://peps.python.org/pep-0561/

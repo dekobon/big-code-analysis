@@ -1602,14 +1602,28 @@ The original `96fe3ab` shipped a defensive `PyAnalysisError` fallback; a
 review-remediation pass in `e670f8b` regressed it to `unreachable!()`
 with a comment claiming it would "fail loudly in development" — exactly
 the failure mode this lesson warns against — and `515e840` restored the
-fallback. The single-file bridge returns `Ok(None)` only when
-`skip_generated=true`, and `analyze_batch` hard-codes `false`, so the arm
-is unreachable *today*. But the documented contract is "never raises on
+fallback. At the time, the single-file bridge returned `Ok(None)` only
+when `skip_generated=true` and `analyze_batch` hard-coded `false`, so
+the arm was unreachable. But the documented contract is "never raises on
 per-file errors", which demands a structured `AnalysisError` in the
 result slot. The restored fallback names the invariant break and tells
 the operator to audit `analyze_path` for new skip surfaces, so the
 contract survives any future refactor adding a second one (a gitignore
 filter, a size cap).
+
+**Both premises have since fallen, exactly as anticipated.** #706 routed
+the bindings through the walker's `read_file_with_eol` gate — a second
+and *unconditional* `Ok(None)` source (three bytes or fewer, a UTF-16
+BOM, a non-UTF-8 leading window) — and #542 flipped `skip_generated` to
+default `true`. The arm is live on every call. That went unnoticed
+until #1238, where the batch docstrings' "`skip_generated=False`
+guarantees one element per input" turned out to be unsatisfiable and
+the endorsed `zip(inputs, results)` was attributing metrics to the
+wrong paths. The
+fallback's job — carrying the contract across a refactor nobody
+re-audited — is the part that held. What did not was any gate on the
+arm's *documentation*, which went on describing one skip source for two
+releases after the second was added.
 
 ---
 

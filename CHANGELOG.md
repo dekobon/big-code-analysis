@@ -108,6 +108,36 @@ for historical reference.
 
 ### Fixed
 
+- The Python bindings' `analyze_batch` / `analyze_paths` dropped a
+  result slot for any file the read gate declines to parse — three
+  bytes or fewer, a UTF-16 BOM, or a leading window that is not valid
+  UTF-8 — even under `skip_generated=False`, which both entry points
+  documented as guaranteeing one element per input. That gate is
+  unconditional, so a batch containing one such file returned a shorter
+  list and the `zip(inputs, results)` pattern the docstrings endorse
+  silently attributed every later result to the wrong path: a
+  data-corruption class defect with no error and no `AnalysisFailure` to
+  observe. With `skip_generated=False` such a file now holds its
+  position as a `None` element — the same value single-file `analyze`
+  returns for it, and one `to_sarif` already skips — so the documented
+  `zip` is finally safe (#1238). The `skip_generated=True` default is
+  unchanged: a skipped file, generated or unreadable, still yields no
+  element. The typed surface widens to match: `analyze_batch` and
+  `analyze_paths` are now annotated
+  `list[FuncSpaceDict | AnalysisFailure | None]` in `_native.pyi`, so a
+  `mypy --strict` consumer indexing a slot without a `None` check is
+  told to add one rather than discovering it at runtime. An **untyped**
+  `skip_generated=False` consumer sees the change at runtime instead: a
+  loop that indexed every slot used to run to completion on such a batch
+  (silently mis-paired) and now raises `TypeError: 'NoneType' object is
+  not subscriptable` at the placeholder, and `len(results)` grows.
+  That is the intended direction — loud and local beats silent and
+  downstream — but it is a behaviour break, and `analyze_paths` shares
+  it, so a directory walk under `skip_generated=False` gains one element
+  per discovered file the gate declined. Widening a return union is not
+  an additive change under [STABILITY.md](./STABILITY.md); the exception
+  and its reasoning are recorded there under *Python bindings →
+  Typing*.
 - Ruby regex literals and Perl bare match literals fabricated division
   operators: the delimiter tokens under the literal wrapper were
   classified through the generic `/` operator arm, so `x = /abc/`

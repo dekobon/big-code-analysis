@@ -81,4 +81,6 @@ arrows) keep their `name == "<anonymous>"` marker verbatim —
 * `flatten_spaces` raises `TypeError` if the input is not a
   mapping; callers must filter `None` returns from `bca.analyze`
   (e.g. generated files with `skip_generated=True`) before
-  passing.
+  passing — and likewise the `None` slots `analyze_batch` emits
+  under `skip_generated=False`, which mark a file the read gate
+  declined to parse.

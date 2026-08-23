@@ -788,7 +788,7 @@ def test_analyze_batch_vcs_matches_per_file_analyze(tmp_path: Path) -> None:
     repo = _build_repo(tmp_path)
     work = repo / "work.rs"
     [batch_result] = bca.analyze_batch([work], vcs=True)
-    assert not isinstance(batch_result, bca.AnalysisFailure)
+    assert isinstance(batch_result, dict)
     single = bca.analyze(work, vcs=True)
     assert single is not None
     assert batch_result["metrics"]["vcs"] == single["metrics"]["vcs"]
@@ -799,7 +799,7 @@ def test_analyze_batch_without_vcs_has_no_block(tmp_path: Path) -> None:
     migrating a plain comprehension stays behaviour-preserving."""
     repo = _build_repo(tmp_path)
     [result] = bca.analyze_batch([repo / "work.rs"])
-    assert not isinstance(result, bca.AnalysisFailure)
+    assert isinstance(result, dict)
     assert "vcs" not in result["metrics"]
 
 
@@ -810,7 +810,7 @@ def test_analyze_batch_vcs_per_function_attaches_nested_blocks(
     nested space across the batch, mirroring single-file ``analyze``."""
     repo = _build_multifn_repo(tmp_path)
     [result] = bca.analyze_batch([repo / "work.rs"], vcs_per_function=True)
-    assert not isinstance(result, bca.AnalysisFailure)
+    assert isinstance(result, dict)
     spaces = _func_spaces(result)
     assert len(spaces) == 2
     for space in spaces:
@@ -823,7 +823,7 @@ def test_analyze_batch_vcs_file_outside_repo_degrades(tmp_path: Path) -> None:
     loose = tmp_path / "loose.rs"
     loose.write_text("fn solo() {}\n")
     [result] = bca.analyze_batch([loose], vcs=True)
-    assert not isinstance(result, bca.AnalysisFailure)
+    assert isinstance(result, dict)
     assert "vcs" not in result["metrics"]
 
 
@@ -872,7 +872,7 @@ def test_analyze_batch_vcs_spans_two_subdirectories(tmp_path: Path) -> None:
     results = bca.analyze_batch([a, b], vcs=True)
     assert len(results) == 2
     for result in results:
-        assert not isinstance(result, bca.AnalysisFailure)
+        assert isinstance(result, dict)
         vcs = result["metrics"]["vcs"]
         assert vcs["commits_long"] == 1
         assert vcs["bug_fix_commits"] == 1
@@ -890,7 +890,7 @@ def test_analyze_batch_vcs_per_function_spans_two_subdirectories(
     results = bca.analyze_batch([a, b], vcs_per_function=True)
     assert len(results) == 2
     for result in results:
-        assert not isinstance(result, bca.AnalysisFailure)
+        assert isinstance(result, dict)
         spaces = _func_spaces(result)
         assert spaces, "each file has at least one function space"
         assert all("vcs" in space["metrics"] for space in spaces)
@@ -909,7 +909,7 @@ def test_analyze_batch_vcs_distinguishes_separate_repos(tmp_path: Path) -> None:
     results = bca.analyze_batch([work_one, work_two], vcs=True)
     assert len(results) == 2
     for result in results:
-        assert not isinstance(result, bca.AnalysisFailure)
+        assert isinstance(result, dict)
         # Each file is tracked in exactly its own single-file repo, so the
         # block is present and reflects that repo's one bug-fix commit.
         vcs = result["metrics"]["vcs"]

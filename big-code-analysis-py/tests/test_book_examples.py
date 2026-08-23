@@ -91,7 +91,7 @@ def test_quick_start() -> None:
     assert "cyclomatic" in result["metrics"]
 
 
-def test_batch_processing() -> None:
+def test_batch_processing(tmp_path: Path) -> None:
     """Regression (#882): the example's ``zip(..., strict=True)`` must
     hold when a generated file is in the batch.
 
@@ -103,7 +103,9 @@ def test_batch_processing() -> None:
     the same bug #660 fixed in ``pipeline_db.py``. The fixtures below
     are deliberately mixed: a generated file (must be analysed here, not
     skipped), a normal source file, and a missing file (the
-    ``AnalysisFailure`` discriminator path).
+    ``AnalysisFailure`` discriminator path), and a three-byte file the
+    read gate declines to parse — the #1238 slot, which holds its
+    position as ``None`` and exercises the example's third branch.
     """
     mod = _load("batch_processing")
     generated = FIXTURES_DIR / "generated.rs"
@@ -111,20 +113,26 @@ def test_batch_processing() -> None:
     # batch's `skip_generated=False` must NOT — confirming the fixture is
     # genuinely generated keeps this test non-vacuous for the skip path.
     assert bca.analyze(generated) is None, "fixture must be detected as generated"
+    tiny = tmp_path / "tiny.rs"
+    tiny.write_bytes(b"ab\n")
+    assert bca.analyze(tiny) is None, "fixture must be declined by the read gate"
 
     summary = mod.run(
         [
             generated,
             FIXTURES_DIR / "hello.rs",
             FIXTURES_DIR / "does_not_exist.rs",
+            tiny,
         ]
     )
     # Reaching here proves the strict zip did not raise. The generated
     # file is analysed (not dropped), so it lands in the `ok` bucket
-    # alongside `hello.rs`; only the missing file errors.
-    assert summary["total"] == 3
+    # alongside `hello.rs`; the missing file errors, and the tiny file
+    # occupies its slot as the `None` the example buckets as skipped.
+    assert summary["total"] == 4
     assert summary["ok"] == 2
     assert summary["errors"] == 1
+    assert summary["skipped"] == 1
 
 
 def test_batch_processing_parallel() -> None:
@@ -539,7 +547,9 @@ def test_pipeline_db_batch_branch_analyses_generated_file(tmp_path: Path) -> Non
 
     Threads the ``generated.rs`` fixture (first line carries
     ``@generated`` / ``DO NOT EDIT``) through ``extra_paths`` so it is
-    among the inputs.
+    among the inputs, alongside a three-byte file — the #1238 slot the
+    read gate declines, which the branch buckets as ``skipped`` rather
+    than letting it shrink the list under the strict zip.
     """
     mod = _load("pipeline_db")
     db_path = tmp_path / "metrics.db"
@@ -548,20 +558,27 @@ def test_pipeline_db_batch_branch_analyses_generated_file(tmp_path: Path) -> Non
     # must not. (Confirms the fixture really is generated, so the test
     # is not vacuous.)
     assert bca.analyze(generated) is None, "fixture must be detected as generated"
+    tiny = tmp_path / "tiny.rs"
+    tiny.write_bytes(b"ab\n")
+    assert bca.analyze(tiny) is None, "fixture must be declined by the read gate"
 
     summary = mod.run(
         FIXTURES_DIR,
         db_path,
-        extra_paths=[generated],
+        extra_paths=[generated, tiny],
         top_n=3,
         skip_generated=False,
     )
 
     # Reaching here at all proves the strict zip did not raise. The
     # generated file is analysed (not skipped), so it lands in the
-    # analyzed bucket and contributes rows.
+    # analyzed bucket and contributes rows; the three-byte file lands
+    # in `skipped`, which is the branch #1238 added.
     assert summary["analyzed"] > 0
     assert summary["rows"] > 0
+    assert summary["skipped"] == 1, (
+        "the read-gate slot must be bucketed as skipped, not analysed or errored"
+    )
     assert db_path.exists()
 
 

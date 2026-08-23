@@ -327,10 +327,17 @@ const _: fn() = || {
 /// `try_iter` (which calls Python's `iter()` builtin under the hood).
 /// With `skip_generated=false` the output list has the same length as
 /// the input iterable and preserves order one-to-one, so callers can
-/// `zip(inputs, results)` without losing the pairing. Under the default
-/// `skip_generated=true` a skipped file yields no slot (see below), so
-/// the list can be shorter — `zip(inputs, results)` would then silently
-/// mis-pair every entry after the first skip.
+/// `zip(inputs, results)` without losing the pairing. Every slot is then
+/// a `dict`, an `AnalysisFailure`, or `None` — the last for a file the
+/// `read_file_with_eol` gate declines to parse (three bytes or fewer, a
+/// UTF-16 BOM, a non-UTF-8 leading window), which is exactly what
+/// single-file [`crate::analyze`] returns for the same input. That gate
+/// is unconditional, so before #1238 those files yielded no slot even
+/// with `skip_generated=false` and the documented `zip` mis-paired every
+/// later entry. Under the default `skip_generated=true` a skipped file
+/// yields no slot (see below), so the list can be shorter —
+/// `zip(inputs, results)` would then silently mis-pair every entry after
+/// the first skip.
 ///
 /// `metrics=` selects which metrics to compute (#268). `None` (the
 /// default) preserves the full suite; an empty list raises
@@ -351,8 +358,8 @@ const _: fn() = || {
 /// yields no `dict`), so the result list can be **shorter** than the
 /// input iterable when `skip_generated=true`. Pass
 /// `skip_generated=false` to restore the legacy "one result per input,
-/// always" behaviour (every position produces a `dict` or an
-/// `AnalysisError`).
+/// always" behaviour (every position produces a `dict`, an
+/// `AnalysisFailure`, or `None`).
 #[pyfunction]
 #[pyo3(signature = (paths, /, *, exclude_tests = false, allow_lossy_path = false, skip_generated = true, metrics = None, vcs = false, vcs_per_function = false))]
 // `metrics: Option<Vec<String>>` is taken by value to match the PyO3
@@ -418,9 +425,11 @@ pub(crate) fn analyze_batch<'py>(
     Ok(results)
 }
 
-/// Analyse `path` and push its result (a dict or an `AnalysisFailure`)
-/// onto `results`, attaching shared-index VCS blocks when requested.
-/// Shared by [`analyze_batch`] and [`analyze_paths`].
+/// Analyse `path` and push its result (a dict, an `AnalysisFailure`, or —
+/// under `skip_generated=false` — a `None` placeholder) onto `results`,
+/// attaching shared-index VCS blocks when requested. Shared by
+/// [`analyze_batch`] and [`analyze_paths`], so both entry points carry
+/// the same slot vocabulary.
 fn push_one_result(
     py: Python<'_>,
     path: &Path,
@@ -457,9 +466,17 @@ fn push_one_result(
                 }
             }
         }
-        // `Ok(None)` means `analyze_path` skipped the file — with the #542
-        // default `skip_generated=true` this is the generated-file case,
-        // omitted from the output entirely (matching `analyze`).
+        // `Ok(None)` means `analyze_path` emitted no record, and it has
+        // two sources: the `skip_generated` filter, and the
+        // unconditional `read_file_with_eol` gate (three bytes or fewer,
+        // a UTF-16 BOM, a non-UTF-8 leading window). Under the #542
+        // default the slot is dropped for either, matching `analyze`.
+        // With `skip_generated=false` the filter is off, so the gate is
+        // the only source left — and the caller has asked for one slot
+        // per input, so emit `None` (what `analyze` returns for the same
+        // file) rather than shrinking the list and silently mis-pairing
+        // every later `zip` entry (#1238).
+        Ok(None) if !opts.skip_generated => results.push(py.None()),
         Ok(None) => {}
         Err(err) => {
             let py_err = PyAnalysisError::from_internal(err, path);
@@ -606,12 +623,23 @@ fn attach_or_keep(json: String, inject: impl FnOnce(String) -> PyResult<String>)
 /// see [`crate::walk`] for the glob and file-seed semantics (#726).
 /// The walk is the discovery step `analyze_batch` lacks; per-file analysis,
 /// the never-raise contract (failures become `AnalysisFailure` elements),
-/// the generated-file filter, and language inference are identical to
-/// `analyze_batch`. A seed that does not exist (or whose symlink dangles)
-/// is surfaced as an `AnalysisFailure` element (`error_kind="IoError"`,
-/// `error="path does not exist"`) rather than silently dropped (#858) —
-/// keeping parity with the CLI's hard error on a missing `--paths` seed
-/// (#596) while preserving the never-raise posture of the result vector. The kwarg surface mirrors `analyze` / `analyze_batch`
+/// the generated-file filter, language inference, and the slot vocabulary
+/// (`dict` / `AnalysisFailure` / — under `skip_generated=false` — `None`
+/// for a file the read gate declines to parse, #1238) are identical to
+/// `analyze_batch`. Element order follows the walk, so there is no input
+/// position to pair against and the `None` slots are not there for a
+/// `zip`: what they buy here is that a file the walk *found* but could
+/// not analyse stays visible in the output rather than vanishing from
+/// it. On a tree with many binary assets that is a lot of slots, which
+/// is why it happens only under `skip_generated=false`.
+///
+/// A seed that does not exist (or whose symlink dangles) is surfaced as
+/// an `AnalysisFailure` element (`error_kind="IoError"`, `error="path
+/// does not exist"`) rather than silently dropped (#858) — keeping
+/// parity with the CLI's hard error on a missing `--paths` seed (#596)
+/// while preserving the never-raise posture of the result vector.
+///
+/// The kwarg surface mirrors `analyze` / `analyze_batch`
 /// (`exclude_tests` / `allow_lossy_path` / `skip_generated` / `metrics` /
 /// `vcs` / `vcs_per_function`), so a directory walk threads VCS attachment
 /// through the same shared-per-repo index (#670).
@@ -892,5 +920,138 @@ mod tests {
         let mut set = HashSet::new();
         set.insert(a);
         assert!(set.contains(&b));
+    }
+
+    // ── #1238: one slot per input under `skip_generated=false` ───────
+
+    /// Three bytes, so `read_file_with_eol` treats the file as empty
+    /// and `analyze_path` returns `Ok(None)` before any language
+    /// inference runs.
+    const TINY_SOURCE: &[u8] = b"ab\n";
+    /// A UTF-16 BOM. `probe_decodable_prefix` returns on the BOM before
+    /// it validates anything, so this is its own branch — not the
+    /// invalid-UTF-8 one below, which the trailing bytes never reach.
+    const UTF16_BOM_SOURCE: &[u8] = b"\xff\xfe\x00\x01 fn main() {}\n";
+    /// A leading window that is not valid UTF-8 and carries no BOM: the
+    /// third read-gate skip the docs enumerate, and the only one that
+    /// exercises the `str::from_utf8` arm.
+    const BINARY_SOURCE: &[u8] = b"\x80\x81\x82\x83\n";
+    /// Carries the CLI walker's `is_generated` markers, so it is the
+    /// `skip_generated`-gated `Ok(None)` source — analysed normally
+    /// once the filter is off.
+    const GENERATED_SOURCE: &[u8] = b"// @generated DO NOT EDIT\npub fn x() {}\n";
+    /// An ordinary parseable file, present so neither test asserts a
+    /// length against an all-skipped input.
+    const GOOD_SOURCE: &[u8] = b"fn main() {}\n";
+    /// One input per `Ok(None)` source plus a parseable control, shared
+    /// by the pair of tests below so their only difference is the flag.
+    const MIXED_INPUTS: &[(&str, &[u8])] = &[
+        ("tiny.rs", TINY_SOURCE),
+        ("bom.rs", UTF16_BOM_SOURCE),
+        ("binary.rs", BINARY_SOURCE),
+        ("gen.rs", GENERATED_SOURCE),
+        ("good.rs", GOOD_SOURCE),
+    ];
+
+    /// Materialise `files` under `dir` and run each through
+    /// [`push_one_result`], returning the slots it pushed.
+    fn pushed_slots(
+        py: Python<'_>,
+        dir: &Path,
+        skip_generated: bool,
+        files: &[(&str, &[u8])],
+    ) -> Vec<Py<PyAny>> {
+        let opts = AnalyzeOptions {
+            skip_generated,
+            ..AnalyzeOptions::default()
+        };
+        let mut vcs_repos = VcsRepoCache::new(false, false);
+        let mut results = Vec::new();
+        for (name, bytes) in files {
+            let path = dir.join(name);
+            std::fs::write(&path, bytes).expect("write fixture file");
+            push_one_result(py, &path, opts, &mut vcs_repos, &mut results)
+                .expect("push_one_result never fails on a readable temp file");
+        }
+        results
+    }
+
+    /// The `name` field of a result dict — the analysed file's path, so
+    /// an assertion on it catches a slot that shifted onto the wrong
+    /// input rather than merely checking the slot is a dict.
+    fn slot_name(py: Python<'_>, slot: &Py<PyAny>) -> String {
+        slot.bind(py)
+            .get_item("name")
+            .expect("a result slot is a dict carrying `name`")
+            .extract()
+            .expect("`name` is the analysed path as a string")
+    }
+
+    /// `dir/name` as the string `analyze_path` records in `FuncSpace.name`.
+    fn path_str(dir: &Path, name: &str) -> String {
+        dir.join(name)
+            .to_str()
+            .expect("tempdir paths are UTF-8")
+            .to_owned()
+    }
+
+    #[test]
+    fn read_gate_skips_keep_their_slot_when_skip_generated_is_false() {
+        // #1238: the `read_file_with_eol` gate is unconditional, so
+        // before the fix a file it declined produced no slot even
+        // with `skip_generated=false` — and the `zip(inputs, results)`
+        // the docs endorse then attributed `good.rs`'s metrics to
+        // `tiny.rs`. The generated file is in the fixture to pin the
+        // other half: with the filter off it is analysed, not
+        // placeheld, so the new guard must not intercept it.
+        let dir = tempfile::tempdir().expect("tempdir");
+        Python::attach(|py| {
+            let slots = pushed_slots(py, dir.path(), false, MIXED_INPUTS);
+            assert_eq!(
+                slots.len(),
+                MIXED_INPUTS.len(),
+                "skip_generated=false must yield one slot per input so \
+                 `zip(inputs, results)` keeps its pairing",
+            );
+            for (index, slot) in slots.iter().take(3).enumerate() {
+                assert!(
+                    slot.is_none(py),
+                    "slot {index}: a file the read gate declines to parse \
+                     must hold its slot as `None`, matching single-file \
+                     `analyze`",
+                );
+            }
+            assert_eq!(
+                slot_name(py, &slots[3]),
+                path_str(dir.path(), "gen.rs"),
+                "with the filter off a generated file is analysed, not \
+                 replaced by a `None` placeholder",
+            );
+            assert_eq!(
+                slot_name(py, &slots[4]),
+                path_str(dir.path(), "good.rs"),
+                "the parseable input must land in its own slot, not \
+                 shift onto an earlier one",
+            );
+        });
+    }
+
+    #[test]
+    fn every_skip_class_drops_its_slot_under_the_default() {
+        // The default is unchanged by #1238: both `Ok(None)` sources
+        // still omit the slot entirely, so the list is shorter than the
+        // input. `good.rs` is present so the length assertion is `1`
+        // rather than the `0` an all-skipped fixture would produce
+        // whether or not the arm ran.
+        let dir = tempfile::tempdir().expect("tempdir");
+        Python::attach(|py| {
+            let slots = pushed_slots(py, dir.path(), true, MIXED_INPUTS);
+            assert_eq!(
+                slots.len(),
+                1,
+                "with skip_generated=true a skipped file yields no slot",
+            );
+            assert_eq!(slot_name(py, &slots[0]), path_str(dir.path(), "good.rs"));
+        });
     }
 }

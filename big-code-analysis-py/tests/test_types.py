@@ -70,7 +70,7 @@ def test_analyze_batch_yields_funcspacedict_or_error(tmp_path: Path) -> None:
     entry = results[0]
     # The non-error branch narrows to FuncSpaceDict, so the metric table is
     # typed without a cast.
-    assert not isinstance(entry, bca.AnalysisFailure)
+    assert isinstance(entry, dict)
     assert_type(entry, FuncSpaceDict)
     assert "loc" in entry["metrics"]
 
