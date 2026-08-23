@@ -16,3 +16,4 @@ mod irules_test;
 mod pdf_js_test;
 mod php_test;
 mod serde_test;
+mod snapshot_guard_test;
