@@ -705,15 +705,15 @@ def test_to_sarif_accepts_the_placeholder_slots(tmp_path: Path) -> None:
     """The #1238 placeholders must stay transparent to ``to_sarif``,
     which documents ``None`` entries as "no record emitted" and skips
     them — so a caller can hand it ``analyze_batch``'s list verbatim.
-
-    This is a forward guard, not regression coverage for #1238: it
-    passes against the pre-fix code too, because a dropped slot and a
-    skipped slot render the same document. What it would catch is a
-    future ``to_sarif`` that raised on — or emitted a finding for — a
-    ``None`` entry.
     """
     inputs = _unreadable_batch(tmp_path)
     results = bca.analyze_batch(inputs, skip_generated=False)
+
+    # Pin the precondition. "to_sarif skips the None entries" is
+    # vacuously true of a list that has none — which is exactly what
+    # pre-#1238 `analyze_batch` returned, so without this line the test
+    # passes against the bug it is meant to sit downstream of.
+    assert results.count(None) == len(inputs) - 1
 
     # A threshold every analysed file trips, so "no findings" cannot be
     # mistaken for "the placeholders were skipped".
