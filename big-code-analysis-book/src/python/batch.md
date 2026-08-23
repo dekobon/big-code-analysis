@@ -7,11 +7,14 @@ errors**: each result element is an analysis `dict`, a
 preserve input order, so `zip(inputs, results)` lines up by index
 **when no path is skipped**. `analyze_batch` shares `analyze`'s
 keyword-only options — `exclude_tests`, `allow_lossy_path`, `skip_generated`
-(default `True`), and `metrics` — so the two entry points are
-behaviour-preserving.
+(default `True`), and `metrics` — so a file is treated the same by
+both entry points. (The list *shape* matches the
+`[bca.analyze(p) for p in paths]` comprehension only under
+`skip_generated=False`; with the default the comprehension keeps a
+`None` per skipped file while the batch drops the slot.)
 
 ```python
-{{#include ../../../big-code-analysis-py/examples/batch_processing.py:18:58}}
+{{#include ../../../big-code-analysis-py/examples/batch_processing.py:18:55}}
 ```
 
 A few key contracts:
@@ -95,7 +98,7 @@ sequential sweep. For parallelism, fan the per-file `analyze`
 call out across a thread pool:
 
 ```python
-{{#include ../../../big-code-analysis-py/examples/batch_processing.py:61:73}}
+{{#include ../../../big-code-analysis-py/examples/batch_processing.py:58:70}}
 ```
 
 PyO3's `Python::detach` releases the GIL across each file's read +

@@ -710,9 +710,10 @@ def analyze_batch(
     * a ``dict`` matching :func:`analyze`'s output shape,
     * an :class:`AnalysisFailure` describing the per-file failure, or
     * ``None`` for a file the read gate declines to parse — three
-      bytes or fewer, a UTF-16 BOM, or a leading window that is not
-      valid UTF-8. This is the same ``None`` :func:`analyze` returns
-      for those files, and it appears only under
+      bytes or fewer, a UTF-16 BOM, a leading window that is not
+      valid UTF-8, or (rarely) a file that shrank between the size
+      probe and the read. This is the same ``None`` :func:`analyze`
+      returns for those files, and it appears only under
       ``skip_generated=False``.
 
     A path that is skipped (``skip_generated=True`` and the file is
@@ -764,7 +765,10 @@ def analyze_batch(
     ``exclude_tests``, ``allow_lossy_path``, and ``skip_generated``
     mirror the keyword-only kwargs on :func:`analyze` exactly (#542),
     so migrating ``[bca.analyze(p) for p in paths]`` to
-    ``bca.analyze_batch(paths)`` is behaviour-preserving. In
+    ``bca.analyze_batch(paths)`` preserves each file's treatment. The
+    list *shape* is preserved only under ``skip_generated=False``: with
+    the default the comprehension keeps a ``None`` per skipped file
+    (index-aligned) while the batch drops the slot. In
     particular ``skip_generated`` defaults to ``True`` here too: a
     generated file is *skipped* (it yields no element), matching the
     CLI walker and :func:`analyze`'s ``None`` return. This default

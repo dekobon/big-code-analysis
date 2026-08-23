@@ -108,7 +108,7 @@ for historical reference.
 
 ### Fixed
 
-- The Python bindings' `analyze_batch` / `analyze_paths` dropped a
+- **(breaking)** The Python bindings' `analyze_batch` / `analyze_paths` dropped a
   result slot for any file the read gate declines to parse — three
   bytes or fewer, a UTF-16 BOM, or a leading window that is not valid
   UTF-8 — even under `skip_generated=False`, which both entry points

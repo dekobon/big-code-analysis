@@ -352,14 +352,15 @@ const _: fn() = || {
 ///
 /// `exclude_tests`, `allow_lossy_path`, and `skip_generated` mirror
 /// the keyword-only kwargs on [`crate::analyze`] verbatim (#542), so
-/// migrating a comprehension from `analyze` to `analyze_batch` is
-/// behaviour-preserving. In particular `skip_generated` defaults to
-/// `true` here too: a generated file is *skipped* (its input position
-/// yields no `dict`), so the result list can be **shorter** than the
-/// input iterable when `skip_generated=true`. Pass
+/// migrating a comprehension from `analyze` to `analyze_batch`
+/// preserves each file's treatment — though not the list shape under
+/// the default, since the comprehension keeps a `None` per skipped
+/// file while the batch drops the slot. In particular `skip_generated`
+/// defaults to `true` here too: a generated file is *skipped* (its
+/// input position yields no `dict`), so the result list can be
+/// **shorter** than the input iterable when `skip_generated=true`. Pass
 /// `skip_generated=false` to restore the legacy "one result per input,
-/// always" behaviour (every position produces a `dict`, an
-/// `AnalysisFailure`, or `None`).
+/// always" behaviour, with the slot vocabulary described above.
 #[pyfunction]
 #[pyo3(signature = (paths, /, *, exclude_tests = false, allow_lossy_path = false, skip_generated = true, metrics = None, vcs = false, vcs_per_function = false))]
 // `metrics: Option<Vec<String>>` is taken by value to match the PyO3
@@ -685,7 +686,11 @@ pub(crate) fn analyze_paths<'py>(
         metrics: metric_set,
     };
     let mut vcs_repos = VcsRepoCache::new(vcs, vcs_per_function);
-    let mut results: Vec<Py<PyAny>> = Vec::with_capacity(walked.files.len());
+    // Under `skip_generated=false` every discovered file yields exactly
+    // one slot, and each missing seed leads the list, so this is the
+    // exact final length (#1238 made the drop-a-slot shortfall go away).
+    let mut results: Vec<Py<PyAny>> =
+        Vec::with_capacity(walked.files.len() + walked.missing_seeds.len());
     // A nonexistent / dangling-symlink seed is surfaced as an
     // `AnalysisFailure` rather than silently dropped (#858). The CLI hard-
     // errors on a missing `--paths` seed (#596); the binding keeps that
@@ -923,6 +928,24 @@ mod tests {
     }
 
     // ── #1238: one slot per input under `skip_generated=false` ───────
+    //
+    // These duplicate the Python tests in `tests/test_batch.py` one
+    // layer down, on purpose: Rust patch coverage comes from
+    // `cargo llvm-cov nextest`, which never runs pytest, so without
+    // this pair the guarded arm reads as uncovered. Keep both pairs.
+
+    /// What one fixture row must produce in a result slot.
+    #[derive(Clone, Copy)]
+    enum Expect {
+        /// The read gate declines the file: no slot under the default,
+        /// a `None` placeholder under `skip_generated=false` (#1238).
+        ReadGateSkip,
+        /// The `skip_generated` filter owns the file: no slot under the
+        /// default, analysed normally once the filter is off.
+        Generated,
+        /// Parseable regardless of the flag; always a `dict` slot.
+        Analysed,
+    }
 
     /// Three bytes, so `read_file_with_eol` treats the file as empty
     /// and `analyze_path` returns `Ok(None)` before any language
@@ -937,37 +960,33 @@ mod tests {
     /// exercises the `str::from_utf8` arm.
     const BINARY_SOURCE: &[u8] = b"\x80\x81\x82\x83\n";
     /// Carries the CLI walker's `is_generated` markers, so it is the
-    /// `skip_generated`-gated `Ok(None)` source — analysed normally
-    /// once the filter is off.
+    /// `skip_generated`-gated `Ok(None)` source.
     const GENERATED_SOURCE: &[u8] = b"// @generated DO NOT EDIT\npub fn x() {}\n";
     /// An ordinary parseable file, present so neither test asserts a
     /// length against an all-skipped input.
     const GOOD_SOURCE: &[u8] = b"fn main() {}\n";
-    /// One input per `Ok(None)` source plus a parseable control, shared
-    /// by the pair of tests below so their only difference is the flag.
-    const MIXED_INPUTS: &[(&str, &[u8])] = &[
-        ("tiny.rs", TINY_SOURCE),
-        ("bom.rs", UTF16_BOM_SOURCE),
-        ("binary.rs", BINARY_SOURCE),
-        ("gen.rs", GENERATED_SOURCE),
-        ("good.rs", GOOD_SOURCE),
+    /// One input per `Ok(None)` source plus a parseable control, with
+    /// each row carrying its own expectation so the tests below derive
+    /// every position and count from the table instead of hardcoding
+    /// indices that a new row would silently shift.
+    const MIXED_INPUTS: &[(&str, &[u8], Expect)] = &[
+        ("tiny.rs", TINY_SOURCE, Expect::ReadGateSkip),
+        ("bom.rs", UTF16_BOM_SOURCE, Expect::ReadGateSkip),
+        ("binary.rs", BINARY_SOURCE, Expect::ReadGateSkip),
+        ("gen.rs", GENERATED_SOURCE, Expect::Generated),
+        ("good.rs", GOOD_SOURCE, Expect::Analysed),
     ];
 
-    /// Materialise `files` under `dir` and run each through
+    /// Materialise [`MIXED_INPUTS`] under `dir` and run each row through
     /// [`push_one_result`], returning the slots it pushed.
-    fn pushed_slots(
-        py: Python<'_>,
-        dir: &Path,
-        skip_generated: bool,
-        files: &[(&str, &[u8])],
-    ) -> Vec<Py<PyAny>> {
+    fn pushed_slots(py: Python<'_>, dir: &Path, skip_generated: bool) -> Vec<Py<PyAny>> {
         let opts = AnalyzeOptions {
             skip_generated,
             ..AnalyzeOptions::default()
         };
         let mut vcs_repos = VcsRepoCache::new(false, false);
         let mut results = Vec::new();
-        for (name, bytes) in files {
+        for (name, bytes, _) in MIXED_INPUTS {
             let path = dir.join(name);
             std::fs::write(&path, bytes).expect("write fixture file");
             push_one_result(py, &path, opts, &mut vcs_repos, &mut results)
@@ -1006,33 +1025,32 @@ mod tests {
         // placeheld, so the new guard must not intercept it.
         let dir = tempfile::tempdir().expect("tempdir");
         Python::attach(|py| {
-            let slots = pushed_slots(py, dir.path(), false, MIXED_INPUTS);
+            let slots = pushed_slots(py, dir.path(), false);
             assert_eq!(
                 slots.len(),
                 MIXED_INPUTS.len(),
                 "skip_generated=false must yield one slot per input so \
                  `zip(inputs, results)` keeps its pairing",
             );
-            for (index, slot) in slots.iter().take(3).enumerate() {
-                assert!(
-                    slot.is_none(py),
-                    "slot {index}: a file the read gate declines to parse \
-                     must hold its slot as `None`, matching single-file \
-                     `analyze`",
-                );
+            for ((name, _, expect), slot) in MIXED_INPUTS.iter().zip(&slots) {
+                match expect {
+                    Expect::ReadGateSkip => assert!(
+                        slot.is_none(py),
+                        "{name}: a file the read gate declines to parse must \
+                         hold its slot as `None`, matching single-file \
+                         `analyze`",
+                    ),
+                    // With the filter off a generated file is analysed,
+                    // not replaced by a placeholder — the guard must not
+                    // intercept it. The name assertion also catches a
+                    // slot that shifted onto the wrong input.
+                    Expect::Generated | Expect::Analysed => assert_eq!(
+                        slot_name(py, slot),
+                        path_str(dir.path(), name),
+                        "{name} must land in its own slot as a dict",
+                    ),
+                }
             }
-            assert_eq!(
-                slot_name(py, &slots[3]),
-                path_str(dir.path(), "gen.rs"),
-                "with the filter off a generated file is analysed, not \
-                 replaced by a `None` placeholder",
-            );
-            assert_eq!(
-                slot_name(py, &slots[4]),
-                path_str(dir.path(), "good.rs"),
-                "the parseable input must land in its own slot, not \
-                 shift onto an earlier one",
-            );
         });
     }
 
@@ -1045,13 +1063,21 @@ mod tests {
         // whether or not the arm ran.
         let dir = tempfile::tempdir().expect("tempdir");
         Python::attach(|py| {
-            let slots = pushed_slots(py, dir.path(), true, MIXED_INPUTS);
+            let slots = pushed_slots(py, dir.path(), true);
+            // Under the default only the `Analysed` rows keep a slot;
+            // both skip classes drop theirs entirely.
+            let analysed: Vec<_> = MIXED_INPUTS
+                .iter()
+                .filter(|(_, _, expect)| matches!(expect, Expect::Analysed))
+                .collect();
             assert_eq!(
                 slots.len(),
-                1,
+                analysed.len(),
                 "with skip_generated=true a skipped file yields no slot",
             );
-            assert_eq!(slot_name(py, &slots[0]), path_str(dir.path(), "good.rs"));
+            for ((name, _, _), slot) in analysed.iter().zip(&slots) {
+                assert_eq!(slot_name(py, slot), path_str(dir.path(), name));
+            }
         });
     }
 }

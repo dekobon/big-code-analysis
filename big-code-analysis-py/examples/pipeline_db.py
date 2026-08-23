@@ -127,8 +127,11 @@ def run(
                 print(f"  skip {path}: ({type(exc).__name__}) {exc}")
                 continue
             if result is None:
+                # `analyze` returns None for a generated file AND for one
+                # the read gate declines (empty/tiny, UTF-16 BOM, binary)
+                # — the single-file API does not say which (#1238).
                 skipped += 1
-                print(f"  skip {path}: looks generated")
+                print(f"  skip {path}: generated, empty, or binary")
                 continue
             analyzed += 1
             flat_rows.extend(dict(record) for record in bca.flatten_spaces(result))

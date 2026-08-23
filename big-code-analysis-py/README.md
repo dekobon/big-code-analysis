@@ -291,8 +291,11 @@ keyword-only options as `analyze` — `exclude_tests`,
 migrating between the two is behavior-preserving.
 
 With the default `skip_generated=True`, a generated file is *skipped*
-and produces no result element (matching single-file `analyze`, which
-returns `None`), so the result list can be shorter than the input.
+and produces no result element, so the result list can be shorter than
+the input. Note the shape difference from the comprehension it
+replaces: `[bca.analyze(p) for p in paths]` keeps a `None` per skipped
+file (staying index-aligned), while the batch drops the slot — the
+per-file *filter semantics* match, the list shape does not.
 This default flipped at 2.0 — the pre-2.0 `analyze_batch` always
 analyzed generated files (`skip_generated=False`); pass that
 explicitly to restore one-element-per-input.
@@ -310,10 +313,12 @@ mis-attributed every later result to the wrong path.
 import big_code_analysis as bca
 
 paths = ["src/a.py", "src/missing.py", "src/b.rs"]
-results = bca.analyze_batch(paths)
+results = bca.analyze_batch(paths, skip_generated=False)
 for path, result in zip(paths, results):
     if isinstance(result, bca.AnalysisFailure):
         print(f"skipped {path}: ({result.error_kind}) {result.error}")
+    elif result is None:
+        print(f"skipped {path}: nothing to parse (empty or binary)")
     else:
         process(result)
 ```

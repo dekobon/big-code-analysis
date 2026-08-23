@@ -114,8 +114,11 @@ def flatten_spaces(
     Raises:
         TypeError: if *result* is not a mapping. ``analyze`` can
             return ``None`` for filtered-out inputs (e.g.
-            ``skip_generated=True`` matched a generated file);
-            callers must filter ``None`` before flattening.
+            ``skip_generated=True`` matched a generated file), and
+            ``analyze_batch`` / ``analyze_paths`` emit ``None`` slots
+            under ``skip_generated=False`` for files the read gate
+            declines (#1238); callers must filter ``None`` before
+            flattening.
     """
     # Annotation says ``Mapping[str, Any]``; the runtime check is
     # defensive (a caller can pass ``analyze()``'s ``None`` return
