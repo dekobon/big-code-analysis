@@ -68,6 +68,17 @@ longer the file being edited. Before believing any perturbation result,
 confirm the subject still contains the change: `rg -c <new symbol>` on
 the file, or a `git diff --stat` that shows what you expect.
 
+**The result *parser* is the other half of the subject.** During #1238 a
+sweep drove three perturbations of one match arm and reported zero Rust
+failures for all three, while the Python leg of the same sweep reported
+the expected four, five and eight. Nothing was stale — the driver ran
+`cargo test -q`, which prints dots rather than per-test lines, so a
+parser scanning for `... FAILED` matched nothing and every mutation read
+as "no test noticed". A uniform zero across perturbations is the same
+tell as a uniform 34: it describes the harness, not the code. Cross-check
+any parsed count against the process exit status and treat a
+disagreement in *either* direction as a harness bug, not a result.
+
 After restoring, `git status` / `git diff --stat` must show exactly
 the edits you intend — nothing extra, nothing missing.
 
