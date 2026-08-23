@@ -607,11 +607,11 @@ fn collect_offenders(
 ///   output, or
 /// * a scalar ``None`` (the documented return of :func:`analyze` for
 ///   generated files); produces a well-formed empty SARIF run, or
-/// * any iterable yielding such dicts, :class:`AnalysisError`
+/// * any iterable yielding such dicts, :class:`AnalysisFailure`
 ///   instances, and/or ``None`` (e.g. the return of
 ///   :func:`analyze_batch`, or a list comprehension over
 ///   :func:`analyze` which returns ``None`` for generated files).
-///   :class:`AnalysisError` and ``None`` entries are skipped silently
+///   :class:`AnalysisFailure` and ``None`` entries are skipped silently
 ///   — they represent files for which no record was emitted (either
 ///   the pipeline could not analyse them, or they were classified as
 ///   generated), not findings.
@@ -704,7 +704,7 @@ fn collect_offenders_from_iter(
 ) -> PyResult<()> {
     // `try_iter()` errors if the value is not iterable — let that
     // propagate to the caller as a `TypeError`. Per the documented
-    // contract, `AnalysisError` entries are skipped silently (they
+    // contract, `AnalysisFailure` entries are skipped silently (they
     // represent files we couldn't analyse) and `None` entries are
     // likewise skipped (the documented return of :func:`analyze` for
     // generated files — issue #341); anything else that isn't a dict
@@ -731,7 +731,7 @@ fn cast_iter_item_to_dict<'py>(item: &Bound<'py, PyAny>) -> PyResult<Bound<'py, 
             .name()
             .map_or_else(|_| "<unknown type>".to_string(), |n| n.to_string());
         PyTypeError::new_err(format!(
-            "to_sarif expected a result dict, AnalysisError, or None, got {type_name}"
+            "to_sarif expected a result dict, AnalysisFailure, or None, got {type_name}"
         ))
     })
 }

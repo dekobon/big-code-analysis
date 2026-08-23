@@ -1038,7 +1038,8 @@ the existing values are frozen.
 A batch slot is not always a result or a failure. `analyze_batch` /
 `analyze_paths` emit a `None` element, under `skip_generated=False`
 only, for a file the shared read gate declines to parse — three bytes
-or fewer, a UTF-16 BOM, or a leading window that is not valid UTF-8.
+or fewer, a UTF-16 BOM, a leading window that is not valid UTF-8, or
+(rarely) a file that shrank between the size probe and the read.
 That gate is unconditional, so before #1238 those files produced no
 element at all and the documented `zip(inputs, results)` mis-paired
 every later entry; the placeholder is what makes `skip_generated=False`

@@ -725,10 +725,14 @@ def test_to_sarif_accepts_the_placeholder_slots(tmp_path: Path) -> None:
         for result in run["results"]
         for location in result["locations"]
     ]
-    assert flagged == [str(inputs[-1])], (
+    # The uri is an RFC 3986 reference (percent-encoded, and file:///C:/…
+    # on Windows), so compare by basename rather than raw str(path) —
+    # test_sarif.py owns the exact-encoding assertions.
+    assert len(flagged) == 1, (
         "only the parseable file may produce a finding; the None "
         "placeholders are skipped, not rendered as findings or errors"
     )
+    assert flagged[0].endswith(inputs[-1].name)
 
 
 def test_exclude_tests_kwarg_is_effective(tmp_path: Path) -> None:

@@ -286,8 +286,8 @@ impl From<serde_json::Error> for AnalysisError {
 /// The read goes through the CLI walker's own
 /// [`big_code_analysis::read_file_with_eol`] helper (#706), so the
 /// binding applies the walker's pre-dispatch gating verbatim: files of
-/// three bytes or fewer are treated as empty, a UTF-8 / UTF-16 BOM is
-/// stripped, a non-UTF-8 leading window marks the file as binary, and
+/// three bytes or fewer are treated as empty, a UTF-8 BOM is stripped,
+/// a UTF-16 BOM or a non-UTF-8 leading window marks the file as binary, and
 /// CR/CRLF line endings are normalised to LF. Each of these cases
 /// returns `Ok(None)` — the same "no record emitted" signal the CLI
 /// walker uses when it skips a file (and the same the `skip_generated`
@@ -351,8 +351,8 @@ pub(crate) fn analyze_path(
     // (`read_file_with_eol`) rather than a plain `std::fs::read`, so the
     // binding inherits the walker's pre-dispatch file gating verbatim
     // (issue #706, #640): files of three bytes or fewer are treated as
-    // empty, UTF-8 / UTF-16 BOMs are stripped, a non-UTF-8 leading window
-    // marks the file as binary, and CR/CRLF endings are normalised to LF
+    // empty, a UTF-8 BOM is stripped, a UTF-16 BOM or a non-UTF-8 leading
+    // window marks the file as binary, and CR/CRLF endings are normalised to LF
     // with a guaranteed trailing newline. Each skip case returns
     // `Ok(None)` — the same "no record emitted" signal the CLI walker
     // uses when it discards a file, and the same signal `skip_generated`

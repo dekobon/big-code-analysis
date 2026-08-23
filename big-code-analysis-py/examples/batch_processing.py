@@ -38,11 +38,8 @@ def run(paths: Iterable[Path]) -> dict[str, int]:
             errors += 1
             print(f"  skip {path}: ({result.error_kind}) {result.error}")
         elif result is None:
-            # A slot the read gate declined to parse — three bytes or
-            # fewer, a UTF-16 BOM, or a binary leading window (#1238).
-            # `skip_generated=False` keeps the position rather than
-            # dropping it, which is what makes the strict zip safe; the
-            # third branch is the price of that guarantee.
+            # The read gate declined this file; the slot is held open
+            # so the strict zip above stays aligned (#1238).
             skipped += 1
             print(f"  skip {path}: nothing to parse (empty or binary)")
         else:

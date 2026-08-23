@@ -91,6 +91,18 @@ def test_quick_start() -> None:
     assert "cyclomatic" in result["metrics"]
 
 
+def _declined_tiny_file(tmp_path: Path) -> Path:
+    """A three-byte file the read gate declines — the #1238 placeholder
+    input. The precondition assert keeps the fixture honest: if the
+    gate's threshold ever moved, the caller's test would otherwise pass
+    for the wrong reason.
+    """
+    tiny = tmp_path / "tiny.rs"
+    tiny.write_bytes(b"ab\n")
+    assert bca.analyze(tiny) is None, "fixture must be declined by the read gate"
+    return tiny
+
+
 def test_batch_processing(tmp_path: Path) -> None:
     """Regression (#882): the example's ``zip(..., strict=True)`` must
     hold when a generated file is in the batch.
@@ -113,9 +125,7 @@ def test_batch_processing(tmp_path: Path) -> None:
     # batch's `skip_generated=False` must NOT — confirming the fixture is
     # genuinely generated keeps this test non-vacuous for the skip path.
     assert bca.analyze(generated) is None, "fixture must be detected as generated"
-    tiny = tmp_path / "tiny.rs"
-    tiny.write_bytes(b"ab\n")
-    assert bca.analyze(tiny) is None, "fixture must be declined by the read gate"
+    tiny = _declined_tiny_file(tmp_path)
 
     summary = mod.run(
         [
@@ -558,9 +568,7 @@ def test_pipeline_db_batch_branch_analyses_generated_file(tmp_path: Path) -> Non
     # must not. (Confirms the fixture really is generated, so the test
     # is not vacuous.)
     assert bca.analyze(generated) is None, "fixture must be detected as generated"
-    tiny = tmp_path / "tiny.rs"
-    tiny.write_bytes(b"ab\n")
-    assert bca.analyze(tiny) is None, "fixture must be declined by the read gate"
+    tiny = _declined_tiny_file(tmp_path)
 
     summary = mod.run(
         FIXTURES_DIR,
@@ -576,6 +584,10 @@ def test_pipeline_db_batch_branch_analyses_generated_file(tmp_path: Path) -> Non
     # in `skipped`, which is the branch #1238 added.
     assert summary["analyzed"] > 0
     assert summary["rows"] > 0
+    # Counts read-gate declines across the whole FIXTURES_DIR walk plus
+    # the spliced-in tiny.rs; it is exactly 1 only while no checked-in
+    # fixture is <= 3 bytes or binary. If this fails after adding a
+    # fixture, the count moved — not pipeline_db.py.
     assert summary["skipped"] == 1, (
         "the read-gate slot must be bucketed as skipped, not analysed or errored"
     )

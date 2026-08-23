@@ -1611,19 +1611,27 @@ the operator to audit `analyze_path` for new skip surfaces, so the
 contract survives any future refactor adding a second one (a gitignore
 filter, a size cap).
 
-**Both premises have since fallen, exactly as anticipated.** #706 routed
-the bindings through the walker's `read_file_with_eol` gate — a second
-and *unconditional* `Ok(None)` source (three bytes or fewer, a UTF-16
-BOM, a non-UTF-8 leading window) — and #542 flipped `skip_generated` to
-default `true`. The arm is live on every call. That went unnoticed
-until #1238, where the batch docstrings' "`skip_generated=False`
-guarantees one element per input" turned out to be unsatisfiable and
-the endorsed `zip(inputs, results)` was attributing metrics to the
-wrong paths. The
-fallback's job — carrying the contract across a refactor nobody
-re-audited — is the part that held. What did not was any gate on the
-arm's *documentation*, which went on describing one skip source for two
-releases after the second was added.
+**Both premises have since fallen, and the fallback did not survive to
+catch it.** #706 routed the bindings through the walker's
+`read_file_with_eol` gate — a second and *unconditional* `Ok(None)`
+source (three bytes or fewer, a UTF-16 BOM, a non-UTF-8 leading
+window) — and the #542 commit (`3220e2a0`), which made the arm
+legitimately reachable by flipping `skip_generated` to default `true`,
+**deleted the synthetic fallback** and replaced it with a bare
+`Ok(None) => {}`. That deletion is precisely why #1238 was silent: the
+fallback's message — "audit `analyze_path()` for new skip surfaces" —
+was written for this exact event, and the event arrived with the guard
+already gone. The batch docstrings' "`skip_generated=False` guarantees
+one element per input" was unsatisfiable for two releases, and the
+endorsed `zip(inputs, results)` attributed metrics to the wrong paths
+with nothing to observe. The corollary this lesson missed the first
+time: a defensive fallback for an unreachable arm is at maximum risk at
+the moment the arm becomes *partially* reachable, because the commit
+that legitimises one source reads the whole fallback as obsolete and
+removes it — taking the guard against every *other* source with it.
+Keep the fallback scoped to the still-invalid residue, or replace it
+with something a refactor cannot silently drop (an exhaustive reason
+enum from the callee).
 
 ---
 
