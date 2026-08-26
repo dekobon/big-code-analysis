@@ -442,6 +442,60 @@ fn check_exclude_anchors_paths_from_seeds() {
         ));
 }
 
+/// Regression for #1306: the #497 anchoring must hold when the seed
+/// list arrives on **stdin** (`--paths-from -`), the shape a
+/// `git diff --name-only | bca check --paths-from -` gate uses.
+///
+/// `apply_check_exclude` used to rebuild the seed list by re-reading
+/// `--paths-from`. `-` resolves to stdin, which the walk had already
+/// drained, so the second read returned an empty list: every violation
+/// anchored against the (empty) `--paths` set, the `./excluded.rs`
+/// pattern silently failed to match, and the gate failed on a file the
+/// project had exempted. Same sibling-tempdir corpus as
+/// [`check_exclude_anchors_paths_from_seeds`] — that is what keeps the
+/// seed absolute, which is the condition the anchoring exists for.
+///
+/// The last two assertions pin the remediation footer, which renders
+/// from a `GlobalOpts` clone taken *before* the walk materializes the
+/// list: it must still echo the caller's `--paths-from -` spelling and
+/// must not have grown a `--paths <corpus>` entry from the expansion.
+#[test]
+fn check_exclude_anchors_paths_from_stdin_seeds() {
+    // CWD dir carries the `.git` marker that halts bca.toml discovery.
+    let cwd = TempDir::new().unwrap();
+    fs::create_dir(cwd.path().join(".git")).unwrap();
+
+    // The analyzed corpus is an independent (sibling) absolute path.
+    let corpus = TempDir::new().unwrap();
+    fs::write(
+        corpus.path().join("excluded.rs"),
+        branchy("excluded_offender"),
+    )
+    .unwrap();
+    fs::write(corpus.path().join("kept.rs"), branchy("kept_offender")).unwrap();
+
+    cli(cwd.path())
+        .args([
+            "check",
+            "--paths-from",
+            "-",
+            "--threshold",
+            "cyclomatic=1",
+            "--check-exclude",
+            "./excluded.rs",
+        ])
+        .write_stdin(format!("{}\n", corpus.path().to_str().unwrap()))
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("kept_offender"))
+        .stdout(predicate::str::contains("excluded_offender").not())
+        .stderr(predicate::str::contains(
+            "skipped 1 violations via [check.exclude]",
+        ))
+        .stderr(predicate::str::contains("--paths-from -"))
+        .stderr(predicate::str::contains(format!("--paths {}", corpus.path().display())).not());
+}
+
 /// `--print-effective-config` must report the *manifest's* `[check]
 /// exclude` globs and `exclude_from` file, not just the caller's.
 ///
