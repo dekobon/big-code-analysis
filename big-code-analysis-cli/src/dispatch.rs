@@ -23,7 +23,8 @@ use std::sync::atomic::Ordering;
 use big_code_analysis::{
     Ast, FuncSpace, LANG, MetricsError, MetricsOptions, PreprocResults, Source,
     dump_function_spans_with_color, dump_node_with_color, dump_ops_with_color,
-    dump_root_with_color, guess_language, is_generated, preprocess, read_file_with_eol, write_file,
+    dump_root_with_color, guess_language, is_generated, preprocess, read_file_with_eol_classified,
+    write_file,
 };
 
 use crate::exemptions::FileMarkers;
@@ -216,7 +217,9 @@ fn bump_tally(counter: Option<&Arc<std::sync::atomic::AtomicUsize>>) {
 
 /// Apply the three pre-dispatch filters every CLI subcommand shares:
 /// read the file (bumping `files_dispatched` on success and
-/// `read_failures` on failure), skip empty files, skip
+/// `read_failures` on failure), skip the files the reader declines —
+/// empty, too small, non-UTF-8 or UTF-16, each named in its own
+/// warning since #1287 — skip
 /// generated files (unless we're producing preproc data — that
 /// pipeline genuinely needs every C/C++ file walked), and resolve
 /// the source language. Returns `Ok(None)` when the file should be
@@ -231,7 +234,7 @@ fn validate_and_resolve_file(
     // `run_check` pass a gate run that read nothing at all (#1060). The
     // failure is tallied separately so the caller can distinguish
     // "nothing matched" from "everything was unreadable".
-    let source = read_file_with_eol(&path).inspect_err(|_| {
+    let source = read_file_with_eol_classified(&path).inspect_err(|_| {
         cfg.read_failures.fetch_add(1, Ordering::Relaxed);
     })?;
 
@@ -242,11 +245,18 @@ fn validate_and_resolve_file(
     // in `run_check`.
     bump_tally(cfg.files_dispatched.as_ref());
 
-    let Some(source) = source else {
-        if cfg.warning {
-            warn(format_args!("skipping empty file: {}", path.display()));
+    let source = match source {
+        Ok(source) => source,
+        // Name the gate that fired. Every skip used to read "skipping
+        // empty file", so a 4 KB binary and a one-byte source were both
+        // reported as empty (#1287); `SkipReason` renders the noun
+        // phrase and the severity prefix stays with `warn`.
+        Err(reason) => {
+            if cfg.warning {
+                warn(format_args!("skipping {reason}: {}", path.display()));
+            }
+            return Ok(None);
         }
-        return Ok(None);
     };
 
     if cfg.skip_generated && !matches!(cfg.action, Action::PreprocProduce) && is_generated(&source)
