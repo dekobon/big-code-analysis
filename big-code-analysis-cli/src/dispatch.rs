@@ -27,7 +27,7 @@ use big_code_analysis::{
 };
 
 use crate::exemptions::FileMarkers;
-use crate::formats::{MetricsDispatch, MetricsFormat, dump_csv};
+use crate::formats::{Document, MetricsDispatch, MetricsFormat, emit_csv};
 use crate::markdown_report::extract_summaries;
 use crate::{Action, Config, note, warn};
 
@@ -102,22 +102,72 @@ fn parse_error_to_io(err: MetricsError) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::InvalidData, err)
 }
 
+/// Adapt a helper that writes its own output to the [`Document`]
+/// channel: it produced nothing for the ordered stdout emitter.
+fn no_document((): ()) -> Document {
+    None
+}
+
 pub(crate) fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
+    // Claim this file's place in the stdout emission order while the
+    // path is still in hand — the dispatch consumes it — and release it
+    // on *every* way out below. The drain advances only as slots are
+    // released, so a path that returned without releasing one would hold
+    // every later document behind it (#1303).
+    let slot = cfg
+        .ordered_stdout
+        .as_ref()
+        .map(|ordered| ordered.slot(&path));
+    let document = match act_on_file_dispatch(path, cfg) {
+        Ok(document) => document,
+        Err(err) => {
+            // The dispatch error is the one worth reporting, so the
+            // release's own result is discarded here; it can only be a
+            // stdout write failure, which the same run reports through
+            // whichever file *does* surface it.
+            drop(release_slot(cfg, slot, None));
+            return Err(err);
+        }
+    };
+    release_slot(cfg, slot, document).inspect_err(|err| note_write_failure(cfg, err))
+}
+
+/// Read, filter, and dispatch one walked path, tallying a write failure
+/// raised by a destination that writes its own output.
+fn act_on_file_dispatch(path: PathBuf, cfg: &Config) -> std::io::Result<Document> {
     let Some((path, source, language)) = validate_and_resolve_file(path, cfg)? else {
-        return Ok(());
+        return Ok(None);
     };
     // Tally here rather than in the runner's error printer: everything
     // that reaches this point has already been read, so an error can
     // only have come from emitting the result. The error itself is still
     // returned so the runner prints its per-file line.
-    //
-    // `BrokenPipe` is excluded for the same reason the printer swallows
-    // it — `bca metrics | head` closing the pipe is routine.
-    dispatch_action(language, source, path, cfg).inspect_err(|err| {
-        if err.kind() != std::io::ErrorKind::BrokenPipe {
-            cfg.write_failures.fetch_add(1, Ordering::Relaxed);
-        }
-    })
+    dispatch_action(language, source, path, cfg).inspect_err(|err| note_write_failure(cfg, err))
+}
+
+/// Count one failed output write, so a walk that could not emit what it
+/// analyzed exits 1.
+///
+/// `BrokenPipe` is excluded for the same reason the runner's printer
+/// swallows it — `bca metrics | head` closing the pipe is routine.
+fn note_write_failure(cfg: &Config, err: &std::io::Error) {
+    if err.kind() != std::io::ErrorKind::BrokenPipe {
+        cfg.write_failures.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// Hand `document` (or the "nothing to emit" marker) to the ordered
+/// stdout emitter, writing it straight through when the run has no
+/// emitter — the destinations that never produce one.
+fn release_slot(
+    cfg: &Config,
+    slot: Option<crate::ordered_stdout::Slot>,
+    document: Document,
+) -> std::io::Result<()> {
+    match (cfg.ordered_stdout.as_ref(), slot) {
+        (Some(ordered), Some(slot)) => ordered.release(slot, document),
+        _ => document.map_or(Ok(()), |doc| crate::ordered_stdout::write_document(&doc)),
+    }
 }
 
 /// Route one read, non-empty, language-resolved file to the helper that
@@ -127,10 +177,10 @@ fn dispatch_action(
     source: Vec<u8>,
     path: PathBuf,
     cfg: &Config,
-) -> std::io::Result<()> {
+) -> std::io::Result<Document> {
     let pr = cfg.preproc.clone();
     match &cfg.action {
-        Action::Dump => dispatch_dump(language, source, path, pr, cfg),
+        Action::Dump => dispatch_dump(language, source, path, pr, cfg).map(no_document),
         Action::Metrics { format, pretty } => {
             dispatch_metrics(language, source, path, pr, cfg, format.as_ref(), *pretty)
         }
@@ -139,14 +189,19 @@ fn dispatch_action(
         }
         Action::StripComments { in_place, output } => {
             dispatch_strip_comments(language, source, path, pr, *in_place, output.as_deref())
+                .map(no_document)
         }
-        Action::Functions => dispatch_functions(language, source, path, pr, cfg),
-        Action::Find(filters) => dispatch_find(language, source, path, pr, cfg, filters),
-        Action::Count(filters) => dispatch_count(language, source, path, pr, cfg, filters),
-        Action::Report => dispatch_report(language, source, path, pr, cfg),
-        Action::Check => dispatch_check_file(language, source, path, pr, cfg),
-        Action::Exemptions => dispatch_exemptions(language, source, path, pr, cfg),
-        Action::PreprocProduce => dispatch_preproc(source, path, cfg),
+        Action::Functions => dispatch_functions(language, source, path, pr, cfg).map(no_document),
+        Action::Find(filters) => {
+            dispatch_find(language, source, path, pr, cfg, filters).map(no_document)
+        }
+        Action::Count(filters) => {
+            dispatch_count(language, source, path, pr, cfg, filters).map(no_document)
+        }
+        Action::Report => dispatch_report(language, source, path, pr, cfg).map(no_document),
+        Action::Check => dispatch_check_file(language, source, path, pr, cfg).map(no_document),
+        Action::Exemptions => dispatch_exemptions(language, source, path, pr, cfg).map(no_document),
+        Action::PreprocProduce => dispatch_preproc(source, path, cfg).map(no_document),
     }
 }
 
@@ -293,7 +348,7 @@ fn dispatch_metrics(
     cfg: &Config,
     format: Option<&MetricsFormat>,
     pretty: bool,
-) -> std::io::Result<()> {
+) -> std::io::Result<Document> {
     // bca: suppress(cognitive)
     // Output-mode dispatch: each nesting level is a real emit decision
     // (format present? --vcs? per-function blame? aggregate vs per-file?
@@ -317,26 +372,25 @@ fn dispatch_metrics(
             // collected set, by the command runner.
             if let Some(tx) = &cfg.aggregate_tx {
                 let _ = tx.send(crate::AggregateItem::Metrics(Box::new(space), path));
-                return Ok(());
+                return Ok(None);
             }
-            // Per-file directory mode (`--output-dir <DIR>`) or stdout.
-            match fmt.dispatch() {
-                MetricsDispatch::Generic(g) => {
-                    g.dump(space, path, cfg.output_dir.as_ref(), pretty)?;
-                }
-                MetricsDispatch::Csv => {
-                    dump_csv(&space, path, cfg.output_dir.as_ref())?;
-                }
-            }
+            // Per-file directory mode (`--output-dir <DIR>`) writes its
+            // own file; stdout renders the document and hands it back,
+            // so the caller can emit it in walk order (#1303).
+            let dir = cfg.output_dir.as_ref();
+            return match fmt.dispatch() {
+                MetricsDispatch::Generic(g) => g.emit(space, &path, dir, pretty),
+                MetricsDispatch::Csv => emit_csv(&space, &path, dir),
+            };
         }
-        Ok(())
+        Ok(None)
     } else {
         // Human-readable metric dump: parse once, then render the tree.
         // A walker error degrades to no output (matching the prior
         // `Metrics` callback), never an `Err`.
         match parse_ast_io(language, source, &path, pr)?.metrics(cfg.metrics_options()) {
-            Ok(space) => dump_root_with_color(&space, cfg.color),
-            Err(_) => Ok(()),
+            Ok(space) => dump_root_with_color(&space, cfg.color).map(no_document),
+            Err(_) => Ok(None),
         }
     }
 }
@@ -349,33 +403,31 @@ fn dispatch_ops(
     cfg: &Config,
     format: Option<&MetricsFormat>,
     pretty: bool,
-) -> std::io::Result<()> {
+) -> std::io::Result<Document> {
     if let Some(fmt) = format {
         if let Ok(ops) = parse_ast(language, source, &path, pr).and_then(|ast| ast.ops()) {
             // Single-file aggregate mode (`--output <FILE>`, #669): stream
             // the ops tree to the post-walk collector.
             if let Some(tx) = &cfg.aggregate_tx {
                 let _ = tx.send(crate::AggregateItem::Ops(Box::new(ops), path));
-                return Ok(());
+                return Ok(None);
             }
             // CSV is rejected upstream in `run()` for the Ops command,
             // so the dispatch here is always Generic. The match is
             // still exhaustive to keep the compiler honest if that
             // upstream guard ever drifts.
-            match fmt.dispatch() {
-                MetricsDispatch::Generic(g) => {
-                    g.dump(ops, path, cfg.output_dir.as_ref(), pretty)?;
-                }
-                MetricsDispatch::Csv => {}
-            }
+            return match fmt.dispatch() {
+                MetricsDispatch::Generic(g) => g.emit(ops, &path, cfg.output_dir.as_ref(), pretty),
+                MetricsDispatch::Csv => Ok(None),
+            };
         }
-        Ok(())
+        Ok(None)
     } else {
         // Human-readable ops dump: a walker error degrades to no output
         // (matching the prior `OpsCode` callback), never an `Err`.
         match parse_ast_io(language, source, &path, pr)?.ops() {
-            Ok(ops) => dump_ops_with_color(&ops, cfg.color),
-            Err(_) => Ok(()),
+            Ok(ops) => dump_ops_with_color(&ops, cfg.color).map(no_document),
+            Err(_) => Ok(None),
         }
     }
 }
@@ -739,6 +791,7 @@ mod tests {
             action: Action::PreprocProduce,
             output_dir: None,
             aggregate_tx: None,
+            ordered_stdout: None,
             language: None,
             line_start: None,
             line_end: None,

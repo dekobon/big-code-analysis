@@ -130,34 +130,83 @@ pub(crate) enum GenericFormat {
 }
 
 impl GenericFormat {
-    /// Dispatch a generic per-file format through its
-    /// `T: Serialize` writer. Exhaustive over `GenericFormat` — every
-    /// variant is handled, no wildcards.
+    /// Write one file's document under the `--output-dir` tree through
+    /// this format's `T: Serialize` writer. Exhaustive over
+    /// `GenericFormat` — every variant is handled, no wildcards.
     pub(crate) fn dump<T: Serialize>(
         self,
         space: T,
-        path: PathBuf,
-        output_path: Option<&PathBuf>,
+        path: &Path,
+        output_path: &Path,
         pretty: bool,
     ) -> std::io::Result<()> {
-        if let Some(output_path) = output_path {
-            match self {
-                Self::Cbor => Cbor::with_writer(space, &path, output_path),
-                Self::Json => Json::with_pretty_writer(space, &path, output_path, pretty),
-                Self::Toml => Toml::with_pretty_writer(space, &path, output_path, pretty),
-                Self::Yaml => Yaml::with_writer(space, &path, output_path),
-            }
-        } else {
-            match self {
-                Self::Cbor => Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    CBOR_STDOUT_ERROR,
-                )),
-                Self::Json => Json::write_on_stdout_pretty(space, pretty),
-                Self::Toml => Toml::write_on_stdout_pretty(space, pretty),
-                Self::Yaml => Yaml::write_on_stdout(space),
-            }
+        match self {
+            Self::Cbor => Cbor::with_writer(space, path, output_path),
+            Self::Json => Json::with_pretty_writer(space, path, output_path, pretty),
+            Self::Toml => Toml::with_pretty_writer(space, path, output_path, pretty),
+            Self::Yaml => Yaml::with_writer(space, path, output_path),
         }
+    }
+
+    /// Send one analyzed file's value to the run's destination:
+    /// [`dump`](Self::dump) into its own file under `output_dir`, or
+    /// [`render`](Self::render) back to the caller as the stdout
+    /// document.
+    pub(crate) fn emit<T: Serialize>(
+        self,
+        value: T,
+        path: &Path,
+        output_dir: Option<&PathBuf>,
+        pretty: bool,
+    ) -> std::io::Result<Document> {
+        match output_dir {
+            Some(dir) => self.dump(value, path, dir, pretty).map(|()| None),
+            None => self.render(value, pretty).map(Some),
+        }
+    }
+
+    /// Render one file's stdout document — the serialized text plus the
+    /// trailing newline — instead of writing it.
+    ///
+    /// Rendering and emitting are split so the walk can put the
+    /// documents back into walk order before they reach stdout (#1303);
+    /// the bytes are byte-identical to what the `writeln!`-per-document
+    /// path emitted before.
+    pub(crate) fn render<T: Serialize>(self, space: T, pretty: bool) -> std::io::Result<Vec<u8>> {
+        match self {
+            // Rejected upstream by `resolve_structured_output`, which
+            // requires a destination for CBOR; kept so this match needs
+            // no wildcard.
+            Self::Cbor => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                CBOR_STDOUT_ERROR,
+            )),
+            Self::Json => Json::document_pretty(space, pretty),
+            Self::Toml => Toml::document_pretty(space, pretty),
+            Self::Yaml => Yaml::document(space),
+        }
+    }
+}
+
+/// The stdout document one file's emission produced, or `None` when it
+/// went to a destination that writes its own output (`--output-dir`,
+/// `--output`, the human-readable tree) or produced nothing at all.
+///
+/// The stdout modes hand the bytes back rather than writing them so the
+/// walk can emit the documents in walk order (#1303).
+pub(crate) type Document = Option<Vec<u8>>;
+
+/// [`GenericFormat::emit`] for the CSV row shape, which is not a
+/// `GenericFormat`: its columns need the concrete `&FuncSpace` they are
+/// derived from rather than a `T: Serialize`.
+pub(crate) fn emit_csv(
+    space: &FuncSpace,
+    path: &Path,
+    output_dir: Option<&PathBuf>,
+) -> std::io::Result<Document> {
+    match output_dir {
+        Some(dir) => dump_csv(space, path, dir).map(|()| None),
+        None => render_csv(space, path).map(Some),
     }
 }
 
@@ -260,35 +309,22 @@ where
     }
 }
 
-/// Run `write` against either a per-file path under `output_dir`
-/// (with `extension` appended and any missing parent directories
-/// created) or stdout. Shared scaffolding for the per-file `dump_*`
-/// helpers (CSV).
-fn write_per_file_or_stdout<F>(
-    input_path: &Path,
-    output_dir: Option<&PathBuf>,
-    extension: &str,
-    write: F,
-) -> std::io::Result<()>
-where
-    F: FnOnce(&mut dyn Write) -> std::io::Result<()>,
-{
-    let format_path = output_dir.map(|dir| handle_path(input_path, dir, extension));
-    write_buffered(format_path.as_deref(), write)
+/// Write a CSV document for the metric tree rooted at `space` under the
+/// `--output-dir` tree, in a file whose name mirrors the input path
+/// (with `.csv` appended).
+fn dump_csv(space: &FuncSpace, path: &Path, output_path: &Path) -> std::io::Result<()> {
+    write_buffered_file(&handle_path(path, output_path, CSV_EXTENSION), |w| {
+        write_csv(space, path, w)
+    })
 }
 
-/// Emit a CSV document for the metric tree rooted at `space`. If
-/// `output_path` is `Some`, the document is written to a file in the
-/// directory whose name mirrors the input path (with `.csv`
-/// appended); otherwise it goes to stdout.
-pub(crate) fn dump_csv(
-    space: &FuncSpace,
-    path: PathBuf,
-    output_path: Option<&PathBuf>,
-) -> std::io::Result<()> {
-    write_per_file_or_stdout(&path, output_path, CSV_EXTENSION, |w| {
-        write_csv(space, &path, w)
-    })
+/// Render the same CSV document [`dump_csv`] writes, for the stdout
+/// path — which emits documents in walk order rather than in worker
+/// completion order and so needs the bytes in hand (#1303).
+fn render_csv(space: &FuncSpace, path: &Path) -> std::io::Result<Vec<u8>> {
+    let mut document = Vec::new();
+    write_csv(space, path, &mut document)?;
+    Ok(document)
 }
 
 /// Serialize the whole `items` slice as ONE aggregate document to the
@@ -348,27 +384,32 @@ pub(crate) fn dump_csv_aggregate(
     })
 }
 
+/// Terminate a rendered document exactly as the `writeln!`-per-document
+/// stdout path did, so the bytes are unchanged by the #1303 split of
+/// rendering from emission.
 #[inline]
-fn print_on_stdout(content: String) -> std::io::Result<()> {
-    writeln!(std::io::stdout().lock(), "{content}")
+fn into_document(content: String) -> Vec<u8> {
+    let mut document = content.into_bytes();
+    document.push(b'\n');
+    document
 }
 
-trait WriteOnStdout {
+trait RenderDocument {
     #[inline]
-    fn write_on_stdout<T: Serialize>(content: T) -> std::io::Result<()> {
-        print_on_stdout(Self::format(content)?)
+    fn document<T: Serialize>(content: T) -> std::io::Result<Vec<u8>> {
+        Ok(into_document(Self::format(content)?))
     }
 
     fn format<T: Serialize>(content: T) -> std::io::Result<String>;
 }
 
-trait WritePrettyOnStdout: WriteOnStdout {
-    fn write_on_stdout_pretty<T: Serialize>(content: T, pretty: bool) -> std::io::Result<()> {
-        print_on_stdout(if pretty {
+trait RenderPrettyDocument: RenderDocument {
+    fn document_pretty<T: Serialize>(content: T, pretty: bool) -> std::io::Result<Vec<u8>> {
+        Ok(into_document(if pretty {
             Self::format_pretty(content)?
         } else {
             Self::format(content)?
-        })
+        }))
     }
     fn format_pretty<T: Serialize>(content: T) -> std::io::Result<String>;
 }
@@ -512,13 +553,13 @@ trait WritePrettyFile: WriteFile {
 
 struct Json;
 
-impl WriteOnStdout for Json {
+impl RenderDocument for Json {
     fn format<T: Serialize>(content: T) -> std::io::Result<String> {
         serde_json::to_string(&content).map_err(ser_err)
     }
 }
 
-impl WritePrettyOnStdout for Json {
+impl RenderPrettyDocument for Json {
     fn format_pretty<T: Serialize>(content: T) -> std::io::Result<String> {
         serde_json::to_string_pretty(&content).map_err(ser_err)
     }
@@ -557,13 +598,13 @@ impl WritePrettyFile for Json {
 
 struct Toml;
 
-impl WriteOnStdout for Toml {
+impl RenderDocument for Toml {
     fn format<T: Serialize>(content: T) -> std::io::Result<String> {
         toml::to_string(&content).map_err(ser_err)
     }
 }
 
-impl WritePrettyOnStdout for Toml {
+impl RenderPrettyDocument for Toml {
     fn format_pretty<T: Serialize>(content: T) -> std::io::Result<String> {
         toml::to_string_pretty(&content).map_err(ser_err)
     }
@@ -602,7 +643,7 @@ impl WritePrettyFile for Toml {
 
 struct Yaml;
 
-impl WriteOnStdout for Yaml {
+impl RenderDocument for Yaml {
     fn format<T: Serialize>(content: T) -> std::io::Result<String> {
         serde_yaml::to_string(&content).map_err(ser_err)
     }

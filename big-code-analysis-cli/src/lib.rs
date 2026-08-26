@@ -59,6 +59,7 @@ mod markdown_report;
 mod metric_alias;
 mod metric_catalog;
 mod metric_diff;
+mod ordered_stdout;
 mod path_io;
 mod provenance;
 mod qualified_name;
@@ -154,6 +155,18 @@ struct Config {
     /// would serve here equally well. The same applies to every `*_tx`
     /// below.
     aggregate_tx: Option<crossbeam::channel::Sender<AggregateItem>>,
+    /// Reorder buffer for the streaming stdout modes of `metrics` /
+    /// `ops` (#1303) — the destination that cannot sort after the fact
+    /// the way `--output <FILE>` does (#1244), because it has already
+    /// written each document by then.
+    ///
+    /// Installed by [`run_walk_tallying`] for the walks
+    /// [`streams_documents_to_stdout`](Self::streams_documents_to_stdout)
+    /// identifies, never by a command runner: the two subcommands that
+    /// stream then cannot drift apart on it, and a third cannot forget
+    /// it. `None` for every other flow, which leaves emission the
+    /// unordered write-as-you-go it has always been.
+    ordered_stdout: Option<Arc<ordered_stdout::OrderedStdout>>,
     language: Option<LANG>,
     line_start: Option<usize>,
     line_end: Option<usize>,
@@ -326,6 +339,7 @@ impl Config {
             action,
             output_dir: None,
             aggregate_tx: None,
+            ordered_stdout: None,
             language,
             // Set by the `dump`/`find` call sites from their `LineRange`
             // args; every other action leaves the range unbounded.
@@ -393,6 +407,34 @@ impl Config {
         }
         opts
     }
+
+    /// Whether this walk streams one structured document per file to
+    /// stdout — the only destination whose document order a parallel
+    /// walk can scramble (#1303).
+    ///
+    /// The other three settle it elsewhere: `--output <FILE>` sorts the
+    /// whole set after the walk (#1244), `--output-dir <DIR>` gives each
+    /// document its own file, and the human-readable tree (no
+    /// `--format`) is a rendering for someone reading along rather than
+    /// a document anyone diffs.
+    ///
+    /// Derived from the destination fields rather than set by each
+    /// command runner, so `metrics` and `ops` cannot drift apart on it
+    /// and a future streaming subcommand cannot forget it.
+    fn streams_documents_to_stdout(&self) -> bool {
+        self.output_dir.is_none()
+            && self.aggregate_tx.is_none()
+            && matches!(
+                self.action,
+                Action::Metrics {
+                    format: Some(_),
+                    ..
+                } | Action::Ops {
+                    format: Some(_),
+                    ..
+                }
+            )
+    }
 }
 
 /// The three bytes of a UTF-8 byte-order mark (U+FEFF encoded as
@@ -424,19 +466,46 @@ fn run_walk_resolved_tallying(
 ) -> WalkFailures {
     let read_failures = Arc::clone(&cfg.read_failures);
     let write_failures = Arc::clone(&cfg.write_failures);
-    ConcurrentRunner::new(num_jobs, act_on_file)
+    let ordered_stdout = cfg.ordered_stdout.clone();
+    let outcome = ConcurrentRunner::new(num_jobs, act_on_file)
         // `expand_seed_paths` classified every entry from the walker's
         // `dirent`, so the runner's own `is_file()` check is a second
         // `stat` for a question already answered (#1114). A path that
         // has since vanished still surfaces through `read_failures`,
         // which is where the walk reports unreadable inputs anyway.
         .without_path_verification()
-        .run(cfg, FilesData { paths })
-        .unwrap_or_else(|e| die(format_args!("{e:?}")));
+        .run(cfg, FilesData { paths });
+    // Flush *before* the runner's own failure is reported: a panicked
+    // worker is exactly the case that leaves a slot unreleased, and
+    // dying first would drop the documents queued behind it (#1303).
+    flush_ordered_stdout(ordered_stdout.as_deref(), &write_failures);
+    outcome.unwrap_or_else(|e| die(format_args!("{e:?}")));
     WalkFailures {
         walk: walk_errors,
         read: read_failures.load(Ordering::Relaxed),
         write: write_failures.load(Ordering::Relaxed),
+    }
+}
+
+/// Write anything the streaming-stdout reorder buffer is still holding
+/// now that every worker has joined (#1303).
+///
+/// Empty on any ordinary run — every dispatched file releases its slot,
+/// document or not — so this only fires for a slot a panicked worker
+/// never released, and emits the documents queued behind it late rather
+/// than dropping them. The failure is folded into the walk's own
+/// write tally so it exits 1 through the same guard a per-file write
+/// failure does, `BrokenPipe` excepted for the usual `| head` reason.
+fn flush_ordered_stdout(
+    ordered: Option<&ordered_stdout::OrderedStdout>,
+    write_failures: &AtomicUsize,
+) {
+    if let Some(ordered) = ordered
+        && let Err(err) = ordered.flush_remaining()
+        && err.kind() != ErrorKind::BrokenPipe
+    {
+        warn(format_args!("failed to write buffered output: {err}"));
+        write_failures.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -518,6 +587,15 @@ impl WalkFailure {
 fn run_walk_tallying(globals: GlobalOpts, mut cfg: Config) -> WalkFailures {
     let (resolved, num_jobs) = resolve_walk_files(globals);
     cfg.explicit_seeds = Arc::new(resolved.explicit_files);
+    // Install the reorder buffer for the destination that needs one,
+    // recording the resolved list as the emission order before the
+    // runner hands out its first path — each worker resolves its own
+    // slot from that map (#1303).
+    if cfg.streams_documents_to_stdout() {
+        let ordered = Arc::new(ordered_stdout::OrderedStdout::default());
+        ordered.index_paths(&resolved.files);
+        cfg.ordered_stdout = Some(ordered);
+    }
     run_walk_resolved_tallying(resolved.files, num_jobs, cfg, resolved.walk_errors)
 }
 

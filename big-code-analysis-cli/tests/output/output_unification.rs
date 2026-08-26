@@ -14,6 +14,9 @@
 //! - #1244: the aggregate document's elements are emitted in sorted
 //!   emitted-path order rather than worker-completion order, so two
 //!   runs over an unchanged tree produce byte-identical files.
+//! - #1303: the same for the *streaming* stdout destination, which
+//!   cannot sort after the fact — its documents are held in a reorder
+//!   buffer and released in walk order.
 
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -267,8 +270,16 @@ fn aggregate_at_eight_jobs(
 }
 
 /// Enough files that worker completion order reliably diverges from the
-/// walk's sorted file list at `--jobs 8`.
+/// walk's sorted file list at `--jobs 8`. Measured against the pre-#1303
+/// binary: ten `metrics -O json` runs over 24 files gave ten distinct
+/// stdout hashes.
 const ORDERING_FIXTURE_FILES: usize = 24;
+
+/// Identical runs compared byte for byte by the #1303 determinism
+/// assertions. Three is enough to fail every pre-fix permutation
+/// measured; the assertions also pin the *order*, so a run that happens
+/// to repeat itself cannot pass by luck.
+const DETERMINISM_RUNS: usize = 3;
 
 /// Workers finish out of order, so before #1244 this fixture emitted a
 /// different permutation on every run — twelve measured runs gave
@@ -576,5 +587,183 @@ fn aggregate_document_survives_spanning_several_output_buffers() {
         doc.to_string()
             .contains(&format!("generated_function_{}", FUNCTIONS - 1)),
         "the tail of the aggregate document was lost"
+    );
+}
+
+// ---------------------------------------------------------------------
+// #1303 — stdout emits its documents in walk order
+// ---------------------------------------------------------------------
+
+/// The stdout of a `metrics` / `ops` run over `dir` at `--jobs 8`,
+/// verbatim. The bytes are the property under test, so nothing here
+/// parses, sorts, or normalizes them.
+fn stdout_at_eight_jobs(dir: &std::path::Path, command: &str) -> Vec<u8> {
+    let assert = cli()
+        .args([
+            command,
+            "--paths",
+            dir.to_str().unwrap(),
+            "-O",
+            "json",
+            "--jobs",
+            "8",
+        ])
+        // A reorder buffer that stalls waiting for a slot nobody
+        // releases would otherwise hang the suite rather than fail it.
+        .timeout(std::time::Duration::from_secs(120))
+        .assert()
+        .success();
+
+    assert.get_output().stdout.clone()
+}
+
+/// The `name` of every document on a stream of one JSON document per
+/// line, positionally — the order *is* the property under test.
+fn streamed_names(stdout: &[u8]) -> Vec<String> {
+    std::str::from_utf8(stdout)
+        .expect("stdout is UTF-8")
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
+            let doc: serde_json::Value =
+                serde_json::from_str(line).expect("each line is one JSON document");
+            doc.get("name")
+                .and_then(serde_json::Value::as_str)
+                .expect("every document carries a name")
+                .to_owned()
+        })
+        .collect()
+}
+
+/// Stdout streams each document as its worker finishes, so before #1303
+/// this fixture emitted a different permutation on every run — ten
+/// measured runs at `--jobs 8` gave ten distinct byte hashes, and not
+/// one of them was in walk order. Both halves are asserted: a
+/// stability-only test passes if every run is identically wrong, and an
+/// order-only test cannot see a run that reorders under a different
+/// schedule.
+#[test]
+fn stdout_documents_are_ordered_by_walk_order_not_worker_arrival() {
+    let dir = TempDir::new().unwrap();
+    let expected = write_ordering_fixture(dir.path(), ORDERING_FIXTURE_FILES);
+
+    let first = stdout_at_eight_jobs(dir.path(), "metrics");
+
+    assert_eq!(
+        streamed_names(&first),
+        expected,
+        "stdout documents must be emitted in the walk's file order"
+    );
+    for run in 1..DETERMINISM_RUNS {
+        assert_eq!(
+            stdout_at_eight_jobs(dir.path(), "metrics"),
+            first,
+            "run {run} produced different bytes on an unchanged tree"
+        );
+    }
+}
+
+/// The `ops` half of the same contract. `ops` renders a different
+/// document through the same emitter, so a fix wired into only the
+/// `metrics` dispatch would pass the test above and fail here.
+#[test]
+fn ops_stdout_documents_are_ordered_by_walk_order_not_worker_arrival() {
+    let dir = TempDir::new().unwrap();
+    let expected = write_ordering_fixture(dir.path(), ORDERING_FIXTURE_FILES);
+
+    let first = stdout_at_eight_jobs(dir.path(), "ops");
+
+    assert_eq!(
+        streamed_names(&first),
+        expected,
+        "ops stdout documents must be emitted in the walk's file order"
+    );
+    for run in 1..DETERMINISM_RUNS {
+        assert_eq!(
+            stdout_at_eight_jobs(dir.path(), "ops"),
+            first,
+            "run {run} produced different bytes on an unchanged tree"
+        );
+    }
+}
+
+/// Files that produce no document at all — empty, generated, or of an
+/// unrecognized language — still occupy a slot in the emission order,
+/// and every one of them sorts *between* two files that do produce one.
+/// If any of them failed to release its slot the drain would stall
+/// behind it and the run would hang; the `timeout` in
+/// [`stdout_at_eight_jobs`] makes that a failure rather than a hung CI
+/// job.
+#[test]
+fn files_that_emit_no_document_do_not_stall_the_emission_order() {
+    let dir = TempDir::new().unwrap();
+    let expected = write_ordering_fixture(dir.path(), ORDERING_FIXTURE_FILES);
+
+    // `m3.empty.rs` sorts between `m3.rs` and `m4.rs`, so each of these
+    // sits mid-stream rather than at either end, where a stalled slot
+    // would be invisible.
+    std::fs::write(dir.path().join("m3.empty.rs"), "").unwrap();
+    std::fs::write(
+        dir.path().join("m7.generated.rs"),
+        "// @generated\nfn g() {}\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("m9.notes.unknownlang999"), "free text\n").unwrap();
+
+    let stdout = stdout_at_eight_jobs(dir.path(), "metrics");
+
+    assert_eq!(
+        streamed_names(&stdout),
+        expected,
+        "the analyzable documents must still arrive in walk order"
+    );
+}
+
+/// `--output-dir <DIR>` gives every document its own file, so no order
+/// exists to get wrong — the tree is identical run to run by
+/// construction. Pinned so a future refactor that routes the per-file
+/// tree through the streaming emitter has to keep it that way.
+#[test]
+fn output_dir_tree_is_identical_across_runs() {
+    let dir = TempDir::new().unwrap();
+    write_ordering_fixture(dir.path(), ORDERING_FIXTURE_FILES);
+
+    let mut digests = Vec::new();
+    for run in 0..DETERMINISM_RUNS {
+        let out_dir = dir.path().join(format!("out{run}"));
+        cli()
+            .args([
+                "metrics",
+                "--paths",
+                dir.path().to_str().unwrap(),
+                "-O",
+                "json",
+                "--output-dir",
+                out_dir.to_str().unwrap(),
+                "--jobs",
+                "8",
+            ])
+            .assert()
+            .success();
+
+        let mut tree: Vec<(String, Vec<u8>)> = json_files(&out_dir)
+            .into_iter()
+            .map(|path| {
+                let name = path.file_name().unwrap().to_str().unwrap().to_owned();
+                (name, std::fs::read(&path).unwrap())
+            })
+            .collect();
+        tree.sort();
+        assert_eq!(
+            tree.len(),
+            ORDERING_FIXTURE_FILES,
+            "one document per input file"
+        );
+        digests.push(tree);
+    }
+
+    assert!(
+        digests.windows(2).all(|pair| pair[0] == pair[1]),
+        "--output-dir must write an identical tree on every run"
     );
 }
