@@ -1106,3 +1106,102 @@ fn read_eol_surfaces_permission_error_for_tiny_file() {
     let err = read_file_with_eol(&path).expect_err("an unreadable file must error");
     assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
 }
+
+/// #1287: every skip branch of the reader names its own reason. Before the
+/// classified variant existed, all four collapsed into `Ok(None)` and the CLI
+/// announced each of them as "skipping empty file" — including a 4 KB binary
+/// and a one-byte source. One fixture per branch, each crafted so no other
+/// branch can claim it: the two BOM files and the stray-`0xFF` file are padded
+/// past the 64-byte probe so they cannot be mistaken for too-small.
+#[test]
+fn read_eol_classified_names_every_skip_branch() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let mut utf16_le = vec![0xFF, 0xFE];
+    utf16_le.extend(utf16_ascii_body(
+        "int main() { return 0; } // padding to exceed the probe window\n",
+        true,
+    ));
+    let mut utf16_be = vec![0xFE, 0xFF];
+    utf16_be.extend(utf16_ascii_body(
+        "int main() { return 0; } // padding to exceed the probe window\n",
+        false,
+    ));
+    let mut binary = b"valid prefix \xFF more".to_vec();
+    binary.extend_from_slice(&[b'q'; 80]);
+
+    let cases: [(&str, &[u8], SkipReason); 6] = [
+        ("empty.rs", b"", SkipReason::Empty),
+        ("one_byte.rs", b"x", SkipReason::TooSmall),
+        ("three_bytes.rs", b"a;\n", SkipReason::TooSmall),
+        ("utf16_le.rs", &utf16_le, SkipReason::Utf16Bom),
+        ("utf16_be.rs", &utf16_be, SkipReason::Utf16Bom),
+        ("binary.rs", &binary, SkipReason::NotUtf8),
+    ];
+
+    for (name, bytes, expected) in cases {
+        let path = dir.path().join(name);
+        write_file(&path, bytes).unwrap();
+        assert_eq!(
+            read_file_with_eol_classified(&path).unwrap(),
+            Err(expected),
+            "{name} must be skipped as {expected:?}"
+        );
+        // The `Option`-shaped shim is a projection of the same call, so it
+        // must still report the skip — just without the reason.
+        assert_eq!(
+            read_file_with_eol(&path).unwrap(),
+            None,
+            "{name} must remain a skip through the shim"
+        );
+    }
+}
+
+/// The accepted path is untouched by the classification: a file that clears
+/// every gate yields the same EOL-normalised bytes through both entry points.
+/// Without this, a shim that returned `None` unconditionally would still pass
+/// the skip assertions above.
+#[test]
+fn read_eol_classified_and_shim_agree_on_an_accepted_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("accepted.rs");
+    // CRLF and a missing trailing newline, so the assertion pins the
+    // normalisation rather than a byte-for-byte echo of the input.
+    write_file(&path, b"fn main() {}\r\nfn other() {}").unwrap();
+    let expected = b"fn main() {}\nfn other() {}\n".to_vec();
+
+    assert_eq!(
+        read_file_with_eol_classified(&path).unwrap(),
+        Ok(expected.clone())
+    );
+    assert_eq!(read_file_with_eol(&path).unwrap(), Some(expected));
+}
+
+/// The wording contract behind #1287: only `Empty` may claim the file is
+/// empty. The CLI splices these phrases straight into `skipping {reason}:
+/// {path}`, so a phrase that asserts emptiness for a non-empty file is the
+/// exact defect this issue fixed.
+#[test]
+fn skip_reason_phrases_claim_emptiness_only_for_empty() {
+    assert_eq!(SkipReason::Empty.to_string(), "empty file");
+
+    for reason in [
+        SkipReason::TooSmall,
+        SkipReason::Utf16Bom,
+        SkipReason::NotUtf8,
+    ] {
+        let phrase = reason.to_string();
+        assert!(
+            !phrase.contains("empty"),
+            "{reason:?} renders {phrase:?}, which asserts emptiness"
+        );
+        // Each phrase is spliced after "skipping", so it must read as a noun
+        // phrase naming a file — and must not re-spell a severity word, which
+        // belongs to the presenting layer (`warn`).
+        assert!(phrase.contains("file"), "{reason:?} renders {phrase:?}");
+        assert!(
+            !phrase.contains("warning") && !phrase.contains("error"),
+            "{reason:?} renders {phrase:?}, which carries its own severity"
+        );
+    }
+}

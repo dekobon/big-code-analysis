@@ -813,7 +813,7 @@ value = 59128.4908004283
 path = "src/getter/elixir.rs"
 qualified = "ElixirCode::get_op_type"
 metric = "halstead.effort"
-value = 69065.79907514916
+value = 68425.65670070829
 
 [[entry]]
 path = "src/getter/irules.rs"
@@ -1213,7 +1213,7 @@ value = 6.0
 
 [[entry]]
 path = "src/tools.rs"
-qualified = "read_file_with_eol"
+qualified = "read_gated"
 metric = "nexits"
 value = 7.0
 

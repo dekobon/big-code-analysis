@@ -72,7 +72,7 @@ const UTF8_PROBE_BYTES: usize = 64;
 
 /// Decides whether a file's probe prefix is decodable UTF-8 and where its
 /// real content starts. Returns the post-BOM content slice when the probe
-/// is acceptable, or `None` when the file should be skipped.
+/// is acceptable, or the [`SkipReason`] that rejects the file.
 ///
 /// A UTF-16 BE/LE BOM marks a file whose body is interleaved-NUL UTF-16,
 /// which the metric engine cannot parse: stripping the BOM and continuing
@@ -93,9 +93,13 @@ const UTF8_PROBE_BYTES: usize = 64;
 /// `probe_truncated` is true only when the file continues past the probe;
 /// when the probe is the whole file there is no more data to complete a
 /// trailing partial sequence, so such a sequence is genuine corruption.
-fn probe_decodable_prefix(start: &[u8], file_size: usize, probe_len: usize) -> Option<&[u8]> {
+fn probe_decodable_prefix(
+    start: &[u8],
+    file_size: usize,
+    probe_len: usize,
+) -> Result<&[u8], SkipReason> {
     let start = if start.starts_with(b"\xFE\xFF") || start.starts_with(b"\xFF\xFE") {
-        return None;
+        return Err(SkipReason::Utf16Bom);
     } else if let Some(rest) = start.strip_prefix(b"\xEF\xBB\xBF") {
         rest
     } else {
@@ -109,14 +113,78 @@ fn probe_decodable_prefix(start: &[u8], file_size: usize, probe_len: usize) -> O
         // `valid_up_to()` are valid UTF-8 and the truncated tail is
         // completed by data later in the file.
         Err(e) if e.error_len().is_none() && probe_truncated => {}
-        Err(_) => return None,
+        Err(_) => return Err(SkipReason::NotUtf8),
     }
-    Some(start)
+    Ok(start)
+}
+
+/// Why [`read_file_with_eol_classified`] declined to hand a file's bytes to
+/// the metric engine.
+///
+/// [`read_file_with_eol`] collapses every one of these into `Ok(None)`, which
+/// left front-ends unable to name the real cause — `bca` reported a
+/// multi-kilobyte binary and a one-byte source alike as "empty" (#1287). This
+/// enum is the classified form of that same decision; the variants map 1:1 onto
+/// the skip branches of [`read_file_with_eol_classified`].
+///
+/// Marked `#[non_exhaustive]`: a future gate (a size ceiling, a further
+/// encoding) adds a variant additively, so match on it with a wildcard arm or
+/// render it through [`Display`](std::fmt::Display).
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SkipReason {
+    /// The file is zero bytes long.
+    Empty,
+    /// The file holds 1–3 bytes — too little to be worth parsing — or it
+    /// shrank below the UTF-8 probe window between the `stat` and the read.
+    TooSmall,
+    /// The file opens with a UTF-16 BE or LE byte-order mark. Its
+    /// interleaved-NUL body would pass a byte-level UTF-8 check and reach the
+    /// parser as garbage, so it is skipped rather than decoded (#803).
+    Utf16Bom,
+    /// The file's leading window is not valid UTF-8 — the shape a binary file
+    /// takes here.
+    NotUtf8,
+}
+
+impl SkipReason {
+    /// Which small-file reason applies to a file of `size` bytes: zero bytes
+    /// is [`Empty`](Self::Empty), anything else under the gate is
+    /// [`TooSmall`](Self::TooSmall).
+    fn for_size(size: usize) -> Self {
+        if size == 0 {
+            Self::Empty
+        } else {
+            Self::TooSmall
+        }
+    }
+}
+
+impl std::fmt::Display for SkipReason {
+    /// Renders the reason as a noun phrase naming the skipped file, so a
+    /// caller can splice it into a diagnostic: `skipping {reason}: {path}`.
+    ///
+    /// Per the project diagnostic convention the phrase carries no severity
+    /// word — the presenting layer owns that prefix.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let phrase = match self {
+            Self::Empty => "empty file",
+            Self::TooSmall => "file too small to analyze (3 bytes or fewer)",
+            Self::Utf16Bom => "UTF-16 file (unsupported encoding)",
+            Self::NotUtf8 => "file with non-UTF-8 contents",
+        };
+        f.write_str(phrase)
+    }
 }
 
 /// Reads a file, normalising all CR-only and CRLF line endings to LF, and ensures
 /// the buffer ends with exactly one `\n`. Returns `None` for readable files
 /// ≤ 3 bytes or files that appear to be non-UTF-8.
+///
+/// `None` names no reason. Use [`read_file_with_eol_classified`] — of which
+/// this function is a thin projection — when the caller reports the skip to a
+/// user, so an empty file, a one-byte source, a binary blob and a UTF-16 file
+/// are not all announced as "empty" (#1287).
 ///
 /// # Errors
 ///
@@ -140,6 +208,76 @@ fn probe_decodable_prefix(start: &[u8], file_size: usize, probe_len: usize) -> O
 /// read_file_with_eol(&path).unwrap();
 /// ```
 pub fn read_file_with_eol(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
+    read_file_with_eol_classified(path).map(Result::ok)
+}
+
+/// Reads a file exactly as [`read_file_with_eol`] does, but names the reason
+/// when the file is skipped instead of collapsing every skip into `None`.
+///
+/// The outer `Result` is the I/O outcome; the inner one is the analysis
+/// outcome — `Ok(bytes)` for a file the metric engine can parse, or
+/// `Err(`[`SkipReason`]`)` for one it declines. [`read_file_with_eol`] is
+/// `read_file_with_eol_classified(path).map(Result::ok)`, so the two agree
+/// branch for branch.
+///
+/// # Errors
+///
+/// Identical to [`read_file_with_eol`]: any [`std::io::Error`] from
+/// [`File::open`] or the subsequent reads propagates. Skips are *not* errors —
+/// they arrive as `Ok(Err(reason))`.
+///
+/// # Examples
+///
+/// ```
+/// use std::path::Path;
+///
+/// use big_code_analysis::{SkipReason, read_file_with_eol_classified};
+///
+/// let dir = tempfile::tempdir().unwrap();
+/// let path = dir.path().join("tiny.rs");
+/// std::fs::write(&path, b"x").unwrap();
+///
+/// assert_eq!(
+///     read_file_with_eol_classified(&path).unwrap(),
+///     Err(SkipReason::TooSmall)
+/// );
+/// ```
+pub fn read_file_with_eol_classified(path: &Path) -> std::io::Result<Result<Vec<u8>, SkipReason>> {
+    match read_gated(path) {
+        Ok(data) => Ok(Ok(data)),
+        Err(ReadStop::Skip(reason)) => Ok(Err(reason)),
+        Err(ReadStop::Io(err)) => Err(err),
+    }
+}
+
+/// The two ways [`read_gated`] stops short of returning bytes. Collapsing
+/// them into one `Err` is what lets that function spell every gate as `?`
+/// instead of hand-wrapping each early return in the public
+/// `Ok(Err(reason))` / `Err(err)` shape; the split back out happens once, in
+/// [`read_file_with_eol_classified`].
+enum ReadStop {
+    /// A genuine I/O failure, propagated to the caller as `Err`.
+    Io(std::io::Error),
+    /// The file was read far enough to decide the metric engine should not
+    /// see it. Not an error (issue #804).
+    Skip(SkipReason),
+}
+
+impl From<std::io::Error> for ReadStop {
+    fn from(err: std::io::Error) -> Self {
+        Self::Io(err)
+    }
+}
+
+impl From<SkipReason> for ReadStop {
+    fn from(reason: SkipReason) -> Self {
+        Self::Skip(reason)
+    }
+}
+
+/// Applies the pre-parse gates in order — size, readability, UTF-8 probe —
+/// and returns the EOL-normalised contents of a file that clears them all.
+fn read_gated(path: &Path) -> Result<Vec<u8>, ReadStop> {
     let meta = fs::metadata(path);
     let file_size = meta.as_ref().map_or(1024 * 1024, |m| m.len() as usize);
     if file_size <= 3 {
@@ -152,7 +290,7 @@ pub fn read_file_with_eol(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
         if meta.is_ok_and(|m| m.is_file()) {
             File::open(path)?;
         }
-        return Ok(None);
+        return Err(SkipReason::for_size(file_size).into());
     }
 
     let mut file = File::open(path)?;
@@ -160,23 +298,23 @@ pub fn read_file_with_eol(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
     let probe_len = UTF8_PROBE_BYTES.min(file_size);
     let mut start = vec![0; probe_len];
     // A clean short read (the file shrank below the probe between the
-    // `metadata` call and here) is reported as `Ok(None)`, matching the
+    // `metadata` call and here) is reported as a skip, matching the
     // too-small-file case. Any other `read_exact` failure — a real I/O
     // fault such as a permission or hardware error — must propagate as
     // `Err` per the documented contract (issue #804); collapsing every
-    // error to `Ok(None)` would silently swallow genuine read failures.
+    // error to a skip would silently swallow genuine read failures.
     match file.read_exact(&mut start) {
         Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
-        Err(e) => return Err(e),
+        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+            return Err(SkipReason::TooSmall.into());
+        }
+        Err(e) => return Err(e.into()),
     }
 
     // Sniff the probe: reject UTF-16 / corrupt files, strip a UTF-8 BOM,
-    // and anchor the buffer at the post-BOM content. `None` means skip the
-    // file (see `probe_decodable_prefix`).
-    let Some(start) = probe_decodable_prefix(&start, file_size, probe_len) else {
-        return Ok(None);
-    };
+    // and anchor the buffer at the post-BOM content. An `Err` names why
+    // the file is skipped (see `probe_decodable_prefix`).
+    let start = probe_decodable_prefix(&start, file_size, probe_len)?;
 
     let mut data = Vec::with_capacity(file_size + 2);
     data.extend_from_slice(start);
@@ -185,7 +323,7 @@ pub fn read_file_with_eol(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
 
     normalize_line_endings(&mut data);
 
-    Ok(Some(data))
+    Ok(data)
 }
 
 /// Normalises an in-memory source buffer to match the [`read_file_with_eol`]

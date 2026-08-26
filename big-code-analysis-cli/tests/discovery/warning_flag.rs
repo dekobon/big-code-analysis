@@ -65,6 +65,74 @@ fn warning_flag_emits_empty_file() {
         .stderr(predicate::str::contains("warning: skipping empty file:"));
 }
 
+/// #1287: the walk-skip warning names the gate that fired. Until the
+/// library gained a classified reader, every declined file — a one-byte
+/// source, a multi-kilobyte binary, a UTF-16 document — was announced as
+/// "skipping empty file", which is false for all three. Each case below
+/// asserts its own reason *and* that the emptiness claim is absent, so
+/// reverting the CLI to the single message fails every one of them.
+#[test]
+fn warning_flag_names_the_skip_reason_for_a_tiny_file() {
+    let tmp = NamedTempFile::with_suffix(".rs").unwrap();
+    // One byte: a valid identifier, and nothing like empty.
+    std::fs::write(tmp.path(), b"x").unwrap();
+
+    let (_cwd, mut cmd) = cli();
+    cmd.args(["metrics", "-w", "--paths", tmp.path().to_str().unwrap()])
+        .assert()
+        .success()
+        .stderr(
+            predicate::str::contains(
+                "warning: skipping file too small to analyze (3 bytes or fewer):",
+            )
+            .and(predicate::str::contains("empty").not()),
+        );
+}
+
+#[test]
+fn warning_flag_names_the_skip_reason_for_a_binary_file() {
+    let tmp = NamedTempFile::with_suffix(".rs").unwrap();
+    // A stray 0xFF (never a valid UTF-8 lead byte) inside the 64-byte
+    // probe, padded well past the probe so the too-small gate cannot
+    // claim the file first.
+    let mut bytes = b"\x00\x01\xFF binary payload".to_vec();
+    bytes.extend_from_slice(&[0xAB; 200]);
+    std::fs::write(tmp.path(), &bytes).unwrap();
+
+    let (_cwd, mut cmd) = cli();
+    cmd.args(["metrics", "-w", "--paths", tmp.path().to_str().unwrap()])
+        .assert()
+        .success()
+        .stderr(
+            predicate::str::contains("warning: skipping file with non-UTF-8 contents:")
+                .and(predicate::str::contains("empty").not()),
+        );
+}
+
+#[test]
+fn warning_flag_names_the_skip_reason_for_a_utf16_file() {
+    let tmp = NamedTempFile::with_suffix(".rs").unwrap();
+    // UTF-16-LE BOM plus an interleaved-NUL ASCII body (#803): every body
+    // byte is valid single-byte UTF-8, so only the BOM distinguishes this
+    // from the non-UTF-8 case.
+    let mut bytes = vec![0xFF, 0xFE];
+    bytes.extend(
+        "fn main() {} // padding to exceed the 64-byte probe window\n"
+            .bytes()
+            .flat_map(|b| [b, 0x00]),
+    );
+    std::fs::write(tmp.path(), &bytes).unwrap();
+
+    let (_cwd, mut cmd) = cli();
+    cmd.args(["metrics", "-w", "--paths", tmp.path().to_str().unwrap()])
+        .assert()
+        .success()
+        .stderr(
+            predicate::str::contains("warning: skipping UTF-16 file (unsupported encoding):")
+                .and(predicate::str::contains("empty").not()),
+        );
+}
+
 /// Hermeticity guard for the `cli()` switch to `cli_hermetic` (#918): a
 /// `bca.toml` discoverable from the inherited process cwd must not reach
 /// an explicit `--paths` run. Walk-scope keys (`exclude`) don't apply to
