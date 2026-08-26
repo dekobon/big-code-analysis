@@ -192,18 +192,17 @@ fn collect_check_violations(
     thresholds: Arc<LanguageThresholds>,
 ) -> CollectedViolations {
     let scope = resolve_diff_scope(args);
+    // Cloned *before* the walk materializes `--paths-from` into
+    // `globals.paths`, so the remediation footer keeps printing the
+    // spelling the caller typed (`--paths-from -`) rather than the
+    // expanded seed list (#1306).
     let globals_kept = globals.clone();
     let walk = run_check_walk(globals, args, preproc, thresholds);
     // Before the empty-input guard, so a gate whose only input was
     // ignore-dropped still says what happened above the exit-1 error.
     report_unchecked_files(&walk, globals_kept.report_skipped);
     enforce_usable_input(&walk);
-    let violations = apply_check_exclude(
-        walk.violations,
-        args,
-        &globals_kept.paths,
-        globals_kept.paths_from.as_deref(),
-    );
+    let violations = apply_check_exclude(walk.violations, args, &walk.seeds);
     CollectedViolations {
         violations,
         scope,
@@ -250,6 +249,15 @@ fn classify_check_violations(
 /// verdict.
 pub(crate) struct CheckWalk {
     violations: Vec<Violation>,
+    /// The seed list the walk anchored against: `--paths` with any
+    /// `--paths-from` entries already materialized in.
+    ///
+    /// Carried out of the walk rather than re-derived, because
+    /// `--paths-from -` reads stdin and stdin can only be read once
+    /// (#1306): a second read yields an empty list, and every violation
+    /// then anchors against `--paths` alone — silently defeating a
+    /// `[check.exclude]` glob.
+    seeds: Vec<PathBuf>,
     /// Files whose contents were read and handed to the pre-dispatch
     /// filters. Zero means nothing survived `--paths` expansion plus
     /// `--include` / `--exclude` filtering.
@@ -299,12 +307,33 @@ fn enforce_usable_input(walk: &CheckWalk) {
 /// every emitted `Violation`, and sort them by `(path, start_line,
 /// metric)` so CI diff tooling sees identical output across runs over
 /// the same tree.
+///
+/// Also the one place `--paths-from` is resolved for the gate: the
+/// materialized seed list leaves in [`CheckWalk::seeds`] so no later
+/// stage has to read that source a second time (#1306).
 fn run_check_walk(
-    globals: GlobalOpts,
+    mut globals: GlobalOpts,
     args: &CheckArgs,
     preproc: Option<Arc<PreprocResults>>,
     thresholds: Arc<LanguageThresholds>,
 ) -> CheckWalk {
+    // Materialize `--paths-from` into the seed list *once*, here, and
+    // hand the result to both consumers: the walk below and
+    // `apply_check_exclude`'s re-anchoring. `expand_seed_paths` would
+    // otherwise do this read itself, so nothing extra is read — the
+    // list is merely retained (#1306).
+    if let Some(src) = globals.paths_from.take() {
+        globals
+            .paths
+            .extend(crate::read_paths_from(&src).unwrap_or_else(|e| die(e)));
+    }
+    // One clone of the seed list, on a path that already clones the
+    // whole `GlobalOpts` for the remediation footer. The allocation the
+    // old `--paths-from` re-read avoided was never this one: it was the
+    // glob-set build and the `--check-exclude-from` read, and
+    // `CheckExcludes::resolve` still short-circuits before both on the
+    // common no-exclude run.
+    let seeds = globals.paths.clone();
     let (tx, rx) = crossbeam::channel::unbounded();
     let files_dispatched = Arc::new(AtomicUsize::new(0));
     let generated_skipped = Arc::new(AtomicUsize::new(0));
@@ -355,6 +384,7 @@ fn run_check_walk(
 
     CheckWalk {
         violations,
+        seeds,
         files_dispatched: files_dispatched.load(Ordering::Relaxed),
         generated_skipped: generated_skipped.load(Ordering::Relaxed),
         ignored,
@@ -471,14 +501,20 @@ impl<'a> CheckExcludes<'a> {
     }
 }
 
+/// Drop every violation a `[check.exclude]` / `--check-exclude` glob
+/// exempts, matching each against the walk-root-anchored form of its
+/// path.
+///
+/// `seeds` must be the full seed list the walk anchored against —
+/// `--paths` *with* any `--paths-from` entries materialized in, which
+/// is what [`CheckWalk::seeds`] carries.
 pub(crate) fn apply_check_exclude(
     violations: Vec<Violation>,
     args: &CheckArgs,
-    paths: &[PathBuf],
-    paths_from: Option<&Path>,
+    seeds: &[PathBuf],
 ) -> Vec<Violation> {
-    // Nothing configured is the common case, and it also skips the
-    // `--paths-from` re-read below.
+    // Nothing configured is the common case, and it skips the glob-set
+    // build and the `--check-exclude-from` read entirely.
     let Some(excludes) = CheckExcludes::resolve(args) else {
         return violations;
     };
@@ -493,16 +529,15 @@ pub(crate) fn apply_check_exclude(
     // [`expand_seed_paths`] did. Threading only `--paths` left a
     // violation from a `--paths-from`-sourced (e.g. absolute) seed
     // matched unanchored, so a `[check.exclude]` glob silently failed to
-    // exempt it (#497). Re-reading `--paths-from` here (rather than
-    // plumbing the resolved list back from the walk) keeps the hot
-    // no-exclude path above allocation-free; this branch is the rare
-    // configured case.
-    let mut seeds: Vec<PathBuf> = paths.to_vec();
-    if let Some(src) = paths_from {
-        seeds.extend(crate::read_paths_from(src).unwrap_or_else(|e| die(e)));
-    }
+    // exempt it (#497). The list now arrives materialized from the walk
+    // (`CheckWalk::seeds`) rather than being rebuilt by a second
+    // `--paths-from` read, which returned nothing for `--paths-from -`
+    // because the walk had already consumed stdin (#1306). It is the
+    // walk's *input* list, so it still needs the same `reanchor_seed`
+    // pass `expand_seed_paths` applies.
     let seeds: Vec<PathBuf> = seeds
-        .into_iter()
+        .iter()
+        .cloned()
         .map(crate::walk_seed::reanchor_seed)
         .collect();
     let before = violations.len();
