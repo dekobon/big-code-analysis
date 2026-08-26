@@ -7,13 +7,21 @@ and the macros in [`src/macros/mod.rs`](../src/macros/mod.rs).
 
 ## Reading the file
 
-Two public readers normalise input before any detection or parsing
+Three public readers normalise input before any detection or parsing
 happens:
 
 | Function | Behaviour |
 |----------|-----------|
 | `read_file(path)` | Reads the whole file. Normalises CRLF and lone CR to LF in place. Buffer ends with exactly one trailing `\n`. |
 | `read_file_with_eol(path)` | Same normalisation, plus: returns `None` for files ≤ 3 bytes and for files with a UTF-16 BOM (#803); strips a leading UTF-8 BOM; byte-validates the first ~64 bytes with `std::str::from_utf8` and returns `None` on invalid UTF-8 (#746, #758; a lossy U+FFFD check was rejected because U+FFFD can legitimately appear in source). |
+| `read_file_with_eol_classified(path)` | The same read, with the skip *named*: `Ok(Err(SkipReason))` in place of `Ok(None)`. `read_file_with_eol` is this function's `.map(Result::ok)`. |
+
+`SkipReason` is `#[non_exhaustive]` with one variant per gate above —
+`Empty`, `TooSmall`, `Utf16Bom`, `NotUtf8` — and its `Display` renders a
+noun phrase a front-end can splice into a diagnostic (`skipping {reason}:
+{path}`). Prefer it wherever the skip is reported to a user: the
+undifferentiated `None` is why `bca` announced a multi-kilobyte binary
+and a one-byte source alike as "skipping empty file" (#1287).
 
 Downstream consumers must assume the buffer contains no `\r` bytes. The
 metric engine depends on this: passing raw CRLF input to a parser

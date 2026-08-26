@@ -61,6 +61,19 @@ section.
     display forms were dropped at `2.0`, a break in the serialized
     `language` value.
   - `get_language_for_file`, `guess_language` in `src/tools.rs`.
+- **File readers** (`src/tools.rs`)
+  - `read_file`, `read_file_with_eol`, `normalize_eol`. Their
+    signatures are fixed for `2.x`; in particular
+    `read_file_with_eol` keeps its `io::Result<Option<Vec<u8>>>`
+    shape, which names no reason for a skip.
+  - `read_file_with_eol_classified` and `SkipReason` (#1287) are the
+    additive sibling that does name it:
+    `io::Result<Result<Vec<u8>, SkipReason>>`, of which
+    `read_file_with_eol` is the `.map(Result::ok)` projection.
+    `SkipReason` carries `#[non_exhaustive]`, so a future gate adds a
+    variant in a minor bump — match it with a wildcard arm or render
+    it through `Display`, whose per-variant wording is *not*
+    SemVer-protected.
 - **Top-level entry points**
   - `analyze` and `Source` in `src/spaces.rs`: the recommended
     library entry point. `Source` carries `#[non_exhaustive]` and its

@@ -304,8 +304,8 @@ pub use crate::node::Node;
 // --- Language detection / I/O helpers ---
 mod tools;
 pub use crate::tools::{
-    get_language_for_file, guess_language, is_generated, normalize_eol, read_file,
-    read_file_with_eol, write_file,
+    SkipReason, get_language_for_file, guess_language, is_generated, normalize_eol, read_file,
+    read_file_with_eol, read_file_with_eol_classified, write_file,
 };
 
 // --- Source walker ---
