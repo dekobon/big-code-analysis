@@ -66,23 +66,40 @@ class ManifestError(Exception):
 
 
 def module_doc_lines(text: str) -> list[tuple[int, str]]:
-    """Return the file's leading ``//!`` block as ``(line_no, body)``.
+    """Return every ``//!`` line in the file as ``(line_no, body)``.
 
     Line numbers are 1-based and file-relative, so a failure can name the
-    offending line directly. Inner attributes (``#![…]``) and blank lines
-    are skipped rather than terminating the block, since either may be
-    interleaved with a module doc; the first other non-empty line ends
-    it, which keeps ``///`` item docs and code out of scope.
+    offending line directly.
+
+    There is deliberately **no** stop condition. The first version of this
+    gate collected only the file's leading block, skipping blank lines and
+    inner attributes so a ``#![allow(…)]`` between doc paragraphs did not
+    truncate the scan — but that handled a *single-line* attribute only. A
+    multi-line one leaves its continuation and ``)]`` lines looking like
+    ordinary code, so the block ended at the attribute and every citation
+    below the cut became invisible while the gate printed OK (#1345). Both
+    directions were live: a stale citation below the cut passed silently,
+    and a file whose only citation sat below it failed the "no longer
+    cites" branch while being correct.
+
+    Tracking bracket depth would fix that by adding a lexer to a script
+    whose whole value is being obvious. Scanning the file entire fixes it
+    by leaving nothing to truncate. ``//!`` is only legal as a module doc,
+    so the rule this yields — *any* ``=X.Y.Z`` in a module doc in this one
+    file is the pin — is the rule the gate wants anyway. ``///`` item docs
+    and code stay out of scope, which is what the leading-block form was
+    there for.
+
+    The residual imprecision is a ``//!``-shaped line inside a string
+    literal, which this would read as a citation. That is the acceptable
+    direction: it fails loudly on a correct file rather than passing
+    quietly on a stale one, and nothing in ``node.rs`` has ever had one.
     """
     out: list[tuple[int, str]] = []
     for line_no, raw in enumerate(text.splitlines(), start=1):
         line = raw.strip()
         if line.startswith("//!"):
             out.append((line_no, line[len("//!") :].strip()))
-        elif not line or line.startswith("#!["):
-            continue
-        else:
-            break
     return out
 
 

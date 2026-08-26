@@ -7,9 +7,11 @@ pattern:
 * Unit tests over the two extractors, weighted toward the false-clean
   direction: a module doc the scanner fails to read reports no citations
   and, if the "no citation" branch were ever softened, would report a
-  clean tree. The stop condition (where the ``//!`` block ends) is what
-  decides how much of the file the gate can see, so it is pinned in both
-  directions — a line that must not end the block, and one that must.
+  clean tree. How much of the file the scanner can see is therefore the
+  property under test, and since #1345 the answer is "all of it" — the
+  cases pin that nothing (blank line, single- or multi-line inner
+  attribute, code, a nested ``mod``) truncates the scan, and that ``///``
+  item docs stay out of scope.
 * ``main()`` tests over a synthetic repository root, covering the clean,
   stale, and citation-dropped branches plus the unreadable-manifest exit.
 * A smoke test running the real gate against the real repository,
@@ -60,11 +62,28 @@ use pyo3::prelude::*;
 fn f() {}
 """
 
+# The same doc with the version literal moved below a *multi-line* inner
+# attribute, whose continuation and closing lines are ordinary non-doc
+# code. This is the #1345 shape: the leading-block scanner stopped at
+# `clippy::pedantic` and never saw the citation at all.
+MULTILINE_ATTR_DOC = """\
+//! Lazy `Node` handle over the tree retained by [`PyAst`].
+
+#![allow(
+    clippy::pedantic
+)]
+
+//! `tree_sitter::Tree`, `Node`, and `TreeCursor` are `Send + Sync` under
+//! the pinned `=0.26.12`, so the pyclasses are sendable.
+
+use pyo3::prelude::*;
+"""
+
 
 class ModuleDocLines(unittest.TestCase):
     """What the gate can and cannot see."""
 
-    def test_collects_the_leading_block_only(self) -> None:
+    def test_collects_every_module_doc_line(self) -> None:
         lines = GATE.module_doc_lines(DOC_SOURCE)
         self.assertEqual([n for n, _ in lines], [1, 2, 3, 4])
         self.assertTrue(lines[3][1].endswith("the pyclasses are sendable."))
@@ -84,10 +103,36 @@ class ModuleDocLines(unittest.TestCase):
             GATE.cited_versions(GATE.module_doc_lines(source)), [(3, "1.2.3")]
         )
 
-    def test_code_ends_the_block(self) -> None:
-        source = "//! `=1.2.3`\nuse pyo3::prelude::*;\n//! `=4.5.6`\n"
+    def test_multi_line_inner_attribute_does_not_end_the_block(self) -> None:
+        # The #1345 case the single-line rule above did not cover: the
+        # continuation and `)]` lines of a wrapped `#![allow(…)]` are
+        # ordinary non-doc code. A scanner that stops there hides every
+        # citation below it *and still prints OK*, which is the exact
+        # false-clean this gate exists to prevent.
+        source = "//! first\n#![allow(\n    clippy::pedantic\n)]\n//! `=1.2.3`\n"
         self.assertEqual(
-            GATE.cited_versions(GATE.module_doc_lines(source)), [(1, "1.2.3")]
+            GATE.cited_versions(GATE.module_doc_lines(source)), [(5, "1.2.3")]
+        )
+
+    def test_code_does_not_end_the_block(self) -> None:
+        # Contract change in #1345: the scan has no stop condition, so a
+        # `//!` below code — legal only as a nested module's own doc — is
+        # in scope too. For this one file that is the desired rule: any
+        # `=X.Y.Z` in a module doc in `node.rs` is a claim about the pin,
+        # wherever it sits. The alternative was lexing `#![…]` bracket
+        # depth to keep a stop condition that has now been wrong twice.
+        source = (
+            "//! `=1.2.3`\n"
+            "\n"
+            "use pyo3::prelude::*;\n"
+            "\n"
+            "mod inner {\n"
+            "    //! `=4.5.6`\n"
+            "}\n"
+        )
+        self.assertEqual(
+            GATE.cited_versions(GATE.module_doc_lines(source)),
+            [(1, "1.2.3"), (6, "4.5.6")],
         )
 
 
@@ -174,6 +219,26 @@ class Main(unittest.TestCase):
         # The remediation must send the reader back to the argument, not
         # only to the literal — re-reading it is the point of the gate.
         self.assertIn("Re-read that", err)
+
+    def test_matching_citation_below_a_multi_line_attribute_passes(self) -> None:
+        # The other #1345 direction: when the *only* citation sits below
+        # the attribute, a truncating scan sees none and fails the "no
+        # longer cites" branch on a file that is correct.
+        with _synthetic_repo(PINNED, MULTILINE_ATTR_DOC) as run:
+            code, out, err = run()
+        self.assertEqual(code, 0, err)
+        self.assertIn("safety-doc-pin: OK", out)
+        self.assertEqual(err, "")
+
+    def test_stale_citation_below_a_multi_line_attribute_fails(self) -> None:
+        stale = MULTILINE_ATTR_DOC.replace("=0.26.12", "=0.26.9")
+        with _synthetic_repo(PINNED, stale) as run:
+            code, _out, err = run()
+        self.assertEqual(code, 1)
+        # Asserted on the message, not just the exit code: a truncating
+        # scan also exits 1 here, via the "no longer cites" branch. Only
+        # the stale-citation line discriminates the two.
+        self.assertIn("node.rs:8: cites `=0.26.9`, pin is `=0.26.12`", err)
 
     def test_dropping_the_citation_fails(self) -> None:
         symbolic = DOC_SOURCE.replace("the pinned `=0.26.12`", "the pinned version")
