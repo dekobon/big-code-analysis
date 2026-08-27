@@ -10225,10 +10225,10 @@ class A {
     /// exempt from the rule. Their `Loc` impls are no-ops
     /// (`implement_metric_trait!(Loc, PreprocCode, CcommentCode)`, #188),
     /// so the *node-accumulated* sub-metrics are 0 by design — yet
-    /// `sloc` is not node-accumulated: the walker's synthetic Unit root
-    /// calls `init_unit_span` for them like any other grammar, so they
-    /// carry a real span and drift with #1067 exactly as the languages
-    /// below do. What they cannot join is the second sweep, whose final
+    /// `sloc` is not node-accumulated: the walker anchors every Unit's
+    /// row span at finalization, their synthetic Unit root included, so
+    /// they carry a real span and drift with #1067 exactly as the
+    /// languages below do. What they cannot join is the second sweep, whose final
     /// `mi != 0` assertion is unreachable with `ploc == 0`. They get
     /// their own check in
     /// `no_op_loc_grammars_still_count_their_unterminated_row`.
@@ -10295,8 +10295,9 @@ class A {
     /// `sloc`, so they drift with #1067 like everything else.
     ///
     /// Their root is not a `SpaceKind::Unit`, so `metrics_inner` pushes a
-    /// synthetic Unit and seeds it with `init_unit_span` — a span the
-    /// no-op `compute` never touches but `Sloc::sloc()` still measures.
+    /// synthetic Unit, whose row span `anchor_unit_sloc_span` fills in at
+    /// finalization — a span the no-op `compute` never touches but
+    /// `Sloc::sloc()` still measures.
     /// Before #1067 an unterminated one-liner measured `0` rows here too.
     /// Kept apart from [`UNTERMINATED_ONE_LINERS`] only because the
     /// `mi != 0` half of the sweep below cannot hold with `ploc == 0`.
@@ -10368,14 +10369,16 @@ class A {
     /// it pins the fix from both sides: the newline-terminated path (the
     /// one every in-tree harness exercises) must not move either.
     ///
-    /// **The invariant is scoped to source that contains a token.** It
-    /// does not extend to whitespace-only input, where most grammars
-    /// collapse the root to a zero-width node at end-of-input and `sloc`
-    /// has no span left to measure — so `b"  "` reports one row and
-    /// `b"  \n"` reports none. That carve-out is #1087: deliberate,
-    /// upstream-owned, and pinned language-by-language in
-    /// [`whitespace_only_input_is_the_documented_carve_out`] rather than
-    /// left as an unstated exception to the claim made here.
+    /// **The invariant is now unconditional.** It used to be scoped to
+    /// source containing a token: whitespace-only input collapsed most
+    /// grammars' roots to a zero-width node at end-of-input, leaving
+    /// `sloc` no span to measure, so `b"  "` reported one row and
+    /// `b"  \n"` reported none (#1087). #1247 anchored the unit's `sloc`
+    /// span to the span the unit reports, which removed that dependence
+    /// on where the root node happens to start. The whitespace-only class
+    /// is swept separately — it cannot ride this test, whose closing
+    /// `assert_ne!` requires a non-zero MI — in
+    /// [`whitespace_only_input_is_uniform_across_grammars`].
     #[test]
     fn trailing_newline_does_not_change_loc_or_mi() {
         for (lang, source) in UNTERMINATED_ONE_LINERS {
@@ -10460,16 +10463,17 @@ class A {
         let spaces = rust_loc(b"   ");
         assert_eq!(spaces.sloc(), 1);
         assert_eq!(spaces.blank(), 1);
-        // Accepted limitation (#1087, unchanged by #1067): for
-        // whitespace-only input that *is* newline-terminated, tree-sitter
-        // collapses the root to a zero-width node at end-of-input
-        // (`(1, 0)..(1, 0)` for `"\n"`), so there is no span left to
-        // attribute rows from. Both rows of `"\n\n"` are likewise
-        // invisible. Rust is one of the twenty grammars that behave this
-        // way; the five that do not are pinned alongside it in
-        // `whitespace_only_input_is_the_documented_carve_out`.
-        assert_eq!(rust_loc(b"\n").sloc(), 0);
-        assert_eq!(rust_loc(b"\n\n").sloc(), 0);
+        // Newline-terminated whitespace was the #1087 carve-out: most
+        // grammars collapse the root to a zero-width node at end-of-input
+        // (`(1, 0)..(1, 0)` for `"\n"`), so the measured span had no rows
+        // left to attribute and `sloc` was 0 for a file that plainly has
+        // one. #1247 retired that: the unit's `sloc` span is now anchored
+        // to the span the unit *reports*, which #1195 already anchored at
+        // line 1, so a collapsed root no longer costs the file its rows.
+        let one = rust_loc(b"\n");
+        assert_eq!((one.sloc(), one.ploc(), one.blank()), (1, 0, 1));
+        let two = rust_loc(b"\n\n");
+        assert_eq!((two.sloc(), two.ploc(), two.blank()), (2, 0, 2));
     }
 
     /// Every grammar whose `Loc` behaviour this module owns, including the
@@ -10478,8 +10482,8 @@ class A {
     /// [`UNTERMINATED_ONE_LINERS`] carries a fixture per language because
     /// its sweeps need parseable code; the whitespace-only sweep needs
     /// only the language, and must not omit `Preproc`/`Ccomment` — their
-    /// synthetic Unit root is seeded by `init_unit_span` like any other,
-    /// so they carry a real span and answer the #1087 question too.
+    /// synthetic Unit root is anchored like any other, so they carry a
+    /// real span and answer the #1087/#1247 question too.
     fn all_loc_grammars() -> impl Iterator<Item = crate::LANG> {
         UNTERMINATED_ONE_LINERS
             .iter()
@@ -10487,44 +10491,26 @@ class A {
             .chain([crate::LANG::Preproc, crate::LANG::Ccomment])
     }
 
-    /// The grammars that keep a real root span for whitespace-only,
-    /// newline-terminated input, so [`trailing_newline_does_not_change_loc_or_mi`]'s
-    /// invariant holds for them unmodified. Every other entry in
-    /// [`all_loc_grammars`] collapses its root to a zero-width node at
-    /// end-of-input instead.
+    /// #1087 accepted whitespace-only source as the one input class where
+    /// a trailing newline moved `sloc` — twenty grammars collapse the root
+    /// to a zero-width node at end-of-input, so `"  "` reported one row
+    /// and `"  \n"` reported none, while five grammars (Elixir, Tcl,
+    /// iRules, Preproc, Ccomment) kept the span and were newline-
+    /// independent already. This sweep was written to pin both halves.
     ///
-    /// Which list a language falls in is a property of its grammar, not
-    /// of anything this crate computes — so a grammar bump can move one
-    /// across, and the sweep below is what forces that to be noticed
-    /// rather than silently absorbed.
-    const WHITESPACE_ONLY_SPANNING_GRAMMARS: &[crate::LANG] = &[
-        crate::LANG::Elixir,
-        crate::LANG::Tcl,
-        crate::LANG::Irules,
-        crate::LANG::Preproc,
-        crate::LANG::Ccomment,
-    ];
-
-    /// #1087: whitespace-only source is the one input class where a
-    /// trailing newline *does* move `sloc`, and the resolution was to
-    /// accept it and state it precisely rather than paper over it with a
-    /// byte-derived row count (a second, non-AST source of truth for a
-    /// metric the AST otherwise owns).
+    /// #1247 removed the premise. The carve-out was a consequence of
+    /// measuring the unit's `sloc` span from the root node's first token;
+    /// once that span is anchored to the one the unit *reports* (#1195
+    /// anchored the reported span at line 1), a collapsed root no longer
+    /// erases the file's rows and every grammar answers alike. The sweep
+    /// stays, with the split list retired: it now pins the *absence* of a
+    /// per-grammar difference, which is the property a future grammar bump
+    /// or walker change could still break.
     ///
-    /// Accepting it is only defensible if the shape is known, and #1087
-    /// had measured Rust alone. It is not uniform: twenty grammars
-    /// collapse the root to a zero-width node at end-of-input, five keep
-    /// the span and are newline-independent already. This sweep pins both
-    /// halves so the carve-out documented on
-    /// [`trailing_newline_does_not_change_loc_or_mi`] stays true of the
-    /// grammars actually in the tree.
-    ///
-    /// The unterminated side is asserted too, and is uniform: every
-    /// grammar reports the row, as one blank line. That is the half a
-    /// regression would most plausibly break, since it is the half #1067
-    /// changed.
+    /// The unterminated side is unchanged and was always uniform: every
+    /// grammar reports the row, as one blank line.
     #[test]
-    fn whitespace_only_input_is_the_documented_carve_out() {
+    fn whitespace_only_input_is_uniform_across_grammars() {
         // Spaces and tabs both, so a grammar that lexes one as extra and
         // the other as an error token cannot hide behind the sweep.
         for bare in [&b"  "[..], b"\t\t"] {
@@ -10542,18 +10528,12 @@ class A {
                     "{lang:?}: unterminated {text:?} is one blank row for every grammar"
                 );
 
-                let expected = if WHITESPACE_ONLY_SPANNING_GRAMMARS.contains(&lang) {
-                    // Root keeps the file's span: the row is still there.
-                    (1, 1)
-                } else {
-                    // Root collapsed to zero width at end-of-input.
-                    (0, 0)
-                };
                 assert_eq!(
                     (terminated.sloc(), terminated.blank()),
-                    expected,
-                    "{lang:?}: newline-terminated {text:?} — if this moved, the \
-                     grammar changed sides and #1087's carve-out list is stale"
+                    (1, 1),
+                    "{lang:?}: newline-terminated {text:?} is the same one blank \
+                     row — whether the grammar collapses its root at \
+                     end-of-input is no longer observable in loc (#1247)"
                 );
 
                 // Whitespace is never code and never a comment, whichever
@@ -10569,6 +10549,140 @@ class A {
                 }
             }
         }
+    }
+
+    /// #1247: the unit anchors its *reported* span at line 1 (#1195) but
+    /// measured its `sloc` span from the root node's first token, so blank
+    /// rows above that token counted in neither `sloc` nor `blank` — while
+    /// byte-identical rows one line lower counted in both.
+    ///
+    /// Swept across four grammars because the per-language `Loc` impls
+    /// mirror each other. Tcl is in the list because it was already
+    /// *right*: its row terminator is a token child of the root, so the
+    /// root already started at row 0 and Tcl reported `sloc 4` for the
+    /// Rust fixture's `sloc 1`. A per-language fix would have had to know
+    /// which grammars were which; the walker-level anchor does not, and
+    /// Tcl is the case that catches one being applied twice.
+    ///
+    /// `space_verbatim`, not `check_metrics`: the shim trims leading and
+    /// trailing newlines, which deletes this test's entire subject.
+    #[test]
+    fn leading_blank_rows_count_in_the_units_sloc_and_blank() {
+        const LEADING_BLANKS: u64 = 3;
+        for (lang, body, ploc) in [
+            (crate::LANG::Rust, &b"fn a() {}\n"[..], 1),
+            (crate::LANG::Python, b"def a():\n    pass\n", 2),
+            (crate::LANG::C, b"int f() { return 0; }\n", 1),
+            (crate::LANG::Tcl, b"puts hi\n", 1),
+        ] {
+            let mut source = vec![b'\n'; LEADING_BLANKS as usize];
+            source.extend_from_slice(body);
+            let space = space_verbatim(lang, &source, MetricsOptions::default());
+            let loc = &space.metrics.loc;
+            assert_eq!(
+                (loc.sloc(), loc.ploc(), loc.cloc(), loc.blank()),
+                (LEADING_BLANKS + ploc, ploc, 0, LEADING_BLANKS),
+                "{lang:?}: the leading rows are blank, not absent"
+            );
+            // The disagreement the issue is named for: the unit's own
+            // reported span and its `sloc` are two spellings of one
+            // number, and were not before.
+            assert_eq!(
+                loc.sloc() as usize,
+                space.end_line - space.start_line + 1,
+                "{lang:?}: sloc equals the rows of the unit's reported span"
+            );
+        }
+    }
+
+    /// The two controls from #1247's evidence table. Both were already
+    /// correct, and both are how the inconsistency was visible at all: a
+    /// comment on line 1 flipped a byte-identical file from `sloc 1` to
+    /// `sloc 4`, because comments are in the tree and blank rows are not.
+    /// A fix that reached past the unit would move one of these.
+    #[test]
+    fn interior_blanks_and_leading_comments_are_unmoved_by_the_anchor() {
+        // expected: rows 1 and 3 are code, row 2 is blank.
+        let interior = rust_loc(b"fn a() {}\n\nfn b() {}\n");
+        assert_eq!(
+            (
+                interior.sloc(),
+                interior.ploc(),
+                interior.cloc(),
+                interior.blank()
+            ),
+            (3, 2, 0, 1)
+        );
+        // expected: row 1 is comment-only, rows 2-3 blank, row 4 code.
+        let leading_comment = rust_loc(b"// c\n\n\nfn a() {}\n");
+        assert_eq!(
+            (
+                leading_comment.sloc(),
+                leading_comment.ploc(),
+                leading_comment.cloc(),
+                leading_comment.blank()
+            ),
+            (4, 1, 1, 2)
+        );
+    }
+
+    /// The anchor is gated on `SpaceKind::Unit`, and that gate is the
+    /// entire separation between "the file starts at line 1" and "every
+    /// space starts at line 1". Asserted on the nested space's `sloc` as
+    /// well as its span, because only the `sloc` half is new.
+    #[test]
+    fn the_unit_anchor_does_not_reach_nested_spaces() {
+        let space = space_verbatim(
+            crate::LANG::Rust,
+            b"\n\n\nfn a() {\n    let x = 1;\n}\n",
+            MetricsOptions::default(),
+        );
+        assert_eq!((space.start_line, space.end_line), (1, 6));
+        assert_eq!(space.metrics.loc.sloc(), 6, "the file has six rows");
+        let nested = &space.spaces[0];
+        assert_eq!((nested.start_line, nested.end_line), (4, 6));
+        assert_eq!(
+            nested.metrics.loc.sloc(),
+            3,
+            "the function's own three rows, not the file's six"
+        );
+        assert_eq!(nested.metrics.loc.blank(), 0, "the function has no blanks");
+    }
+
+    /// `Sloc::exclude_span` subtracts each pruned subtree's row count from
+    /// the enclosing span, so widening that span at the top could in
+    /// principle desynchronise the two. It cannot: the rows the anchor
+    /// adds are above the first token, and no pruned subtree can overlap
+    /// them. Pinned rather than argued, since the failure mode is a
+    /// silent `saturating_sub` clamp to 0 rather than a panic (#722,
+    /// #1247).
+    #[test]
+    fn exclude_tests_pruning_composes_with_the_unit_anchor() {
+        // Rows 1-3 blank, 4 `fn a`, 5 blank, 6 `#[test]`, 7-9 `fn t`.
+        let source = b"\n\n\nfn a() {}\n\n#[test]\nfn t() {\n    assert!(true);\n}\n";
+        let kept = metrics_verbatim(
+            crate::LANG::Rust,
+            source,
+            MetricsOptions::default().with_exclude_tests(true),
+        )
+        .loc;
+        // The pruned node is the `fn t` item, rows 7-9; its `#[test]`
+        // attribute is a sibling and stays, which is #722's shape and not
+        // something the anchor changes. What the anchor decides is the
+        // other end: `blank` is 4 rather than 1, because rows 1-3 are now
+        // inside the span the pruning subtracts from.
+        assert_eq!(
+            (kept.sloc(), kept.ploc(), kept.cloc(), kept.blank()),
+            (6, 2, 0, 4),
+            "the three pruned rows leave; the three leading blanks stay"
+        );
+
+        let unpruned = rust_loc(source);
+        assert_eq!(
+            (unpruned.sloc(), unpruned.ploc(), unpruned.blank()),
+            (9, 5, 4),
+            "the same file unpruned — the anchor is what makes both blank counts 4"
+        );
     }
 
     /// The non-unit half of the same off-by-one. tree-sitter-perl's

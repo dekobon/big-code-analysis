@@ -161,12 +161,57 @@ fn compute_sum(state: &mut State, selected: MetricSet) {
     }
 }
 
-/// Runs the per-space finalization passes (min/max, sum, Halstead, MI,
-/// WMC, averages) on a single [`State`]. Shared by both the
-/// single-element and pop arms of [`finalize`] so the call sequence stays
-/// identical in both, and reached exactly once per space — every state is
-/// finalized either when it is popped or, for the root, in the
+/// Re-anchors the file-level unit's `sloc` row span to the span the unit
+/// itself reports, discarding the measured start row seeded during the
+/// walk.
+///
+/// Three places held a copy of "where does the unit's row span start",
+/// and #1195 anchored only one of them — [`crate::spaces::line_span`],
+/// which gives the unit line 1 because the unit *is* the file.
+/// `loc::shared::init` seeds `sloc.start` from the visited node's first
+/// token for every func-space, the root included, so a file opening with
+/// blank lines dropped those rows from `sloc` (and so from `blank`, and
+/// from MI's `ln(sloc)` term) while its reported `start_line..end_line`
+/// still covered them. A leading *comment* was always fine, since
+/// comments are in the tree — which is what made byte-identical content
+/// score differently for being shifted down by one comment row (#1247).
+///
+/// Reading the span back off the finished [`FuncSpace`] leaves
+/// `line_span` the single owner of the rule, degenerate cases included:
+/// an empty file reports `0..0`, which converts to the default `0..0`
+/// sloc span and keeps `sloc` at 0.
+///
+/// Done here rather than in [`FuncSpace::new`] because the root node's
+/// own `Loc::compute` runs *after* construction and would overwrite an
+/// anchor set there; and here rather than in the 20-odd per-language
+/// `Loc` impls because none of them knows the space kind — re-widening
+/// the trait with a unit flag is exactly what #1067 removed for perf.
+#[inline]
+fn anchor_unit_sloc_span(state: &mut State, selected: MetricSet) {
+    if selected.contains(Metric::Loc) && state.space.kind == SpaceKind::Unit {
+        // `start_line` is 1-based and `Sloc::start` is a 0-based row;
+        // `saturating_sub` covers the empty-file `0..0`, whose 0-based
+        // start is 0 either way.
+        let start_row = state.space.start_line.saturating_sub(1);
+        state
+            .space
+            .metrics
+            .loc
+            .init_unit_span(start_row, state.space.end_line);
+    }
+}
+
+/// Runs the per-space finalization passes (unit-span anchoring, min/max,
+/// sum, Halstead, MI, WMC, averages) on a single [`State`]. Shared by both
+/// the single-element and pop arms of [`finalize`] so the call sequence
+/// stays identical in both, and reached exactly once per space — every
+/// state is finalized either when it is popped or, for the root, in the
 /// single-element arm.
+///
+/// [`anchor_unit_sloc_span`] runs first because everything after it reads
+/// the span it fixes: `compute_minmax` folds `sloc` into the unit's
+/// `sloc_min`/`sloc_max`, and `compute_halstead_and_mi` feeds it into MI's
+/// `ln(sloc)` term.
 ///
 /// [`finalize`]'s pop arm additionally calls [`compute_wmc`] on the
 /// *parent* before each child merges into it, because `wmc::Stats::merge`
@@ -176,6 +221,7 @@ fn compute_sum(state: &mut State, selected: MetricSet) {
 /// intermediate Halstead/MI, and this call overwrites them from the final
 /// maps anyway (#1106).
 fn finalize_state<T: ParserTrait>(state: &mut State, selected: MetricSet) {
+    anchor_unit_sloc_span(state, selected);
     compute_minmax(state, selected);
     compute_sum(state, selected);
     compute_halstead_and_mi::<T>(state, selected);
@@ -344,6 +390,14 @@ fn compute_per_node<'a, T: ParserTrait>(
 /// file keeps the top-level `FuncSpace` upholding the LOC invariant
 /// `blank = sloc - ploc - only_comment_lines >= 0`. A `Unit` root needs
 /// no wrapper, so nothing is pushed in that case.
+///
+/// The frame's `loc` row span is *not* seeded here. The walk never visits
+/// this synthetic node, so before #1247 this was the one place that could
+/// give it one — a third copy of "where does the unit's row span start",
+/// and one that copied the measured start row the anchored reported span
+/// had already stopped agreeing with. [`anchor_unit_sloc_span`] now
+/// derives every unit's span from the one [`crate::spaces::line_span`]
+/// recorded, this frame included.
 fn push_synthetic_unit_root<T: ParserTrait>(
     state_stack: &mut Vec<State>,
     node: &Node,
@@ -353,17 +407,13 @@ fn push_synthetic_unit_root<T: ParserTrait>(
     // `Ancestors::unknown()`: `node` is the tree root here, so it has no
     // ancestors to hand over either way.
     if T::Getter::get_space_kind_with_code(node, code, Ancestors::unknown()) != SpaceKind::Unit {
-        let mut synthetic = FuncSpace::new::<T::Getter>(
+        let synthetic = FuncSpace::new::<T::Getter>(
             node,
             code,
             Ancestors::unknown(),
             SpaceKind::Unit,
             selected,
         );
-        synthetic
-            .metrics
-            .loc
-            .init_unit_span(node.start_row(), node.end_line());
         state_stack.push(State {
             space: synthetic,
             halstead_maps: HalsteadMaps::new(),
