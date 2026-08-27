@@ -108,6 +108,27 @@ for historical reference.
 
 ### Fixed
 
+- JavaScript, MozJS, TypeScript and TSX now count a `var` / `let` /
+  `const` declaration as a logical line (#1283). Neither
+  `variable_declaration` nor `lexical_declaration` had an LLOC arm, so a
+  file of nothing but declarations reported `lloc 0` and every real
+  JS/TS file under-reported `loc.lloc` by one per declaration statement
+  — while Java's `LocalVariableDeclaration`, Rust's `let` and Python's
+  assignments all counted the equivalent construct. The two JavaScript
+  modules also count `using_declaration` (`using r = open();`), the
+  third member of the grammar's `declaration` supertype that runs an
+  initializer; the TypeScript and TSX grammars pinned here emit no such
+  node. Two enclosing constructs that already count the row carve the
+  declaration out, mirroring Java's for-header rule: a classic
+  `for (let i = 0; …)` header, and an `export const a = 1;` (including
+  TypeScript's `export declare const y: string;`, where an
+  `ambient_declaration` sits between the export and the declaration).
+  `for (const x of …)` and `for (var k in …)` need no carve-out — the
+  grammar inlines the keyword and emits no declaration node.
+  **Metric values move**: `loc.lloc` rises for JS/TS/TSX/JSM input, and
+  with it the `lloc_average` / `lloc_min` / `lloc_max` aggregates. No
+  other metric is affected — `mi` does not consume `lloc`.
+
 - A member access or qualified name in JavaScript, MozJS, TypeScript,
   TSX, C# and Groovy no longer counts as a Halstead operand on top of
   the identifier leaves it contains (#1263). `var r = a.b;` reported
