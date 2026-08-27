@@ -260,8 +260,37 @@ impl Exit for GoCode {
 }
 
 impl Exit for PerlCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
-        if node.kind_id() == Perl::ReturnExpression {
+    // Perl's abrupt-exit builtins are `die` (raises an exception that
+    // unwinds to the nearest `eval`) and `exit` (terminates the
+    // process). Neither has a dedicated grammar node: every call form
+    // (`die;`, `die "m"`, `die("m")`, `... or die "m"`) nests a
+    // `call_expression_with_bareword` holding just the callee name, so
+    // matching that one kind counts each occurrence exactly once
+    // whatever wrapper carries the arguments (#1270). Compare the
+    // bareword text for the same reason Go matches `panic` and Lua
+    // matches `error`.
+    //
+    // Deliberate exclusions:
+    // - A package-qualified callee keeps its qualifier in the bareword
+    //   text (`Carp::croak`), so it can never equal `die`/`exit`.
+    // - `croak` / `confess` are Carp *library* functions, not builtins;
+    //   an unqualified `croak "m"` is left uncounted rather than
+    //   guessing that the module is loaded.
+    // - `$obj->die` parses as a `method_invocation` whose callee is a
+    //   plain `identifier`, never a bareword, so a user method named
+    //   `die` is not counted.
+    //
+    // Known artifact: a fat-comma hash key auto-quotes its bareword in
+    // Perl, but the grammar still emits `call_expression_with_bareword`
+    // for it, so `(die => 1)` counts as an exit. Gating on the `=>`
+    // that follows would need a forward sibling lookup from inside the
+    // metric walk, which #1096 took out of these bodies; the same node
+    // already counts as an ABC branch (`src/metrics/abc/perl.rs`), so
+    // the artifact is accepted rather than paid for here.
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+        let is_abrupt_exit_builtin = node.kind_id() == Perl::CallExpressionWithBareword
+            && matches!(node.utf8_text(code), Some("die" | "exit"));
+        if node.kind_id() == Perl::ReturnExpression || is_abrupt_exit_builtin {
             stats.exit += 1;
         }
     }
@@ -320,7 +349,18 @@ impl Exit for TclCode {
         // name field is a simple_word with text "return" — the same
         // leading-word resolution the Cognitive / Cyclomatic `switch` and
         // `for` detectors use, shared rather than restated here.
-        if crate::metrics::cognitive::tcl_command_name(node, code) == Some("return") {
+        //
+        // `error` (raises an error that unwinds to the nearest `catch`)
+        // and the Tcl 8.6 `throw` are the abrupt-exit builtins and parse
+        // to the same generic Command shape — the vendored grammar has
+        // no dedicated rule for either, so the leading word is the only
+        // seam (#1270, lesson 19). Because `tcl_command_name` reads the
+        // `name` field, `error` in argument position (`puts error`) is a
+        // `word_list` child and is not counted.
+        if matches!(
+            crate::metrics::cognitive::tcl_command_name(node, code),
+            Some("return" | "error" | "throw")
+        ) {
             stats.exit += 1;
         }
     }
@@ -333,12 +373,20 @@ impl Exit for IrulesCode {
         // commands). The bare name word can surface as either `simple_word`
         // or `concat_word` depending on context, so match on the name text
         // rather than a fixed kind. A multi-value `return $a $b` still has a
-        // single `name` field and is counted once. iRules flow commands
-        // (`event disable`, `TCP::close`, `reject`, `drop`) are deliberately
-        // not counted as exits in v1.
+        // single `name` field and is counted once.
+        //
+        // `error` is the Tcl abrupt-exit builtin and reaches iRules
+        // unchanged; re-derived against the iRules grammar rather than
+        // assumed from Tcl's, it parses to the same `command` +
+        // name-word shape (#1270). Tcl 8.6's `throw` is *not* matched
+        // here: TMOS iRules runs a Tcl 8.4-derived interpreter that has
+        // no `throw` builtin, so the word could only ever name a user
+        // proc. iRules flow commands (`event disable`, `TCP::close`,
+        // `reject`, `drop`) remain deliberately uncounted as exits in
+        // v1.
         if node.kind_id() == Irules::Command
             && let Some(name) = node.child_by_field_name("name")
-            && name.utf8_text(code) == Some("return")
+            && matches!(name.utf8_text(code), Some("return" | "error"))
         {
             stats.exit += 1;
         }
@@ -368,14 +416,41 @@ implement_metric_trait!(Exit, PreprocCode, CcommentCode);
 
 impl Exit for RubyCode {
     // Ruby's `return` is the only dedicated grammar node for an
-    // intra-function exit. `yield` passes control to the block but does
-    // not exit the enclosing method; `raise`/`exit` are ordinary method
-    // calls without grammar nodes. tree-sitter-ruby exposes the
+    // intra-function exit; `yield` passes control to the block but does
+    // not exit the enclosing method. tree-sitter-ruby exposes the
     // `return_statement` rule under two aliased visible kinds
     // (`Return`, `Return2`); the `Return3` token is the bare `return`
     // keyword inside those nodes and is not counted on its own.
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    //
+    // `raise` and `exit` are ordinary method calls with no grammar node
+    // of their own — which is the shape the Go / Lua / Elixir impls
+    // above already match by callee text, not a reason to leave them
+    // uncounted (#1270). Both parse as a `call` whose `method` field is
+    // a bare `identifier`; `Checker::is_call` carries the four visible
+    // `call` aliases, so the arm cannot miss one by position.
+    //
+    // Deliberate exclusions:
+    // - A call with a `receiver` (`obj.raise`, `self.exit`) is a user
+    //   method, never the Kernel builtin — the same bare-callee gate Go
+    //   uses to keep `foo.panic()` out.
+    // - A *bare* `raise` / `exit` with no arguments parses as a plain
+    //   `identifier`, indistinguishable from reading a local variable
+    //   of that name, so the argument-less re-raise idiom inside
+    //   `rescue` goes uncounted rather than blanket-matching every
+    //   identifier.
+    // - `fail` (a Kernel alias of `raise`), `abort`, and `throw`
+    //   (catch/throw non-local flow) are not matched: each is a common
+    //   user or test-DSL method name, and the counted set stays the two
+    //   primitives the cross-language exit table names.
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
         if matches!(node.kind_id().into(), Ruby::Return | Ruby::Return2) {
+            stats.exit += 1;
+        } else if Self::is_call(node)
+            && node.child_by_field_name("receiver").is_none()
+            && let Some(method) = node.child_by_field_name("method")
+            && method.kind_id() == Ruby::Identifier
+            && matches!(method.utf8_text(code), Some("raise" | "exit"))
+        {
             stats.exit += 1;
         }
     }
@@ -1384,6 +1459,52 @@ mod tests {
         );
     }
 
+    /// `die` and `exit` are Perl's abrupt-exit builtins (#1270). Every
+    /// call form nests one `call_expression_with_bareword`, so the
+    /// spaced-args (`die "m"`), bracketed (`exit(1)`) and bare
+    /// (`die;`) spellings each count exactly once — a wrapper node is
+    /// never counted alongside its bareword.
+    #[test]
+    fn perl_die_and_exit_are_exits() {
+        check_metrics::<PerlParser>(
+            "sub f {
+                die \"bad\" if $_[0];
+                open(my $fh, '<', $p) or die;
+                exit(1) if $_[1];
+                exit 2;
+                return 0;
+            }",
+            "foo.pl",
+            |metric| {
+                // expected: 4 abrupt exits (two `die`, two `exit`) plus
+                // one `return`.
+                assert_eq!(metric.nexits.nexits_sum(), 5);
+            },
+        );
+    }
+
+    /// Only the unqualified builtins count. A package-qualified callee
+    /// keeps its qualifier in the bareword text (`Carp::croak`), the
+    /// Carp helpers are library functions rather than builtins, and
+    /// `$obj->die` parses as a `method_invocation` whose callee is a
+    /// plain `identifier` — none of them is an exit.
+    #[test]
+    fn perl_lookalike_call_is_not_exit() {
+        check_metrics::<PerlParser>(
+            "sub f {
+                $obj->die;
+                $obj->exit(1);
+                Carp::croak(\"x\");
+                croak \"x\";
+                my $s = \"die\";
+            }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.nexits.nexits_sum(), 0);
+            },
+        );
+    }
+
     #[test]
     fn tsx_function_with_returns() {
         check_metrics::<TsxParser>(
@@ -1854,6 +1975,48 @@ end",
         );
     }
 
+    /// Tcl's abrupt-exit builtins have no dedicated grammar rule: both
+    /// `error` and the 8.6 `throw` parse as generic commands told apart
+    /// by their leading word, the same seam `return` uses (#1270).
+    #[test]
+    fn tcl_error_and_throw_are_exits() {
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    if {$x < 0} {
+        error \"negative\"
+    }
+    if {$x == 0} {
+        throw {ARITH DIVZERO} \"div by zero\"
+    }
+    return $x
+}",
+            "foo.tcl",
+            |metric| {
+                // expected: `error` + `throw` + `return` = 3.
+                assert_eq!(metric.nexits.nexits_sum(), 3);
+            },
+        );
+    }
+
+    /// The command *name* is the seam, so the same words in argument
+    /// position (`puts error`) or inside a string are not exits. The
+    /// leading word of a nested braced command (`{ARITH DIVZERO}`) is
+    /// likewise a different command name and contributes nothing.
+    #[test]
+    fn tcl_error_in_argument_position_is_not_exit() {
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    puts error
+    puts throw
+    set y \"error\"
+}",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(metric.nexits.nexits_sum(), 0);
+            },
+        );
+    }
+
     #[test]
     fn typescript_multiple_returns() {
         check_metrics::<TypescriptParser>(
@@ -2170,6 +2333,58 @@ end",
             |metric| {
                 assert_eq!(metric.nexits.nexits_sum(), 2);
                 insta::assert_json_snapshot!(metric.nexits);
+            },
+        );
+    }
+
+    /// `raise` and `exit` are receiver-less Kernel calls with no
+    /// grammar node of their own, matched by callee text the way Go
+    /// matches `panic` (#1270). Both the paren-less command form
+    /// (`raise ArgumentError, "m"`) and the parenthesised form
+    /// (`exit(1)`) parse as `call`, so both count.
+    #[test]
+    fn ruby_raise_and_exit_are_exits() {
+        check_metrics::<RubyParser>(
+            "def f(x)\n  raise ArgumentError, \"bad\" if x\n  raise(RuntimeError)\n  exit 1 if x\n  exit(2)\n  return 0\nend\n",
+            "foo.rb",
+            |metric| {
+                // expected: two `raise` + two `exit` + one `return` = 5.
+                assert_eq!(metric.nexits.nexits_sum(), 5);
+            },
+        );
+    }
+
+    /// A call with a receiver is a user method, never the Kernel
+    /// builtin, so `obj.raise` / `self.exit` must not count — the same
+    /// bare-callee gate Go uses to keep `foo.panic()` out. A symbol or
+    /// hash key spelling the builtin parses as `simple_symbol` /
+    /// `hash_key_symbol` and is likewise not a call.
+    #[test]
+    fn ruby_receiver_call_is_not_exit() {
+        check_metrics::<RubyParser>(
+            "def f(x)\n  obj.raise(x)\n  self.exit(1)\n  logger.raise\n  h = { raise: 1 }\n  s = :exit\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.nexits.nexits_sum(), 0);
+            },
+        );
+    }
+
+    /// A *bare* `raise` / `exit` — the argument-less re-raise idiom —
+    /// parses as a plain `identifier`, indistinguishable from reading a
+    /// local variable of that name, so it is deliberately not counted.
+    /// Pinning the exclusion here keeps a future "just match bare
+    /// identifiers too" change from silently counting every variable
+    /// read.
+    #[test]
+    fn ruby_bare_raise_identifier_is_not_exit() {
+        check_metrics::<RubyParser>(
+            "def f(x)\n  begin\n    g(x)\n  rescue StandardError\n    raise\n  end\n  return 0\nend\n",
+            "foo.rb",
+            |metric| {
+                // expected: only the `return`; the bare `raise` is an
+                // `identifier`, not a `call`.
+                assert_eq!(metric.nexits.nexits_sum(), 1);
             },
         );
     }
@@ -2807,6 +3022,47 @@ end",
             "foo.irule",
             |metric| {
                 assert_eq!(metric.nexits.nexits_sum(), 1);
+            },
+        );
+    }
+
+    /// `error` is a plain Tcl builtin that reaches iRules unchanged and
+    /// parses to the same `command` + name-word shape (#1270),
+    /// re-derived against the iRules grammar rather than assumed from
+    /// Tcl's.
+    #[test]
+    fn irules_error_is_an_exit() {
+        check_metrics::<IrulesParser>(
+            "proc f { x } {
+    if { $x < 0 } {
+        error \"negative\"
+    }
+    return $x
+}
+",
+            "foo.irule",
+            |metric| {
+                // expected: `error` + `return` = 2.
+                assert_eq!(metric.nexits.nexits_sum(), 2);
+            },
+        );
+    }
+
+    /// Tcl 8.6's `throw` is deliberately absent from the iRules exit
+    /// set — TMOS runs a Tcl 8.4-derived interpreter with no such
+    /// builtin, so the word can only ever name a user proc — and
+    /// `error` in argument position is not an exit either.
+    #[test]
+    fn irules_throw_and_argument_position_error_are_not_exits() {
+        check_metrics::<IrulesParser>(
+            "proc f { x } {
+    throw {ARITH DIVZERO} \"boom\"
+    log local0. error
+}
+",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.nexits.nexits_sum(), 0);
             },
         );
     }
