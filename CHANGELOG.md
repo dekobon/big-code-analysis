@@ -108,6 +108,30 @@ for historical reference.
 
 ### Fixed
 
+- PHP's Halstead operand count no longer bills a type or qualified name
+  once per wrapper node (#1293). `primitive_type`, `optional_type`,
+  `named_type`, `union_type`, `intersection_type`,
+  `disjunctive_normal_form_type`, `qualified_name`, `relative_name` and
+  `namespace_name` all nest around the leaves they contain, and every
+  level was listed as an operand — so `int` scored 2, `?int` scored 3,
+  `Foo\Bar\Baz` scored 5, and `?A\B` scored 6 for two identifiers. Two
+  design calls settle which node keeps the operand: a type is counted
+  at its innermost concrete form (`?int` is the operand `int`, since
+  `?` is already an operator), and a qualified name is counted by its
+  components (`Foo\Bar\Baz` is `Foo`, `Bar`, `Baz` around two `\`
+  operators — the same reading PHP's own `::` and `->` already get).
+  The `primitive_type` wrapper keeps the operand and its keyword child
+  is suppressed under it, because the grammar emits no child token for
+  `callable`, `iterable`, `mixed`, `void`, `false` or `true` and
+  dropping the wrapper would score those six types zero; the
+  suppression is parent-scoped, so the `array` heading an `array(…)`
+  literal still counts. **Metric values shift**: PHP files report lower
+  `halstead` `N2` / `n2` — 23 → 15 and 14 → 9 on the issue's two
+  reproducers — and therefore lower volume, difficulty, effort and
+  bugs, and a higher `mi` (maintainability index). Refresh affected
+  PHP baselines. Follows #1259, which fixed the `$variable` half of the
+  same wrapper/leaf shape.
+
 - `nexits` now counts the abrupt-exit builtins of Ruby, Perl, Tcl and
   iRules (#1270). Ruby `raise` / `exit`, Perl `die` / `exit`, and
   Tcl/iRules `error` (plus Tcl 8.6 `throw`) leave a function exactly the
