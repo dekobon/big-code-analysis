@@ -45,12 +45,21 @@
 //! - `return` + abrupt-exit (sum == 2): Rust (`return` + `?`),
 //!   Cpp/Mozcpp/Objc/Java/Groovy/Csharp/Kotlin/JS-family (`return` +
 //!   `throw`), Python (`return` + `raise`), Php (`return` + `throw`),
-//!   Bash (`return` + `exit`), Go (`return` + `panic`), Lua (`return`
-//!   + `error`).
+//!   Bash (`return` + `exit`), Go (`return` + `panic`),
+//!   Lua (`return` + `error`), Ruby (`return` + `raise`),
+//!   Perl (`return` + `die`), Tcl and Irules (`return` + `error`).
 //! - Abrupt-exit only, no `return` node: Elixir (`raise` + `throw`,
 //!   both `Call`-target text matches — Elixir has no `return`).
-//! - `return`-only languages (two `return`s, sum == 2): C (no
-//!   exceptions), Perl, Ruby, Tcl, Irules.
+//! - `return`-only languages (two `return`s, sum == 2): C — no
+//!   exceptions, so `return` is the whole exit set.
+//!
+//! Ruby, Perl, Tcl and Irules used to sit in that last bucket, with two
+//! `return`s each. That was never a language property: their abrupt-exit
+//! builtins have no dedicated grammar node, and their `Exit` impls
+//! simply did not text-match the callee the way Go / Lua / Elixir
+//! already did. #1270 fixed the impls; the fixtures moved with them, so
+//! this file exercises the new arms instead of documenting their
+//! absence.
 
 use big_code_analysis::{LANG, MetricsOptions, Source, analyze};
 
@@ -300,51 +309,61 @@ end
         "defmodule Foo do\n  def f(x) do\n    if x do\n      raise \"boom\"\n    end\n    throw(:done)\n  end\nend\n",
         "ex",
     );
-    // Perl models only `return` as an exit; use two `return`s.
+    // Perl has no `throw`: `die` raises and unwinds to the nearest
+    // `eval` (#1270), matched by bareword-callee text alongside
+    // `return`.
     let perl = nexits_sum(
         LANG::Perl,
-        r"sub f {
-    return 1 if $_[0];
+        r#"sub f {
+    if ($_[0]) {
+        die "boom";
+    }
     return 0;
 }
-",
+"#,
         "pl",
     );
-    // Ruby models only `return` as an exit (`raise`/`exit` are plain
-    // method calls without grammar nodes); use two `return`s.
+    // Ruby counts `return` + `raise`: `raise` has no grammar node of
+    // its own, so it is matched as a receiver-less `call` whose method
+    // identifier spells the builtin (#1270).
     let ruby = nexits_sum(
         LANG::Ruby,
-        r"def f(x)
-    return 1 if x
+        r#"def f(x)
+    if x
+        raise ArgumentError, "boom"
+    end
     return 0
 end
-",
+"#,
         "rb",
     );
-    // Tcl has no `return` keyword node: `return` is a Command whose
-    // name word is `return`; use two `return`s.
+    // Tcl has no `return` keyword node and no dedicated `error` rule
+    // either: both are generic Commands told apart by their leading
+    // word (#1270).
     let tcl = nexits_sum(
         LANG::Tcl,
-        r"proc f {x} {
+        r#"proc f {x} {
     if {$x > 0} {
-        return positive
+        error "boom"
     }
     return nonpositive
 }
-",
+"#,
         "tcl",
     );
-    // iRules mirrors Tcl: `return` is a generic Command; use two
-    // `return`s.
+    // iRules mirrors Tcl for `return` + `error` (both generic
+    // Commands). Tcl 8.6's `throw` is deliberately absent from the
+    // iRules exit set — TMOS runs a Tcl 8.4-derived interpreter that
+    // has no such builtin — so the fixture uses `error`.
     let irules = nexits_sum(
         LANG::Irules,
-        r"proc f {x} {
+        r#"proc f {x} {
     if {$x > 0} {
-        return positive
+        error "boom"
     }
     return nonpositive
 }
-",
+"#,
         "irul",
     );
 

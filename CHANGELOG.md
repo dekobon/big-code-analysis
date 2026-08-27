@@ -108,6 +108,27 @@ for historical reference.
 
 ### Fixed
 
+- `nexits` now counts the abrupt-exit builtins of Ruby, Perl, Tcl and
+  iRules (#1270). Ruby `raise` / `exit`, Perl `die` / `exit`, and
+  Tcl/iRules `error` (plus Tcl 8.6 `throw`) leave a function exactly the
+  way Python's `raise`, Go's `panic` and Lua's `error` do, but none of
+  them has a dedicated grammar node, and only the latter three had a
+  callee-text arm — so a Ruby guard clause that raised scored `1` where
+  the byte-equivalent Python scored `3`. Each is matched at the same
+  seam its siblings already used: a receiver-less `call` whose method
+  identifier spells the builtin (Ruby), a `call_expression_with_bareword`
+  (Perl), the leading word of a generic command (Tcl/iRules). Calls with
+  a receiver (`obj.raise`, `$obj->die`), package-qualified callees
+  (`Carp::croak`), and the same words in argument position (`puts error`)
+  are not counted. **Metric values shift**: any Ruby, Perl, Tcl or iRules
+  function using these builtins reports a higher `nexits` sum, average
+  and max than in 2.1.0, which can newly breach an `nexits` threshold —
+  refresh affected baselines. Tcl 8.6's `throw` is deliberately absent
+  from the iRules set (TMOS runs a Tcl 8.4-derived interpreter with no
+  such builtin), and a bare argument-less Ruby `raise` stays uncounted
+  because it parses as a plain identifier, indistinguishable from a
+  variable read.
+
 - **(breaking)** The Python bindings' `analyze_batch` / `analyze_paths` dropped a
   result slot for any file the read gate declines to parse — three
   bytes or fewer, a UTF-16 BOM, or a leading window that is not valid
