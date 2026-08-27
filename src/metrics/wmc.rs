@@ -39,6 +39,12 @@ pub struct Stats {
     // nested-class cyclomatic lets `merge` subtract it from a Function's
     // contribution, preventing double-attribution (#463).
     nested_class_cyclomatic: f64,
+    // This space is a function written inside a container it is not a
+    // member of — today only a C++ `friend` with an inline body (#1301).
+    // WMC sums over a class's *methods*, so the enclosing class must not
+    // weight it. Phrased negatively so `Default` (false) means the
+    // ordinary case and only the exception has to be marked.
+    non_member: bool,
     class_wmc: f64,
     interface_wmc: f64,
     class_wmc_sum: f64,
@@ -76,10 +82,18 @@ impl Stats {
             // subtree in turn.
             Function => {
                 let own_cyclomatic = other.cyclomatic - other.nested_class_cyclomatic;
-                match self.space_kind {
-                    Class => self.class_wmc += own_cyclomatic,
-                    Interface => self.interface_wmc += own_cyclomatic,
-                    _ => {}
+                // A non-member function nested in this container is not
+                // one of its methods, so it contributes nothing to the
+                // container's WMC (#1301). Its own space still reports
+                // the full cyclomatic, and the `nested_class_cyclomatic`
+                // bookkeeping below still bubbles, so a class defined
+                // inside it stays accounted for exactly once.
+                if !other.non_member {
+                    match self.space_kind {
+                        Class => self.class_wmc += own_cyclomatic,
+                        Interface => self.interface_wmc += own_cyclomatic,
+                        _ => {}
+                    }
                 }
                 self.nested_class_cyclomatic += other.nested_class_cyclomatic;
             }
@@ -138,6 +152,15 @@ impl Stats {
     pub(crate) fn compute_sum(&mut self) {
         self.class_wmc_sum += self.class_wmc;
         self.interface_wmc_sum += self.interface_wmc;
+    }
+
+    // Marks this space as a function that is not a member of the
+    // container enclosing it, so `merge` keeps its cyclomatic out of
+    // that container's WMC (#1301). Set once when the space is opened,
+    // from `Checker::is_non_member_function`.
+    #[inline]
+    pub(crate) fn mark_non_member(&mut self) {
+        self.non_member = true;
     }
 
     // Checks if the `Wmc` metric is disabled
@@ -324,6 +347,13 @@ impl Wmc for MozcppCode {
 // rolls into its enclosing class via the shared aggregator — the same
 // shape as Java / TS. ObjC has no `struct`-as-class, so no `Struct`
 // remap is needed.
+//
+// FIXME(#1356): a plain C `function_definition` written inside an
+// `@implementation` block is a file-static helper, not a method, but it
+// opens a `Function` space inside the class space and is weighted here
+// all the same — the C++ `friend` divergence of #1301 in a sibling
+// language. The hook to fix it exists (`Checker::is_non_member_function`)
+// and `ObjcCode` has no override yet.
 impl Wmc for ObjcCode {
     fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
         class_interface_compute(space_kind, cyclomatic, stats);
@@ -3732,6 +3762,209 @@ mod tests {
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
+    }
+
+    // ----- C++ `friend` (#1301) -----
+    //
+    // A `friend` with an inline body is written inside the class braces
+    // but is a free function the class merely grants access to. `npm`
+    // has always declined to count it as a method; `wmc` weighted it,
+    // so the two metrics disagreed about the same class. The fixtures
+    // below are shared with the Mozcpp mirrors further down — mozcpp
+    // owns no file extension, so nothing else exercises its clone of
+    // these impls.
+
+    // The issue's own fixture, verbatim. Three outcomes are reachable,
+    // so the expectation cannot hold for the wrong reason: 3 is the
+    // pre-fix value (`amigo`'s cyclomatic 2 plus `mine`'s 1), 1 is
+    // correct, and 0 would mean the roll-up dropped `mine` as well.
+    const INLINE_FRIEND: &str = "class R {\n\
+         public:\n\
+             friend void amigo() { if (1) { } }\n\
+             void mine() { }\n\
+         };";
+
+    // `friend std::ostream& operator<<(…)` is the idiomatic inline
+    // friend, and parses through the same `friend_declaration >
+    // function_definition` shape as a named one. `dump` is deliberately
+    // a *branching* method so the expectation (2) differs from both the
+    // pre-fix value (4) and the method count (1).
+    const INLINE_FRIEND_OPERATOR: &str = "class R {\n\
+         public:\n\
+             friend std::ostream& operator<<(std::ostream& o, const R& r) {\n\
+                 if (r.n) { return o; }\n\
+                 return o;\n\
+             }\n\
+             int dump(int x) { if (x) { return 1; } return 0; }\n\
+             int n;\n\
+         };";
+
+    // A templated friend nests one level deeper —
+    // `template_declaration > friend_declaration > function_definition`
+    // — so the function's parent is the `friend_declaration` either
+    // way and one parent check covers both shapes. This is the friend
+    // from #1258's `NON_METHOD_TEMPLATE_PAYLOADS`, whose `npm` side
+    // that issue fixed and whose `wmc` side this one does.
+    const TEMPLATED_INLINE_FRIEND: &str = "class R {\n\
+         public:\n\
+             template<typename T> friend void amigo(T t) { if (t) { } }\n\
+             int mine(int x) { if (x) { return 1; } return 0; }\n\
+         };";
+
+    // Every bodyless `friend` form: a plain declaration, an operator
+    // declaration, and a befriended class. All parse as
+    // `friend_declaration > declaration` (or bare tokens), open no
+    // function space, and so never reach the predicate at all.
+    const FRIEND_WITHOUT_BODY: &str = "class R {\n\
+         public:\n\
+             friend void amigo();\n\
+             friend R operator+(const R& l, const R& r);\n\
+             friend class Other;\n\
+             int mine(int x) { if (x) { return 1; } return 0; }\n\
+         };";
+
+    // A friend of a *nested* class. `Inner` keeps its own WMC scope
+    // (2, from `hidden`) and `Outer` keeps its own (1, from
+    // `outer_m`), so the file sum is 3 — never 5, which is what
+    // folding `amigo` into `Inner` produced.
+    const NESTED_CLASS_FRIEND: &str = "class Outer {\n\
+         public:\n\
+             class Inner {\n\
+             public:\n\
+                 friend void amigo() { if (1) { } }\n\
+                 int hidden(int x) { if (x) { return 1; } return 0; }\n\
+             };\n\
+             void outer_m() { }\n\
+         };";
+
+    #[test]
+    fn cpp_inline_friend_is_not_weighted_into_the_class() {
+        check_wmc_and_npm::<CppParser>(INLINE_FRIEND, "foo.cpp", |metric| {
+            // The triple the issue tabulated. `wmc` read 3 before the
+            // fix while `npm` read 1 — the disagreement #1258 removed
+            // for templated member bodies and this removes for friends.
+            assert_eq!(metric.wmc.class_wmc_sum(), 1);
+            assert_eq!(metric.npm.class_nm_sum(), 1);
+            assert_eq!(metric.npm.class_npm_sum(), 1);
+            // `nom` counts free functions wherever they appear, so it
+            // still sees two. That is its own contract and #1301 left
+            // it alone.
+            assert_eq!(metric.nom.functions_sum(), 2);
+            // The friend's complexity is excluded from the class, not
+            // discarded: unit 1 + class 1 + `amigo` 2 + `mine` 1.
+            assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+        });
+    }
+
+    #[test]
+    fn cpp_inline_friend_keeps_its_own_function_space() {
+        // Where the excluded complexity lands. The space tree is built
+        // by a single-pass stack walk and
+        // `tests/parity/space_span_containment.rs` requires a child's
+        // span to sit inside its parent's, so the friend's space cannot
+        // be reparented out of the class it is written in — it stays a
+        // `Function` space there, reporting its full cyclomatic. Only
+        // the class's WMC roll-up declines it.
+        check_func_space::<CppParser, _>(INLINE_FRIEND, "foo.cpp", |space| {
+            let class = child_space(&space, "R");
+            assert_eq!(class.kind, SpaceKind::Class);
+            assert_eq!(class.metrics.wmc.class_wmc(), 1);
+            let amigo = child_space(class, "amigo");
+            assert_eq!(amigo.kind, SpaceKind::Function);
+            assert_eq!(amigo.metrics.cyclomatic.cyclomatic(), 2);
+        });
+    }
+
+    #[test]
+    fn cpp_inline_friend_operator_is_not_weighted_into_the_class() {
+        check_wmc_and_npm::<CppParser>(INLINE_FRIEND_OPERATOR, "foo.cpp", |metric| {
+            assert_eq!(metric.wmc.class_wmc_sum(), 2);
+            assert_eq!(metric.npm.class_nm_sum(), 1);
+            assert_eq!(metric.nom.functions_sum(), 2);
+        });
+    }
+
+    #[test]
+    fn cpp_templated_inline_friend_is_not_weighted_into_the_class() {
+        check_wmc_and_npm::<CppParser>(TEMPLATED_INLINE_FRIEND, "foo.cpp", |metric| {
+            assert_eq!(metric.wmc.class_wmc_sum(), 2);
+            assert_eq!(metric.npm.class_nm_sum(), 1);
+            assert_eq!(metric.nom.functions_sum(), 2);
+        });
+    }
+
+    #[test]
+    fn cpp_friend_declared_without_a_body_leaves_wmc_alone() {
+        check_wmc_and_npm::<CppParser>(FRIEND_WITHOUT_BODY, "foo.cpp", |metric| {
+            // `mine` alone, at cyclomatic 2 — a predicate that had
+            // over-matched the whole `friend_declaration` subtree and
+            // swallowed the sibling method would read 0 here.
+            assert_eq!(metric.wmc.class_wmc_sum(), 2);
+            assert_eq!(metric.npm.class_nm_sum(), 1);
+            assert_eq!(metric.nom.functions_sum(), 1);
+        });
+    }
+
+    #[test]
+    fn cpp_friend_of_a_nested_class_is_weighted_into_neither() {
+        check_wmc_and_npm::<CppParser>(NESTED_CLASS_FRIEND, "foo.cpp", |metric| {
+            assert_eq!(metric.wmc.class_wmc_sum(), 3);
+            assert_eq!(metric.npm.class_nm_sum(), 2);
+            assert_eq!(metric.nom.functions_sum(), 3);
+        });
+    }
+
+    // ----- Mozilla C++ (`friend`, #1301) -----
+    //
+    // `Mozcpp` owns no file extension, so no integration corpus reaches
+    // it and its `Checker` clone would drift silently. These mirror the
+    // C++ cases above over the same fixtures.
+
+    #[test]
+    fn mozcpp_inline_friend_is_not_weighted_into_the_class() {
+        check_wmc_and_npm::<MozcppParser>(INLINE_FRIEND, "foo.cpp", |metric| {
+            assert_eq!(metric.wmc.class_wmc_sum(), 1);
+            assert_eq!(metric.npm.class_nm_sum(), 1);
+            assert_eq!(metric.npm.class_npm_sum(), 1);
+            assert_eq!(metric.nom.functions_sum(), 2);
+            assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+        });
+    }
+
+    #[test]
+    fn mozcpp_inline_friend_operator_is_not_weighted_into_the_class() {
+        check_wmc_and_npm::<MozcppParser>(INLINE_FRIEND_OPERATOR, "foo.cpp", |metric| {
+            assert_eq!(metric.wmc.class_wmc_sum(), 2);
+            assert_eq!(metric.npm.class_nm_sum(), 1);
+            assert_eq!(metric.nom.functions_sum(), 2);
+        });
+    }
+
+    #[test]
+    fn mozcpp_templated_inline_friend_is_not_weighted_into_the_class() {
+        check_wmc_and_npm::<MozcppParser>(TEMPLATED_INLINE_FRIEND, "foo.cpp", |metric| {
+            assert_eq!(metric.wmc.class_wmc_sum(), 2);
+            assert_eq!(metric.npm.class_nm_sum(), 1);
+            assert_eq!(metric.nom.functions_sum(), 2);
+        });
+    }
+
+    #[test]
+    fn mozcpp_friend_declared_without_a_body_leaves_wmc_alone() {
+        check_wmc_and_npm::<MozcppParser>(FRIEND_WITHOUT_BODY, "foo.cpp", |metric| {
+            assert_eq!(metric.wmc.class_wmc_sum(), 2);
+            assert_eq!(metric.npm.class_nm_sum(), 1);
+            assert_eq!(metric.nom.functions_sum(), 1);
+        });
+    }
+
+    #[test]
+    fn mozcpp_friend_of_a_nested_class_is_weighted_into_neither() {
+        check_wmc_and_npm::<MozcppParser>(NESTED_CLASS_FRIEND, "foo.cpp", |metric| {
+            assert_eq!(metric.wmc.class_wmc_sum(), 3);
+            assert_eq!(metric.npm.class_nm_sum(), 2);
+            assert_eq!(metric.nom.functions_sum(), 3);
+        });
     }
 
     #[test]

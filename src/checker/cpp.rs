@@ -51,6 +51,28 @@ impl Checker for CppCode {
         node.kind_id() == Cpp::LambdaExpression
     }
 
+    // A `friend` with an inline body sits inside the class braces but is
+    // not a member of it, so `wmc` must not weight it into the class's
+    // WMC (#1301). `npm` already declines to count it, by not matching
+    // `friend_declaration` among the `field_declaration_list` children it
+    // walks (`src/metrics/npm/cpp.rs`).
+    //
+    // The parent check is the whole predicate for both shapes the grammar
+    // admits: a plain friend parses as `friend_declaration >
+    // function_definition`, and a templated one as `template_declaration
+    // > friend_declaration > function_definition` — the function's parent
+    // is `friend_declaration` either way. A friend *declared* without a
+    // body (`friend void f();`, `friend A operator+(const A&, const A&);`)
+    // parses as `friend_declaration > declaration`, opens no function
+    // space, and so never reaches here.
+    fn is_non_member_function<'a>(
+        node: &Node<'a>,
+        _code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        ancestors.parent_has_kind(node, Cpp::FriendDeclaration as u16)
+    }
+
     // See `CCode::is_call` (#1254): the unsuffixed variant is the
     // grammar's always-aliased `preproc_call_expression` and never
     // reaches `kind_id()`, so every real call — free, member (`o.m()` /

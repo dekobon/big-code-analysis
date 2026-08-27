@@ -51,6 +51,17 @@ impl Checker for MozcppCode {
         node.kind_id() == Mozcpp::LambdaExpression
     }
 
+    // See `CppCode::is_non_member_function` (#1301). The Mozilla fork
+    // spells `friend_declaration` with its own kind id but nests it
+    // identically, so the parent check transfers unchanged.
+    fn is_non_member_function<'a>(
+        node: &Node<'a>,
+        _code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        ancestors.parent_has_kind(node, Mozcpp::FriendDeclaration as u16)
+    }
+
     // See `CCode::is_call` (#1254). The Mozilla fork inherits upstream
     // C++'s always-aliased `preproc_call_expression`, so the unsuffixed
     // variant never reaches `kind_id()` here either. Kept listed
