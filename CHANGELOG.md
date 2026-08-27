@@ -100,13 +100,63 @@ for historical reference.
   does not leaves an argument reading as verified against a crate nobody
   compiles. The gate also fails when the literal is dropped altogether,
   since a version-free phrasing hides the staleness rather than fixing it.
-  No library behaviour changes (#1057).
+  The scanner reads every `//!` line in the file rather than stopping at
+  the first non-doc line, so a multi-line `#![allow(…)]` between doc
+  paragraphs cannot silently truncate the scan in either direction
+  (#1345). No library behaviour changes (#1057).
+
+- `SkipReason` (`#[non_exhaustive]`, with a `Display` that renders a
+  noun phrase) and `read_file_with_eol_classified`, the reason-naming
+  sibling of `read_file_with_eol` — `io::Result<Result<Vec<u8>,
+  SkipReason>>`, of which the old function is now the `.map(Result::ok)`
+  projection (#1287). The four variants map 1:1 onto the reader's skip
+  gates: `Empty`, `TooSmall` (1–3 bytes, or a file that shrank below the
+  probe window), `Utf16Bom`, and `NotUtf8`. Prefer the classified
+  variant wherever a skip is reported to a user; the shape is recorded
+  in `STABILITY.md`, whose per-variant `Display` wording is not
+  SemVer-protected.
 
 - **web:** `error_kind` token `vcs_invalid_author_hash_key`. The
   `STABILITY.md` vocabulary list also gains `not_acceptable` and
   `serialize_failed`, added by #657 and never documented (#1245).
 
 ### Fixed
+
+- `bca` no longer announces every file the reader declines as
+  `skipping empty file` (#1287). Emptiness is only one of four gates: a
+  1–3-byte valid source, a multi-kilobyte binary, and a UTF-16-BOM file
+  were all reported as empty, which sent anyone triaging a skipped file
+  in the wrong direction. The `-w` diagnostic now names the gate that
+  fired — `skipping empty file`, `skipping file too small to analyze
+  (3 bytes or fewer)`, `skipping file with non-UTF-8 contents`,
+  `skipping UTF-16 file (unsupported encoding)` — rendered from the new
+  `SkipReason` (see Added). Exit codes and which files are skipped are
+  unchanged.
+
+- `bca check --paths-from -` no longer silently defeats `[check.exclude]`
+  / `--check-exclude` globs (#1306). The gate re-read `--paths-from` to
+  re-anchor exclude globs against the seed list, but `-` resolves to
+  stdin and the walk had already drained it, so the second read returned
+  an empty list and every violation anchored against the bare `--paths`
+  set — a `git diff --name-only | bca check --paths-from -` gate failed
+  on files the project had exempted, with nothing on stderr. The list is
+  now materialized once, before the walk, and carried to the exclude
+  stage; the remediation footer still echoes the caller's original
+  `--paths-from -` spelling, and the no-exclude fast path still does no
+  glob-set build.
+
+- `bca metrics -O json` / `bca ops -O json` to **stdout** now emit their
+  per-file documents in the walk's file order rather than
+  worker-completion order (#1303), so redirecting stdout to a file
+  yields byte-identical output on every run at `--jobs > 1` — the
+  sibling of #1244's `--output <FILE>` fix, on the destination pipelines
+  reach for most. A reorder buffer keyed on each file's index in the
+  resolved list holds out-of-order completions; skipped, unreadable, and
+  unparseable files release their slot with an empty marker so the drain
+  never stalls, and a post-join flush turns a missed release into a late
+  document rather than a lost one. Throughput is unchanged within noise
+  (measured on a 13,583-file tree); peak memory rises by the documents
+  buffered while an earlier file is still being analyzed.
 
 - A C++ `friend` defined inline no longer contributes to the enclosing
   class's `wmc` (#1301). A friend is a free function the class grants
