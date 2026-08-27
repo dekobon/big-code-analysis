@@ -5,12 +5,12 @@ expression: metric.loc
 {
   "sloc": 7,
   "ploc": 7,
-  "lloc": 3,
+  "lloc": 4,
   "cloc": 0,
   "blank": 0,
   "sloc_average": 3.5,
   "ploc_average": 3.5,
-  "lloc_average": 1.5,
+  "lloc_average": 2.0,
   "cloc_average": 0.0,
   "blank_average": 0.0,
   "sloc_min": 7,
@@ -19,8 +19,8 @@ expression: metric.loc
   "cloc_max": 0,
   "ploc_min": 7,
   "ploc_max": 7,
-  "lloc_min": 3,
-  "lloc_max": 3,
+  "lloc_min": 4,
+  "lloc_max": 4,
   "blank_min": 0,
   "blank_max": 0
 }
