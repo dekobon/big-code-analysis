@@ -439,8 +439,17 @@ fn open_func_space<'a, T: ParserTrait>(
     selected: MetricSet,
 ) -> usize {
     let kind = T::Getter::get_space_kind_with_code(node, code, ancestors);
+    let mut space = FuncSpace::new::<T::Getter>(node, code, ancestors, kind, selected);
+    // Membership is decided here, at the one point that still holds the
+    // node the space was opened from — `finalize` sees only the finished
+    // `FuncSpace`. A function the enclosing container does not own (a C++
+    // inline `friend`) keeps its own space and its own metrics; only the
+    // container's WMC roll-up declines it (#1301).
+    if selected.contains(Metric::Wmc) && T::Checker::is_non_member_function(node, code, ancestors) {
+        space.metrics.wmc.mark_non_member();
+    }
     state_stack.push(State {
-        space: FuncSpace::new::<T::Getter>(node, code, ancestors, kind, selected),
+        space,
         halstead_maps: HalsteadMaps::new(),
     });
     level + 1

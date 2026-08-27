@@ -497,6 +497,37 @@ pub(crate) trait Checker {
         Self::is_func_with_code(node, code, ancestors)
             || Self::is_func_space_with_code(node, code, ancestors)
     }
+
+    /// Whether the function space `node` opens belongs to something
+    /// other than the container that syntactically encloses it.
+    ///
+    /// The space tree is built by a single-pass stack walk, so a space
+    /// is a child of whichever space was open when the walk reached it
+    /// — syntactic containment, never membership. The two normally
+    /// coincide. C++ `friend` is the case where they do not: a friend
+    /// with an inline body is written inside the class braces but is a
+    /// free function the class merely grants access to, so `npm` does
+    /// not count it as a method while `wmc` weighted it anyway (#1301).
+    ///
+    /// `wmc` is the sole consumer: WMC is defined as the sum over a
+    /// class's *methods*, so a `true` here keeps the space out of the
+    /// enclosing class's WMC while leaving it a `Function` space like
+    /// any other — its own metrics, its `nom` contribution, and the
+    /// file-level cyclomatic roll-up are all unaffected.
+    ///
+    /// Deliberately one method rather than a byte-less / `_with_code`
+    /// pair: the pair forwards by default, so a call site reaching for
+    /// the wrong spelling reads as correct against every language
+    /// without an override (`.claude/rules/grammar-dispatch.md` §7).
+    /// One spelling has nothing to disagree with.
+    #[inline]
+    fn is_non_member_function<'a>(
+        _node: &Node<'a>,
+        _code: &[u8],
+        _ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        false
+    }
 }
 
 mod bash;

@@ -108,6 +108,25 @@ for historical reference.
 
 ### Fixed
 
+- A C++ `friend` defined inline no longer contributes to the enclosing
+  class's `wmc` (#1301). A friend is a free function the class grants
+  access to, not a member of it, so `npm` never counted it as a method
+  — but the space tree nests its `Function` space inside the class
+  space, and `wmc` weighted every such space it found. The three
+  metrics disagreed about the same class: for `class R { friend void
+  amigo() { if (1) { } } void mine() { } };`, `npm.class_methods` was
+  1 while `wmc.class_wmc_sum` was 3. This is the divergence #1258
+  removed for templated member bodies, surviving for `friend`. Both
+  `friend_declaration > function_definition` and its templated
+  `template_declaration > friend_declaration > function_definition`
+  form are covered, in `LANG::Cpp` and `LANG::Mozcpp` alike; a friend
+  *declared* without a body opens no space and was never affected.
+  **Metric values move**: `wmc.class_wmc` / `class_wmc_sum` / `total`
+  fall by the cyclomatic complexity of each inline friend, for classes
+  that have one. Nothing else changes — the friend keeps its own
+  `Function` space and its own metrics, `nom` still counts it (it
+  counts free functions wherever they appear), and the file-level
+  `cyclomatic` sum is unchanged.
 - The file-level unit's `loc.sloc` and `loc.blank` now count blank lines
   above the first token (#1247). The unit anchors its reported span at
   line 1 because the unit *is* the file (#1195), but its row span was

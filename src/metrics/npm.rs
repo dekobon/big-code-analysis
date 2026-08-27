@@ -3784,6 +3784,14 @@ class C {
                 // not a member — an arm that leaked through
                 // `friend_declaration` would push `class_nm_sum` to 3.
                 assert_eq!(metric.nom.functions_sum(), 3);
+                // `wmc` agrees with `npm` since #1301: `real()` and
+                // `Nested::hidden()` at cyclomatic 1 each. Until then
+                // this read 3, weighting the friend's body into the
+                // class — the divergence #1258 recorded here and #1301
+                // removed. `nom` staying at 3 is what makes the two
+                // separable: this fixture pins the metrics that count
+                // *members* against the one that counts functions.
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
             },
         );
     }
@@ -3811,6 +3819,8 @@ class C {
                 assert_eq!(metric.npm.class_nm_sum(), 2);
                 assert_eq!(metric.npm.class_npm_sum(), 1);
                 assert_eq!(metric.nom.functions_sum(), 3);
+                // See the Cpp mirror above: 3 before #1301.
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
             },
         );
     }
