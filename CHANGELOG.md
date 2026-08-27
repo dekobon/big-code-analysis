@@ -108,6 +108,31 @@ for historical reference.
 
 ### Fixed
 
+- A member access or qualified name in JavaScript, MozJS, TypeScript,
+  TSX, C# and Groovy no longer counts as a Halstead operand on top of
+  the identifier leaves it contains (#1263). `var r = a.b;` reported
+  the operands `a`, `b` **and** `a.b`, because the `member_expression`
+  wrapper was classified while the walker independently counted both
+  children — so a chain like `a.b.c` billed two composites on top of
+  its three leaves. The same shape covered TS/TSX `nested_identifier`
+  (`namespace N.M`), C# `qualified_name` (`using System.Text;`),
+  `generic_name` (`List<int>`) and `alias_qualified_name`
+  (`global::Foo`), and Groovy `qualified_name` (`package com.example`).
+  The convention is now the one C, C++, Java, Rust, Python, Go, Kotlin,
+  Ruby, Lua and PHP already followed and is recorded in the getter
+  macro's doc comment: a member access is its leaves plus the `.` /
+  `::` operator, never the composite text as well. In the same change
+  JavaScript's `private_property_identifier` (`#x`) becomes an operand,
+  closing the gap the composite had been masking — a private field's
+  declaration counted nothing at all, and `this.#x` counted only the
+  composite. **Metric values shift**: affected files report lower
+  `halstead` `n2` / `N2` (−29% and −18% across the pdf.js and C#
+  integration corpora) and therefore lower volume and a higher `mi`.
+  Note `difficulty` and `effort` move *up*, because `n2` falls faster
+  than `N2` and difficulty is `(n1/2)·(N2/n2)`. Refresh affected
+  baselines. Follows #1293, which fixed the same wrapper/leaf shape in
+  PHP.
+
 - PHP's Halstead operand count no longer bills a type or qualified name
   once per wrapper node (#1293). `primitive_type`, `optional_type`,
   `named_type`, `union_type`, `intersection_type`,

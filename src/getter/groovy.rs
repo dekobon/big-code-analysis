@@ -154,8 +154,21 @@ impl Getter for GroovyCode {
             | QMARKQMARKDOT | STARDOT | DOTAMP | DOTAT | QMARKLBRACK | EQEQEQ | BANGEQEQ
             | LTEQGT | EQTILDE | EQEQTILDE | EQEQGT | STARCOLON => HalsteadType::Operator,
 
-            Identifier | TypeIdentifier | QualifiedName | QualifiedType | NullLiteral | True
-            | False | NumberLiteral => HalsteadType::Operand,
+            // `QualifiedName` (a `package` / `import` path) and
+            // `QualifiedType` (`java.util.Map` in type position) were
+            // listed here until #1263, and `QualifiedName` really did
+            // double-count: `package com.example` billed `com`,
+            // `example` AND `com.example`. `QualifiedType` never fired,
+            // because the runtime emits the *alias* `QualifiedType2`
+            // (kind_id 228) that this arm did not name — a latent
+            // lesson-2 miss whose only effect was to make the wrong
+            // classification unobservable for that half. Both are gone
+            // rather than completed: a qualified path is its identifier
+            // leaves plus the `.` operator, as in every other language
+            // here.
+            Identifier | TypeIdentifier | NullLiteral | True | False | NumberLiteral => {
+                HalsteadType::Operand
+            }
 
             // A Groovy GString interpolates inner expressions whose
             // operands are walked and counted separately, so the
