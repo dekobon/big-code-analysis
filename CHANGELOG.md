@@ -108,6 +108,34 @@ for historical reference.
 
 ### Fixed
 
+- The file-level unit's `loc.sloc` and `loc.blank` now count blank lines
+  above the first token (#1247). The unit anchors its reported span at
+  line 1 because the unit *is* the file (#1195), but its row span was
+  still measured from the root node, which tree-sitter starts at the
+  first token — so `"\n\n\nfn a() {}\n"` reported `sloc 1, blank 0`
+  against a reported span of `1..4`, while the same file shifted down by
+  a leading comment reported `sloc 4, blank 2`, comments being in the
+  tree where blank rows are not. The unit's `sloc` is now derived from
+  the span it reports, so the two can no longer disagree. The anchor is
+  applied once at space finalization rather than in the twenty-odd
+  per-language `Loc` implementations, none of which knows the space kind.
+  **Metric values move**, for files whose first token is not on line 1:
+  `loc.sloc` and `loc.blank` rise by the number of leading blank rows,
+  as do the `sloc_average` / `sloc_max` / `blank_average` / `blank_max`
+  aggregates, and `mi` falls slightly through its `ln(sloc)` term. Files
+  opening with code or a comment are unaffected, as are all nested
+  spaces, which keep their measured spans.
+- Whitespace-only files now report their real row count regardless of a
+  trailing newline (#1087, #1247). Most grammars collapse the root node
+  to a zero-width point at end-of-input, so `"  \n \n"` measured no rows
+  at all and reported `sloc 0` while its unterminated twin reported
+  `sloc 1` — accepted in #1087 as an upstream-owned carve-out, with the
+  five grammars that behave otherwise (Elixir, Tcl, iRules, `preproc`,
+  `ccomment`) pinned as the exception. Anchoring the unit's row span
+  removed the premise: where the root node starts is no longer
+  observable in LoC, and all twenty-five grammars now answer alike.
+  **Metric values move**: a newline-terminated whitespace-only file goes
+  from `sloc 0, blank 0` to its real `sloc n, blank n`.
 - JavaScript, MozJS, TypeScript and TSX now count a `var` / `let` /
   `const` declaration as a logical line (#1283). Neither
   `variable_declaration` nor `lexical_declaration` had an LLOC arm, so a
