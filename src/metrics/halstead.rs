@@ -1189,25 +1189,29 @@ mod tests {
             "foo.js",
             |metric| {
                 // unique operators: function, (), {}, var, =, +, /, ,, ., ;
-                // unique operands: main, a, b, c, avg, 3, 5, console.log, console, log, "{}"
+                // unique operands: main, a, b, c, avg, 3, 5, console, log, "{}"
+                // `console.log` is the `.` operator applied to the two
+                // identifier leaves; the composite `member_expression`
+                // text is deliberately not a third operand (#1263), so
+                // n2/N2 are 10/20 rather than the pre-#1263 11/21.
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
                 {
                   "unique_operators": 10,
                   "total_operators": 24,
-                  "unique_operands": 11,
-                  "total_operands": 21,
-                  "length": 45,
-                  "estimated_program_length": 71.27302875388389,
-                  "purity_ratio": 1.583845083419642,
-                  "vocabulary": 21,
-                  "volume": 197.65428402504423,
-                  "difficulty": 9.545454545454545,
-                  "level": 0.10476190476190476,
-                  "effort": 1886.699983875422,
-                  "time": 104.81666577085679,
-                  "bugs": 0.05089564733125986
+                  "unique_operands": 10,
+                  "total_operands": 20,
+                  "length": 44,
+                  "estimated_program_length": 66.43856189774725,
+                  "purity_ratio": 1.5099673158578921,
+                  "vocabulary": 20,
+                  "volume": 190.16483617504394,
+                  "difficulty": 10.0,
+                  "level": 0.1,
+                  "effort": 1901.6483617504396,
+                  "time": 105.64713120835775,
+                  "bugs": 0.05116412536051621
                 }
                 "#
                 );
@@ -1227,25 +1231,29 @@ mod tests {
             "foo.js",
             |metric| {
                 // unique operators: function, (), {}, var, =, +, /, ,, ., ;
-                // unique operands: main, a, b, c, avg, 3, 5, console.log, console, log, "{}"
+                // unique operands: main, a, b, c, avg, 3, 5, console, log, "{}"
+                // `console.log` is the `.` operator applied to the two
+                // identifier leaves; the composite `member_expression`
+                // text is deliberately not a third operand (#1263), so
+                // n2/N2 are 10/20 rather than the pre-#1263 11/21.
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
                 {
                   "unique_operators": 10,
                   "total_operators": 24,
-                  "unique_operands": 11,
-                  "total_operands": 21,
-                  "length": 45,
-                  "estimated_program_length": 71.27302875388389,
-                  "purity_ratio": 1.583845083419642,
-                  "vocabulary": 21,
-                  "volume": 197.65428402504423,
-                  "difficulty": 9.545454545454545,
-                  "level": 0.10476190476190476,
-                  "effort": 1886.699983875422,
-                  "time": 104.81666577085679,
-                  "bugs": 0.05089564733125986
+                  "unique_operands": 10,
+                  "total_operands": 20,
+                  "length": 44,
+                  "estimated_program_length": 66.43856189774725,
+                  "purity_ratio": 1.5099673158578921,
+                  "vocabulary": 20,
+                  "volume": 190.16483617504394,
+                  "difficulty": 10.0,
+                  "level": 0.1,
+                  "effort": 1901.6483617504396,
+                  "time": 105.64713120835775,
+                  "bugs": 0.05116412536051621
                 }
                 "#
                 );
@@ -1265,25 +1273,29 @@ mod tests {
             "foo.ts",
             |metric| {
                 // unique operators: function, (), {}, var, =, +, /, ,, ., ;
-                // unique operands: main, a, b, c, avg, 3, 5, console.log, console, log, "{}"
+                // unique operands: main, a, b, c, avg, 3, 5, console, log, "{}"
+                // `console.log` is the `.` operator applied to the two
+                // identifier leaves; the composite `member_expression`
+                // text is deliberately not a third operand (#1263), so
+                // n2/N2 are 10/20 rather than the pre-#1263 11/21.
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
                 {
                   "unique_operators": 10,
                   "total_operators": 24,
-                  "unique_operands": 11,
-                  "total_operands": 21,
-                  "length": 45,
-                  "estimated_program_length": 71.27302875388389,
-                  "purity_ratio": 1.583845083419642,
-                  "vocabulary": 21,
-                  "volume": 197.65428402504423,
-                  "difficulty": 9.545454545454545,
-                  "level": 0.10476190476190476,
-                  "effort": 1886.699983875422,
-                  "time": 104.81666577085679,
-                  "bugs": 0.05089564733125986
+                  "unique_operands": 10,
+                  "total_operands": 20,
+                  "length": 44,
+                  "estimated_program_length": 66.43856189774725,
+                  "purity_ratio": 1.5099673158578921,
+                  "vocabulary": 20,
+                  "volume": 190.16483617504394,
+                  "difficulty": 10.0,
+                  "level": 0.1,
+                  "effort": 1901.6483617504396,
+                  "time": 105.64713120835775,
+                  "bugs": 0.05116412536051621
                 }
                 "#
                 );
@@ -1303,25 +1315,29 @@ mod tests {
             "foo.ts",
             |metric| {
                 // unique operators: function, (), {}, var, =, +, /, ,, ., ;
-                // unique operands: main, a, b, c, avg, 3, 5, console.log, console, log, "{}"
+                // unique operands: main, a, b, c, avg, 3, 5, console, log, "{}"
+                // `console.log` is the `.` operator applied to the two
+                // identifier leaves; the composite `member_expression`
+                // text is deliberately not a third operand (#1263), so
+                // n2/N2 are 10/20 rather than the pre-#1263 11/21.
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
                 {
                   "unique_operators": 10,
                   "total_operators": 24,
-                  "unique_operands": 11,
-                  "total_operands": 21,
-                  "length": 45,
-                  "estimated_program_length": 71.27302875388389,
-                  "purity_ratio": 1.583845083419642,
-                  "vocabulary": 21,
-                  "volume": 197.65428402504423,
-                  "difficulty": 9.545454545454545,
-                  "level": 0.10476190476190476,
-                  "effort": 1886.699983875422,
-                  "time": 104.81666577085679,
-                  "bugs": 0.05089564733125986
+                  "unique_operands": 10,
+                  "total_operands": 20,
+                  "length": 44,
+                  "estimated_program_length": 66.43856189774725,
+                  "purity_ratio": 1.5099673158578921,
+                  "vocabulary": 20,
+                  "volume": 190.16483617504394,
+                  "difficulty": 10.0,
+                  "level": 0.1,
+                  "effort": 1901.6483617504396,
+                  "time": 105.64713120835775,
+                  "bugs": 0.05116412536051621
                 }
                 "#
                 );
@@ -1713,16 +1729,17 @@ mod tests {
     //
     // * Operators: `function`, `(`, `{`, `return`, `?.`, `?.`, `;`
     //   (7 total, 6 unique).
-    // * Operands: `f`, `a`, `a`, `b`, `c`, plus the two wrapping
-    //   member expressions (`a?.b`, `a?.b?.c`) classified as
-    //   `MemberExpression*` (7 total, 6 unique).
+    // * Operands: `f`, `a` (parameter), `a`, `b`, `c` — the identifier
+    //   and property leaves only (5 total, 4 unique). Until #1263 the
+    //   two wrapping member expressions (`a?.b`, `a?.b?.c`) were
+    //   classified as `MemberExpression*` operands on top of the leaves
+    //   they contain, making this 7 total / 6 unique.
     //
     // Verified by test-via-revert: dropping `OptionalChain` from
     // JS/MozJS, or `QMARKDOT` from TS/TSX, trips the test
     // (u_operators 6→5). This input does NOT exercise every operand
     // alias in the per-language `operand_extras` (`Identifier2`, the
-    // JS/MozJS/TSX string-literal `String2`, `NestedIdentifier`,
-    // `MemberExpression4`); drift in
+    // JS/MozJS/TSX string-literal `String2`); drift in
     // those is out of scope for this regression guard and would need a
     // separate fixture. The `PredefinedType` operator path (`: void`
     // double-count) is now covered by `ts_void_return_type_single_operator_453`
@@ -1737,12 +1754,108 @@ mod tests {
         let check = |m: crate::CodeMetrics| {
             assert_eq!(m.halstead.unique_operators(), 6);
             assert_eq!(m.halstead.total_operators(), 7);
-            assert_eq!(m.halstead.unique_operands(), 6);
-            assert_eq!(m.halstead.total_operands(), 7);
+            assert_eq!(m.halstead.unique_operands(), 4);
+            assert_eq!(m.halstead.total_operands(), 5);
         };
 
         check_metrics::<JavascriptParser>(SRC, "foo.js", check);
         check_metrics::<MozjsParser>(SRC, "foo.js", check);
+        check_metrics::<TypescriptParser>(SRC, "foo.ts", check);
+        check_metrics::<TsxParser>(SRC, "foo.tsx", check);
+    }
+
+    // Issue #1263: a member access contributes its leaves and the `.`
+    // operator, never the `member_expression` composite as well. The
+    // classification does not stop the walk, so `a` and `b` were always
+    // counted; listing the wrapper billed a third operand keyed on the
+    // whole `a.b` text, which no other language here does.
+    //
+    // expected, for `var r = a.b;`:
+    //
+    // * Operators: `var`, `=`, `.`, `;` — 4 total, 4 unique.
+    // * Operands: `r`, `a`, `b` — 3 total, 3 unique. Before the fix
+    //   the `member_expression` wrapper added `a.b`, making both 4.
+    //
+    // All four JS-family languages are asserted because
+    // `impl_js_family_get_op_type!` emits one shared operand arm: the
+    // lockstep is the point of the macro, and a per-language extras
+    // list is exactly where a future edit could break it.
+    #[test]
+    fn js_family_member_access_counts_leaves_not_the_composite_1263() {
+        const SRC: &str = "var r = a.b;";
+        let check = |m: crate::CodeMetrics| {
+            assert_eq!(m.halstead.unique_operators(), 4);
+            assert_eq!(m.halstead.total_operators(), 4);
+            assert_eq!(m.halstead.unique_operands(), 3);
+            assert_eq!(m.halstead.total_operands(), 3);
+        };
+
+        check_metrics::<JavascriptParser>(SRC, "foo.js", check);
+        check_metrics::<MozjsParser>(SRC, "foo.js", check);
+        check_metrics::<TypescriptParser>(SRC, "foo.ts", check);
+        check_metrics::<TsxParser>(SRC, "foo.tsx", check);
+    }
+
+    // Issue #1263, the grammar-dispatch section 6 half: dropping
+    // `MemberExpression*` from the operand arm would have regressed
+    // private-field access to *zero* operands for the field, because
+    // `PrivatePropertyIdentifier` — the `#x` leaf — was in no operand
+    // list and the composite `this.#x` had been its only count. Adding
+    // the leaf also fixes the declaration site `#x = 1`, which no
+    // wrapper covered and which therefore counted nothing at all.
+    //
+    // expected, for `class C { #x = 1; m() { return this.#x; } }`:
+    //
+    // * Operators: `{`×2 (class body, method body), `=`, `;`×2, `(`,
+    //   `return`, `.` — 8 total, 6 unique. (`class` is not in the
+    //   JS-family operator arm, so it contributes nothing; that is
+    //   pre-existing and unrelated.)
+    // * Operands: `C`, `#x`, `1`, `m`, `this`, `#x` — 6 total, 5
+    //   unique under JS/MozJS. Under TS/TSX the class *name* `C`
+    //   parses as `type_identifier`, which those getters do not
+    //   classify, so both counts drop by one to 5/4 — a pre-existing
+    //   divergence this fixture records rather than fixes.
+    #[test]
+    fn js_family_private_field_leaf_is_the_operand_1263() {
+        const SRC: &str = "class C { #x = 1; m() { return this.#x; } }";
+        let check_js = |m: crate::CodeMetrics| {
+            assert_eq!(m.halstead.unique_operators(), 6);
+            assert_eq!(m.halstead.total_operators(), 8);
+            assert_eq!(m.halstead.unique_operands(), 5);
+            assert_eq!(m.halstead.total_operands(), 6);
+        };
+        let check_ts = |m: crate::CodeMetrics| {
+            assert_eq!(m.halstead.unique_operators(), 6);
+            assert_eq!(m.halstead.total_operators(), 8);
+            assert_eq!(m.halstead.unique_operands(), 4);
+            assert_eq!(m.halstead.total_operands(), 5);
+        };
+
+        check_metrics::<JavascriptParser>(SRC, "foo.js", check_js);
+        check_metrics::<MozjsParser>(SRC, "foo.js", check_js);
+        check_metrics::<TypescriptParser>(SRC, "foo.ts", check_ts);
+        check_metrics::<TsxParser>(SRC, "foo.tsx", check_ts);
+    }
+
+    // Issue #1263: TS/TSX `nested_identifier` (`namespace N.M`) is the
+    // same container/leaf double-count as `member_expression`.
+    //
+    // expected, for `namespace N.M { }`:
+    //
+    // * Operators: `.`, `{` — 2 total, 2 unique. (`namespace` is not in
+    //   the JS-family operator arm.)
+    // * Operands: `N`, `M` — 2 total, 2 unique. Before the fix the
+    //   `nested_identifier` added `N.M`, making both 3.
+    #[test]
+    fn ts_nested_identifier_counts_leaves_not_the_composite_1263() {
+        const SRC: &str = "namespace N.M { }";
+        let check = |m: crate::CodeMetrics| {
+            assert_eq!(m.halstead.unique_operators(), 2);
+            assert_eq!(m.halstead.total_operators(), 2);
+            assert_eq!(m.halstead.unique_operands(), 2);
+            assert_eq!(m.halstead.total_operands(), 2);
+        };
+
         check_metrics::<TypescriptParser>(SRC, "foo.ts", check);
         check_metrics::<TsxParser>(SRC, "foo.tsx", check);
     }
@@ -2207,6 +2320,31 @@ mod tests {
         );
     }
 
+    // Issue #1263 swept Groovy alongside the JS family and C#: its
+    // operand arm listed `QualifiedName` (a `package` / `import` path)
+    // and `QualifiedType` on top of the identifier leaves the walker
+    // already reached.
+    //
+    // Only the `QualifiedName` half was observable. The runtime emits
+    // `qualified_type` as the *alias* `QualifiedType2` (kind_id 228),
+    // which the arm never named — a lesson-2 miss that, by accident,
+    // made that half already leaves-only and is why #1263's issue body
+    // recorded Groovy as compliant. Both kinds are gone rather than
+    // completed.
+    //
+    // expected, for `package com.example`: operators `.` (1/1);
+    // operands `com`, `example` (2/2). Pre-fix the `qualified_name`
+    // added `com.example`, making the operand counts 3/3.
+    #[test]
+    fn groovy_qualified_name_counts_leaves_not_the_composite_1263() {
+        check_metrics::<GroovyParser>("package com.example", "foo.groovy", |metric| {
+            assert_eq!(metric.halstead.unique_operators(), 1);
+            assert_eq!(metric.halstead.total_operators(), 1);
+            assert_eq!(metric.halstead.unique_operands(), 2);
+            assert_eq!(metric.halstead.total_operands(), 2);
+        });
+    }
+
     #[test]
     fn groovy_closure_operators_and_operands() {
         check_metrics::<GroovyParser>("def double = { x -> x * 2 }", "foo.groovy", |metric| {
@@ -2478,6 +2616,65 @@ mod tests {
                 // Pin every Halstead field; values are whatever the
                 // classifier produces and become the regression spec.
                 insta::assert_json_snapshot!(metric.halstead);
+            },
+        );
+    }
+
+    // Issue #1263: C#'s three name *containers* — `qualified_name`
+    // (`System.Text`), `generic_name` (`List<int>`) and
+    // `alias_qualified_name` (`global::Foo`) — were operands alongside
+    // every leaf the walker already reached, so one occurrence of each
+    // billed twice. `member_access_expression` never was, which is why
+    // `csharp_operators_and_operands`' `System.Console.WriteLine` is
+    // unaffected by this change: the bug lived in the *name* grammar,
+    // not in member access.
+    //
+    // Three fixtures rather than one, so a regression names which
+    // container came back. Each is hand-tallied; the removed composite
+    // is called out per case.
+    #[test]
+    fn csharp_name_containers_count_leaves_not_the_composite_1263() {
+        // expected: operators `using`, `.`, `;` (3/3); operands
+        // `System`, `Text` (2/2). Pre-fix the `qualified_name` added
+        // `System.Text`, making the operand counts 3/3.
+        check_metrics::<CsharpParser>("using System.Text;", "foo.cs", |metric| {
+            assert_eq!(metric.halstead.unique_operators(), 3);
+            assert_eq!(metric.halstead.total_operators(), 3);
+            assert_eq!(metric.halstead.unique_operands(), 2);
+            assert_eq!(metric.halstead.total_operands(), 2);
+        });
+
+        // expected: operators `class`, `{`×2, `void`, `(`, `;`, `<`,
+        // `>`, `int` — 9 total, 8 unique (`int` is the text-keyed
+        // primitive operator, per #286). Operands `C`, `M`, `List`, `l`
+        // — 4/4. Pre-fix the `generic_name` added `List<int>`, making
+        // them 5/5.
+        check_metrics::<CsharpParser>(
+            "class C { void M() { List<int> l; } }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operators(), 8);
+                assert_eq!(metric.halstead.total_operators(), 9);
+                assert_eq!(metric.halstead.unique_operands(), 4);
+                assert_eq!(metric.halstead.total_operands(), 4);
+            },
+        );
+
+        // expected: operators `class`, `{`×2, `void`, `(`, `;`, `=`,
+        // `::`, `.` — 9 total, 8 unique. `var` has no operator arm.
+        // Operands `C`, `M`, `x`, `global`, `Foo`, `Bar` — 6/6. Pre-fix
+        // the `alias_qualified_name` added `global::Foo`, making them
+        // 7/7. The `::` staying an operator is what makes the leaf-only
+        // tally lossless here, so it is asserted by the operator count
+        // rather than assumed.
+        check_metrics::<CsharpParser>(
+            "class C { void M() { var x = global::Foo.Bar; } }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operators(), 8);
+                assert_eq!(metric.halstead.total_operators(), 9);
+                assert_eq!(metric.halstead.unique_operands(), 6);
+                assert_eq!(metric.halstead.total_operands(), 6);
             },
         );
     }

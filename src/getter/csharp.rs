@@ -97,7 +97,18 @@ impl Getter for CsharpCode {
             },
             // Operands: identifiers and literals. `NullLiteral` is a
             // childless leaf, so it needs no such guard.
-            Identifier | GenericName | QualifiedName | AliasQualifiedName
+            //
+            // `QualifiedName` (`System.Text`), `GenericName`
+            // (`List<int>`) and `AliasQualifiedName` (`global::Foo`)
+            // were listed here until #1263. Each is a container whose
+            // every part the walker already reaches and classifies —
+            // the identifier leaves as operands, `.` / `::` / `<` / `>`
+            // and any `predefined_type` argument as operators — so
+            // listing the container too billed one occurrence twice
+            // (grammar-dispatch section 5). Probed with `bca ops`:
+            // dropping them leaves `System`+`Text`+`.`,
+            // `List`+`<`+`int`+`>`, and `global`+`::`+`Foo` intact.
+            Identifier
             | IntegerLiteral | RealLiteral | BooleanLiteral | NullLiteral
             | CharacterLiteral | StringLiteral | VerbatimStringLiteral | RawStringLiteral
                 => HalsteadType::Operand,

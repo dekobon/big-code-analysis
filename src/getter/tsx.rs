@@ -62,10 +62,17 @@ impl Getter for TsxCode {
     // `"string"` operator, so #313's listing of the child too counted
     // one source token as operator AND operand while `: number` /
     // `: boolean` counted once (#1261; see the TS invocation).
+    //
+    // TSX's TS-only member-expression productions `NestedIdentifier`
+    // and `MemberExpression4` were operand extras until #1263 and are
+    // now deliberately absent, matching the `MemberExpression*` drop in
+    // the macro body: a member access or a `namespace N.M` header
+    // contributes its identifier leaves plus the `.` operator, never
+    // the composite text as well.
     impl_js_family_get_op_type!(
         Tsx,
         op_extras: [QMARKDOT, PredefinedType],
-        operand_extras: [Identifier2, String2, NestedIdentifier, MemberExpression4],
+        operand_extras: [Identifier2, String2],
         predefined_void: PredefinedType,
     );
 
