@@ -52,21 +52,30 @@ impl Getter for TypescriptCode {
         bound_name.map_or(Some("<anonymous>"), |name| node_text(code, &name))
     }
 
-    // `NestedIdentifier` and `MemberExpression4` are TS-only
-    // member-expression productions. TS's anonymous `"string"` alias
-    // `String2` (kind_id 135, the `: string` type keyword, emitted only
-    // as the child of a `predefined_type` wrapper) is deliberately NOT
-    // an operand: the wrapper already counts as the text-keyed
-    // `"string"` operator via `is_primitive`, so #313's listing of the
-    // child too counted one source token as operator AND operand — the
-    // mirror image of the #453 `void` collision — while `: number` /
-    // `: boolean` counted once (#1261). `Checker::is_string` no longer
-    // matches the keyword either, so the #313 parity rationale is
-    // retired rather than contradicted.
+    // TypeScript's operand extras are empty. `NestedIdentifier` and
+    // `MemberExpression4` — the TS-only member-expression productions —
+    // were listed until #1263 and are now deliberately absent, matching
+    // the `MemberExpression*` drop in the macro body: `namespace N.M`
+    // contributes the operands `N` and `M` plus the `.` operator, and
+    // `a.b` contributes `a` and `b`, never the composite text as well.
+    // The composite was billed on top of leaves the walker already
+    // reached, which is grammar-dispatch section 5's container/leaf
+    // double-count.
+    //
+    // TS's anonymous `"string"` alias `String2` (kind_id 135, the
+    // `: string` type keyword, emitted only as the child of a
+    // `predefined_type` wrapper) is deliberately NOT an operand either:
+    // the wrapper already counts as the text-keyed `"string"` operator
+    // via `is_primitive`, so #313's listing of the child too counted one
+    // source token as operator AND operand — the mirror image of the
+    // #453 `void` collision — while `: number` / `: boolean` counted
+    // once (#1261). `Checker::is_string` no longer matches the keyword
+    // either, so the #313 parity rationale is retired rather than
+    // contradicted.
     impl_js_family_get_op_type!(
         Typescript,
         op_extras: [QMARKDOT, PredefinedType],
-        operand_extras: [NestedIdentifier, MemberExpression4],
+        operand_extras: [],
         predefined_void: PredefinedType,
     );
 

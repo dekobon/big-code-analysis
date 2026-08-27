@@ -74,12 +74,12 @@ macro_rules! get_operator {
 //     `number`, `boolean`, …).
 //
 // `$operand_extras` per language:
-//   * JavaScript / MozJS: `Identifier2`, `String2` — anonymous keyword
-//     aliases the JS grammar exposes for `Identifier` and `String`.
-//   * TypeScript: `NestedIdentifier`, `MemberExpression4` — TS-only
-//     member-expression productions.
-//   * TSX: union of the above. TSX's `String2` (kind_id 261) is its
-//     string-literal alias, so it stays an operand like JS's.
+//   * JavaScript / MozJS / TSX: `Identifier2`, `String2` — anonymous
+//     keyword aliases the JS grammar exposes for `Identifier` and
+//     `String`. TSX's `String2` (kind_id 261) is its string-literal
+//     alias, so it stays an operand like JS's.
+//   * TypeScript: none. TS's own aliases are either operators or
+//     deliberately unclassified (below).
 //     The `: string` type-keyword aliases (TS `String2`, kind_id 135;
 //     TSX `String3`, kind_id 141) are deliberately absent: they are
 //     emitted only as the child of a `predefined_type` wrapper, which
@@ -87,6 +87,29 @@ macro_rules! get_operator {
 //     #313's listing of the keyword child as an operand counted one
 //     source token twice (#1261, which also narrowed
 //     `Checker::is_string` to match).
+//
+// **A member access contributes its leaves, never the composite.**
+// `a.b` is the operands `a` and `b` plus the `.` operator — three
+// vocabulary entries, not four. Until #1263 the operand arm listed the
+// `member_expression` wrapper *and* the walker descended into its
+// `object` / `property` children, so every access billed one extra
+// `N2` entry keyed on the whole `a.b` text (and `a.b.c` billed two:
+// `a.b` and `a.b.c`). The composite is what the rest of the workspace
+// already excludes — C, C++, Java, Rust, Python, Go, Kotlin, Ruby, Lua
+// and PHP were all measured leaves-only for the identical shape — so
+// identical code scored differently by language. The same call applies
+// to TS's `nested_identifier` (`namespace N.M`), C#'s
+// `qualified_name` / `generic_name` / `alias_qualified_name`, and
+// Groovy's `qualified_name` / `qualified_type`.
+//
+// This is grammar-dispatch section 5's "any predicate listing both a
+// container and a kind it can contain double-counts", and its section
+// 6 corollary is why `PrivatePropertyIdentifier` joins the operand arm
+// in the same change: `this.#x`'s `#x` leaf was in no operand list, so
+// the composite had been its only count, and a bare deletion would
+// have regressed private-field access to zero operands. (The `#x` in
+// the *field definition* `#x = 1` had never been counted at all — no
+// wrapper covered it — so this fixes that half too.)
 //
 // The `TemplateString` interpolation guard is shared verbatim (issue
 // #192): a bare `` `...` `` mirrors a `"..."` operand, but an
@@ -197,9 +220,14 @@ macro_rules! impl_js_family_get_op_type {
                 // regex — hence a plain arm here rather than the
                 // `string_operand_type` dispatch the template literal
                 // below needs.
-                Identifier | MemberExpression | MemberExpression2 | MemberExpression3
-                | PropertyIdentifier | String | Number | True | False | Null | This | Super
-                | Undefined | Regex
+                // `PrivatePropertyIdentifier` is the `#x` leaf of a
+                // private class field, in both its declaration
+                // (`#x = 1`) and its access (`this.#x`). See the
+                // leaves-not-composites note above the macro for why
+                // it had to be added in the same change that dropped
+                // `MemberExpression*`.
+                Identifier | PropertyIdentifier | PrivatePropertyIdentifier | String | Number
+                | True | False | Null | This | Super | Undefined | Regex
                 $(| $operand_extra)* => HalsteadType::Operand,
                 // A `` `...` `` is a string literal; without interpolation it
                 // mirrors `"..."` and contributes one operand. When it has a
