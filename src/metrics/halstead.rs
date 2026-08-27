@@ -4407,16 +4407,18 @@ f() {
                 // former `)`/`}` closers no longer inflate n1/N1 (was
                 // 11 unique / 15 total).
                 //
-                // Operands after #1259, tallied by `get_id` (source bytes):
-                //   `avg` × 1, `int` × 8 (the `primitive_type` wrapper and
-                //   its `int` keyword child, at all four type positions),
-                //   `$a` / `$b` / `$c` × 2 each, `3` × 1 ⇒ n2 = 6, N2 = 16.
-                // Before the fix each `$v` also contributed its sigil-less
-                // `name` leaf ⇒ 9 / 22.
+                // Operands after #1293, tallied by `get_id` (source bytes):
+                //   `avg` × 1, `int` × 4 (the `primitive_type` wrapper at
+                //   all four type positions — its `int` keyword child is
+                //   suppressed under it), `$a` / `$b` / `$c` × 2 each,
+                //   `3` × 1 ⇒ n2 = 6, N2 = 12. Between #1259 and #1293 the
+                //   keyword leaf doubled the type count ⇒ 6 / 16; before
+                //   #1259 each `$v` also contributed its sigil-less `name`
+                //   leaf ⇒ 9 / 22.
                 assert_eq!(metric.halstead.unique_operators(), 9);
                 assert_eq!(metric.halstead.total_operators(), 12);
                 assert_eq!(metric.halstead.unique_operands(), 6);
-                assert_eq!(metric.halstead.total_operands(), 16);
+                assert_eq!(metric.halstead.total_operands(), 12);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -4432,15 +4434,16 @@ f() {
                 // After #695 only opening delimiters count: the `)`/`}`
                 // closers no longer add operators (was 9 unique / 9 total).
                 //
-                // Operands after #1259: `inc` × 1, `int` × 4 (the
-                // `primitive_type` wrapper plus its `int` keyword child, at
-                // both type positions), `$x` × 2, `1` × 1 ⇒ n2 = 4, N2 = 8.
-                // Before the fix `$x` also contributed its `x` leaf twice
-                // ⇒ 5 / 10.
+                // Operands after #1293: `inc` × 1, `int` × 2 (the
+                // `primitive_type` wrapper at both type positions, its
+                // `int` keyword child suppressed under it), `$x` × 2,
+                // `1` × 1 ⇒ n2 = 4, N2 = 6. Between #1259 and #1293 the
+                // keyword leaf doubled the type count ⇒ 4 / 8; before
+                // #1259 `$x` also contributed its `x` leaf twice ⇒ 5 / 10.
                 assert_eq!(metric.halstead.unique_operators(), 7);
                 assert_eq!(metric.halstead.total_operators(), 7);
                 assert_eq!(metric.halstead.unique_operands(), 4);
-                assert_eq!(metric.halstead.total_operands(), 8);
+                assert_eq!(metric.halstead.total_operands(), 6);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -4525,6 +4528,147 @@ f() {
             |metric| {
                 assert_eq!(metric.halstead.unique_operands(), 6);
                 assert_eq!(metric.halstead.total_operands(), 6);
+            },
+        );
+    }
+
+    #[test]
+    fn php_type_wrappers_count_the_type_once() {
+        // Regression: issue #1293. A parameter type nests wrapper nodes
+        // whose text spans the node below them — `primitive_type` around
+        // the `int` keyword token, `named_type` around a `name`,
+        // `optional_type` around either — and every level was in the
+        // operand arm, so `int` scored 2 and `?int` scored 3.
+        //
+        // Source: the issue's first reproducer.
+        //   <?php
+        //   function f(int $a, bool $b, float $c, string $d, array $e,
+        //              Foo $g): ?int { return 0; }
+        //
+        // Operands by text key: `f`, the five `primitive_type` parameter
+        // types, `Foo` (the `name` under its `named_type`), `$a`..`$g`,
+        // the return `int`, and `0`. `int` occurs twice (parameter and
+        // return) ⇒ n2 = 14, N2 = 15. Before the fix: 15 / 23 — the
+        // extra vocabulary entry being `?int`, which the `?` operator
+        // already accounts for.
+        check_metrics::<PhpParser>(
+            "<?php\nfunction f(int $a, bool $b, float $c, string $d, \
+             array $e, Foo $g): ?int { return 0; }\n",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operands(), 14);
+                assert_eq!(metric.halstead.total_operands(), 15);
+            },
+        );
+    }
+
+    #[test]
+    fn php_qualified_name_counts_its_components_once() {
+        // Regression: issue #1293. `Foo\Bar\Baz` parses as
+        // `qualified_name` → `namespace_name` → `name` × N, and all
+        // three kinds were operands, so one three-part path scored 5 and
+        // planted `Foo`, `Foo\Bar` and `Foo\Bar\Baz` in the vocabulary.
+        // The components carry the operand and `\` stays an operator,
+        // matching how PHP's own `::` and `->` already read here.
+        //
+        // Source: the issue's second reproducer.
+        //   <?php
+        //   namespace App\Sub;
+        //   use Foo\Bar\Baz;
+        //   $o = new \Vendor\Pkg\Thing();
+        //
+        // Operands: `App`, `Sub`, `Foo`, `Bar`, `Baz`, `$o`, `Vendor`,
+        // `Pkg`, `Thing` — one each ⇒ n2 = 9, N2 = 9. Before the fix:
+        // 14 / 14.
+        check_metrics::<PhpParser>(
+            "<?php\nnamespace App\\Sub;\nuse Foo\\Bar\\Baz;\n\
+             $o = new \\Vendor\\Pkg\\Thing();\n",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operands(), 9);
+                assert_eq!(metric.halstead.total_operands(), 9);
+            },
+        );
+    }
+
+    #[test]
+    fn php_nested_type_wrappers_count_once_at_any_depth() {
+        // Companion to the two tests above (#1293): the type and
+        // qualified-name wrappers compose, so a single annotation can
+        // stack five levels — `?A\B` is `optional_type` → `named_type` →
+        // `qualified_name` → `namespace_name` → `name`, which scored 6
+        // operands for two identifiers. `union_type` and
+        // `intersection_type` stack the same way over their members;
+        // their `|` and `&` are already operators.
+        //
+        // Source:
+        //   <?php function k(?A\B $p, int|string $q, C&D $r): ?A\B
+        //   { return 0; }
+        // The return type repeats `?A\B` so N2 exceeds n2 and the
+        // assertions can tell "counted once per occurrence" from
+        // "deduplicated into the vocabulary".
+        //
+        // Operands: `k`, `A` × 2, `B` × 2, `$p`, `int`, `string`, `$q`,
+        // `C`, `D`, `$r`, `0` ⇒ n2 = 11, N2 = 13.
+        check_metrics::<PhpParser>(
+            "<?php function k(?A\\B $p, int|string $q, C&D $r): ?A\\B { return 0; }",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operands(), 11);
+                assert_eq!(metric.halstead.total_operands(), 13);
+            },
+        );
+    }
+
+    #[test]
+    fn php_childless_primitive_types_still_count() {
+        // Guards the direction of the #1293 fix for `primitive_type`,
+        // where — unlike the qualified-name wrappers — the *wrapper*
+        // carries the operand and the keyword leaf is suppressed. The
+        // grammar emits no token node under `primitive_type` for
+        // `callable`, `iterable`, `mixed`, `void`, `false` or `true`
+        // (verified with `bca dump`), so the other direction would score
+        // those six types zero — grammar-dispatch §6.
+        //
+        // Source:
+        //   <?php function q(callable $a, iterable $b, mixed $c,
+        //                    false $d, true $e): void { }
+        //
+        // Operands: `q`, `callable`, `iterable`, `mixed`, `false`,
+        // `true`, `void`, `$a`..`$e` ⇒ n2 = 12, N2 = 12. Dropping
+        // `PrimitiveType` from the operand arm instead of gating its
+        // leaf gives 6 / 6.
+        check_metrics::<PhpParser>(
+            "<?php function q(callable $a, iterable $b, mixed $c, \
+             false $d, true $e): void { }",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operands(), 12);
+                assert_eq!(metric.halstead.total_operands(), 12);
+            },
+        );
+    }
+
+    #[test]
+    fn php_primitive_type_keyword_guard_is_parent_scoped() {
+        // Companion to the test above (#1293): the keyword suppression
+        // fires on the *parent* kind, never on the kind alone.
+        // `array` is also the head token of an `array(…)` literal, where
+        // it is the construct's only operand and must keep counting; a
+        // `(int)` / `(string)` cast is a childless `cast_type` that
+        // never reaches the guard at all.
+        //
+        // Source: <?php $x = array(1, 2); $y = (int) $x; $z = (string) $x;
+        //
+        // Operands: `$x` × 3, `array`, `1`, `2`, `$y`, `int`, `$z`,
+        // `string` ⇒ n2 = 8, N2 = 10. A blanket kind exclusion instead
+        // of a parent check would drop the `array` head ⇒ 7 / 9.
+        check_metrics::<PhpParser>(
+            "<?php $x = array(1, 2); $y = (int) $x; $z = (string) $x;",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operands(), 8);
+                assert_eq!(metric.halstead.total_operands(), 10);
             },
         );
     }

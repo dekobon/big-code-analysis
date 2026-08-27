@@ -121,7 +121,7 @@ src/getter/lua.rs 3
 src/getter/mozcpp.rs 7
 src/getter/objc.rs 3
 src/getter/perl.rs 3
-src/getter/php.rs 8
+src/getter/php.rs 11
 src/getter/python.rs 7
 src/getter/ruby.rs 3
 src/getter/tcl.rs 6

@@ -831,7 +831,7 @@ value = 89041.25632378942
 path = "src/getter/php.rs"
 qualified = "PhpCode::get_op_type"
 metric = "halstead.effort"
-value = 84318.81385575322
+value = 95959.97115467714
 
 [[entry]]
 path = "src/getter/python.rs"

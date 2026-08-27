@@ -178,25 +178,96 @@ impl Getter for PhpCode {
                 }
             }
 
-            // Operands: literals, type expressions, and the compound
-            // name forms. FIXME(#1293): the type and name wrappers here
-            // still double-count the leaves they contain — `?int` scores
-            // 3 (`optional_type` + `primitive_type` + the `int` token)
-            // and `Foo\Bar\Baz` scores 5. Same class as the guards
-            // above, but which node should carry the operand is a
-            // per-construct call, so it is tracked apart from #1259.
-            // `String`/`String2`/`String3` (single-quoted) and
-            // `Nowdoc` never interpolate and are always counted as
-            // one operand each.
-            Integer | Float | Float2
-            | String | String2 | String3
+            // `named_type`, `optional_type`, `union_type`,
+            // `intersection_type`, `disjunctive_normal_form_type`,
+            // `qualified_name`, `relative_name` and `namespace_name`
+            // are deliberately absent from the operand arm below and
+            // fall through to the `_ => Unknown` catch-all (#1293).
+            // They cannot be spelled as an explicit `Unknown` arm —
+            // `clippy::match_same_arms` rejects one that duplicates the
+            // catch-all — so the rationale lives here.
+            //
+            // Each of them spans exactly the text of the node(s) it
+            // contains plus separator glyphs that `get_op_type` already
+            // counts as *operators* — `?` (`QMARK`), `|` (`PIPE`), `&`
+            // (`AMP`), the DNF parens, and `\` (`BSLASH`). Counting the
+            // wrapper as well billed the same bytes two to five times:
+            // `?A\B` nests `optional_type` → `named_type` →
+            // `qualified_name` → `namespace_name` → `name` and scored 6
+            // operands for two identifiers.
+            //
+            // Both design calls this needed, recorded so the next
+            // reader does not have to re-derive them:
+            //
+            // * A type's operand is the innermost concrete type, not
+            //   the decorated form: `?int` is the operand `int`, not
+            //   `?int`. The `?` is already an operator, so folding it
+            //   into the operand text bills nullability across both
+            //   Halstead halves and splits `int` and `?int` into two
+            //   vocabulary entries for one type.
+            // * A qualified name's operands are its components, not
+            //   the whole path: `Foo\Bar\Baz` is `Foo`, `Bar`, `Baz`
+            //   with two `\` operators. That is exactly how PHP's own
+            //   sibling separators already read here — `Foo::bar`
+            //   yields operands `Foo` / `bar` around a `::` operator,
+            //   `$o->prop` yields `$o` / `prop` around `->` — and how
+            //   Rust's `foo::bar::baz` reads. The whole-path reading
+            //   would instead plant a distinct vocabulary entry per
+            //   prefix (`Foo`, `Foo\Bar`, `Foo\Bar\Baz`).
+            //
+            // Dropping these kinds rather than gating a leaf is safe
+            // here, unlike `primitive_type` below: every one of them is
+            // grammatically required to contain the node that now
+            // carries the operand (a `named_type` always wraps a `name`
+            // or `qualified_name`, a `namespace_name` always holds at
+            // least one `name`), so no spelling regresses to zero the
+            // way grammar-dispatch §6 warns about.
+
+            // The primitive-type keyword tokens, suppressed under a
+            // `primitive_type` wrapper (#1293). Here the wrapper is the
+            // node that carries the operand and the leaf is the
+            // duplicate — the opposite of the qualified-name arm above,
+            // and deliberately so: `primitive_type` is *childless* for
+            // `callable`, `iterable`, `mixed`, `void`, `false` and
+            // `true` (verified with `bca dump`; the grammar emits no
+            // token node for those spellings), so dropping the wrapper
+            // would score those six types zero — grammar-dispatch §6
+            // exactly. The wrapper's text equals the keyword's, so
+            // `n2` is unchanged and only the duplicate `N2` occurrence
+            // goes away.
+            //
+            // Parent-scoped, not a blanket exclusion: `array` is also
+            // the head token of `array(1, 2)` and must keep counting
+            // there, and a `(string)` cast is a childless `cast_type`
+            // that never reaches this arm.
+            //
+            // Cross-walk (grammar-dispatch §7): `Checker::is_string`
+            // and the PHP `Alterator` arm both list `String2`, so a
+            // `: string` return type still answers `is_string`. That
+            // stays in step with Halstead because the *span* keeps its
+            // operand — the enclosing `primitive_type` carries it — and
+            // only the node it is attributed to moved.
+            Int | Bool | Array | Object | String2 | Float2 | Null2 => {
+                match ancestors.parent(node).map(|p| p.kind_id().into()) {
+                    Some(PrimitiveType) => HalsteadType::Unknown,
+                    _ => HalsteadType::Operand,
+                }
+            }
+
+            // Operands: literals and the type nodes that are leaves or
+            // carry the operand themselves. `String` (368) is the
+            // single-quoted string literal and `String3` the hidden
+            // `_string` supertype — the `string` *type* keyword is
+            // `String2` (25), handled above. Neither `String` nor
+            // `Nowdoc` ever interpolates, so both are always one
+            // operand. `bottom_type` (`never`) and `cast_type`
+            // (`(int)`) are leaves with no inner node to double-count.
+            Integer | Float
+            | String | String3
             | Nowdoc
-            | Boolean | Null | Null2
-            | NamedType | OptionalType | UnionType | IntersectionType
-            | DisjunctiveNormalFormType | BottomType
+            | Boolean | Null
+            | BottomType
             | PrimitiveType | CastType
-            | QualifiedName | RelativeName | NamespaceName
-            | Int | Bool | Array | Object
                 => HalsteadType::Operand,
 
             // `EncapsedString` (double-quoted), `Heredoc`, and
