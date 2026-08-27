@@ -2109,6 +2109,39 @@ mod childless_root_span {
         // tree, so the root already started at line 1.
         assert_eq!(span("// c\nfn a() {}\n"), (1, 2));
     }
+
+    /// The other half of #1195's anchor, and the whole of #1247: the unit
+    /// reported an anchored span while its `loc.sloc` was still measured
+    /// from the root node's first token, so the two disagreed about how
+    /// many lines the file has. Every case above is re-asserted here as a
+    /// row count, because the span half passed throughout the year the
+    /// `sloc` half was wrong.
+    #[test]
+    fn the_units_sloc_agrees_with_its_reported_span() {
+        for source in [
+            "\n\nfn a() {}\n",
+            "\nfn a() {}\n",
+            "\n\n\nfn a() {}\n\n\n",
+            "// c\nfn a() {}\n",
+            "fn a() {}\n",
+            "   \n  \n",
+        ] {
+            let space = space_verbatim(LANG::Rust, source.as_bytes(), MetricsOptions::default());
+            let rows = space.end_line - space.start_line + 1;
+            assert_eq!(
+                space.metrics.loc.sloc() as usize,
+                rows,
+                "source {source:?} spans {}..{}",
+                space.start_line,
+                space.end_line
+            );
+            assert_eq!(
+                rows,
+                source.lines().count(),
+                "source {source:?} — and that span is the file's real line count"
+            );
+        }
+    }
 }
 
 /// Constructs that carry executable code but no name token now open a

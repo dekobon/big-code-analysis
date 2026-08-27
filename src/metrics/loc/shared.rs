@@ -38,7 +38,7 @@
 //! tokens — and give them an explicit no-op arm. `bca dump` over a
 //! small fixture is the fastest way to see them. The parent module's
 //! `a_comment_row_is_never_counted_as_code` and
-//! `whitespace_only_input_is_the_documented_carve_out` sweep every
+//! `whitespace_only_input_is_uniform_across_grammars` sweep every
 //! language for both shapes.
 #![allow(
     clippy::enum_glob_use,
@@ -66,6 +66,13 @@ pub(crate) fn init(node: &Node, stats: &mut Stats, is_func_space: bool) -> (usiz
         // this span, and that rule lives in one place (#1067, #1163).
         stats.sloc.end_line = node.end_line();
     }
+    // The span written above is the *measured* one, and for the file-level
+    // unit that is wrong whenever the file opens with blank lines — the
+    // root node starts at the first token, not at line 1. Nothing is done
+    // about it here because this helper cannot tell a unit from any other
+    // func-space without re-widening the `Loc` trait, which #1067 removed
+    // for perf. `spaces::compute::anchor_unit_sloc_span` overwrites the
+    // unit's span at finalization instead (#1247).
     (start, end)
 }
 
