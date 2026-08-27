@@ -1284,12 +1284,12 @@ mod tests {
                 {
                   "sloc": 11,
                   "ploc": 8,
-                  "lloc": 0,
+                  "lloc": 6,
                   "cloc": 4,
                   "blank": 1,
                   "sloc_average": 5.5,
                   "ploc_average": 4.0,
-                  "lloc_average": 0.0,
+                  "lloc_average": 3.0,
                   "cloc_average": 2.0,
                   "blank_average": 0.5,
                   "sloc_min": 11,
@@ -1298,8 +1298,8 @@ mod tests {
                   "cloc_max": 4,
                   "ploc_min": 8,
                   "ploc_max": 8,
-                  "lloc_min": 0,
-                  "lloc_max": 0,
+                  "lloc_min": 6,
+                  "lloc_max": 6,
                   "blank_min": 1,
                   "blank_max": 1
                 }
@@ -2780,12 +2780,12 @@ line two
                 {
                   "sloc": 6,
                   "ploc": 3,
-                  "lloc": 0,
+                  "lloc": 1,
                   "cloc": 1,
                   "blank": 2,
                   "sloc_average": 3.0,
                   "ploc_average": 1.5,
-                  "lloc_average": 0.0,
+                  "lloc_average": 0.5,
                   "cloc_average": 0.5,
                   "blank_average": 1.0,
                   "sloc_min": 5,
@@ -2794,8 +2794,8 @@ line two
                   "cloc_max": 1,
                   "ploc_min": 3,
                   "ploc_max": 3,
-                  "lloc_min": 0,
-                  "lloc_max": 0,
+                  "lloc_min": 1,
+                  "lloc_max": 1,
                   "blank_min": 2,
                   "blank_max": 2
                 }
@@ -5120,12 +5120,12 @@ y, z = 2, 3",
                 {
                   "sloc": 10,
                   "ploc": 6,
-                  "lloc": 2,
+                  "lloc": 3,
                   "cloc": 3,
                   "blank": 1,
                   "sloc_average": 3.3333333333333335,
                   "ploc_average": 2.0,
-                  "lloc_average": 0.6666666666666666,
+                  "lloc_average": 1.0,
                   "cloc_average": 1.0,
                   "blank_average": 0.3333333333333333,
                   "sloc_min": 3,
@@ -5135,7 +5135,7 @@ y, z = 2, 3",
                   "ploc_min": 3,
                   "ploc_max": 6,
                   "lloc_min": 1,
-                  "lloc_max": 2,
+                  "lloc_max": 3,
                   "blank_min": 0,
                   "blank_max": 1
                 }
@@ -5164,12 +5164,12 @@ y, z = 2, 3",
                 {
                   "sloc": 8,
                   "ploc": 4,
-                  "lloc": 1,
+                  "lloc": 2,
                   "cloc": 3,
                   "blank": 1,
                   "sloc_average": 2.6666666666666665,
                   "ploc_average": 1.3333333333333333,
-                  "lloc_average": 0.3333333333333333,
+                  "lloc_average": 0.6666666666666666,
                   "cloc_average": 1.0,
                   "blank_average": 0.3333333333333333,
                   "sloc_min": 1,
@@ -5179,7 +5179,7 @@ y, z = 2, 3",
                   "ploc_min": 1,
                   "ploc_max": 4,
                   "lloc_min": 0,
-                  "lloc_max": 1,
+                  "lloc_max": 2,
                   "blank_min": 0,
                   "blank_max": 1
                 }
@@ -6139,7 +6139,7 @@ try {
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
                 assert_eq!(metric.loc.ploc(), 4);
-                assert_eq!(metric.loc.lloc(), 0);
+                assert_eq!(metric.loc.lloc(), 2);
                 assert_eq!(metric.loc.cloc(), 1);
                 assert_eq!(metric.loc.blank(), 2);
                 insta::assert_json_snapshot!(metric.loc);
@@ -6201,7 +6201,7 @@ function f() {
             |metric| {
                 assert_eq!(metric.loc.sloc(), 5);
                 assert_eq!(metric.loc.ploc(), 3);
-                assert_eq!(metric.loc.lloc(), 0);
+                assert_eq!(metric.loc.lloc(), 1);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 2);
                 insta::assert_json_snapshot!(metric.loc);
@@ -6262,7 +6262,7 @@ function f() {
             |metric| {
                 assert_eq!(metric.loc.sloc(), 4);
                 assert_eq!(metric.loc.ploc(), 4);
-                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.lloc(), 3);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -6408,7 +6408,7 @@ function f() {
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
                 assert_eq!(metric.loc.ploc(), 7);
-                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.lloc(), 4);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -6966,7 +6966,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 5);
                 assert_eq!(metric.loc.ploc(), 3);
-                assert_eq!(metric.loc.lloc(), 0);
+                assert_eq!(metric.loc.lloc(), 1);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 2);
                 insta::assert_json_snapshot!(metric.loc);
@@ -7053,7 +7053,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
                 assert_eq!(metric.loc.ploc(), 7);
-                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.lloc(), 4);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -7075,7 +7075,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
                 assert_eq!(metric.loc.ploc(), 7);
-                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.lloc(), 4);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -7136,7 +7136,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 4);
                 assert_eq!(metric.loc.ploc(), 4);
-                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.lloc(), 3);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -7266,7 +7266,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 5);
                 assert_eq!(metric.loc.ploc(), 3);
-                assert_eq!(metric.loc.lloc(), 0);
+                assert_eq!(metric.loc.lloc(), 1);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 2);
                 insta::assert_json_snapshot!(metric.loc);
@@ -7353,7 +7353,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
                 assert_eq!(metric.loc.ploc(), 7);
-                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.lloc(), 4);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -7375,7 +7375,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
                 assert_eq!(metric.loc.ploc(), 7);
-                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.lloc(), 4);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -7436,7 +7436,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 4);
                 assert_eq!(metric.loc.ploc(), 4);
-                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.lloc(), 3);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -9144,7 +9144,7 @@ class A {
             |metric| {
                 assert_eq!(metric.loc.sloc(), 4);
                 assert_eq!(metric.loc.ploc(), 4);
-                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.lloc(), 2);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -10727,5 +10727,287 @@ class A {
                 }
             }
         }
+    }
+
+    /// A `var` / `let` / `const` declaration is an executable statement and
+    /// counts one LLOC, the same as Java's `LocalVariableDeclaration` and
+    /// Rust's `let` (#1283 — before the fix a declarations-only file
+    /// reported `lloc 0`). The fourth row is one `variable_declaration`
+    /// carrying two declarators, so it counts once, not twice. The fifth row
+    /// is a `using_declaration` — the grammar's third executable declaration
+    /// kind, which TypeScript and TSX do not have.
+    #[test]
+    fn javascript_declaration_lloc() {
+        check_metrics::<JavascriptParser>(
+            "var a = 1;\nlet b = 2;\nconst c = 3;\nvar d = 4, e = 5;\nusing r = open();\n",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+    }
+
+    /// The classic `for (var i = 0; …)` header is part of the `ForStatement`,
+    /// which already counts its own LLOC, so the header declaration must not
+    /// add a second one. `for (const x of …)` and `for (var k in …)` need no
+    /// carve-out at all: the grammar inlines the `const` / `var` keyword into
+    /// `for_in_statement` and emits no declaration node — they are here so a
+    /// carve-out wrongly widened to `ForInStatement` still has an input that
+    /// notices. `var s = i;` in the loop *body* is a real logical line: the
+    /// `StatementBlock` stops the ancestor walk (#1283).
+    ///
+    /// expected: for-statement 1 + body declaration 1 + for-of 1 + for-in 1 = 4
+    #[test]
+    fn javascript_for_header_declaration_not_double_counted() {
+        check_metrics::<JavascriptParser>(
+            "function f(arr, obj) {\n    for (var i = 0; i < 3; i++) {\n        var s = i;\n    }\n    for (const x of arr) {}\n    for (var k in obj) {}\n}\n",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+    }
+
+    /// `export const a = 1;` is one logical line, not two: the declaration
+    /// nests inside the `ExportStatement`, whose arm already counted the row.
+    /// The declaration inside the exported function body still counts — the
+    /// `StatementBlock` stops the ancestor walk before the `ExportStatement`
+    /// is reached (#1283).
+    ///
+    /// expected: 4 export statements + the `const c = 4;` in `f`'s body = 5
+    #[test]
+    fn javascript_exported_declaration_counts_once() {
+        check_metrics::<JavascriptParser>(
+            "export const a = 1;\nexport let b = 2;\nexport default 3;\nexport function f() { const c = 4; }\n",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+    }
+
+    /// A `var` / `let` / `const` declaration is an executable statement and
+    /// counts one LLOC, the same as Java's `LocalVariableDeclaration` and
+    /// Rust's `let` (#1283 — before the fix a declarations-only file
+    /// reported `lloc 0`). The fourth row is one `variable_declaration`
+    /// carrying two declarators, so it counts once, not twice. The fifth row
+    /// is a `using_declaration` — the grammar's third executable declaration
+    /// kind, which TypeScript and TSX do not have.
+    #[test]
+    fn mozjs_declaration_lloc() {
+        check_metrics::<MozjsParser>(
+            "var a = 1;\nlet b = 2;\nconst c = 3;\nvar d = 4, e = 5;\nusing r = open();\n",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+    }
+
+    /// The classic `for (var i = 0; …)` header is part of the `ForStatement`,
+    /// which already counts its own LLOC, so the header declaration must not
+    /// add a second one. `for (const x of …)` and `for (var k in …)` need no
+    /// carve-out at all: the grammar inlines the `const` / `var` keyword into
+    /// `for_in_statement` and emits no declaration node — they are here so a
+    /// carve-out wrongly widened to `ForInStatement` still has an input that
+    /// notices. `var s = i;` in the loop *body* is a real logical line: the
+    /// `StatementBlock` stops the ancestor walk (#1283).
+    ///
+    /// expected: for-statement 1 + body declaration 1 + for-of 1 + for-in 1 = 4
+    #[test]
+    fn mozjs_for_header_declaration_not_double_counted() {
+        check_metrics::<MozjsParser>(
+            "function f(arr, obj) {\n    for (var i = 0; i < 3; i++) {\n        var s = i;\n    }\n    for (const x of arr) {}\n    for (var k in obj) {}\n}\n",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+    }
+
+    /// `export const a = 1;` is one logical line, not two: the declaration
+    /// nests inside the `ExportStatement`, whose arm already counted the row.
+    /// The declaration inside the exported function body still counts — the
+    /// `StatementBlock` stops the ancestor walk before the `ExportStatement`
+    /// is reached (#1283).
+    ///
+    /// expected: 4 export statements + the `const c = 4;` in `f`'s body = 5
+    #[test]
+    fn mozjs_exported_declaration_counts_once() {
+        check_metrics::<MozjsParser>(
+            "export const a = 1;\nexport let b = 2;\nexport default 3;\nexport function f() { const c = 4; }\n",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+    }
+
+    /// A `var` / `let` / `const` declaration is an executable statement and
+    /// counts one LLOC, the same as Java's `LocalVariableDeclaration` and
+    /// Rust's `let` (#1283 — before the fix a declarations-only file
+    /// reported `lloc 0`). The fourth row is one `variable_declaration`
+    /// carrying two declarators, so it counts once, not twice.
+    #[test]
+    fn typescript_declaration_lloc() {
+        check_metrics::<TypescriptParser>(
+            "var a: number = 1;\nlet b = 2;\nconst c = 3;\nvar d = 4, e = 5;\n",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+    }
+
+    /// The classic `for (var i = 0; …)` header is part of the `ForStatement`,
+    /// which already counts its own LLOC, so the header declaration must not
+    /// add a second one. `for (const x of …)` and `for (var k in …)` need no
+    /// carve-out at all: the grammar inlines the `const` / `var` keyword into
+    /// `for_in_statement` and emits no declaration node — they are here so a
+    /// carve-out wrongly widened to `ForInStatement` still has an input that
+    /// notices. `var s = i;` in the loop *body* is a real logical line: the
+    /// `StatementBlock` stops the ancestor walk (#1283).
+    ///
+    /// expected: for-statement 1 + body declaration 1 + for-of 1 + for-in 1 = 4
+    #[test]
+    fn typescript_for_header_declaration_not_double_counted() {
+        check_metrics::<TypescriptParser>(
+            "function f(arr, obj) {\n    for (var i = 0; i < 3; i++) {\n        var s = i;\n    }\n    for (const x of arr) {}\n    for (var k in obj) {}\n}\n",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+    }
+
+    /// `export const a = 1;` is one logical line, not two: the declaration
+    /// nests inside the `ExportStatement`, whose arm already counted the row.
+    /// The declaration inside the exported function body still counts — the
+    /// `StatementBlock` stops the ancestor walk before the `ExportStatement`
+    /// is reached (#1283).
+    ///
+    /// expected: 4 export statements + the `const c = 4;` in `f`'s body = 5
+    ///
+    /// The TypeScript spelling also pins `export declare const …`, where an
+    /// `ambient_declaration` sits between the export and the declaration: the
+    /// carve-out walks the ancestor chain rather than checking the parent, so
+    /// it still sees the enclosing `ExportStatement`.
+    #[test]
+    fn typescript_exported_declaration_counts_once() {
+        check_metrics::<TypescriptParser>(
+            "export const a: number = 1;\nexport declare const b: string;\nexport default 3;\nexport function f(): void { const c = 4; }\n",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+    }
+
+    /// A `var` / `let` / `const` declaration is an executable statement and
+    /// counts one LLOC, the same as Java's `LocalVariableDeclaration` and
+    /// Rust's `let` (#1283 — before the fix a declarations-only file
+    /// reported `lloc 0`). The fourth row is one `variable_declaration`
+    /// carrying two declarators, so it counts once, not twice.
+    #[test]
+    fn tsx_declaration_lloc() {
+        check_metrics::<TsxParser>(
+            "var a: number = 1;\nlet b = 2;\nconst c = 3;\nvar d = 4, e = 5;\n",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+    }
+
+    /// The classic `for (var i = 0; …)` header is part of the `ForStatement`,
+    /// which already counts its own LLOC, so the header declaration must not
+    /// add a second one. `for (const x of …)` and `for (var k in …)` need no
+    /// carve-out at all: the grammar inlines the `const` / `var` keyword into
+    /// `for_in_statement` and emits no declaration node — they are here so a
+    /// carve-out wrongly widened to `ForInStatement` still has an input that
+    /// notices. `var s = i;` in the loop *body* is a real logical line: the
+    /// `StatementBlock` stops the ancestor walk (#1283).
+    ///
+    /// expected: for-statement 1 + body declaration 1 + for-of 1 + for-in 1 = 4
+    #[test]
+    fn tsx_for_header_declaration_not_double_counted() {
+        check_metrics::<TsxParser>(
+            "function f(arr, obj) {\n    for (var i = 0; i < 3; i++) {\n        var s = i;\n    }\n    for (const x of arr) {}\n    for (var k in obj) {}\n}\n",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+    }
+
+    /// `export const a = 1;` is one logical line, not two: the declaration
+    /// nests inside the `ExportStatement`, whose arm already counted the row.
+    /// The declaration inside the exported function body still counts — the
+    /// `StatementBlock` stops the ancestor walk before the `ExportStatement`
+    /// is reached (#1283).
+    ///
+    /// expected: 4 export statements + the `const c = 4;` in `f`'s body = 5
+    ///
+    /// The TypeScript spelling also pins `export declare const …`, where an
+    /// `ambient_declaration` sits between the export and the declaration: the
+    /// carve-out walks the ancestor chain rather than checking the parent, so
+    /// it still sees the enclosing `ExportStatement`.
+    #[test]
+    fn tsx_exported_declaration_counts_once() {
+        check_metrics::<TsxParser>(
+            "export const a: number = 1;\nexport declare const b: string;\nexport default 3;\nexport function f(): void { const c = 4; }\n",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
     }
 }
