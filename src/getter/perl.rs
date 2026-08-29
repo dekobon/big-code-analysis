@@ -79,6 +79,73 @@ impl Getter for PerlCode {
             // `s///` and `tr///` rather than as raw kind names.
             | P::SubstitutionPatternS | P::TransliterationTrOrY
                 => HalsteadType::Operator,
+            // `package_name`, `package_variable` and `typeglob` each
+            // spell a whole name — `Data::Dumper`, `$Foo::count`,
+            // `*STDOUT` — and are operands in their own right below, so
+            // an operand-classified node they *contain* is already
+            // billed by the wrapper. Before #1355 the wrapper and its
+            // contents both counted: `use strict;` scored N2 2 for one
+            // name, `require Data::Dumper;` n2 3 / N2 3 for one, and
+            // `our $Foo::count = 3;` n2 5 / N2 6 for two — the
+            // vocabulary even growing a bare `::` entry, because a
+            // `package_variable` spells its separator as a second,
+            // childless `package_name` beside the qualifier.
+            //
+            // Keyed on the parent alone rather than on a list of child
+            // kinds, because the invariant is positional: a wrapper's
+            // span contains its children's, so whatever sits directly
+            // inside one is already paid for. node-types.json admits ten
+            // (wrapper, child) pairings across eight operand kinds, all
+            // of them reachable — `package_name` ⊃ `typeglob` is
+            // `*Foo::glob`, `package_name` ⊃ `package_variable` the
+            // `$Foo::Bar::baz` nesting — and enumerating them here would
+            // be a coverage claim to re-derive on every grammar bump for
+            // no gain, the trade grammar-dispatch §1 recommends taking.
+            // `perl_name_wrappers_bill_the_name_once_1355` witnesses all
+            // ten and fails on an eleventh. Naming the three wrappers as
+            // *parents* also resolves arbitrary qualifier depth to the
+            // outermost, the way PHP handles `$$$x` (#1259).
+            //
+            // It sits below the operator arm on purpose: `::` inside a
+            // `package_name`, and `*` and the opening `{` inside a
+            // `typeglob`, are matched there and keep their operator
+            // reading. (The closing `}` has never been classified —
+            // `get_operator_id_as_str` folds the pair to one `{}`
+            // glyph — so the guard changes nothing for it.)
+            //
+            // Guarded, not deleted, per grammar-dispatch §6: these
+            // leaves are ordinary operands everywhere else (`my $x`,
+            // `foo()`, the `bar` of `Foo::bar()`, which is a *sibling*
+            // of the `package_name` rather than a child).
+            //
+            // Keeping the wrapper's whole span is the opposite call from
+            // PHP's `qualified_name` (#1293) and Groovy's
+            // `QualifiedName` (#1263 / #1352), which bill the leaves and
+            // drop the wrapper. Three reasons it goes the other way in
+            // Perl. `package_variable` and `typeglob` are sigil-bearing
+            // *variable references*, the shape #1259 settled by keeping
+            // the wrapper — the leaves-only reading detaches the sigil
+            // from the variable and glues it to the qualifier, billing
+            // `$Foo::Bar::baz` as `$Foo` + `Bar` + `baz`, three operands
+            // for one variable. The three kinds nest into each other, so
+            // they must be decided together; splitting `package_name`
+            // off would need a grandparent-aware guard. And the
+            // vocabulary-sharing argument of #1293 / #1352 — that
+            // `java.util.List` and `List` name the same class — has no
+            // Perl analogue, since a package is always spelled in full.
+            //
+            // `module_name` is not here, though #1355 expected it to
+            // be: it is the quoted `use 'Foo.pm'` form, and it holds
+            // nothing but its two quote tokens — not the `identifier`
+            // the issue thought it shared. It stays an operand, pinned
+            // by `perl_qualified_name_leaves_still_count_elsewhere_1355`.
+            _ if matches!(
+                ancestors.parent(node).map(|p| p.kind_id().into()),
+                Some(P::PackageName | P::PackageVariable | P::Typeglob)
+            ) =>
+            {
+                HalsteadType::Unknown
+            }
             // Operands: identifiers and literals. Non-interpolating
             // string literals (`'…'`, `q{…}`) are leaf operands; the
             // interpolating kinds (`"…"`, `qq{…}`, `` `…` ``, `qx{…}`)
