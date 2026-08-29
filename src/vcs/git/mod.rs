@@ -141,7 +141,7 @@ pub(crate) fn parse_timestamp(input: &str) -> Result<i64, Error> {
             .parse::<i64>()
             .map_err(|_| Error::InvalidTimestamp(format!("{input:?}: not a Unix timestamp")));
     }
-    gix::date::parse(input, Some(SystemTime::now()))
+    gix::date::parse(input, Some(gix::date::Zoned::now()))
         .map(|time| time.seconds)
         .map_err(|e| Error::InvalidTimestamp(format!("{input:?}: {e}")))
 }
