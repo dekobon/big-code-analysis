@@ -39,25 +39,22 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock, PoisonError};
+use std::sync::{Mutex, PoisonError};
 
-/// One dispatched file's place in the emission order, or `None` when
-/// the run has no ordering to impose (see
-/// [`OrderedStdout::index_paths`]).
+/// One dispatched file's place in the emission order, or `None` for a
+/// path the walk's resolved list did not carry (see
+/// [`OrderedStdout::slot`]).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Slot(Option<usize>);
 
 /// The reorder buffer shared by every worker of one streaming-stdout
 /// walk.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct OrderedStdout {
-    /// Each resolved file's index in the walk's file list. Unset until
-    /// [`index_paths`](Self::index_paths) fills it, and left unset when
-    /// the list cannot be indexed — both states mean "write as you go",
-    /// the pre-#1303 behaviour. A `OnceLock` rather than a second
-    /// `Mutex` because every worker reads it once per file and nothing
-    /// writes it after the walk starts.
-    slots: OnceLock<HashMap<PathBuf, usize>>,
+    /// Each resolved file's index in the walk's file list. Built once by
+    /// [`new`](Self::new) and never written after the walk starts, so
+    /// every worker reads it without a lock.
+    slots: HashMap<PathBuf, usize>,
     pending: Mutex<Pending>,
 }
 
@@ -66,29 +63,31 @@ pub(crate) struct OrderedStdout {
 #[derive(Debug, Default)]
 struct Pending {
     next: usize,
-    /// Rendered documents held for indices above `next`. An empty
-    /// document is the "this file emitted nothing" marker: it releases
-    /// the slot and writes no bytes.
-    documents: BTreeMap<usize, Vec<u8>>,
+    /// Results held for indices above `next`: a rendered document, or
+    /// `None` for a file that emitted nothing — the marker that releases
+    /// the slot without writing.
+    documents: BTreeMap<usize, Option<Vec<u8>>>,
 }
 
 impl OrderedStdout {
     /// Record the emission order: `paths` is the walk's resolved file
     /// list, in the order the runner will dispatch it.
     ///
-    /// A duplicate path would give two dispatches one slot, so one
-    /// document would overwrite the other. `expand_seed_paths` dedupes
-    /// (`SeedSet::seen`), so a walk cannot produce one; if that ever
-    /// changes, leaving the map empty degrades to the unordered
-    /// streaming this replaced rather than losing a document.
-    pub(crate) fn index_paths(&self, paths: &[PathBuf]) {
+    /// `None` when the list cannot be indexed. A duplicate path would
+    /// give two dispatches one slot, so one document would overwrite the
+    /// other. `expand_seed_paths` dedupes (`SeedSet::seen`), so a walk
+    /// cannot produce one; if that ever changes, building no buffer at
+    /// all degrades the run to the unordered streaming this replaced
+    /// rather than losing a document.
+    pub(crate) fn new(paths: &[PathBuf]) -> Option<Self> {
         let mut slots: HashMap<PathBuf, usize> = HashMap::with_capacity(paths.len());
         for (index, path) in paths.iter().enumerate() {
             slots.insert(path.clone(), index);
         }
-        if slots.len() == paths.len() {
-            let _ = self.slots.set(slots);
-        }
+        (slots.len() == paths.len()).then(|| Self {
+            slots,
+            pending: Mutex::default(),
+        })
     }
 
     /// The place `path` occupies in the emission order.
@@ -96,7 +95,7 @@ impl OrderedStdout {
     /// Called before the dispatch consumes the path, so the slot can be
     /// released afterwards without the caller keeping a copy of it.
     pub(crate) fn slot(&self, path: &Path) -> Slot {
-        Slot(self.slots.get().and_then(|slots| slots.get(path).copied()))
+        Slot(self.slots.get(path).copied())
     }
 
     /// Release `slot`, writing `document` once every earlier slot has
@@ -109,7 +108,7 @@ impl OrderedStdout {
         let Slot(Some(index)) = slot else {
             // No ordering to impose: write straight through, exactly as
             // the per-document stdout path did before #1303.
-            return document.map_or(Ok(()), |doc| write_document(&doc));
+            return write_unordered(document);
         };
         let mut pending = self.lock_pending();
         // An index below `next` was already drained — only reachable
@@ -118,11 +117,9 @@ impl OrderedStdout {
         // than drop it.
         if index < pending.next {
             drop(pending);
-            return document.map_or(Ok(()), |doc| write_document(&doc));
+            return write_unordered(document);
         }
-        pending
-            .documents
-            .insert(index, document.unwrap_or_default());
+        pending.documents.insert(index, document);
         // The guard is held across the writes, which is what keeps two
         // files' output from interleaving — the guarantee the
         // whole-document `stdout().lock()` used to provide.
@@ -152,7 +149,7 @@ impl OrderedStdout {
 
 impl Pending {
     /// Take every document from `next` upwards that is already
-    /// buffered, in order, stopping at the first gap. Empty markers
+    /// buffered, in order, stopping at the first gap. `None` markers
     /// advance the counter and contribute nothing to write.
     ///
     /// Splitting "what is emittable now" from the writing keeps the
@@ -163,9 +160,7 @@ impl Pending {
         let mut ready = Vec::new();
         while let Some(document) = self.documents.remove(&self.next) {
             self.next += 1;
-            if !document.is_empty() {
-                ready.push(document);
-            }
+            ready.extend(document);
         }
         ready
     }
@@ -175,22 +170,39 @@ impl Pending {
         let mut all = Vec::new();
         for (index, document) in std::mem::take(&mut self.documents) {
             self.next = index + 1;
-            if !document.is_empty() {
-                all.push(document);
-            }
+            all.extend(document);
         }
         all
     }
 }
 
-/// Write `documents` in the order given, stopping at the first failure:
-/// once stdout has rejected a write the rest of the run is broken too,
-/// and the buffer has already advanced past them.
+/// Write `documents` in the order given as one locked, buffered, flushed
+/// stdout write, stopping at the first failure: once stdout has rejected
+/// a write the rest of the run is broken too, and the buffer has already
+/// advanced past them.
+///
+/// One lock and one buffer for the whole batch rather than one per
+/// document: a release that drains several queued documents is routine
+/// at `--jobs > 1`, and a release that drains nothing — the majority —
+/// takes no lock at all.
 fn write_documents(documents: &[Vec<u8>]) -> std::io::Result<()> {
-    for document in documents {
-        write_document(document)?;
+    if documents.is_empty() {
+        return Ok(());
     }
-    Ok(())
+    crate::formats::write_buffered(None, |w| {
+        for document in documents {
+            w.write_all(document)?;
+        }
+        Ok(())
+    })
+}
+
+/// Write `document` to stdout as it is, for the paths that carry no
+/// ordering: a run without a reorder buffer, or a slot the buffer has
+/// already drained past. `None` — the "emitted nothing" marker — writes
+/// nothing.
+pub(crate) fn write_unordered(document: Option<Vec<u8>>) -> std::io::Result<()> {
+    document.map_or(Ok(()), |document| write_document(&document))
 }
 
 /// Write one rendered document to stdout, buffered and flushed.
@@ -198,7 +210,7 @@ fn write_documents(documents: &[Vec<u8>]) -> std::io::Result<()> {
 /// The flush is the load-bearing part: a `BufWriter` flushed only by
 /// `Drop` discards the error it hit, which turns a full disk into a
 /// silently truncated document and a zero exit status (#1115).
-pub(crate) fn write_document(document: &[u8]) -> std::io::Result<()> {
+fn write_document(document: &[u8]) -> std::io::Result<()> {
     crate::formats::write_buffered(None, |w| w.write_all(document))
 }
 

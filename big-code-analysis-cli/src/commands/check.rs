@@ -202,7 +202,7 @@ fn collect_check_violations(
     // ignore-dropped still says what happened above the exit-1 error.
     report_unchecked_files(&walk, globals_kept.report_skipped);
     enforce_usable_input(&walk);
-    let violations = apply_check_exclude(walk.violations, args, &walk.seeds);
+    let violations = apply_check_exclude(walk.violations, args, walk.seeds);
     CollectedViolations {
         violations,
         scope,
@@ -322,11 +322,8 @@ fn run_check_walk(
     // `apply_check_exclude`'s re-anchoring. `expand_seed_paths` would
     // otherwise do this read itself, so nothing extra is read — the
     // list is merely retained (#1306).
-    if let Some(src) = globals.paths_from.take() {
-        globals
-            .paths
-            .extend(crate::read_paths_from(&src).unwrap_or_else(|e| die(e)));
-    }
+    let paths_from = globals.paths_from.take();
+    crate::materialize_paths_from(&mut globals.paths, paths_from.as_deref());
     // One clone of the seed list, on a path that already clones the
     // whole `GlobalOpts` for the remediation footer. The allocation the
     // old `--paths-from` re-read avoided was never this one: it was the
@@ -511,7 +508,7 @@ impl<'a> CheckExcludes<'a> {
 pub(crate) fn apply_check_exclude(
     violations: Vec<Violation>,
     args: &CheckArgs,
-    seeds: &[PathBuf],
+    seeds: Vec<PathBuf>,
 ) -> Vec<Violation> {
     // Nothing configured is the common case, and it skips the glob-set
     // build and the `--check-exclude-from` read entirely.
@@ -536,8 +533,7 @@ pub(crate) fn apply_check_exclude(
     // walk's *input* list, so it still needs the same `reanchor_seed`
     // pass `expand_seed_paths` applies.
     let seeds: Vec<PathBuf> = seeds
-        .iter()
-        .cloned()
+        .into_iter()
         .map(crate::walk_seed::reanchor_seed)
         .collect();
     let before = violations.len();
