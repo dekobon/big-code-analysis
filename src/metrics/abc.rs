@@ -4273,7 +4273,7 @@ function f(int $a, int $b): int {
         check_metrics::<TypescriptParser>(
             "class C {
                 m(): void {
-                    let x = 0;          // const-sentinel suppressed since `let`, but x is Var → +1
+                    let x = 0;          // +1 — only a `const` initializer is suppressed
                     x = 1;              // +1
                     x += 2;             // +1
                     x++;                // +1
@@ -4292,15 +4292,109 @@ function f(int $a, int $b): int {
         check_metrics::<TypescriptParser>(
             "class C {
                 m(): void {
-                    const a = 1;        // suppressed (Const sentinel)
+                    const a = 1;        // suppressed (`const` initializer)
                     const b = 2;        // suppressed
-                    let c = 3;          // +1 (Var sentinel)
+                    let c = 3;          // +1 — `let` initializers count
                 }
             }",
             "foo.ts",
             |metric| {
                 assert_eq!(metric.abc.assignments_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // Regression cluster for #1277. The pre-fix implementation decided
+    // "is this `=` a `const` initializer?" from a sentinel stack cleared
+    // only on a `SEMI` token, so the answer for one statement depended on
+    // the *previous* statement's terminator. Automatic semicolon
+    // insertion makes that terminator optional in all four JS-family
+    // languages. The replacement is structural — see
+    // `impl_js_family_const_binding!` in `src/metrics/abc/js_family.rs`.
+
+    #[test]
+    fn typescript_asi_const_does_not_suppress_later_assignments() {
+        check_metrics::<TypescriptParser>(
+            "function f() {
+                const a = 1
+                x = 2
+                y = 3
+            }",
+            "foo.ts",
+            |metric| {
+                // `const a = 1` suppressed; `x = 2` and `y = 3` count.
+                // Pre-#1277 this reported 0: the unterminated `const`
+                // never popped its sentinel.
+                assert_eq!(metric.abc.assignments_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_semicolon_const_does_not_suppress_later_assignments() {
+        // The semicolon-terminated spelling of the fixture above, which
+        // must score the same as it. Pre-#1277 they scored 2 and 0 — the
+        // pair is what pins the terminator out of the answer.
+        check_metrics::<TypescriptParser>(
+            "function f() {
+                const a = 1;
+                x = 2;
+                y = 3;
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_as_const_does_not_suppress_later_assignments() {
+        // The sentinel stack was also reachable from the other side: the
+        // `const` token of a TypeScript `x as const` assertion promoted a
+        // live `let` slot to `Const` and suppressed every `=` until the
+        // next `;`. Structurally that `const` is a child of an
+        // `as_expression`, not a declaration keyword.
+        check_metrics::<TypescriptParser>(
+            "function f(x: number) {
+                let y = x as const
+                w = 3
+            }",
+            "foo.ts",
+            |metric| {
+                // `let` initializer (+1) and `w = 3` (+1); pre-#1277: 1.
+                assert_eq!(metric.abc.assignments_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_const_declarator_shapes_stay_suppressed() {
+        // Shapes the sentinel stack handled implicitly, which the
+        // structural predicate must reproduce: *every* declarator under a
+        // `const`-bearing `lexical_declaration` is suppressed, including
+        // the second element of a multi-declarator list and a
+        // destructuring pattern, while `for (const x of xs)` carries no
+        // `=` at all. Only `let d = 3` and `var e = 4` count — the
+        // deliberate deviation documented on `js_abc_compute!`. Gating on
+        // `variable_declaration` instead of `lexical_declaration`, or
+        // dropping the `const`-child check, each flips one of these rows.
+        // The `for`-of row is the exception: it carries no `=`, so no
+        // change to the predicate can move it. It pins the grammar shape
+        // instead — a future grammar emitting a `variable_declarator`
+        // there would start suppressing something that never counted.
+        check_metrics::<TypescriptParser>(
+            "function f(o: any, xs: number[]) {
+                const a = 1, b = 2
+                const {c} = o
+                let d = 3
+                var e = 4
+                for (const x of xs) { g(x) }
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 2);
             },
         );
     }
@@ -4733,6 +4827,44 @@ function f(int $a, int $b): int {
                 assert_eq!(metric.abc.conditions_sum(), 1);
                 assert_eq!(metric.abc.branches_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_asi_const_does_not_suppress_later_assignments() {
+        // TSX half of the #1277 cluster; see
+        // `typescript_asi_const_does_not_suppress_later_assignments`.
+        // TSX has its own `Const` / `VariableDeclarator` /
+        // `LexicalDeclaration` kind ids, so the predicate is generated
+        // separately and needs its own fixture.
+        check_metrics::<TsxParser>(
+            "function f() {
+                const a = 1
+                x = 2
+                y = 3
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_const_declarator_shapes_stay_suppressed() {
+        // TSX half of `typescript_const_declarator_shapes_stay_suppressed`.
+        check_metrics::<TsxParser>(
+            "function f(o: any, xs: number[]) {
+                const a = 1, b = 2
+                const {c} = o
+                let d = 3
+                var e = 4
+                for (const x of xs) { g(x) }
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 2);
             },
         );
     }
@@ -7524,11 +7656,10 @@ function f(int $a, int $b): int {
 
     #[test]
     fn javascript_plain_and_compound_assignments_count() {
-        // `let` / `var` declarations behave like TypeScript: the `Var`
-        // sentinel is pushed but only `const` suppresses the
-        // initializer `=`. So `let x = 0` does count as A=+1; only
-        // `const PI = 3.14` would be elided. Plain `x = 5`, `x += 2`,
-        // `x = 7` all count → A = 4 total here.
+        // `let` / `var` declarations behave like TypeScript: only a
+        // `const` initializer is suppressed. So `let x = 0` does count as
+        // A=+1; only `const PI = 3.14` would be elided. Plain `x = 5`,
+        // `x += 2`, `x = 7` all count → A = 4 total here.
         check_metrics::<JavascriptParser>(
             "function f() { let x = 0; x = 5; x += 2; x = 7; }",
             "foo.js",
@@ -7543,10 +7674,9 @@ function f(int $a, int $b): int {
 
     #[test]
     fn javascript_const_initializer_not_assignment() {
-        // `const PI = 3.14` must NOT count as an assignment — the
-        // `Const` sentinel suppresses the initializer `=`. `let x = 1`
-        // and `var y = 2` still count (matches the TS impl: only
-        // `const` suppresses).
+        // `const PI = 3.14` must NOT count as an assignment — its `=`
+        // initialises a `const` binding. `let x = 1` and `var y = 2`
+        // still count (matches the TS impl: only `const` suppresses).
         check_metrics::<JavascriptParser>(
             "function f() { const PI = 3.14; let x = 1; var y = 2; x = 9; }",
             "foo.js",
@@ -7560,11 +7690,84 @@ function f(int $a, int $b): int {
     }
 
     #[test]
+    fn javascript_asi_const_does_not_suppress_later_assignments() {
+        // The issue #1277 reproducer verbatim. JavaScript half of the
+        // cluster documented at
+        // `typescript_asi_const_does_not_suppress_later_assignments`.
+        check_metrics::<JavascriptParser>(
+            "function f() {
+                const a = 1
+                x = 2
+                return x
+            }",
+            "foo.js",
+            |metric| {
+                // Pre-#1277 this reported 0; the semicolon-terminated
+                // spelling reported 1.
+                assert_eq!(metric.abc.assignments_sum(), 1);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_nested_arrow_const_does_not_leak() {
+        // The leak crossed a nested function space: `const f = () => …`
+        // left a stale sentinel in `h`'s space, so `z = 2` was suppressed
+        // while `y = 1` (counted in the arrow's own fresh space) was not.
+        check_metrics::<JavascriptParser>(
+            "function h() {
+                const f = () => { y = 1 }
+                z = 2
+            }",
+            "foo.js",
+            |metric| {
+                // `y = 1` and `z = 2`; the `const` initializer is
+                // suppressed. Pre-#1277: 1.
+                assert_eq!(metric.abc.assignments_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_non_declarator_equals_still_count() {
+        // An `=` whose parent is not a `variable_declarator` is always an
+        // assignment: a class `field_definition` initializer and a
+        // default-parameter `assignment_pattern`. Widening the predicate
+        // past the `variable_declarator` hop would zero these.
+        check_metrics::<JavascriptParser>(
+            "class K { f = 1; g(p = 2) { let d = 3 } }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 3);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_const_declarator_shapes_stay_suppressed() {
+        // JavaScript half of
+        // `typescript_const_declarator_shapes_stay_suppressed`.
+        check_metrics::<JavascriptParser>(
+            "function f(o, xs) {
+                const a = 1, b = 2
+                const {c} = o
+                let d = 3
+                var e = 4
+                for (const x of xs) { g(x) }
+            }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
     fn javascript_increment_and_decrement_count_as_assignment() {
         // `x++` (post) and `--x` (pre) both update an lvalue and so
         // count as assignments. Combined with the `let x = 0`
-        // initializer (which counts under the JS/TS sentinel rule —
-        // only `const` suppresses), A = 3.
+        // initializer (which counts under the JS/TS rule — only `const`
+        // suppresses), A = 3.
         check_metrics::<JavascriptParser>(
             "function f() { let x = 0; x++; --x; }",
             "foo.js",
@@ -7753,9 +7956,9 @@ function f(int $a, int $b): int {
     #[test]
     fn javascript_complex_function_abc() {
         // Mixed-shape regression. Verified by hand:
-        // - assignments: `let x = 0` (Var sentinel does not suppress)
+        // - assignments: `let x = 0` (a `let` initializer counts)
         //   + `x = 5`, `x += 2`, `x++`, `x = (a>b)?a:b`, `x = b`,
-        //   `let p = ...` (Var sentinel) → A = 7.
+        //   `let p = ...` (likewise) → A = 7.
         // - branches: `f(a, b)` self-call + `new Bar()` → B = 2.
         // - conditions: `a == b`, `a > 0` → 2 inside the if header
         //   (`&&` is not counted directly). `else` (1) + `a > b`,
@@ -7788,6 +7991,43 @@ function f(int $a, int $b): int {
                 assert_eq!(metric.abc.branches_sum(), 2);
                 assert_eq!(metric.abc.conditions_sum(), 8);
                 insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_asi_const_does_not_suppress_later_assignments() {
+        // Mozjs half of the #1277 cluster; the fork carries its own
+        // kind-id numbering, so it needs its own fixture. See
+        // `typescript_asi_const_does_not_suppress_later_assignments`.
+        check_metrics::<MozjsParser>(
+            "function f() {
+                const a = 1
+                x = 2
+                y = 3
+            }",
+            "foo.jsm",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_const_declarator_shapes_stay_suppressed() {
+        // Mozjs half of
+        // `javascript_const_declarator_shapes_stay_suppressed`.
+        check_metrics::<MozjsParser>(
+            "function f(o, xs) {
+                const a = 1, b = 2
+                const {c} = o
+                let d = 3
+                var e = 4
+                for (const x of xs) { g(x) }
+            }",
+            "foo.jsm",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 2);
             },
         );
     }
