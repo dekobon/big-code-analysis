@@ -226,8 +226,16 @@ macro_rules! impl_js_family_get_op_type {
                 // leaves-not-composites note above the macro for why
                 // it had to be added in the same change that dropped
                 // `MemberExpression*`.
-                Identifier | PropertyIdentifier | PrivatePropertyIdentifier | String | Number
-                | True | False | Null | This | Super | Undefined | Regex
+                //
+                // `MetaProperty` is `import.meta` / `new.target`: one
+                // atomic operand, like `this`, whose `meta` / `target`
+                // leaves are anonymous tokens no arm classifies. It is
+                // the one composite the #1263 drop has to keep
+                // (grammar-dispatch §6) — without it the meta-object
+                // contributes no operand at all while `this.env.x`
+                // still yields three.
+                Identifier | PropertyIdentifier | PrivatePropertyIdentifier | MetaProperty
+                | String | Number | True | False | Null | This | Super | Undefined | Regex
                 $(| $operand_extra)* => HalsteadType::Operand,
                 // A `` `...` `` is a string literal; without interpolation it
                 // mirrors `"..."` and contributes one operand. When it has a

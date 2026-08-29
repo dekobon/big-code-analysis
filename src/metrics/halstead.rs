@@ -1837,6 +1837,33 @@ mod tests {
         check_metrics::<TsxParser>(SRC, "foo.tsx", check_ts);
     }
 
+    // Issue #1263, the other section 6 half: `meta_property` is the one
+    // composite the leaves-not-composites drop has to keep. `import.meta`
+    // / `new.target` have no classified leaf — `meta` and `target` are
+    // anonymous tokens in no arm — so with `MemberExpression*` gone the
+    // meta-object contributed no operand at all while `this.env.x` still
+    // yielded three.
+    //
+    // expected operands, for `var t = import.meta.url; function f() {
+    // return new.target; }`: `t`, `import.meta`, `url`, `f`,
+    // `new.target` — 5 total, 5 unique. Operators are deliberately not
+    // asserted: the `import` / `new` keyword tokens inside the
+    // meta-property keep their pre-existing operator classification,
+    // which this fixture neither pins nor contests.
+    #[test]
+    fn js_family_meta_property_is_one_operand_1263() {
+        const SRC: &str = "var t = import.meta.url; function f() { return new.target; }";
+        let check = |m: crate::CodeMetrics| {
+            assert_eq!(m.halstead.unique_operands(), 5);
+            assert_eq!(m.halstead.total_operands(), 5);
+        };
+
+        check_metrics::<JavascriptParser>(SRC, "foo.js", check);
+        check_metrics::<MozjsParser>(SRC, "foo.js", check);
+        check_metrics::<TypescriptParser>(SRC, "foo.ts", check);
+        check_metrics::<TsxParser>(SRC, "foo.tsx", check);
+    }
+
     // Issue #1263: TS/TSX `nested_identifier` (`namespace N.M`) is the
     // same container/leaf double-count as `member_expression`.
     //
