@@ -2372,6 +2372,53 @@ mod tests {
         });
     }
 
+    // The type half of the same arm (#1352). #1263 dropped
+    // `QualifiedType` alongside `QualifiedName`, but only the latter
+    // was pinned: adding `QualifiedType2` back to the operand arm
+    // failed none of the 3,523 tests then in the lib targets, so the
+    // leaves-only reading of a qualified *type* was correct by accident
+    // rather than by contract. The tempting "fix" for the alias miss
+    // #1263 recorded is to complete the list with 228, which is exactly
+    // the double count #1263 removed — this test is what stops that.
+    //
+    // The kind assertions are the grammar-dispatch section 1 / 2 drift
+    // marker: if a grammar bump renumbers the alias, the operand
+    // assertions below would keep passing while measuring a construct
+    // this arm no longer describes.
+    //
+    // expected, for `java.util.List x = null`: operators `.` × 2 and
+    // `=` → n1 = 2, N1 = 3; operands `java`, `util`, `List`, `x`,
+    // `null` → n2 = 5, N2 = 5. Listing the wrapper would add the whole
+    // span `java.util.List`, making the operand counts 6/6.
+    #[test]
+    fn groovy_qualified_type_counts_leaves_not_the_composite_1352() {
+        const SOURCE: &str = "java.util.List x = null";
+
+        let parser = GroovyParser::new(
+            SOURCE.as_bytes().to_vec(),
+            &PathBuf::from("foo.groovy"),
+            None,
+        );
+        assert!(
+            ast_has_kind_id(&parser, Groovy::QualifiedType2 as u16),
+            "the dekobon grammar no longer emits `qualified_type` as the \
+             alias `QualifiedType2`; re-derive the Groovy operand arm \
+             before trusting the counts below",
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Groovy::QualifiedType as u16),
+            "the unsuffixed `QualifiedType` is now reachable; it is a \
+             second wrapper this arm must keep excluded",
+        );
+
+        check_metrics::<GroovyParser>(SOURCE, "foo.groovy", |metric| {
+            assert_eq!(metric.halstead.unique_operators(), 2);
+            assert_eq!(metric.halstead.total_operators(), 3);
+            assert_eq!(metric.halstead.unique_operands(), 5);
+            assert_eq!(metric.halstead.total_operands(), 5);
+        });
+    }
+
     #[test]
     fn groovy_closure_operators_and_operands() {
         check_metrics::<GroovyParser>("def double = { x -> x * 2 }", "foo.groovy", |metric| {
