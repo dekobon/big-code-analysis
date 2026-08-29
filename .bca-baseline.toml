@@ -807,7 +807,7 @@ value = 5.0
 path = "src/getter/bash.rs"
 qualified = "BashCode::get_op_type"
 metric = "halstead.effort"
-value = 59128.4908004283
+value = 57989.391134957754
 
 [[entry]]
 path = "src/getter/elixir.rs"
@@ -831,7 +831,7 @@ value = 89041.25632378942
 path = "src/getter/php.rs"
 qualified = "PhpCode::get_op_type"
 metric = "halstead.effort"
-value = 95959.97115467714
+value = 92711.94569253008
 
 [[entry]]
 path = "src/getter/python.rs"
@@ -843,7 +843,7 @@ value = 48346.66496041094
 path = "src/getter/ruby.rs"
 qualified = "RubyCode::get_op_type"
 metric = "halstead.effort"
-value = 93042.67141704941
+value = 97661.51169055807
 
 [[entry]]
 path = "src/metrics/abc/csharp.rs"
