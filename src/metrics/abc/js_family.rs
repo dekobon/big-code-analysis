@@ -256,17 +256,54 @@ macro_rules! ts_abc_compute {
                 CallExpression | NewExpression => {
                     stats.branches += 1.;
                 }
-                // Comparison and equality operators, ternary `?`, `??`,
-                // `instanceof`, `else`, `case`, `catch`, `try`. The
-                // `default` arm of a `switch` is intentionally NOT a
+                // Comparison and equality operators, `??`, `instanceof`,
+                // `else`, `case`, `catch`, `try`. The `default` arm of a
+                // `switch` is intentionally NOT a
                 // condition: it is the unconditional fallthrough, so
                 // cyclomatic counts only the `Case` arms (issue #469).
                 // Both the statement (`default:`) and arrow
                 // (`default ->`) forms emit the same `Default` token, so
                 // omitting it here covers both.
-                EQEQ | EQEQEQ | BANGEQ | BANGEQEQ | LTEQ | GTEQ | QMARK | QMARKQMARK
-                | Instanceof | Else | Case | Try | Catch => {
+                EQEQ | EQEQEQ | BANGEQ | BANGEQEQ | LTEQ | GTEQ | QMARKQMARK | Instanceof
+                | Else | Case | Try | Catch => {
                     stats.conditions += 1.;
+                }
+                // A bare `?` opens a ternary in only one of the eleven
+                // productions that emit it. The other ten are type
+                // syntax carrying no runtime decision:
+                // `optional_parameter` (`f(x?: T)`);
+                // `property_signature`, `method_signature` and
+                // `abstract_method_signature`
+                // (`interface I { a?: T; m?(): void }`);
+                // `public_field_definition` (`class K { f?: T }`) and
+                // `method_definition` (`class K { m?() {} }`);
+                // `optional_type` and `optional_tuple_parameter`
+                // (`[number, string?]`); `flow_maybe_type`; and
+                // `conditional_type` (`T extends U ? X : Y`) — every one
+                // of which scored a condition before #1275.
+                //
+                // Allowlist polarity, deliberately — unlike the C#
+                // denylist in `csharp_count_token_condition`. Ten type-
+                // syntax parents against one decision parent is not a
+                // set worth restating, and TypeScript keeps growing type
+                // syntax, so the safe failure here is the closed one: a
+                // production the grammar adds later stops counting
+                // rather than starting to.
+                //
+                // `conditional_type` is an explicit decision, not an
+                // omission: `T extends U ? X : Y` is resolved by the
+                // type checker and erased before runtime, so it is no
+                // more a branch than the `<` / `>` excluded below.
+                //
+                // `?.` never reaches this arm — it is the distinct
+                // `QMARKDOT` token, inside an `optional_chain` node —
+                // and neither does `??` / `??=` (`QMARKQMARK` /
+                // `QMARKQMARKEQ`) nor a mapped type's `?:`
+                // (`QMARKCOLON`).
+                QMARK => {
+                    if ancestors.parent_has_kind(node, TernaryExpression as u16) {
+                        stats.conditions += 1.;
+                    }
                 }
                 // `<` and `>` may also delimit type arguments / type
                 // parameters (`Array<number>`, `class Foo<T> {}`); skip

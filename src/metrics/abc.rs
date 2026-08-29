@@ -3270,6 +3270,97 @@ mod tests {
         );
     }
 
+    // #1275: tree-sitter-c-sharp spells `int?`, `where T : class?`, the
+    // ternary and `a?.b` with one and the same bare `?` token, so the
+    // unguarded `QMARK` arm scored the two type-syntax forms as
+    // decisions.
+    //
+    // The fixture carries two `nullable_type` `?`, one
+    // `type_parameter_constraint` `?`, and one real ternary over a real
+    // `>` comparison, so every way of getting the gate wrong lands on
+    // its own number: 5 pre-fix, 3 if only `NullableType` is denied, 4
+    // if only `TypeParameterConstraint` is, 1 if the gate swallows the
+    // genuine ternary, 0 if the fixture stops parsing. Asserting 0 on a
+    // nullable-only body would have been vacuous — an unparsable file
+    // scores 0 too.
+    #[test]
+    fn csharp_nullable_type_syntax_is_not_a_condition() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                int M<T>(int? p, int a, int b) where T : class? {
+                    int? q = null;
+                    return a > b ? 1 : 2;
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+    }
+
+    // The polarity pin for #1275's C# half. `csharp_count_token_condition`
+    // denies the two type-syntax parents rather than allowing the two
+    // decision-bearing ones, so that `a?.b` and `a?[0]` keep counting by
+    // construction: both spell their operator as the same bare `?` under
+    // `conditional_access_expression`, and C# cyclomatic counts that node
+    // (`safe_navigation_chain_parity` pins C# at one decision per
+    // operator alongside every other safe-navigation language).
+    //
+    // This test is what stops a later "make all three languages
+    // consistent" pass from flipping C# to a `ConditionalExpression`
+    // allowlist: that would silently drop both counts here to 0 while
+    // every other ABC test still passed. `??` is deliberately absent
+    // from the expected total — C# ABC does not list `QMARKQMARK` as a
+    // condition (it does in the TS family), which is pre-existing and
+    // out of scope for #1275.
+    #[test]
+    fn csharp_conditional_access_still_counts_as_a_condition() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                object M(string s, int[] xs) {
+                    return s?.Length ?? xs?[0];
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+    }
+
+    // The other direction of #1275's C# gate, isolated: narrowing
+    // `QMARK` must not swallow a real ternary. The fixture carries no
+    // comparison operator at all, so the ternary is the only thing that
+    // can put the count above the walker's own contribution — in the
+    // test above, a surviving `>` would have masked an over-suppressed
+    // `?` at 1 instead of 0 (grammar-dispatch §11). A nullable
+    // parameter keeps the denied production live in the same parse, so
+    // one fixture proves both directions: 3 pre-fix, 2 after, 1 if the
+    // allowlist/denylist is aimed at `ConditionalExpression`.
+    //
+    // The 2 is the `?` token plus the ternary's condition slot, which
+    // `csharp_walk_for_conditions` counts as a Fitzpatrick unary
+    // condition. That is why this is not written as an
+    // `assert_deepest_conditions_match_cyclomatic` parity pin the way
+    // the Java `<` / `>` sibling is: C# cyclomatic scores this method 1
+    // decision, and the divergence is the pre-existing unary-condition
+    // rule, not the `?` gate.
+    #[test]
+    fn csharp_ternary_still_counts_alongside_nullable_types() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                int M(int? n, bool c) {
+                    return c ? 1 : 2;
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+    }
+
     #[test]
     fn csharp_aliased_invocation_expression_branches() {
         // Regression for issue #94 (lesson #2): the C# grammar emits three
@@ -4544,6 +4635,87 @@ function f(int $a, int $b): int {
         );
     }
 
+    // #1275, TypeScript half. Eleven grammar productions emit a bare
+    // `?` and only `ternary_expression` is a decision; the other ten are
+    // type syntax. This fixture exercises five of them — `optional_
+    // parameter`, `property_signature`, `method_signature`,
+    // `abstract_method_signature` and `public_field_definition`, plus an
+    // `optional_type` in a tuple — against one real ternary over one
+    // real `>`.
+    //
+    // Six type-syntax `?` means the numbers separate cleanly: 8 pre-fix,
+    // 2 once the allowlist is aimed at `TernaryExpression`, 1 if it is
+    // aimed at anything else (the ternary stops counting too), 0 if the
+    // fixture stops parsing. Any partial gate — one that named some of
+    // the type-syntax parents in a denylist instead — lands between 3
+    // and 7 and is equally visible.
+    #[test]
+    fn typescript_optional_type_syntax_is_not_a_condition() {
+        check_metrics::<TypescriptParser>(
+            "interface I { a?: string; m?(x: number): void; }
+            abstract class K { f?: number; abstract g?(): void; }
+            type Tup = [number, string?];
+            function h(x?: number, y: number = 0): number { return y > 1 ? 1 : 2; }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+    }
+
+    // The explicit half of #1275's TypeScript decision: a conditional
+    // type (`T extends U ? X : Y`) is resolved by the type checker and
+    // erased before runtime, so its `?` is not a condition. That falls
+    // out of the `TernaryExpression` allowlist rather than being named,
+    // which is exactly why it needs its own test — the choice reads as
+    // an omission otherwise, and nothing else here would notice if a
+    // later edit added `ConditionalType` to the allowlist "for
+    // symmetry".
+    //
+    // The real ternary below keeps the expectation off zero: 3 pre-fix,
+    // 2 with the conditional type excluded, 1 if the ternary is
+    // swallowed too.
+    #[test]
+    fn typescript_conditional_type_is_not_a_condition() {
+        check_metrics::<TypescriptParser>(
+            "type Cond<T> = T extends string ? number : boolean;
+            function pick(a: number, b: number): number { return a > b ? 1 : 2; }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+    }
+
+    // grammar-dispatch §2. `Typescript::QMARK2` is the enum entry for
+    // the external scanner's `_ternary_qmark` token, and
+    // tree-sitter-typescript's public symbol map folds it back onto
+    // `anon_sym_QMARK`, so `kind_id()` never reports it — every ternary
+    // `?` in the fixture below arrives as plain `QMARK`. Listing
+    // `QMARK2` in the gated arm would therefore be dead code, and
+    // leaving it out is safe only for as long as that mapping holds.
+    // This pins both halves so a grammar bump that starts exposing the
+    // alias fails here rather than silently zeroing every TypeScript
+    // ternary.
+    //
+    // The fixture's only `?` is the ternary's, deliberately. An optional
+    // parameter (`b?: number`) would emit a `QMARK` of its own and
+    // satisfy the positive assertion on its own, leaving it true no
+    // matter what id the ternary's `?` came back as — decoration rather
+    // than the non-vacuity guard it is here for.
+    #[test]
+    fn typescript_ternary_qmark_alias_stays_unreachable() {
+        let parser = TypescriptParser::new(
+            "function f(a: boolean): number { return a ? 1 : 2; }\n"
+                .as_bytes()
+                .to_vec(),
+            std::path::Path::new("foo.ts"),
+            None,
+        );
+        assert!(ast_has_kind_id(&parser, Typescript::QMARK as u16));
+        assert!(!ast_has_kind_id(&parser, Typescript::QMARK2 as u16));
+    }
+
     #[test]
     fn typescript_abstract_class_abc() {
         // Abstract methods have no body — they contribute nothing.
@@ -4778,6 +4950,61 @@ function f(int $a, int $b): int {
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
+    }
+
+    // #1275 in the second expansion of `ts_abc_compute!`. TSX shares
+    // TypeScript's `?` productions and its own `TernaryExpression` /
+    // `QMARK` ids, so the gate is a distinct instantiation and needs its
+    // own fixture — a passing TypeScript test says nothing about the
+    // macro's other expansion. Four type-syntax `?` plus one `>` and one
+    // ternary: 6 pre-fix, 2 after, 1 if the allowlist is misaimed.
+    #[test]
+    fn tsx_optional_type_syntax_is_not_a_condition() {
+        check_metrics::<TsxParser>(
+            "interface I { a?: string; m?(x: number): void; }
+            class K { f?: number; }
+            function h(x?: number, y: number = 0): number { return y > 1 ? 1 : 2; }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+    }
+
+    // The TSX half of `typescript_conditional_type_is_not_a_condition`.
+    // `ts_abc_compute!` expands twice and the two expansions are
+    // independent code (grammar-dispatch §11): adding `ConditionalType`
+    // to the allowlist "for symmetry" fails only the TypeScript test
+    // without this one, which reads as the TSX expansion being fine
+    // rather than untested. `conditional_type` is in the tsx grammar's
+    // `?` set exactly as it is in typescript's.
+    #[test]
+    fn tsx_conditional_type_is_not_a_condition() {
+        check_metrics::<TsxParser>(
+            "type Cond<T> = T extends string ? number : boolean;
+            function pick(a: number, b: number): number { return a > b ? 1 : 2; }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+    }
+
+    // The TSX half of `typescript_ternary_qmark_alias_stays_unreachable`
+    // — the tsx grammar declares the same `_ternary_qmark` external and
+    // maps it back onto `anon_sym_QMARK` at its own id. Same
+    // single-`?` fixture rule; see that test for why.
+    #[test]
+    fn tsx_ternary_qmark_alias_stays_unreachable() {
+        let parser = TsxParser::new(
+            "function f(a: boolean): number { return a ? 1 : 2; }\n"
+                .as_bytes()
+                .to_vec(),
+            std::path::Path::new("foo.tsx"),
+            None,
+        );
+        assert!(ast_has_kind_id(&parser, Tsx::QMARK as u16));
+        assert!(!ast_has_kind_id(&parser, Tsx::QMARK2 as u16));
     }
 
     #[test]
