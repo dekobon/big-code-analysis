@@ -2327,6 +2327,81 @@ mod tests {
         );
     }
 
+    #[test]
+    fn c_family_char_literal_is_not_a_string() {
+        // The C-family half of the #699 verdict `go_rune_literal_is_not_a_string`
+        // cites: a `char_literal` is flattened by the alterator and — since
+        // #1316 — is a Halstead operand, yet it is deliberately absent from
+        // `is_string`, because a character is not a string.
+        //
+        // #1316 made that citation true rather than aspirational (the operand
+        // half had never been implemented), so the exclusion is now a live
+        // decision and wants a pin of its own.
+        //
+        // Each row is two-sided. The `char_literal` count must be zero, and
+        // the `string_literal` in the same fixture must be one — otherwise a
+        // predicate that had stopped matching anything at all would read as a
+        // correctly-rejected character. The `ast_has_kind_id` guard covers the
+        // third way to get a zero: a fixture that no longer parses to a
+        // `char_literal` at all.
+        use crate::langs::{CParser, CppParser, MozcppParser, ObjcParser};
+
+        fn check<P: ParserTrait, F: Fn(&Node) -> bool + Copy>(
+            source: &[u8],
+            file: &str,
+            (char_literal, string_literal): (u16, u16),
+            is_string: F,
+            label: &str,
+        ) {
+            let parser = P::new(source.to_vec(), &PathBuf::from(file), None);
+            assert!(
+                ast_has_kind_id(&parser, char_literal),
+                "{label}: fixture should produce a char_literal node",
+            );
+            assert_eq!(
+                count_string_matches_for_kind(&parser, char_literal, is_string),
+                0,
+                "{label}: char_literal must not match is_string (a char is not a string)",
+            );
+            assert_eq!(
+                count_string_matches_for_kind(&parser, string_literal, is_string),
+                1,
+                "{label}: is_string must still match the fixture's string_literal, or the \
+                 zero above is a dead predicate rather than a rejected character",
+            );
+        }
+
+        let src = b"char a = 'x';\nconst char *b = \"s\";\n";
+        check::<CParser, _>(
+            src,
+            "t.c",
+            (C::CharLiteral as u16, C::StringLiteral as u16),
+            CCode::is_string,
+            "c",
+        );
+        check::<CppParser, _>(
+            src,
+            "t.cpp",
+            (Cpp::CharLiteral as u16, Cpp::StringLiteral as u16),
+            CppCode::is_string,
+            "cpp",
+        );
+        check::<MozcppParser, _>(
+            src,
+            "t.cpp",
+            (Mozcpp::CharLiteral as u16, Mozcpp::StringLiteral as u16),
+            MozcppCode::is_string,
+            "mozcpp",
+        );
+        check::<ObjcParser, _>(
+            src,
+            "t.m",
+            (Objc::CharLiteral as u16, Objc::StringLiteral as u16),
+            ObjcCode::is_string,
+            "objc",
+        );
+    }
+
     /// Asserts `is_func` / `is_closure` answer the same off a known
     /// chain as off a `Node::parent` climb, for every node of `code`.
     /// Returns the `(functions, closures)` the chain path counted, so a

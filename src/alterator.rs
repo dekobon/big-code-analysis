@@ -205,6 +205,13 @@ impl Alterator for ObjcCode {
         // plain `string_literal`, so the `StringLiteral` arm flattens
         // the quoted part exactly as for C (the `@` renders separately).
         match Objc::from(node.kind_id()) {
+            // CharLiteral is operand + flattened but deliberately absent
+            // from `Checker::is_string` (a char is not a string) — the
+            // same split Rust/Go apply to their char / rune literals.
+            // The C / Cpp / Mozcpp arms above have carried this note
+            // since #699; the ObjC clone was missing it (#1316), which
+            // is how the missing operand half stayed unnoticed here
+            // longest.
             Objc::StringLiteral | Objc::CharLiteral | Objc::ConcatenatedString => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
                 AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
