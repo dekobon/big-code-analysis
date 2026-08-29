@@ -1938,7 +1938,12 @@ node that try to influence the parent's already-computed result — "the
 `!` resets the sequence", "the modifier downgrades the score" — run too
 late to do what their comment says. The reverse direction works: state
 established on the ancestor that pre-order reaches first, read by every
-descendant. Never write back from a later sibling to an earlier one.
+descendant. Never write back from a later sibling to an earlier one. A
+sentinel cleared by a later token is only as reliable as its clear
+event: when you replace one, enumerate every arm that *sets* it and
+every path that skips the clear — the reported trigger is usually the
+most visible member of a family — and perturb the *new* predicate, since
+a preservation pin cannot fail against the old code.
 
 When proposing such an arm, **write the failing test first** (assert
 `cognitive("!a && !b && !c") > cognitive("a && b && c")`). If it passes
@@ -1990,6 +1995,15 @@ declarations masked it in the existing tests. The fix classifies the `=`
 structurally from its parent (`property_declaration` /
 `class_parameter`), so no sentinel can leak.
 
+**The same stack leaked two more ways** (#1277). ASI makes JavaScript's
+`SEMI` optional, so `const a = 1` without one suppressed every later
+`=`, and TypeScript's `x as const` promoted a live `let` slot even in
+semicolon-terminated code. The stack was kept for Java, Groovy and C# on
+the belief that their grammars require the `;` (Groovy's does not) and
+leaked anyway, arriving too late: live from `final` to the next `;`, it
+scored `final Runnable r = () -> { x = 1; };` as zero. All seven
+languages now classify the `=` from its parent chain.
+
 ---
 
 ## 53. Positional `node.child(idx)` breaks when the grammar permits an optional preamble slot
@@ -1997,11 +2011,15 @@ structurally from its parent (`property_declaration` /
 **Lesson:** Prefer `child_by_field_name(role)` over positional
 `node.child(idx)` for any slot whose grammar permits an optional
 preamble. The full rule, including the preamble inventory and the
-fallback when no field is exposed, is in
-[`grammar-dispatch.md` §3](../../.claude/rules/grammar-dispatch.md). The
-minimum new-test bar for a dispatcher arm is **one fixture per optional
-preamble the grammar permits** — not just the form the corpus already
-has.
+fallback when no field is exposed, is in [`grammar-dispatch.md`
+§3](../../.claude/rules/grammar-dispatch.md). The minimum new-test bar
+for a dispatcher arm is **one fixture per optional preamble the grammar
+permits** — not just the form the corpus already has. When migrating a
+slot from positional to field addressing, dump the AST for *each*
+spelling of the construct before choosing the fixture: two spellings
+that look interchangeable can put the `;` at different indices, and an
+empty-slot regression test written against the wrong one passes
+vacuously under the old code.
 
 Each language's grammar makes a different choice about which slots are
 optional, so the bug is per-language and per-statement-kind, not
@@ -2023,6 +2041,19 @@ feature commit, a simplify-rust pass, *and* an audit-tests review,
 because no pre-existing test exercised the optional-preamble form for any
 of the four languages — the fixture corpus had grown around the simpler
 shape.
+
+**Two `for` headers that read alike put the `;` at different indices**
+(#1276). `for (int i = 0; ; i++)` and `for (i = 0; ; i++)` scored
+differently under the positional cascade because Java's
+`local_variable_declaration` swallows its own `;` and Groovy's does not
+— so the empty-condition fixture first written for the fix passed
+against the old code and had to be respelled. In the same change, Go's
+`node.child(1)` survived the author's own rewrite of the function while
+comment-survival tests shipped for the two languages beside it. Every
+other grammar the fix touched exposes a `condition` field. One level
+deeper, every `*_inspect_container` but Tcl's and iRules' still unwraps
+with `node.child(1)`, so `if ((/* n */ a))` scores zero there — #1181's
+defect inside the wrapper, left open.
 
 ---
 
@@ -2426,11 +2457,15 @@ introduced a *fresh* divergence from Python. The fix gates only on
 ## 65. Removing a node kind from `is_func` / `is_func_space` zeroes its childless variant
 
 **Lesson:** Before removing a node kind from a function/space dispatch
-set to fix an over-count, enumerate the construct's variants and find the
-one with **no qualifying children** — it is relying on the membership you
-are about to delete. Gate the arm on child-presence rather than removing
-it, and keep `is_func`, `is_func_space`, and `get_space_kind` gated by
-the *same* predicate so the space tree stays self-consistent.
+set to fix an over-count, enumerate the construct's variants and find
+the one with **no qualifying children** — it is relying on the
+membership you are about to delete. Gate the arm on child-presence
+rather than removing it, and keep `is_func`, `is_func_space`, and
+`get_space_kind` gated by the *same* predicate so the space tree stays
+self-consistent. The same holds for any classification arm, not only the
+space dispatch: a kind that fills several grammatical roles must be
+fixtured in each role before an arm naming it is deleted — the reported
+fixtures show one role.
 
 This is the inverse of lesson 19 (a *missing* arm scores a valid
 construct as zero): here the arm exists and the fix is to narrow it —
@@ -2452,6 +2487,16 @@ bodied property correctly deferred to its accessor spaces — but
 `int W => _w;` opened no space at all and counted 0 while npm reported 1.
 The fix generalised the predicate to `csharp_member_has_accessors` and
 gated both member kinds on it at all three sites.
+
+**A Tcl braced word is a script body and the value slot of every other
+command** (#1354, #1317). Every fixture in the issue showed
+`braced_word` as a `proc` / `if` / `when` body, billed as one operand
+spanning the whole block beside the commands already counted, so
+deleting it from the operand arm looked safe. It is also the value slot
+of every command the grammar does not special-case, and `lappend l {}` —
+an empty list whose brace pair is its only carrier — dropped to zero
+operands where `lappend l ""` scores one. The arm is gated on holding a
+non-comment named child; `node-types.json` names both roles.
 
 ---
 
@@ -2734,13 +2779,16 @@ fixed one refused.
 ## 74. A language that owns no file extension has no snapshot coverage
 
 **Lesson:** When a `LANG` variant owns no file extension, the snapshot
-corpus cannot cover it — add a parity test driving a shared input through
-the extension-less variant and its extension-owning sibling and
+corpus cannot cover it — add a parity test driving a shared input
+through the extension-less variant and its extension-owning sibling and
 asserting identical output. And treat any region-based bulk edit across
 the `src/languages/` mirror clones as dangerous: scope each edit to a
 single `impl` block, because a clone inserted between two siblings makes
 a too-wide window silently corrupt its neighbour — in the one impl no
-corpus will catch.
+corpus will catch. Owning an extension is necessary, not sufficient: the
+corpus test's *path selection* must also admit the file. Check for a
+`.<ext>.snap` in the submodule before reasoning from "the corpus has
+such files".
 
 The integration corpus only exercises a variant when some file *routes*
 to it by extension. An opt-in dialect selected only by name
@@ -2760,6 +2808,17 @@ The full gate passed on that state, because Mozcpp owns no extension, no
 DeepSpeech file routes to it, and no snapshot moved. Only an adversarial
 review reasoning "Mozcpp and Cpp must agree on non-Gecko C++" caught it.
 The fix added `tests/cpp_mozcpp_parity.rs`, verified by revert.
+
+**Objective-C owns `.m`, fifteen `.m` files are checked out, and no
+`.m.snap` exists** (#1356, #1316). All fifteen sit under DeepSpeech's
+`tensorflow/`, and `tests/corpus/deepspeech_test.rs` snapshots an
+explicit list of `native_client/` paths, so a corpus file is invisible
+until someone adds it. Two fixes in one batch reasoned "the corpus
+contains `.m` files, so zero churn means the shape is absent" and were
+wrong for the same reason: neither the WMC member-scope fix nor the
+char-literal operand has corpus coverage, and only their unit tests
+hold. `fd '\.m\.snap$'` over the submodule returning 0 is the check that
+would have said so.
 
 ---
 
@@ -3095,16 +3154,18 @@ in #1051. Keying on the end column deletes the branch outright.
 
 ## 84. A factual claim in prose is untested code
 
-**Lesson:** Treat any sentence stating a checkable fact about the code as
-an assertion you owe evidence for, and get it the same way you would for
-a test: read the parameter type, run the measurement both ways, enumerate
-the call sites with `rg`, verify the panic actually panics. Each of the
-eight below took under five minutes to settle. Be most suspicious of
-prose in a change that is *itself* fixing a wrong claim, and of counts
-("four call sites", "13 languages"), which are correct when written and
-rot silently. When a claim is expensive to verify or cannot be pinned,
-write what was measured and under which conditions rather than the
-generalisation it suggests.
+**Lesson:** Treat any sentence stating a checkable fact about the code
+as an assertion you owe evidence for, and get it the same way you would
+for a test: read the parameter type, run the measurement both ways,
+enumerate the call sites with `rg`, verify the panic actually panics.
+Each of the eight below took under five minutes to settle. Be most
+suspicious of prose in a change that is *itself* fixing a wrong claim,
+and of counts ("four call sites", "13 languages"), which are correct
+when written and rot silently. When a claim is expensive to verify or
+cannot be pinned, write what was measured and under which conditions
+rather than the generalisation it suggests. Be most suspicious of all of
+a comment saying a fix is *already in place*: it ends the search that
+would have found the gap.
 
 No gate checks any of it. `cargo test` does not read prose, clippy does
 not evaluate it, and a reviewer's eye slides over a plausible sentence —
@@ -3143,6 +3204,17 @@ so the rationale was backwards — and load-bearing, because the expected
 value it justified was wrong too and had been for as long as the comment
 stood. Prose explaining *why* a number is what it is has to be checked
 together with the number, not after it.
+
+**A comment asserting the fix existed hid a years-old gap** (#1316).
+Three alterator arms had said since #699 that `CharLiteral` is an
+operand, flattened, and deliberately absent from `Checker::is_string`,
+and Go's own rune-literal test cited that C++ behaviour as settled
+precedent. The operand half had never been implemented: a C, C++, Mozcpp
+or Objective-C character literal contributed nothing to Halstead at all.
+Anyone auditing the C-family operand set read the comment as
+confirmation and moved on. The fix pinned the half that *was* true
+(`c_family_char_literal_is_not_a_string`, two-sided per language) so it
+fails loudly if it stops being true, and made the other half true.
 
 ---
 
@@ -3366,19 +3438,22 @@ not just its assertions.
 
 ## 89. A positive enumeration and a negative filter differ on what neither names
 
-**Lesson:** Replacing a bespoke `matches!(A | B)` with a shared
-`!is_x && !is_y` predicate does not just move the rule — it changes the
-set. The two agree on every kind either one names and disagree on
-everything else, so the inputs that move are exactly the ones no one
-enumerated and no test covers. Before consolidating, enumerate the node
-kinds the container can actually hold, and decide the leftovers
-deliberately: adopting the shared answer is usually right, but it is a
-decision, not a refactor. The same choice exists when you author the
-filter rather than consolidate one: gating a token that serves several
-grammatical roles *positively* — require the one parent that means what
-you are counting — is closed and fails safe, while denying the roles you
-thought of is open and admits the ones you did not. (cf. lesson 59 for
-why you are consolidating, and lesson 65 for the structural inverse.)
+**Lesson:** Replacing a bespoke `matches!(A | B)` with a shared `!is_x
+&& !is_y` predicate does not just move the rule — it changes the set.
+The two agree on every kind either one names and disagree on everything
+else, so the inputs that move are exactly the ones no one enumerated and
+no test covers. Before consolidating, enumerate the node kinds the
+container can actually hold, and decide the leftovers deliberately:
+adopting the shared answer is usually right, but it is a decision, not a
+refactor. The same choice exists when you author the filter rather than
+consolidate one: gating a token that serves several grammatical roles
+*positively* — require the one parent that means what you are counting —
+is closed and fails safe, while denying the roles you thought of is open
+and admits the ones you did not. (cf. lesson 59 for why you are
+consolidating, and lesson 65 for the structural inverse.) When a token's
+roles force opposite polarities in sibling languages, pin each direction
+with a test whose only job is to fail if a later "make these consistent"
+pass flips it.
 
 The direction of the change is what hides it. A positive filter is
 closed — a grammar that starts emitting a new kind silently scores zero,
@@ -3419,6 +3494,21 @@ the positive gate covered both without being told about either. **C#,
 Kotlin and the JS family still carry the denylist form**, so they are
 correct only for the roles someone thought of: the state Java and Groovy
 were in before #1274.
+
+**The same token needed opposite polarities eight lines apart** (#1275,
+following #1274). A `?` is the ternary operator and, in C#, also
+nullable-type syntax (`int? x`) and a constraint (`where T : class?`);
+in TypeScript it marks optional parameters, properties, methods, tuple
+elements and conditional types. TS/TSX got the positive gate — one
+`ternary_expression` parent against eleven type-syntax producers. C#
+could not: safe navigation `a?.b` / `a?[0]` emits the *same bare `?`*
+under `conditional_access_expression`, and counting it is deliberate (it
+keeps ABC in step with C# cyclomatic), so an allowlist on
+`conditional_expression` would have silently stopped counting it. C#
+denies `nullable_type` and `type_parameter_constraint` instead — the
+second found only by enumerating `grammar.json`; the issue's own list
+would have shipped it. One test exists to fail under both an allowlist
+flip and an over-suppression; nothing else in the suite noticed either.
 
 ---
 
