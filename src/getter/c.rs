@@ -78,8 +78,37 @@ impl Getter for CCode {
             // `operators` store) keeps them distinct in n1 while `long long`'s
             // two `long` tokens correctly fold to one n1 entry but two N1 hits.
             | Signed | Unsigned | Long | Short => HalsteadType::Operator,
-            Identifier | TypeIdentifier | FieldIdentifier | StringLiteral | NumberLiteral
-            | True | False | Null | DOTDOTDOT => HalsteadType::Operand,
+            // `CharLiteral` joins the operand list here for the whole
+            // C family — `cpp.rs`, `mozcpp.rs` and `objc.rs` carry the
+            // same arm and point back at this note (#1316). Before it a
+            // character literal contributed *nothing*: not an operator
+            // (correct) and not an operand (wrong), so `char b = 'x';`
+            // scored `b` alone while Rust, Java, Kotlin, C#, Go and
+            // Elixir all counted their character literal.
+            //
+            // Listing the wrapper is safe against the grammar-dispatch
+            // section 5 double count because none of `char_literal`'s
+            // children is classified: the opening delimiter (`'`, and
+            // the `L'` / `u'` / `U'` / `u8'` prefixed spellings, each a
+            // distinct kind), the closing `'`, and the `character` /
+            // `escape_sequence` payload are all absent from every arm
+            // in this match. So a literal bills exactly one operand
+            // however many `character` leaves it holds — a multi-char
+            // constant like `'ab'` has two and still counts once.
+            //
+            // Operands are keyed by source text (`get_operand_id`), so
+            // `'x'` and `L'x'` are separate vocabulary entries while a
+            // repeated `'x'` folds to one `n2` with two `N2` hits.
+            //
+            // `Checker::is_string` deliberately does **not** grow a
+            // `CharLiteral` arm to match: a char is not a string, the
+            // same split Rust and Go apply to their char / rune
+            // literals. The alterator flattens `CharLiteral` in all four
+            // languages and records that decision alongside each arm;
+            // `c_family_char_literal_is_not_a_string` in `checker.rs`
+            // pins it both ways.
+            Identifier | TypeIdentifier | FieldIdentifier | StringLiteral | CharLiteral
+            | NumberLiteral | True | False | Null | DOTDOTDOT => HalsteadType::Operand,
             _ => HalsteadType::Unknown,
         }
     }

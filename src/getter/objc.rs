@@ -91,8 +91,13 @@ impl Getter for ObjcCode {
             // ObjC-specific structural keywords / markers.
             | In | AT | ATtry | ATcatch | ATfinally | ATthrow | ATsynchronized
             | ATautoreleasepool | ATselector | ATencode => HalsteadType::Operator,
-            Identifier | TypeIdentifier | FieldIdentifier | StringLiteral | NumberLiteral
-            | True | False | Null | DOTDOTDOT => HalsteadType::Operand,
+            // `CharLiteral` — the full derivation lives on the same arm
+            // in `src/getter/c.rs` (#1316): the wrapper is the only
+            // classified node in a character literal, so it bills one
+            // operand per literal, keyed by text, and `Checker::is_string`
+            // deliberately stays without a `CharLiteral` arm.
+            Identifier | TypeIdentifier | FieldIdentifier | StringLiteral | CharLiteral
+            | NumberLiteral | True | False | Null | DOTDOTDOT => HalsteadType::Operand,
             _ => HalsteadType::Unknown,
         }
     }
