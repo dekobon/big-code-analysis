@@ -11124,4 +11124,43 @@ class A {
             },
         );
     }
+
+    /// A brace-less `for` body is a declaration with the *same* parent as
+    /// the header, so a carve-out keyed on the enclosing kind alone
+    /// dropped it (#1283 review): `for (…) var s = i;` counted one
+    /// logical line where the braced spelling and `for (…) x++;` count
+    /// two. The header is identified by the `initializer` field instead.
+    /// The nested spelling — a `switch` as the brace-less body — is the
+    /// same miss one level down.
+    ///
+    /// expected: for 1 + body declaration 1 = 2; for 1 + switch 1 +
+    /// case declaration 1 = 3.
+    #[test]
+    fn js_family_braceless_for_body_declaration_counts() {
+        const BODY: &str = "for (var i = 0; i < 3; i++) var s = i;\n";
+        const NESTED: &str = "for (let i = 0; i < 2; i++) switch (i) { case 0: let y = 1; }\n";
+        check_metrics::<JavascriptParser>(BODY, "foo.js", |m| assert_eq!(m.loc.lloc(), 2));
+        check_metrics::<MozjsParser>(BODY, "foo.js", |m| assert_eq!(m.loc.lloc(), 2));
+        check_metrics::<TypescriptParser>(BODY, "foo.ts", |m| assert_eq!(m.loc.lloc(), 2));
+        check_metrics::<TsxParser>(BODY, "foo.tsx", |m| assert_eq!(m.loc.lloc(), 2));
+        check_metrics::<JavascriptParser>(NESTED, "foo.js", |m| assert_eq!(m.loc.lloc(), 3));
+        check_metrics::<MozjsParser>(NESTED, "foo.js", |m| assert_eq!(m.loc.lloc(), 3));
+        check_metrics::<TypescriptParser>(NESTED, "foo.ts", |m| assert_eq!(m.loc.lloc(), 3));
+        check_metrics::<TsxParser>(NESTED, "foo.tsx", |m| assert_eq!(m.loc.lloc(), 3));
+    }
+
+    /// Ambient declarations execute nothing — `declare const x: T;` has
+    /// no initializer to run — so they are no logical line, whether the
+    /// `declare` is top-level or the declaration sits inside a
+    /// `declare namespace` / `declare module` body (#1283 review: only
+    /// the `export declare` spelling was carved out, so a `.d.ts` file
+    /// reported one LLOC per `declare const`).
+    ///
+    /// expected: 0 — every row is ambient.
+    #[test]
+    fn typescript_ambient_declarations_are_not_logical_lines() {
+        const SRC: &str = "declare const VERSION: string;\ndeclare let mutable: number;\ndeclare namespace NS { const inner: number; }\ndeclare module \"m\" { let y: string; }\n";
+        check_metrics::<TypescriptParser>(SRC, "foo.ts", |m| assert_eq!(m.loc.lloc(), 0));
+        check_metrics::<TsxParser>(SRC, "foo.tsx", |m| assert_eq!(m.loc.lloc(), 0));
+    }
 }
