@@ -146,6 +146,14 @@ Gate the arm on child-presence (`!csharp_member_has_accessors(node)`)
 and keep `is_func`, `is_func_space`, and `get_space_kind` gated by the
 *same* predicate, so the space tree never disagrees with itself.
 
+The same rule decides which node *keeps* a classification when a
+wrapper/leaf pair double-counts: the keeper is the node that exists for
+**every** spelling of the construct, verified with `bca dump` rather
+than assumed. PHP's `primitive_type` is childless for `callable`,
+`iterable`, `mixed`, `void`, `false` and `true`, so keeping the keyword
+leaf — the "obvious" innermost choice — would have scored six types
+zero (#1293).
+
 ## 7. Walk the sibling predicates for parity
 
 `Checker::is_string`, `Getter::get_op_type`, `Checker::is_call`,

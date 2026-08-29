@@ -133,6 +133,7 @@ number and the higher number stays as a redirect.
 | [87](#87-an-assertion-can-be-correct-and-still-be-about-the-wrong-rows) | An assertion can be about the wrong rows |
 | [88](#88-a-text-scan-that-does-not-lex-the-language-measures-noise) | A text scan that does not lex the language measures noise |
 | [89](#89-a-positive-enumeration-and-a-negative-filter-differ-on-what-neither-names) | A positive enumeration and a negative filter differ on what neither names |
+| [90](#90-re-reading-a-single-consumption-source-yields-empty-not-an-error) | A re-read of a consumable source yields empty, not an error |
 
 ---
 
@@ -227,6 +228,16 @@ the `else` keyword token, so it fired on every `)` and missed every real
 that is the trap: stable named-node ids tempt you to skip regeneration
 and blame your own change. The first hint was `bca dump` showing `{;:2}`
 where the enum said `Shebang = 2`.
+
+**An un-emitted alias can cancel a misclassification, so a "compliant"
+sibling may be two bugs deep** (#1263). Groovy's operand arm listed
+`QualifiedType` (221) while the runtime emits the alias `QualifiedType2`
+(228), so the container-as-operand bug being fixed for the JS family
+never fired there — and the issue's own survey pronounced Groovy
+leaves-only "empirically". Probe a sibling-compliance claim with
+`bca ops` on the exact construct rather than trusting a survey, and when
+the fix is to *remove* a kind, remove its un-fired aliases too instead
+of completing the list.
 
 ---
 
@@ -2254,6 +2265,12 @@ branch at all, so it matched neither the buggy pattern nor a search for
 function ends — a cross-command divergence introduced *by* the fix, in
 the release that closed the original report.
 
+**Delete the extra copy; a corrected duplicate re-arms the bug**
+(#1195, #1247). Three sites held "where does the unit's row span start"; #1195
+anchored one and #1247 was the drift between the other two. The fix
+removed both duplicates and reads the span back from the single owner —
+teaching each copy the same rule would only have staged the next drift.
+
 ---
 
 ## 60. "Fails on the branch" is not "fails on `main`"
@@ -2367,6 +2384,16 @@ containing an anonymous class counted it twice. `Wmc::merge` now carries
 nested `Class` records only its *own* cyclomatic, never its own nested
 total, which would re-double deeper classes. The recording lives in the
 shared `class_interface_compute`, so every OO language inherited it.
+
+**Placement is not membership** (#1301). A C++ `friend` defined inline
+opens its `Function` space where the grammar puts it — inside the class
+— but is a free function, so `npm` excluded it while `wmc` weighted it:
+the #1258 divergence surviving in another shape. The single-pass walk
+cannot reparent the space and `Wmc::merge` holds no node to ask, so the
+membership call is recorded at `open_func_space` via
+`Checker::is_non_member_function` (whose doc carries the design
+rationale) and consumed as a flag in the shared merge. Objective-C's C
+helpers inside `@implementation` are the same shape (#1356).
 
 ---
 
@@ -3389,5 +3416,38 @@ the positive gate covered both without being told about either. **C#,
 Kotlin and the JS family still carry the denylist form**, so they are
 correct only for the roles someone thought of: the state Java and Groovy
 were in before #1274.
+
+---
+
+## 90. Re-reading a single-consumption source yields empty, not an error
+
+**Lesson:** Before re-deriving a value from its source instead of
+threading it through, check whether the source can be read twice. A
+consumable source — stdin, a drained iterator, a channel — answers a
+second read with *nothing*, not with an error, so the downstream
+consumer sees a plausible empty collection and every result built on it
+is silently wrong. Thread the materialized value out of the stage that
+consumed the source; and if a comment defends the re-read as cheaper,
+answer that comment in the replacement, or the re-read comes back.
+
+The failure is invisible because both reads succeed. The first consumer
+drains the source as part of its normal work; the second read's empty
+result is indistinguishable from "the user provided nothing", and code
+that handles an empty list gracefully — usually a virtue — converts the
+bug into a clean wrong answer with a zero exit status. No test that
+supplies the input as a *file* can catch it, because files rewind for
+free; only the consumable spelling of the same option does.
+
+**`bca check --paths-from -` silently defeated `[check.exclude]`**
+(#1306). `apply_check_exclude` re-read `--paths-from` to re-anchor the
+exclude globs — a re-read the code defended in a comment as keeping the
+hot path allocation-free. `-` resolves to stdin, which the walk had
+already drained, so the second read returned an empty seed list, every
+violation anchored against the bare `--paths` set, and a
+`git diff --name-only | bca check --paths-from -` gate failed on files
+the project had exempted. The fix materializes the list once, before
+the walk, and carries it out in `CheckWalk::seeds`; the pre-existing
+regression test for #497 passed throughout, because it spelled the
+seed list as a file.
 
 ---
