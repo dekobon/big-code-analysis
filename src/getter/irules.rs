@@ -3,6 +3,13 @@
 
 use super::*;
 
+/// The braced-word kinds `Getter::is_subsumed_braced_word` is
+/// instantiated with (#1354): the literal *value* form the guard
+/// keys on, and the *script* form it gates on child-presence. Named
+/// here so the guard reads as one line inside an already long match.
+const BRACED_VALUE: u16 = Irules::BracedWordSimple as u16;
+const BRACED_SCRIPT: u16 = Irules::BracedWord as u16;
+
 impl Getter for IrulesCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
         match node.kind_id().into() {
@@ -19,15 +26,15 @@ impl Getter for IrulesCode {
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> HalsteadType {
         match node.kind_id().into() {
-            // Braced-word delimiter punctuation — the twin of the Tcl
-            // arm, which carries the derivation and both caveats
-            // (#1314). The same split holds at this grammar's own ids:
-            // handler and `if` bodies are `BracedWord` (132),
-            // conditions are `Expr` (141), and only the value form is
-            // `BracedWordSimple` (133).
-            Irules::LBRACE
-                if ancestors.parent_has_kind(node, Irules::BracedWordSimple as u16) =>
-            {
+            // The braced-word rule (#1314, #1354 / #1317) — the twin of
+            // the Tcl arm, which carries the derivation and every
+            // caveat, over the shared
+            // `Getter::is_subsumed_braced_word`. The same split holds
+            // at this grammar's own ids: handler and `if` bodies are
+            // `BracedWord` (132), conditions are `Expr` (141), and only
+            // the value form is `BracedWordSimple` (133), which admits
+            // the same six child kinds Tcl's does.
+            _ if Self::is_subsumed_braced_word(node, ancestors, BRACED_VALUE, BRACED_SCRIPT) => {
                 HalsteadType::Unknown
             }
             // Anonymous keyword tokens (the `*2` aliases are the keyword
@@ -137,6 +144,13 @@ impl Getter for IrulesCode {
             }
 
             // Operands: identifiers and literals.
+            //
+            // `BracedWord` (132) reaches this arm only when the guard
+            // above let it through, which since #1354 means only when
+            // it holds no named child — the reason the Tcl twin spells
+            // out. A `when` handler body is the largest instance of the
+            // over-count that removed: its operand text was the entire
+            // event handler.
             Irules::SimpleWord
             | Irules::Number
             | Irules::Boolean

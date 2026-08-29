@@ -11,7 +11,6 @@
 
 src/metrics/abc.rs 27
 src/metrics/cyclomatic.rs 1
-src/metrics/halstead.rs 3
 src/metrics/npa.rs 12
 src/metrics/npm.rs 23
 src/metrics/wmc.rs 13

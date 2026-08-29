@@ -4851,6 +4851,20 @@ f() {
 }",
             "foo.tcl",
             |metric| {
+                // Anchored per the snapshot policy in AGENTS.md, which
+                // this call predates. Operators `proc`, `set`, `[]`,
+                // `{}`, `expr`, `+`, `if`, `>`, `&&`, `!=` → n1 = 10,
+                // N1 = 14 (`{}` × 4 for the proc parameter list, the
+                // proc body, the two `expr`/`if` conditions and the
+                // `if` body — the `expr` braces are an `Expr`, the
+                // bodies a `BracedWord`). Operands `f`, `a`, `b`, `x`,
+                // `$a`, `$b`, `$x`, `0` and `return` → n2 = 9,
+                // N2 = 14. Before #1354 the proc body and the `if`
+                // body were operands too → 11 / 16.
+                assert_eq!(metric.halstead.unique_operators(), 10);
+                assert_eq!(metric.halstead.total_operators(), 14);
+                assert_eq!(metric.halstead.unique_operands(), 9);
+                assert_eq!(metric.halstead.total_operands(), 14);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -4880,10 +4894,17 @@ f() {
                 // on the proc body and the `expr` braces — which is
                 // exactly why the fabrication was invisible in n1 and
                 // is the reason to assert N1 as well (#1294).
+                //
+                // The operand columns fell 17 / 30 → 13 / 26 with
+                // #1354, and the operator columns did not move: the two
+                // script bodies (the proc's and the `if`'s) stopped
+                // being operands, and the `x` / `y` inside the braced
+                // words `{x}` and `{y}` are now part of the one operand
+                // each word contributes.
                 assert_eq!(metric.halstead.unique_operators(), 18);
                 assert_eq!(metric.halstead.total_operators(), 31);
-                assert_eq!(metric.halstead.unique_operands(), 17);
-                assert_eq!(metric.halstead.total_operands(), 30);
+                assert_eq!(metric.halstead.unique_operands(), 13);
+                assert_eq!(metric.halstead.total_operands(), 26);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -4899,6 +4920,18 @@ f() {
 }",
             "foo.tcl",
             |metric| {
+                // Anchored per the snapshot policy in AGENTS.md, which
+                // this call predates. Operators `proc` and `{}` × 2
+                // (the parameter list and the body) → n1 = 2, N1 = 3.
+                // Operands `f`, the parameter `x`, `return` and `$x` —
+                // one occurrence each, so a re-counted `x` leaf inside
+                // `$x` would show up in N2 even though it collides with
+                // the parameter in n2. Before #1354 the proc body was a
+                // fifth operand.
+                assert_eq!(metric.halstead.unique_operators(), 2);
+                assert_eq!(metric.halstead.total_operators(), 3);
+                assert_eq!(metric.halstead.unique_operands(), 4);
+                assert_eq!(metric.halstead.total_operands(), 4);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -4919,15 +4952,17 @@ f() {
 }",
             "foo.tcl",
             |metric| {
-                // Operands: `f`, the proc-body `braced_word`, the `set`
-                // target `s`, `"hello world"` — 4 unique, 4 total. Before
-                // #1294 this read 3/3 with `s` missing (the body operand
-                // made the count coincidentally plausible). The wrapping
+                // Operands: `f`, the `set` target `s`, `"hello world"` —
+                // 3 unique, 3 total. Before #1294 this read 3/3 for a
+                // different reason, with `s` missing and the proc-body
+                // `braced_word` making the count coincidentally
+                // plausible; #1354 removed that body operand, so the
+                // three named here are now the whole list. The wrapping
                 // `QuotedWord` must still contribute exactly one operand
-                // when it carries no interpolation children; dropping to 3
+                // when it carries no interpolation children; dropping to 2
                 // would mean the inert case was over-guarded.
-                assert_eq!(metric.halstead.unique_operands(), 4);
-                assert_eq!(metric.halstead.total_operands(), 4);
+                assert_eq!(metric.halstead.unique_operands(), 3);
+                assert_eq!(metric.halstead.total_operands(), 3);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -4947,13 +4982,13 @@ f() {
 }",
             "foo.tcl",
             |metric| {
-                // Operands: `f`, `x`, `y` (proc args), the proc-body
-                // `braced_word`, the `set` target `s`, `$x`, `$y` — 7
-                // unique, 7 total. The wrapping `QuotedWord` contributes
-                // nothing. Before #1294 this read 6/6 with `s` missing;
-                // before #277 the wrapper double-counted.
-                assert_eq!(metric.halstead.unique_operands(), 7);
-                assert_eq!(metric.halstead.total_operands(), 7);
+                // Operands: `f`, `x`, `y` (proc args), the `set` target
+                // `s`, `$x`, `$y` — 6 unique, 6 total. The wrapping
+                // `QuotedWord` contributes nothing, and since #1354
+                // neither does the proc-body `braced_word`. Before #277
+                // the wrapper double-counted.
+                assert_eq!(metric.halstead.unique_operands(), 6);
+                assert_eq!(metric.halstead.total_operands(), 6);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -4973,13 +5008,13 @@ f() {
 }",
             "foo.tcl",
             |metric| {
-                // Operands: `f`, the proc-body `braced_word`, the `set`
-                // target `s`, `foo` — 4 unique, 4 total. The wrapping
-                // `QuotedWord` and the inert text `result: ` do not
-                // contribute extra operands. Before #1294 this read 3/3
-                // with `s` missing; before #277 the wrapper double-counted.
-                assert_eq!(metric.halstead.unique_operands(), 4);
-                assert_eq!(metric.halstead.total_operands(), 4);
+                // Operands: `f`, the `set` target `s`, `foo` — 3 unique,
+                // 3 total. The wrapping `QuotedWord` and the inert text
+                // `result: ` do not contribute extra operands, and since
+                // #1354 neither does the proc-body `braced_word`. Before
+                // #277 the wrapper double-counted.
+                assert_eq!(metric.halstead.unique_operands(), 3);
+                assert_eq!(metric.halstead.total_operands(), 3);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -5064,21 +5099,19 @@ f() {
         // operator with no block in the source.
         //
         // expected: operator `set` × 3 → n1 = 1, N1 = 3. Operands
-        // `a`, `b`, `c`, `$a`, `{braced word}` × 2 and its inner
-        // `braced` / `word` × 2 each → n2 = 7, N2 = 10. (The inner
-        // words counting alongside the word that contains them is a
-        // separate, pre-existing defect, filed off #1314 as #1317;
-        // this test pins today's totals rather than endorsing them.)
-        // Before the guard the two openers added `{}` → n1 = 2,
-        // N1 = 5.
+        // `a`, `b`, `c`, `$a` and `{braced word}` × 2 → n2 = 5,
+        // N2 = 6. Before the guard the two openers added `{}` →
+        // n1 = 2, N1 = 5; before #1354 the inner `braced` / `word`
+        // counted alongside the word containing them → n2 = 7,
+        // N2 = 10.
         check_metrics::<TclParser>(
             "set a {braced word}\nset b {braced word}\nset c $a\n",
             "foo.tcl",
             |metric| {
                 assert_eq!(metric.halstead.unique_operators(), 1);
                 assert_eq!(metric.halstead.total_operators(), 3);
-                assert_eq!(metric.halstead.unique_operands(), 7);
-                assert_eq!(metric.halstead.total_operands(), 10);
+                assert_eq!(metric.halstead.unique_operands(), 5);
+                assert_eq!(metric.halstead.total_operands(), 6);
             },
         );
     }
@@ -5097,23 +5130,25 @@ f() {
         // expected: operators `proc`, `set` × 2, `if`, `>`, and `{}`
         // × 4 (the proc parameter list, the proc body, the `if`
         // condition, the `if` body) → n1 = 5, N1 = 9. Operands, all
-        // distinct → n2 = N2 = 13: the words `p`, `x`, `a`, `v`, `w`,
-        // `$x`, `1`, `b`, `y`, the two braced *words* `{v w}` and
-        // `{y}`, and — the part worth noting — the two *script* bodies
-        // `{\n  set a …\n}` and `{ set b {y} }`, which are
-        // `BracedWord` operands in their own right. A script body
-        // therefore counts twice over: once as this operand and once
-        // as the `{}` operator above. That is pre-existing and not
-        // what this test guards; it is spelled out so the count is
-        // re-derivable.
+        // distinct → n2 = N2 = 8: `p`, `x`, `a`, `$x`, `1`, `b` and
+        // the two braced *words* `{v w}` and `{y}`, each one operand
+        // rather than one per inner word.
+        //
+        // Before #1354 this read 13 / 13. The five extra entries were
+        // the inner words `v`, `w`, `y` and the two *script* bodies,
+        // which were `BracedWord` operands in their own right — so a
+        // block counted twice over, once as the operand and once as
+        // the `{}` operator this test is about. Both halves are gone;
+        // the operator columns are what this test guards and they did
+        // not move.
         check_metrics::<TclParser>(
             "proc p {x} {\n  set a {v w}\n  if {$x > 1} { set b {y} }\n}\n",
             "foo.tcl",
             |metric| {
                 assert_eq!(metric.halstead.unique_operators(), 5);
                 assert_eq!(metric.halstead.total_operators(), 9);
-                assert_eq!(metric.halstead.unique_operands(), 13);
-                assert_eq!(metric.halstead.total_operands(), 13);
+                assert_eq!(metric.halstead.unique_operands(), 8);
+                assert_eq!(metric.halstead.total_operands(), 8);
             },
         );
     }
@@ -5138,14 +5173,22 @@ f() {
         // expected: operators `set`, `[]`, `if`, and `{}` × 2 (the
         // `if` condition's `Expr` and its `BracedWord` body; the outer
         // value word's own `{` is suppressed) → n1 = 4, N1 = 5.
-        // Operands `z`, `x`, `$q`, `puts`, `w`, `v` and the two braced
-        // words → n2 = N2 = 8. Under the ancestor-scoped mutant both
-        // surviving braces vanish: n1 = 3, N1 = 3.
+        // Operands `z`, the whole braced word, and `$q` / `puts` / `w`
+        // from inside the command substitution → n2 = N2 = 5. Under
+        // the ancestor-scoped mutant both surviving braces vanish:
+        // n1 = 3, N1 = 3.
+        //
+        // #1354 widened the guard from the `{` alone to every direct
+        // child of the braced word, which is why `x` and `v` are no
+        // longer operands and the nested script body no longer is
+        // either. It did not change the *scope*: the three operands
+        // from inside the command substitution are grandchildren, and
+        // an ancestor-scoped guard would drop them too.
         check_metrics::<TclParser>("set z {x [if {$q} {puts w}] v}\n", "foo.tcl", |metric| {
             assert_eq!(metric.halstead.unique_operators(), 4);
             assert_eq!(metric.halstead.total_operators(), 5);
-            assert_eq!(metric.halstead.unique_operands(), 8);
-            assert_eq!(metric.halstead.total_operands(), 8);
+            assert_eq!(metric.halstead.unique_operands(), 5);
+            assert_eq!(metric.halstead.total_operands(), 5);
         });
     }
 
@@ -5156,18 +5199,474 @@ f() {
         //
         // expected: operators `when`, `set`, `[]`, `if`, `{}` × 3 (the
         // handler body, the `if` condition and the `if` body) → n1 = 5,
-        // N1 = 7. Operands `HTTP_REQUEST`, `z`, `x`, `$q`, `log`, `w`,
-        // `v` and the braced words → n2 = N2 = 10.
+        // N1 = 7. Operands `HTTP_REQUEST`, `z`, the whole braced word,
+        // and `$q` / `log` / `w` from inside the command substitution →
+        // n2 = N2 = 6 (10 before #1354, which also took the direct
+        // children `x` / `v` and the two script bodies out of the
+        // operand set without moving the operator columns this test
+        // guards).
         check_metrics::<IrulesParser>(
             "when HTTP_REQUEST {\n  set z {x [if {$q} {log w}] v}\n}\n",
             "foo.irule",
             |metric| {
                 assert_eq!(metric.halstead.unique_operators(), 5);
                 assert_eq!(metric.halstead.total_operators(), 7);
-                assert_eq!(metric.halstead.unique_operands(), 10);
-                assert_eq!(metric.halstead.total_operands(), 10);
+                assert_eq!(metric.halstead.unique_operands(), 6);
+                assert_eq!(metric.halstead.total_operands(), 6);
             },
         );
+    }
+
+    /// How one dialect of the Tcl family spells the braced-word
+    /// construct. The two grammars are deliberate clones with different
+    /// id blocks, so #1354's guard is derived once and instantiated
+    /// twice — and a fix that landed in only one dialect fails the
+    /// second instantiation rather than going unnoticed.
+    struct BracedWordKinds {
+        /// `braced_word_simple`, the literal *value* form the guard
+        /// keys on.
+        wrapper: u16,
+        /// `braced_word`, the *script* form #1354 gated on
+        /// child-presence: an operand only when it holds nothing.
+        script_body: u16,
+        /// Every named kind node-types.json admits directly inside
+        /// `wrapper`. A child outside this set means the grammar moved
+        /// and the parent-keyed arm has to be re-derived
+        /// (grammar-dispatch §1).
+        children: [u16; 6],
+        /// The `{` / `}` the wrapper also holds. Suppressing the opener
+        /// was the whole of #1314's narrower guard; the closer has
+        /// never been classified, since `get_operator_id_as_str` folds
+        /// the pair to one `{}` glyph.
+        delimiters: [u16; 2],
+        /// Of `children`, the three the operand arm classified
+        /// unconditionally before the guard.
+        operand_children: [u16; 3],
+        /// `quoted_word`, which was an operand only when *inert* —
+        /// `string_operand_type`'s own rule, replicated here so the
+        /// shed count below is what `N2` actually shed.
+        quoted_word: u16,
+        /// The interpolation kinds that decide that.
+        interpolation: [u16; 2],
+    }
+
+    const TCL_BRACED_WORD_KINDS: BracedWordKinds = BracedWordKinds {
+        wrapper: Tcl::BracedWordSimple as u16,
+        script_body: Tcl::BracedWord as u16,
+        children: [
+            Tcl::SimpleWord as u16,
+            Tcl::EscapedCharacter as u16,
+            Tcl::QuotedWord as u16,
+            Tcl::VariableSubstitution as u16,
+            Tcl::CommandSubstitution as u16,
+            Tcl::BracedWordSimple as u16,
+        ],
+        delimiters: [Tcl::LBRACE as u16, Tcl::RBRACE as u16],
+        operand_children: [
+            Tcl::SimpleWord as u16,
+            Tcl::VariableSubstitution as u16,
+            Tcl::BracedWordSimple as u16,
+        ],
+        quoted_word: Tcl::QuotedWord as u16,
+        interpolation: [
+            Tcl::VariableSubstitution as u16,
+            Tcl::CommandSubstitution as u16,
+        ],
+    };
+
+    const IRULES_BRACED_WORD_KINDS: BracedWordKinds = BracedWordKinds {
+        wrapper: Irules::BracedWordSimple as u16,
+        script_body: Irules::BracedWord as u16,
+        children: [
+            Irules::SimpleWord as u16,
+            Irules::EscapedCharacter as u16,
+            Irules::QuotedWord as u16,
+            Irules::VariableSubstitution as u16,
+            Irules::CommandSubstitution as u16,
+            Irules::BracedWordSimple as u16,
+        ],
+        delimiters: [Irules::LBRACE as u16, Irules::RBRACE as u16],
+        operand_children: [
+            Irules::SimpleWord as u16,
+            Irules::VariableSubstitution as u16,
+            Irules::BracedWordSimple as u16,
+        ],
+        quoted_word: Irules::QuotedWord as u16,
+        interpolation: [
+            Irules::VariableSubstitution as u16,
+            Irules::CommandSubstitution as u16,
+        ],
+    };
+
+    /// The operand occurrences #1354 removed from `source`, as their
+    /// source texts, plus the set of `braced_word_simple` child kinds
+    /// the fixture witnessed.
+    ///
+    /// Walks with `for_each_node_with_chain`, which maintains the
+    /// ancestor chain exactly as `spaces::compute` does, so "parent"
+    /// here means what `Ancestors::parent` means inside the guard.
+    /// Doubles as the grammar-dispatch §1 / §2 drift marker: a child of
+    /// the wrapper outside `children` ∪ `delimiters` fails on the spot,
+    /// which is what makes keying the arm on the parent alone — rather
+    /// than on an enumerated child list — safe to rely on.
+    fn braced_word_shed<L: crate::LanguageInfo>(
+        source: &str,
+        kinds: &BracedWordKinds,
+    ) -> (Vec<String>, HashSet<u16>) {
+        let code = source.as_bytes();
+        let mut shed = Vec::new();
+        let mut witnessed = HashSet::new();
+        for_each_node_with_chain::<L>(code, |node, chain| {
+            let text = || {
+                node.utf8_text(code)
+                    .expect("fixture is valid UTF-8")
+                    .to_owned()
+            };
+            // The script form was an operand of its own wherever it
+            // appeared until #1354, which now gates it on holding a
+            // named child. This is not a child of the wrapper, so it is
+            // counted before the parent test below.
+            if node.kind_id() == kinds.script_body && node.children().any(|child| child.is_named())
+            {
+                shed.push(text());
+            }
+            if chain.last().is_none_or(|p| p.kind_id() != kinds.wrapper) {
+                return;
+            }
+            assert!(
+                kinds.children.contains(&node.kind_id())
+                    || kinds.delimiters.contains(&node.kind_id()),
+                "`{source}`: a `{}` inside a braced word is a child this guard \
+                 was not derived against; re-read node-types.json before \
+                 trusting it",
+                node.kind(),
+            );
+            if kinds.children.contains(&node.kind_id()) {
+                witnessed.insert(node.kind_id());
+            }
+            let was_operand = kinds.operand_children.contains(&node.kind_id())
+                || (node.kind_id() == kinds.quoted_word && !node.wraps_any(&kinds.interpolation));
+            if was_operand {
+                shed.push(text());
+            }
+        });
+        (shed, witnessed)
+    }
+
+    /// One row of the #1354 tables: a fixture, what it measures now,
+    /// what it measured before, and the operand texts behind the counts.
+    struct BracedWordCase {
+        source: &'static str,
+        /// `[n1, N1, n2, N2]` with the guard in place.
+        counts: [u64; 4],
+        /// `[n2, N2]` without it. Re-derived by the loop rather than
+        /// trusted, so a stale row fails instead of misinforming.
+        before: [u64; 2],
+        operands: &'static [&'static str],
+    }
+
+    /// Every row is measured in *both* dialects, so a fix applied to
+    /// one getter and not its clone fails here. `braced_word_shed`'s
+    /// drift assertion likewise runs against both grammars.
+    fn check_braced_word_cases<T: crate::ParserTrait, L: crate::LanguageInfo>(
+        cases: &[BracedWordCase],
+        file: &str,
+        kinds: &BracedWordKinds,
+    ) -> HashSet<u16> {
+        let mut witnessed = HashSet::new();
+        for case in cases {
+            let (shed, seen) = braced_word_shed::<L>(case.source, kinds);
+            witnessed.extend(seen);
+
+            // Phrased as an addition rather than a subtraction so a
+            // future edit that inverts the two underflows nothing.
+            assert_eq!(
+                case.before[1],
+                case.counts[3] + shed.len() as u64,
+                "{file} `{}`: N2 must shed exactly one occurrence per \
+                 previously-billed part; recorded {}, parts {shed:?}",
+                case.source,
+                case.before[1],
+            );
+            let mut vocabulary: HashSet<&str> = case.operands.iter().copied().collect();
+            vocabulary.extend(shed.iter().map(String::as_str));
+            assert_eq!(
+                vocabulary.len() as u64,
+                case.before[0],
+                "{file} `{}`: n2 before the fix is the post-fix vocabulary \
+                 plus those parts; got {vocabulary:?}",
+                case.source,
+            );
+
+            assert_halstead_counts::<T>(case.source, file, case.counts, case.source);
+            assert_ops_operands::<T>(
+                case.source,
+                file,
+                case.operands.len(),
+                case.operands.to_vec(),
+            );
+        }
+        witnessed
+    }
+
+    /// The rows shared by both dialects: one per named child kind
+    /// `braced_word_simple` admits, the childless spelling, the
+    /// repeated-value row that separates `n2` from `N2` (#1294), and
+    /// the braced/quoted parity pair #1317 asks for.
+    const BRACED_WORD_CASES: [BracedWordCase; 11] = [
+        // simple_word, the reported fixture. Two words inside one
+        // value scored two operands beside the value itself.
+        BracedWordCase {
+            source: "set x {literal here}\n",
+            counts: [1, 1, 2, 2],
+            before: [4, 4],
+            operands: &["x", "{literal here}"],
+        },
+        // The childless spelling, and the reason the wrapper is kept
+        // rather than dropped in favour of its contents
+        // (grammar-dispatch §6): with nothing inside, the wrapper is
+        // the empty string's only carrier. Nothing is shed here, so
+        // this row asserts the two columns agree.
+        BracedWordCase {
+            source: "set y {}\n",
+            counts: [1, 1, 2, 2],
+            before: [2, 2],
+            operands: &["y", "{}"],
+        },
+        // braced_word_simple inside braced_word_simple: the nesting
+        // that makes the over-count unbounded in depth. One value
+        // spelled six vocabulary entries.
+        BracedWordCase {
+            source: "set a {x {y z}}\n",
+            counts: [1, 1, 2, 2],
+            before: [6, 6],
+            operands: &["a", "{x {y z}}"],
+        },
+        // quoted_word, inert — an operand in its own right elsewhere,
+        // and shed here.
+        BracedWordCase {
+            source: "set a {x \"q w\" v}\n",
+            counts: [1, 1, 2, 2],
+            before: [5, 5],
+            operands: &["a", "{x \"q w\" v}"],
+        },
+        // quoted_word carrying an interpolation, which was *not* an
+        // operand before the guard either (`string_operand_type` had
+        // already suppressed it) — so only `x` and `v` are shed. Its
+        // `$q` is a grandchild of the braced word and still counts,
+        // which is the parent-scoping this arm inherits from #1314.
+        BracedWordCase {
+            source: "set a {x \"$q\" v}\n",
+            counts: [1, 1, 3, 3],
+            before: [5, 5],
+            operands: &["a", "$q", "{x \"$q\" v}"],
+        },
+        // escaped_character, never classified — so it sheds nothing
+        // and the row measures the two `simple_word`s around it.
+        BracedWordCase {
+            source: "set a {x \\n y}\n",
+            counts: [1, 1, 2, 2],
+            before: [4, 4],
+            operands: &["a", "{x \\n y}"],
+        },
+        // variable_substitution. Tcl substitutes nothing between
+        // braces, so `{$x}` is the two-character string `$x` — the row
+        // that makes "the wrapper is the value" more than a tie-break.
+        BracedWordCase {
+            source: "set a {$x}\n",
+            counts: [1, 1, 2, 2],
+            before: [3, 3],
+            operands: &["a", "{$x}"],
+        },
+        // command_substitution, likewise never an operand itself. Its
+        // interior is, and stays so: `$q`, `puts` and `w` are
+        // grandchildren. The nested `{puts w}` is a *script* body and
+        // sheds under the other half of #1354.
+        BracedWordCase {
+            source: "set z {x [if {$q} {puts w}] v}\n",
+            counts: [4, 5, 5, 5],
+            before: [8, 8],
+            operands: &["z", "$q", "puts", "w", "{x [if {$q} {puts w}] v}"],
+        },
+        // The same value twice: n2 3 against N2 4, so a row that
+        // asserted only the vocabulary could not tell the two axes
+        // apart (#1294).
+        BracedWordCase {
+            source: "set a {b c}\nset d {b c}\n",
+            counts: [1, 2, 3, 4],
+            before: [5, 8],
+            operands: &["a", "d", "{b c}"],
+        },
+        // The parity pair #1317 named: two spellings of one literal
+        // value must score alike. They did not before — braced 4 / 4
+        // against quoted 2 / 2 — which is the spelling sensitivity
+        // #695, #1312 and #1314 each removed elsewhere.
+        BracedWordCase {
+            source: "set a {one two}\n",
+            counts: [1, 1, 2, 2],
+            before: [4, 4],
+            operands: &["a", "{one two}"],
+        },
+        BracedWordCase {
+            source: "set a \"one two\"\n",
+            counts: [1, 1, 2, 2],
+            before: [2, 2],
+            operands: &["a", "\"one two\""],
+        },
+    ];
+
+    /// The script half of #1354, shared by both dialects: a
+    /// `braced_word` holding commands is a block whose contents the
+    /// walk already counts, so it is no longer also an operand
+    /// spanning the whole block.
+    ///
+    /// The three childless rows are the gate, and the reason this is a
+    /// gate and not a deletion (grammar-dispatch §6). `braced_word` is
+    /// not only the script kind: it is the value slot of every command
+    /// the grammar does not special-case, where `lappend l {}` is an
+    /// empty list whose brace pair is its only carrier. Deleting the
+    /// kind scored that zero while its `lappend l ""` synonym — the
+    /// last row, the control — scored one. An empty `proc` body is
+    /// spelled identically and so also keeps an operand; no
+    /// kind-scoped arm can separate the two roles.
+    const SCRIPT_BODY_CASES: [BracedWordCase; 5] = [
+        BracedWordCase {
+            source: "proc p {} { set b 1 }\n",
+            counts: [3, 4, 3, 3],
+            before: [4, 4],
+            operands: &["p", "b", "1"],
+        },
+        BracedWordCase {
+            source: "proc p {} {}\n",
+            counts: [2, 3, 2, 2],
+            before: [2, 2],
+            operands: &["p", "{}"],
+        },
+        // A `braced_word` in *value* position — the #1318 misparse,
+        // where the same kind carries a literal list. Its interior
+        // words counted before and still do; only the whole-block
+        // operand that was double-billing them is gone.
+        BracedWordCase {
+            source: "lappend l {a b}\n",
+            counts: [1, 1, 4, 4],
+            before: [5, 5],
+            operands: &["lappend", "l", "a", "b"],
+        },
+        // …and the childless spelling of that value, which sheds
+        // nothing: the brace pair is the empty list's only carrier.
+        BracedWordCase {
+            source: "lappend l {}\nreturn {}\n",
+            counts: [1, 2, 4, 5],
+            before: [4, 5],
+            operands: &["lappend", "l", "return", "{}"],
+        },
+        // The control the row above is measured against: the quoted
+        // spelling of the same empty value, which never depended on
+        // the arm and must keep scoring one operand.
+        BracedWordCase {
+            source: "lappend l \"\"\nreturn \"\"\n",
+            counts: [0, 0, 4, 5],
+            before: [4, 5],
+            operands: &["lappend", "l", "return", "\"\""],
+        },
+    ];
+
+    /// The table must exercise every named child kind the grammar
+    /// admits inside a braced word, and no other — the other half of
+    /// the drift marker in `braced_word_shed`, which can only police
+    /// kinds a fixture actually produces.
+    fn assert_braced_word_children_witnessed(
+        witnessed: &HashSet<u16>,
+        kinds: &BracedWordKinds,
+        dialect: &str,
+    ) {
+        let mut got: Vec<u16> = witnessed.iter().copied().collect();
+        got.sort_unstable();
+        let mut expected = kinds.children;
+        expected.sort_unstable();
+        assert_eq!(
+            got.as_slice(),
+            expected.as_slice(),
+            "{dialect}: the fixtures must witness every child kind \
+             node-types.json admits inside a braced word",
+        );
+    }
+
+    /// Regression for #1354 and #1317. `braced_word_simple` is a
+    /// literal value and `braced_word` a script, and both were
+    /// operands *beside* the content the walk counts anyway: a braced
+    /// word was billed once per inner word plus once for itself, and a
+    /// block once for every command in it plus once for its whole
+    /// text. `set x {literal here}` scored n2 4 / N2 4 for one value.
+    /// The name is the invariant either way — the value's content is
+    /// the literal, the script's is its commands, and each is billed
+    /// once.
+    ///
+    /// Each row's `before` column is re-derived by the loop from the
+    /// current parse rather than trusted. That derivation is a replica
+    /// of the pre-#1354 arms and could in principle drift from what
+    /// they did, so every column was also measured directly against a
+    /// build of the old getters — `lappend l {a b}` at n2 5 / N2 5,
+    /// `lappend l {}` at 4 / 5, `proc p {} {}` at 2 / 2 — rather than
+    /// derived only from the model here.
+    ///
+    /// The same walk doubles as the drift marker for the parent-keyed
+    /// arm: it fails if the grammar ever puts a seventh kind directly
+    /// inside a braced word, and the union assertion below fails if a
+    /// bump stops emitting one of the six.
+    #[test]
+    fn tcl_braced_word_bills_its_content_once_1354() {
+        let mut witnessed = check_braced_word_cases::<TclParser, TclCode>(
+            &BRACED_WORD_CASES,
+            "foo.tcl",
+            &TCL_BRACED_WORD_KINDS,
+        );
+        witnessed.extend(check_braced_word_cases::<TclParser, TclCode>(
+            &SCRIPT_BODY_CASES,
+            "foo.tcl",
+            &TCL_BRACED_WORD_KINDS,
+        ));
+        assert_braced_word_children_witnessed(&witnessed, &TCL_BRACED_WORD_KINDS, "tcl");
+    }
+
+    /// The iRules twin. The tables are shared, so a fix that reached
+    /// only `src/getter/tcl.rs` fails every row here — the two getters
+    /// are deliberate clones and #1354 names both.
+    #[test]
+    fn irules_braced_word_bills_its_content_once_1354() {
+        let mut witnessed = check_braced_word_cases::<IrulesParser, IrulesCode>(
+            &BRACED_WORD_CASES,
+            "foo.irule",
+            &IRULES_BRACED_WORD_KINDS,
+        );
+        witnessed.extend(check_braced_word_cases::<IrulesParser, IrulesCode>(
+            &SCRIPT_BODY_CASES,
+            "foo.irule",
+            &IRULES_BRACED_WORD_KINDS,
+        ));
+        // The `when` handler body is the iRules-only spelling of a
+        // script body, and the largest instance of the defect: its
+        // operand text was the entire event handler.
+        let handlers: [BracedWordCase; 2] = [
+            BracedWordCase {
+                source: "when HTTP_REQUEST { set x 1 }\n",
+                counts: [3, 3, 3, 3],
+                before: [4, 4],
+                operands: &["HTTP_REQUEST", "x", "1"],
+            },
+            BracedWordCase {
+                source: "when HTTP_REQUEST {}\n",
+                counts: [2, 2, 2, 2],
+                before: [2, 2],
+                operands: &["HTTP_REQUEST", "{}"],
+            },
+        ];
+        witnessed.extend(check_braced_word_cases::<IrulesParser, IrulesCode>(
+            &handlers,
+            "foo.irule",
+            &IRULES_BRACED_WORD_KINDS,
+        ));
+        assert_braced_word_children_witnessed(&witnessed, &IRULES_BRACED_WORD_KINDS, "irules");
     }
 
     #[test]
@@ -6260,8 +6759,11 @@ f() {
             // closers no longer add operators (was 12 unique / 20 total).
             assert_eq!(metric.halstead.unique_operators(), 10);
             assert_eq!(metric.halstead.total_operators(), 14);
-            assert_eq!(metric.halstead.unique_operands(), 12);
-            assert_eq!(metric.halstead.total_operands(), 16);
+            // Operands fell 12 / 16 → 10 / 14 with #1354: the proc body
+            // and the `if` body are `BracedWord` script kinds and are no
+            // longer operands beside the commands they contain.
+            assert_eq!(metric.halstead.unique_operands(), 10);
+            assert_eq!(metric.halstead.total_operands(), 14);
         });
 
         let path = PathBuf::from("foo.irule");
@@ -6277,7 +6779,7 @@ f() {
         );
         assert_eq!(
             unique_operands.len(),
-            12,
+            10,
             "dedupe(ops.operands) must equal n2; operands were {:?}",
             ops.operands
         );
@@ -6285,11 +6787,11 @@ f() {
 
     /// An inert `"hello world"` double-quoted string (no `$var` / `[cmd]`
     /// interpolation child) contributes exactly **one** operand — the
-    /// wrapping `QuotedWord`. Operands are `f`, `s`, `"hello world"`, and
-    /// the proc-body `braced_word` (counted as an operand in the Tcl
-    /// family) — n2=4, the same as Tcl since #1294 restored its `set`
-    /// target to the operand count. Mirrors
-    /// `tcl_inert_quoted_word_counts_as_operand` (#277).
+    /// wrapping `QuotedWord`. Operands are `f`, `s` and `"hello world"` —
+    /// n2 = 3, the same as Tcl since #1294 restored its `set` target to
+    /// the operand count and #1354 dropped the proc-body `braced_word`
+    /// from both. Mirrors `tcl_inert_quoted_word_counts_as_operand`
+    /// (#277).
     #[test]
     fn irules_inert_quoted_word_counts_as_operand() {
         let source = "proc f {} {\n    set s \"hello world\"\n}\n";
@@ -6298,8 +6800,8 @@ f() {
             // longer adds an operator (was 4 unique / 6 total).
             assert_eq!(metric.halstead.unique_operators(), 3);
             assert_eq!(metric.halstead.total_operators(), 4);
-            assert_eq!(metric.halstead.unique_operands(), 4);
-            assert_eq!(metric.halstead.total_operands(), 4);
+            assert_eq!(metric.halstead.unique_operands(), 3);
+            assert_eq!(metric.halstead.total_operands(), 3);
         });
 
         let path = PathBuf::from("foo.irule");
@@ -6315,7 +6817,7 @@ f() {
             .count();
         assert_eq!(quoted, 1, "inert quoted word must be one operand");
         let unique_operands: HashSet<&str> = ops.operands.iter().map(String::as_str).collect();
-        assert_eq!(unique_operands.len(), 4, "operands were {:?}", ops.operands);
+        assert_eq!(unique_operands.len(), 3, "operands were {:?}", ops.operands);
     }
 
     /// Regression for the `QuotedWord` interpolation guard (the #277 /
@@ -6323,9 +6825,10 @@ f() {
     /// `"$x is $y"` must contribute **zero** operands for the wrapping
     /// `QuotedWord`; the inner `$x` / `$y` `variable_substitution` nodes are
     /// walked separately and count on their own. Operands are `f`, `x`, `y`,
-    /// `s`, `$x`, `$y`, and the proc-body `braced_word` = 7. If the guard
-    /// regressed (wrapper classified `Operand`), the wrapper string would
-    /// add an 8th operand. This is the branch that had no test before.
+    /// `s`, `$x`, `$y` = 6 (7 before #1354 dropped the proc-body
+    /// `braced_word`). If the guard regressed (wrapper classified
+    /// `Operand`), the wrapper string would add a 7th operand. This is the
+    /// branch that had no test before.
     #[test]
     fn irules_interpolated_quoted_word_no_double_count() {
         let source = "proc f {x y} {\n    set s \"$x is $y\"\n}\n";
@@ -6334,8 +6837,8 @@ f() {
             // longer adds an operator (was 4 unique / 6 total).
             assert_eq!(metric.halstead.unique_operators(), 3);
             assert_eq!(metric.halstead.total_operators(), 4);
-            assert_eq!(metric.halstead.unique_operands(), 7);
-            assert_eq!(metric.halstead.total_operands(), 7);
+            assert_eq!(metric.halstead.unique_operands(), 6);
+            assert_eq!(metric.halstead.total_operands(), 6);
         });
 
         let path = PathBuf::from("foo.irule");
@@ -6359,7 +6862,7 @@ f() {
             ops.operands
         );
         let unique_operands: HashSet<&str> = ops.operands.iter().map(String::as_str).collect();
-        assert_eq!(unique_operands.len(), 7, "operands were {:?}", ops.operands);
+        assert_eq!(unique_operands.len(), 6, "operands were {:?}", ops.operands);
     }
 
     /// Exercises the operator families not covered by
@@ -6385,8 +6888,11 @@ f() {
             // closers no longer add operators (was 26 unique / 57 total).
             assert_eq!(metric.halstead.unique_operators(), 24);
             assert_eq!(metric.halstead.total_operators(), 43);
-            assert_eq!(metric.halstead.unique_operands(), 23);
-            assert_eq!(metric.halstead.total_operands(), 42);
+            // Operands fell 23 / 42 → 19 / 38 with #1354: the proc body
+            // and the three single-statement `if` bodies are
+            // `BracedWord` script kinds and no longer count as operands.
+            assert_eq!(metric.halstead.unique_operands(), 19);
+            assert_eq!(metric.halstead.total_operands(), 38);
         });
 
         let path = PathBuf::from("foo.irule");
@@ -6402,7 +6908,7 @@ f() {
         );
         assert_eq!(
             unique_operands.len(),
-            23,
+            19,
             "dedupe(ops.operands) must equal n2; operands were {:?}",
             ops.operands
         );
@@ -6412,12 +6918,13 @@ f() {
     /// `id` leaf (the *named* `Id` node — not the anonymous `Id2` token Tcl
     /// has there) must NOT be counted separately, or every variable
     /// reference double-counts. `get_op_type` excludes `Id` whose parent is
-    /// a `VariableSubstitution`. Operands: `f`, the proc arg `x`, `return`,
-    /// `$x`, and the proc-body `braced_word` — five, with no duplicate
-    /// (`total_operands()` == 5). If the guard regressed, the inner `id` "x"
-    /// would add a sixth operand occurrence (it text-collides with the proc
-    /// arg `x`, so `u_operands` would stay 5 but `total_operands()` would rise
-    /// to 6 — hence the total, not just the unique count, is asserted).
+    /// a `VariableSubstitution`. Operands: `f`, the proc arg `x`, `return`
+    /// and `$x` — four, with no duplicate (`total_operands()` == 4; the
+    /// proc-body `braced_word` was a fifth before #1354). If the guard
+    /// regressed, the inner `id` "x" would add a fifth operand occurrence
+    /// (it text-collides with the proc arg `x`, so `u_operands` would stay
+    /// 4 but `total_operands()` would rise to 5 — hence the total, not just
+    /// the unique count, is asserted).
     #[test]
     fn irules_bare_variable_operand() {
         let source = "proc f {x} {\n    return $x\n}\n";
@@ -6426,8 +6933,8 @@ f() {
             // `}` closer no longer adds an operator (was 3 unique / 5 total).
             assert_eq!(metric.halstead.unique_operators(), 2);
             assert_eq!(metric.halstead.total_operators(), 3);
-            assert_eq!(metric.halstead.unique_operands(), 5);
-            assert_eq!(metric.halstead.total_operands(), 5);
+            assert_eq!(metric.halstead.unique_operands(), 4);
+            assert_eq!(metric.halstead.total_operands(), 4);
         });
 
         let path = PathBuf::from("foo.irule");
@@ -6457,16 +6964,19 @@ f() {
         //
         // expected: operators `when`, `set` × 2, `if`, `contains`,
         // `[]`, `{}` × 3 → n1 = 6, N1 = 9. Every operand is distinct →
-        // n2 = N2 = 12. Before the guard the two value openers added
-        // two more `{}` occurrences → N1 = 11.
+        // n2 = N2 = 7: `HTTP_REQUEST`, `a`, `b`, `HTTP::uri`, `"x"` and
+        // the two braced words `{braced word}` and `{y}`. Before the
+        // guard the two value openers added two more `{}` occurrences →
+        // N1 = 11; before #1354 the handler and `if` bodies and the
+        // inner `braced` / `word` / `y` were operands too → n2 = 12.
         check_metrics::<IrulesParser>(
             "when HTTP_REQUEST {\n  set a {braced word}\n  if {[HTTP::uri] contains \"x\"} { set b {y} }\n}\n",
             "foo.irule",
             |metric| {
                 assert_eq!(metric.halstead.unique_operators(), 6);
                 assert_eq!(metric.halstead.total_operators(), 9);
-                assert_eq!(metric.halstead.unique_operands(), 12);
-                assert_eq!(metric.halstead.total_operands(), 12);
+                assert_eq!(metric.halstead.unique_operands(), 7);
+                assert_eq!(metric.halstead.total_operands(), 7);
             },
         );
     }

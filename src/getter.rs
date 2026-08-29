@@ -404,6 +404,42 @@ pub(crate) trait Getter {
         }
     }
 
+    /// Whether `node` is a fragment of a Tcl-family braced word rather
+    /// than a token of its own, and so contributes no operand (#1354).
+    ///
+    /// The two dialects are deliberate clones, so the rule is declared
+    /// once and instantiated with each grammar's ids; the per-call
+    /// rationale lives at each call site. It answers yes in two cases:
+    ///
+    /// - `node` sits directly inside a braced *value* (`wrapper`,
+    ///   `braced_word_simple`). Tcl evaluates nothing between braces,
+    ///   so the value is its whole span and the parts inside it are
+    ///   letters — the wrapper carries the one operand. This subsumes
+    ///   #1314's narrower guard on the opening `{`, which is one more
+    ///   such child.
+    /// - `node` is a braced *script* (`script`, `braced_word`) holding
+    ///   at least one named child. Those children are commands the walk
+    ///   descends into and counts in their own right, so billing the
+    ///   block as well would count its whole text a second time.
+    ///
+    /// A *childless* `script` is deliberately not subsumed: the same
+    /// kind serves as the value slot of every command the grammar does
+    /// not special-case, where `lappend l {}` is an empty list and the
+    /// brace pair is its only carrier (grammar-dispatch §6). An empty
+    /// `proc` body is indistinguishable from it and so also scores one
+    /// operand — the cost of a grammar that spells both the same way,
+    /// and the same conflation `FIXME(#1318)` tracks on the operator
+    /// side.
+    fn is_subsumed_braced_word<'a>(
+        node: &Node<'a>,
+        ancestors: Ancestors<'a, '_>,
+        wrapper: u16,
+        script: u16,
+    ) -> bool {
+        ancestors.parent_has_kind(node, wrapper)
+            || (node.kind_id() == script && node.children().any(|child| child.is_named()))
+    }
+
     fn get_operator_id_as_str(_id: u16) -> &'static str {
         ""
     }
