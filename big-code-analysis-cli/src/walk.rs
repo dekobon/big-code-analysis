@@ -409,9 +409,7 @@ pub(crate) fn expand_seed_paths(
     threads: usize,
     filters: &WalkFilters<'_>,
 ) -> ResolvedFiles {
-    if let Some(src) = paths_from {
-        paths.extend(read_paths_from(&src).unwrap_or_else(|e| die(e)));
-    }
+    materialize_paths_from(&mut paths, paths_from.as_deref());
     // Default the walk root to the current directory when the user
     // supplied no seeds — neither via `--paths`/`--paths-from` nor via
     // a manifest `paths` key (the manifest merge already populated

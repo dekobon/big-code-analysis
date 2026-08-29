@@ -122,11 +122,15 @@ pub(crate) fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
     let document = match act_on_file_dispatch(path, cfg) {
         Ok(document) => document,
         Err(err) => {
-            // The dispatch error is the one worth reporting, so the
-            // release's own result is discarded here; it can only be a
-            // stdout write failure, which the same run reports through
-            // whichever file *does* surface it.
-            drop(release_slot(cfg, slot, None));
+            // The dispatch error is the one to return, but the release
+            // is not free of consequence: it drains every document
+            // queued behind this slot, and a stdout failure in that
+            // drain is gone from the buffer for good — no later release
+            // retries it — so it is tallied here like any other failed
+            // write.
+            if let Err(write_err) = release_slot(cfg, slot, None) {
+                note_write_failure(cfg, &write_err);
+            }
             return Err(err);
         }
     };
@@ -167,7 +171,7 @@ fn release_slot(
 ) -> std::io::Result<()> {
     match (cfg.ordered_stdout.as_ref(), slot) {
         (Some(ordered), Some(slot)) => ordered.release(slot, document),
-        _ => document.map_or(Ok(()), |doc| crate::ordered_stdout::write_document(&doc)),
+        _ => crate::ordered_stdout::write_unordered(document),
     }
 }
 

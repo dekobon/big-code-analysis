@@ -266,6 +266,17 @@ pub(crate) fn read_paths_from(src: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(split_path_lines(&bytes))
 }
 
+/// Append the `--paths-from` entries to `paths`, exiting with the read
+/// error when `src` cannot be read. The one place the seed list grows
+/// from that source, shared by the walk (`expand_seed_paths`) and by the
+/// `check` gate, which materializes the list ahead of the walk because
+/// `-` names stdin and stdin can only be read once (#1306).
+pub(crate) fn materialize_paths_from(paths: &mut Vec<PathBuf>, src: Option<&Path>) {
+    if let Some(src) = src {
+        paths.extend(read_paths_from(src).unwrap_or_else(|e| crate::die(e)));
+    }
+}
+
 /// Read the entire `--paths-from` source (`-` for stdin, else a file) as
 /// raw bytes. Kept separate from the line-splitting so the splitter can
 /// be unit-tested on synthetic byte input.
