@@ -162,8 +162,9 @@ for historical reference.
   billed as one operand spanning its entire text beside the commands the
   walk already counts, so `n2` grew with the size and uniqueness of the
   code rather than with its vocabulary; it is now billed through its
-  contents alone, except when it holds nothing (`lappend l {}` is an
-  empty list whose brace pair is its only carrier). **Metric drift:**
+  contents alone, except when it holds no command (`lappend l {}` is an
+  empty list whose brace pair is its only carrier, and a comment-only
+  body scores like an empty one). **Metric drift:**
   Tcl and iRules `halstead.*`, the derived values, and hence `mi` fall
   for any file containing a braced word or block. A value-position
   braced literal still reports a `{}` operator (#1318).
@@ -197,12 +198,25 @@ for historical reference.
   semicolon (ASI) left a stale sentinel that suppressed every subsequent
   `=` until the next `;` — `const a = 1` then `x = 2` scored zero
   assignments. `const` initializers are now identified structurally from
-  the `=` token's parent chain, matching the Kotlin fix in #455. Two
-  further leaks the sentinel had are closed with it: it crossed into an
-  enclosing space past a nested arrow function, and TypeScript's `x as
-  const` promoted a live `let` slot, which leaked even in fully
-  semicolon-terminated code. Affects Javascript, Mozjs, Typescript and
-  Tsx.
+  the `=` token's ancestor chain, matching the Kotlin fix in #455; the
+  same change closes TypeScript's `x as const`, which promoted a live
+  `let` slot and leaked even in fully semicolon-terminated code. A
+  destructuring default under a `const` declarator (`const {a = 1} = o`)
+  stays part of the declaration, as it was under the sentinel. Affects
+  Javascript, Mozjs, Typescript and Tsx. **Metric drift:** an assignment
+  nested inside a `const` initializer's *value* (`const x = (o.p = v)`,
+  `const x = a || (b = 1)`) was blanket-suppressed by the sentinel and now
+  counts, so `abc.assignments` rises in semicolon-terminated code that
+  uses that shape — the change behind the pdf.js corpus refresh. Java,
+  Groovy and C# now use the same structural rule for `final` / `const`
+  initializers instead of a sentinel stack of their own; that stack
+  stayed live from the keyword to the next `;`, so in Java and Groovy
+  every `=` inside a `final` initializer — a lambda or closure body's
+  `x = 1`, an array initializer's — was suppressed with the declarator's
+  own (`final Runnable r = () -> { x = 1; };` scored 0). **Metric
+  drift:** Java and Groovy `abc.assignments` rise by one per assignment
+  nested in a `final` initializer; C# is unchanged, since a `const`
+  initializer cannot contain one.
 - A `?` used as type syntax is no longer counted as an ABC ternary
   condition in C#, TypeScript and TSX (#1275). The ternary `?` and the
   type-syntax `?` are the same anonymous token, so C# scored `int? x`
@@ -216,19 +230,52 @@ for historical reference.
 - `abc.conditions` now counts the `for` header's condition slot
   (#1276). A bare, negated or parenthesised loop condition
   (`for (; a; )`, `for (; !a; )`, `for (; (a); )`) scored zero in C,
-  C++, Mozcpp, Objective-C, JavaScript, Mozjs, TypeScript, TSX and PHP
-  while the same predicate in an `if` scored one; comparison-shaped
-  conditions (`i < n`) were unaffected. Go's three-clause
-  `for init; cond; post` had the same gap, and its header slot was
-  additionally mis-read for a bare `for {}` and shifted by a header
-  comment. **Metric drift:** `abc.conditions` — and therefore
-  `abc.magnitude` / `abc.value` — rises for any function with such a
-  loop in those ten languages. An **empty** condition (`for (;;)`,
+  C++, Mozcpp, Objective-C, JavaScript, Mozjs, TypeScript, TSX, PHP and
+  Perl's C-style `for (my $i = 0; $ok; $i++)` while the same predicate in
+  an `if` scored one; comparison-shaped conditions (`i < n`) were
+  unaffected. Go's three-clause `for init; cond; post` had the same gap,
+  and its header slot was additionally mis-read for a bare `for {}` and
+  shifted by a header comment. **Metric drift:** `abc.conditions` — and
+  therefore `abc.magnitude` / `abc.value` — rises for any function with
+  such a loop in those eleven languages. An **empty** condition (`for (;;)`,
   `for (init; ; update)`) now counts **zero** in every language: Java
   and Groovy previously scored one vacuous condition and drop by one per
   such loop. Java's and Groovy's `for` condition also no longer goes
   unread when a comment appears in the loop header.
 
+- Objective-C message sends are boolean terminals in ABC condition
+  slots. `cpp_bool_terminal_kinds!` listed `call_expression` but not
+  ObjC's `message_expression`, so `if ([a ok])`, `while (![a ok])`,
+  `for (; [a ok]; )`, `[a ok] ? x : y` and each operand of a `&&` /
+  `||` chain scored zero conditions where the C-call twin `if (ok())`
+  scored one. **Metric drift:** ObjC `abc.conditions` rises for any
+  function with a message send in a decision slot.
+- Groovy's elvis operator `a ?: c` is an ABC condition. Groovy
+  cyclomatic already counted the token and Kotlin's ABC arm counts its
+  identical one, so a method whose only branching was elvis chains
+  reported cyclomatic above one with zero conditions; one condition per
+  `?:`, so `abc.conditions` stays equal to `cyclomatic() - 1` on the
+  chain. **Metric drift:** Groovy `abc.conditions` rises by one per
+  elvis.
+- Perl `qw()` lists are Halstead operands. Neither the elements, the
+  wrapper nor the `qw` keyword had a classification, so `my @a = qw(a b
+  c)` billed `@a` alone where `("a", "b", "c")` billed four operands.
+  Each element is one operand and the empty `qw()` is one, the rule
+  #1353 set for Ruby's `%w[]`; the delimiter choice cannot move the
+  score. **Metric drift:** Perl `n2` / `N2` rise by one per `qw`
+  element.
+- iRules array references are no longer billed three times. The
+  `array_index` wrapper of `$arr(k)` was an operand beside the reference
+  and the index it wraps, so one reference contributed three operands
+  where the Tcl twin contributed two. **Metric drift:** iRules `N2` falls
+  by one per array reference, and `n2` by one per distinct index
+  spelling.
+- The `@` of an Objective-C string literal is no longer a Halstead
+  operator. `@"…"` is one `string_literal` holding its `@` as a child,
+  so the marker was billed as an operator while the operand key already
+  carried it; `NSString *s = @"str";` scored an `@` in `n1` that `@42`
+  and `@[…]` legitimately keep. **Metric drift:** ObjC `n1` / `N1` fall
+  by one per string literal.
 - `bca` no longer announces every file the reader declines as
   `skipping empty file` (#1287). Emptiness is only one of four gates: a
   1–3-byte valid source, a multi-kilobyte binary, and a UTF-16-BOM file

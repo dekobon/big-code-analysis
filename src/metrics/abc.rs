@@ -149,13 +149,6 @@ pub struct Stats {
     conditions_min: f64,
     conditions_max: f64,
     space_count: usize,
-    pub(super) declaration: Vec<DeclKind>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub(super) enum DeclKind {
-    Var,
-    Const,
 }
 
 impl Default for Stats {
@@ -174,7 +167,6 @@ impl Default for Stats {
             conditions_min: f64::MAX,
             conditions_max: 0.,
             space_count: 1,
-            declaration: Vec::new(),
         }
     }
 }
@@ -475,6 +467,23 @@ mod tests {
     // the same space), so the func-space shim carries Cyclomatic too.
     check_func_space_only_shim!(check_func_space, Abc, Cyclomatic);
 
+    /// `abc.conditions_sum()` of `src` under a walk restricted to ABC
+    /// and the metrics it resolves, for the cross-language parity tests
+    /// that compare one construct across sibling grammars.
+    /// `check_metrics` expands to a plain `fn` and so cannot close over
+    /// a reference value; this can. Restricted rather than
+    /// `MetricsOptions::default()` per `metrics_verbatim`'s own doc
+    /// (#1127).
+    fn abc_conditions(lang: LANG, src: &str) -> u64 {
+        metrics_verbatim(
+            lang,
+            src.as_bytes(),
+            MetricsOptions::default().with_only(&[crate::Metric::Abc]),
+        )
+        .abc
+        .conditions_sum()
+    }
+
     // Recurse to the innermost function space and assert the invariant
     // named above there. `conditions()` is that one space's own count,
     // so it pairs with `cyclomatic()` and never `cyclomatic_sum()`,
@@ -502,44 +511,78 @@ mod tests {
         assert_eq!(stats.conditions_min(), 0);
     }
 
-    // Regression test for the `EQ` arm guard in `JavaCode::compute`:
-    // the rewrite from `.map().unwrap_or_else()` to
-    // `is_none_or(|decl| matches!(decl, DeclKind::Var))` must preserve
-    // the three-way truth table — None → ++, Some(Var) → ++,
-    // Some(Const) → no-op.
+    // The `EQ` arm of `java_count_token_assignment`: a plain `=` counts
+    // unless `java_eq_initializes_final_binding` finds it initialising a
+    // `final` binding, whether the declaration is a local or a field.
     #[test]
-    fn java_eq_arm_increments_when_declaration_stack_is_empty() {
-        // No surrounding `int x = ...` / `Final` token → declaration
-        // stack is empty when the `EQ` token is visited, so the None
-        // branch must increment `assignments`.
+    fn java_eq_arm_counts_outside_final_declarations() {
         check_metrics::<JavaParser>(
             "class A { void m() { int x = 0; x = 1; x = 2; x = 3; } }",
             "foo.java",
             |metric| {
-                // `int x = 0;` adds 1 (Some(Var) branch),
-                // each subsequent `x = N;` adds 1 (None branch).
+                // `int x = 0;` is not `final`, so it counts like each
+                // `x = N;` that follows.
                 assert_eq!(metric.abc.assignments_sum(), 4);
             },
         );
     }
 
     #[test]
-    fn java_eq_arm_skips_when_declaration_stack_top_is_const() {
-        // `final` pushes `DeclKind::Const` on top of the active `Var`
-        // entry, so the Some(non-Var) branch must skip the increment.
+    fn java_eq_arm_skips_final_initializers() {
         check_metrics::<JavaParser>(
             "class A {
                 final int X = 1;
-                final int Y = 2;
+                @Deprecated private final int Y = 2;
                 void m() { final int Z = 3; }
             }",
             "foo.java",
             |metric| {
-                // All three `=` tokens land under a `Const` top, so
-                // assignments should be 0 across all spaces.
+                // All three `=` tokens are `final` initializers — the
+                // second behind an annotation and an access modifier in
+                // the same `modifiers` node — so assignments are 0
+                // across all spaces.
                 assert_eq!(metric.abc.assignments_sum(), 0);
             },
         );
+    }
+
+    #[test]
+    fn java_final_initializer_does_not_suppress_the_assignments_inside_it() {
+        // The sentinel stack the structural predicate replaced stayed
+        // live from `final` to the next `;`, so every `=` nested in the
+        // initializer — a lambda body's, an array initializer's — was
+        // suppressed with the declarator's own. Java lambdas open no
+        // space, so nothing else separated them. Each row names the
+        // pre-fix value.
+        let cases = [
+            ("void m() { final Runnable r = () -> { x = 1; }; }", 1, 0),
+            (
+                "void m() { final Runnable r = () -> { x = 1; y = 2; }; }",
+                2,
+                1,
+            ),
+            ("void m() { final Runnable r = () -> x = 1; }", 1, 0),
+            ("void m() { final int[] a = { x = 1 }; }", 1, 0),
+            ("private final Runnable f = () -> { x = 1; };", 1, 0),
+            // The `;` that closed the leak is the reference: the same
+            // body after a `final` local counts as it always did.
+            ("void m() { final int q = 1; x = 1; }", 1, 1),
+        ];
+        let mut ran = 0;
+        for (body, expected, before) in cases {
+            let src = format!("class K {{ int x, y; {body} }}\n");
+            let assignments = metrics_verbatim(
+                LANG::Java,
+                src.as_bytes(),
+                MetricsOptions::default().with_only(&[crate::Metric::Abc]),
+            )
+            .abc
+            .assignments_sum();
+            assert_eq!(assignments, expected, "`{body}` (pre-fix {before})");
+            ran += 1;
+        }
+        assert_eq!(ran, cases.len());
+        assert!(cases.iter().any(|&(_, now, before)| now != before));
     }
 
     // Constant declarations are not counted as assignments
@@ -1954,6 +1997,27 @@ mod tests {
     // narrowed arm keeps counting real comparisons, pinned against the
     // cyclomatic decision count on the method's own space (§8).
     #[test]
+    fn groovy_elvis_counts_one_condition_per_token() {
+        // `a ?: c` is a short-circuit decision Groovy cyclomatic already
+        // counts and the Kotlin ABC arm counts for its identical token;
+        // Groovy's arm listed neither `?:` nor its `elvis_expression`, so
+        // a method whose only branching is elvis chains reported
+        // cyclomatic > 1 with zero conditions. One per token, so the
+        // grammar-dispatch §8 invariant holds on the chain:
+        // `conditions() == cyclomatic() - 1`.
+        check_func_space::<GroovyParser, _>(
+            "class K { def f(a, c) { return a ?: c } }",
+            "foo.groovy",
+            |space| assert_deepest_conditions_match_cyclomatic(&space, 1),
+        );
+        check_func_space::<GroovyParser, _>(
+            "class K { def g(a, b, c) { return a ?: b ?: c } }",
+            "foo.groovy",
+            |space| assert_deepest_conditions_match_cyclomatic(&space, 2),
+        );
+    }
+
+    #[test]
     fn groovy_comparison_operators_still_count_alongside_generics() {
         check_func_space::<GroovyParser, _>(
             "class A {
@@ -2319,12 +2383,10 @@ mod tests {
     }
 
     #[test]
-    fn groovy_eq_arm_increments_when_no_declaration() {
-        // Bare reassignment of an already-declared variable: the
-        // `EQ` arm fires when the declaration stack is empty
-        // (`stats.declaration.last().is_none()`), so the `=` counts
-        // as one assignment. Mirrors `java_eq_arm_increments_when_
-        // declaration_stack_is_empty`.
+    fn groovy_eq_arm_counts_outside_final_declarations() {
+        // Bare reassignment of an already-declared variable: the `=`
+        // belongs to no `final` declaration, so it counts. Mirrors
+        // `java_eq_arm_counts_outside_final_declarations`.
         check_metrics::<GroovyParser>(
             "void f(int x) {
                 x = 42
@@ -2334,6 +2396,82 @@ mod tests {
                 assert_eq!(metric.abc.assignments_sum(), 1);
                 assert_eq!(metric.abc.branches_sum(), 0);
                 assert_eq!(metric.abc.conditions_sum(), 0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_final_field_initializer_does_not_suppress_the_closure_body() {
+        // The Groovy spelling of
+        // `java_final_initializer_does_not_suppress_the_assignments_inside_it`:
+        // a `final` field's closure body opens no space, and the sentinel
+        // stack suppressed its `x = 1` with the declarator's own `=`.
+        check_metrics::<GroovyParser>(
+            "class K {
+                int x
+                final Closure c = { x = 1 }
+                Closure d = { x = 2 }
+                final int q = 3
+            }",
+            "foo.groovy",
+            |metric| {
+                // `x = 1`, `d = {…}`, `x = 2`; the two `final`
+                // initializers are suppressed. Pre-fix: 2.
+                assert_eq!(metric.abc.assignments_sum(), 3);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_final_local_is_an_error_at_the_pinned_grammar() {
+        // `groovy_eq_initializes_final_binding` lists
+        // `local_variable_declaration` for symmetry with Java, but at
+        // dekobon-tree-sitter-groovy 0.2.2 a `final` local never
+        // reaches it: the parser emits an `ERROR` node for the
+        // declaration, with or without a terminator, so both of its `=`
+        // tokens count. This pins the grammar limitation so a bump that
+        // starts parsing the local shows up here rather than as a silent
+        // change in what the predicate suppresses.
+        let source = b"class K { int x; def m() { final int a = 0; x = 1 } }";
+        let parser = GroovyParser::new(
+            source.to_vec(),
+            &std::path::PathBuf::from("foo.groovy"),
+            None,
+        );
+        assert!(
+            ast_has_kind_id(&parser, u16::MAX),
+            "a `final` local should still parse to an ERROR node; if the grammar \
+             now accepts it, re-derive the local half of the predicate",
+        );
+        check_metrics::<GroovyParser>(
+            "class K { int x; def m() { final int a = 0; x = 1 } }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_const_initializer_shapes() {
+        // `csharp_eq_initializes_const_binding` reads the `const`
+        // through the `modifier` node one hop above the
+        // `variable_declaration`, for a local and a field alike, behind
+        // other modifiers; `readonly` is not `const` and its initializer
+        // counts. A lambda's body opens its own space in C#, so unlike
+        // Java there was never a nested `=` to leak — the row pins that
+        // the structural rule keeps the count the sentinel gave.
+        check_metrics::<CsharpParser>(
+            "class K {
+                int x;
+                private const int Q = 1;
+                public static readonly int R = 2;
+                void M() { const int q = 3; System.Action a = () => { x = 4; }; }
+            }",
+            "foo.cs",
+            |metric| {
+                // `R = 2`, `a = () => …`, `x = 4`.
+                assert_eq!(metric.abc.assignments_sum(), 3);
             },
         );
     }
@@ -2695,6 +2833,72 @@ mod tests {
                 assert_eq!(metric.abc.conditions_sum(), 2);
             },
         );
+    }
+
+    #[test]
+    fn objc_message_send_is_a_bool_terminal_in_condition_slots() {
+        // `[obj ok]` is Objective-C's call, so in a condition slot it is
+        // the unary condition `ok()` is (Fitzpatrick Rule 9). Until
+        // `message_expression` joined `cpp_bool_terminal_kinds!` every
+        // row here scored zero conditions where its C-call twin scored
+        // one — and #1276's `for` slot inherited the gap. Each row is a
+        // message send as the *whole* slot (grammar-dispatch §11: a
+        // comparison would be counted by its own operator arm anyway),
+        // and branches are asserted beside conditions so the arm cannot
+        // be read as counting the call twice. The last three are the
+        // over-count guards: a value position counts nothing, as `ok()`'s
+        // does not.
+        let cases = [
+            ("if ([self ok]) {}", 1, 1),
+            ("while (![self ok]) {}", 1, 1),
+            ("do {} while ([self ok]);", 1, 1),
+            ("for (; [self ok]; ) {}", 1, 1),
+            ("x = [self ok] ? 1 : 2;", 2, 1),
+            ("if ([self ok] && [o ok]) {}", 2, 2),
+            ("return [self ok];", 0, 1),
+            ("[self use:[self ok]];", 0, 2),
+            ("[self use:![self ok]];", 1, 2),
+        ];
+        let mut ran = 0;
+        for (body, conditions, branches) in cases {
+            let src = format!("@implementation Foo\n- (int)bar {{\n    {body}\n}}\n@end\n");
+            let abc = metrics_verbatim(
+                LANG::Objc,
+                src.as_bytes(),
+                MetricsOptions::default().with_only(&[crate::Metric::Abc]),
+            )
+            .abc;
+            assert_eq!(abc.conditions_sum(), conditions, "`{body}` conditions");
+            assert_eq!(abc.branches_sum(), branches, "`{body}` branches");
+            ran += 1;
+        }
+        assert_eq!(ran, cases.len());
+        // Both answers are present, so a walker stuck at 0 or at 1 cannot
+        // pass half the table silently.
+        assert!(cases.iter().any(|&(_, c, _)| c == 0));
+        assert!(cases.iter().any(|&(_, c, _)| c == 2));
+    }
+
+    #[test]
+    fn objc_message_send_condition_agrees_with_c_call() {
+        // The intra-ObjC parity C++ cannot express: a message send and a
+        // C call in the same slot score alike. Non-degenerate by the
+        // `assert_eq!(…, 1)` on the reference.
+        for (send, call) in [
+            ("if ([a ok]) {}", "if (ok()) {}"),
+            ("for (; [a ok]; ) {}", "for (; ok(); ) {}"),
+            ("x = [a ok] ? 1 : 2;", "x = ok() ? 1 : 2;"),
+        ] {
+            let wrap =
+                |body: &str| format!("@implementation Foo\n- (int)bar {{\n    {body}\n}}\n@end\n");
+            let reference = abc_conditions(LANG::Objc, &wrap(call));
+            assert!(reference >= 1, "`{call}` must count at least the slot");
+            assert_eq!(
+                abc_conditions(LANG::Objc, &wrap(send)),
+                reference,
+                "`{send}`"
+            );
+        }
     }
 
     #[test]
@@ -4625,24 +4829,42 @@ function f(int $a, int $b): int {
         // Shapes the sentinel stack handled implicitly, which the
         // structural predicate must reproduce: *every* declarator under a
         // `const`-bearing `lexical_declaration` is suppressed, including
-        // the second element of a multi-declarator list and a
-        // destructuring pattern, while `for (const x of xs)` carries no
-        // `=` at all. Only `let d = 3` and `var e = 4` count — the
-        // deliberate deviation documented on `js_abc_compute!`. Gating on
-        // `variable_declaration` instead of `lexical_declaration`, or
-        // dropping the `const`-child check, each flips one of these rows.
-        // The `for`-of row is the exception: it carries no `=`, so no
-        // change to the predicate can move it. It pins the grammar shape
-        // instead — a future grammar emitting a `variable_declarator`
-        // there would start suppressing something that never counted.
+        // the second element of a multi-declarator list, a destructuring
+        // pattern, and the defaults inside one — `c = 5`, the nested
+        // `e = 6` and its `= {}`, `g = 7`, and the rest element's `h = 8`,
+        // each one more pattern layer the predicate's climb has to cross
+        // — while `for (const x of xs)` carries no `=` at all. Only
+        // `let i = 3` and `var j = 4` count — the deliberate deviation
+        // documented on `js_abc_compute!`. Gating on
+        // `variable_declaration` instead of `lexical_declaration`,
+        // dropping the `const` check, or stopping the climb at the
+        // declarator's own `=`, each flips one of these rows. The
+        // `for`-of row is the exception: it carries no `=`, so no change
+        // to the predicate can move it. It pins the grammar shape instead
+        // — a future grammar emitting a `variable_declarator` there would
+        // start suppressing something that never counted.
         check_metrics::<TypescriptParser>(
             "function f(o: any, xs: number[]) {
                 const a = 1, b = 2
-                const {c} = o
-                let d = 3
-                var e = 4
-                for (const x of xs) { g(x) }
+                const {c = 5, d: {e = 6} = {}} = o
+                const [g = 7, ...[h = 8]] = xs
+                let i = 3
+                var j = 4
+                for (const x of xs) { k(x) }
             }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_const_initializer_value_assignments_still_count() {
+        // TypeScript half of
+        // `javascript_const_initializer_value_assignments_still_count`.
+        check_metrics::<TypescriptParser>(
+            "function m(o: any, a: any, b: any) { const x = (o.p = 1); const y = a || (b = 2); }",
             "foo.ts",
             |metric| {
                 assert_eq!(metric.abc.assignments_sum(), 2);
@@ -5244,10 +5466,11 @@ function f(int $a, int $b): int {
         check_metrics::<TsxParser>(
             "function f(o: any, xs: number[]) {
                 const a = 1, b = 2
-                const {c} = o
-                let d = 3
-                var e = 4
-                for (const x of xs) { g(x) }
+                const {c = 5, d: {e = 6} = {}} = o
+                const [g = 7, ...[h = 8]] = xs
+                let i = 3
+                var j = 4
+                for (const x of xs) { k(x) }
             }",
             "foo.tsx",
             |metric| {
@@ -7214,10 +7437,7 @@ function f(int $a, int $b): int {
         let mut ran = 0;
         for (body, expected) in cases {
             let src = format!("package p\nfunc F(a bool, xs []int) {{\n\t{body}\n}}\n");
-            let conditions = metrics_verbatim(LANG::Go, src.as_bytes(), MetricsOptions::default())
-                .abc
-                .conditions_sum();
-            assert_eq!(conditions, expected, "`{body}`");
+            assert_eq!(abc_conditions(LANG::Go, &src), expected, "`{body}`");
             ran += 1;
         }
         // Non-vacuity, both halves: the loop must actually have run
@@ -7841,14 +8061,7 @@ function f(int $a, int $b): int {
     #[test]
     fn c_family_ternary_operand_slots_agree_with_cpp() {
         const SRC: &str = "void f() { x = a ? !b : !c; }\n";
-        // `metrics_verbatim` rather than `check_metrics`: the latter
-        // takes a bare `fn` and so cannot close over the reference
-        // value.
-        let conditions = |lang: LANG, src: &str| {
-            metrics_verbatim(lang, src.as_bytes(), MetricsOptions::default())
-                .abc
-                .conditions_sum()
-        };
+        let conditions = abc_conditions;
 
         let cpp = conditions(LANG::Cpp, SRC);
         // Non-degenerate: a zeroed reference would make every
@@ -7921,11 +8134,7 @@ function f(int $a, int $b): int {
     #[test]
     fn c_family_for_condition_slot_agrees_with_cpp() {
         const SRC: &str = "void f(int a) { for (; !a; ) {} }\n";
-        let conditions = |lang: LANG, src: &str| {
-            metrics_verbatim(lang, src.as_bytes(), MetricsOptions::default())
-                .abc
-                .conditions_sum()
-        };
+        let conditions = abc_conditions;
 
         let cpp = conditions(LANG::Cpp, SRC);
         // Non-degenerate: a zeroed reference makes every comparison
@@ -8271,9 +8480,12 @@ function f(int $a, int $b): int {
 
     #[test]
     fn javascript_nested_arrow_const_does_not_leak() {
-        // The leak crossed a nested function space: `const f = () => …`
-        // left a stale sentinel in `h`'s space, so `z = 2` was suppressed
-        // while `y = 1` (counted in the arrow's own fresh space) was not.
+        // The ASI leak beside a nested space: the arrow body opens its
+        // own space, so `y = 1` was always counted there, but
+        // `const f = () => …` has no `;`, so `h`'s sentinel stayed live
+        // and suppressed `z = 2`. The stack was per-space state that
+        // `Stats::merge` never carried, so this is the terminator defect
+        // and not a second route.
         check_metrics::<JavascriptParser>(
             "function h() {
                 const f = () => { y = 1 }
@@ -8290,15 +8502,38 @@ function f(int $a, int $b): int {
 
     #[test]
     fn javascript_non_declarator_equals_still_count() {
-        // An `=` whose parent is not a `variable_declarator` is always an
-        // assignment: a class `field_definition` initializer and a
-        // default-parameter `assignment_pattern`. Widening the predicate
-        // past the `variable_declarator` hop would zero these.
+        // An `=` that does not belong to a `const` declarator is always
+        // an assignment: a class `field_definition` initializer, a
+        // default-parameter `assignment_pattern`, and a destructured
+        // parameter's defaults, whose climb crosses the same pattern
+        // layers as a `const` pattern's but ends at `formal_parameters`.
+        // A predicate that accepted any pattern ancestor as a declarator
+        // would zero the last three.
         check_metrics::<JavascriptParser>(
-            "class K { f = 1; g(p = 2) { let d = 3 } }",
+            "class K { f = 1; g(p = 2, {q = 3} = {}) { let d = 4 } }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 3);
+                // `f = 1`, `p = 2`, `q = 3`, `= {}`, `let d = 4`.
+                assert_eq!(metric.abc.assignments_sum(), 5);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_const_initializer_value_assignments_still_count() {
+        // An `=` inside a `const` initializer's *value* is an
+        // `assignment_expression`: its climb reaches no pattern layer and
+        // no declarator, so it counts. The pre-#1277 sentinel
+        // blanket-suppressed every `=` between `const` and `;`, which is
+        // the shape that moved the pdf.js corpus snapshots
+        // (`const bbox = (this.data.rect = …)`).
+        check_metrics::<JavascriptParser>(
+            "function m(o, a, b) { const x = (o.p = 1); const y = a || (b = 2); }",
+            "foo.js",
+            |metric| {
+                // `o.p = 1` and `b = 2`; the two `const` initializers are
+                // suppressed. Pre-#1277: 0.
+                assert_eq!(metric.abc.assignments_sum(), 2);
             },
         );
     }
@@ -8310,10 +8545,11 @@ function f(int $a, int $b): int {
         check_metrics::<JavascriptParser>(
             "function f(o, xs) {
                 const a = 1, b = 2
-                const {c} = o
-                let d = 3
-                var e = 4
-                for (const x of xs) { g(x) }
+                const {c = 5, d: {e = 6} = {}} = o
+                const [g = 7, ...[h = 8]] = xs
+                let i = 3
+                var j = 4
+                for (const x of xs) { k(x) }
             }",
             "foo.js",
             |metric| {
@@ -8552,11 +8788,7 @@ function f(int $a, int $b): int {
     fn js_family_for_condition_slot_agrees_with_javascript() {
         const BARE: &str = "function f(a) { for (; a; ) {} }\n";
         const EMPTY: &str = "function f() { for (;;) { break; } }\n";
-        let conditions = |lang: LANG, src: &str| {
-            metrics_verbatim(lang, src.as_bytes(), MetricsOptions::default())
-                .abc
-                .conditions_sum()
-        };
+        let conditions = abc_conditions;
 
         let bare = conditions(LANG::Javascript, BARE);
         // Non-degenerate: a zeroed reference makes the comparisons
@@ -8571,6 +8803,32 @@ function f(int $a, int $b): int {
         for lang in [LANG::Mozjs, LANG::Typescript, LANG::Tsx] {
             assert_eq!(conditions(lang, BARE), bare, "{lang:?} bare for-condition");
             assert_eq!(conditions(lang, EMPTY), 0, "{lang:?} empty for-condition");
+        }
+    }
+
+    #[test]
+    fn js_family_ternary_operand_slots_agree_with_javascript() {
+        // `a ? !b : !c` is the one shape that tells the ternary walker
+        // from the `for`-header walker: both read the `condition` field
+        // and share the `(&Node, &mut f64)` signature, so a transposed
+        // pair in a `ts_abc_compute!` / `js_abc_compute!` invocation
+        // compiles, passes every condition-slot test, and drops only the
+        // two branch operands. TypeScript alone pinned those before; the
+        // other three expansions now do too.
+        const SRC: &str = "function f(a, b, c) { x = a ? !b : !c; }\n";
+        let javascript = abc_conditions(LANG::Javascript, SRC);
+        // expected: 4 — the `?`, the `a` condition slot and both negated
+        // branch operands; non-degenerate by construction.
+        assert_eq!(
+            javascript, 4,
+            "JavaScript reference value for `a ? !b : !c`"
+        );
+        for lang in [LANG::Mozjs, LANG::Typescript, LANG::Tsx] {
+            assert_eq!(
+                abc_conditions(lang, SRC),
+                javascript,
+                "{lang:?} ternary operand slots"
+            );
         }
     }
 
@@ -8655,10 +8913,11 @@ function f(int $a, int $b): int {
         check_metrics::<MozjsParser>(
             "function f(o, xs) {
                 const a = 1, b = 2
-                const {c} = o
-                let d = 3
-                var e = 4
-                for (const x of xs) { g(x) }
+                const {c = 5, d: {e = 6} = {}} = o
+                const [g = 7, ...[h = 8]] = xs
+                let i = 3
+                var j = 4
+                for (const x of xs) { k(x) }
             }",
             "foo.jsm",
             |metric| {
@@ -9433,6 +9692,48 @@ function f(int $a, int $b): int {
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
+    }
+
+    #[test]
+    fn perl_for_header_condition_slot_counts_unary_conditions() {
+        // The Perl half of #1276. The C-style `for` header's condition
+        // slot is a Rule 9 unary condition like the `if` slot: a bare
+        // `$ok`, a negated `!$ok` and a parenthesised `($ok)` each count
+        // one, an empty header and a `foreach` count zero, and a
+        // comparison-shaped `$i < $n` stays at the one the `<` arm
+        // already counts. Every C-style row is the three-clause spelling
+        // because tree-sitter-perl does not parse an empty initializer.
+        let cases = [
+            ("for (my $i = 0; $ok; $i++) { }", 1),
+            ("for (my $i = 0; !$ok; $i++) { }", 1),
+            ("for (my $i = 0; ($ok); $i++) { }", 1),
+            ("for (my $i = 0; $i < $n; $i++) { }", 1),
+            ("for (my $i = 0; $ok && $j; $i++) { }", 2),
+            ("for (;;) { last; }", 0),
+            ("for my $x (@l) { }", 0),
+        ];
+        let mut ran = 0;
+        for (body, expected) in cases {
+            let src = format!("sub f {{ {body} }}\n");
+            assert_eq!(abc_conditions(LANG::Perl, &src), expected, "`{body}`");
+            ran += 1;
+        }
+        assert_eq!(ran, cases.len());
+        assert!(cases.iter().any(|&(_, n)| n == 0));
+        assert!(cases.iter().any(|&(_, n)| n == 2));
+
+        // The slot agrees with the `if` slot for every shape, which is
+        // the property the fix restores; the reference is non-degenerate
+        // by the table above.
+        for condition in ["$ok", "!$ok", "($ok)", "$ok && $j"] {
+            let in_for = format!("sub f {{ for (my $i = 0; {condition}; $i++) {{ }} }}\n");
+            let in_if = format!("sub f {{ if ({condition}) {{ }} }}\n");
+            assert_eq!(
+                abc_conditions(LANG::Perl, &in_for),
+                abc_conditions(LANG::Perl, &in_if),
+                "`{condition}` must score alike in a `for` header and an `if`",
+            );
+        }
     }
 
     #[test]

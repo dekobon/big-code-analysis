@@ -28,15 +28,15 @@ fn flatten_operands(ops: &Ops, out: &mut Vec<String>) {
     }
 }
 
-// A parity claim needs both dialects, so the test is absent (not
-// vacuously green, not spuriously red) unless both features are on.
+/// Drives `source` through both dialects and asserts that each of
+/// `expected` occurs exactly once, that nothing else does, and that the
+/// Halstead counts agree with the list. Exact occurrence counts
+/// distinguish a fix from a regression in either direction: a dropped
+/// operand and a double-billed one both change a count, and a wrapper
+/// billed beside its parts shows up as an unexpected extra entry.
 #[cfg(all(feature = "tcl", feature = "irules"))]
-#[test]
-fn set_target_counts_as_operand_in_both_dialects() {
-    // `s` appears as a `set` target and (wrapped) as `$s`; `t` only as a
-    // target. Pre-#1294 Tcl reported neither `s` nor `t`.
-    let source = "set s 1\nset t $s\n";
-
+fn assert_each_operand_once_in_both_dialects(source: &str, expected: &[&str]) {
+    let n = u64::try_from(expected.len()).expect("a fixture has fewer than 2^64 operands");
     for (lang, ext) in [(LANG::Tcl, "tcl"), (LANG::Irules, "irule")] {
         let name = format!("parity.{ext}");
 
@@ -47,21 +47,17 @@ fn set_target_counts_as_operand_in_both_dialects() {
         let mut operands = Vec::new();
         flatten_operands(&ops, &mut operands);
 
-        // Exact occurrence counts distinguish the fix from a regression
-        // in either direction: a blanket kind exclusion drops `s` and
-        // `t` entirely, while losing the parent guard double-counts the
-        // `$s` leaf as a second `s`.
-        for operand in ["s", "t", "1", "$s"] {
+        for operand in expected {
             assert_eq!(
-                operands.iter().filter(|o| o.as_str() == operand).count(),
+                operands.iter().filter(|o| o.as_str() == *operand).count(),
                 1,
                 "{lang:?}: `{operand}` must be exactly one operand; got {operands:?}",
             );
         }
         assert_eq!(
             operands.len(),
-            4,
-            "{lang:?}: operands must be exactly s, t, 1, $s; got {operands:?}",
+            expected.len(),
+            "{lang:?}: operands must be exactly {expected:?}; got {operands:?}",
         );
 
         let space = analyze(
@@ -69,10 +65,38 @@ fn set_target_counts_as_operand_in_both_dialects() {
             MetricsOptions::default(),
         )
         .unwrap_or_else(|e| panic!("{lang:?}: analyze failed: {e}"));
-        // expected: n2 = 4 (s, t, 1, $s), N2 = 4 in both dialects.
-        assert_eq!(space.metrics.halstead.unique_operands(), 4, "{lang:?}");
-        assert_eq!(space.metrics.halstead.total_operands(), 4, "{lang:?}");
+        // Every expected operand occurs once, so n2 = N2 = the list's
+        // length in both dialects.
+        assert_eq!(space.metrics.halstead.unique_operands(), n, "{lang:?}");
+        assert_eq!(space.metrics.halstead.total_operands(), n, "{lang:?}");
     }
+}
+
+// A parity claim needs both dialects, so the test is absent (not
+// vacuously green, not spuriously red) unless both features are on.
+#[cfg(all(feature = "tcl", feature = "irules"))]
+#[test]
+fn set_target_counts_as_operand_in_both_dialects() {
+    // `s` appears as a `set` target and (wrapped) as `$s`; `t` only as a
+    // target. Pre-#1294 Tcl reported neither `s` nor `t`, and losing
+    // the parent guard double-counts the `$s` leaf as a second `s`.
+    assert_each_operand_once_in_both_dialects("set s 1\nset t $s\n", &["s", "t", "1", "$s"]);
+}
+
+// Same gating rationale as above: a parity claim needs both dialects.
+#[cfg(all(feature = "tcl", feature = "irules"))]
+#[test]
+fn array_reference_counts_once_in_both_dialects() {
+    // `$arr($i)` is the reference plus the index Tcl substitutes inside
+    // the parens — two operands — and `arr(k)` as a `set` target is the
+    // name plus the literal index. iRules listed the `array_index`
+    // wrapper as a third operand for each; Tcl never did. The quoted
+    // spelling is deliberate: the vendored Tcl grammar mis-parses a
+    // bare `$arr(k)` in command-word position.
+    assert_each_operand_once_in_both_dialects(
+        "set arr(k) 1\nset z \"$arr($i)\"\n",
+        &["arr", "k", "1", "z", "$arr($i)", "$i"],
+    );
 }
 
 // Same gating rationale as above: a parity claim needs both dialects.
@@ -96,43 +120,12 @@ fn braced_word_counts_once_in_both_dialects() {
     // both failure directions are caught: losing the guard restores
     // `a` / `b` beside the word, and dropping the wrapper in favour of
     // its children loses `{a b}` and with it the braced/quoted parity.
-    let source = "set v {a b}\nset w \"a b\"\nif {$q} { set u 1 }\n";
-
-    for (lang, ext) in [(LANG::Tcl, "tcl"), (LANG::Irules, "irule")] {
-        let name = format!("parity.{ext}");
-
-        let ops = Ast::parse(Source::new(lang, source.as_bytes()).with_name(Some(name.clone())))
-            .unwrap_or_else(|e| panic!("{lang:?}: parse failed: {e}"))
-            .ops()
-            .unwrap_or_else(|e| panic!("{lang:?}: ops failed: {e}"));
-        let mut operands = Vec::new();
-        flatten_operands(&ops, &mut operands);
-
-        for operand in ["v", "w", "{a b}", "\"a b\"", "$q", "u", "1"] {
-            assert_eq!(
-                operands.iter().filter(|o| o.as_str() == operand).count(),
-                1,
-                "{lang:?}: `{operand}` must be exactly one operand; got {operands:?}",
-            );
-        }
-        assert_eq!(
-            operands.len(),
-            7,
-            "{lang:?}: the braced and quoted words are one operand each, \
-             and the `if` body is none; got {operands:?}",
-        );
-
-        let space = analyze(
-            Source::new(lang, source.as_bytes()).with_name(Some(name)),
-            MetricsOptions::default(),
-        )
-        .unwrap_or_else(|e| panic!("{lang:?}: analyze failed: {e}"));
-        // expected: n2 = N2 = 7 — the seven operands above. The two
-        // spellings of the value score alike, which they did not before
-        // #1354: the braced one was three operands (`a`, `b` and the
-        // word) against the quoted one's single operand, and the `if`
-        // body was a tenth.
-        assert_eq!(space.metrics.halstead.unique_operands(), 7, "{lang:?}");
-        assert_eq!(space.metrics.halstead.total_operands(), 7, "{lang:?}");
-    }
+    // expected: n2 = N2 = 7 — the two spellings of the value score
+    // alike, which they did not before #1354: the braced one was three
+    // operands (`a`, `b` and the word) against the quoted one's single
+    // operand, and the `if` body was a tenth.
+    assert_each_operand_once_in_both_dialects(
+        "set v {a b}\nset w \"a b\"\nif {$q} { set u 1 }\n",
+        &["v", "w", "{a b}", "\"a b\"", "$q", "u", "1"],
+    );
 }

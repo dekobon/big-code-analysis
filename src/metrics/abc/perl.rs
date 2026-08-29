@@ -68,6 +68,7 @@ fn perl_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
             | P::UnlessStatement
             | P::WhileStatement
             | P::UntilStatement
+            | P::ForStatement1
     ) || (matches!(parent_kind, P::TernaryExpression)
         && parent
             .child_by_field_name("condition")
@@ -179,24 +180,57 @@ fn perl_last_named_child<'a>(node: &Node<'a>) -> Option<Node<'a>> {
 // C-family `consequence` / `alternative`, and all three slots are
 // mandatory — Perl has no short-ternary elision.
 //
-// The condition needs its own terminal check because
-// `perl_inspect_container` only counts *after* unwrapping a `(...)` /
-// `!...` layer, so a bare `$a ? … : …` would otherwise score zero.
-// Branch operands get no such check: an unnegated branch is type-free
-// and contributes nothing, which is what keeps `($a > 0) ? $b : -$b`
-// at 2 (the ternary node and the `>`).
+// The condition goes through `perl_count_condition`, whose top-level
+// terminal check is what stops a bare `$a ? … : …` scoring zero:
+// `perl_inspect_container` alone only counts *after* unwrapping a
+// `(...)` / `!...` layer. Branch operands get no such check: an
+// unnegated branch is type-free and contributes nothing, which is what
+// keeps `($a > 0) ? $b : -$b` at 2 (the ternary node and the `>`).
 fn perl_walk_ternary(node: &Node, conditions: &mut f64) {
     if let Some(condition) = node.child_by_field_name("condition") {
-        if matches!(condition.kind_id().into(), perl_bool_terminal_kinds!()) {
-            *conditions += 1.;
-        } else {
-            perl_inspect_container(&condition, node, conditions);
-        }
+        perl_count_condition(&condition, node, conditions);
     }
     for field in ["true", "false"] {
         if let Some(branch) = node.child_by_field_name(field) {
             perl_inspect_container(&branch, node, conditions);
         }
+    }
+}
+
+// Classifies one condition-slot expression: a bare boolean terminal
+// counts directly, anything else is offered to the `(...)` / `!...`
+// unwrap chain. Shared by the ternary condition slot and the C-style
+// `for` header's condition slot — the two places a Perl condition
+// arrives *unwrapped*. `if` / `while` / `unless` / `until` hand
+// `perl_inspect_container` the `(...)` wrapper that supplies the unwrap
+// step itself, so they must not take the top-level terminal count.
+// Mirrors `cpp_count_condition`.
+fn perl_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
+    if matches!(condition.kind_id().into(), perl_bool_terminal_kinds!()) {
+        *conditions += 1.;
+    } else {
+        perl_inspect_container(condition, parent, conditions);
+    }
+}
+
+// Phase-2B (issues #403 / #1276): the C-style `for (init; condition;
+// update)` header's condition slot is a Fitzpatrick Rule 9 unary
+// condition, exactly like the `if` / `while` slots the dispatcher
+// already walks. Without this Perl scored `for (my $i = 0; $ok; $i++)`
+// zero where `if ($ok)` scores one. Comparison-shaped conditions
+// (`$i < $n`) were never affected — the `<` token arm counts those.
+//
+// The slot is addressed by grammar FIELD (`condition`, beside
+// `initializer` and `incrementor`), and an empty condition exposes no
+// field, so `for (;;)` counts zero with no special case — see the
+// `Stats` doc comment's cross-language empty-`for`-condition policy.
+// tree-sitter-perl does not parse an empty *initializer* (`for (; $ok;
+// )` becomes an `ERROR`-laden `for_statement_2`), so the three-clause
+// spelling is the only one this reaches. `for_statement_2` is the
+// `foreach` form and carries no condition.
+fn perl_walk_for_statement(node: &Node, conditions: &mut f64) {
+    if let Some(condition) = node.child_by_field_name("condition") {
+        perl_count_condition(&condition, node, conditions);
     }
 }
 
@@ -239,18 +273,6 @@ fn perl_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     }
 }
 
-// FIXME(#1276): Perl's C-style `for (my $i = 0; $cond; $i++)` header
-// has a condition slot this dispatcher never inspects, so a bare,
-// negated or parenthesised loop condition reports zero while the same
-// predicate in `if ($cond)` reports one. tree-sitter-perl exposes a
-// `condition` field on `for_statement_1`, so the fix is the same
-// one-line field read the C family, JS family, PHP, Java, Groovy and Go
-// gained in #1276; it was left out of that change because Perl is a
-// different grammar family with no `for` arm to extend and its ABC
-// dispatch match sits outside `cargo fmt` (see
-// `.rustfmt-bail-baseline.txt`). Tcl, iRules and Bash share the
-// asymmetry by design, not by omission: their loop headers are commands
-// rather than boolean-expression slots (grammar-dispatch §9).
 impl Abc for PerlCode {
     fn compute<'a>(
         node: &Node<'a>,
@@ -323,11 +345,24 @@ impl Abc for PerlCode {
                 stats.branches += 1.;
             }
             // Numeric, string, and pattern-match comparison operators
-            // plus the spaceship / `cmp` three-way comparisons.
-            P::EQEQ | P::BANGEQ | P::LT | P::GT | P::LTEQ | P::GTEQ | P::LTEQGT
-            | P::Eq | P::Ne | P::Lt | P::Gt | P::Le | P::Ge | P::Cmp
-            | P::EQTILDE | P::BANGTILDE
-            // Each `elsif` / `else` clause of an `if` / `unless` chain.
+            // plus the spaceship / `cmp` three-way comparisons, and each
+            // `elsif` / `else` clause of an `if` / `unless` chain.
+            P::EQEQ
+            | P::BANGEQ
+            | P::LT
+            | P::GT
+            | P::LTEQ
+            | P::GTEQ
+            | P::LTEQGT
+            | P::Eq
+            | P::Ne
+            | P::Lt
+            | P::Gt
+            | P::Le
+            | P::Ge
+            | P::Cmp
+            | P::EQTILDE
+            | P::BANGTILDE
             | P::ElsifClause
             | P::ElseClause => {
                 stats.conditions += 1.;
@@ -363,7 +398,11 @@ impl Abc for PerlCode {
             // conditions). To avoid re-handling condition slots that
             // were already walked through inspect_container, only
             // dispatch when the parent is a call-expression form.
-            P::Array if ancestors.parent(node).is_some_and(perl_is_call_argument_parent) => {
+            P::Array
+                if ancestors
+                    .parent(node)
+                    .is_some_and(perl_is_call_argument_parent) =>
+            {
                 perl_count_unary_conditions(node, &mut stats.conditions);
             }
             // `$a ? !$b : !$c`. Unlike the C family, this dispatcher
@@ -374,6 +413,12 @@ impl Abc for PerlCode {
             P::TernaryExpression => {
                 stats.conditions += 1.;
                 perl_walk_ternary(node, &mut stats.conditions);
+            }
+            // `for (init; cond; update)` — the condition slot, read by
+            // grammar field (issue #1276). `for (;;)` has no condition
+            // field and counts nothing.
+            P::ForStatement1 => {
+                perl_walk_for_statement(node, &mut stats.conditions);
             }
             _ => {}
         }

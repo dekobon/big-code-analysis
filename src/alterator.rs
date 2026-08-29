@@ -201,14 +201,14 @@ impl Alterator for ObjcCode {
     ) -> AstNode {
         // ObjC is C plus message sends; the literal-flattening and
         // preprocessor newline-trimming rules are identical to the C
-        // alterator. `@"…"` parses as a bare `@` token followed by a
-        // plain `string_literal`, so the `StringLiteral` arm flattens
-        // the quoted part exactly as for C (the `@` renders separately).
+        // alterator. `@"…"` is one `string_literal` whose first child
+        // is the `@` token, so the `StringLiteral` arm flattens the
+        // whole literal, marker included, exactly as for C.
         match Objc::from(node.kind_id()) {
             // CharLiteral is operand + flattened but deliberately absent
             // from `Checker::is_string` (a char is not a string) — the
             // same split Rust/Go apply to their char / rune literals.
-            // The C / Cpp / Mozcpp arms above have carried this note
+            // The C / Cpp / Mozcpp sibling arms have carried this note
             // since #699; the ObjC clone was missing it (#1316), which
             // is how the missing operand half stayed unnoticed here
             // longest.

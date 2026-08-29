@@ -4,11 +4,14 @@
 use super::*;
 
 /// The braced-word kinds `Getter::is_subsumed_braced_word` is
-/// instantiated with (#1354): the literal *value* form the guard
-/// keys on, and the *script* form it gates on child-presence. Named
-/// here so the guard reads as one line inside an already long match.
-const BRACED_VALUE: u16 = Tcl::BracedWordSimple as u16;
-const BRACED_SCRIPT: u16 = Tcl::BracedWord as u16;
+/// instantiated with (#1354): the literal *value* form the guard keys
+/// on, the *script* form it gates on holding a command, and the comment
+/// kind that gate must not mistake for one.
+const BRACED_WORD_KINDS: BracedWordKinds = BracedWordKinds {
+    value: Tcl::BracedWordSimple as u16,
+    script: Tcl::BracedWord as u16,
+    comment: Tcl::Comment as u16,
+};
 
 impl Getter for TclCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
@@ -108,7 +111,7 @@ impl Getter for TclCode {
             // there — and calling a script body a string is #1318's
             // role conflation rather than this arm's, so changing
             // `find`'s answer is left to that issue.
-            _ if Self::is_subsumed_braced_word(node, ancestors, BRACED_VALUE, BRACED_SCRIPT) => {
+            _ if Self::is_subsumed_braced_word(node, ancestors, &BRACED_WORD_KINDS) => {
                 HalsteadType::Unknown
             }
             // Anonymous keyword tokens (control-flow and declaration keywords).
@@ -198,7 +201,7 @@ impl Getter for TclCode {
             //
             // `BracedWord` reaches this arm only when the guard above
             // let it through, which since #1354 means only when it
-            // holds no named child. A script kind holding commands —
+            // holds no command. A script kind holding commands —
             // a `proc` body, an `if` body, a `catch` or `eval` script —
             // was billed as one operand spanning its entire text
             // *beside* the commands the walk descends into, which made
@@ -211,11 +214,11 @@ impl Getter for TclCode {
             // not special-case, so `lappend l {}` is an empty list
             // whose brace pair is its only carrier, and deleting the
             // kind scored it zero where its `lappend l ""` synonym
-            // scores one. An empty `proc` body is spelled identically
-            // and so also counts one — accepted rather than argued
-            // away, since no kind-scoped arm can separate the two
-            // roles (the same conflation FIXME(#1318) tracks on the
-            // operator side).
+            // scores one. An empty or comment-only `proc` body is
+            // spelled identically and so also counts one — accepted
+            // rather than argued away, since no kind-scoped arm can
+            // separate the two roles (the same conflation FIXME(#1318)
+            // tracks on the operator side).
             Tcl::SimpleWord
             | Tcl::Number
             | Tcl::BracedWord

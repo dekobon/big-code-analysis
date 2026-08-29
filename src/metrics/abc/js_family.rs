@@ -217,12 +217,24 @@ impl_js_family_unary_walker!(
 // initialises a `const` binding, whose initializer is part of the
 // declaration and therefore not an ABC assignment (Fitzpatrick).
 //
-// The decision is structural: the `=` must be a direct child of a
-// `variable_declarator` whose own parent is a `lexical_declaration`
-// carrying a `const` keyword child. Every other `=` counts — a `let` /
-// `var` initializer, a standalone `assignment_expression`, a class
-// `field_definition`, and a default-parameter `assignment_pattern`.
-// `for (const x of xs)` has no `=` at all, so it is unaffected.
+// The decision is structural: the `=` must belong to a
+// `variable_declarator` whose parent is a `lexical_declaration` whose
+// `kind` field is the `const` keyword. "Belong to" admits the
+// destructuring-pattern layers a default's `=` sits under —
+// `const {a = 1} = o`, `const [b = 2] = xs`, the nested
+// `const {p: {q = 3} = {}} = o` — because a pattern default declares
+// the binding's value exactly as `const a = 1` does; the pre-#1277 stack
+// suppressed those too, and counting them would make `const {a = 1} = o`
+// score where `const a = o.a ?? 1` does not. The climb stops at the
+// first kind outside that pattern set, so an `=` inside the initializer
+// *value* (`const x = (o.p = 1)`, `const x = a || (b = 1)`) is an
+// `assignment_expression` and counts — a real assignment the stack
+// wrongly blanket-suppressed. Every other `=` counts too — a `let` /
+// `var` initializer, a class `field_definition`, and a parameter
+// default (`g(p = 2)`, `g({q = 3} = {})`), whose climb ends at
+// `formal_parameters` rather than a declarator. `for (const x of xs)`
+// has no `=` at all, and `for (const [k = 1] of xs)` climbs to
+// `for_in_statement`, so both keep their pre-#1277 answer.
 //
 // This replaces the pre-#1277 declaration stack, which pushed a sentinel
 // on `lexical_declaration` / `variable_declaration` and cleared it only
@@ -233,22 +245,42 @@ impl_js_family_unary_walker!(
 // `SEMI` at all. TypeScript's `x as const` reached the sentinel from the
 // other side, promoting a live `let` slot to `Const`.
 //
-// `Node::parent_grandparent_match` reads the ancestor chain the walk
-// already descended through, so both hops are O(1); `Node::parent` would
-// pay O(depth) per `=` token (#1096, #1122).
+// Every hop reads the ancestor chain the walk already descended through,
+// so the climb is O(pattern nesting) and `Node::parent`'s O(depth) is
+// never paid (#1096, #1122). The keyword is read through the `kind`
+// field rather than by scanning the declaration's children: that scan
+// ran once per declarator and walked every sibling declarator, so a
+// `let` list of N declarators cost O(N²) — 6 s for 5 000 of them on a
+// debug build, against 0.04 s for the same list under `var`.
 macro_rules! impl_js_family_const_binding {
     ($Lang:ident, $name:ident) => {
         fn $name<'a>(eq_node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
             use $Lang::*;
 
-            eq_node.parent_grandparent_match(
-                ancestors,
-                |parent| parent.kind_id() == VariableDeclarator,
-                |grand| {
-                    grand.kind_id() == LexicalDeclaration
-                        && grand.children().any(|child| child.kind_id() == Const)
-                },
-            )
+            let mut climb = ancestors.iter(eq_node).map(|(ancestor, _)| ancestor);
+            let mut owner = climb.next();
+            while let Some(node) = owner
+                && matches!(
+                    node.kind_id().into(),
+                    ObjectPattern
+                        | ArrayPattern
+                        | PairPattern
+                        | ObjectAssignmentPattern
+                        | AssignmentPattern
+                        | RestPattern
+                )
+            {
+                owner = climb.next();
+            }
+            if !owner.is_some_and(|node| node.kind_id() == VariableDeclarator) {
+                return false;
+            }
+            climb.next().is_some_and(|declaration| {
+                declaration.kind_id() == LexicalDeclaration
+                    && declaration
+                        .child_by_field_name("kind")
+                        .is_some_and(|keyword| keyword.kind_id() == Const)
+            })
         }
     };
 }
@@ -357,10 +389,8 @@ macro_rules! ts_abc_compute {
                 // and neither does `??` / `??=` (`QMARKQMARK` /
                 // `QMARKQMARKEQ`) nor a mapped type's `?:`
                 // (`QMARKCOLON`).
-                QMARK => {
-                    if ancestors.parent_has_kind(node, TernaryExpression as u16) {
-                        stats.conditions += 1.;
-                    }
+                QMARK if ancestors.parent_has_kind(node, TernaryExpression as u16) => {
+                    stats.conditions += 1.;
                 }
                 // `<` and `>` may also delimit type arguments / type
                 // parameters (`Array<number>`, `class Foo<T> {}`); skip

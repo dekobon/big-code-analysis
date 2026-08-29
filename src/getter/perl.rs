@@ -106,12 +106,25 @@ impl Getter for PerlCode {
             // *parents* also resolves arbitrary qualifier depth to the
             // outermost, the way PHP handles `$$$x` (#1259).
             //
-            // It sits below the operator arm on purpose: `::` inside a
-            // `package_name`, and `*` and the opening `{` inside a
-            // `typeglob`, are matched there and keep their operator
-            // reading. (The closing `}` has never been classified —
-            // `get_operator_id_as_str` folds the pair to one `{}`
-            // glyph — so the guard changes nothing for it.)
+            // It sits below the operator arm on purpose: the `::` token
+            // inside a bareword `package_name` (`Data::Dumper`), and `*`
+            // and the opening `{` inside a `typeglob`, are matched there
+            // and keep their operator reading. A sigil-qualified name
+            // has no such token — its separator is the childless
+            // `package_name` above, which the guard drops with the rest
+            // of the wrapper — so `$Foo::count` bills no `::` where
+            // `Data::Dumper` bills one. That asymmetry is the grammar's:
+            // `main` billed that node as a bogus `::` operand and never
+            // as an operator, so n1/N1 are unchanged here. The typeglob
+            // `*` stays an operator because this getter already bills
+            // the `$` sigil on every scalar reference (`my $x` → n1
+            // {my, $, =, ;}), so the typeglob sigil follows the sigil
+            // convention rather than #1312's delimiter suppression; the
+            // cost is that it shares `Perl::STAR` with multiplication,
+            // so both fold into one n1 entry, and `*Foo` and `*{Foo}`
+            // differ by one `{}` operator. (The closing `}` has never
+            // been classified — `get_operator_id_as_str` folds the pair
+            // to one `{}` glyph — so the guard changes nothing for it.)
             //
             // Guarded, not deleted, per grammar-dispatch §6: these
             // leaves are ordinary operands everywhere else (`my $x`,
@@ -151,9 +164,18 @@ impl Getter for PerlCode {
             // interpolating kinds (`"…"`, `qq{…}`, `` `…` ``, `qx{…}`)
             // are handled separately below so their inner
             // scalar/array/hash variables are not double-counted.
+            //
+            // `ListItem` is one element of a `qw(a b c)` list — a leaf
+            // the grammar emits under `word_list_qw` and nowhere else,
+            // so it cannot double-bill another construct. Until it was
+            // listed the whole `qw()` was invisible to Halstead: neither
+            // the elements nor the wrapper nor the `qw` keyword had an
+            // arm, so `my @a = qw(a b c)` billed `@a` alone while its
+            // synonym `("a", "b", "c")` billed four operands. The
+            // wrapper is gated below, the Ruby `%w[]` shape of #1353.
             P::Identifier | P::ScalarVariable | P::ArrayVariable | P::HashVariable
             | P::PackageVariable | P::SpecialScalarVariable | P::PackageName | P::ModuleName
-            | P::BarewordImport | P::Typeglob | P::FileHandle
+            | P::BarewordImport | P::Typeglob | P::FileHandle | P::ListItem
             | P::Integer | P::FloatingPoint | P::ScientificNotation | P::Hexadecimal | P::Octal
             | P::True | P::False | P::SpecialLiteral
             | P::StringSingleQuoted | P::StringQQuoted
@@ -192,10 +214,17 @@ impl Getter for PerlCode {
             // `scalar_variable` is already counted. A plain operand arm
             // would score `/$x/` at one operand and `m/$x/` at two —
             // the very divergence the equality above exists to prevent.
+            //
+            // `WordListQw` holds classified `ListItem` operands rather
+            // than interpolation, so the same guard gives it "one
+            // operand per element, or one for the empty `qw()`" — the
+            // rule #1353 settled for Ruby's `%w[]`. One list serves
+            // both groups because no string kind admits a `list_item`
+            // and `word_list_qw` admits no `interpolation`.
             P::StringDoubleQuoted | P::StringQqQuoted | P::BacktickQuoted
             | P::CommandQxQuoted | P::HeredocBodyStatement
-            | P::PatternMatcher | P::PatternMatcherM | P::RegexPatternQr => {
-                Self::string_operand_type(node, &[P::Interpolation as u16])
+            | P::PatternMatcher | P::PatternMatcherM | P::RegexPatternQr | P::WordListQw => {
+                Self::string_operand_type(node, &[P::Interpolation as u16, P::ListItem as u16])
             }
             _ => HalsteadType::Unknown,
         }

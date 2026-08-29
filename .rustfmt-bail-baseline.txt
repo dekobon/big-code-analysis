@@ -119,7 +119,6 @@ src/getter/java.rs 2
 src/getter/kotlin.rs 4
 src/getter/lua.rs 3
 src/getter/mozcpp.rs 5
-src/getter/objc.rs 3
 src/getter/perl.rs 3
 src/getter/php.rs 11
 src/getter/python.rs 7
@@ -127,7 +126,6 @@ src/getter/ruby.rs 3
 src/getter/tcl.rs 6
 src/macros/mod.rs 38
 src/metrics/abc/elixir.rs 6
-src/metrics/abc/perl.rs 8
 src/metrics/cognitive/perl.rs 8
 src/metrics/cyclomatic.rs 7
 src/metrics/cyclomatic/irules.rs 2
