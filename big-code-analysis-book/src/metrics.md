@@ -540,7 +540,12 @@ tokens involved the same way they spell real operators:
   and a Perl or Ruby pattern each contribute *one operand* — the
   literal — and no operator for the punctuation around it. Otherwise
   the score would move with the author's choice of delimiter, which
-  says nothing about the code.
+  says nothing about the code. One known exception, tracked in
+  [#1318](https://github.com/dekobon/big-code-analysis/issues/1318):
+  the Tcl grammar parses a braced literal as a *script* everywhere
+  except the value slot of the handful of commands it special-cases,
+  so `lappend x {a b}` still reports a `{}` operator and bills the
+  words inside the braces rather than the literal.
 - **A string-interpolation opener is not an operator.** `"{$x}"` in
   PHP, `"#{x}"` in Ruby and Elixir, `"${x}"` in Kotlin and Groovy and
   `$"{x}"` in C# all count the interpolated expression's own operators
