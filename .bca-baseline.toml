@@ -825,7 +825,7 @@ value = 53745.73829541664
 path = "src/getter/perl.rs"
 qualified = "PerlCode::get_op_type"
 metric = "halstead.effort"
-value = 89041.25632378942
+value = 103448.96120335422
 
 [[entry]]
 path = "src/getter/php.rs"
