@@ -24,6 +24,15 @@ for historical reference.
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-08-29
+
+One entry below is marked **(breaking)**: the Python bindings'
+`analyze_batch` / `analyze_paths` now return one element per input
+under `skip_generated=False`, as both docstrings always promised. The
+previous shape silently misattributed results to the wrong path, so
+the fix ships in a minor release as a correctness exception to the
+stability contract rather than waiting for `3.0`.
+
 ### Added
 
 - `bca check` now reports what it declined to look at (#1055). When the
@@ -8687,7 +8696,8 @@ Halstead scores, and MI stay `f64`. No value changes — only the type.
 [Unreleased] link to `vX.Y.Z...HEAD` and add a `[X.Y.Z]:` line
 pointing at `<prev-tag>...vX.Y.Z`. -->
 
-[Unreleased]: https://github.com/dekobon/big-code-analysis/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/dekobon/big-code-analysis/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/dekobon/big-code-analysis/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/dekobon/big-code-analysis/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/dekobon/big-code-analysis/compare/v1.1.0...v2.0.0
 [1.1.0]: https://github.com/dekobon/big-code-analysis/compare/v1.0.0...v1.1.0

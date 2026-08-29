@@ -12,7 +12,7 @@
 
 [package]
 name = "enums"
-version = "2.1.1"
+version = "2.2.0"
 publish = false
 authors = ["Calixte Denizet <cdenizet@mozilla.com>"]
 edition = "2024"
@@ -49,11 +49,11 @@ tree-sitter-c = "=0.24.2"
 # Vendored grammar forks — see ../Cargo.toml for rationale on the
 # `package = ...` alias trick that preserves the `tree_sitter_<lang>`
 # import path while the published crate name is `bca-tree-sitter-<lang>`.
-tree-sitter-tcl = { package = "bca-tree-sitter-tcl", path = "../tree-sitter-tcl", version = "=2.1.1" }
-tree-sitter-preproc = { package = "bca-tree-sitter-preproc", path = "../tree-sitter-preproc", version = "=2.1.1" }
-tree-sitter-ccomment = { package = "bca-tree-sitter-ccomment", path = "../tree-sitter-ccomment", version = "=2.1.1" }
-tree-sitter-mozcpp = { package = "bca-tree-sitter-mozcpp", path = "../tree-sitter-mozcpp", version = "=2.1.1" }
-tree-sitter-mozjs = { package = "bca-tree-sitter-mozjs", path = "../tree-sitter-mozjs", version = "=2.1.1" }
+tree-sitter-tcl = { package = "bca-tree-sitter-tcl", path = "../tree-sitter-tcl", version = "=2.2.0" }
+tree-sitter-preproc = { package = "bca-tree-sitter-preproc", path = "../tree-sitter-preproc", version = "=2.2.0" }
+tree-sitter-ccomment = { package = "bca-tree-sitter-ccomment", path = "../tree-sitter-ccomment", version = "=2.2.0" }
+tree-sitter-mozcpp = { package = "bca-tree-sitter-mozcpp", path = "../tree-sitter-mozcpp", version = "=2.2.0" }
+tree-sitter-mozjs = { package = "bca-tree-sitter-mozjs", path = "../tree-sitter-mozjs", version = "=2.2.0" }
 
 # Mirrors [workspace.lints] in ../Cargo.toml. `enums` is excluded from
 # that workspace (see [workspace].exclude there), so it cannot inherit

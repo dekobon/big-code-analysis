@@ -13,7 +13,7 @@
 [package]
 name = "bca-tree-sitter-tcl"
 description = "Tcl grammar for the tree-sitter parsing library (big-code-analysis fork)"
-version = "2.1.1"
+version = "2.2.0"
 authors = [
   "Lewis Russell",
   "Elijah Zupancic <elijah@zupancic.name>",

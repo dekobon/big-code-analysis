@@ -1,6 +1,6 @@
 # Stability and versioning
 
-`big-code-analysis` is on the `2.x` line (currently `2.1.0`). The
+`big-code-analysis` is on the `2.x` line (currently `2.2.0`). The
 full stability contract lives in [`STABILITY.md`][stability] at the
 root of the repository — that file is the source of truth and is
 updated alongside the changelog at every release.
@@ -22,7 +22,7 @@ The headlines for library consumers:
   bump or a bug fix in a metric definition can shift any metric
   value on any file in any direction, even across a patch bump.
   Each such drift is flagged in the changelog. Pin to an exact
-  version (`big-code-analysis = "= 2.1.0"`) if you need bit-for-bit
+  version (`big-code-analysis = "= 2.2.0"`) if you need bit-for-bit
   reproducibility across runs.
 - **MSRV is `1.94`.** Bumping the MSRV is treated as a minor-bump
   event and is flagged in the changelog under **(breaking)** —

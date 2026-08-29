@@ -1,6 +1,6 @@
 # Stability policy
 
-`big-code-analysis` is on the `2.x` line (currently `2.1.0`). This
+`big-code-analysis` is on the `2.x` line (currently `2.2.0`). This
 document is the public-API stability contract: what is stable, what
 counts as an additive change, what is reserved for a major bump, and
 the narrow seams where the contract deliberately does not reach.
@@ -30,7 +30,7 @@ pin bump (any `tree-sitter-*` crate in the root `Cargo.toml`) or a
 regression fix in a metric definition is by definition a value
 change but does not break the API surface. Callers who need
 bit-for-bit reproducibility should pin to an exact version
-(`big-code-analysis = "= 2.1.0"`) and store that version alongside
+(`big-code-analysis = "= 2.2.0"`) and store that version alongside
 their results; see [What is stable in value](#what-is-stable-in-value)
 below.
 
@@ -447,7 +447,7 @@ versions, even within `2.x`.** Concretely:
 This is the one deliberate carve-out in the `2.x` contract. The
 *shape* of the data is stable; the *numbers in the cells* are not.
 If you need to compare metric runs across time, pin to an exact
-version (`big-code-analysis = "= 2.1.0"`) and store the version
+version (`big-code-analysis = "= 2.2.0"`) and store the version
 alongside the results.
 
 ### Float precision and non-finite values

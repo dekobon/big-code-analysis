@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "bca-tree-sitter-tcl"
-version = "2.1.1"
+version = "2.2.0"
 dependencies = [
  "cc",
  "tree-sitter",

@@ -1,6 +1,6 @@
 .ie \n(.g .ds Aq \(aq
 .el .ds Aq '
-.TH BCA-DIFF 1  "big-code-analysis 2.1.1" "big-code-analysis Manual"
+.TH BCA-DIFF 1  "big-code-analysis 2.2.0" "big-code-analysis Manual"
 .SH NAME
 bca\-diff \- Compare two metric\-output runs and report, per metric, which files changed (old to new), plus files added/removed between the two sets. Each side is a per\-file JSON file or a directory tree of them (the form `bca metrics \-O json \-\-output\-dir DIR` writes). Replaces the grammar\-bump glue chain — the external `json\-minimal\-tests` binary plus `split\-minimal\-tests.py` — with one native command. Exits 0 on success by default; the diff is informational, not a gate. With `\-\-exit\-code`, exits 2 when the filtered diff is non\-empty
 .SH SYNOPSIS
