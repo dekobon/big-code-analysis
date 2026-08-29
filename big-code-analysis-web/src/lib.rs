@@ -12,6 +12,9 @@
 pub mod web;
 pub use web::*;
 
+#[cfg(test)]
+mod lockfile_tests;
+
 /// `bca-web` command-line parser. Lifted out of the binary so the
 /// workspace `xtask` crate can render its man page from the same
 /// `clap::Command` tree the running binary parses.

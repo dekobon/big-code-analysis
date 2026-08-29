@@ -36,6 +36,11 @@ confidence-threshold = 0.93
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# No `deny` entry for `h2 <0.4.16` (RUSTSEC-2026-0258): cargo-deny's graph
+# builder drops that crate before any check runs (`-L debug` logs
+# `filtered h2 0.3.27` with `actix-web/http2` enabled, on 0.19 and 0.20),
+# so neither an advisory nor a ban can see it. The lockfile is pinned by
+# `lockfile_tests` in big-code-analysis-web instead.
 
 [sources]
 unknown-registry = "deny"

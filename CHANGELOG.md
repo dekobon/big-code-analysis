@@ -1071,7 +1071,10 @@ for historical reference.
   in `h2 0.4.16`. `big-code-analysis-web` now builds `actix-web`
   without `http2` — the daemon binds plaintext, and actix negotiates
   HTTP/2 only over TLS ALPN, so the feature was never reachable — which
-  drops `h2 0.3` from `Cargo.lock` altogether.
+  drops `h2 0.3` from `Cargo.lock` altogether. A web-crate test pins the
+  lockfile against any `h2` older than the fix, because cargo-deny's
+  graph builder drops that crate before its advisory and ban checks run
+  and so cannot guard it.
 
 ## [2.1.0] - 2026-08-06
 

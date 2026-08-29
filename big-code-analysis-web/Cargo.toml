@@ -15,8 +15,9 @@ actix-rt = "^2.6"
 # solely through TLS ALPN, so the `http2` default feature buys nothing
 # and only pulls in `h2 0.3`, which carries the unfixable
 # RUSTSEC-2026-0258 (actix-http 3 stays on http 0.2, hence h2 0.3; the
-# fix exists only in h2 0.4.16). The rest of actix-web's default set is
-# kept verbatim so nothing else changes.
+# fix exists only in h2 0.4.16). The rest is actix-web 4.15's default
+# set as of that pin; re-derive it on a minor bump, since the list is a
+# snapshot and does not track upstream defaults.
 actix-web = { version = "^4.2", default-features = false, features = [
   "macros",
   "compress-brotli",
