@@ -829,6 +829,18 @@ Signed artefacts, SBOMs, and SLSA provenance still publish normally,
 so a pre-release is a full test of everything except the external
 pushes.
 
+To re-run the release workflow against a tag that already exists,
+dispatch it *from* the tag — `gh workflow run release.yml --ref
+v0.0.0-test1`, or pick the tag under "Use workflow from" in the
+Actions tab. There is no tag input: preflight refuses a dispatch from
+a branch, so the checked-out commit is always the tag's. A dispatch
+runs the workflow file *at that tag*, so tags cut before this change
+(`v2.1.0` and earlier) still carry the old required `tag` input and
+need `-f tag=<tag>` as well. The flip side: a fix to `release.yml`
+itself cannot be rehearsed against an existing tag, because the
+dispatch runs the tag's copy of the file — cut a fresh `v0.0.0-testN`
+on the commit that carries the fix instead.
+
 Both PyPI wheel workflows still **build and smoke-test** every wheel on
 a pre-release tag but **skip the PyPI publish step**, so a pre-release
 never lands a wheel on PyPI. The CLI wheel (`python-cli-wheels.yml`)
@@ -1076,10 +1088,12 @@ above are therefore sufficient: there is no separate
 
 ### Testing a release candidate without uploading
 
-`workflow_dispatch` from the **Actions** tab runs the full build +
-smoke-test matrix without invoking the publish job (the `if:`
-guard requires a `v*` tag push). Use this to validate a
-release-prep branch before tagging.
+For the two PyPI wheel workflows, `workflow_dispatch` from the
+**Actions** tab runs the full build + smoke-test matrix without
+invoking the publish job (the `if:` guard requires a `v*` tag push).
+Use this to validate a release-prep branch before tagging. This does
+not apply to `release.yml`, whose preflight refuses a branch dispatch
+— rehearse it from a pre-release tag as described above.
 
 To exercise the PyPI side end-to-end against
 `https://test.pypi.org/`, temporarily change the
