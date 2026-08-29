@@ -592,9 +592,7 @@ fn run_walk_tallying(globals: GlobalOpts, mut cfg: Config) -> WalkFailures {
     // runner hands out its first path — each worker resolves its own
     // slot from that map (#1303).
     if cfg.streams_documents_to_stdout() {
-        let ordered = Arc::new(ordered_stdout::OrderedStdout::default());
-        ordered.index_paths(&resolved.files);
-        cfg.ordered_stdout = Some(ordered);
+        cfg.ordered_stdout = ordered_stdout::OrderedStdout::new(&resolved.files).map(Arc::new);
     }
     run_walk_resolved_tallying(resolved.files, num_jobs, cfg, resolved.walk_errors)
 }

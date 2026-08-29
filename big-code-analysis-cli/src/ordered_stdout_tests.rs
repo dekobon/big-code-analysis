@@ -13,10 +13,9 @@ use super::*;
 /// `None` the "this file emitted nothing" marker every skipped,
 /// unreadable, or unparseable file releases its slot with.
 fn buffer(pending: &mut Pending, index: usize, document: Option<&str>) {
-    pending.documents.insert(
-        index,
-        document.map(|d| d.as_bytes().to_vec()).unwrap_or_default(),
-    );
+    pending
+        .documents
+        .insert(index, document.map(|d| d.as_bytes().to_vec()));
 }
 
 /// The emittable documents, as strings, for readable assertions.
@@ -120,10 +119,9 @@ fn take_all_drains_across_a_gap_in_index_order() {
 /// the list is what preserves that, where sorting the paths would not.
 #[test]
 fn slots_follow_the_resolved_list_order_not_path_order() {
-    let ordered = OrderedStdout::default();
     let paths: Vec<PathBuf> = ["z.rs", "a.rs", "m.rs"].iter().map(PathBuf::from).collect();
 
-    ordered.index_paths(&paths);
+    let ordered = OrderedStdout::new(&paths).expect("three distinct paths index cleanly");
 
     assert_eq!(ordered.slot(Path::new("z.rs")).0, Some(0));
     assert_eq!(ordered.slot(Path::new("a.rs")).0, Some(1));
@@ -135,24 +133,22 @@ fn slots_follow_the_resolved_list_order_not_path_order() {
 /// never reach it.
 #[test]
 fn an_unindexed_path_has_no_slot() {
-    let ordered = OrderedStdout::default();
-    ordered.index_paths(&[PathBuf::from("a.rs")]);
+    let ordered = OrderedStdout::new(&[PathBuf::from("a.rs")]).expect("one path indexes cleanly");
 
     assert_eq!(ordered.slot(Path::new("elsewhere.rs")).0, None);
 }
 
 /// Two dispatches of one path would collide on a single slot and one
 /// document would overwrite the other. `SeedSet` dedupes so a walk
-/// cannot produce that list; if one ever did, ordering is abandoned for
-/// the whole run — every slot unresolved, every document written as it
-/// finishes — rather than a document being lost.
+/// cannot produce that list; if one ever did, no buffer is built at all
+/// — every document written as it finishes, as before #1303 — rather
+/// than a document being lost.
 #[test]
 fn a_duplicated_path_disables_ordering_rather_than_losing_a_document() {
-    let ordered = OrderedStdout::default();
     let duplicated = PathBuf::from("a.rs");
 
-    ordered.index_paths(&[duplicated.clone(), PathBuf::from("b.rs"), duplicated]);
-
-    assert_eq!(ordered.slot(Path::new("a.rs")).0, None);
-    assert_eq!(ordered.slot(Path::new("b.rs")).0, None);
+    assert!(
+        OrderedStdout::new(&[duplicated.clone(), PathBuf::from("b.rs"), duplicated]).is_none(),
+        "a duplicated path must leave the run unordered rather than share a slot"
+    );
 }
