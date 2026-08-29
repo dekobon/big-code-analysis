@@ -239,6 +239,18 @@ fn perl_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     }
 }
 
+// FIXME(#1276): Perl's C-style `for (my $i = 0; $cond; $i++)` header
+// has a condition slot this dispatcher never inspects, so a bare,
+// negated or parenthesised loop condition reports zero while the same
+// predicate in `if ($cond)` reports one. tree-sitter-perl exposes a
+// `condition` field on `for_statement_1`, so the fix is the same
+// one-line field read the C family, JS family, PHP, Java, Groovy and Go
+// gained in #1276; it was left out of that change because Perl is a
+// different grammar family with no `for` arm to extend and its ABC
+// dispatch match sits outside `cargo fmt` (see
+// `.rustfmt-bail-baseline.txt`). Tcl, iRules and Bash share the
+// asymmetry by design, not by omission: their loop headers are commands
+// rather than boolean-expression slots (grammar-dispatch §9).
 impl Abc for PerlCode {
     fn compute<'a>(
         node: &Node<'a>,

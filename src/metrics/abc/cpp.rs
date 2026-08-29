@@ -98,16 +98,13 @@ pub(super) fn cpp_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
 // child(3). String-kind-based like its neighbours so the Mozilla fork's
 // differing kind_ids (#732) stay covered by this one implementation.
 //
-// The condition needs its own terminal check because
-// `cpp_inspect_container` only counts *after* unwrapping a `(...)` /
-// `!...` layer, so a bare `a ? … : …` would otherwise score zero.
+// The condition goes through `cpp_count_condition`, whose top-level
+// terminal check is what stops a bare `a ? … : …` scoring zero:
+// `cpp_inspect_container` alone only counts *after* unwrapping a
+// `(...)` / `!...` layer.
 pub(super) fn cpp_walk_ternary(node: &Node, conditions: &mut f64) {
     if let Some(condition) = node.child_by_field_name("condition") {
-        if matches!(condition.kind(), cpp_bool_terminal_kinds!()) {
-            *conditions += 1.;
-        } else {
-            cpp_inspect_container(&condition, node, conditions);
-        }
+        cpp_count_condition(&condition, node, conditions);
     }
     // Branch operands carry no terminal check: an unnegated branch is
     // type-free and contributes nothing, which is what keeps
@@ -116,6 +113,44 @@ pub(super) fn cpp_walk_ternary(node: &Node, conditions: &mut f64) {
         if let Some(branch) = node.child_by_field_name(field) {
             cpp_inspect_container(&branch, node, conditions);
         }
+    }
+}
+
+// Classifies one condition-slot expression: a bare boolean terminal
+// counts directly, anything else is offered to the `(...)` / `!...`
+// unwrap chain. Shared by the ternary condition slot and the `for`
+// header's condition slot, which are the two places a C-family
+// condition arrives *unwrapped* — `if` / `while` / `do` hand
+// `cpp_inspect_container` a `condition_clause` or a
+// `parenthesized_expression` that supplies the unwrap step itself, so
+// they must NOT take the top-level terminal count (it is what keeps
+// `(a > 0) ? b : -b` at 2). Mirrors `csharp_count_condition`.
+fn cpp_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
+    if matches!(condition.kind(), cpp_bool_terminal_kinds!()) {
+        *conditions += 1.;
+    } else {
+        cpp_inspect_container(condition, parent, conditions);
+    }
+}
+
+// Phase-2B (issues #403 / #1276): the `for (init; condition; update)`
+// condition slot is a Fitzpatrick Rule 9 unary condition, exactly like
+// the `if` / `while` slots the dispatchers already walk. Without this
+// the C family scored `for (; a; ) {}` zero where `if (a) {}` scores
+// one, and `cpp_inspect_container`'s `for_statement` boolean-context
+// seed was unreachable. Comparison-shaped conditions (`i < n`) were
+// never affected — the `<` token arm counts those.
+//
+// The slot is addressed by grammar FIELD. All three header slots are
+// optional, so every child index moves with the shape written, and a
+// comment inside the header moves them again (#1181).
+//
+// An empty condition (`for (;;)`) exposes no `condition` field, so it
+// counts zero with no special case — see the `Stats` doc comment's
+// cross-language empty-`for`-condition policy.
+pub(super) fn cpp_walk_for_statement(node: &Node, conditions: &mut f64) {
+    if let Some(condition) = node.child_by_field_name("condition") {
+        cpp_count_condition(&condition, node, conditions);
     }
 }
 
@@ -276,6 +311,12 @@ impl Abc for CppCode {
             // operand slots (issue #1102).
             ConditionalExpression => {
                 cpp_walk_ternary(node, &mut stats.conditions);
+            }
+            // `for (init; cond; update)` — the condition slot, read by
+            // grammar field (issue #1276). `for (;;)` has no condition
+            // field and counts nothing.
+            ForStatement => {
+                cpp_walk_for_statement(node, &mut stats.conditions);
             }
             _ => {}
         }

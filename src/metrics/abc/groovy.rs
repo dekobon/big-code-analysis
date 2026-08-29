@@ -260,24 +260,21 @@ fn groovy_walk_ternary(node: &Node, stats: &mut Stats) {
     }
 }
 
-// Two shapes: a present condition lives at child(3); an empty condition
-// shows up as a bare `SEMI` token at child(3) with the next slot
-// (child(4)) holding either the update expression or `;` / `)` for
-// `for(;;)`-style loops, which still count as a single condition slot.
+// The `for (init; condition; update)` condition slot, addressed by
+// grammar FIELD. This replaces a positional cascade that read child(3),
+// and child(4) when child(3) was the `;` an expression initializer
+// leaves behind. Two things that cascade got wrong, both fixed here by
+// construction (#1276) — see `java_walk_for_statement`, whose identical
+// cascade had the identical pair of defects:
+//
+//   * A comment anywhere in the header shifted every index.
+//   * `SEMI` / `RPAREN` landing at child(4) was counted as a
+//     vacuously-true condition, so `for (;;)` scored one; see the
+//     `Stats` doc comment's cross-language empty-`for`-condition
+//     policy.
 fn groovy_walk_for_statement(node: &Node, stats: &mut Stats) {
-    use Groovy::*;
-    let Some(condition) = node.child(3) else {
-        return;
-    };
-    if !matches!(condition.kind_id().into(), SEMI) {
+    if let Some(condition) = node.child_by_field_name("condition") {
         groovy_count_condition(&condition, node, &mut stats.conditions);
-        return;
-    }
-    let Some(cond) = node.child(4) else { return };
-    if matches!(cond.kind_id().into(), SEMI | RPAREN) {
-        stats.conditions += 1.;
-    } else {
-        groovy_count_condition(&cond, node, &mut stats.conditions);
     }
 }
 
