@@ -1061,6 +1061,18 @@ for historical reference.
   config identically, so this states what was always true rather than
   changing anything (#1222).
 
+### Security
+
+- Cleared the OpenSSF Scorecard Vulnerabilities alert for
+  RUSTSEC-2026-0258 (`h2` queues empty HTTP/2 DATA frames without
+  limit). The flagged crate was `h2 0.3.27`, reached only through
+  `actix-web`'s default `http2` feature, and no patched 0.3 release
+  exists: `actix-http` 3 is pinned to `h2 0.3` and the fix ships only
+  in `h2 0.4.16`. `big-code-analysis-web` now builds `actix-web`
+  without `http2` — the daemon binds plaintext, and actix negotiates
+  HTTP/2 only over TLS ALPN, so the feature was never reachable — which
+  drops `h2 0.3` from `Cargo.lock` altogether.
+
 ## [2.1.0] - 2026-08-06
 
 A feature and correctness release on the `2.x` line, and the first to
