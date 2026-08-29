@@ -10,7 +10,7 @@ expression: render(&offenders)
       "tool": {
         "driver": {
           "name": "big-code-analysis",
-          "version": "2.2.0",
+          "version": "2.2.1",
           "rules": [
             {
               "id": "cognitive",

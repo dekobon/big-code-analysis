@@ -13,7 +13,7 @@
 [package]
 name = "bca-tree-sitter-mozjs"
 description = "Mozjs grammar for the tree-sitter parsing library (big-code-analysis fork)"
-version = "2.2.0"
+version = "2.2.1"
 authors = [
   "Calixte Denizet <cdenizet@mozilla.com>",
   "Elijah Zupancic <elijah@zupancic.name>",
