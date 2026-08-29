@@ -3335,6 +3335,326 @@ mod tests {
         );
     }
 
+    /// Every (name wrapper, contained operand) pairing tree-sitter-perl's
+    /// node-types.json admits, and the single source of truth for both
+    /// halves of #1355's guard: its parent set is the distinct first
+    /// components, the kinds it subsumes the distinct second ones.
+    /// `perl_name_wrappers_bill_the_name_once_1355` witnesses every row
+    /// and fails on an eleventh pairing.
+    const PERL_NAME_WRAPPER_PAIRINGS: [(Perl, Perl); 10] = [
+        (Perl::PackageName, Perl::Identifier),
+        (Perl::PackageName, Perl::ScalarVariable),
+        (Perl::PackageName, Perl::ArrayVariable),
+        (Perl::PackageName, Perl::HashVariable),
+        (Perl::PackageName, Perl::SpecialScalarVariable),
+        (Perl::PackageName, Perl::Typeglob),
+        (Perl::PackageName, Perl::PackageVariable),
+        (Perl::PackageVariable, Perl::PackageName),
+        (Perl::PackageVariable, Perl::ScalarVariable),
+        (Perl::Typeglob, Perl::Identifier),
+    ];
+
+    /// The anonymous tokens those wrappers also hold. `::` and `*` are
+    /// operators (matched above the guard, so they keep that reading);
+    /// `{` folds into the `{}` glyph and `}` has never been classified
+    /// at all. Listing them is what lets
+    /// `perl_name_wrappers_bill_the_name_once_1355` police *every*
+    /// child rather than only the named ones — the operand arm carries
+    /// token-shaped kinds too (`True`, `FILE`, `SUB`, …), and a bump
+    /// that let one of those inside a wrapper would otherwise be
+    /// silenced with nothing failing.
+    const PERL_NAME_WRAPPER_TOKENS: [Perl; 4] =
+        [Perl::COLONCOLON, Perl::STAR, Perl::LBRACE, Perl::RBRACE];
+
+    /// The occurrences #1355's guard suppresses in `source`, paired
+    /// with the (wrapper kind, child kind) pairings they witness.
+    ///
+    /// Walks with `for_each_node_with_chain`, which maintains the
+    /// ancestor chain exactly as `spaces::compute` does, so "parent"
+    /// here means what `Ancestors::parent` means inside the guard
+    /// rather than what a differently-built chain would say.
+    fn perl_subsumed_operands(source: &str) -> (Vec<String>, HashSet<(u16, u16)>) {
+        let wrappers: HashSet<u16> = PERL_NAME_WRAPPER_PAIRINGS
+            .map(|(wrapper, _)| wrapper as u16)
+            .into();
+        let subsumed: HashSet<u16> = PERL_NAME_WRAPPER_PAIRINGS
+            .map(|(_, child)| child as u16)
+            .into();
+        let tokens: HashSet<u16> = PERL_NAME_WRAPPER_TOKENS.map(|kind| kind as u16).into();
+        let code = source.as_bytes();
+        let mut hidden = Vec::new();
+        let mut pairings = HashSet::new();
+        for_each_node_with_chain::<PerlCode>(code, |node, chain| {
+            let Some(parent) = chain.last() else { return };
+            if !wrappers.contains(&parent.kind_id()) {
+                return;
+            }
+            assert!(
+                subsumed.contains(&node.kind_id()) || tokens.contains(&node.kind_id()),
+                "`{source}`: a `{}` inside a `{}` is a child this guard was not \
+                 derived against; re-read node-types.json before trusting it",
+                node.kind(),
+                parent.kind(),
+            );
+            if subsumed.contains(&node.kind_id()) {
+                pairings.insert((parent.kind_id(), node.kind_id()));
+                hidden.push(
+                    node.utf8_text(code)
+                        .expect("fixture is valid UTF-8")
+                        .to_owned(),
+                );
+            }
+        });
+        (hidden, pairings)
+    }
+
+    /// One row of `perl_name_wrappers_bill_the_name_once_1355`'s
+    /// table: a fixture, what it must measure now, what it measured
+    /// before #1355, and the operand text behind the counts.
+    struct PerlNameWrapperCase {
+        source: &'static str,
+        /// `[n1, N1, n2, N2]` with the guard in place.
+        counts: [u64; 4],
+        /// `[n2, N2]` without it. Re-derived by the loop rather than
+        /// trusted, so a stale row fails instead of misinforming.
+        before: [u64; 2],
+        operands: &'static [&'static str],
+    }
+
+    /// Regression for #1355. `package_name`, `package_variable` and
+    /// `typeglob` are operands spanning a whole name, so every
+    /// operand-classified node *inside* one was billed a second time:
+    /// `use strict;` scored `N2` 2 for one name, `our $Foo::count = 3;`
+    /// n2 5 / N2 6 for two, and the vocabulary grew a bare `::` entry
+    /// because a `package_variable`'s qualifier slot is itself a
+    /// childless `package_name`.
+    ///
+    /// Each row's `before` column is what it measured without the
+    /// guard, and the loop re-derives both halves from the current
+    /// parse rather than trusting the column — the guard is the only
+    /// difference between the two classifications, so the occurrences
+    /// it removes are exactly the subsumed-kind children of a wrapper:
+    ///
+    /// - `N2` before minus `N2` after must equal how many of those
+    ///   there are. That identity *is* the defect: one spurious operand
+    ///   per contained name part.
+    /// - `n2` before is the post-fix vocabulary unioned with their
+    ///   texts. It exceeds `n2` after wherever a part's spelling is not
+    ///   already an operand on its own (`Data`, `::`, `count`).
+    ///
+    /// The walk doubles as the grammar-dispatch §1 / §2 drift marker.
+    /// It asserts that every *named* child of a wrapper is one of the
+    /// eight subsumed kinds — which is what makes keying the arm on the
+    /// parent alone safe — and that all ten pairings node-types.json
+    /// admits are exercised here, so a bump that renumbers or re-parents
+    /// one fails loudly instead of leaving the counts below measuring a
+    /// construct the arm no longer reaches.
+    ///
+    /// Two mutants this does *not* catch, measured rather than assumed.
+    /// Widening the guard from parent- to ancestor-scoped fails nothing,
+    /// for the reason `perl_division_emits_no_slash_token` already
+    /// records about the other guard in this getter: every operand-kinded
+    /// descendant of a wrapper is also a direct child of one, and the
+    /// intervening sigil tokens are matched by the operator arm above
+    /// before the guard is reached. Parent-scoping stands on
+    /// grammar-dispatch §5 and on symmetry with that guard, not on a
+    /// test. What *is* pinned is the arm's position: moving it above the
+    /// operator arm swallows `::`, `*` and the typeglob's opening brace,
+    /// and the operator columns below fail.
+    #[test]
+    fn perl_name_wrappers_bill_the_name_once_1355() {
+        let cases: [PerlNameWrapperCase; 12] = [
+            // identifier under package_name, the single-segment form.
+            PerlNameWrapperCase {
+                source: "use strict;\n",
+                counts: [2, 2, 1, 1],
+                before: [1, 2],
+                operands: &["strict"],
+            },
+            // …and the multi-segment one, twice over.
+            PerlNameWrapperCase {
+                source: "require Data::Dumper;\n",
+                counts: [3, 3, 1, 1],
+                before: [3, 3],
+                operands: &["Data::Dumper"],
+            },
+            PerlNameWrapperCase {
+                source: "package Foo::Bar;\n",
+                counts: [3, 3, 1, 1],
+                before: [3, 3],
+                operands: &["Foo::Bar"],
+            },
+            // The `bar` of a qualified call is a *sibling* of the
+            // `package_name`, not a child, so it still counts while the
+            // `Foo` inside the wrapper does not. That is the row saying
+            // the guard reads position and not kind: keying it on the
+            // child kinds instead fails 14 tests here, this one among
+            // them.
+            PerlNameWrapperCase {
+                source: "Foo::bar();\n",
+                counts: [3, 3, 2, 2],
+                before: [2, 3],
+                operands: &["Foo", "bar"],
+            },
+            // identifier under typeglob, bare and brace-delimited.
+            PerlNameWrapperCase {
+                source: "my $g = *STDOUT;\n",
+                counts: [5, 5, 2, 2],
+                before: [3, 3],
+                operands: &["$g", "*STDOUT"],
+            },
+            PerlNameWrapperCase {
+                source: "my $t = *{Foo};\n",
+                counts: [6, 6, 2, 2],
+                before: [3, 3],
+                operands: &["$t", "*{Foo}"],
+            },
+            // package_name and scalar_variable under package_variable,
+            // and scalar_variable under package_name — the reported
+            // fixture, where `$Foo` was billed twice and `::` once.
+            PerlNameWrapperCase {
+                source: "our $Foo::count = 3;\n",
+                counts: [4, 4, 2, 2],
+                before: [5, 6],
+                operands: &["$Foo::count", "3"],
+            },
+            // array_variable / hash_variable / special_scalar_variable
+            // under package_name: the same shape with the other sigils.
+            PerlNameWrapperCase {
+                source: "my @l = @Foo::list;\n",
+                counts: [3, 3, 2, 2],
+                before: [5, 6],
+                operands: &["@l", "@Foo::list"],
+            },
+            PerlNameWrapperCase {
+                source: "my %h = %Foo::hash;\n",
+                counts: [3, 3, 2, 2],
+                before: [5, 6],
+                operands: &["%h", "%Foo::hash"],
+            },
+            PerlNameWrapperCase {
+                source: "my $z = $_::x;\n",
+                counts: [4, 5, 2, 2],
+                before: [5, 6],
+                operands: &["$z", "$_::x"],
+            },
+            // typeglob under package_name.
+            PerlNameWrapperCase {
+                source: "*Foo::glob = 1;\n",
+                counts: [3, 3, 2, 2],
+                before: [6, 7],
+                operands: &["*Foo::glob", "1"],
+            },
+            // package_variable under package_name: the nesting that
+            // makes qualifier depth unbounded. One variable reference
+            // used to spell seven vocabulary entries.
+            PerlNameWrapperCase {
+                source: "my $x = $Foo::Bar::baz;\n",
+                counts: [4, 5, 2, 2],
+                before: [7, 10],
+                operands: &["$x", "$Foo::Bar::baz"],
+            },
+        ];
+
+        let mut witnessed: HashSet<(u16, u16)> = HashSet::new();
+        for PerlNameWrapperCase {
+            source,
+            counts,
+            before: [n2_before, total_before],
+            operands,
+        } in cases
+        {
+            let (hidden, pairings) = perl_subsumed_operands(source);
+            assert!(
+                !hidden.is_empty(),
+                "row {source:?} contains no name-wrapper child, so it witnesses nothing",
+            );
+            witnessed.extend(pairings);
+
+            // Phrased as an addition rather than a subtraction so a
+            // future edit that inverts the two underflows nothing and
+            // fails with the message below.
+            assert_eq!(
+                total_before,
+                counts[3] + hidden.len() as u64,
+                "row {source:?} must shed exactly one operand per contained \
+                 name part; recorded N2_before {total_before}, parts {hidden:?}",
+            );
+            let mut vocabulary: HashSet<&str> = operands.iter().copied().collect();
+            vocabulary.extend(hidden.iter().map(String::as_str));
+            assert_eq!(
+                vocabulary.len() as u64,
+                n2_before,
+                "row {source:?}: n2 before the fix is the post-fix vocabulary \
+                 plus the contained name parts; got {vocabulary:?}",
+            );
+
+            assert_halstead_counts::<PerlParser>(source, "foo.pl", counts, source);
+            assert_ops_operands::<PerlParser>(source, "foo.pl", operands.len(), operands.to_vec());
+        }
+
+        let mut got: Vec<(u16, u16)> = witnessed.into_iter().collect();
+        got.sort_unstable();
+        let mut expected_pairings: Vec<(u16, u16)> = PERL_NAME_WRAPPER_PAIRINGS
+            .map(|(wrapper, child)| (wrapper as u16, child as u16))
+            .into();
+        expected_pairings.sort_unstable();
+        assert_eq!(
+            got, expected_pairings,
+            "the table must exercise every (wrapper, child) pairing \
+             node-types.json admits, and no other",
+        );
+    }
+
+    /// The over-suppression half of #1355 (grammar-dispatch §6 and §11).
+    /// The guard is keyed on the parent, so the same kinds it silences
+    /// inside a name wrapper have to keep counting everywhere else —
+    /// otherwise "one operand per name" would have been bought by
+    /// zeroing ordinary variables and calls.
+    ///
+    /// `module_name` rides along because the issue asserted it shares
+    /// the `identifier` leaf and would be collateral damage. It does
+    /// not: `use 'Foo.pm'` parses to a leaf holding only its two quote
+    /// tokens, so it wraps nothing and is untouched either way.
+    #[test]
+    fn perl_qualified_name_leaves_still_count_elsewhere_1355() {
+        // expected: operators `my` × 4, `$` × 3 (one per `$`-sigilled
+        // variable), `=` × 4, `;` × 5, `()` × 3 and the fat comma
+        // → n1 = 6, N1 = 20. Operands are the four declared variables,
+        // the three integers, the hash key, `$_` and the call target
+        // → n2 = N2 = 10. Five of the eight kinds the guard silences
+        // under a name wrapper appear among them — `scalar_variable`,
+        // `array_variable`, `hash_variable`, `special_scalar_variable`
+        // and `identifier` — and all five still count here.
+        let bare = "my $x = 1;\nmy @a = (2);\nmy %h = (k => 3);\nmy $u = $_;\nfoo();\n";
+        assert_halstead_counts::<PerlParser>(bare, "foo.pl", [6, 20, 10, 10], bare);
+        assert_ops_operands::<PerlParser>(
+            bare,
+            "foo.pl",
+            10,
+            vec!["$x", "1", "@a", "2", "%h", "k", "3", "$u", "$_", "foo"],
+        );
+        let (hidden, _) = perl_subsumed_operands(bare);
+        assert!(
+            hidden.is_empty(),
+            "no name wrapper appears here, so the guard must be inert; got {hidden:?}",
+        );
+
+        // expected: operators `use`, `;` → n1 = N1 = 2; the quoted
+        // module name is the sole operand → n2 = N2 = 1.
+        let quoted = "use 'Some.pm';\n";
+        assert_halstead_counts::<PerlParser>(quoted, "foo.pl", [2, 2, 1, 1], quoted);
+        assert_ops_operands::<PerlParser>(quoted, "foo.pl", 1, vec!["'Some.pm'"]);
+        assert!(
+            ast_has_kind_id(
+                &PerlParser::new(quoted.as_bytes().to_vec(), &PathBuf::from("foo.pl"), None),
+                Perl::ModuleName as u16,
+            ),
+            "the quoted `use` form no longer parses to `module_name`, so this \
+             row no longer says anything about it",
+        );
+    }
+
     #[test]
     fn lua_operators_and_operands() {
         check_metrics::<LuaParser>(
