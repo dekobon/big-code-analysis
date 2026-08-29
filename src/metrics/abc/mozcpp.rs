@@ -10,7 +10,8 @@
 )]
 
 use super::cpp::{
-    cpp_count_unary_conditions, cpp_inspect_child, cpp_inspect_container, cpp_walk_ternary,
+    cpp_count_unary_conditions, cpp_inspect_child, cpp_inspect_container, cpp_walk_for_statement,
+    cpp_walk_ternary,
 };
 use super::{Abc, Stats};
 use crate::*;
@@ -146,6 +147,12 @@ impl Abc for MozcppCode {
             // operand slots (issue #1102).
             ConditionalExpression => {
                 cpp_walk_ternary(node, &mut stats.conditions);
+            }
+            // `for (init; cond; update)` — the condition slot, read by
+            // grammar field (issue #1276). `for (;;)` has no condition
+            // field and counts nothing.
+            ForStatement => {
+                cpp_walk_for_statement(node, &mut stats.conditions);
             }
             _ => {}
         }

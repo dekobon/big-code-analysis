@@ -110,10 +110,29 @@ mod tcl;
 /// table, and worked examples — see the chapter at
 /// <https://dekobon.github.io/big-code-analysis/metrics.html#abc>.
 ///
+/// # Cross-language empty-`for`-condition policy
+///
+/// `for (;;)` — and every other spelling that omits the test slot
+/// (`for (init; ; update)`, Go's bare `for {}`) — counts **zero**
+/// conditions. Nothing in Fitzpatrick's condition rules attributes a
+/// count to a `for` keyword: they count conditional operators and
+/// unary conditions that are *present*, and an omitted test is not a
+/// decision. Most languages get this for free: `*_walk_for_statement`
+/// asks `for_statement` for its `condition` field and an empty header
+/// has none. Two do not, and neither needs a special case either —
+/// the JS family fills the slot with an `empty_statement`, which is
+/// not a boolean terminal and not a paren / `!` wrapper, so it falls
+/// through; and Go, whose `for_statement` exposes no `condition` field
+/// at all, locates the header slot structurally and finds only the
+/// body. Before #1276 Java and Groovy alone disagreed, counting the
+/// `;` or `)` that landed in a positional child slot as a
+/// vacuously-true condition.
+///
 /// See issue #395 for the Phase-1 cross-language policy
 /// alignment, #403 for the Phase-2 unary-conditional walker
-/// fan-out, #404 for the Phase-3 book documentation, and #557
-/// for the Kotlin / Ruby / Elixir walker wiring.
+/// fan-out, #404 for the Phase-3 book documentation, #557
+/// for the Kotlin / Ruby / Elixir walker wiring, and #1276 for the
+/// `for`-header condition slot.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Stats {
@@ -1069,12 +1088,12 @@ mod tests {
                     for ( ; true; ) {}  // +1c
                 }
                 void m3() {
-                    for ( ; ; ) {}      // +1c (one implicit unary condition set to true)
+                    for ( ; ; ) {}      // +0c — no condition to count (#1276)
                 }
             }",
             "foo.java",
             |metric| {
-                // magnitude: sqrt(64 + 0 + 36) = sqrt(100)
+                // magnitude: sqrt(64 + 0 + 25) = sqrt(89)
                 // space count: 5 (1 unit, 1 class and 3 methods)
                 insta::assert_json_snapshot!(
                     metric.abc,
@@ -1082,12 +1101,12 @@ mod tests {
                 {
                   "assignments": 8,
                   "branches": 0,
-                  "conditions": 6,
-                  "magnitude": 10.0,
+                  "conditions": 5,
+                  "magnitude": 9.433981132056603,
                   "value": 0.0,
                   "assignments_average": 1.6,
                   "branches_average": 0.0,
-                  "conditions_average": 1.2,
+                  "conditions_average": 1.0,
                   "assignments_min": 0,
                   "assignments_max": 8,
                   "branches_min": 0,
@@ -1098,6 +1117,61 @@ mod tests {
                 "#
                 );
             },
+        );
+    }
+
+    // Issue #1276 changed Java's answer here. `java_walk_for_statement`
+    // used to read child(3), fall through to child(4) when that was the
+    // `;` an expression initializer leaves behind, and count a `;` or
+    // `)` landing there as a vacuously-true condition — so `for (;;)`
+    // scored one. Nothing in Fitzpatrick's C dimension attributes a
+    // condition to a `for` keyword; it counts conditional operators and
+    // unary conditions that are present. Java and Groovy were the only
+    // two impls disagreeing, and the field-addressed walker now reports
+    // zero the way the C family, the JS family, PHP, C# and Go all do.
+    #[test]
+    fn java_empty_for_condition_counts_nothing() {
+        check_metrics::<JavaParser>(
+            "class A { void m() { for (;;) { break; } } }",
+            "foo.java",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 0),
+        );
+        // The other empty spelling, and the one the old cascade
+        // actually mis-scored: with an **expression** initializer the
+        // children are `for ( init ; ; update )`, so child(3) was the
+        // separating `;` and child(4) the empty condition's `;`, which
+        // the vacuous-true arm counted. The `for (int i = 0; ; i++)`
+        // spelling scored 0 both before and after — Java's
+        // `local_variable_declaration` swallows its own `;`, putting the
+        // update expression at child(4), where it matched no arm — so it
+        // would be a vacuous regression test and is deliberately not
+        // used here.
+        check_metrics::<JavaParser>(
+            "class A { void m() { int i; for (i = 0; ; i++) { break; } } }",
+            "foo.java",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 0),
+        );
+    }
+
+    // The second defect the positional cascade carried: tree-sitter
+    // counts comments among a node's children, so a comment anywhere in
+    // the header shifted every index and the condition went unread —
+    // the same failure #1181 removed from `java_walk_ternary`. Reading
+    // the `condition` field cannot shift.
+    #[test]
+    fn java_for_condition_survives_a_header_comment() {
+        check_metrics::<JavaParser>(
+            "class A { void m(boolean a) { for (; /* n */ a; ) { break; } } }",
+            "foo.java",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 1),
+        );
+        // Unchanged control: the same loop without the comment. Both
+        // spellings must agree, which is the property the positional
+        // form broke.
+        check_metrics::<JavaParser>(
+            "class A { void m(boolean a) { for (; a; ) { break; } } }",
+            "foo.java",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 1),
         );
     }
 
@@ -2132,12 +2206,11 @@ mod tests {
         );
     }
 
-    /// `groovy_walk_for_statement` splits on whether child(3) is the
-    /// `;` of an empty condition slot. The existing `for` test uses
-    /// `i < 10`, which the `LT` token arm counts on its own — the
-    /// walker's own branch never contributes there, so it stayed
-    /// uncovered. A bare-identifier condition has no comparison token,
-    /// so the count can only come from the walker.
+    /// The existing `for` test uses `i < 10`, which the `LT` token arm
+    /// counts on its own — `groovy_walk_for_statement` never
+    /// contributes there, so it stayed uncovered. A bare-identifier
+    /// condition has no comparison token, so the count can only come
+    /// from the walker.
     #[test]
     fn groovy_for_with_bare_identifier_condition() {
         check_metrics::<GroovyParser>(
@@ -2157,14 +2230,13 @@ mod tests {
         );
     }
 
-    /// The other half of `groovy_walk_for_statement`'s split. With an
-    /// initialiser present the children are
-    /// `for ( init ; cond ; update )`, so child(3) is the separating
-    /// `;` and the condition is read from child(4). Drop the
-    /// initialiser and everything shifts left: child(3) *is* the
-    /// condition, which is the branch the shape above never reaches.
+    /// The same slot with the initialiser hoisted out of the header.
+    /// Under the pre-#1276 positional cascade this was a distinct code
+    /// path — the condition moved from child(4) to child(3) — and the
+    /// pair is kept as a shape guard now that the walker reads the
+    /// `condition` field and cannot see the difference.
     #[test]
-    fn groovy_for_with_empty_initializer_reads_the_condition_at_child_three() {
+    fn groovy_for_with_empty_initializer_counts_the_condition() {
         check_metrics::<GroovyParser>(
             "void f(boolean go) {
                 int i = 0
@@ -2179,6 +2251,45 @@ mod tests {
                 // initialiser just moved out of the loop header.
                 assert_eq!(metric.abc.assignments_sum(), 2);
             },
+        );
+    }
+
+    /// Issue #1276 changed Groovy's answer here, exactly as it changed
+    /// Java's: the positional cascade counted a `;` / `)` landing at
+    /// child(4) as a vacuously-true condition, so `for (;;)` scored
+    /// one. An omitted test is not a decision, and every other impl
+    /// scores it zero. See `java_empty_for_condition_counts_nothing`.
+    #[test]
+    fn groovy_empty_for_condition_counts_nothing() {
+        check_metrics::<GroovyParser>("void f() { for (;;) { break } }", "foo.groovy", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 0);
+        });
+        // The second spelling that moved. Unlike Java's, Groovy's
+        // `local_variable_declaration` does not swallow its `;`, so the
+        // old cascade found `;` at child(3) and `;` at child(4) here
+        // too, and counted one.
+        check_metrics::<GroovyParser>(
+            "void f() { for (int i = 0; ; i++) { break } }",
+            "foo.groovy",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 0),
+        );
+    }
+
+    /// The cascade's other defect, shared with Java: a comment in the
+    /// header shifted every child index, so the condition went unread.
+    /// Reading the `condition` field cannot shift.
+    #[test]
+    fn groovy_for_condition_survives_a_header_comment() {
+        check_metrics::<GroovyParser>(
+            "void f(boolean go) { for (; /* n */ go; ) { break } }",
+            "foo.groovy",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 1),
+        );
+        // Unchanged control: the same loop without the comment.
+        check_metrics::<GroovyParser>(
+            "void f(boolean go) { for (; go; ) { break } }",
+            "foo.groovy",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 1),
         );
     }
 
@@ -3800,6 +3911,55 @@ function f(int $a, int $b): int {
             "<?php\nfunction f() { $x = $a ?: !$b; }\n",
             "foo.php",
             |metric| assert_eq!(metric.abc.conditions_sum(), 3),
+        );
+    }
+
+    // Issue #1276, PHP half. The `for` header's condition slot was the
+    // one condition slot `PhpCode::compute` never dispatched, so a
+    // bare / negated / parenthesised loop condition scored zero while
+    // the identical predicate in an `if` header scored one. Each
+    // fixture below is a shape only the new arm can classify — a
+    // comparison-shaped condition proves nothing here, because the `<`
+    // token arm counts it either way (grammar-dispatch §11).
+    #[test]
+    fn php_for_condition_slot_counts_unary_conditions() {
+        // Bare variable: the whole condition, no operator token.
+        check_metrics::<PhpParser>(
+            "<?php\nfunction f($a) { for (; $a; ) {} }\n",
+            "foo.php",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 1),
+        );
+        // Negation: reaches the terminal through
+        // `php_inspect_container`'s `!` unwrap.
+        check_metrics::<PhpParser>(
+            "<?php\nfunction f($a) { for (; !$a; ) {} }\n",
+            "foo.php",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 1),
+        );
+        // Parentheses: counts only because the `for_statement` parent
+        // seeds `has_boolean_content`, the seed #1276 found dead.
+        check_metrics::<PhpParser>(
+            "<?php\nfunction f($a) { for (; ($a); ) {} }\n",
+            "foo.php",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 1),
+        );
+        // No-double-count pin: the `<` token arm already counted this
+        // shape before the fix, and the walker must not add a second.
+        // Two assignments (`$i = 0`, `$i++`) confirm the header parsed
+        // as the three-clause form rather than degenerating.
+        check_metrics::<PhpParser>(
+            "<?php\nfunction f($n) { for ($i = 0; $i < $n; $i++) {} }\n",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1);
+                assert_eq!(metric.abc.assignments_sum(), 2);
+            },
+        );
+        // Empty condition: no `condition` field, no decision, zero.
+        check_metrics::<PhpParser>(
+            "<?php\nfunction f() { for (;;) { break; } }\n",
+            "foo.php",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 0),
         );
     }
 
@@ -6948,9 +7108,11 @@ function f(int $a, int $b): int {
         // dispatcher had no `G::ForStatement` arm, so bare-boolean
         // and `!`-wrapped `for` conditions silently reported zero.
         // `go_count_condition`'s terminal-bool / paren / unary filter
-        // makes the arm safe across all three for-statement shapes:
-        // bare condition, `for_clause` (init; cond; post), and
-        // `range_clause` (the latter two fall through harmlessly).
+        // makes the walker safe across all three for-statement shapes:
+        // bare condition, `for_clause` (init; cond; post) — whose own
+        // `condition` field #1276 taught the walker to read — and
+        // `range_clause`, which has no such field and contributes
+        // nothing.
         check_metrics::<GoParser>(
             "package p\n\
              func F(ready bool) {\n\
@@ -6963,14 +7125,108 @@ function f(int $a, int $b): int {
                 // `for true`: walker counts True (+1).
                 // `for !ready`: walker on unary unwraps to `ready`
                 //   (+1).
-                // `for_clause` falls through go_count_condition with
-                //   no count; the inner `i < 3` contributes 1 via the
+                // `for_clause`'s condition is `i < 3`, a
+                //   `binary_expression` that `go_count_condition`
+                //   filters out; the `<` itself contributes 1 via the
                 //   pre-existing LT/GT arm.
                 // Total: 3.
                 assert_eq!(metric.abc.conditions_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
+    }
+
+    // Issue #1276, Go's share. `for_statement`'s child(1) is the
+    // condition only in the `for cond {}` spelling; the three-clause
+    // form puts it one level down, in the `for_clause`'s `condition`
+    // field. Letting the `for_clause` fall through — which the arm's
+    // own comment used to call harmless — scored a bare three-clause
+    // condition zero while `for a {}` scored one.
+    #[test]
+    fn go_three_clause_for_condition_counts() {
+        // Bare identifier in the three-clause header: no comparison
+        // token, so only the `for_clause` lookup can count it.
+        check_metrics::<GoParser>(
+            "package p\n\
+             func F(a bool) {\n\
+             \x20   for i := 0; a; i++ { _ = i }\n\
+             }\n",
+            "foo.go",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 1),
+        );
+        // Negation, through `go_inspect_container`'s `!` unwrap.
+        check_metrics::<GoParser>(
+            "package p\n\
+             func F(a bool) {\n\
+             \x20   for i := 0; !a; i++ { _ = i }\n\
+             }\n",
+            "foo.go",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 1),
+        );
+        // Empty condition: the `for_clause` exposes no `condition`
+        // field, so zero — the same answer as Go's bare `for {}` and
+        // as every other language since #1276.
+        check_metrics::<GoParser>(
+            "package p\n\
+             func F() {\n\
+             \x20   for i := 0; ; i++ { break }\n\
+             }\n",
+            "foo.go",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 0),
+        );
+        // A `range_clause` carries no condition either, and the walker
+        // must not mistake the clause itself for one.
+        check_metrics::<GoParser>(
+            "package p\n\
+             func F(xs []int) {\n\
+             \x20   for _, v := range xs { _ = v }\n\
+             }\n",
+            "foo.go",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 0),
+        );
+    }
+
+    // Go's `for_statement` is the one grammar here that exposes no
+    // `condition` field, so its header slot is located structurally and
+    // has to skip what the field-addressed siblings get for free. Two
+    // things it must skip, each of which `node.child(1)` got wrong:
+    // a leading comment (tree-sitter counts comments among a node's
+    // children — the #1181 failure), and the body of a bare `for {}`,
+    // which IS child(1) and would otherwise be offered to
+    // `go_count_condition` as though it were a condition.
+    #[test]
+    fn go_for_header_slot_skips_comments_and_the_body() {
+        // Each pair is (source, expected conditions). The commented
+        // spelling must agree with its bare twin.
+        let cases = [
+            ("for a { break }", 1),
+            ("for /* n */ a { break }", 1),
+            ("for i := 0; a; i++ { _ = i }", 1),
+            ("for /* n */ i := 0; a; i++ { _ = i }", 1),
+            ("for i := 0; /* n */ a; i++ { _ = i }", 1),
+            // Bare infinite loop: the body is child(1) and must not be
+            // read as the condition.
+            ("for { break }", 0),
+            ("for /* n */ { break }", 0),
+            ("for _, v := range xs { _ = v }", 0),
+            ("for /* n */ _, v := range xs { _ = v }", 0),
+        ];
+        let mut ran = 0;
+        for (body, expected) in cases {
+            let src = format!("package p\nfunc F(a bool, xs []int) {{\n\t{body}\n}}\n");
+            let conditions = metrics_verbatim(LANG::Go, src.as_bytes(), MetricsOptions::default())
+                .abc
+                .conditions_sum();
+            assert_eq!(conditions, expected, "`{body}`");
+            ran += 1;
+        }
+        // Non-vacuity, both halves: the loop must actually have run
+        // every row, and the rows must carry both answers — a walker
+        // stuck at 0 or at 1 would otherwise pass half the table
+        // silently.
+        assert_eq!(ran, cases.len());
+        assert!(cases.iter().any(|&(_, n)| n == 1));
+        assert!(cases.iter().any(|&(_, n)| n == 0));
     }
 
     #[test]
@@ -7615,6 +7871,83 @@ function f(int $a, int $b): int {
         );
     }
 
+    // Issue #1276, C-family half. `cpp_walk_for_statement` is the
+    // `for` header's counterpart to the `if` / `while` arms: the slot
+    // is a bare expression rather than a `condition_clause`, so it
+    // needs the top-level terminal check `cpp_walk_ternary` already
+    // had. Every fixture is a shape only that walker can classify —
+    // a comparison-shaped condition proves nothing, the `<` token arm
+    // counts it either way (grammar-dispatch §11).
+    #[test]
+    fn cpp_for_condition_slot_counts_unary_conditions() {
+        // Bare identifier: the whole condition, no operator token.
+        check_metrics::<CppParser>("void f(int a) { for (; a; ) {} }", "foo.cpp", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 1);
+        });
+        // Negation: reaches the terminal through
+        // `cpp_inspect_container`'s `!` unwrap.
+        check_metrics::<CppParser>("void f(int a) { for (; !a; ) {} }", "foo.cpp", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 1);
+        });
+        // Parentheses: counts only because the `for_statement` parent
+        // seeds `has_boolean_content` — the seed #1276 found dead.
+        check_metrics::<CppParser>("void f(int a) { for (; (a); ) {} }", "foo.cpp", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 1);
+        });
+        // No-double-count pin: the `<` token arm already counted this
+        // shape before the fix and the walker must not add a second.
+        // The two assignments confirm the header parsed as the
+        // three-clause form rather than degenerating.
+        check_metrics::<CppParser>(
+            "void f(int n) { for (int i = 0; i < n; i++) {} }",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1);
+                assert_eq!(metric.abc.assignments_sum(), 2);
+            },
+        );
+        // Empty condition: no `condition` field, no decision, zero.
+        check_metrics::<CppParser>("void f() { for (;;) { break; } }", "foo.cpp", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 0);
+        });
+    }
+
+    // `cpp_walk_for_statement` is shared by the C, ObjC and Mozcpp ABC
+    // impls the way `cpp_walk_ternary` is, so each needs its own
+    // dispatcher arm — and Mozcpp, which owns no file extension, has no
+    // integration-snapshot coverage at all, making this its only guard.
+    // The expected value is derived from the C++ run rather than
+    // hardcoded, so the four cannot silently drift apart.
+    #[test]
+    fn c_family_for_condition_slot_agrees_with_cpp() {
+        const SRC: &str = "void f(int a) { for (; !a; ) {} }\n";
+        let conditions = |lang: LANG, src: &str| {
+            metrics_verbatim(lang, src.as_bytes(), MetricsOptions::default())
+                .abc
+                .conditions_sum()
+        };
+
+        let cpp = conditions(LANG::Cpp, SRC);
+        // Non-degenerate: a zeroed reference makes every comparison
+        // below vacuous.
+        assert_eq!(cpp, 1, "C++ reference value for `for (; !a; )`");
+
+        assert_eq!(conditions(LANG::C, SRC), cpp, "C must match C++");
+        assert_eq!(conditions(LANG::Mozcpp, SRC), cpp, "Mozcpp must match C++");
+        assert_eq!(
+            conditions(
+                LANG::Objc,
+                "@implementation Foo\n\
+                 - (void)bar {\n\
+                     for (; !a; ) {}\n\
+                 }\n\
+                 @end\n",
+            ),
+            cpp,
+            "ObjC must match C++"
+        );
+    }
+
     #[test]
     fn cpp_switch_cases_count_default_excluded() {
         // `case 1`, `case 2` → 2 conditions. `default` is intentionally
@@ -8164,6 +8497,81 @@ function f(int $a, int $b): int {
             "foo.ts",
             |metric| assert_eq!(metric.abc.conditions_sum(), 2),
         );
+    }
+
+    // Issue #1276, JS-family half. See
+    // `cpp_for_condition_slot_counts_unary_conditions` for the rule.
+    // The JS grammar marks the `condition` field on both the expression
+    // and the `;` closing it, so `child_by_field_name` is the only
+    // addressing that lands on the expression for every header shape.
+    #[test]
+    fn javascript_for_condition_slot_counts_unary_conditions() {
+        // Bare identifier: no operator token anywhere in the header.
+        check_metrics::<JavascriptParser>("function f(a) { for (; a; ) {} }", "foo.js", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 1);
+        });
+        // Negation, through the `!` unwrap.
+        check_metrics::<JavascriptParser>(
+            "function f(a) { for (; !a; ) {} }",
+            "foo.js",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 1),
+        );
+        // Parentheses: counts only via the `ForStatement`
+        // boolean-context seed #1276 found dead.
+        check_metrics::<JavascriptParser>(
+            "function f(a) { for (; (a); ) {} }",
+            "foo.js",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 1),
+        );
+        // No-double-count pin: the `<` arm already counted this shape.
+        // `let i = 0` and `i++` are the two assignments, which also
+        // confirms the header parsed as the three-clause form.
+        check_metrics::<JavascriptParser>(
+            "function f(n) { for (let i = 0; i < n; i++) {} }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1);
+                assert_eq!(metric.abc.assignments_sum(), 2);
+            },
+        );
+        // Empty condition: the slot holds an `empty_statement`, which
+        // is neither a terminal nor a wrapper, so it counts nothing.
+        check_metrics::<JavascriptParser>(
+            "function f() { for (;;) { break; } }",
+            "foo.js",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 0),
+        );
+    }
+
+    // TypeScript expands the `ForStatement` arm from `ts_abc_compute!`,
+    // a separate macro body from JavaScript's `js_abc_compute!`, so
+    // wiring one and not the other is a live failure mode; TSX and
+    // Mozjs are the clones of those two. The expected values are
+    // derived from the JavaScript run rather than hardcoded.
+    #[test]
+    fn js_family_for_condition_slot_agrees_with_javascript() {
+        const BARE: &str = "function f(a) { for (; a; ) {} }\n";
+        const EMPTY: &str = "function f() { for (;;) { break; } }\n";
+        let conditions = |lang: LANG, src: &str| {
+            metrics_verbatim(lang, src.as_bytes(), MetricsOptions::default())
+                .abc
+                .conditions_sum()
+        };
+
+        let bare = conditions(LANG::Javascript, BARE);
+        // Non-degenerate: a zeroed reference makes the comparisons
+        // below vacuous.
+        assert_eq!(bare, 1, "JavaScript reference value for `for (; a; )`");
+        assert_eq!(
+            conditions(LANG::Javascript, EMPTY),
+            0,
+            "JavaScript `for (;;)`"
+        );
+
+        for lang in [LANG::Mozjs, LANG::Typescript, LANG::Tsx] {
+            assert_eq!(conditions(lang, BARE), bare, "{lang:?} bare for-condition");
+            assert_eq!(conditions(lang, EMPTY), 0, "{lang:?} empty for-condition");
+        }
     }
 
     #[test]
