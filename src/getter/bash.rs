@@ -92,10 +92,33 @@ impl Getter for BashCode {
             // context); every alias must be matched or assignment LHS
             // identifiers like `name` in `name=value` are silently
             // unclassified — see lesson 2.
+            //
+            // `command_name` is deliberately absent (#1351). The grammar
+            // gives it exactly one required child — a `_primary_expression`
+            // or a `concatenation` — and it contributes no text of its own,
+            // so classifying the wrapper *and* letting the walk reach the
+            // child counted every command name twice in N2 (`ls bar` scored
+            // N2 3 for two operands). For a `"$cmd"` command name it also
+            // planted a second vocabulary entry alongside the inner `$cmd`.
+            // Deleting rather than gating is safe here because the wrapper
+            // is never childless and the child kinds are the ordinary
+            // operand kinds; the one residue — a brace `expansion` with no
+            // `variable_name` leaf, `${#}` — scores zero in argument
+            // position too, so the wrapper was masking that gap for command
+            // names alone.
+            //
+            // `_concat` (`Bash::Concat`) is absent for a different reason:
+            // it is a hidden zero-width external token the scanner emits
+            // between `concatenation` parts, never a named node, and it
+            // spells no operand even if a future grammar promoted it.
+            // Lesson 34 prefers keeping a hidden-rule arm and pinning it,
+            // but keeping this one would preserve a classification that is
+            // wrong the moment it becomes reachable, so the arm goes and
+            // only the marker stays:
+            // `bash_hidden_concat_token_is_unreachable`.
             Bash::Word | Bash::Word2 | Bash::Word3 | Bash::Word4
             | Bash::Number | Bash::Number2 | Bash::NumberToken1 | Bash::NumberToken2
             | Bash::SimpleExpansion
-            | Bash::CommandName | Bash::Concat
                 => HalsteadType::Operand,
 
             // `variable_name` / `special_variable_name` are operands when
