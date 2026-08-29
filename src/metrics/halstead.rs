@@ -478,6 +478,12 @@ mod tests {
     // to the expected `n2`. The metrics store and the ops store are
     // independent (lesson 4); this catches a classification change that
     // moves one without the other.
+    // `#[track_caller]` so a failure reports the *caller's* line rather
+    // than this helper's. Callers that wrap it in a per-language helper
+    // (`assert_char_literal_operands`, #1316) are tracked too, so the
+    // reported location names the language row instead of a shared line
+    // no assertion message distinguishes.
+    #[track_caller]
     fn assert_ops_operands<T: crate::ParserTrait>(
         source: &str,
         file: &str,
@@ -499,7 +505,7 @@ mod tests {
         let mut got: Vec<&str> = unique.into_iter().collect();
         got.sort_unstable();
         expected_operands.sort_unstable();
-        assert_eq!(got, expected_operands);
+        assert_eq!(got, expected_operands, "operand vocabulary for {file}");
     }
 
     /// Asserts the root space's `[n1, N1, n2, N2]`, naming `label` when
@@ -7065,6 +7071,189 @@ f() {
                 "Foo", "bar", "log", "self", "x", "y", "0", "1", "10", "@\"hi\"",
             ],
         );
+    }
+
+    /// #1316 fixture separating the vocabulary and occurrence axes
+    /// (#1294): `'x'` appears twice, so a correct fix adds four `n2`
+    /// entries and five `N2` hits. The `'ab'` multi-character constant
+    /// is also the grammar-dispatch section 5 pin — that literal carries
+    /// *two* `character` children and must still bill one operand.
+    ///
+    /// Both #1316 fixtures are plain C, which every C-family grammar
+    /// parses to the same shape, so one source proves the same thing
+    /// about each of the four clones.
+    const C_FAMILY_CHAR_REPEATS: &str =
+        "char a = 'x';\nchar b = 'x';\nchar c = 'y';\nchar d = '\\n';\nint e = 'ab';\n";
+
+    /// #1316 fixture holding all five spellings the grammars admit. Each
+    /// opens on a distinct delimiter kind (`'`, `L'`, `u'`, `U'`, `u8'`),
+    /// and operands key on source text, so the five are five vocabulary
+    /// entries rather than one.
+    const C_FAMILY_CHAR_PREFIXES: &str =
+        "char a = 'x';\nchar b = L'x';\nchar c = u'x';\nchar d = U'x';\nchar e = u8'x';\n";
+
+    /// Asserts both #1316 fixtures for one C-family language, through
+    /// the metrics store *and* the text-keyed `--ops` store (the
+    /// lesson-4 invariant `n2 == len(dedupe(ops.operands))`).
+    ///
+    /// The `--ops` half pins *which text* each literal is billed under,
+    /// which the counts cannot see: billing a literal's `character`
+    /// payload instead of the whole literal keeps `n2` at 9 while the
+    /// vocabulary silently becomes `x` rather than `'x'`. (Billing
+    /// *both* is caught earlier, by the counts.) It is a second *walk*
+    /// rather than a second classification — `ops_inner` reads the keys
+    /// of the same `HalsteadMaps` — which is worth knowing before
+    /// reading it as independent corroboration of the count.
+    #[track_caller]
+    fn assert_char_literal_operands<T: crate::ParserTrait>(file: &str, label: &str) {
+        // `char` x4 and `int` are text-keyed primitive operators, so
+        // n1 = 4 (`;`, `=`, `char`, `int`) and N1 = 5 + 5 + 4 + 1.
+        // Operands: `a`..`e`, plus `'x'` (twice), `'y'`, `'\n'`, `'ab'`.
+        let repeats = format!("{label}: repeated / escaped / multi-char literals");
+        assert_halstead_counts::<T>(C_FAMILY_CHAR_REPEATS, file, [4, 15, 9, 10], &repeats);
+        assert_ops_operands::<T>(
+            C_FAMILY_CHAR_REPEATS,
+            file,
+            9,
+            vec!["a", "b", "c", "d", "e", "'x'", "'y'", "'\\n'", "'ab'"],
+        );
+
+        // Every declaration is `char` here, so the `int` primitive
+        // operator of the other fixture is gone and n1 drops to 3. Ten
+        // distinct operands, each seen once.
+        let prefixes = format!("{label}: L / u / U / u8 prefixed literals");
+        assert_halstead_counts::<T>(C_FAMILY_CHAR_PREFIXES, file, [3, 15, 10, 10], &prefixes);
+        assert_ops_operands::<T>(
+            C_FAMILY_CHAR_PREFIXES,
+            file,
+            10,
+            vec![
+                "a", "b", "c", "d", "e", "'x'", "L'x'", "u'x'", "U'x'", "u8'x'",
+            ],
+        );
+    }
+
+    /// Regression for #1316: a C-family character literal is a Halstead
+    /// operand.
+    ///
+    /// `char_literal` was in no arm of `CCode` / `CppCode` /
+    /// `MozcppCode` / `ObjcCode`'s `get_op_type`, so a character literal
+    /// contributed *nothing* — not an operator (correct) and not an
+    /// operand (wrong) — while Rust, Java, Kotlin, C#, Go and Elixir all
+    /// counted theirs. Both fixtures measured `n2` 5, `N2` 5 before the
+    /// fix: the five declared identifiers and not one literal.
+    ///
+    /// Each language asserts separately over the same source rather than
+    /// sharing one call, so reverting one clone's arm fails that row
+    /// alone (grammar-dispatch section 11) — verified by perturbing each
+    /// of the four arms in turn. A single shared assertion would be
+    /// satisfied by whichever clone still had the arm.
+    ///
+    /// Mozcpp owns no file extension, so no integration snapshot ever
+    /// reaches its clone; its row is the whole coverage that arm has.
+    #[test]
+    fn c_family_char_literals_are_operands() {
+        assert_char_literal_operands::<CParser>("chars.c", "c");
+        assert_char_literal_operands::<CppParser>("chars.cpp", "cpp");
+        assert_char_literal_operands::<MozcppParser>("chars.cpp", "mozcpp");
+        assert_char_literal_operands::<ObjcParser>("chars.m", "objc");
+    }
+
+    /// ObjC boxes a character literal as `@'y'` — an `at_expression`
+    /// wrapping the same `char_literal`, with the `@` counted as its own
+    /// operator. The wrapper is in no operand arm, so the boxed form
+    /// bills exactly the literal it wraps and stays distinct from a bare
+    /// one (#1316).
+    #[test]
+    fn objc_boxed_char_literal_is_one_operand() {
+        let source = "char a = 'x';\nid b = @'y';\n";
+        // n1: `char`, `=`, `;`, `@`. N1: 1 + 2 + 2 + 1.
+        // n2 / N2: `a`, `b`, `'x'`, `'y'` — `id` is a `typedefed_specifier`
+        // and is classified by neither arm. Before #1316 this was n2 2,
+        // N2 2.
+        assert_halstead_counts::<ObjcParser>(source, "boxed.m", [4, 6, 4, 4], "objc @'y'");
+        assert_ops_operands::<ObjcParser>(source, "boxed.m", 4, vec!["a", "b", "'x'", "'y'"]);
+    }
+
+    /// Walks both #1316 fixtures under all four C-family `Getter`s and
+    /// pins the two grammar facts the new operand arm rests on.
+    ///
+    /// * **Grammar-dispatch section 1.** In the positions these
+    ///   fixtures exercise, every node the grammar spells `char_literal`
+    ///   carries the one `kind_id` the arm lists. That is the weaker
+    ///   half of the alias evidence — an alias arises in a *different*
+    ///   syntactic position, which no fixture can enumerate. The strong
+    ///   half is that these generated enums do carry numeric-suffix
+    ///   aliases in quantity (`language_c.rs` alone has ninety) and none
+    ///   of the four spells a `CharLiteral2`, so its absence is a
+    ///   measurement rather than a silence. This loop is what notices if
+    ///   a grammar bump changes that under an existing fixture.
+    /// * **Grammar-dispatch section 5.** No child of a `char_literal` is
+    ///   classified. That is what makes listing the wrapper safe rather
+    ///   than a wrapper/leaf double count: the opening delimiter, the
+    ///   closing `'`, and the `character` / `escape_sequence` payload
+    ///   must all stay `Unknown`, or every literal would bill two
+    ///   operands and a prefixed one three.
+    ///
+    /// Both loops are non-vacuous by assertion, since a fixture that
+    /// stopped containing a character literal would otherwise make this
+    /// test pass having checked nothing.
+    #[test]
+    fn c_family_char_literal_internals_stay_unclassified() {
+        fn check<L: LanguageInfo + Getter>(char_literal: u16, label: &str) {
+            let mut literals = 0_usize;
+            let mut children = 0_usize;
+            for source in [C_FAMILY_CHAR_REPEATS, C_FAMILY_CHAR_PREFIXES] {
+                for_each_node_with_chain::<L>(source.as_bytes(), |node, chain| {
+                    if node.kind() == "char_literal" {
+                        assert_eq!(
+                            node.kind_id(),
+                            char_literal,
+                            "{label}: a `char_literal` carries kind_id {} rather than the \
+                             {char_literal} the operand arm lists — an alias the arm cannot see",
+                            node.kind_id()
+                        );
+                        literals += 1;
+                    }
+                    if chain
+                        .last()
+                        .is_none_or(|parent| parent.kind_id() != char_literal)
+                    {
+                        return;
+                    }
+                    children += 1;
+                    // `_with_code` is the spelling `compute_halstead`
+                    // calls. The default forwards to the byte-less form,
+                    // so today the two agree for every C-family
+                    // language — which is exactly why asking the wrong
+                    // one would read as correct right up until one of
+                    // these four grew an override (grammar-dispatch
+                    // section 7).
+                    assert!(
+                        matches!(
+                            L::get_op_type_with_code(
+                                node,
+                                source.as_bytes(),
+                                Ancestors::known(chain)
+                            ),
+                            HalsteadType::Unknown
+                        ),
+                        "{label}: `{}` inside a character literal is classified, so the \
+                         literal now double-counts against its wrapper",
+                        node.kind()
+                    );
+                });
+            }
+            // Ten literals across the two fixtures; each holds two
+            // delimiters plus at least one payload leaf, and `'ab'` two.
+            assert_eq!(literals, 10, "{label}: fixtures lost a character literal");
+            assert_eq!(children, 31, "{label}: fixtures lost a literal's internals");
+        }
+
+        check::<CCode>(C::CharLiteral as u16, "c");
+        check::<CppCode>(Cpp::CharLiteral as u16, "cpp");
+        check::<MozcppCode>(Mozcpp::CharLiteral as u16, "mozcpp");
+        check::<ObjcCode>(Objc::CharLiteral as u16, "objc");
     }
 
     /// Builds a `HalsteadMaps` from explicit occurrence counts.
