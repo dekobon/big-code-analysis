@@ -434,3 +434,49 @@ fn csharp_count_condition(condition: &Node, parent: &Node, conditions: &mut f64)
         csharp_inspect_container(condition, parent, conditions);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::for_each_node_with_chain;
+
+    /// The predicate climbs two hops — declarator, then declaration —
+    /// and each hop fails closed when the chain runs out. The pinned
+    /// grammar never puts a `variable_declarator` anywhere but under a
+    /// `variable_declaration`, so on a real chain the second hop can
+    /// only succeed; a truncated `Ancestors::known` chain is the one
+    /// way to reach its `false` arm, and the walker does hand out short
+    /// chains at the root. Pinning it keeps a future "simplify the
+    /// climb" from turning a missing ancestor into a counted `const`.
+    #[test]
+    fn const_predicate_fails_closed_on_a_truncated_chain() {
+        let source = b"class A { const int x = 1; }";
+        let mut seen = 0;
+        for_each_node_with_chain::<CsharpCode>(source, |node, chain| {
+            if node.kind() != "=" {
+                return;
+            }
+            let Some(declarator) = chain.last() else {
+                return;
+            };
+            if declarator.kind_id() != Csharp::VariableDeclarator as u16 {
+                return;
+            }
+            seen += 1;
+            assert!(
+                csharp_eq_initializes_const_binding(node, Ancestors::known(chain)),
+                "the full chain reaches the `const` declaration"
+            );
+            let declarator_only = &chain[chain.len() - 1..];
+            assert!(
+                !csharp_eq_initializes_const_binding(node, Ancestors::known(declarator_only)),
+                "a chain that ends at the declarator must not read as `const`"
+            );
+            assert!(
+                !csharp_eq_initializes_const_binding(node, Ancestors::known(&[])),
+                "an empty chain must not read as `const`"
+            );
+        });
+        assert_eq!(seen, 1, "fixture must carry exactly one declarator `=`");
+    }
+}
