@@ -184,8 +184,55 @@ fn csharp_count_token_condition<'a>(
         // arrow `default ->` forms) is the unconditional fallthrough and
         // is excluded, mirroring cyclomatic's `Case`-only count and the
         // expression-arm discard rule below (issues #456, #469).
-        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | QMARK | Try | Catch => {
+        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Try | Catch => {
             stats.conditions += 1.;
+        }
+        // tree-sitter-c-sharp emits a bare `?` from exactly four
+        // productions: `nullable_type` (`int? x`),
+        // `type_parameter_constraint` (`where T : class?`),
+        // `conditional_expression` (the ternary) and
+        // `conditional_access_expression` (`a?.b` *and* `a?[0]` — both
+        // spell their operator as this same bare token, not a distinct
+        // `?.` / `?[` kind). The first two are type syntax and no more a
+        // decision than the `<` / `>` around a generic (#1275); the last
+        // two are decisions.
+        //
+        // Denylist polarity, deliberately — the opposite of the TS/TSX
+        // allowlist this fix installs alongside it and of the Java one
+        // #1274 already landed. An allowlist would have to name
+        // `ConditionalAccessExpression` explicitly to keep counting
+        // `a?.b`, and that counting is load-bearing: C# cyclomatic
+        // counts the `ConditionalAccessExpression` node
+        // (`src/metrics/cyclomatic/csharp.rs`), so dropping it would put
+        // ABC *below* C#'s own cyclomatic decision count on a safe-
+        // navigation chain. Denying the two type-syntax parents keeps
+        // the two metrics agreeing by construction rather than through
+        // an allowlist entry a later "consistency" pass could drop.
+        //
+        // The agreement being protected is C#-internal, not cross-
+        // language: `a?.b?.c` scores ABC conditions 2 in C# and 0 in
+        // TypeScript, JavaScript, Kotlin and Groovy, whose `?.` is a
+        // distinct token their ABC arms never list — even though
+        // `safe_navigation_chain_parity` pins all five at +2
+        // *cyclomatic*. That ABC-side divergence is pre-existing and
+        // out of scope for #1275; this arm preserves C#'s side of it
+        // rather than silently changing it.
+        //
+        // The cost of that polarity is that it fails *open*: type syntax
+        // the grammar gains later starts counting. That is not
+        // hypothetical — `type_parameter_constraint` was the second half
+        // of #1275 and is absent from the issue's own deny set. The four
+        // productions above are the closed enumeration at the pinned
+        // `=0.23.5`; re-derive it on a grammar bump.
+        QMARK => {
+            if let Some(parent) = ancestors.parent(node)
+                && !matches!(
+                    parent.kind_id().into(),
+                    NullableType | TypeParameterConstraint
+                )
+            {
+                stats.conditions += 1.;
+            }
         }
         // A `switch` *expression* arm (`x switch { 1 => …, _ => … }`) is a
         // decision point. The statement `switch` counts via its `Case`
