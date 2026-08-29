@@ -728,7 +728,7 @@ half of that rationale fits it too. The exemption is about unification
 pressure and the runtime has none — the lockfile shows 25 crates
 depending on `tree-sitter-language` against one external dependent
 (`tree-sitter-perl`) for `tree-sitter` — and every manifest here already
-pins it at `=0.26.12` with the workspace resolving. Its ABI version is
+pins it at `=0.26.13` with the workspace resolving. Its ABI version is
 also what each vendored `parser.c` was generated against, so an
 accidental bump is precisely the drift the gate exists to catch.
 

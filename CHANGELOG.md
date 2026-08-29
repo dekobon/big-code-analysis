@@ -24,6 +24,21 @@ for historical reference.
 
 ## [Unreleased]
 
+### Changed
+
+- The `tree-sitter` runtime is `=0.26.13`, up one upstream patch
+  release, pinned in lockstep across the root manifest, `enums`, the
+  five vendored `bca-tree-sitter-*` crates, and the `fuzz` lockfile.
+  `include/tree_sitter/api.h` is unchanged, so
+  `TREE_SITTER_LANGUAGE_VERSION` stays at 15 and the vendored `parser.c`
+  sources are unaffected; the Rust binding differs only by a dropped
+  `#[must_use]`, so the `Send + Sync` argument the PyO3 bindings rest on
+  is untouched. The C changes are an error-recovery fix that nests the
+  children of a re-parsed error under one `ERROR` node instead of
+  splicing them into the parent, and two query fixes (an exact-length
+  `MISSING` match and a corrected alternative-step skip) that nothing
+  here uses.
+
 ## [2.2.0] - 2026-08-29
 
 One entry below is marked **(breaking)**: the Python bindings'

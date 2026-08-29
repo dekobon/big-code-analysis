@@ -127,7 +127,7 @@ LINTS_EXEMPT_CRATES = frozenset(
 # is about unification pressure, and the runtime has none: the lockfile
 # shows 25 crates depending on `tree-sitter-language` but only one
 # external crate (`tree-sitter-perl`) depending on `tree-sitter`, and
-# every manifest here already pins it at `=0.26.12` with the workspace
+# every manifest here already pins it at `=0.26.13` with the workspace
 # resolving. The runtime's ABI version is also what a grammar's
 # generated `parser.c` is built against, so an accidental bump is
 # exactly the drift this gate exists to catch.

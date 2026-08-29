@@ -55,7 +55,7 @@
 //! the iterator's own keep-alive.
 //!
 //! `tree_sitter::Tree`, `Node`, and `TreeCursor` are `Send + Sync` under
-//! the pinned `=0.26.12`, so the pyclasses are sendable (no `unsendable`)
+//! the pinned `=0.26.13`, so the pyclasses are sendable (no `unsendable`)
 //! and compose with `ThreadPoolExecutor` fan-out like [`PyAst`] itself.
 //! That version literal is a premise, not decoration — the layouts and
 //! the `&mut self` on `Tree::edit` are what make the argument above
