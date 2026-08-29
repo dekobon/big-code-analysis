@@ -122,23 +122,74 @@ impl Getter for RubyCode {
             | R::BQUOTE
                 => HalsteadType::Operator,
 
-            // String-like literals contribute one operand each when inert.
-            // If the literal carries an `Interpolation` child the inner
-            // expressions are already walked and counted as operands; the
-            // wrapping literal would otherwise double-count them
-            // (same pattern as C# #183 / Elixir #180).
-            R::String | R::ChainedString | R::BareString | R::Subshell
-            | R::Regex | R::HeredocBody | R::StringArray | R::SymbolArray
-            | R::DelimitedSymbol => {
-                Self::string_operand_type(node, &[R::Interpolation as u16])
-            }
+            // String-like literals contribute one operand each when
+            // inert. The wrapper is suppressed exactly when it holds a
+            // child the walk already counts, so its contribution is not
+            // billed twice — the shared spelling of C# #183 / Elixir
+            // #180 (`Interpolation`) and of #1353 (the element kinds).
+            //
+            // `String`, `BareString`, `BareSymbol`, `Subshell`, `Regex`,
+            // `HeredocBody` and `DelimitedSymbol` admit only
+            // `string_content` / `escape_sequence` / `interpolation` as
+            // named children (`heredoc_body` also `heredoc_content` /
+            // `heredoc_end`), of which `Interpolation` alone is
+            // classified elsewhere; the delimiter tokens they also hold
+            // are anonymous and no arm names them.
+            //
+            // The three *element containers* hold classified operands
+            // instead, so before #1353 the guard never fired for them
+            // and the wrapper was billed alongside every element:
+            // `b = %w[x y]` scored n2 4 / N2 4 for three operands, the
+            // spare entry being the wrapper's whole-span text. That made
+            // the vocabulary grow with how the author grouped the
+            // literals — the spelling sensitivity #695 removed for
+            // Python's implicit concatenation and #1312 / #1314 for
+            // delimiter tokens.
+            //
+            //   `chained_string` ⊃ `string`      (`"a" "b"`)
+            //   `string_array`   ⊃ `bare_string` (`%w[…]`, `%W[…]`)
+            //   `symbol_array`   ⊃ `bare_symbol` (`%i[…]`, `%I[…]`)
+            //
+            // Gated rather than deleted, per grammar-dispatch §6:
+            // node-types.json marks the two arrays' children optional
+            // and `%w[]` / `%i[]` really do parse to a wrapper holding
+            // nothing but its delimiter tokens, so dropping the kinds
+            // would score an empty literal zero. (`chained_string` is
+            // `seq($.string, repeat1($.string))` and so carries at
+            // least two elements; the guard therefore always fires and
+            // its membership here is unobservable — listed for symmetry
+            // with its siblings rather than out of need. See
+            // `ruby_element_containers_count_elements_not_the_composite_1353`,
+            // which says so rather than pretending to pin it.)
+            //
+            // One list serves both groups because no kind here can hold
+            // an element kind it is not paired with above, and none of
+            // the containers admits an `Interpolation` as a *direct*
+            // child — `%W[a#{n}]` nests it inside the `bare_string`,
+            // which is guarded by this same arm one level down.
+            //
+            // `BareSymbol` reached this arm in #1353; until then it sat
+            // unguarded in the plain operand arm below, so `%I[a#{n}b]`
+            // billed the element `a#{n}b` *and* the `n` inside it while
+            // the `%W[…]` spelling of the same thing billed only `n`.
+            R::String | R::ChainedString | R::BareString | R::BareSymbol
+            | R::Subshell | R::Regex | R::HeredocBody | R::DelimitedSymbol
+            | R::StringArray | R::SymbolArray => Self::string_operand_type(
+                node,
+                &[
+                    R::Interpolation as u16,
+                    R::String as u16,
+                    R::BareString as u16,
+                    R::BareSymbol as u16,
+                ],
+            ),
 
             // Operands: identifiers and literals.
             R::Identifier | R::IdentifierSuffix | R::IdentifierSuffixToken1
             | R::Constant | R::ConstantSuffix | R::ConstantSuffixToken1
             | R::InstanceVariable | R::ClassVariable | R::GlobalVariable
             | R::Integer | R::Float | R::Complex | R::Rational
-            | R::Character | R::SimpleSymbol | R::BareSymbol | R::HashKeySymbol
+            | R::Character | R::SimpleSymbol | R::HashKeySymbol
             // `Nil2` is the leaf `nil` keyword token; `Nil` (named) wraps
             // it. Counting both would double-count every `nil` literal —
             // only the wrapping named node contributes one operand.

@@ -5791,6 +5791,127 @@ f() {
         });
     }
 
+    #[test]
+    fn ruby_element_containers_count_elements_not_the_composite_1353() {
+        // #1353. `chained_string`, `string_array` and `symbol_array`
+        // hold *classified operand* children instead of the raw
+        // `string_content` every other string-like literal wraps, so
+        // the arm's shared `Interpolation` guard never fired and the
+        // wrapper was billed alongside each element. Every row below
+        // scored n2 4 / N2 4 for three operands, the extra entry being
+        // the wrapper's whole-span text — which made the vocabulary
+        // depend on how the author grouped the literals.
+        //
+        // `assert_ops_operands` pins the operand *text*, not just the
+        // count: a wrapper coming back would show up as `"one" "two"` /
+        // `%w[x y]` / `%i[p q]` rather than as an off-by-one number.
+        //
+        // The kind assertions are the grammar-dispatch §1 / §2 drift
+        // marker — a bump that renumbers a wrapper or an element would
+        // otherwise leave these counts passing while measuring a
+        // construct the arm no longer names.
+        //
+        // Two of the three rows also pin the arm's *membership*:
+        // dropping `StringArray` or `SymbolArray` from it fails
+        // `ruby_empty_word_and_symbol_arrays_still_bill_one_operand_1353`.
+        // `ChainedString`'s membership is unobservable and no test can
+        // pin it — `repeat1($.string)` guarantees the guard always
+        // fires, so `Unknown` and "not in the arm at all" are the same
+        // answer for every input. It is listed for symmetry with its
+        // siblings, and correct-by-construction is the only defence
+        // available there.
+        for (source, wrapper, element, operands) in [
+            (
+                "a = \"one\" \"two\"\n",
+                Ruby::ChainedString,
+                Ruby::String,
+                vec!["a", "\"one\"", "\"two\""],
+            ),
+            (
+                "b = %w[x y]\n",
+                Ruby::StringArray,
+                Ruby::BareString,
+                vec!["b", "x", "y"],
+            ),
+            (
+                "c = %i[p q]\n",
+                Ruby::SymbolArray,
+                Ruby::BareSymbol,
+                vec!["c", "p", "q"],
+            ),
+        ] {
+            let parser =
+                RubyParser::new(source.as_bytes().to_vec(), &PathBuf::from("foo.rb"), None);
+            assert!(
+                ast_has_kind_id(&parser, wrapper as u16),
+                "the container kind this arm gates on is unreachable for `{source}`"
+            );
+            assert!(
+                ast_has_kind_id(&parser, element as u16),
+                "the element kind this arm gates on is unreachable for `{source}`"
+            );
+
+            // expected: operator `=` → n1 = N1 = 1; operands are the
+            // assignment target and the two elements → n2 = N2 = 3.
+            assert_halstead_counts::<RubyParser>(source, "foo.rb", [1, 1, 3, 3], source);
+            assert_ops_operands::<RubyParser>(source, "foo.rb", 3, operands);
+        }
+    }
+
+    #[test]
+    fn ruby_empty_word_and_symbol_arrays_still_bill_one_operand_1353() {
+        // The childless spelling, and the whole reason #1353 gates the
+        // three container kinds instead of dropping them from the arm
+        // (grammar-dispatch §6). `%w[]` / `%i[]` parse to a wrapper
+        // holding nothing but its two delimiter tokens, so the tempting
+        // "just delete the wrapper" fix — the one #1351 was right to
+        // take for Bash's `command_name` — would score an empty literal
+        // zero operands where the source plainly has a literal. This is
+        // the assertion to watch fail against that alternative.
+        //
+        // expected: operator `=` → n1 = N1 = 1; operands the assignment
+        // target and the empty literal itself → n2 = N2 = 2.
+        for (source, operands) in [
+            ("d = %w[]\n", vec!["d", "%w[]"]),
+            ("e = %i[]\n", vec!["e", "%i[]"]),
+        ] {
+            assert_halstead_counts::<RubyParser>(source, "foo.rb", [1, 1, 2, 2], source);
+            assert_ops_operands::<RubyParser>(source, "foo.rb", 2, operands);
+        }
+    }
+
+    #[test]
+    fn ruby_interpolated_array_elements_are_not_double_counted_1353() {
+        // `bare_string` and `bare_symbol` are two aliases of a single
+        // grammar production (`_literal_contents`), one per array form,
+        // so `%W[…]` and `%I[…]` must score identically. Until #1353
+        // only `bare_string` carried the interpolation guard and
+        // `bare_symbol` sat in the plain operand arm, so `%I[a#{n}b c]`
+        // billed the element `a#{n}b` *and* the `n` inside it (n2 4)
+        // where `%W[a#{n}b c]` billed 3.
+        //
+        // Asserted as an invariance over the two spellings, the way
+        // `ruby_interpolation_opener_is_not_an_operator` is — the
+        // policy is the claim, not the magic number. The third row is
+        // the composed case: a `chained_string` whose own guard defers
+        // to an element that is itself interpolated.
+        //
+        // expected per row: operator `=` → n1 = N1 = 1; operands the
+        // assignment target, the interpolated expression `n`, and the
+        // one inert element → n2 = N2 = 3. The operand *text* is pinned
+        // too, because 3 is also the count an implementation that
+        // suppressed the inert element instead of the wrapper would
+        // report.
+        for (source, operands) in [
+            ("w = %W[a#{n}b c]\n", vec!["w", "n", "c"]),
+            ("w = %I[a#{n}b c]\n", vec!["w", "n", "c"]),
+            ("a = \"x#{n}\" \"y\"\n", vec!["a", "n", "\"y\""]),
+        ] {
+            assert_halstead_counts::<RubyParser>(source, "foo.rb", [1, 1, 3, 3], source);
+            assert_ops_operands::<RubyParser>(source, "foo.rb", 3, operands);
+        }
+    }
+
     /// Comprehensive iRules Halstead test exercising every operator family
     /// classified in `get_op_type`: declaration/control keywords (`proc`,
     /// `set`, `if`, `return`), structural punctuation (`{}` `[]` `()`),
