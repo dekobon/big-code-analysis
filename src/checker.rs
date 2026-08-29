@@ -508,12 +508,22 @@ pub(crate) trait Checker {
     /// with an inline body is written inside the class braces but is a
     /// free function the class merely grants access to, so `npm` does
     /// not count it as a method while `wmc` weighted it anyway (#1301).
+    /// Objective-C has the same shape in a different spelling: a plain
+    /// C `function_definition` inside `@implementation` / `@interface`
+    /// / `@protocol` is a file-static helper, never a method (#1356).
     ///
     /// `wmc` is the sole consumer: WMC is defined as the sum over a
     /// class's *methods*, so a `true` here keeps the space out of the
     /// enclosing class's WMC while leaving it a `Function` space like
     /// any other — its own metrics, its `nom` contribution, and the
     /// file-level cyclomatic roll-up are all unaffected.
+    ///
+    /// A `true` for a function no container encloses is inert rather
+    /// than wrong, since `merge` credits a `Function` child only to a
+    /// `Class` or `Interface` parent. So a language whose grammar makes
+    /// the answer unconditional — Objective-C, where a method is always
+    /// a `method_definition` — may answer on node kind alone, which is
+    /// total where a parent-kind list is not.
     ///
     /// Deliberately one method rather than a byte-less / `_with_code`
     /// pair: the pair forwards by default, so a call site reaching for

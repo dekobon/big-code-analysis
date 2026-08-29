@@ -46,6 +46,41 @@ impl Checker for ObjcCode {
         )
     }
 
+    // A plain C function written inside `@implementation` / `@interface`
+    // / `@protocol` is a file-static helper, not a method: no receiver,
+    // absent from the method table, unsendable. `npm` already declines
+    // to count it (`src/metrics/npm/objc.rs` counts `method_definition`),
+    // so `wmc` must not weight it into the container either (#1356) —
+    // the C++ `friend` divergence of #1301 in a sibling language.
+    //
+    // The node kind is the whole predicate, because an Objective-C
+    // method is *always* a `method_definition`. Neither shape of parent
+    // check that worked for C++ transfers:
+    //
+    // - `implementation_definition` wraps `function_definition` and
+    //   `method_definition` alike, so a parent check alone answers
+    //   `true` for every real method and zeroes the class's WMC
+    //   (`.claude/rules/grammar-dispatch.md` §6).
+    // - A parent-kind *list* cannot be completed. `@interface` and
+    //   `@protocol` take `function_definition` as a direct child with no
+    //   wrapper, and both also admit `preproc_if` — so a helper inside
+    //   `#if` has a parent kind it shares with a file-scope `#if`.
+    //
+    // `true` at file scope is deliberate and inert: `wmc::Stats::merge`
+    // credits a `Function` child only to a `Class` or `Interface`
+    // parent. Both aliases ride together per the #285 contract this file
+    // follows in `is_func` / `is_func_space`.
+    fn is_non_member_function<'a>(
+        node: &Node<'a>,
+        _code: &[u8],
+        _ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Objc::FunctionDefinition | Objc::FunctionDefinition2
+        )
+    }
+
     // ObjC blocks `^{ … }` are the language's closures.
     fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         node.kind_id() == Objc::BlockLiteral

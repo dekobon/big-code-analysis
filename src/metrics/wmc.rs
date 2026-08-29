@@ -40,10 +40,12 @@ pub struct Stats {
     // contribution, preventing double-attribution (#463).
     nested_class_cyclomatic: f64,
     // This space is a function written inside a container it is not a
-    // member of — today only a C++ `friend` with an inline body (#1301).
-    // WMC sums over a class's *methods*, so the enclosing class must not
-    // weight it. Phrased negatively so `Default` (false) means the
-    // ordinary case and only the exception has to be marked.
+    // member of: a C++ `friend` with an inline body (#1301), or a plain
+    // C function inside an Objective-C `@implementation` / `@interface`
+    // / `@protocol` (#1356). WMC sums over a class's *methods*, so the
+    // enclosing class must not weight it. Phrased negatively so
+    // `Default` (false) means the ordinary case and only the exception
+    // has to be marked.
     non_member: bool,
     class_wmc: f64,
     interface_wmc: f64,
@@ -348,12 +350,10 @@ impl Wmc for MozcppCode {
 // shape as Java / TS. ObjC has no `struct`-as-class, so no `Struct`
 // remap is needed.
 //
-// FIXME(#1356): a plain C `function_definition` written inside an
-// `@implementation` block is a file-static helper, not a method, but it
-// opens a `Function` space inside the class space and is weighted here
-// all the same — the C++ `friend` divergence of #1301 in a sibling
-// language. The hook to fix it exists (`Checker::is_non_member_function`)
-// and `ObjcCode` has no override yet.
+// A plain C `function_definition` written inside any of those three is a
+// file-static helper rather than a method, and `ObjcCode::is_non_member_function`
+// keeps it out of the container's WMC (#1356) — the C++ `friend`
+// divergence of #1301 in a sibling language.
 impl Wmc for ObjcCode {
     fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
         class_interface_compute(space_kind, cyclomatic, stats);
@@ -3647,10 +3647,207 @@ mod tests {
              @end\n",
             "foo.m",
             |metric| {
+                // Also the §6 over-suppression guard for #1356: this
+                // fixture has no C function at all, so a predicate that
+                // answered on the `implementation_definition` parent —
+                // which wraps `method_definition` too — would read 0.
                 assert_eq!(metric.wmc.class_wmc_sum(), 3);
                 assert_eq!(metric.wmc.interface_wmc_sum(), 0);
             },
         );
+    }
+
+    // ----- Objective-C: a C function is never a member (#1356) -----
+    //
+    // A plain C function written inside `@implementation` is a
+    // file-static helper — no receiver, not in the method table, not
+    // sendable. `npm` has always declined to count it; `wmc` weighted
+    // it, so the two disagreed about the same container. This is the
+    // C++ `friend` divergence of #1301 in a sibling language, and the
+    // corpora contain no `.m` file carrying the shape, so these tests
+    // are its only coverage.
+
+    // The issue's own fixture, verbatim. Three outcomes are reachable,
+    // so the expectation cannot hold for the wrong reason: 3 is the
+    // pre-fix value (`helper`'s cyclomatic 2 plus `m`'s 1), 1 is
+    // correct, and 0 would mean the roll-up dropped `m` as well.
+    const OBJC_HELPER_IN_IMPLEMENTATION: &str = "@implementation Foo\n\
+         static int helper(int x) { if (x) { return 1; } return 0; }\n\
+         - (void)m { }\n\
+         @end\n";
+
+    // `m` branches, so the expectation (2) differs from the pre-fix
+    // value (4), from the method count (1), and from zero.
+    const OBJC_HELPER_AND_BRANCHING_METHOD: &str = "@implementation Foo\n\
+         static int helper(int x) { if (x) { return 1; } return 0; }\n\
+         - (int)m:(int)x { if (x) { return 1; } return 0; }\n\
+         @end\n";
+
+    // A category `@implementation Foo (Cat)` parses as the same
+    // `class_implementation` node with a `category` field, so its
+    // members nest identically.
+    const OBJC_HELPER_IN_CATEGORY: &str = "@implementation Foo (Cat)\n\
+         static int helper(int x) { if (x) { return 1; } return 0; }\n\
+         - (int)m:(int)x { if (x) { return 1; } return 0; }\n\
+         @end\n";
+
+    // `@interface` and `@protocol` admit a `function_definition` as a
+    // *direct* child — no `implementation_definition` wrapper, unlike
+    // `@implementation`. Their own members are bodyless
+    // `method_declaration`s, so a correct `interface_wmc_sum` is 0; the
+    // `@implementation` in the same fixture keeps a non-zero
+    // `class_wmc_sum` so the pair cannot pass by everything being zero.
+    const OBJC_HELPER_IN_INTERFACE: &str = "@interface Foo : NSObject\n\
+         static int helper(int x) { if (x) { return 1; } return 0; }\n\
+         - (int)m:(int)x;\n\
+         @end\n\
+         @implementation Foo\n\
+         - (int)m:(int)x { if (x) { return 1; } return 0; }\n\
+         @end\n";
+
+    const OBJC_HELPER_IN_PROTOCOL: &str = "@protocol Proto\n\
+         static int helper(int x) { if (x) { return 1; } return 0; }\n\
+         - (int)m:(int)x;\n\
+         @end\n\
+         @implementation Foo\n\
+         - (int)m:(int)x { if (x) { return 1; } return 0; }\n\
+         @end\n";
+
+    // The shape no parent-kind list can reach. Inside `@implementation`
+    // the grammar re-wraps, so the helper's parent is still
+    // `implementation_definition`; inside `@interface` it is the
+    // `preproc_if` — a kind shared with a file-scope `#if`. Keying on
+    // the node's own kind covers both.
+    const OBJC_HELPER_BEHIND_PREPROC: &str = "@interface Foo : NSObject\n\
+         #if FOO\n\
+         static int declared(int x) { if (x) { return 1; } return 0; }\n\
+         #endif\n\
+         - (int)m:(int)x;\n\
+         @end\n\
+         @implementation Foo\n\
+         #if FOO\n\
+         static int helper(int x) { if (x) { return 1; } return 0; }\n\
+         #endif\n\
+         - (int)m:(int)x { if (x) { return 1; } return 0; }\n\
+         @end\n";
+
+    // The reverse direction: a C function at file scope, which no
+    // container ever weighted, alongside a class that has one branching
+    // method.
+    const OBJC_FILE_SCOPE_FUNCTION: &str = "\
+         static int loose(int x) { if (x) { return 1; } return 0; }\n\
+         @implementation Foo\n\
+         - (int)m:(int)x { if (x) { return 1; } return 0; }\n\
+         @end\n";
+
+    #[test]
+    fn objc_static_helper_in_implementation_is_not_weighted_into_the_class() {
+        check_wmc_and_npm::<ObjcParser>(OBJC_HELPER_IN_IMPLEMENTATION, "foo.m", |metric| {
+            // The triple the issue tabulated. `wmc` read 3 before the
+            // fix while `npm` read 1.
+            assert_eq!(metric.wmc.class_wmc_sum(), 1);
+            assert_eq!(metric.npm.class_nm_sum(), 1);
+            assert_eq!(metric.npm.class_npm_sum(), 1);
+            // `nom` counts free functions wherever they appear, so it
+            // still sees two. That is its own contract, unchanged.
+            assert_eq!(metric.nom.functions_sum(), 2);
+            // The helper's complexity is excluded from the class, not
+            // discarded: unit 1 + class 1 + `helper` 2 + `m` 1.
+            assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+        });
+    }
+
+    #[test]
+    fn objc_static_helper_keeps_its_own_function_space() {
+        // Where the excluded complexity lands. The space tree is built
+        // by a single-pass stack walk and
+        // `tests/parity/space_span_containment.rs` requires a child's
+        // span to sit inside its parent's, so the helper's space cannot
+        // be reparented out of the `@implementation` it is written in —
+        // it stays a `Function` space there, reporting its full
+        // cyclomatic. Only the class's WMC roll-up declines it.
+        check_func_space::<ObjcParser, _>(OBJC_HELPER_IN_IMPLEMENTATION, "foo.m", |space| {
+            let class = child_space(&space, "Foo");
+            assert_eq!(class.kind, SpaceKind::Class);
+            assert_eq!(class.metrics.wmc.class_wmc(), 1);
+            let helper = child_space(class, "helper");
+            assert_eq!(helper.kind, SpaceKind::Function);
+            assert_eq!(helper.metrics.cyclomatic.cyclomatic(), 2);
+        });
+    }
+
+    #[test]
+    fn objc_static_helper_leaves_a_branching_method_its_weight() {
+        check_wmc_and_npm::<ObjcParser>(OBJC_HELPER_AND_BRANCHING_METHOD, "foo.m", |metric| {
+            assert_eq!(metric.wmc.class_wmc_sum(), 2);
+            assert_eq!(metric.npm.class_nm_sum(), 1);
+            assert_eq!(metric.nom.functions_sum(), 2);
+        });
+    }
+
+    #[test]
+    fn objc_static_helper_in_a_category_is_not_weighted_into_the_class() {
+        check_wmc_and_npm::<ObjcParser>(OBJC_HELPER_IN_CATEGORY, "foo.m", |metric| {
+            assert_eq!(metric.wmc.class_wmc_sum(), 2);
+            assert_eq!(metric.npm.class_nm_sum(), 1);
+            assert_eq!(metric.nom.functions_sum(), 2);
+        });
+    }
+
+    #[test]
+    fn objc_static_helper_in_an_interface_is_not_weighted_into_the_interface() {
+        check_wmc_and_npm::<ObjcParser>(OBJC_HELPER_IN_INTERFACE, "foo.m", |metric| {
+            // 2 before the fix, from the helper alone — an `@interface`
+            // declares no bodies, so nothing else can reach it.
+            assert_eq!(metric.wmc.interface_wmc_sum(), 0);
+            assert_eq!(metric.wmc.class_wmc_sum(), 2);
+            assert_eq!(metric.npm.interface_nm_sum(), 1);
+            assert_eq!(metric.nom.functions_sum(), 2);
+        });
+    }
+
+    #[test]
+    fn objc_static_helper_in_a_protocol_is_not_weighted_into_the_protocol() {
+        check_wmc_and_npm::<ObjcParser>(OBJC_HELPER_IN_PROTOCOL, "foo.m", |metric| {
+            assert_eq!(metric.wmc.interface_wmc_sum(), 0);
+            assert_eq!(metric.wmc.class_wmc_sum(), 2);
+            assert_eq!(metric.npm.interface_nm_sum(), 1);
+            assert_eq!(metric.nom.functions_sum(), 2);
+        });
+    }
+
+    #[test]
+    fn objc_static_helper_behind_a_preprocessor_conditional_is_not_weighted() {
+        check_wmc_and_npm::<ObjcParser>(OBJC_HELPER_BEHIND_PREPROC, "foo.m", |metric| {
+            // 2 each before the fix. The `@interface` half is the one a
+            // parent-kind predicate cannot reach: `preproc_if` is the
+            // helper's parent there, and a file-scope `#if` spells it
+            // the same way.
+            assert_eq!(metric.wmc.interface_wmc_sum(), 0);
+            assert_eq!(metric.wmc.class_wmc_sum(), 2);
+            assert_eq!(metric.nom.functions_sum(), 3);
+        });
+    }
+
+    #[test]
+    fn objc_file_scope_function_is_unaffected() {
+        check_wmc_and_npm::<ObjcParser>(OBJC_FILE_SCOPE_FUNCTION, "foo.m", |metric| {
+            // This one pins the *inertness* of marking every ObjC
+            // `function_definition`, not the fix itself: `loose` never
+            // reached a container's WMC either way, so every assertion
+            // here also holds against the pre-fix tree. It is kept
+            // because it still discriminates against two plausible wrong
+            // implementations — a predicate widened to `MethodDefinition`
+            // moves `class_wmc_sum`, and a reparent-based fix moves
+            // `cyclomatic_sum` — not because it guards the change.
+            assert_eq!(metric.wmc.class_wmc_sum(), 2);
+            assert_eq!(metric.wmc.interface_wmc_sum(), 0);
+            assert_eq!(metric.nom.functions_sum(), 2);
+            // unit 1 + `loose` 2 + class 1 + `m` 2. This also pins that
+            // `loose` still opens a space of its own: folding it into
+            // the unit instead would read 5.
+            assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6);
+        });
     }
 
     // ----- C++ -----
