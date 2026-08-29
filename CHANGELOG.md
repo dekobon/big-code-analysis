@@ -217,9 +217,14 @@ for historical reference.
   initializer; the TypeScript and TSX grammars pinned here emit no such
   node. Two enclosing constructs that already count the row carve the
   declaration out, mirroring Java's for-header rule: a classic
-  `for (let i = 0; …)` header, and an `export const a = 1;` (including
-  TypeScript's `export declare const y: string;`, where an
+  `for (let i = 0; …)` header — recognised as the `for_statement`'s
+  `initializer` field, so a brace-less body (`for (…) var s = i;`)
+  still counts as its own line — and an `export const a = 1;`
+  (including TypeScript's `export declare const y: string;`, where an
   `ambient_declaration` sits between the export and the declaration).
+  In TypeScript and TSX a declaration under an `ambient_declaration`
+  (`declare const x: number;`, the body of a `declare namespace` or
+  `declare module`) counts nothing: it has no initializer to run.
   `for (const x of …)` and `for (var k in …)` need no carve-out — the
   grammar inlines the keyword and emits no declaration node.
   **Metric values move**: `loc.lloc` rises for JS/TS/TSX/JSM input, and
@@ -243,7 +248,11 @@ for historical reference.
   JavaScript's `private_property_identifier` (`#x`) becomes an operand,
   closing the gap the composite had been masking — a private field's
   declaration counted nothing at all, and `this.#x` counted only the
-  composite. **Metric values shift**: affected files report lower
+  composite. `meta_property` (`import.meta`, `new.target`) is the one
+  composite kept, as a single operand like `this`: its `meta` /
+  `target` leaves are anonymous tokens no arm classifies, so dropping
+  it would have left the meta-object with no operand at all.
+  **Metric values shift**: affected files report lower
   `halstead` `n2` / `N2` (−29% and −18% across the pdf.js and C#
   integration corpora) and therefore lower volume and a higher `mi`.
   Note `difficulty` and `effort` move *up*, because `n2` falls faster
@@ -276,16 +285,18 @@ for historical reference.
   same wrapper/leaf shape.
 
 - `nexits` now counts the abrupt-exit builtins of Ruby, Perl, Tcl and
-  iRules (#1270). Ruby `raise` / `exit`, Perl `die` / `exit`, and
-  Tcl/iRules `error` (plus Tcl 8.6 `throw`) leave a function exactly the
-  way Python's `raise`, Go's `panic` and Lua's `error` do, but none of
-  them has a dedicated grammar node, and only the latter three had a
-  callee-text arm — so a Ruby guard clause that raised scored `1` where
-  the byte-equivalent Python scored `3`. Each is matched at the same
-  seam its siblings already used: a receiver-less `call` whose method
-  identifier spells the builtin (Ruby), a `call_expression_with_bareword`
-  (Perl), the leading word of a generic command (Tcl/iRules). Calls with
-  a receiver (`obj.raise`, `$obj->die`), package-qualified callees
+  iRules (#1270). Ruby `raise` / `exit` / `exit!`, Perl `die` / `exit`,
+  Tcl `error` / `throw` / `exit` and iRules `error` leave a function
+  exactly the way Python's `raise`, Go's `panic` and Lua's `error` do,
+  but none of them has a dedicated grammar node, and only the latter
+  three had a callee-text arm — so a Ruby guard clause that raised
+  scored `1` where the byte-equivalent Python scored `3`. Each is
+  matched at the same seam its siblings already used: a `call` whose
+  method identifier spells the builtin and whose receiver is absent or
+  the explicit `Kernel` constant (Ruby), a `call_expression_with_bareword`
+  naming the builtin bare or through `CORE::` (Perl), the leading word
+  of a generic command (Tcl/iRules). Calls with any other receiver
+  (`obj.raise`, `$obj->die`), other package-qualified callees
   (`Carp::croak`), and the same words in argument position (`puts error`)
   are not counted. **Metric values shift**: any Ruby, Perl, Tcl or iRules
   function using these builtins reports a higher `nexits` sum, average
