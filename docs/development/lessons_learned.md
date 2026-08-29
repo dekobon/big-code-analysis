@@ -2393,7 +2393,10 @@ cannot reparent the space and `Wmc::merge` holds no node to ask, so the
 membership call is recorded at `open_func_space` via
 `Checker::is_non_member_function` (whose doc carries the design
 rationale) and consumed as a flag in the shared merge. Objective-C's C
-helpers inside `@implementation` are the same shape (#1356).
+helpers inside `@implementation` / `@interface` / `@protocol` are the
+same shape, fixed the same way (#1356) — there the predicate keys on the
+node's own kind, because a method is always a `method_definition` and no
+parent-kind list can be completed.
 
 ---
 
