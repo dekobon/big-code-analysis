@@ -9,6 +9,14 @@ updates:
         patterns: ["*"]
     commit-message:
       prefix: "ci"
+  # Keeps the digest-pinned `FROM ubuntu:noble@sha256:…` in the dev
+  # container Dockerfile current (Scorecard Pinned-Dependencies, #778).
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore"
   - package-ecosystem: cargo
     directory: "/"
     schedule:
