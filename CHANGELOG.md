@@ -749,6 +749,19 @@ for historical reference.
 
 ### Changed
 
+- `gix` 0.86 → 0.87.1, with the rest of the gitoxide family advancing
+  in step (36 lockfile entries). Forced rather than routine: every
+  published version of `bisync`, a transitive dependency of
+  `gix-protocol` 0.64, was yanked on 2026-08-24, so `cargo deny`'s
+  `advisories` check failed on any lockfile still holding it and no
+  `cargo update -p bisync` could satisfy the `^0.3.0` requirement.
+  `gix-protocol` 0.65 dropped the crate. One source change: `gix-date`
+  now takes its "now" reference as a `jiff::Zoned`, so `--as-of`
+  parsing passes `gix::date::Zoned::now()` instead of `SystemTime`.
+  No behaviour change and no public-API change — no `gix` type appears
+  in a public signature. The six excluded crates lock no `gix` and are
+  untouched.
+
 - The pdf.js corpus test now covers all 384 files: the 118-entry
   exclude list frozen in the mozjs-default era (#84) was retired
   (#1282), since every entry parses without ERROR nodes under the

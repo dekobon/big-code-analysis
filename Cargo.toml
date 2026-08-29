@@ -197,7 +197,7 @@ csv.workspace = true
 # refactor that decouples them (the walk itself is tree-to-tree and does
 # not read the index/worktree). `sha1` (see below). Gated behind
 # `vcs-git`.
-gix = { version = "^0.86", default-features = false, features = [
+gix = { version = "^0.87", default-features = false, features = [
   "max-performance-safe",
   "blob-diff",
   "mailmap",
