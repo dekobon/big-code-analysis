@@ -558,11 +558,18 @@ in steps 3 and 4:
 ```bash
 cargo update --manifest-path fuzz/Cargo.toml --workspace
 cargo update --manifest-path enums/Cargo.toml --workspace
+for leaf in ccomment mozcpp mozjs preproc tcl; do
+  cargo update --manifest-path "tree-sitter-${leaf}/Cargo.toml" --workspace
+done
 ```
 
-Commit both alongside the root lockfile. Neither crate is published, so
-this never blocks `cargo publish` — it surfaces later, as a red fuzz or
-`enums-check` job on a tree that looks correct.
+Commit all of them alongside the root lockfile. `fuzz` and `enums` are
+not published, so a stale lockfile there surfaces later, as a red fuzz
+or `enums-check` job on a tree that looks correct. The five grammar
+leaves *are* published, and each carries its own `Cargo.lock` recording
+the leaf at the old version: `make release-check` dry-runs them with
+`cargo publish --locked`, which refuses to touch the stale lockfile and
+fails the gate (the v2.2.0 cut hit exactly this).
 
 Regenerate the committed man pages in the same release-prep commit:
 

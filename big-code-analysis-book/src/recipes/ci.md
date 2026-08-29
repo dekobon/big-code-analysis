@@ -103,11 +103,11 @@ so a green-path rerun skips the download entirely:
 
 ```yaml
 env:
-  BCA_VERSION: "2.1.0"
+  BCA_VERSION: "2.2.0"
   BCA_TARGET:  "x86_64-unknown-linux-gnu"
   # sha256 of big-code-analysis-${BCA_VERSION}-${BCA_TARGET}.tar.gz from the
   # release's SHA256SUMS file. Bump together with BCA_VERSION.
-  BCA_SHA256:  "6904518ff57968408dd3fa46a3fb533b8ac42cd035d5dd503090e24e19d5232a"
+  BCA_SHA256:  "870a0c43b9c13f4ecac40d4a88ba7be011a0b72150d76bcc6f4906948f2adae5"
 
 steps:
   # Cache key MUST include BCA_SHA256 (and BCA_TARGET). Without the
@@ -176,7 +176,7 @@ default for downstream adopters.
 - name: Install bca
   uses: taiki-e/install-action@v2
   with:
-    tool: big-code-analysis-cli@2.1.0
+    tool: big-code-analysis-cli@2.2.0
 ```
 
 ```yaml
@@ -184,7 +184,7 @@ default for downstream adopters.
 - name: Install cargo-binstall
   uses: cargo-bins/cargo-binstall@main
 - name: Install bca
-  run: cargo binstall --no-confirm big-code-analysis-cli --version 2.1.0
+  run: cargo binstall --no-confirm big-code-analysis-cli --version 2.2.0
 ```
 
 If either action falls back to compilation, cache the cargo registry +
@@ -202,7 +202,7 @@ the installed binary so the second run is fast:
     # sufficient here — there is no sha256 to rotate. (The GitHub
     # Releases install path above is different: republished release
     # assets share a version, so its cache key must include the sha256.)
-    key: bca-${{ runner.os }}-2.1.0
+    key: bca-${{ runner.os }}-2.2.0
 ```
 
 Pin to a specific version (matching a published
@@ -233,7 +233,7 @@ jobs:
       - name: Install bca
         uses: taiki-e/install-action@v2
         with:
-          tool: big-code-analysis-cli@2.1.0
+          tool: big-code-analysis-cli@2.2.0
       - name: Generate report
         run: |
           bca \
@@ -679,11 +679,11 @@ stages:
   - quality
 
 variables:
-  BCA_VERSION: "2.1.0"  # pin a published big-code-analysis-cli release
+  BCA_VERSION: "2.2.0"  # pin a published big-code-analysis-cli release
   BCA_TARGET:  "x86_64-unknown-linux-gnu"
   # sha256 of big-code-analysis-${BCA_VERSION}-${BCA_TARGET}.tar.gz from
   # the release's SHA256SUMS file. Bump together with BCA_VERSION.
-  BCA_SHA256:  "6904518ff57968408dd3fa46a3fb533b8ac42cd035d5dd503090e24e19d5232a"
+  BCA_SHA256:  "870a0c43b9c13f4ecac40d4a88ba7be011a0b72150d76bcc6f4906948f2adae5"
 
 bca-quality:
   stage: quality
