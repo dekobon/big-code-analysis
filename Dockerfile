@@ -20,7 +20,9 @@
 # `make dev-env-shell` (see docker/README.md). The Makefile passes the
 # host UID/GID as build args so the mounted repo stays writable.
 
-FROM ubuntu:noble
+# Digest-pinned (OpenSSF Scorecard Pinned-Dependencies); Dependabot's
+# `docker` entry in .github/dependabot.yml moves the digest.
+FROM ubuntu:noble@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517
 
 # UID/GID for the in-container `dev` user. Defaults match the maintainer's
 # host (2424); `make dev-env-build` overrides them with the caller's
@@ -42,6 +44,8 @@ ENV PATH=/usr/local/cargo/bin:/home/dev/.local/bin:/usr/local/bin:$PATH
 #   RUST_VERSION       -> Cargo.toml workspace.package.rust-version
 #   NODE_MAJOR         -> NodeSource line (>= 22.6 required by codegraph)
 #   RUMDL/…/ACTIONLINT -> .github/workflows/ci.yml lint job
+#   BINSTALL/UV        -> no CI counterpart; bump by hand together with
+#                         the per-arch SHA256 tables in their RUN blocks
 ENV RUST_VERSION=1.94.0
 ENV NODE_MAJOR=24
 ENV RUMDL_VERSION=0.2.2
@@ -50,6 +54,8 @@ ENV SHFMT_VERSION=3.12.0
 ENV SHELLCHECK_VERSION=0.10.0
 ENV CHECKMAKE_VERSION=0.2.2
 ENV ACTIONLINT_VERSION=1.7.12
+ENV BINSTALL_VERSION=1.22.0
+ENV UV_VERSION=0.12.7
 
 # ---------------------------------------------------------------------------
 # APT repositories: GitHub CLI + NodeSource. Keyrings are fetched and
@@ -134,6 +140,28 @@ RUN set -eux; \
     rustup toolchain install nightly --profile minimal; \
     rustup default "$RUST_VERSION"
 
+# ---------------------------------------------------------------------------
+# cargo-binstall — SHA256-verified release tarball rather than the
+# upstream `curl | bash` installer, which resolves "latest" at build
+# time and cannot be pinned. Upstream publishes no `.sha256` asset, so
+# to bump: download both tarballs and `sha256sum` them.
+# ---------------------------------------------------------------------------
+RUN <<'EOF'
+set -eux
+ARCH=$(uname -m)
+case "$ARCH" in
+    x86_64)  SHA256="df2921254924066627685ee09f6c8b9acd7acef68a338668f879d2b033c09458" ;;
+    aarch64) SHA256="2fdf0ad20ffc7c7f94f32c19566f417d227484ff0335664d5df429e459d1354b" ;;
+    *)       echo "Unsupported architecture: $ARCH" && exit 1 ;;
+esac
+wget --quiet -O /tmp/cargo-binstall.tgz "https://github.com/cargo-bins/cargo-binstall/releases/download/v${BINSTALL_VERSION}/cargo-binstall-${ARCH}-unknown-linux-musl.tgz"
+echo "${SHA256}  /tmp/cargo-binstall.tgz" | sha256sum --check
+tar -xzf /tmp/cargo-binstall.tgz -C /tmp cargo-binstall
+install -m 0755 /tmp/cargo-binstall "$CARGO_HOME/bin/cargo-binstall"
+rm -f /tmp/cargo-binstall.tgz /tmp/cargo-binstall
+cargo binstall --version
+EOF
+
 # Cargo dev/CI tools via cargo-binstall (prebuilt binaries — no long
 # compiles). cargo-nextest / cargo-llvm-cov mirror CI; cargo-about /
 # cargo-deny back `make release-check`; mdbook backs `make book`.
@@ -143,16 +171,23 @@ RUN set -eux; \
 # cargo-about keeps its binary behind a non-default `cli` feature — so
 # that fallback would install no binary, warn, and exit 0, baking a
 # release image that cannot run `make release-check` (#1226).
+#
+# Every tool is version-pinned so a rebuild is reproducible. cargo-about
+# tracks CARGO_ABOUT_VERSION in release.yml / python-cli-wheels.yml and
+# the literal `cargo-about@…` in ci.yml's release-check job; mdbook
+# tracks MDBOOK_VERSION in pages.yml (0.4.x is required by the
+# mdbook-i18n-helpers pairing). No gate compares these copies, so a
+# bump is a grep for the old version. The rest have no CI pin to
+# mirror (ci.yml installs cargo-nextest / cargo-llvm-cov unpinned).
 RUN set -eux; \
-    curl -fsSL https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash; \
     cargo binstall --no-confirm \
-        cargo-udeps \
-        cargo-insta \
-        cargo-nextest \
-        cargo-llvm-cov \
-        cargo-about \
-        cargo-deny \
-        mdbook; \
+        cargo-udeps@0.1.61 \
+        cargo-insta@1.48.0 \
+        cargo-nextest@0.9.143 \
+        cargo-llvm-cov@0.9.0 \
+        cargo-about@0.8.4 \
+        cargo-deny@0.20.2 \
+        mdbook@0.4.40; \
     cargo about --version; \
     rm -rf "$CARGO_HOME/registry" "$CARGO_HOME/git" /tmp/*
 
@@ -285,17 +320,36 @@ EOF
 # tools into the system location (see UV_TOOL_* above); pyright ships as a
 # Node package so it uses the system Node instead of downloading its own.
 #
-# These are deliberately unversioned, ruff included, even though this
-# repository holds the ruff version in lockstep across four files
-# (#1230). The image is built without the repository checked out, so it
-# cannot read uv.lock; a literal version here would be a fifth copy to
-# bump on every release, in a file no gate reads. `make py-fmt` /
-# `py-lint` prefer `big-code-analysis-py/.venv/bin/ruff`, so once a
+# uv itself is pinned (UV_VERSION + SHA256, from upstream's `.sha256`
+# release assets) because it is a downloaded binary. The tools it
+# installs — ruff, mypy, maturin — are deliberately unversioned, ruff
+# included, even though this repository holds the ruff version in
+# lockstep across four files (#1230). The image is built without the
+# repository checked out, so it cannot read uv.lock; a literal version
+# here would be a fifth copy to bump on every release, in a file no
+# gate reads. `make py-fmt` / `py-lint` / `py-typecheck` prefer the
+# binaries under `big-code-analysis-py/.venv/bin/`, so once a
 # contributor runs `make py-bootstrap` inside the container the locked
-# ruff wins over the one installed here.
+# ruff / mypy / pyright win over the ones installed here (the npm
+# pyright below is for editors and MCP servers, not the gate).
 # ---------------------------------------------------------------------------
+RUN <<'EOF'
+set -eux
+ARCH=$(uname -m)
+case "$ARCH" in
+    x86_64)  SHA256="788f18abea7c5f55d6216e4f5613fd89d4d59b631efeec117b2b07fe72f1da21" ;;
+    aarch64) SHA256="66393193038dd7eb108abd7a218d9cec04ac70ab98242b0720fa94de19223b7c" ;;
+    *)       echo "Unsupported architecture: $ARCH" && exit 1 ;;
+esac
+wget --quiet -O /tmp/uv.tgz "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${ARCH}-unknown-linux-gnu.tar.gz"
+echo "${SHA256}  /tmp/uv.tgz" | sha256sum --check
+tar -xzf /tmp/uv.tgz -C /tmp
+install -m 0755 "/tmp/uv-${ARCH}-unknown-linux-gnu/uv" "/tmp/uv-${ARCH}-unknown-linux-gnu/uvx" /usr/local/bin/
+rm -rf /tmp/uv.tgz "/tmp/uv-${ARCH}-unknown-linux-gnu"
+uv --version
+EOF
+
 RUN set -eux; \
-    curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh; \
     mkdir -p "$UV_TOOL_DIR"; \
     uv tool install --python 3.12 ruff; \
     uv tool install --python 3.12 mypy; \
@@ -307,14 +361,20 @@ RUN set -eux; \
 # survive the /home/dev volume: Claude Code, the two npx-launched MCP
 # servers (codegraph, Context7), plus the Python/Bash language servers.
 # codegraph builds better-sqlite3 natively here (build-essential + python3).
+#
+# Versions are pinned exactly so this layer is reproducible (the image
+# as a whole is not: nightly rustup, the uv-installed Python tools, and
+# the git-sourced Serena below float by design). A global install has
+# no lockfile, so this is as far as npm pinning goes (Scorecard's rule
+# wants `npm ci`, which cannot apply here).
 # ---------------------------------------------------------------------------
 RUN set -eux; \
     npm install -g \
-        @anthropic-ai/claude-code \
-        @optave/codegraph \
-        @upstash/context7-mcp \
-        pyright \
-        bash-language-server; \
+        @anthropic-ai/claude-code@2.1.251 \
+        @optave/codegraph@3.17.0 \
+        @upstash/context7-mcp@4.0.4 \
+        pyright@1.1.413 \
+        bash-language-server@5.6.0; \
     npm cache clean --force; \
     rm -rf /root/.npm /tmp/*
 
