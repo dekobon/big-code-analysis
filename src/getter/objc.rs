@@ -67,7 +67,7 @@ impl Getter for ObjcCode {
         }
     }
 
-    fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> HalsteadType {
         use Objc::*;
 
         // ObjC is C plus message sends, blocks, and the `@`-directives.
@@ -81,16 +81,28 @@ impl Getter for ObjcCode {
         // `LPAREN2` is a defensive arm (collapsed to `LPAREN` before
         // `kind_id()`; #768, see the Cpp note).
         match node.kind_id().into() {
+            // `@"…"` is one `string_literal` holding its `@` as a child
+            // (tree-sitter-objc 3.0.2), unlike `@42` / `@[…]` / `@{…}`,
+            // where the `@` is a child of the `at_expression` /
+            // `array_literal` / `dictionary_literal` it boxes. The
+            // literal is already the operand, keyed by its whole text,
+            // so billing the marker as an operator too paid the same
+            // byte twice and planted a phantom `@` in n1 for a file
+            // whose only `@` was in NSString literals (grammar-dispatch
+            // §5, the compound-leaf guard).
+            AT if ancestors.parent_has_kind(node, StringLiteral as u16) => HalsteadType::Unknown,
+            // The C operator set, then the ObjC-specific structural
+            // keywords / markers from `In` onwards.
             DOT | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return | Break
             | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do | EQ
             | AMPAMP | PIPEPIPE | DASH | DASHDASH | DASHGT | PLUS | PLUSPLUS | SLASH | PERCENT
             | PIPE | AMP | LTLT | TILDE | LT | LTEQ | EQEQ | BANGEQ | GTEQ | GT | PLUSEQ
             | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ | GTGTEQ | LTLTEQ | AMPEQ | CARET
-            | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | PrimitiveType | TypeSpecifier | Sizeof
-            | Signed | Unsigned | Long | Short
-            // ObjC-specific structural keywords / markers.
-            | In | AT | ATtry | ATcatch | ATfinally | ATthrow | ATsynchronized
-            | ATautoreleasepool | ATselector | ATencode => HalsteadType::Operator,
+            | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | PrimitiveType | TypeSpecifier
+            | Sizeof | Signed | Unsigned | Long | Short | In | AT | ATtry | ATcatch | ATfinally
+            | ATthrow | ATsynchronized | ATautoreleasepool | ATselector | ATencode => {
+                HalsteadType::Operator
+            }
             // `CharLiteral` — the full derivation lives on the same arm
             // in `src/getter/c.rs` (#1316): the wrapper is the only
             // classified node in a character literal, so it bills one

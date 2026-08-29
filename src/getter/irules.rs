@@ -4,11 +4,14 @@
 use super::*;
 
 /// The braced-word kinds `Getter::is_subsumed_braced_word` is
-/// instantiated with (#1354): the literal *value* form the guard
-/// keys on, and the *script* form it gates on child-presence. Named
-/// here so the guard reads as one line inside an already long match.
-const BRACED_VALUE: u16 = Irules::BracedWordSimple as u16;
-const BRACED_SCRIPT: u16 = Irules::BracedWord as u16;
+/// instantiated with (#1354): the literal *value* form the guard keys
+/// on, the *script* form it gates on holding a command, and the comment
+/// kind that gate must not mistake for one.
+const BRACED_WORD_KINDS: BracedWordKinds = BracedWordKinds {
+    value: Irules::BracedWordSimple as u16,
+    script: Irules::BracedWord as u16,
+    comment: Irules::Comment as u16,
+};
 
 impl Getter for IrulesCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
@@ -34,7 +37,7 @@ impl Getter for IrulesCode {
             // `BracedWord` (132), conditions are `Expr` (141), and only
             // the value form is `BracedWordSimple` (133), which admits
             // the same six child kinds Tcl's does.
-            _ if Self::is_subsumed_braced_word(node, ancestors, BRACED_VALUE, BRACED_SCRIPT) => {
+            _ if Self::is_subsumed_braced_word(node, ancestors, &BRACED_WORD_KINDS) => {
                 HalsteadType::Unknown
             }
             // Anonymous keyword tokens (the `*2` aliases are the keyword
@@ -147,17 +150,25 @@ impl Getter for IrulesCode {
             //
             // `BracedWord` (132) reaches this arm only when the guard
             // above let it through, which since #1354 means only when
-            // it holds no named child — the reason the Tcl twin spells
+            // it holds no command — the reason the Tcl twin spells
             // out. A `when` handler body is the largest instance of the
             // over-count that removed: its operand text was the entire
             // event handler.
+            //
+            // `ArrayIndex` is deliberately absent, as in the Tcl twin:
+            // the grammar makes `(k)` a pure wrapper around one of the
+            // six word kinds, and its parens are already the `()`
+            // operator, so listing it billed `$arr(k)` three times —
+            // the reference, the wrapper and the index (grammar-
+            // dispatch §5). The reference and the index are the two
+            // operands, the index being walked because Tcl substitutes
+            // inside the parens (`$arr($i)`), unlike inside braces.
             Irules::SimpleWord
             | Irules::Number
             | Irules::Boolean
             | Irules::EventName
             | Irules::BracedWord
             | Irules::BracedWordSimple
-            | Irules::ArrayIndex
             | Irules::VariableSubstitution => HalsteadType::Operand,
 
             // Double-quoted strings count as a single operand when inert

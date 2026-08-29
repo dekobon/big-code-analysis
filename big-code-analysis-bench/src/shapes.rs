@@ -333,6 +333,30 @@ pub fn wide_distinct_fns(width: usize) -> String {
     source
 }
 
+/// JavaScript: `function f() { let v000000 = 0, v000001 = 1, …; return
+/// v000000; }` — one `let` statement with `width` declarators.
+///
+/// The width shape for the JS-family ABC `const` predicate (#1277).
+/// Each `=` asks whether its declarator sits under a `const`
+/// declaration, and the first form of that predicate answered by
+/// scanning every sibling declarator for the keyword — `O(width)` per
+/// `=`, so `O(width²)` per statement, invisible to every depth probe.
+/// `let` is the spelling that pays it in full: `const` finds its
+/// keyword at child 0 and `var` opens no `lexical_declaration` at all.
+/// Six-digit padding for the reason `wide_distinct_fns` gives.
+#[must_use]
+pub fn wide_let_declarators(width: usize) -> String {
+    let mut source = String::from("function f() { let ");
+    for i in 0..width {
+        if i > 0 {
+            source.push_str(", ");
+        }
+        let _ = write!(source, "v{i:06} = {i:06}");
+    }
+    source.push_str("; return v000000; }\n");
+    source
+}
+
 /// Rust: `#[cfg(all(all(… test …)))] fn gone() {}` plus one retained
 /// function.
 ///
@@ -1070,6 +1094,29 @@ pub const PROBES: &[Probe] = &[
                     only probe that grows one *attribute* rather than \
                     the code around it, so `nom/nested-fn` is not a \
                     control for it; the bound alone is the guard.",
+    },
+    Probe {
+        name: "abc/wide-let-declarators",
+        lang: LANG::Javascript,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Abc],
+            reading: |m| m.abc.assignments_sum(),
+        },
+        render: wide_let_declarators,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1277's structural `const` predicate. Its first form \
+                    scanned every sibling declarator for the `const` \
+                    keyword once per `=`, so a `let` list of N \
+                    declarators cost O(N²) — 6 s for 5 000 on a debug \
+                    build, against 0.04 s for the same list under `var` \
+                    — while every depth probe stayed green. The keyword \
+                    is now read through the declaration's `kind` field. \
+                    The reading is the `let` initializer count, which \
+                    grows with the width, so a walk that stopped \
+                    counting them is visible in the value column too.",
     },
     Probe {
         name: "halstead/wide-distinct-fn",
