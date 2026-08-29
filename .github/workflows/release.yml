@@ -247,12 +247,12 @@ jobs:
 
       - name: Install cross (Linux cross-compile)
         if: matrix.cross
-        uses: taiki-e/install-action@a2a5f6e99e1a31540baa0468acfa302cff0f359f # v2.86.4
+        uses: taiki-e/install-action@fcf5432d9f50d67e37ee6e29bdb7a224ff67b4a7 # v2.86.8
         with:
           tool: cross@${{ env.CROSS_VERSION }}
 
       - name: Install cargo-about
-        uses: taiki-e/install-action@a2a5f6e99e1a31540baa0468acfa302cff0f359f # v2.86.4
+        uses: taiki-e/install-action@fcf5432d9f50d67e37ee6e29bdb7a224ff67b4a7 # v2.86.8
         with:
           tool: cargo-about@${{ env.CARGO_ABOUT_VERSION }}
 
@@ -485,7 +485,7 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
 
-      - uses: taiki-e/install-action@a2a5f6e99e1a31540baa0468acfa302cff0f359f # v2.86.4
+      - uses: taiki-e/install-action@fcf5432d9f50d67e37ee6e29bdb7a224ff67b4a7 # v2.86.8
         with:
           tool: cargo-deb@${{ env.CARGO_DEB_VERSION }}
 
@@ -569,7 +569,7 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
 
-      - uses: taiki-e/install-action@a2a5f6e99e1a31540baa0468acfa302cff0f359f # v2.86.4
+      - uses: taiki-e/install-action@fcf5432d9f50d67e37ee6e29bdb7a224ff67b4a7 # v2.86.8
         with:
           tool: cargo-generate-rpm@${{ env.CARGO_GENERATE_RPM_VERSION }}
 
@@ -1107,7 +1107,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable tip
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
-      - uses: taiki-e/install-action@a2a5f6e99e1a31540baa0468acfa302cff0f359f # v2.86.4
+      - uses: taiki-e/install-action@fcf5432d9f50d67e37ee6e29bdb7a224ff67b4a7 # v2.86.8
         with:
           tool: cargo-cyclonedx@${{ env.CARGO_CYCLONEDX_VERSION }}
 
