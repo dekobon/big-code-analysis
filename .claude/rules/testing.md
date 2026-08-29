@@ -79,6 +79,13 @@ tell as a uniform 34: it describes the harness, not the code. Cross-check
 any parsed count against the process exit status and treat a
 disagreement in *either* direction as a harness bug, not a result.
 
+**So is the invocation.** `cargo test` stops at the first failing
+*target*, so a sweep that names a unit target and an integration target
+in one invocation never reaches the second once the first fails — every
+perturbation then reports the integration guard as passing, which reads
+as a dead guard rather than a harness artifact (#1270). Pass
+`--no-fail-fast` in any multi-target perturbation run.
+
 After restoring, `git status` / `git diff --stat` must show exactly
 the edits you intend — nothing extra, nothing missing.
 
