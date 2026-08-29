@@ -122,6 +122,113 @@ for historical reference.
 
 ### Fixed
 
+- Bash command names are no longer counted twice in Halstead `N2`
+  (#1351). `BashCode::get_op_type` classified both the `command_name`
+  wrapper and the `word` / `string` / `expansion` it wraps as operands,
+  so `ls bar` reported `N2` 3 for two operands, and the spellings whose
+  wrapper text differs from the child's (`"$cmd"`, `${cmd}`) also planted
+  a spurious second `n2` entry. The wrapper arm is gone; the child
+  carries the count for all fourteen spellings the pinned grammar
+  admits. The dead `Bash::Concat` arm — the hidden `_concat` external
+  token, never emitted — was removed with it and pinned by a drift
+  marker. **Metric drift:** Bash `N2` falls by one per command name,
+  moving `length`, `volume`, `difficulty`, `level`, `effort`, `time`
+  and `bugs`.
+- Ruby `%w[…]` / `%i[…]` arrays and adjacent-string concatenation no
+  longer count an extra Halstead operand for the wrapper (#1353).
+  `RubyCode::get_op_type` suppressed a string-like literal only when it
+  carried an `Interpolation` child, but `chained_string`, `string_array`
+  and `symbol_array` hold classified operand children instead, so
+  `%w[x y]` scored `n2` 4 / `N2` 4 for three operands — a vocabulary
+  that depended on how the literals were grouped. The three kinds are
+  gated rather than dropped, because `%w[]` parses to a wrapper holding
+  nothing but its delimiters. `bare_symbol` joins `bare_string` under
+  the same guard, fixing an asymmetry where `%I[a#{n}b]` billed both the
+  element and the interpolated `n`. **Metric drift:** Ruby `halstead.*`
+  and the derived values fall.
+- Perl no longer counts a qualified name once per part *and* once as a
+  whole (#1355). `package_name`, `package_variable` and `typeglob` were
+  operands alongside the operand kinds they contain, and they nest: `use
+  strict;` scored `N2` 2 for one name, `our $Foo::count = 3;` scored
+  `n2` 5 / `N2` 6 for two, and the vocabulary carried a bare `::` entry.
+  A parent-keyed guard now subsumes the contained operands.
+  **Metric drift:** Perl `halstead.*` and the derived values fall.
+- Tcl and iRules no longer bill a braced word twice (#1354, #1317). A
+  braced *literal* (`set x {literal here}`) was a Halstead operand and so
+  was every word inside it, so `set a {a b}` scored three operands
+  against its `set a "a b"` synonym's one. Tcl evaluates nothing between
+  braces, so the literal is now the single operand its parts belong to.
+  A braced *script* — a `proc`, `if` or `when` body — was additionally
+  billed as one operand spanning its entire text beside the commands the
+  walk already counts, so `n2` grew with the size and uniqueness of the
+  code rather than with its vocabulary; it is now billed through its
+  contents alone, except when it holds nothing (`lappend l {}` is an
+  empty list whose brace pair is its only carrier). **Metric drift:**
+  Tcl and iRules `halstead.*`, the derived values, and hence `mi` fall
+  for any file containing a braced word or block. A value-position
+  braced literal still reports a `{}` operator (#1318).
+- C, C++, Mozcpp and Objective-C character literals are Halstead
+  operands (#1316). `char_literal` was in neither the operator nor the
+  operand arm of those four getters, so a character literal contributed
+  nothing at all and `char b = 'x';` billed `b` alone — while Rust,
+  Java, Kotlin, C#, Go and Elixir each counted theirs. All prefixed
+  spellings (`L'x'`, `u'x'`, `U'x'`, `u8'x'`) count as distinct
+  operands, and a multi-character constant such as `'ab'` counts once.
+  `Checker::is_string` is deliberately unchanged: a character is not a
+  string, the same split Rust and Go apply. **Metric drift:** `n2` /
+  `N2` rise by one per character literal, moving the derived values and
+  the three maintainability-index variants.
+- A plain C function written inside an Objective-C `@implementation`,
+  `@interface` or `@protocol` no longer contributes to that container's
+  `wmc` (#1356). Such a function is a file-static helper, not a method —
+  no receiver, absent from the method table, unsendable — so `npm` never
+  counted it, but the space tree nests its `Function` space inside the
+  container's and `wmc` weighted every such space. The three metrics
+  disagreed about one container: `npm.class_methods` 1 against
+  `wmc.class_wmc_sum` 3. This is the C++ `friend` divergence #1301
+  removed, surviving in a sibling language. **Metric drift:** ObjC
+  `wmc.class_wmc` / `class_wmc_sum` / `interface_wmc_sum` / `total` fall
+  by the cyclomatic complexity of each such helper. The helper keeps its
+  own `Function` space and metrics, `nom` still counts it, and the
+  file-level `cyclomatic` sum is unchanged.
+- The JS-family ABC assignment count no longer depends on the previous
+  statement's terminator (#1277). The counter cleared its declaration
+  sentinel only on a `SEMI` token, so a `const` written without a
+  semicolon (ASI) left a stale sentinel that suppressed every subsequent
+  `=` until the next `;` — `const a = 1` then `x = 2` scored zero
+  assignments. `const` initializers are now identified structurally from
+  the `=` token's parent chain, matching the Kotlin fix in #455. Two
+  further leaks the sentinel had are closed with it: it crossed into an
+  enclosing space past a nested arrow function, and TypeScript's `x as
+  const` promoted a live `let` slot, which leaked even in fully
+  semicolon-terminated code. Affects Javascript, Mozjs, Typescript and
+  Tsx.
+- A `?` used as type syntax is no longer counted as an ABC ternary
+  condition in C#, TypeScript and TSX (#1275). The ternary `?` and the
+  type-syntax `?` are the same anonymous token, so C# scored `int? x`
+  and `where T : class?`, and TS/TSX scored every optional parameter,
+  property, method, class field and tuple element, plus conditional
+  types (`T extends U ? X : Y`), as decisions. C# safe navigation
+  (`a?.b`, `a?[0]`) shares the same token and deliberately still counts,
+  keeping ABC in step with C# cyclomatic — so C# gates by denylist and
+  TS/TSX by allowlist, a polarity difference the arm comments record.
+  Completes the type-syntax work #1274 began for Java and Groovy.
+- `abc.conditions` now counts the `for` header's condition slot
+  (#1276). A bare, negated or parenthesised loop condition
+  (`for (; a; )`, `for (; !a; )`, `for (; (a); )`) scored zero in C,
+  C++, Mozcpp, Objective-C, JavaScript, Mozjs, TypeScript, TSX and PHP
+  while the same predicate in an `if` scored one; comparison-shaped
+  conditions (`i < n`) were unaffected. Go's three-clause
+  `for init; cond; post` had the same gap, and its header slot was
+  additionally mis-read for a bare `for {}` and shifted by a header
+  comment. **Metric drift:** `abc.conditions` — and therefore
+  `abc.magnitude` / `abc.value` — rises for any function with such a
+  loop in those ten languages. An **empty** condition (`for (;;)`,
+  `for (init; ; update)`) now counts **zero** in every language: Java
+  and Groovy previously scored one vacuous condition and drop by one per
+  such loop. Java's and Groovy's `for` condition also no longer goes
+  unread when a comment appears in the loop header.
+
 - `bca` no longer announces every file the reader declines as
   `skipping empty file` (#1287). Emptiness is only one of four gates: a
   1–3-byte valid source, a multi-kilobyte binary, and a UTF-16-BOM file
@@ -748,6 +855,14 @@ for historical reference.
   still success (#1152).
 
 ### Changed
+
+- Groovy's qualified-type operand classification is now pinned by a
+  regression test (#1352). #1263 removed both `QualifiedName` and
+  `QualifiedType` from `GroovyCode::get_op_type`'s operand arm, but only
+  the `QualifiedName` half was covered; re-adding the emitted alias
+  `QualifiedType2` failed no test, leaving the "complete the alias list"
+  reading — which is the double count #1263 removed — unobstructed. No
+  metric values change.
 
 - `gix` 0.86 → 0.87.1, with the rest of the gitoxide family advancing
   in step (36 lockfile entries). Forced rather than routine: every
