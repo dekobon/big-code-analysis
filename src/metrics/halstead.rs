@@ -3888,15 +3888,17 @@ f() {
                 // counted once per balanced pair, #695 — the closers no
                 // longer add a second operator), `local`, `=`, `if`,
                 // `then`, `fi`, `;`.
-                // Operands (6 unique, 8 occurrences): `f`, `x` (the
+                // Operands (6 unique, 7 occurrences): `f`, `x` (the
                 // assignment LHS `variable_name`, kind 160), `1` (twice:
                 // `=1` and `-eq 1`), `$x` (the `simple_expansion` — its
                 // inner `variable_name` leaf is now suppressed so `$x`
                 // counts once, #695), `echo`, `'one'`.
+                // N2 was 8 before #1351: `echo` counted twice, once as the
+                // `command_name` wrapper and once as the `word` it wraps.
                 assert_eq!(metric.halstead.unique_operators(), 9);
                 assert_eq!(metric.halstead.total_operators(), 9);
                 assert_eq!(metric.halstead.unique_operands(), 6);
-                assert_eq!(metric.halstead.total_operands(), 8);
+                assert_eq!(metric.halstead.total_operands(), 7);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -4216,15 +4218,18 @@ f() {
         //     subscript — parent is `expansion`, not `simple_expansion`,
         //     so it still counts), number `0` (wrapper skipped,
         //     `expansion` itself is not in the operand list) → 3
-        //   line 3 `c="$(date)"`: var_name `c`, command_name `date`
-        //     (wrapper skipped, `command_substitution` not in operand
-        //     list) → 2
+        //   line 3 `c="$(date)"`: var_name `c`, the `word` `date` under
+        //     the `command_name` (wrapper skipped, `command_substitution`
+        //     not in operand list, and since #1351 the `command_name`
+        //     wrapper is not either) → 2
         //   line 4 `d="$((1+2))"`: var_name `d`, numbers `1` and `2`
         //     (wrapper skipped, `arithmetic_expansion` not in operand
         //     list) → 3
         // Unique operands: a, b, c, d, $v, v, 0, date, 1, 2 → 10. Total
-        // occurrences: 11 (`v` now appears once — only line 2's subscript
-        // leaf; line 1's `$v` inner leaf is suppressed). Operators after
+        // occurrences: 10 (`v` appears once — only line 2's subscript
+        // leaf; line 1's `$v` inner leaf is suppressed — and `date` once,
+        // as the `word`; before #1351 the `command_name` wrapping it
+        // added a second `date` and N2 was 11). Operators after
         // #695: only the openers `[` (folded `[]`) and `+`, plus `=` four
         // times — the `}`/`)`/`))`/`]` closers no longer count.
         check_metrics::<BashParser>(
@@ -4234,7 +4239,7 @@ f() {
                 assert_eq!(metric.halstead.unique_operators(), 3);
                 assert_eq!(metric.halstead.total_operators(), 6);
                 assert_eq!(metric.halstead.unique_operands(), 10);
-                assert_eq!(metric.halstead.total_operands(), 11);
+                assert_eq!(metric.halstead.total_operands(), 10);
             },
         );
     }
@@ -4283,6 +4288,187 @@ f() {
             ops.operands.iter().any(|o| o.as_str() == "x"),
             "assignment LHS `x` must still be an operand; operands were {:?}",
             ops.operands
+        );
+    }
+
+    /// Regression for #1351, the command-name sibling of #695's bare
+    /// `$x`. `command_name` is a pure wrapper: the grammar gives it
+    /// exactly one required child (a `_primary_expression` or a
+    /// `concatenation`) and it adds no text of its own, so classifying it
+    /// as an operand *and* letting the walk reach the child counted every
+    /// command name twice in `N2`.
+    ///
+    /// The table is the grammar-dispatch §6 evidence that deleting the arm
+    /// zeroes nothing: it names every kind `command_name` can wrap, and in
+    /// every row the command name still contributes at least one operand
+    /// once the trailing `arg` is discounted.
+    ///
+    /// `n2_before` / `N2_before` are what each row measured with the
+    /// wrapper arm in place. They are not free-floating prose — the loop
+    /// re-derives both from the current parse, because the arm was the
+    /// only difference between the two classifications:
+    ///
+    /// - `N2_before - N2` must equal the number of `command_name` nodes.
+    ///   That identity *is* the defect: one spurious operand per command
+    ///   name.
+    /// - `n2_before` must equal the size of the post-fix operand
+    ///   vocabulary unioned with the `command_name` spellings. It exceeds
+    ///   `n2` wherever the wrapper's whole text is not already an operand
+    ///   in its own right — either because it differs from its single
+    ///   child's (`"$cmd"`, `${cmd}`) or because it spans several
+    ///   (`foo$x`, `$(which ls)`, `{1..3}`).
+    ///
+    /// A mistyped or stale column therefore fails rather than misinforming
+    /// the next reader; one did, during review of this very fix.
+    #[test]
+    fn bash_command_name_wrapper_no_double_count() {
+        // (source, [n1, N1, n2, N2], (n2_before, N2_before))
+        let cases: [(&str, [u64; 4], (u64, u64)); 14] = [
+            // word
+            ("ls bar\n", [0, 0, 2, 2], (2, 3)),
+            // number
+            ("1 arg\n", [0, 0, 2, 2], (2, 3)),
+            // string, inert
+            ("\"ls\" arg\n", [0, 0, 2, 2], (2, 3)),
+            // string wrapping an expansion: the wrapper string is already
+            // skipped (#180), so before #1351 the `command_name` was the
+            // only thing counting the quoted spelling — which also planted
+            // a spurious `"$cmd"` entry in n2 beside `$cmd`.
+            ("\"$cmd\" arg\n", [0, 0, 2, 2], (3, 3)),
+            // raw_string
+            ("'ls' arg\n", [0, 0, 2, 2], (2, 3)),
+            // ansi_c_string
+            ("$'ls' arg\n", [0, 0, 2, 2], (2, 3)),
+            // translated_string. FIXME(#1358): N2 3 rather than 2 because
+            // a `translated_string` wraps a `string` and both are
+            // operands — the same wrapper/leaf shape as this fix, in the
+            // same match, but reachable from an assignment RHS and a
+            // `case` subject as well, so it is its own change. This row
+            // pins today's wrong value; flip it with #1358.
+            ("$\"ls\" arg\n", [0, 0, 3, 3], (3, 4)),
+            // simple_expansion
+            ("$cmd arg\n", [0, 0, 2, 2], (2, 3)),
+            // brace expansion: counts through its inner `variable_name`,
+            // whose `SimpleExpansion` parent guard does not apply here.
+            ("${cmd} arg\n", [0, 0, 2, 2], (3, 3)),
+            // command_substitution: counts through the nested command.
+            // Two command names here — the outer one and `which`.
+            ("$(which ls) arg\n", [0, 0, 3, 3], (4, 5)),
+            // process_substitution, likewise two command names.
+            ("<(ls) arg\n", [0, 0, 2, 2], (3, 4)),
+            // arithmetic_expansion
+            ("$((1+1)) arg\n", [1, 1, 2, 3], (3, 4)),
+            // brace_expression
+            ("{1..3} arg\n", [1, 1, 3, 3], (4, 4)),
+            // concatenation
+            ("foo$x arg\n", [0, 0, 3, 3], (4, 4)),
+        ];
+        let path = PathBuf::from("foo.sh");
+        for (source, expected, (n2_before, total_before)) in cases {
+            let code = source.as_bytes();
+            let parser = BashParser::new(code.to_vec(), &path, None);
+            let spellings: Vec<&str> = parser
+                .root()
+                .preorder()
+                .filter(|node| node.kind_id() == Bash::CommandName as u16)
+                .filter_map(|node| node.utf8_text(code))
+                .collect();
+            assert!(
+                !spellings.is_empty(),
+                "row {source:?} parses without a command_name, so it \
+                 witnesses nothing",
+            );
+            // Phrased as an addition rather than `total_before -
+            // expected[3]`: a future edit that inverts the two would
+            // underflow `u64` and panic with a raw overflow message
+            // instead of the one below.
+            assert_eq!(
+                total_before,
+                expected[3] + spellings.len() as u64,
+                "row {source:?} must shed exactly one operand per \
+                 command_name; recorded N2_before {total_before}",
+            );
+
+            let ops = crate::ops::ops_inner(&parser, None).expect("ops walk succeeds");
+            let mut vocabulary: HashSet<&str> = ops.operands.iter().map(String::as_str).collect();
+            vocabulary.extend(spellings);
+            assert_eq!(
+                vocabulary.len() as u64,
+                n2_before,
+                "row {source:?}: n2 before the fix is the post-fix \
+                 vocabulary plus the command_name spellings; got \
+                 {vocabulary:?}",
+            );
+
+            assert!(
+                expected[3] > 1,
+                "row {source:?} must leave the command name at least one \
+                 operand beside `arg`; a zero here means the deleted arm \
+                 was load-bearing for this spelling",
+            );
+            assert_halstead_counts::<BashParser>(source, "foo.sh", expected, source);
+        }
+    }
+
+    /// Pins the one residue of #1351: a brace `expansion` with no
+    /// `variable_name` leaf. `${#}` (positional-parameter count) and `${!}`
+    /// (last background PID) hold only anonymous tokens, and
+    /// `Bash::Expansion` is not an operand, so the whole expansion
+    /// contributes nothing.
+    ///
+    /// That was already true in *argument* position before the fix, which
+    /// is the reason grammar-dispatch §6's gate-don't-delete rule did not
+    /// apply to the `command_name` arm: deleting it made command-name
+    /// position agree with argument position rather than newly disagree.
+    /// The parity is the load-bearing half of that argument and nothing
+    /// else asserts it, so if a future arm starts classifying these the
+    /// two positions have to move together.
+    #[test]
+    fn bash_operandless_expansion_scores_alike_in_both_positions() {
+        // `${!}` carries a `!`, which the operator arm counts; `${#}`'s `#`
+        // is not an operator. Both positions must agree per spelling.
+        for (spelling, expected) in [("${#}", [0, 0, 1, 1]), ("${!}", [1, 1, 1, 1])] {
+            let as_command_name = format!("{spelling} arg\n");
+            let as_argument = format!("cmd {spelling}\n");
+            assert_halstead_counts::<BashParser>(
+                &as_command_name,
+                "foo.sh",
+                expected,
+                &as_command_name,
+            );
+            assert_halstead_counts::<BashParser>(&as_argument, "foo.sh", expected, &as_argument);
+        }
+    }
+
+    /// Drift marker for #1351 (lesson 34 / grammar-dispatch §2). `_concat`
+    /// (`Bash::Concat`) is a hidden zero-width external token the scanner
+    /// emits between `concatenation` parts; the parser never surfaces it as
+    /// a node, and it spells no operand, so `BashCode::get_op_type` lists
+    /// neither it nor the visible `concatenation` wrapper. If a grammar
+    /// bump starts emitting it, this fails and the classification must be
+    /// re-derived rather than assumed still absent.
+    ///
+    /// Measured, not assumed: putting `Bash::Concat` back in the operand
+    /// arm fails no test in the suite, because the token is unreachable.
+    /// Unreachability is the only coverage such an arm can have, which is
+    /// why this test asserts it directly instead of asserting a count.
+    #[test]
+    fn bash_hidden_concat_token_is_unreachable() {
+        let source = "a=foo$x\nb=pre\"$y\"post\ncmd bar$z\n";
+        let path = PathBuf::from("foo.sh");
+        let parser = BashParser::new(source.as_bytes().to_vec(), &path, None);
+        // Non-vacuity: the visible `concatenation` this source is written
+        // to produce must actually be in the parse, so the negative below
+        // is about `_concat` and not about a source that concatenates
+        // nothing.
+        assert!(
+            ast_has_kind_id(&parser, Bash::Concatenation as u16),
+            "expected a visible `concatenation` node in the parse",
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Bash::Concat as u16),
+            "the hidden `_concat` token surfaced; re-derive its \
+             classification in BashCode::get_op_type against the new grammar",
         );
     }
 
