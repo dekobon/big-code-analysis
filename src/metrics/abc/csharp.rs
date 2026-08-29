@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, DeclKind, Stats};
+use super::{Abc, Stats};
 use crate::macros::{
     csharp_bool_terminal_kinds, csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds,
 };
@@ -113,33 +113,69 @@ fn csharp_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 // `TernaryExpression`; `for_statement` exposes its condition via the
 // named `condition` field rather than positional index.
 
-fn csharp_count_token_assignment(node: &Node, stats: &mut Stats) -> bool {
+// Whether `eq_node` initialises a `const` binding — a compile-time
+// constant, so its initializer is part of the declaration and not an
+// assignment (the C# spelling of Java's `final`). One hop deeper than
+// Java: the declarator sits in a `variable_declaration` inside the
+// `local_declaration_statement` / `field_declaration` that carries the
+// `modifier` nodes, one of which wraps the `const` token. `readonly` is
+// not `const`; its initializer counts. A `const` initializer must be a
+// constant expression, so nothing can nest an `=` inside it — the
+// sentinel stack this replaces could not leak here as it did in Java,
+// and the structural form is adopted so the three sibling dispatchers
+// share one rule. The modifiers precede the declaration, so the scan
+// stops at it.
+fn csharp_eq_initializes_const_binding<'a>(
+    eq_node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    use Csharp::*;
+    let mut climb = ancestors.iter(eq_node).map(|(ancestor, _)| ancestor);
+    let is_declaration = |node: &Node| {
+        matches!(
+            node.kind_id().into(),
+            VariableDeclaration | VariableDeclaration2
+        )
+    };
+    if !climb.next().is_some_and(|declarator| {
+        matches!(
+            declarator.kind_id().into(),
+            VariableDeclarator | VariableDeclarator2
+        )
+    }) {
+        return false;
+    }
+    if !climb
+        .next()
+        .is_some_and(|declaration| is_declaration(&declaration))
+    {
+        return false;
+    }
+    climb.next().is_some_and(|statement| {
+        matches!(
+            statement.kind_id().into(),
+            LocalDeclarationStatement | FieldDeclaration
+        ) && statement
+            .children()
+            .take_while(|child| !is_declaration(child))
+            .any(|child| child.kind_id() == Modifier && child.is_child(Const as u16))
+    })
+}
+
+fn csharp_count_token_assignment<'a>(
+    node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+    stats: &mut Stats,
+) -> bool {
     use Csharp::*;
     match node.kind_id().into() {
         STAREQ | SLASHEQ | PERCENTEQ | DASHEQ | PLUSEQ | LTLTEQ | GTGTEQ | GTGTGTEQ | AMPEQ
         | PIPEEQ | CARETEQ | QMARKQMARKEQ | PLUSPLUS | DASHDASH => {
             stats.assignments += 1.;
         }
-        FieldDeclaration | LocalDeclarationStatement => {
-            stats.declaration.push(DeclKind::Var);
-        }
-        // C# `const` modifier marks a compile-time constant — exclude
-        // its initializer from the assignment count (matches Java's
-        // treatment of `final`).
-        Const => {
-            if let Some(DeclKind::Var) = stats.declaration.last() {
-                stats.declaration.push(DeclKind::Const);
-            }
-        }
-        SEMI => {
-            if let Some(DeclKind::Const | DeclKind::Var) = stats.declaration.last() {
-                stats.declaration.clear();
-            }
-        }
-        // Count `=` unless it's the initializer of a `const` declaration.
-        // `None` (outside any declaration) still counts.
+        // Count `=` unless it is the initializer of a `const` declaration.
         EQ => {
-            if !matches!(stats.declaration.last(), Some(DeclKind::Const)) {
+            if !csharp_eq_initializes_const_binding(node, ancestors) {
                 stats.assignments += 1.;
             }
         }
@@ -206,8 +242,11 @@ fn csharp_count_token_condition<'a>(
         // (`src/metrics/cyclomatic/csharp.rs`), so dropping it would put
         // ABC *below* C#'s own cyclomatic decision count on a safe-
         // navigation chain. Denying the two type-syntax parents keeps
-        // the two metrics agreeing by construction rather than through
-        // an allowlist entry a later "consistency" pass could drop.
+        // that count without an allowlist entry a later "consistency"
+        // pass could drop. It is agreement on this one token, not on
+        // the metric: `??` is a C# cyclomatic decision (`QMARKQMARK`
+        // there) and no ABC condition here, a pre-existing gap the
+        // JS-family arms do not share.
         //
         // The agreement being protected is C#-internal, not cross-
         // language: `a?.b?.c` scores ABC conditions 2 in C# and 0 in
@@ -224,15 +263,15 @@ fn csharp_count_token_condition<'a>(
         // of #1275 and is absent from the issue's own deny set. The four
         // productions above are the closed enumeration at the pinned
         // `=0.23.5`; re-derive it on a grammar bump.
-        QMARK => {
-            if let Some(parent) = ancestors.parent(node)
-                && !matches!(
+        QMARK
+            if ancestors.parent(node).is_some_and(|parent| {
+                !matches!(
                     parent.kind_id().into(),
                     NullableType | TypeParameterConstraint
                 )
-            {
-                stats.conditions += 1.;
-            }
+            }) =>
+        {
+            stats.conditions += 1.;
         }
         // A `switch` *expression* arm (`x switch { 1 => …, _ => … }`) is a
         // decision point. The statement `switch` counts via its `Case`
@@ -348,16 +387,8 @@ fn csharp_walk_conditional(node: &Node, stats: &mut Stats) {
 // condition is a bare identifier, invocation, boolean literal,
 // parenthesised expression, or `!`-prefixed unary expression.
 fn csharp_walk_for_statement(node: &Node, stats: &mut Stats) {
-    let Some(condition) = node.child_by_field_name("condition") else {
-        return;
-    };
-    let kind = condition.kind_id().into();
-    if matches!(kind, csharp_bool_terminal_kinds!()) {
-        stats.conditions += 1.;
-    } else if matches!(kind, csharp_paren_expr_kinds!())
-        || matches!(kind, csharp_prefix_unary_expr_kinds!())
-    {
-        csharp_inspect_container(&condition, node, &mut stats.conditions);
+    if let Some(condition) = node.child_by_field_name("condition") {
+        csharp_count_condition(&condition, node, &mut stats.conditions);
     }
 }
 
@@ -370,7 +401,7 @@ impl Abc for CsharpCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        if csharp_count_token_assignment(node, stats) {
+        if csharp_count_token_assignment(node, ancestors, stats) {
             return;
         }
         if csharp_count_token_branch(node, stats) {

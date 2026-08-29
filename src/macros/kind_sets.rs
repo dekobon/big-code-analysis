@@ -196,11 +196,18 @@ macro_rules! cpp_bool_terminal_kinds {
     // ABC walker needs them so `if (ns::flag) {}` reaches the terminal
     // count. `cast_expression` (`(bool)v`) evaluates to a boolean in
     // idiomatic C++ — mirrors the C# fix in #372 (lesson 19).
+    // `message_expression` is Objective-C's call spelling (`[obj ok]`),
+    // the twin of `call_expression`: the ObjC ABC impl already counts
+    // it as a Branch beside `call_expression`, and no C / C++ / Mozcpp
+    // grammar has a node by that name, so the arm is inert there.
+    // Without it every `if ([a ok])` / `for (; [a ok]; )` scored zero
+    // conditions where `if (ok())` scored one.
     () => {
         "identifier"
             | "true"
             | "false"
             | "call_expression"
+            | "message_expression"
             | "field_expression"
             | "subscript_expression"
             | "cast_expression"

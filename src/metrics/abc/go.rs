@@ -82,19 +82,18 @@ fn go_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
 //
 // Go is the one grammar here whose `for_statement` exposes no
 // `condition` field, so the header slot has to be located structurally.
-// It is the first named child that is neither the body (which *does*
-// have a field) nor a comment — `node.child(1)` would be the body for
-// a bare `for {}`, and tree-sitter counts comments among a node's
-// children, so `for /* n */ a {}` shifted it (the #1181 failure the
-// field-addressed siblings no longer have).
+// It is the first named child that is neither the body — always a
+// `block`, the one kind a header can never be — nor a comment.
+// `node.child(1)` was the body for a bare `for {}`, and tree-sitter
+// counts comments among a node's children, so `for /* n */ a {}`
+// shifted it (the #1181 failure the field-addressed siblings no longer
+// have).
 fn go_walk_for_statement(node: &Node, conditions: &mut f64) {
     use Go as G;
-    let body_id = node.child_by_field_name("body").map(|body| body.id());
-    let Some(header) = node.children().find(|child| {
-        child.is_named()
-            && !matches!(child.kind_id().into(), G::Comment)
-            && Some(child.id()) != body_id
-    }) else {
+    let Some(header) = node
+        .children()
+        .find(|child| child.is_named() && !matches!(child.kind_id().into(), G::Comment | G::Block))
+    else {
         return;
     };
     let slot = if matches!(header.kind_id().into(), G::ForClause) {
@@ -102,8 +101,9 @@ fn go_walk_for_statement(node: &Node, conditions: &mut f64) {
     } else {
         Some(header)
     };
-    let Some(condition) = slot else { return };
-    go_count_condition(&condition, node, conditions);
+    if let Some(condition) = slot {
+        go_count_condition(&condition, node, conditions);
+    }
 }
 
 fn go_count_unary_conditions(list_node: &Node, conditions: &mut f64) {

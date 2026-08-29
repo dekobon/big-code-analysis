@@ -288,6 +288,21 @@ pub(crate) fn default_func_space_name<'a, 'tree>(
 /// bounds-checked slice; see its docs for why the rest deliberately
 /// are not.
 #[doc(hidden)]
+/// The kinds one Tcl-family dialect spells the braced-word construct
+/// with, for [`Getter::is_subsumed_braced_word`]. A struct rather than
+/// three `u16` parameters because the ids are same-typed and positional:
+/// a transposed pair compiles and silently inverts the rule for that
+/// dialect.
+pub(crate) struct BracedWordKinds {
+    /// `braced_word_simple`, the literal *value* form.
+    pub(crate) value: u16,
+    /// `braced_word`, the *script* form.
+    pub(crate) script: u16,
+    /// `comment`, the one named child of a script that is not a
+    /// command.
+    pub(crate) comment: u16,
+}
+
 pub(crate) trait Getter {
     fn get_func_name<'a, 'tree>(
         node: &Node<'tree>,
@@ -408,36 +423,42 @@ pub(crate) trait Getter {
     /// than a token of its own, and so contributes no operand (#1354).
     ///
     /// The two dialects are deliberate clones, so the rule is declared
-    /// once and instantiated with each grammar's ids; the per-call
-    /// rationale lives at each call site. It answers yes in two cases:
+    /// once and instantiated with each grammar's [`BracedWordKinds`];
+    /// the per-call rationale lives at each call site. It answers yes
+    /// in two cases:
     ///
-    /// - `node` sits directly inside a braced *value* (`wrapper`,
-    ///   `braced_word_simple`). Tcl evaluates nothing between braces,
+    /// - `node` sits directly inside a braced *value*
+    ///   (`braced_word_simple`). Tcl evaluates nothing between braces,
     ///   so the value is its whole span and the parts inside it are
     ///   letters — the wrapper carries the one operand. This subsumes
     ///   #1314's narrower guard on the opening `{`, which is one more
     ///   such child.
-    /// - `node` is a braced *script* (`script`, `braced_word`) holding
-    ///   at least one named child. Those children are commands the walk
-    ///   descends into and counts in their own right, so billing the
-    ///   block as well would count its whole text a second time.
+    /// - `node` is a braced *script* (`braced_word`) holding at least
+    ///   one command — a named child other than a comment. Commands are
+    ///   what the walk descends into and counts in their own right, so
+    ///   billing the block as well would count its whole text a second
+    ///   time. A comment is named too, but no arm classifies it, so a
+    ///   body holding only comments is billed like an empty one rather
+    ///   than like nothing at all.
     ///
-    /// A *childless* `script` is deliberately not subsumed: the same
-    /// kind serves as the value slot of every command the grammar does
-    /// not special-case, where `lappend l {}` is an empty list and the
-    /// brace pair is its only carrier (grammar-dispatch §6). An empty
-    /// `proc` body is indistinguishable from it and so also scores one
-    /// operand — the cost of a grammar that spells both the same way,
-    /// and the same conflation `FIXME(#1318)` tracks on the operator
-    /// side.
+    /// A `script` with no command is deliberately not subsumed: the
+    /// same kind serves as the value slot of every command the grammar
+    /// does not special-case, where `lappend l {}` is an empty list and
+    /// the brace pair is its only carrier (grammar-dispatch §6). An
+    /// empty or comment-only `proc` body is indistinguishable from it
+    /// and so also scores one operand, its whole text — the cost of a
+    /// grammar that spells both the same way, and the same conflation
+    /// `FIXME(#1318)` tracks on the operator side.
     fn is_subsumed_braced_word<'a>(
         node: &Node<'a>,
         ancestors: Ancestors<'a, '_>,
-        wrapper: u16,
-        script: u16,
+        kinds: &BracedWordKinds,
     ) -> bool {
-        ancestors.parent_has_kind(node, wrapper)
-            || (node.kind_id() == script && node.children().any(|child| child.is_named()))
+        ancestors.parent_has_kind(node, kinds.value)
+            || (node.kind_id() == kinds.script
+                && node
+                    .children()
+                    .any(|child| child.is_named() && child.kind_id() != kinds.comment))
     }
 
     fn get_operator_id_as_str(_id: u16) -> &'static str {

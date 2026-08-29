@@ -3623,6 +3623,56 @@ mod tests {
     /// not: `use 'Foo.pm'` parses to a leaf holding only its two quote
     /// tokens, so it wraps nothing and is untouched either way.
     #[test]
+    fn perl_qw_list_bills_one_operand_per_element() {
+        // `qw(a b c)` was invisible to Halstead — neither the elements,
+        // the wrapper nor the `qw` keyword had an arm — so it billed
+        // nothing where its synonym `("a", "b", "c")` billed three
+        // operands. Each `list_item` is now one operand and the
+        // `word_list_qw` wrapper is gated on holding one, the #1353
+        // Ruby `%w[]` rule: one operand per element, or one for the
+        // empty literal.
+        assert_ops_operands::<PerlParser>(
+            "my @a = qw(a b c);\n",
+            "foo.pl",
+            4,
+            vec!["@a", "a", "b", "c"],
+        );
+        assert_ops_operands::<PerlParser>("my @a = qw();\n", "foo.pl", 2, vec!["@a", "qw()"]);
+        assert_ops_operands::<PerlParser>(
+            "use POSIX qw(floor ceil);\n",
+            "foo.pl",
+            3,
+            vec!["POSIX", "floor", "ceil"],
+        );
+        // expected: [n1, N1, n2, N2] = [3, 3, 4, 4] for every delimiter —
+        // operators `my`, `=`, `;`; the `qw` keyword and its delimiters
+        // are unclassified, as Ruby's `%w[` is, so the choice of
+        // delimiter cannot move the score (#1312).
+        for spelling in [
+            "qw(a b c)",
+            "qw/a b c/",
+            "qw{a b c}",
+            "qw[a b c]",
+            "qw<a b c>",
+        ] {
+            assert_halstead_counts::<PerlParser>(
+                &format!("my @a = {spelling};\n"),
+                "foo.pl",
+                [3, 3, 4, 4],
+                spelling,
+            );
+        }
+        // The synonym: the same four operands, plus the `()` and `,`
+        // operators the list spelling carries.
+        assert_halstead_counts::<PerlParser>(
+            "my @a = (\"a\", \"b\", \"c\");\n",
+            "foo.pl",
+            [5, 6, 4, 4],
+            "list literal",
+        );
+    }
+
+    #[test]
     fn perl_qualified_name_leaves_still_count_elsewhere_1355() {
         // expected: operators `my` × 4, `$` × 3 (one per `$`-sigilled
         // variable), `=` × 4, `;` × 5, `()` × 3 and the fat comma
@@ -4917,6 +4967,23 @@ f() {
     }
 
     #[test]
+    fn tcl_array_reference_bills_the_reference_and_the_index() {
+        // `$arr($i)` is the reference plus the index Tcl substitutes
+        // inside the parens, and `arr(k)` as a `set` target is the name
+        // plus the literal index; the `array_index` wrapper is neither.
+        // The quoted spelling is deliberate — the vendored grammar
+        // mis-parses a bare `$arr(k)` in command-word position. Pinned
+        // per dialect and as a parity in `tests/parity/`, because the
+        // iRules twin listed the wrapper as a third operand.
+        assert_ops_operands::<TclParser>(
+            "set arr(k) 1\nset z \"$arr($i)\"\n",
+            "foo.tcl",
+            6,
+            vec!["arr", "k", "1", "z", "$arr($i)", "$i"],
+        );
+    }
+
+    #[test]
     fn tcl_bare_variable_operand() {
         // Bare `$varname` produces a VariableSubstitution node (already an operand).
         // Its anonymous Id2 child must NOT be counted separately; each reference is 1 operand.
@@ -5232,9 +5299,12 @@ f() {
         /// `braced_word_simple`, the literal *value* form the guard
         /// keys on.
         wrapper: u16,
-        /// `braced_word`, the *script* form #1354 gated on
-        /// child-presence: an operand only when it holds nothing.
+        /// `braced_word`, the *script* form #1354 gated on holding a
+        /// command: an operand only when it holds none.
         script_body: u16,
+        /// `comment`, the one named child of a script that is not a
+        /// command and that the gate must not mistake for one.
+        comment: u16,
         /// Every named kind node-types.json admits directly inside
         /// `wrapper`. A child outside this set means the grammar moved
         /// and the parent-keyed arm has to be re-derived
@@ -5259,6 +5329,7 @@ f() {
     const TCL_BRACED_WORD_KINDS: BracedWordKinds = BracedWordKinds {
         wrapper: Tcl::BracedWordSimple as u16,
         script_body: Tcl::BracedWord as u16,
+        comment: Tcl::Comment as u16,
         children: [
             Tcl::SimpleWord as u16,
             Tcl::EscapedCharacter as u16,
@@ -5283,6 +5354,7 @@ f() {
     const IRULES_BRACED_WORD_KINDS: BracedWordKinds = BracedWordKinds {
         wrapper: Irules::BracedWordSimple as u16,
         script_body: Irules::BracedWord as u16,
+        comment: Irules::Comment as u16,
         children: [
             Irules::SimpleWord as u16,
             Irules::EscapedCharacter as u16,
@@ -5330,9 +5402,13 @@ f() {
             };
             // The script form was an operand of its own wherever it
             // appeared until #1354, which now gates it on holding a
-            // named child. This is not a child of the wrapper, so it is
-            // counted before the parent test below.
-            if node.kind_id() == kinds.script_body && node.children().any(|child| child.is_named())
+            // command — a named child that is not a comment. This is not
+            // a child of the wrapper, so it is counted before the parent
+            // test below.
+            if node.kind_id() == kinds.script_body
+                && node
+                    .children()
+                    .any(|child| child.is_named() && child.kind_id() != kinds.comment)
             {
                 shed.push(text());
             }
@@ -5535,7 +5611,7 @@ f() {
     /// last row, the control — scored one. An empty `proc` body is
     /// spelled identically and so also keeps an operand; no
     /// kind-scoped arm can separate the two roles.
-    const SCRIPT_BODY_CASES: [BracedWordCase; 5] = [
+    const SCRIPT_BODY_CASES: [BracedWordCase; 9] = [
         BracedWordCase {
             source: "proc p {} { set b 1 }\n",
             counts: [3, 4, 3, 3],
@@ -5547,6 +5623,40 @@ f() {
             counts: [2, 3, 2, 2],
             before: [2, 2],
             operands: &["p", "{}"],
+        },
+        // A comment is a named child of the script but not a command,
+        // and no arm bills it, so a comment-only body scores like the
+        // empty one above rather than like nothing: the block's whole
+        // text is its one operand. Gating on "any named child" billed
+        // it zero — adding a comment to an empty block lowered N2.
+        BracedWordCase {
+            source: "proc p {} {\n    # only a comment\n}\n",
+            counts: [2, 3, 2, 2],
+            before: [2, 2],
+            operands: &["p", "{\n    # only a comment\n}"],
+        },
+        BracedWordCase {
+            source: "if {$q} {\n    # noop\n}\n",
+            counts: [2, 3, 2, 2],
+            before: [2, 2],
+            operands: &["$q", "{\n    # noop\n}"],
+        },
+        // The control: a comment *beside* a command changes nothing, so a
+        // gate keyed on "contains a comment" would fail this row.
+        BracedWordCase {
+            source: "proc p {} {\n    # c\n    set b 1\n}\n",
+            counts: [3, 4, 3, 3],
+            before: [4, 4],
+            operands: &["p", "b", "1"],
+        },
+        // The value-role twin: inside a literal string Tcl performs no
+        // substitution, so `# x` is not a comment at all, and the word
+        // is its one operand exactly as `lappend l {}` below is.
+        BracedWordCase {
+            source: "lappend l {\n    # x\n}\n",
+            counts: [1, 1, 3, 3],
+            before: [3, 3],
+            operands: &["lappend", "l", "{\n    # x\n}"],
         },
         // A `braced_word` in *value* position — the #1318 misparse,
         // where the same kind carries a literal list. Its interior
@@ -5653,7 +5763,7 @@ f() {
         // The `when` handler body is the iRules-only spelling of a
         // script body, and the largest instance of the defect: its
         // operand text was the entire event handler.
-        let handlers: [BracedWordCase; 2] = [
+        let handlers: [BracedWordCase; 3] = [
             BracedWordCase {
                 source: "when HTTP_REQUEST { set x 1 }\n",
                 counts: [3, 3, 3, 3],
@@ -5665,6 +5775,14 @@ f() {
                 counts: [2, 2, 2, 2],
                 before: [2, 2],
                 operands: &["HTTP_REQUEST", "{}"],
+            },
+            // The comment-only twin of the empty handler above; see the
+            // shared table for why it scores like it.
+            BracedWordCase {
+                source: "when HTTP_REQUEST {\n    # only a comment\n}\n",
+                counts: [2, 2, 2, 2],
+                before: [2, 2],
+                operands: &["HTTP_REQUEST", "{\n    # only a comment\n}"],
             },
         ];
         witnessed.extend(check_braced_word_cases::<IrulesParser, IrulesCode>(
@@ -6932,6 +7050,21 @@ f() {
     /// 4 but `total_operands()` would rise to 5 — hence the total, not just
     /// the unique count, is asserted).
     #[test]
+    fn irules_array_reference_bills_the_reference_and_the_index() {
+        // The iRules twin of
+        // `tcl_array_reference_bills_the_reference_and_the_index`. Until
+        // `ArrayIndex` left the operand arm this fixture billed `(k)` and
+        // `($i)` beside the six operands below — the grammar-dispatch §5
+        // wrapper-plus-leaf count, and a divergence from Tcl.
+        assert_ops_operands::<IrulesParser>(
+            "set arr(k) 1\nset z \"$arr($i)\"\n",
+            "foo.irule",
+            6,
+            vec!["arr", "k", "1", "z", "$arr($i)", "$i"],
+        );
+    }
+
+    #[test]
     fn irules_bare_variable_operand() {
         let source = "proc f {x} {\n    return $x\n}\n";
         check_metrics::<IrulesParser>(source, "foo.irule", |metric| {
@@ -7015,6 +7148,34 @@ f() {
         });
     }
 
+    /// `@"…"` is one `string_literal` holding its `@` as a child, so the
+    /// literal is the operand, keyed by its whole text, and the marker is
+    /// not an operator on top — it was, which planted a phantom `@` in
+    /// n1 for a file whose only `@` was in NSString literals and billed
+    /// the same byte in both streams. Boxing (`@42`) keeps its `@`: there
+    /// the token is a child of the `at_expression`, not of the literal.
+    #[test]
+    fn objc_nsstring_literal_is_one_operand() {
+        // expected: [n1, N1, n2, N2]. Before the guard the first two rows
+        // read [8, 8, 5, 5] and [8, 9, 6, 6] — one `@` operator per
+        // literal; the boxing control is unchanged.
+        let cases = [
+            ("NSString *s = @\"str\";", [7, 7, 5, 5]),
+            ("NSString *t = @\"x\" @\"y\";", [7, 7, 6, 6]),
+            ("NSNumber *n = @42;", [8, 8, 5, 5]),
+        ];
+        for (body, counts) in cases {
+            let source = format!("@implementation Foo\n- (void)m {{\n    {body}\n}}\n@end\n");
+            assert_halstead_counts::<ObjcParser>(&source, "foo.m", counts, body);
+        }
+        assert_ops_operands::<ObjcParser>(
+            "@implementation Foo\n- (void)m {\n    NSString *s = @\"str\";\n}\n@end\n",
+            "foo.m",
+            5,
+            vec!["Foo", "m", "NSString", "s", "@\"str\""],
+        );
+    }
+
     /// Comprehensive Objective-C Halstead fixture exercising a message
     /// send (`[self log:@"hi"]`), an ObjC string literal (`@"hi"`), an
     /// `if`, a short-circuit `&&`, arithmetic (`+`), comparisons, and
@@ -7034,30 +7195,32 @@ f() {
 @end
 ";
         check_metrics::<ObjcParser>(source, "foo.m", |metric| {
-            // n1 = 15 unique operators:
-            //   `&&`, `()`, `+`, `-`, `:`, `;`, `<`, `=`, `>`, `@`,
+            // n1 = 14 unique operators:
+            //   `&&`, `()`, `+`, `-`, `:`, `;`, `<`, `=`, `>`,
             //   `[]` (message send), `if`, `int`, `return`, `{}`.
+            //   The `@` of `@"hi"` is part of the literal's operand
+            //   key, not an operator (see `objc_nsstring_literal_is_one_operand`).
             // n2 = 10 unique operands:
             //   `Foo`, `bar`, `log`, `self`, `x`, `y`, `0`, `1`, `10`,
             //   `@"hi"` (the ObjC string literal).
-            assert_eq!(metric.halstead.unique_operators(), 15);
+            assert_eq!(metric.halstead.unique_operators(), 14);
             assert_eq!(metric.halstead.unique_operands(), 10);
             insta::assert_json_snapshot!(metric.halstead, @r#"
             {
-              "unique_operators": 15,
-              "total_operators": 23,
+              "unique_operators": 14,
+              "total_operators": 22,
               "unique_operands": 10,
               "total_operands": 14,
-              "length": 37,
-              "estimated_program_length": 91.82263988300141,
-              "purity_ratio": 2.481692969810849,
-              "vocabulary": 25,
-              "volume": 171.8226790216648,
-              "difficulty": 10.5,
-              "level": 0.09523809523809523,
-              "effort": 1804.1381297274804,
-              "time": 100.22989609597113,
-              "bugs": 0.049399808887691035
+              "length": 36,
+              "estimated_program_length": 86.52224985768008,
+              "purity_ratio": 2.403395829380002,
+              "vocabulary": 24,
+              "volume": 165.0586500259616,
+              "difficulty": 9.8,
+              "level": 0.1020408163265306,
+              "effort": 1617.5747702544238,
+              "time": 89.86526501413465,
+              "bugs": 0.04593266617952463
             }
             "#);
         });

@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, DeclKind, Stats};
+use super::{Abc, Stats};
 use crate::macros::java_bool_terminal_kinds;
 use crate::*;
 
@@ -131,35 +131,53 @@ fn java_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
     }
 }
 
-// Counts assignment tokens and maintains the declaration-kind stack
-// used to suppress `=` inside `final`-marked declarations.
-fn java_count_token_assignment(node: &Node, stats: &mut Stats) -> bool {
+// Whether `eq_node` initialises a `final` binding, whose initializer is
+// part of the declaration and therefore not an ABC assignment: its
+// parent is a `variable_declarator` whose parent is a local or field
+// declaration whose leading `modifiers` node holds `final`. The
+// structural form replaces a sentinel stack that was pushed on the
+// declaration, promoted on `final` and cleared only on the next `;`,
+// so every `=` *inside* a `final` initializer — a lambda body's
+// `x = 1`, an array initializer's — was suppressed with it (the #1277
+// defect in its Java spelling). Only the declarator's own `=` is part
+// of the declaration; `final int[] a = { x = 1 };` counts one.
+//
+// The modifiers precede the declarators, so the scan stops at the
+// first `variable_declarator` and a wide `int a0 = 0, a1 = 1, …` stays
+// linear; both hops read the ancestor chain the walk already
+// descended through (#1096).
+fn java_eq_initializes_final_binding<'a>(eq_node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+    use Java::*;
+    eq_node.parent_grandparent_match(
+        ancestors,
+        |parent| parent.kind_id() == VariableDeclarator,
+        |declaration| {
+            matches!(
+                declaration.kind_id().into(),
+                LocalVariableDeclaration | FieldDeclaration
+            ) && declaration
+                .children()
+                .take_while(|child| child.kind_id() != VariableDeclarator)
+                .any(|child| child.kind_id() == Modifiers && child.is_child(Final as u16))
+        },
+    )
+}
+
+// Counts assignment tokens; a plain `=` counts unless it initialises a
+// `final` binding.
+fn java_count_token_assignment<'a>(
+    node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+    stats: &mut Stats,
+) -> bool {
     use Java::*;
     match node.kind_id().into() {
         STAREQ | SLASHEQ | PERCENTEQ | DASHEQ | PLUSEQ | LTLTEQ | GTGTEQ | AMPEQ | PIPEEQ
         | CARETEQ | GTGTGTEQ | PLUSPLUS | DASHDASH => {
             stats.assignments += 1.;
         }
-        FieldDeclaration | LocalVariableDeclaration => {
-            stats.declaration.push(DeclKind::Var);
-        }
-        Final => {
-            if let Some(DeclKind::Var) = stats.declaration.last() {
-                stats.declaration.push(DeclKind::Const);
-            }
-        }
-        SEMI => {
-            if let Some(DeclKind::Const | DeclKind::Var) = stats.declaration.last() {
-                stats.declaration.clear();
-            }
-        }
-        // Excludes constant declarations (top of stack == Const).
         EQ => {
-            if stats
-                .declaration
-                .last()
-                .is_none_or(|decl| matches!(decl, DeclKind::Var))
-            {
+            if !java_eq_initializes_final_binding(node, ancestors) {
                 stats.assignments += 1.;
             }
         }
@@ -351,7 +369,7 @@ impl Abc for JavaCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        if java_count_token_assignment(node, stats) {
+        if java_count_token_assignment(node, ancestors, stats) {
             return;
         }
         if java_count_token_branch(node, stats) {

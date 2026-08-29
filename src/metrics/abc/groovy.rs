@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, DeclKind, Stats};
+use super::{Abc, Stats};
 use crate::macros::groovy_bool_terminal_kinds;
 use crate::*;
 
@@ -110,32 +110,48 @@ fn groovy_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
     }
 }
 
-fn groovy_count_token_assignment(node: &Node, stats: &mut Stats) -> bool {
+// The Groovy spelling of `java_eq_initializes_final_binding`: the
+// grammar puts `final` directly under the declaration rather than in a
+// `modifiers` node. Only the field form is reachable — tree-sitter-
+// groovy 0.2.2 parses a `final` local as an `ERROR` node, with or
+// without a `;` (pinned by `groovy_final_local_is_an_error_at_the_pinned_grammar`)
+// — but the local kind is listed so a grammar that starts parsing it
+// classifies it like Java. Before this predicate a sentinel stack
+// suppressed every `=` inside a `final` field's initializer, so a
+// `final Closure c = { x = 1 }` hid the closure body's assignment.
+fn groovy_eq_initializes_final_binding<'a>(
+    eq_node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    use Groovy::*;
+    eq_node.parent_grandparent_match(
+        ancestors,
+        |parent| parent.kind_id() == VariableDeclarator,
+        |declaration| {
+            matches!(
+                declaration.kind_id().into(),
+                FieldDeclaration | LocalVariableDeclaration
+            ) && declaration
+                .children()
+                .take_while(|child| child.kind_id() != VariableDeclarator)
+                .any(|child| child.kind_id() == Final)
+        },
+    )
+}
+
+fn groovy_count_token_assignment<'a>(
+    node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+    stats: &mut Stats,
+) -> bool {
     use Groovy::*;
     match node.kind_id().into() {
         STAREQ | SLASHEQ | PERCENTEQ | DASHEQ | PLUSEQ | LTLTEQ | GTGTEQ | AMPEQ | PIPEEQ
         | CARETEQ | GTGTGTEQ | PLUSPLUS | DASHDASH => {
             stats.assignments += 1.;
         }
-        FieldDeclaration | LocalVariableDeclaration => {
-            stats.declaration.push(DeclKind::Var);
-        }
-        Final => {
-            if let Some(DeclKind::Var) = stats.declaration.last() {
-                stats.declaration.push(DeclKind::Const);
-            }
-        }
-        SEMI => {
-            if let Some(DeclKind::Const | DeclKind::Var) = stats.declaration.last() {
-                stats.declaration.clear();
-            }
-        }
         EQ => {
-            if stats
-                .declaration
-                .last()
-                .is_none_or(|decl| matches!(decl, DeclKind::Var))
-            {
+            if !groovy_eq_initializes_final_binding(node, ancestors) {
                 stats.assignments += 1.;
             }
         }
@@ -164,7 +180,16 @@ fn groovy_count_token_condition<'a>(
 ) -> bool {
     use Groovy::*;
     match node.kind_id().into() {
-        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Try | Catch => {
+        // `QMARKCOLON` is the elvis operator `a ?: c`, a short-circuit
+        // decision Groovy cyclomatic already counts
+        // (`src/metrics/cyclomatic/groovy.rs`) and the Kotlin ABC arm
+        // counts for its identical token; without it a method whose only
+        // branching is elvis chains reported cyclomatic > 1 with zero
+        // conditions. One per token, the Kotlin reading, rather than the
+        // C / PHP short-ternary reading that also walks the left operand
+        // as a unary condition — it keeps `abc.conditions` equal to
+        // `cyclomatic() - 1` on the chain (grammar-dispatch §8).
+        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Try | Catch | QMARKCOLON => {
             stats.conditions += 1.;
         }
         // As in Java: a bare `?` is either a ternary head or the head of
@@ -287,7 +312,7 @@ impl Abc for GroovyCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        if groovy_count_token_assignment(node, stats) {
+        if groovy_count_token_assignment(node, ancestors, stats) {
             return;
         }
         if groovy_count_token_branch(node, stats) {

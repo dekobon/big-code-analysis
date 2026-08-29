@@ -819,13 +819,13 @@ value = 68425.65670070829
 path = "src/getter/irules.rs"
 qualified = "IrulesCode::get_op_type"
 metric = "halstead.effort"
-value = 52138.57028883437
+value = 51602.8394982239
 
 [[entry]]
 path = "src/getter/perl.rs"
 qualified = "PerlCode::get_op_type"
 metric = "halstead.effort"
-value = 103448.96120335422
+value = 106425.53731125958
 
 [[entry]]
 path = "src/getter/php.rs"

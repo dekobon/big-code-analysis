@@ -3663,9 +3663,10 @@ mod tests {
     // file-static helper — no receiver, not in the method table, not
     // sendable. `npm` has always declined to count it; `wmc` weighted
     // it, so the two disagreed about the same container. This is the
-    // C++ `friend` divergence of #1301 in a sibling language, and the
-    // corpora contain no `.m` file carrying the shape, so these tests
-    // are its only coverage.
+    // C++ `friend` divergence of #1301 in a sibling language. No `.m`
+    // file is snapshotted at all — DeepSpeech's fifteen sit under
+    // `tensorflow/`, outside the corpus test's `native_client/`
+    // selection — so these tests are its only coverage.
 
     // The issue's own fixture, verbatim. Three outcomes are reachable,
     // so the expectation cannot hold for the wrong reason: 3 is the
