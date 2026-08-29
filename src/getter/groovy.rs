@@ -165,7 +165,16 @@ impl Getter for GroovyCode {
             // classification unobservable for that half. Both are gone
             // rather than completed: a qualified path is its identifier
             // leaves plus the `.` operator, as in every other language
-            // here.
+            // here, and as PHP settled the same call in #1293.
+            //
+            // Completing the alias list instead is the double count,
+            // not the fix. Both halves are pinned against that by
+            // `groovy_qualified_name_counts_leaves_not_the_composite_1263`
+            // and `groovy_qualified_type_counts_leaves_not_the_composite_1352`.
+            // Neither wrapper is ever a name's sole carrier
+            // (grammar-dispatch section 6): `import java` still nests an
+            // `identifier`, and a single-segment type is a bare
+            // `type_identifier` the grammar does not wrap at all.
             Identifier | TypeIdentifier | NullLiteral | True | False | NumberLiteral => {
                 HalsteadType::Operand
             }
