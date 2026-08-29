@@ -270,9 +270,15 @@ impl Exit for PerlCode {
     // bareword text for the same reason Go matches `panic` and Lua
     // matches `error`.
     //
+    // `CORE::die` / `CORE::exit` are the same builtins spelled through
+    // the `CORE::` namespace — the way code that has overridden `die`
+    // reaches the real one — and keep that qualifier in the bareword
+    // text, so they are matched by name too.
+    //
     // Deliberate exclusions:
-    // - A package-qualified callee keeps its qualifier in the bareword
-    //   text (`Carp::croak`), so it can never equal `die`/`exit`.
+    // - Any other package-qualified callee keeps its qualifier in the
+    //   bareword text (`Carp::croak`), so it can never equal the four
+    //   spellings matched here.
     // - `croak` / `confess` are Carp *library* functions, not builtins;
     //   an unqualified `croak "m"` is left uncounted rather than
     //   guessing that the module is loaded.
@@ -289,7 +295,10 @@ impl Exit for PerlCode {
     // the artifact is accepted rather than paid for here.
     fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
         let is_abrupt_exit_builtin = node.kind_id() == Perl::CallExpressionWithBareword
-            && matches!(node.utf8_text(code), Some("die" | "exit"));
+            && matches!(
+                node.utf8_text(code),
+                Some("die" | "exit" | "CORE::die" | "CORE::exit")
+            );
         if node.kind_id() == Perl::ReturnExpression || is_abrupt_exit_builtin {
             stats.exit += 1;
         }
@@ -350,16 +359,18 @@ impl Exit for TclCode {
         // leading-word resolution the Cognitive / Cyclomatic `switch` and
         // `for` detectors use, shared rather than restated here.
         //
-        // `error` (raises an error that unwinds to the nearest `catch`)
-        // and the Tcl 8.6 `throw` are the abrupt-exit builtins and parse
-        // to the same generic Command shape — the vendored grammar has
-        // no dedicated rule for either, so the leading word is the only
-        // seam (#1270, lesson 19). Because `tcl_command_name` reads the
-        // `name` field, `error` in argument position (`puts error`) is a
-        // `word_list` child and is not counted.
+        // `error` (raises an error that unwinds to the nearest `catch`),
+        // the Tcl 8.6 `throw`, and `exit` (terminates the interpreter —
+        // counted for the same reason Perl's, Ruby's and Bash's `exit`
+        // are) are the abrupt-exit builtins and parse to the same generic
+        // Command shape — the vendored grammar has no dedicated rule for
+        // any of them, so the leading word is the only seam (#1270,
+        // lesson 19). Because `tcl_command_name` reads the `name` field,
+        // `error` in argument position (`puts error`) is a `word_list`
+        // child and is not counted.
         if matches!(
             crate::metrics::cognitive::tcl_command_name(node, code),
-            Some("return" | "error" | "throw")
+            Some("return" | "error" | "throw" | "exit")
         ) {
             stats.exit += 1;
         }
@@ -429,27 +440,39 @@ impl Exit for RubyCode {
     // a bare `identifier`; `Checker::is_call` carries the four visible
     // `call` aliases, so the arm cannot miss one by position.
     //
+    // `exit!` (`Kernel#exit!`, the immediate process exit) is the third
+    // spelling, and the explicit `Kernel.raise` / `Kernel.exit` receiver
+    // *is* the builtin — it is reached for precisely when a DSL shadows
+    // the bare name — so a `Kernel` constant receiver is admitted.
+    //
     // Deliberate exclusions:
-    // - A call with a `receiver` (`obj.raise`, `self.exit`) is a user
-    //   method, never the Kernel builtin — the same bare-callee gate Go
-    //   uses to keep `foo.panic()` out.
+    // - A call with any other `receiver` (`obj.raise`, `self.exit`) is a
+    //   user method, never the Kernel builtin — the same bare-callee
+    //   gate Go uses to keep `foo.panic()` out.
     // - A *bare* `raise` / `exit` with no arguments parses as a plain
     //   `identifier`, indistinguishable from reading a local variable
     //   of that name, so the argument-less re-raise idiom inside
     //   `rescue` goes uncounted rather than blanket-matching every
-    //   identifier.
+    //   identifier. A bare `exit!` is different: the `!` cannot name a
+    //   local, so the grammar emits a `call` and it is counted.
     // - `fail` (a Kernel alias of `raise`), `abort`, and `throw`
     //   (catch/throw non-local flow) are not matched: each is a common
     //   user or test-DSL method name, and the counted set stays the two
     //   primitives the cross-language exit table names.
+    //
+    // The callee is inspected before the receiver: every call has a
+    // `method`, and the text test rejects nearly all of them, so the
+    // receiver lookup runs only for the handful that spell a builtin.
     fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
         if matches!(node.kind_id().into(), Ruby::Return | Ruby::Return2) {
             stats.exit += 1;
         } else if Self::is_call(node)
-            && node.child_by_field_name("receiver").is_none()
             && let Some(method) = node.child_by_field_name("method")
             && method.kind_id() == Ruby::Identifier
-            && matches!(method.utf8_text(code), Some("raise" | "exit"))
+            && matches!(method.utf8_text(code), Some("raise" | "exit" | "exit!"))
+            && node.child_by_field_name("receiver").is_none_or(|receiver| {
+                receiver.kind_id() == Ruby::Constant && receiver.utf8_text(code) == Some("Kernel")
+            })
         {
             stats.exit += 1;
         }
@@ -1463,7 +1486,10 @@ mod tests {
     /// call form nests one `call_expression_with_bareword`, so the
     /// spaced-args (`die "m"`), bracketed (`exit(1)`) and bare
     /// (`die;`) spellings each count exactly once — a wrapper node is
-    /// never counted alongside its bareword.
+    /// never counted alongside its bareword. The `CORE::`-qualified
+    /// spelling of each is the same builtin reached past an override
+    /// and keeps its qualifier in the bareword text, so it is matched
+    /// by name alongside the bare one.
     #[test]
     fn perl_die_and_exit_are_exits() {
         check_metrics::<PerlParser>(
@@ -1472,13 +1498,15 @@ mod tests {
                 open(my $fh, '<', $p) or die;
                 exit(1) if $_[1];
                 exit 2;
+                CORE::die \"forced\" if $_[2];
+                CORE::exit(3);
                 return 0;
             }",
             "foo.pl",
             |metric| {
-                // expected: 4 abrupt exits (two `die`, two `exit`) plus
-                // one `return`.
-                assert_eq!(metric.nexits.nexits_sum(), 5);
+                // expected: 6 abrupt exits (two `die`, two `exit`, and
+                // the `CORE::` spelling of each) plus one `return`.
+                assert_eq!(metric.nexits.nexits_sum(), 7);
             },
         );
     }
@@ -1975,9 +2003,10 @@ end",
         );
     }
 
-    /// Tcl's abrupt-exit builtins have no dedicated grammar rule: both
-    /// `error` and the 8.6 `throw` parse as generic commands told apart
-    /// by their leading word, the same seam `return` uses (#1270).
+    /// Tcl's abrupt-exit builtins have no dedicated grammar rule:
+    /// `error`, the 8.6 `throw`, and `exit` all parse as generic
+    /// commands told apart by their leading word, the same seam
+    /// `return` uses (#1270).
     #[test]
     fn tcl_error_and_throw_are_exits() {
         check_metrics::<TclParser>(
@@ -1988,12 +2017,15 @@ end",
     if {$x == 0} {
         throw {ARITH DIVZERO} \"div by zero\"
     }
+    if {$x > 100} {
+        exit 1
+    }
     return $x
 }",
             "foo.tcl",
             |metric| {
-                // expected: `error` + `throw` + `return` = 3.
-                assert_eq!(metric.nexits.nexits_sum(), 3);
+                // expected: `error` + `throw` + `exit` + `return` = 4.
+                assert_eq!(metric.nexits.nexits_sum(), 4);
             },
         );
     }
@@ -2354,11 +2386,28 @@ end",
         );
     }
 
-    /// A call with a receiver is a user method, never the Kernel
-    /// builtin, so `obj.raise` / `self.exit` must not count — the same
-    /// bare-callee gate Go uses to keep `foo.panic()` out. A symbol or
-    /// hash key spelling the builtin parses as `simple_symbol` /
-    /// `hash_key_symbol` and is likewise not a call.
+    /// The explicit `Kernel.` receiver *is* the builtin — it is what code
+    /// writes when a DSL has shadowed the bare name — and `exit!` is
+    /// `Kernel#exit!`, the immediate process exit. Both count. A bare
+    /// `exit!` counts too, unlike a bare `exit`: the `!` cannot name a
+    /// local, so the grammar emits a `call` rather than an `identifier`.
+    #[test]
+    fn ruby_kernel_qualified_and_bang_exits_count() {
+        check_metrics::<RubyParser>(
+            "def f(x)\n  Kernel.raise ArgumentError, \"bad\" if x\n  Kernel.exit(1) if x\n  exit! if x\n  exit!\nend\n",
+            "foo.rb",
+            |metric| {
+                // expected: `Kernel.raise` + `Kernel.exit` + two `exit!` = 4.
+                assert_eq!(metric.nexits.nexits_sum(), 4);
+            },
+        );
+    }
+
+    /// A call with any receiver other than `Kernel` is a user method,
+    /// never the builtin, so `obj.raise` / `self.exit` must not count —
+    /// the same bare-callee gate Go uses to keep `foo.panic()` out. A
+    /// symbol or hash key spelling the builtin parses as
+    /// `simple_symbol` / `hash_key_symbol` and is likewise not a call.
     #[test]
     fn ruby_receiver_call_is_not_exit() {
         check_metrics::<RubyParser>(
