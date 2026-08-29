@@ -275,7 +275,6 @@ fn java_walk_for_conditions<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, s
 }
 
 fn java_walk_ternary(node: &Node, stats: &mut Stats) {
-    use Java::*;
     let conds = &mut stats.conditions;
     // Slots are addressed by grammar FIELD, not by index. The positional
     // form read children 0 / 2 / 4, and tree-sitter counts comments among
@@ -284,17 +283,8 @@ fn java_walk_ternary(node: &Node, stats: &mut Stats) {
     // where the same expression without the comment scores 3 (#1181).
     // That is the mirror image of the over-count the token-based seed
     // produced in the C family, from the same cause.
-    //
-    // The terminal set mirrors the one in `java_inspect_container`
-    // (issue #372 / lesson #19).
     if let Some(condition) = node.child_by_field_name("condition") {
-        match condition.kind_id().into() {
-            java_bool_terminal_kinds!() => *conds += 1.,
-            ParenthesizedExpression | UnaryExpression => {
-                java_inspect_container(&condition, node, conds);
-            }
-            _ => {}
-        }
+        java_count_condition(&condition, node, conds);
     }
     for field in ["consequence", "alternative"] {
         if let Some(branch) = node.child_by_field_name(field) {
@@ -303,53 +293,41 @@ fn java_walk_ternary(node: &Node, stats: &mut Stats) {
     }
 }
 
-// Handles the `for (...)` multi-shape positional cascade: the loop
-// condition lives at child 3 when the initializer is a variable
-// declaration, otherwise at child 4 (split off by the `;` at child 3).
-fn java_walk_for_statement(node: &Node, stats: &mut Stats) {
+// Classifies one condition-slot expression: a bare boolean terminal
+// counts directly, a `(...)` / `!...` wrapper is offered to the unwrap
+// chain, and anything else (a `binary_expression`, whose operator token
+// the dispatcher already counted) contributes nothing. The terminal set
+// mirrors `java_inspect_container` (issue #372 / lesson #19):
+// FieldAccess / CastExpression / ArrayAccess / InstanceofExpression all
+// evaluate to a boolean in idiomatic Java condition slots. Mirrors
+// `csharp_count_condition` / `groovy_count_condition`.
+fn java_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
     use Java::*;
-    let Some(condition) = node.child(3) else {
-        return;
-    };
-    // Terminal set mirrors `java_inspect_container` (issue #372 / lesson
-    // #19): FieldAccess / CastExpression / ArrayAccess /
-    // InstanceofExpression all evaluate to a boolean in idiomatic Java
-    // for-condition slots.
     match condition.kind_id().into() {
-        // `for (i = 0; cond; ...)` — initializer is an expression, so
-        // the leading `;` sits at child 3 and the real condition at 4.
-        SEMI => {
-            if let Some(cond) = node.child(4) {
-                match cond.kind_id().into() {
-                    // The terminal set here is `java_bool_terminal_kinds!()`
-                    // augmented with `SEMI` / `RPAREN` to handle the
-                    // empty-condition `for (init; ; ...)` and `for (;;)`
-                    // forms: the trailing `;` or closing `)` lands at
-                    // child(4) and is treated as a vacuously-true
-                    // condition. The arm cannot be written as
-                    // `java_bool_terminal_kinds!() | SEMI | RPAREN`
-                    // because clippy's `unnested_or_patterns` forbids
-                    // mixing a macro-expanded OR with extra literal
-                    // patterns, and splitting into two arms with the
-                    // same body trips `match_same_arms`.
-                    MethodInvocation | Identifier | True | False | FieldAccess | CastExpression
-                    | ArrayAccess | InstanceofExpression | SEMI | RPAREN => {
-                        stats.conditions += 1.;
-                    }
-                    ParenthesizedExpression | UnaryExpression => {
-                        java_inspect_container(&cond, node, &mut stats.conditions);
-                    }
-                    _ => {}
-                }
-            }
-        }
-        java_bool_terminal_kinds!() => {
-            stats.conditions += 1.;
-        }
+        java_bool_terminal_kinds!() => *conditions += 1.,
         ParenthesizedExpression | UnaryExpression => {
-            java_inspect_container(&condition, node, &mut stats.conditions);
+            java_inspect_container(condition, parent, conditions);
         }
         _ => {}
+    }
+}
+
+// The `for (init; condition; update)` condition slot, addressed by
+// grammar FIELD. This replaces a positional cascade that read child(3),
+// and child(4) when child(3) was the `;` an expression initializer
+// leaves behind. Two things that cascade got wrong, both fixed here by
+// construction (#1276):
+//
+//   * A comment anywhere in the header shifted every index, so
+//     `for (; /* n */ a; )` scored zero where `for (; a; )` scores one
+//     — the same positional failure #1181 removed from the ternary.
+//   * `SEMI` / `RPAREN` landing at child(4) was counted as a
+//     vacuously-true condition, so `for (;;)` scored one. Java and
+//     Groovy were the only two impls doing that; see the `Stats` doc
+//     comment's cross-language empty-`for`-condition policy.
+fn java_walk_for_statement(node: &Node, stats: &mut Stats) {
+    if let Some(condition) = node.child_by_field_name("condition") {
+        java_count_condition(&condition, node, &mut stats.conditions);
     }
 }
 

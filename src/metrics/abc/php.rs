@@ -84,24 +84,55 @@ fn php_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
 // admit the short ternary `$a ?: $b`, which shifts the alternative from
 // child(4) to child(3).
 //
-// The condition needs its own terminal check because
-// `php_inspect_container` only counts *after* unwrapping a `(...)` /
-// `!...` layer, so a bare `$a ? … : …` would otherwise score zero.
+// The condition goes through `php_count_condition`, whose top-level
+// terminal check is what stops a bare `$a ? … : …` scoring zero.
 // Branch operands get no such check: an unnegated branch is type-free
 // and contributes nothing, which is what keeps `($a > 0) ? $b : -$b`
 // at 2 (the ternary node and the `>`).
 fn php_walk_ternary(node: &Node, conditions: &mut f64) {
     if let Some(condition) = node.child_by_field_name("condition") {
-        if matches!(condition.kind_id().into(), php_bool_terminal_kinds!()) {
-            *conditions += 1.;
-        } else {
-            php_inspect_container(&condition, node, conditions);
-        }
+        php_count_condition(&condition, node, conditions);
     }
     for field in ["body", "alternative"] {
         if let Some(branch) = node.child_by_field_name(field) {
             php_inspect_container(&branch, node, conditions);
         }
+    }
+}
+
+// Classifies one condition-slot expression: a bare boolean terminal
+// counts directly, anything else is offered to the `(...)` / `!...`
+// unwrap chain. Shared by the ternary condition slot and the `for`
+// header's condition slot — the two places a PHP condition arrives
+// *unwrapped*. `if` / `while` / `do` hand `php_inspect_container` a
+// `parenthesized_expression` that supplies the unwrap step itself, so
+// they must not take the top-level terminal count.
+fn php_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
+    if matches!(condition.kind_id().into(), php_bool_terminal_kinds!()) {
+        *conditions += 1.;
+    } else {
+        php_inspect_container(condition, parent, conditions);
+    }
+}
+
+// Phase-2B (issues #403 / #1276): the `for (init; condition; update)`
+// condition slot is a Fitzpatrick Rule 9 unary condition, exactly like
+// the `if` / `while` slots the dispatcher already walks. Without this
+// PHP scored `for (; $a; ) {}` zero where `if ($a) {}` scores one, and
+// `php_inspect_container`'s `ForStatement` boolean-context seed was
+// unreachable. Comparison-shaped conditions (`$i < $n`) were never
+// affected — the `<` token arm counts those.
+//
+// Addressed by grammar FIELD (`condition`, alongside `initialize` and
+// `update`): all three slots are optional, so every child index moves
+// with the shape written.
+//
+// An empty condition (`for (;;)`) exposes no `condition` field, so it
+// counts zero with no special case — see the `Stats` doc comment's
+// cross-language empty-`for`-condition policy.
+fn php_walk_for_statement(node: &Node, conditions: &mut f64) {
+    if let Some(condition) = node.child_by_field_name("condition") {
+        php_count_condition(&condition, node, conditions);
     }
 }
 
@@ -206,6 +237,16 @@ impl Abc for PhpCode {
             // Conditions: comparison and identity operators (anonymous tokens
             // inside `binary_expression`), `instanceof`, and control-flow
             // arms. The ternary has its own arm below (#1102).
+            //
+            // `CaseStatement` (`case` arms) and `MatchConditionalExpression`
+            // (non-default `match` arms) are conditions; the `default:`
+            // (`DefaultStatement`) and `default =>`
+            // (`MatchDefaultExpression`) arms are NOT — they are the
+            // unconditional fallthrough, which PHP's cyclomatic gate also
+            // excludes (it counts `CaseStatement | MatchConditionalExpression`
+            // only). Dropping both Default kinds keeps ABC conditions equal
+            // to the cyclomatic decision count (issue #473, mirroring the
+            // #469 C-family fix and #456 Kotlin/C# fixes).
             EQEQ
             | EQEQEQ
             | BANGEQ
@@ -221,14 +262,6 @@ impl Abc for PhpCode {
             | ElseClause2
             | ElseIfClause
             | ElseIfClause2
-            // `case` arms and non-default `match` arms are conditions;
-            // the `default:` (`DefaultStatement`) and `default =>`
-            // (`MatchDefaultExpression`) arms are NOT — they are the
-            // unconditional fallthrough, which PHP's cyclomatic gate also
-            // excludes (it counts `CaseStatement | MatchConditionalExpression`
-            // only). Dropping both Default kinds keeps ABC conditions equal
-            // to the cyclomatic decision count (issue #473, mirroring the
-            // #469 C-family fix and #456 Kotlin/C# fixes).
             | CaseStatement
             | MatchConditionalExpression
             | CatchClause => {
@@ -269,6 +302,12 @@ impl Abc for PhpCode {
             ConditionalExpression => {
                 stats.conditions += 1.;
                 php_walk_ternary(node, &mut stats.conditions);
+            }
+            // `for (init; cond; update)` — the condition slot, read by
+            // grammar field (issue #1276). `for (;;)` has no condition
+            // field and counts nothing.
+            ForStatement => {
+                php_walk_for_statement(node, &mut stats.conditions);
             }
             _ => {}
         }

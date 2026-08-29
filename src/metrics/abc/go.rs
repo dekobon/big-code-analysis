@@ -64,6 +64,48 @@ fn go_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
     }
 }
 
+// Resolves and counts the loop condition of Go's one loop keyword,
+// which carries four unrelated shapes under `for_statement`:
+//   `for cond {}`          → the header slot is the condition itself
+//   `for init; cond; post` → the slot is a `for_clause` whose
+//                            `condition` field holds it
+//   `for range xs {}`      → the slot is a `range_clause`, no condition
+//   `for {}`               → no header slot; only the body
+//
+// The three-clause form was the gap (#1276): letting the `for_clause`
+// fall through to `go_count_condition` — which filters non-terminal /
+// non-paren / non-unary kinds — scored `for i := 0; a; i++ {}` zero
+// while `for a {}` scored one. A `range_clause` is rejected the same
+// way, and a `for_clause` with no `condition` field contributes
+// nothing; see the `Stats` doc comment's cross-language
+// empty-`for`-condition policy.
+//
+// Go is the one grammar here whose `for_statement` exposes no
+// `condition` field, so the header slot has to be located structurally.
+// It is the first named child that is neither the body (which *does*
+// have a field) nor a comment — `node.child(1)` would be the body for
+// a bare `for {}`, and tree-sitter counts comments among a node's
+// children, so `for /* n */ a {}` shifted it (the #1181 failure the
+// field-addressed siblings no longer have).
+fn go_walk_for_statement(node: &Node, conditions: &mut f64) {
+    use Go as G;
+    let body_id = node.child_by_field_name("body").map(|body| body.id());
+    let Some(header) = node.children().find(|child| {
+        child.is_named()
+            && !matches!(child.kind_id().into(), G::Comment)
+            && Some(child.id()) != body_id
+    }) else {
+        return;
+    };
+    let slot = if matches!(header.kind_id().into(), G::ForClause) {
+        header.child_by_field_name("condition")
+    } else {
+        Some(header)
+    };
+    let Some(condition) = slot else { return };
+    go_count_condition(&condition, node, conditions);
+}
+
 fn go_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     use Go as G;
 
@@ -181,14 +223,9 @@ impl Abc for GoCode {
             //   `for cond {}`           → child(1) = condition
             //   `for init; cond; post`  → child(1) = `for_clause`
             //   `for range items {}`    → child(1) = `range_clause`
-            // `go_count_condition` filters non-terminal /
-            // non-paren / non-unary kinds, so `for_clause` and
-            // `range_clause` fall through harmlessly without a
-            // dedicated guard.
+            //
             G::ForStatement => {
-                if let Some(cond) = node.child(1) {
-                    go_count_condition(&cond, node, &mut stats.conditions);
-                }
+                go_walk_for_statement(node, &mut stats.conditions);
             }
             // `return value` — Go wraps the return values in an
             // `expression_list` at child(1). Iterate the list's
