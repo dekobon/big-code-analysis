@@ -1,0 +1,3 @@
+# Default owner for every path; makes ownership explicit for
+# tooling (Scorecard, PR review suggestions) on a solo-maintained repo.
+* @dekobon
