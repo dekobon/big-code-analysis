@@ -3570,8 +3570,12 @@ condition that puts it back beyond the filter.
 alert #776; `3df3b2c3`, `b60943b5` — direct pushes to `main`, no PR).
 The crate reached the tree only through `actix-web`'s default `http2`
 feature, and no patched 0.3 release exists, so the fix was to drop the
-feature: `bca-web` binds plaintext and actix negotiates HTTP/2 only over
-TLS ALPN. The obvious belt-and-braces guard, a `[bans] deny` on
+feature: this daemon reaches the network through a plain
+`HttpServer::bind`, which serves HTTP/1.x only. Note the reason is that
+call and not a property of actix — `bind_auto_h2c` speaks plaintext
+HTTP/2 without TLS, and is itself `#[cfg(feature = "http2")]`, so
+dropping the feature removes the H2C entry point along with the
+vulnerable crate. The obvious belt-and-braces guard, a `[bans] deny` on
 `h2 <0.4.16`, turned out to be dead by construction — krates, cargo-deny's
 graph builder, filters the crate out before the advisory and ban checks
 run (`-L debug` logs `filtered h2 0.3.27`), on 0.19 and on the 0.20 that
@@ -3601,9 +3605,14 @@ moves whether they are freed or kept.
 
 **The nesting map's reserve was sized to the leak it should have
 prevented** (#1069, fixed in #1375 / PR #1377). `NestingMap` carries one
-`Nesting` per node id, seeded by the parent, read once by the node's own
-`Cognitive::compute`, read once more when its children are seeded — and
-then never removed. #1069 measured that it "converges on one entry per
+`Nesting` per node id, seeded by the parent, read by the node's own
+`Cognitive::compute`, and read a last time when its children are seeded
+— but never removed. The two shapes that skip that last read are the
+ones the fix has to handle separately: a leaf returned early on
+`children.is_empty()`, and an `exclude_tests`-pruned node reached
+neither `compute` nor propagation, so freeing in the last reader means
+dropping the leaf bail-out and adding a removal on the prune arm.
+Issue #1069 measured that the map "converges on one entry per
 visited node", and reserved `descendant_count()` up front to skip the
 doubling chain, which is a real speedup for a growth that should not
 have existed. On a 28 MB generated tree-sitter `parser.c` that was
@@ -3611,13 +3620,16 @@ have existed. On a 28 MB generated tree-sitter `parser.c` that was
 the live set bounded by the traversal stack: 735 MB, and 3.3 s against
 5.1 s.
 
-**All three hypotheses in the issue were wrong** (#1375). It proposed
-the reorder buffer, a path list materialized twice, and glibc arena
-retention. Selection settled it in minutes where code reading had not:
-`dump` (parse only) measured 722 MB and every non-cognitive metric
-723–725 MB against cognitive's 1,264 MB, `--output-dir` matched stdout
-byte-for-byte in peak — ruling out both the wire clone and the reorder
-buffer — and `bca check`, which has no reorder buffer at all, still
-peaked at 4.5 GB on the same tree.
+**Every suspect the issue named turned out to be secondary** (#1375).
+It listed the per-file working set, the `OrderedStdout` reorder buffer,
+and glibc arena retention — none of them wrong to suspect, and the last
+demonstrably real, since `MALLOC_ARENA_MAX=1` did lower the peak to
+3.4 GB. None was the dominant term, and code reading could not say so,
+because every allocation on the list is genuinely there. Selection
+could: `dump` (parse only) measured 722 MB and every non-cognitive
+metric 723–725 MB against cognitive's 1,264 MB, `--output-dir` came
+within a megabyte of stdout — 1,266 against 1,265 MB, ruling out both
+the wire clone and the reorder buffer — and `bca check`, which has no
+reorder buffer at all, still peaked at 4.5 GB on the same tree.
 
 ---
