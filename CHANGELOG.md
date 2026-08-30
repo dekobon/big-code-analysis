@@ -40,7 +40,9 @@ for historical reference.
   `-j 16`: 488 MB → 439 MB. No metric value moves. What remains is
   dominated by the parse rather than by the walk: a parse-only
   `bca dump` over the same files peaks at 25–70× the source size, which
-  the CI recipe now states as the `--jobs` memory sizing rule.
+  the CI recipe now records as the in-flight term in its `--jobs` sizing
+  guidance — alongside the destinations that add a result-set term on
+  top of it (`metrics --output <FILE>`, structured stdout).
 
 ### Changed
 

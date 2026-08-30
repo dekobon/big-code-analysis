@@ -869,11 +869,20 @@ Applies regardless of provider:
   macOS/Windows — so CI runners no longer need to thread
   `--jobs "$(nproc)"` through every recipe. `--jobs 1`
   remains a debugging knob, not a default. It is *not*
-  memory-aware: each worker holds one whole file in memory at a
-  time, and a parse-only run measures 25–70× the source size, so
-  peak RSS is roughly `jobs × 70 × the largest source file` in
-  the tree. A memory-limited container with many vCPUs should
-  pass an explicit `--jobs`.
+  memory-aware. Each worker holds one whole file at a time and a
+  parse-only run measures 25–70× the source size, so the
+  *in-flight* term is roughly `jobs × 70 × the largest source
+  file` in the tree — and `--jobs` bounds that term only.
+  Whether it is the whole story depends on the destination:
+  `--output-dir` writes each document as it is produced and
+  `bca check` reduces each file to its violations, so both stay
+  at the in-flight bound, while `metrics --output <FILE>`
+  collects every file's result and serializes it after the walk,
+  and structured stdout holds finished documents while an
+  earlier file is still being analyzed — which is worst when one
+  large file sorts early. A memory-limited container with many
+  vCPUs should pass an explicit `--jobs`, and prefer
+  `--output-dir` to `--output <FILE>` on a large tree.
 - **Always pass `--strip-prefix "$PWD/"` to `bca report markdown`**
   so the path column is identical across runners with different
   workspace paths. Without it the diff between two reports is
