@@ -368,3 +368,36 @@ single non-listed language (`--features go`) is the reproducer.
 
 Note the union is over *features*, not languages: `LANG::Tsx` rides
 `feature = "typescript"`, so a seven-row table can need only six.
+
+## Assert a whole-run invariant in the run, not in a fixture list
+
+When a change establishes an invariant that holds at the end of *every*
+execution of a hot path — a scratch structure fully drained, a stack
+balanced, a counter back at zero — a `debug_assert!` on that path
+recruits the entire test corpus as input. A named test covers the
+fixtures you thought of; the assertion covers every language, every
+corpus file, and every integration suite that happens to run the path,
+which is a different order of coverage for one line.
+
+This matters most when the invariant has more than one owner. #1375's
+nesting-slot lifetime is enforced in two places — the walk's
+`exclude_tests` prune arm and `propagate_nesting_to_children` — so a
+third `continue` added later would leak with nothing to notice. The
+targeted test names four seeding paths; the `debug_assert!` covered
+3,590 lib tests plus every integration suite on the first run, which is
+what actually established the invariant across all twenty languages.
+
+Both, not either:
+
+- The **named test** is the regression test `AGENTS.md` requires, it is
+  what you verify by revert, and it survives into release builds via an
+  `observation::counter!`. It also documents *which* paths seed state,
+  which an assertion cannot say.
+- The **`debug_assert!`** generalises it for free, and is compiled out
+  of release, so an O(1) check on a per-walk path costs nothing shipped.
+  Keep it O(1): a per-node assertion is how the exact ancestor-chain
+  check went quadratic (`make chain-audit`, #1122).
+
+The assertion earns its place only if the suite actually exercises the
+path under `cfg(debug_assertions)` — which `make pre-commit` does. An
+assertion that only a release build reaches is lesson #80.

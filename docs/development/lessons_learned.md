@@ -134,6 +134,8 @@ number and the higher number stays as a redirect.
 | [88](#88-a-text-scan-that-does-not-lex-the-language-measures-noise) | A text scan that does not lex the language measures noise |
 | [89](#89-a-positive-enumeration-and-a-negative-filter-differ-on-what-neither-names) | A positive enumeration and a negative filter differ on what neither names |
 | [90](#90-re-reading-a-single-consumption-source-yields-empty-not-an-error) | A re-read of a consumable source yields empty, not an error |
+| [91](#91-a-gate-can-filter-out-its-own-subject-before-the-check-runs) | A gate can filter out its own subject before the check runs |
+| [92](#92-an-optimizations-rationale-can-encode-the-waste-it-optimizes-for) | An optimization's rationale can encode the waste it optimizes for |
 
 ---
 
@@ -3542,5 +3544,80 @@ the project had exempted. The fix materializes the list once, before
 the walk, and carries it out in `CheckWalk::seeds`; the pre-existing
 regression test for #497 passed throughout, because it spelled the
 seed list as a file.
+
+---
+
+## 91. A gate can filter out its own subject before the check runs
+
+**Lesson:** When you add a dependency or supply-chain gate, prove it
+fails by reintroducing the condition it guards and watching it go red.
+A tool that builds a filtered view of its input before applying your
+rules can drop the very artifact a rule names, leaving an entry that is
+syntactically valid, semantically correct, and permanently silent. When
+the tool's view is derived, guard the raw artifact instead — the
+lockfile, the manifest — and record at the site where the dead entry
+would go why it is not there.
+
+A config entry reads as coverage. A future maintainer greps `deny.toml`,
+finds the crate and the version range spelled out, and stops looking;
+the tool exits 0, which is the same output it gives when the tree is
+genuinely clean. Nothing distinguishes "no violation" from "the subject
+was never in scope", and the gap opens precisely when the guard matters,
+because the condition that reintroduces the vulnerable crate is also the
+condition that puts it back beyond the filter.
+
+**cargo-deny cannot guard `h2 0.3.27`** (RUSTSEC-2026-0258, Scorecard
+alert #776; `3df3b2c3`, `b60943b5` — direct pushes to `main`, no PR).
+The crate reached the tree only through `actix-web`'s default `http2`
+feature, and no patched 0.3 release exists, so the fix was to drop the
+feature: `bca-web` binds plaintext and actix negotiates HTTP/2 only over
+TLS ALPN. The obvious belt-and-braces guard, a `[bans] deny` on
+`h2 <0.4.16`, turned out to be dead by construction — krates, cargo-deny's
+graph builder, filters the crate out before the advisory and ban checks
+run (`-L debug` logs `filtered h2 0.3.27`), on 0.19 and on the 0.20 that
+CI's action bundles. Re-enabling `actix-web/http2` under both versions
+left cargo-deny silent. The working guard reads `Cargo.lock` directly
+from a test, and `deny.toml` carries a comment where the entry would
+have been, naming the reproduction so the next reader does not add one.
+
+---
+
+## 92. An optimization's rationale can encode the waste it optimizes for
+
+**Lesson:** When a collection is pre-sized to its input, ask whether it
+needs to reach that size before optimizing for it — a reserve is
+evidence that somebody measured the final size, never evidence the
+growth was necessary. And attribute a resource peak by bisecting the
+run: one metric at a time, one output destination at a time, one worker
+count at a time. Reading the code ranks hypotheses it cannot
+discriminate, because every allocation you suspect really is there.
+
+A leak stated as a steady state stops looking like a leak. The sentence
+justifying the reserve asserts the growth as a fact, so review checks
+the arithmetic — is `descendant_count` the right size? — rather than the
+premise, and the premise is the bug. Nothing else flags it either: the
+retained entries are dead, so no metric value, snapshot, or exit status
+moves whether they are freed or kept.
+
+**The nesting map's reserve was sized to the leak it should have
+prevented** (#1069, fixed in #1375 / PR #1377). `NestingMap` carries one
+`Nesting` per node id, seeded by the parent, read once by the node's own
+`Cognitive::compute`, read once more when its children are seeded — and
+then never removed. #1069 measured that it "converges on one entry per
+visited node", and reserved `descendant_count()` up front to skip the
+doubling chain, which is a real speedup for a growth that should not
+have existed. On a 28 MB generated tree-sitter `parser.c` that was
+540 MB of a 1,265 MB peak. Freeing each slot in its last reader leaves
+the live set bounded by the traversal stack: 735 MB, and 3.3 s against
+5.1 s.
+
+**All three hypotheses in the issue were wrong** (#1375). It proposed
+the reorder buffer, a path list materialized twice, and glibc arena
+retention. Selection settled it in minutes where code reading had not:
+`dump` (parse only) measured 722 MB and every non-cognitive metric
+723–725 MB against cognitive's 1,264 MB, `--output-dir` matched stdout
+byte-for-byte in peak — ruling out both the wire clone and the reorder
+buffer — and `bca check`, which has no reorder buffer at all, still
+peaked at 4.5 GB on the same tree.
 
 ---

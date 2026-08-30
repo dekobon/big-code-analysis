@@ -766,6 +766,17 @@ Treat the pinned version as fixed:
   gh issue create --title "Title" --label "bug" --body-file /tmp/issue-body.md
   ```
 
+- **Re-verify a deferred issue's premises before building on them.**
+  A deferral records the code as it stood when the issue was filed,
+  and both halves age: the measurement it rests on may never have
+  been taken, and a later change may have decided its central design
+  question the other way. Neither shows up as a contradiction — the
+  issue and its resolution plan still read as coherent. Check each
+  cited path, and check whether anything shipped since already
+  answers the question. #1158 proposed an output-ordering contract
+  that #1303 had shipped the opposite of, complete with tests, and
+  its own go/no-go measurement had never been run; when run, it
+  closed the issue. This is the issue-tracker form of lesson #84.
 - Do not push (`git push`, `git push --force`) or open pull
   requests (`gh pr create`) without explicit user instruction.
   This rule covers **publishing code** only — it does **not**
