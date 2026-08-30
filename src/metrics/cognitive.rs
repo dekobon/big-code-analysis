@@ -153,16 +153,6 @@ pub(crate) trait Cognitive
 where
     Self: Checker,
 {
-    /// Whether [`compute`](Cognitive::compute) writes a `nesting_map`
-    /// slot for the node it was handed.
-    ///
-    /// Every real implementation does, on every path, which is what
-    /// lets the walker size the map to the node count up front. The
-    /// macro-generated no-op impls (`Preproc`, `Ccomment`) never write
-    /// one, so their map stays empty and must stay unallocated too —
-    /// they override this to `false`.
-    const SEEDS_NESTING: bool = true;
-
     /// Walk `node` and update `stats` with this metric for the language
     /// implementing the trait.
     ///
@@ -870,63 +860,6 @@ mod tests {
                 );
             }
         }
-    }
-
-    /// `SEEDS_NESTING` must say what `compute` actually does.
-    ///
-    /// The walker trusts the const twice over: `true` means the map is
-    /// worth sizing to the node count up front, `false` means it must be
-    /// left unallocated. Both are silent when wrong — a `false` on a
-    /// language that does seed only costs the rehashing back, and a
-    /// `true` on one that does not only wastes an allocation, so no
-    /// metric value moves either way. This pins each impl against what
-    /// it observably writes.
-    #[test]
-    fn seeds_nesting_matches_what_compute_writes() {
-        use std::path::Path;
-
-        fn writes_a_slot<T: ParserTrait>(source: &str, filename: &str) -> bool {
-            let parser = T::new(source.as_bytes().to_vec(), Path::new(filename), None);
-            let mut nesting_map = NestingMap::default();
-            T::Cognitive::compute(
-                &parser.root(),
-                parser.code(),
-                Ancestors::known(&[]),
-                &mut Stats::default(),
-                &mut nesting_map,
-            );
-            assert_eq!(
-                <T::Cognitive as Cognitive>::SEEDS_NESTING,
-                !nesting_map.is_empty(),
-                "{filename}: SEEDS_NESTING disagrees with what compute wrote"
-            );
-            !nesting_map.is_empty()
-        }
-
-        // One representative of each family that carries a real impl:
-        // the C-like macro, the JS-family macro, and the two languages
-        // with hand-written `compute` bodies.
-        assert!(writes_a_slot::<CppParser>(
-            "int main() { return 0; }",
-            "a.cpp"
-        ));
-        assert!(writes_a_slot::<JavascriptParser>(
-            "function f() { return 0; }",
-            "a.js"
-        ));
-        assert!(writes_a_slot::<PythonParser>(
-            "def f():\n    pass\n",
-            "a.py"
-        ));
-        assert!(writes_a_slot::<ElixirParser>(
-            "def f do\n  :ok\nend\n",
-            "a.ex"
-        ));
-
-        // The macro-generated no-ops: `SEEDS_NESTING` is what keeps the
-        // walker from reserving a map they never fill.
-        assert!(!writes_a_slot::<PreprocParser>("#define A 1\n", "a.h"));
-        assert!(!writes_a_slot::<CcommentParser>("/* c */ int x;", "a.c"));
     }
 
     /// A `Stats::default()` that never sees an

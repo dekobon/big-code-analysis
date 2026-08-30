@@ -284,17 +284,6 @@ impl<'a> Node<'a> {
         self.0.child_count()
     }
 
-    /// Number of nodes in this node's subtree, counting the node itself.
-    ///
-    /// `O(1)`: `tree_sitter` stores the visible-descendant count on each
-    /// subtree, so this is a field read rather than a walk. It counts the
-    /// same nodes the metric walk visits — visible children, named and
-    /// anonymous alike — which is what makes it usable as an exact
-    /// capacity for a per-node map (see `spaces::compute::metrics_inner`).
-    pub(crate) fn descendant_count(&self) -> usize {
-        self.0.descendant_count()
-    }
-
     // Returns `true` if this node is a named grammar production
     // (as opposed to an anonymous token such as a punctuation or
     // keyword literal). Used to skip anonymous tokens like the
@@ -1272,42 +1261,6 @@ mod tests {
                 .len()
                 > found.len(),
             "adding `number_literal` must widen the match set"
-        );
-    }
-
-    /// `descendant_count` must count the same nodes the metric walk
-    /// visits, because `spaces::compute::metrics_inner` uses it as the
-    /// exact capacity for a map that ends up holding one entry per
-    /// visited node.
-    ///
-    /// The risk it guards is silent: `ts_node_descendant_count` counts
-    /// *visible* descendants, so were it ever to narrow to named nodes
-    /// only, the reserve would under-size by the anonymous-token share
-    /// of the tree — roughly half — and the map would quietly go back
-    /// to rehashing, with no test failing. The source below is chosen to
-    /// carry plenty of anonymous tokens (`int`, `(`, `{`, `=`, `;`) so
-    /// the named-only reading is not accidentally equal.
-    #[test]
-    fn descendant_count_matches_the_walked_node_population() {
-        let code = b"int main() { int x = 1; foo(x); return 0; }";
-        let tree = Tree::new::<crate::langs::CppCode>(code);
-        let root = tree.get_root();
-
-        // `preorder` yields the node itself and then every descendant,
-        // enumerating children exactly as the metric walk's
-        // `push_children` does.
-        let walked = root.preorder().count();
-        assert_eq!(
-            root.descendant_count(),
-            walked,
-            "descendant_count must equal the pre-order node count"
-        );
-
-        let named = root.preorder().filter(Node::is_named).count();
-        assert!(
-            named < walked,
-            "fixture must contain anonymous tokens, else the assertion \
-             above cannot distinguish a named-only count"
         );
     }
 

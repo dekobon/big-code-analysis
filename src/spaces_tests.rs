@@ -2466,3 +2466,68 @@ mod nameless_construct_spaces {
         assert_eq!(names, vec![Some("<static-init>"), Some("<static-init>")]);
     }
 }
+
+/// Every cognitive nesting slot is freed by the node that last reads
+/// it, so the map is bounded by the traversal stack rather than the
+/// tree (#1375). No metric value can tell the two apart — the retained
+/// entries were dead — so the walk records whether any slot survived
+/// it, and this asserts none did on each path that seeds one: a plain
+/// nested-control-flow walk, the two overrides that write a child's
+/// slot ahead of the walk (Python comprehension clauses, Tcl `try`
+/// handler bodies), and an `exclude_tests` prune, which pops a seeded
+/// node without computing or propagating it.
+#[test]
+#[cfg(all(feature = "cpp", feature = "python", feature = "tcl", feature = "rust"))]
+fn walk_frees_every_cognitive_nesting_slot() {
+    use crate::spaces::compute::nesting_slots_retained;
+    use crate::test_support::metrics_verbatim;
+    use crate::{LANG, Metric};
+
+    const CASES: &[(LANG, &str, bool)] = &[
+        (
+            LANG::Cpp,
+            "int f(int a) { if (a) { while (a) { a--; } } else { return 1; } return 0; }\n",
+            false,
+        ),
+        (
+            LANG::Python,
+            "def f(xs):\n    return [x for x in xs if x for y in xs]\n",
+            false,
+        ),
+        (
+            LANG::Tcl,
+            "try { risky } on error {msg} { puts $msg } finally { cleanup }\n",
+            false,
+        ),
+        (
+            LANG::Rust,
+            "fn f(a: u8) -> u8 { if a > 1 { a } else { 0 } }\n\
+             #[test]\nfn t() { if true { assert!(f(2) == 2); } }\n",
+            true,
+        ),
+    ];
+
+    for &(lang, source, exclude_tests) in CASES {
+        let before = nesting_slots_retained::observed();
+        // Restricted to the one metric that seeds a slot, per
+        // `metrics_verbatim`'s own guidance (#1127): it is also the
+        // minimal selection that still enables both freeing sites, so
+        // nothing else can be what keeps the map empty.
+        let metrics = metrics_verbatim(
+            lang,
+            source.as_bytes(),
+            MetricsOptions::default()
+                .with_only(&[Metric::Cognitive])
+                .with_exclude_tests(exclude_tests),
+        );
+        assert!(
+            metrics.cognitive.cognitive_sum() > 0,
+            "{lang:?}: fixture must exercise cognitive, else no slot was ever seeded"
+        );
+        assert_eq!(
+            nesting_slots_retained::observed(),
+            before,
+            "{lang:?}: a nesting slot outlived the walk"
+        );
+    }
+}

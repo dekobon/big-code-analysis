@@ -24,6 +24,24 @@ for historical reference.
 
 ## [Unreleased]
 
+### Performance
+
+- The metric walk's cognitive nesting map no longer grows to one entry
+  per AST node (#1375). Each node's slot was seeded by its parent, read
+  once by its own `compute`, read once more when its children were
+  seeded, and then kept until the walk ended; the map was also reserved
+  at the tree's node count up front. On a 28 MB generated
+  `tree-sitter` `parser.c` that reserve was 540 MB of a 1,265 MB peak.
+  The slot is now freed by its last reader, so the map holds only the
+  seeded-but-unvisited nodes — bounded by the traversal stack, not the
+  tree. Same file, release build, `-j 1`: 1,265 MB → 737 MB peak RSS
+  and 5.1 s → 3.9 s; `metrics -O json` over a 100k-file cargo registry
+  at `-j 16`: 5.1 GB → 3.6 GB; `tests/repositories/DeepSpeech` at
+  `-j 16`: 488 MB → 439 MB. No metric value moves. What remains is
+  dominated by the parse rather than by the walk: a parse-only
+  `bca dump` over the same files peaks at 25–70× the source size, which
+  the CI recipe now states as the `--jobs` memory sizing rule.
+
 ### Changed
 
 - The `tree-sitter` runtime is `=0.26.13`, up one upstream patch

@@ -6,10 +6,14 @@
 //! verbatim and re-exported from the parent so the public path
 //! `crate::spaces::analyze` (and `pub(crate) metrics_inner`) is preserved.
 
-use std::hash::BuildHasherDefault;
-
 use super::*;
 use crate::diag::warn;
+
+// Walks that ended with a cognitive nesting slot still live. Freeing
+// each slot when its node is popped keeps the map bounded by the
+// traversal stack instead of the tree (#1375); reverting that changes
+// no output, only the peak, so this is what a test can observe.
+crate::observation::counter!(nesting_slots_retained);
 
 /// Derives the two metrics that read from a space's *complete* state:
 /// Halstead's `Stats` from the accumulated occurrence maps, and MI from
@@ -562,11 +566,14 @@ fn propagate_nesting_to_children(
     children: &[(Node<'_>, Walk)],
     nesting_map: &mut NestingMap,
 ) {
-    // Leaves are roughly half of a real AST, so bail before hashing a key
-    // we would only read to iterate zero children.
-    if children.is_empty() {
-        return;
-    }
+    // `remove`, not `get`: this is the slot's last reader — its own
+    // `compute` has already consumed it and the children seeded below
+    // each carry a copy — so freeing it here is what keeps the map
+    // bounded by the traversal stack rather than the tree (#1375; see
+    // the declaration in `metrics_inner`). Leaves free theirs too, which
+    // is why there is no longer an empty-children bail-out ahead of the
+    // hash: it only ever skipped a read, and the slot stayed behind.
+    //
     // A miss here is a *root-only* path. Every non-root slot is created
     // by this function's `or_insert` below, before that node is ever
     // popped, so reaching a node with no slot means it had no parent to
@@ -578,9 +585,17 @@ fn propagate_nesting_to_children(
     // path: a real impl that skipped its write would still leave its
     // children seeded, and would show up as wrong nesting values, not as
     // a missing slot.
-    let Some(&inherited) = nesting_map.get(&node.id()) else {
+    let Some(inherited) = nesting_map.remove(&node.id()) else {
         return;
     };
+    // One allocation for the whole sibling set rather than a doubling
+    // chain through it. Dropping the walk's up-front reserve left this
+    // as the only place the map grows, and a generated parser table can
+    // hang half a million children off one `initializer_list` — which
+    // from an empty map is ~18 doublings and twice that many re-inserts.
+    // A `reserve` that the current capacity already covers is a compare,
+    // so the ordinary two- or three-child node pays nothing.
+    nesting_map.reserve(children.len());
     for (child, _) in children {
         nesting_map.entry(child.id()).or_insert(inherited);
     }
@@ -659,26 +674,20 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
     // back to `Nesting::default()`, so a seed would change nothing for
     // grammars that compute cognitive — while for the two whose impl is
     // the macro's no-op it is the one write that would make the walk
-    // build an entry per node that nothing ever reads.
+    // seed and free a slot per node that nothing ever reads.
     //
-    // Sized up front rather than grown: every real `Cognitive::compute`
-    // ends by writing its own node's slot, so the map converges on one
-    // entry per visited node and a default-capacity map rehashes its way
-    // there a doubling at a time. `descendant_count` is that final size,
-    // known in O(1) — an upper bound rather than an exact one only when
-    // `exclude_tests` prunes a subtree the walk never descends into.
-    //
-    // Both guards exist to keep an empty map unallocated: an unselected
-    // `Cognitive` never calls `compute` at all, and the two grammars
-    // whose impl is the macro's no-op (`Preproc`, `Ccomment`) report
-    // `SEEDS_NESTING = false` because they write no slot.
-    let mut nesting_map = if selected.contains(Metric::Cognitive)
-        && <T::Cognitive as Cognitive>::SEEDS_NESTING
-    {
-        NestingMap::with_capacity_and_hasher(node.descendant_count(), BuildHasherDefault::default())
-    } else {
-        NestingMap::default()
-    };
+    // The map holds only nodes that have been seeded and not yet
+    // popped: `propagate_nesting_to_children` frees a slot as its last
+    // reader, so the live set is bounded by the traversal `stack`, never
+    // by the tree. It used to be reserved at `descendant_count` on the
+    // reasoning that it would converge on one entry per node — which it
+    // did, and on a 28 MB generated `parser.c` that reserve alone was
+    // 540 MB of a 1.27 GB peak (#1375). Grown from empty, it now peaks
+    // at the widest pending sibling set instead, and stays unallocated
+    // for good when nothing seeds the root: an unselected `Cognitive`
+    // never calls `compute`, and the two grammars whose impl is the
+    // macro's no-op (`Preproc`, `Ccomment`) write no slot.
+    let mut nesting_map = NestingMap::default();
 
     // Suppression markers are resolved inline during the walk rather
     // than queued for a post-finalize pass. When we visit a comment
@@ -757,6 +766,11 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
                     .loc
                     .exclude_test_span(node.start_row(), node.end_line());
             }
+            // The pruned node was seeded by its parent and is neither
+            // computed nor propagated, so nothing else frees its slot.
+            if selected.contains(Metric::Cognitive) {
+                nesting_map.remove(&node.id());
+            }
             continue;
         }
 
@@ -814,6 +828,26 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
         if selected.contains(Metric::Cognitive) {
             propagate_nesting_to_children(&node, pushed, &mut nesting_map);
         }
+    }
+
+    // Every slot is freed by the node that last reads it, so a non-empty
+    // map here means a seeded node was popped without freeing — the
+    // O(nodes) growth #1375 removed, which no metric value can reveal.
+    //
+    // Two guards, covering different ground. The counter is what the
+    // named regression test reads, and it survives into release builds.
+    // The assertion generalises that test to every other walk the suite
+    // runs — twenty languages of corpus fixtures rather than the four
+    // the test names — which is the coverage that matters here, because
+    // the freeing rule now has two owners (this walk's prune arm and
+    // `propagate_nesting_to_children`) and a third `continue` added
+    // later would leak in silence.
+    debug_assert!(
+        nesting_map.is_empty(),
+        "every seeded nesting slot must be freed by the node that last reads it (#1375)"
+    );
+    if !nesting_map.is_empty() {
+        nesting_slots_retained::record();
     }
 
     finalize::<T>(&mut state_stack, usize::MAX, selected);

@@ -7,11 +7,15 @@
 //! already grown. Construction is *not* what costs; the re-grown buffers
 //! are, and only modestly — see issue #1118 for the measurements.
 //!
-//! What a thread keeps between files is bounded by the largest file it
-//! has parsed (tens of KiB): the subtree and stack-node pools are
-//! capped, but the scratch arrays around them are cleared without
-//! releasing capacity, so a long-lived server holds that per worker for
-//! the process lifetime.
+//! What a thread keeps between files is the subtree and stack-node
+//! pools, which are capped at small fixed counts, plus the scratch
+//! arrays around them, which are cleared without releasing capacity —
+//! so a long-lived server holds the latter per worker for the process
+//! lifetime. Those arrays track parse-stack depth and reduce-action
+//! counts rather than input size, so this is deliberately not stated as
+//! a bound in bytes: the "tens of KiB" figure that stood here was never
+//! measured, and #1375 established only that the *input* can run to
+//! tens of MB, not that the retention follows it.
 //!
 //! Only the parser is cached, not the language bound to it. Rebinding
 //! per file costs nothing measurable — the gain survives consecutive

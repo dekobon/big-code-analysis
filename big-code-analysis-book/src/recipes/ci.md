@@ -868,7 +868,12 @@ Applies regardless of provider:
   cgroup-/cpuset-/quota-aware on Linux, OS CPU count on
   macOS/Windows — so CI runners no longer need to thread
   `--jobs "$(nproc)"` through every recipe. `--jobs 1`
-  remains a debugging knob, not a default.
+  remains a debugging knob, not a default. It is *not*
+  memory-aware: each worker holds one whole file in memory at a
+  time, and a parse-only run measures 25–70× the source size, so
+  peak RSS is roughly `jobs × 70 × the largest source file` in
+  the tree. A memory-limited container with many vCPUs should
+  pass an explicit `--jobs`.
 - **Always pass `--strip-prefix "$PWD/"` to `bca report markdown`**
   so the path column is identical across runners with different
   workspace paths. Without it the diff between two reports is

@@ -42,10 +42,6 @@ macro_rules! implement_metric_trait {
     (Cognitive, $($code:ident),+) => (
         $(
            impl Cognitive for $code {
-               // No slot is ever written, so the walker must not
-               // pre-size a nesting map this grammar leaves empty.
-               const SEEDS_NESTING: bool = false;
-
                fn compute<'a>(
                    _node: &Node<'a>,
                    _code: &'a [u8],
