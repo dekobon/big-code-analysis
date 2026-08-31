@@ -3,9 +3,12 @@
 
 use super::*;
 
-/// Returns whether a Bash string node carries any expansion child that
-/// would itself be classified as an operand by [`BashCode::get_op_type`]
-/// (`$var`, `${name[…]}`, `$(cmd)`, `$((expr))`).
+/// Returns whether a Bash string node carries an expansion child the walk
+/// already counts through — `$var`, `${name[…]}`, `$(cmd)`, `$((expr))`.
+/// Only `simple_expansion` is itself an operand; for the other three it is
+/// the leaves beneath them (`ls` in `$(ls)`, `1` in `$((1))`) that carry the
+/// count, and `${#}` carries none at all. Either way the wrapping literal
+/// must not be counted on top (#180).
 #[inline]
 fn bash_string_has_expansion(node: &Node) -> bool {
     node.children().any(|c| {
@@ -75,10 +78,13 @@ impl Getter for BashCode {
             // expansion child, those expansions are already walked and
             // classified as operands; counting the wrapping literal too
             // would double-count the inner identifiers (issue #180).
-            // `RawString` is single-quoted and never interpolates, but
-            // the check is uniform across the four string kinds for
-            // clarity.
-            Bash::String | Bash::RawString | Bash::AnsiCString | Bash::TranslatedString => {
+            // `RawString` is single-quoted and `AnsiCString` is a leaf
+            // token, so neither can interpolate, but the check is uniform
+            // across the three string kinds for clarity.
+            //
+            // `translated_string` is deliberately absent (#1358) — see the
+            // note on `command_name` below, which it shares a shape with.
+            Bash::String | Bash::RawString | Bash::AnsiCString => {
                 if bash_string_has_expansion(node) {
                     HalsteadType::Unknown
                 } else {
@@ -106,6 +112,37 @@ impl Getter for BashCode {
             // `variable_name` leaf, `${#}` — scores zero in argument
             // position too, so the wrapper was masking that gap for command
             // names alone.
+            //
+            // `translated_string` is absent for the same reason (#1358).
+            // `translated_string: $ => seq('$', $.string)` gives it one
+            // required `string` child and no text of its own beyond the
+            // `$`, so `a=$"x"` scored N2 3 for two operands. It also
+            // defeated the #180 expansion guard: the wrapper's own children
+            // are `$` and `string`, so `bash_string_has_expansion` never saw
+            // the `simple_expansion` one level down and `b=$"$y"` counted
+            // both `$"$y"` and `$y`.
+            //
+            // The `string` is the keeper because it is the node present for
+            // *every* spelling. Wherever the grammar omits the wrapper — in
+            // ordinary argument position, `echo $"hi"`, which emits a bare
+            // `$` token and a `string` — the child is still there, so
+            // dropping the wrapper makes each position that *does* carry one
+            // (assignment RHS, `case` subject, command name, `for` list,
+            // array element, redirection target, `[[ ]]` operand, and any
+            // other the grammar admits) agree with argument position rather
+            // than newly disagree (grammar-dispatch §6).
+            //
+            // The residue is `command_name`'s, one level down: `$"${#}"`
+            // scores zero, because its inner `string` wraps an operandless
+            // `expansion`. A plain `"${#}"` already scored zero, so that is
+            // the parity rather than a new gap, and
+            // `bash_translated_string_scores_alike_in_both_positions` pins
+            // both halves of it.
+            //
+            // `Checker::is_string` still matches the wrapper, and that is
+            // not drift: `bca find string` reports nodes, and an
+            // interpolating `"$y"` is likewise a string the operand walk
+            // skips.
             //
             // `_concat` (`Bash::Concat`) is absent for a different reason:
             // it is a hidden zero-width external token the scanner emits

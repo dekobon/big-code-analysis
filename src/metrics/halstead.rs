@@ -4714,6 +4714,72 @@ f() {
         );
     }
 
+    /// Drives one row of a Bash wrapper/leaf double-count table: a grammar
+    /// wrapper whose entire contribution to `N2` was its single,
+    /// already-counted child (`command_name`, #1351; `translated_string`,
+    /// #1358).
+    ///
+    /// `expected` is the post-fix `[n1, N1, n2, N2]`. `(n2_before,
+    /// N2_before)` is what the same source measured while `wrapper` was
+    /// still classified as an operand, and both columns are *re-derived*
+    /// from the current parse rather than merely recorded — the arm was the
+    /// only difference between the two classifications, so:
+    ///
+    /// - `N2_before - N2` must equal the number of `wrapper` nodes. That
+    ///   identity *is* the defect: one spurious operand per wrapper.
+    /// - `n2_before` must equal the post-fix operand vocabulary unioned
+    ///   with the wrapper spellings. It exceeds `n2` wherever the wrapper's
+    ///   whole text is not already an operand in its own right — either
+    ///   because it differs from its single child's (`"$cmd"`, `${cmd}`,
+    ///   `$"ls"`) or because it spans several (`foo$x`, `$(which ls)`,
+    ///   `{1..3}`).
+    ///
+    /// A mistyped or stale column therefore fails rather than misinforming
+    /// the next reader; one did, during review of #1351.
+    #[track_caller]
+    fn assert_bash_wrapper_sheds_one_operand(
+        source: &str,
+        expected: [u64; 4],
+        (n2_before, total_before): (u64, u64),
+        wrapper: Bash,
+    ) {
+        let name: &'static str = wrapper.clone().into();
+        let kind = wrapper as u16;
+        let code = source.as_bytes();
+        let parser = BashParser::new(code.to_vec(), &PathBuf::from("foo.sh"), None);
+        let spellings: Vec<&str> = parser
+            .root()
+            .preorder()
+            .filter(|node| node.kind_id() == kind)
+            .filter_map(|node| node.utf8_text(code))
+            .collect();
+        assert!(
+            !spellings.is_empty(),
+            "row {source:?} parses without a {name}, so it witnesses nothing",
+        );
+        // Phrased as an addition rather than `total_before - expected[3]`: a
+        // future edit that inverts the two would underflow `u64` and panic
+        // with a raw overflow message instead of the one below.
+        assert_eq!(
+            total_before,
+            expected[3] + spellings.len() as u64,
+            "row {source:?} must shed exactly one operand per {name}; \
+             recorded N2_before {total_before}",
+        );
+
+        let ops = crate::ops::ops_inner(&parser, None).expect("ops walk succeeds");
+        let mut vocabulary: HashSet<&str> = ops.operands.iter().map(String::as_str).collect();
+        vocabulary.extend(spellings);
+        assert_eq!(
+            vocabulary.len() as u64,
+            n2_before,
+            "row {source:?}: n2 before the fix is the post-fix vocabulary \
+             plus the {name} spellings; got {vocabulary:?}",
+        );
+
+        assert_halstead_counts::<BashParser>(source, "foo.sh", expected, source);
+    }
+
     /// Regression for #1351, the command-name sibling of #695's bare
     /// `$x`. `command_name` is a pure wrapper: the grammar gives it
     /// exactly one required child (a `_primary_expression` or a
@@ -4726,23 +4792,12 @@ f() {
     /// every row the command name still contributes at least one operand
     /// once the trailing `arg` is discounted.
     ///
-    /// `n2_before` / `N2_before` are what each row measured with the
-    /// wrapper arm in place. They are not free-floating prose — the loop
-    /// re-derives both from the current parse, because the arm was the
-    /// only difference between the two classifications:
-    ///
-    /// - `N2_before - N2` must equal the number of `command_name` nodes.
-    ///   That identity *is* the defect: one spurious operand per command
-    ///   name.
-    /// - `n2_before` must equal the size of the post-fix operand
-    ///   vocabulary unioned with the `command_name` spellings. It exceeds
-    ///   `n2` wherever the wrapper's whole text is not already an operand
-    ///   in its own right — either because it differs from its single
-    ///   child's (`"$cmd"`, `${cmd}`) or because it spans several
-    ///   (`foo$x`, `$(which ls)`, `{1..3}`).
-    ///
-    /// A mistyped or stale column therefore fails rather than misinforming
-    /// the next reader; one did, during review of this very fix.
+    /// `n2_before` / `N2_before` are what each row scores with the
+    /// `command_name` arm restored *against today's tree*, not a historical
+    /// measurement — the `$"ls" arg` row has since lost a
+    /// `translated_string` wrapper to #1358 as well.
+    /// `assert_bash_wrapper_sheds_one_operand` re-derives both from the
+    /// current parse rather than trusting them.
     #[test]
     fn bash_command_name_wrapper_no_double_count() {
         // (source, [n1, N1, n2, N2], (n2_before, N2_before))
@@ -4762,13 +4817,11 @@ f() {
             ("'ls' arg\n", [0, 0, 2, 2], (2, 3)),
             // ansi_c_string
             ("$'ls' arg\n", [0, 0, 2, 2], (2, 3)),
-            // translated_string. FIXME(#1358): N2 3 rather than 2 because
-            // a `translated_string` wraps a `string` and both are
-            // operands — the same wrapper/leaf shape as this fix, in the
-            // same match, but reachable from an assignment RHS and a
-            // `case` subject as well, so it is its own change. This row
-            // pins today's wrong value; flip it with #1358.
-            ("$\"ls\" arg\n", [0, 0, 3, 3], (3, 4)),
+            // translated_string. Two wrappers stacked here — `command_name`
+            // over `translated_string` — so the pre-#1351 column below is
+            // measured against a tree #1358 has already thinned to
+            // `"ls"` + `arg`.
+            ("$\"ls\" arg\n", [0, 0, 2, 2], (3, 3)),
             // simple_expansion
             ("$cmd arg\n", [0, 0, 2, 2], (2, 3)),
             // brace expansion: counts through its inner `variable_name`,
@@ -4786,50 +4839,105 @@ f() {
             // concatenation
             ("foo$x arg\n", [0, 0, 3, 3], (4, 4)),
         ];
-        let path = PathBuf::from("foo.sh");
-        for (source, expected, (n2_before, total_before)) in cases {
-            let code = source.as_bytes();
-            let parser = BashParser::new(code.to_vec(), &path, None);
-            let spellings: Vec<&str> = parser
-                .root()
-                .preorder()
-                .filter(|node| node.kind_id() == Bash::CommandName as u16)
-                .filter_map(|node| node.utf8_text(code))
-                .collect();
-            assert!(
-                !spellings.is_empty(),
-                "row {source:?} parses without a command_name, so it \
-                 witnesses nothing",
-            );
-            // Phrased as an addition rather than `total_before -
-            // expected[3]`: a future edit that inverts the two would
-            // underflow `u64` and panic with a raw overflow message
-            // instead of the one below.
-            assert_eq!(
-                total_before,
-                expected[3] + spellings.len() as u64,
-                "row {source:?} must shed exactly one operand per \
-                 command_name; recorded N2_before {total_before}",
-            );
-
-            let ops = crate::ops::ops_inner(&parser, None).expect("ops walk succeeds");
-            let mut vocabulary: HashSet<&str> = ops.operands.iter().map(String::as_str).collect();
-            vocabulary.extend(spellings);
-            assert_eq!(
-                vocabulary.len() as u64,
-                n2_before,
-                "row {source:?}: n2 before the fix is the post-fix \
-                 vocabulary plus the command_name spellings; got \
-                 {vocabulary:?}",
-            );
-
+        for (source, expected, before) in cases {
             assert!(
                 expected[3] > 1,
                 "row {source:?} must leave the command name at least one \
                  operand beside `arg`; a zero here means the deleted arm \
                  was load-bearing for this spelling",
             );
-            assert_halstead_counts::<BashParser>(source, "foo.sh", expected, source);
+            assert_bash_wrapper_sheds_one_operand(source, expected, before, Bash::CommandName);
+        }
+    }
+
+    /// Regression for #1358, the sibling of #1351 in the same `match`.
+    /// `translated_string: $ => seq('$', $.string)` carries exactly one
+    /// required `string` child and no text of its own beyond the `$`, so
+    /// classifying the wrapper *and* letting the walk reach the child
+    /// counted every `$"…"` twice in `N2`.
+    ///
+    /// The rows assert the total, `N2`. `n2` alone cannot witness this
+    /// double count: the wrapper and its child spell *different* text
+    /// (`$"x"` against `"x"`), so the pre-fix tree split one operand into
+    /// two vocabulary entries rather than repeating one — which is why the
+    /// `n2_before` column is carried too, and checked against the wrapper
+    /// spellings the row actually parses to.
+    #[test]
+    fn bash_translated_string_wrapper_no_double_count() {
+        // (source, [n1, N1, n2, N2], (n2_before, N2_before))
+        let cases: [(&str, [u64; 4], (u64, u64)); 7] = [
+            // Assignment RHS.
+            ("a=$\"x\"\n", [1, 1, 2, 2], (3, 3)),
+            // Empty translated string. The grammar makes the inner `string`
+            // required, so the wrapper is never childless — the condition
+            // grammar-dispatch §6 warns that deletion would regress.
+            ("a=$\"\"\n", [1, 1, 2, 2], (3, 3)),
+            // The one spelling the deleted arm *was* load-bearing for: the
+            // inner `string` wraps an operandless brace `expansion`, so the
+            // whole `$"…"` now scores zero. That is #1351's residue one
+            // level down rather than a new gap — a plain `a="${#}"` already
+            // scored `[1, 1, 1, 1]` — and
+            // `bash_translated_string_scores_alike_in_both_positions` pins
+            // that both positions agree on it.
+            ("a=$\"${#}\"\n", [1, 1, 1, 1], (2, 2)),
+            // `${!}` is the same residue plus a `!`, which the operator arm
+            // counts; it must not turn into an operand along the way.
+            ("a=$\"${!}\"\n", [2, 2, 1, 1], (2, 2)),
+            // `case` subject.
+            ("case $\"y\" in *) ;; esac\n", [4, 4, 1, 1], (2, 2)),
+            // Command-name position, where #1351's wrapper stacks on top of
+            // this one; the `_before` columns here price the
+            // `translated_string` alone.
+            ("$\"ls\" arg\n", [0, 0, 2, 2], (3, 3)),
+            // Interpolating form. `bash_string_has_expansion` inspects the
+            // node's own children, and a `translated_string` has only `$`
+            // and `string`, so it never saw the `simple_expansion` one level
+            // down: the wrapper reintroduced exactly the double count #180
+            // removed, for the `$"…"` spelling alone. Only `$y` and `b` may
+            // survive.
+            ("b=$\"$y\"\n", [1, 1, 2, 2], (3, 3)),
+        ];
+        for (source, expected, before) in cases {
+            assert_bash_wrapper_sheds_one_operand(source, expected, before, Bash::TranslatedString);
+        }
+    }
+
+    /// The load-bearing half of #1358's grammar-dispatch §6 argument, which
+    /// nothing else asserts. In ordinary argument position the grammar emits
+    /// no `translated_string` at all — just a `$` token and a `string` — so
+    /// the `string` is the node present for *every* spelling, and dropping
+    /// the wrapper makes the wrapper-bearing positions agree with argument
+    /// position rather than newly disagree. If a grammar bump starts
+    /// emitting the wrapper here, the deletion has to be re-derived.
+    #[test]
+    fn bash_translated_string_scores_alike_in_both_positions() {
+        // `${#}` carries the residue: it contributes no operand of its own,
+        // so the second row pins that the deletion left *both* positions at
+        // zero rather than only the wrapper-bearing one.
+        for (spelling, expected) in [("$\"hi\"", [0, 0, 2, 2]), ("$\"${#}\"", [0, 0, 1, 1])] {
+            let as_command_name = format!("{spelling} arg\n");
+            let as_argument = format!("cmd {spelling}\n");
+            let parse = |source: &str| {
+                BashParser::new(source.as_bytes().to_vec(), &PathBuf::from("foo.sh"), None)
+            };
+            assert!(
+                !ast_has_kind_id(&parse(&as_argument), Bash::TranslatedString as u16),
+                "argument position must still parse {spelling} as a bare `$` \
+                 plus a `string`; a grammar bump that emits the wrapper here \
+                 invalidates the parity this test rests on",
+            );
+            assert!(
+                ast_has_kind_id(&parse(&as_command_name), Bash::TranslatedString as u16),
+                "command-name position must still emit the wrapper, or the \
+                 pair witnesses nothing",
+            );
+            assert_halstead_counts::<BashParser>(
+                &as_command_name,
+                "foo.sh",
+                expected,
+                &as_command_name,
+            );
+            assert_halstead_counts::<BashParser>(&as_argument, "foo.sh", expected, &as_argument);
         }
     }
 
