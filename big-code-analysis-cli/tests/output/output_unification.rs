@@ -17,6 +17,10 @@
 //! - #1303: the same for the *streaming* stdout destination, which
 //!   cannot sort after the fact — its documents are held in a reorder
 //!   buffer and released in walk order.
+//! - #1304: `preproc --output` closes the same family. Its document is
+//!   not an aggregate of per-file records but one `HashMap` of
+//!   `HashSet`s, so neither of the two fixes above reaches it; the
+//!   ordering is imposed at the library's serialization seam instead.
 
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -765,5 +769,162 @@ fn output_dir_tree_is_identical_across_runs() {
     assert!(
         digests.windows(2).all(|pair| pair[0] == pair[1]),
         "--output-dir must write an identical tree on every run"
+    );
+}
+
+/// The C fixture `preproc` runs over, in creation order. Neither
+/// sorted nor reverse-sorted, so an emission that merely preserved the
+/// walk's arrival order could not match the sorted expectation either.
+/// `x.c` includes `a.h` and `c.h`, and `c.h` includes `b.h`, so `x.c`'s
+/// transitive closure spans every file — which is what makes its
+/// `indirect_includes` a four-element set worth asserting on.
+const PREPROC_FIXTURE: [(&str, &str); 4] = [
+    (
+        "x.c",
+        "#include \"a.h\"\n#include \"c.h\"\nint main(void){return 0;}\n",
+    ),
+    ("c.h", "#include \"b.h\"\n#define MACRO_D 4\n"),
+    ("a.h", "#define MACRO_A 1\n#define MACRO_B 2\n"),
+    ("b.h", "#define MACRO_C 3\n"),
+];
+
+/// Write [`PREPROC_FIXTURE`] under `dir` and return its file paths in
+/// the order the document's `files` keys must carry.
+///
+/// Sorted as `PathBuf`s, not as strings, for the reason
+/// [`write_ordering_fixture`] documents — the keys really are compared
+/// that way. The `indirect_includes` array is `String`s and sorts by
+/// bytes instead, an order this flat single-directory fixture cannot
+/// tell apart from the component-wise one. That distinction is pinned
+/// where it can be built exactly, in
+/// `preproc::tests::serialization_emits_files_and_name_sets_in_sorted_order`;
+/// here the concern is end-to-end wiring, so one list serves both.
+fn write_preproc_fixture(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut expected = Vec::with_capacity(PREPROC_FIXTURE.len());
+    for (name, body) in PREPROC_FIXTURE {
+        let file = dir.join(name);
+        std::fs::write(&file, body).unwrap();
+        expected.push(file);
+    }
+    expected.sort_unstable();
+    expected
+}
+
+/// The path rendered as it appears in the document — a JSON string
+/// literal, quotes and escapes included.
+fn json_string(path: &std::path::Path) -> String {
+    serde_json::to_string(path.to_str().unwrap()).unwrap()
+}
+
+/// Run `preproc --output <FILE>` over `dir` at `--jobs 8` and return
+/// the emitted document as raw text.
+///
+/// Raw text, not a parsed `serde_json::Value`: this workspace
+/// deliberately leaves `serde_json`'s `preserve_order` feature off (the
+/// root `Cargo.toml` says why), so a parsed map re-sorts its own keys
+/// and every key-order assertion over one is vacuously true.
+///
+/// `--no-config` rather than the `cli_in` cwd anchor the sibling tests
+/// use: `preproc` renders a key relative to the working directory when
+/// the file sits under it, so anchoring the cwd at the fixture would
+/// make every key `./a.h` and put the assertions on a rendering
+/// convention instead of on the order. Run from the inherited cwd the
+/// keys are the absolute fixture paths, and `--no-config` supplies the
+/// hermeticity the anchor would have.
+fn preproc_document(dir: &std::path::Path, out: &std::path::Path) -> String {
+    cli()
+        .args([
+            "preproc",
+            "--no-config",
+            "--paths",
+            dir.to_str().unwrap(),
+            "--output",
+            out.to_str().unwrap(),
+            "--jobs",
+            "8",
+        ])
+        .assert()
+        .success();
+
+    std::fs::read_to_string(out).expect("the preproc document is UTF-8")
+}
+
+/// The text opening a `PreprocFile`'s nested include closure.
+const INDIRECT_KEY: &str = "\"indirect_includes\":[";
+
+/// `preproc --output` emits its `files` map in sorted path order, and
+/// each file's include/macro sets in sorted order within that (#1304).
+///
+/// Both containers are hashed (`HashMap<PathBuf, PreprocFile>` holding
+/// `HashSet<String>`s), so before the fix this document was a fresh
+/// permutation on nearly every run: eight runs over a five-file tree
+/// gave eight distinct hashes. The `indirect_includes` assertion is
+/// separate on purpose — it is the nested container, and a fix that
+/// ordered only the top-level map would leave it moving. Perturbing
+/// each half of production alone fails both, measured.
+#[test]
+fn preproc_output_map_and_include_sets_are_sorted() {
+    let dir = TempDir::new().unwrap();
+    let expected = write_preproc_fixture(dir.path());
+    let out = dir.path().join("pp.json");
+
+    let doc = preproc_document(dir.path(), &out);
+
+    // Where each entry's key sits in the raw document. Sorted-path
+    // order is the order they were looked up in, so the positions must
+    // come out strictly increasing.
+    let at: Vec<usize> = expected
+        .iter()
+        .map(|path| {
+            doc.find(&format!("{}:{{", json_string(path)))
+                .unwrap_or_else(|| {
+                    panic!("document must carry an entry for {}: {doc}", path.display())
+                })
+        })
+        .collect();
+    // `windows(2)` over fewer than two entries yields nothing and makes
+    // the assertion below vacuously true, so pin the count first.
+    assert_eq!(
+        at.len(),
+        PREPROC_FIXTURE.len(),
+        "every fixture file must have an entry to order"
+    );
+    assert!(
+        at.windows(2).all(|pair| pair[0] < pair[1]),
+        "the files map must be emitted in sorted path order: {doc}"
+    );
+
+    // `x.c` reaches every fixture file, so its closure is the whole
+    // sorted path list.
+    let x_c = format!("{}:{{", json_string(&dir.path().join("x.c")));
+    let entry = doc.split_once(&x_c).expect("x.c has an entry").1;
+    let array = entry
+        .split_once(INDIRECT_KEY)
+        .expect("x.c's entry carries an indirect_includes array")
+        .1;
+    let emitted = array.split_once(']').expect("the array closes").0;
+    let want: Vec<String> = expected.iter().map(|path| json_string(path)).collect();
+    assert_eq!(
+        emitted,
+        want.join(","),
+        "the nested include closure must be emitted sorted too"
+    );
+}
+
+/// The whole document is byte-identical across runs over an unchanged
+/// tree, which is the property #1304 reports and the one the sibling
+/// destinations already hold.
+#[test]
+fn preproc_output_is_byte_identical_across_runs() {
+    let dir = TempDir::new().unwrap();
+    write_preproc_fixture(dir.path());
+
+    let runs: Vec<String> = (0..DETERMINISM_RUNS)
+        .map(|run| preproc_document(dir.path(), &dir.path().join(format!("pp{run}.json"))))
+        .collect();
+
+    assert!(
+        runs.windows(2).all(|pair| pair[0] == pair[1]),
+        "preproc --output must write the same bytes on every run: {runs:?}"
     );
 }

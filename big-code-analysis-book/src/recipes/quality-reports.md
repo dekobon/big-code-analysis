@@ -155,6 +155,21 @@ anywhere accurate C/C++ analysis matters. Subcommands that do not
 consume it (`vcs`, `preproc`, `list-metrics`, `diff-baseline`)
 reject it as a usage error.
 
+Step 1's document is deterministic: the `files` map is written in
+sorted path order and each entry's `direct_includes`,
+`indirect_includes`, and `macros` arrays in sorted name order, so two
+`bca preproc` runs over an unchanged tree produce byte-identical
+output — on stdout as well as through `--output`. Check
+`/tmp/preproc.json` into a build cache or diff it between branches
+without spurious churn, the same way you can a `metrics --output` or
+`ops --output` document.
+
+Two comparators are in play, which matters only if you re-derive an
+order yourself. The `files` keys are paths and sort component-wise, so
+`a/x.h` precedes `a-b/x.h`; the include and macro arrays are plain
+strings and sort by bytes, where `a-b/x.h` precedes `a/x.h`. Reading
+the document needs neither, and `jq` preserves what was written.
+
 ## Analyze only files changed in a PR
 
 Pipe a list of changed files into `--paths-from -` to score just the

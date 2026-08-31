@@ -193,6 +193,26 @@ section.
     detail — the contract is that these trees tear down in constant
     stack, not the presence of any particular `Drop` body.
   - `FunctionSpan` in `src/function.rs`.
+  - `PreprocResults` and `PreprocFile` in `src/preproc.rs` — the
+    serialization roots of a `bca preproc` document, on `--output` and
+    on stdout alike (one `to_string` feeds both destinations). Their
+    fields keep their `HashMap` / `HashSet` types, so *iteration* order
+    is unspecified as it always was, but since #1304 their `Serialize`
+    impls emit in sorted order. Before that both came straight off hash
+    order and the document differed byte for byte between runs over an
+    unchanged tree.
+
+    The document uses **two** comparators, and a consumer re-deriving
+    either order needs the right one for the field it is reading. The
+    `files` map sorts its `PathBuf` keys **component-wise**, the key
+    `metrics --output` and `ops --output` sort their aggregates on, so
+    the three documents agree. `direct_includes`, `indirect_includes`,
+    and `macros` hold `String`s and sort **byte-lexicographically**.
+    The two disagree wherever a separator interleaves with a byte below
+    `/`: `a-b/x.h` sorts *after* `a/x.h` as a key and *before* it
+    inside an include array, even when both name the same file. The
+    emitted order is part of the contract now — callers may diff or
+    hash a `preproc` document — and will not change before `3.0`.
 - **Offender / catalog enums**
   - `Severity` in `src/output/offenders.rs` (re-exported from the
     crate root): an ordered severity scale carrying

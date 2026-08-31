@@ -1072,3 +1072,100 @@ fn preproc_diagnostic_display_propagates_every_formatter_error() {
         );
     }
 }
+
+/// The serialized document's `files` map and each file's three name
+/// sets come out in sorted order, not in `HashMap` / `HashSet`
+/// iteration order (#1304) — and each in the comparator its own type
+/// defines.
+///
+/// The `a/x.h`, `a-b/x.h`, `a.h/x.h` trio appears twice on purpose,
+/// once as map keys and once inside `indirect_includes`. `Path` orders
+/// component-wise and `str` orders by bytes, so the same three paths
+/// must come out in *opposite* relative orders in the two places:
+/// `-` (0x2D) and `.` (0x2E) both sort below `/` (0x2F) as bytes, but
+/// as paths the shorter first component `a` wins outright. Nothing else
+/// in the suite pins that distinction, and a hook that reached for the
+/// wrong comparator would still be perfectly deterministic — the bug
+/// #1304 reports would read as fixed.
+///
+/// Each hashed container emits a different permutation per process
+/// without its hook, so a coincidental pass needs 5! map orders and
+/// three 5-element sets' orders to land sorted at once. Read the guard
+/// per *attribute* rather than in aggregate, though: the four
+/// `serialize_with`s are independent, and dropping exactly one leaves
+/// a single 5-element container to get lucky with, i.e. 1 in 120 per
+/// run. That is the shape a later edit would take, and it is why the
+/// sets carry five names rather than the two the assertion needs.
+///
+/// The assertion is against a hand-written literal rather than a
+/// re-derived expectation, and against the *raw string* rather than a
+/// parsed `serde_json::Value`: this workspace deliberately leaves
+/// `serde_json`'s `preserve_order` feature off (see the root
+/// `Cargo.toml`), so a parsed map re-sorts its own keys and any
+/// key-order assertion over one is vacuous.
+#[test]
+fn serialization_emits_files_and_name_sets_in_sorted_order() {
+    let mut results = PreprocResults::default();
+    let mut rich = PreprocFile::default();
+    // Every insertion order below is neither sorted nor reverse-sorted,
+    // so an emission that merely preserved (or reversed) insertion
+    // could not pass either.
+    for name in ["q.h", "z.h", "a.h", "m.h", "c.h"] {
+        rich.direct_includes.insert(name.to_owned());
+    }
+    for name in ["a.h/x.h", "w3.h", "a/x.h", "b1.h", "a-b/x.h"] {
+        rich.indirect_includes.insert(name.to_owned());
+    }
+    for name in ["MM", "ZZ", "AA", "YY", "CC"] {
+        rich.macros.insert(name.to_owned());
+    }
+    results.files.insert(PathBuf::from("src/z.c"), rich);
+    for (path, macro_name) in [
+        ("a.h/x.h", "H"),
+        ("hdr/m.h", "M"),
+        ("a-b/x.h", "B"),
+        ("a/x.h", "A"),
+    ] {
+        results
+            .files
+            .insert(PathBuf::from(path), PreprocFile::new_macros(&[macro_name]));
+    }
+
+    let json = serde_json::to_string(&results).expect("preproc results serialize");
+
+    assert_eq!(
+        json,
+        concat!(
+            // Keys: component-wise, so `a/` leads and `a-b/` follows.
+            r#"{"files":{"#,
+            r#""a/x.h":{"direct_includes":[],"indirect_includes":[],"macros":["A"]},"#,
+            r#""a-b/x.h":{"direct_includes":[],"indirect_includes":[],"macros":["B"]},"#,
+            r#""a.h/x.h":{"direct_includes":[],"indirect_includes":[],"macros":["H"]},"#,
+            r#""hdr/m.h":{"direct_includes":[],"indirect_includes":[],"macros":["M"]},"#,
+            r#""src/z.c":{"direct_includes":["a.h","c.h","m.h","q.h","z.h"],"#,
+            // The same three paths as strings: `a-b/` and `a.h/` now
+            // lead, because `-` and `.` sort below `/`.
+            r#""indirect_includes":["a-b/x.h","a.h/x.h","a/x.h","b1.h","w3.h"],"#,
+            r#""macros":["AA","CC","MM","YY","ZZ"]}}}"#,
+        ),
+        "every hashed container must serialize in its own sorted order"
+    );
+
+    // The sort is serialize-side only, so the document must still read
+    // back into the same *content*. Set and map equality is the right
+    // comparison here precisely because this half is about content and
+    // not order — the order contract is the literal above.
+    let back: PreprocResults = serde_json::from_str(&json).expect("document round-trips");
+    let reread = back
+        .files
+        .get(Path::new("src/z.c"))
+        .expect("the populated entry survives the round trip");
+    assert_eq!(
+        reread.direct_includes,
+        ["a.h", "c.h", "m.h", "q.h", "z.h"]
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect::<HashSet<String>>()
+    );
+    assert_eq!(back.files.len(), 5, "every entry survives the round trip");
+}

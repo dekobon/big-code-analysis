@@ -125,19 +125,94 @@ impl std::fmt::Display for PreprocDiagnostic {
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub struct PreprocFile {
     /// The set of include directives explicitly written in a file
+    #[serde(serialize_with = "serialize_sorted_names")]
     pub direct_includes: HashSet<String>,
     /// The set of include directives implicitly imported in a file
     /// from other files
+    #[serde(serialize_with = "serialize_sorted_names")]
     pub indirect_includes: HashSet<String>,
     /// The set of macros of a file
+    #[serde(serialize_with = "serialize_sorted_names")]
     pub macros: HashSet<String>,
 }
 
 /// Preprocessor data of a series of `C/C++` files.
+///
+/// Serializing walks the `files` map in sorted path order and each
+/// [`PreprocFile`]'s name sets in sorted order, so the document is
+/// byte-identical across runs over unchanged sources and can be diffed
+/// or hashed. The fields stay hashed containers, so *iteration* order
+/// remains unspecified.
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub struct PreprocResults {
     /// The preprocessor data of each `C/C++` file
+    #[serde(serialize_with = "serialize_sorted_files")]
     pub files: HashMap<PathBuf, PreprocFile>,
+}
+
+// The four `serialize_with` hooks above exist so `bca preproc --output`
+// writes a byte-identical document across runs over an unchanged tree
+// (#1304), the way `Ops`' vocabularies (#1091), the `metrics` / `ops`
+// aggregates (#1244) and [`fix_includes`]' own diagnostic sequence
+// already do.
+//
+// Sorting at the serialization seam rather than storing ordered
+// containers is deliberate. `files` and the three name sets are public
+// fields on published structs, and [`get_macros`] publishes
+// `HashSet<String>` as its return type, so a `BTreeMap` / `BTreeSet`
+// swap would be a source-level break reserved for the next major. This
+// keeps the in-memory types, the public field types, and the wire shape
+// exactly as they are; only the byte order becomes deterministic.
+//
+// They also do not belong in [`crate::wire`]: that module exists because
+// the *metric* compute types cannot derive `Deserialize` from their
+// derived-value projections, so it mirrors them with a parallel struct
+// set. These two structs are already their own wire shape and round-trip
+// through a plain derive, so a projection would buy a deep clone and a
+// second definition of an identical shape.
+
+/// Serializes a set of names in sorted order.
+///
+/// The elements are `String`s, so this is `str`'s byte-lexicographic
+/// order — *not* the component-wise order
+/// [`serialize_sorted_files`] applies to the map keys, even though an
+/// `indirect_includes` entry and a `files` key can name the same file.
+/// The two disagree wherever a separator interleaves with a byte below
+/// `/` (`a-b/x.h` sorts before `a/x.h` here and after it there). Both
+/// are deterministic, which is the contract; a consumer re-deriving
+/// either order needs the right comparator for the field it is reading.
+///
+/// Set elements are unique, so the order is total and `sort_unstable`
+/// has no observable ties to break.
+fn serialize_sorted_names<S: serde::Serializer>(
+    names: &HashSet<String>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let mut sorted: Vec<&String> = names.iter().collect();
+    sorted.sort_unstable();
+    serializer.collect_seq(sorted)
+}
+
+/// Serializes the per-file map in sorted path order.
+///
+/// Sorts the `PathBuf` keys, so this is `Path`'s **component-wise**
+/// order — `a/x.h` before `a-b/x.h`, the reverse of what comparing the
+/// rendered strings gives. That matches the key `bca metrics --output`
+/// and `bca ops --output` sort their aggregates on, so the three
+/// documents agree; it differs from [`serialize_sorted_names`], which
+/// has only `String`s to compare. Comparing keys rather than a
+/// rendering of them also stays defined for a key this crate could not
+/// decode as UTF-8 — such a key fails the serializer either way, but it
+/// fails at the same point on every run.
+///
+/// Map keys are unique, so the order is total.
+fn serialize_sorted_files<S: serde::Serializer>(
+    files: &HashMap<PathBuf, PreprocFile>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let mut sorted: Vec<(&PathBuf, &PreprocFile)> = files.iter().collect();
+    sorted.sort_unstable_by_key(|&(path, _)| path);
+    serializer.collect_map(sorted)
 }
 
 impl PreprocFile {
