@@ -7845,6 +7845,236 @@ f() {
         check::<ObjcCode>(Objc::CharLiteral as u16, "objc");
     }
 
+    /// #1361 fixture pairing the two spellings of a member access whose
+    /// receiver is the enclosing object: `this->x` and `p->x`.
+    ///
+    /// The pairing is the point, not decoration. `field_expression` is
+    /// `<receiver> -> <field>`, so the two lines are the same AST shape
+    /// and must bill the same *kinds* of thing — a receiver operand, the
+    /// `->` operator, a field operand. Before the fix `this` was in
+    /// neither arm, so the two shapes scored differently and `m1` billed
+    /// a `->` with only one operand around it.
+    ///
+    /// Plain C++ that the mozcpp fork parses identically, so one source
+    /// proves the same thing about both clones.
+    const CPP_THIS_RECEIVER_PARITY: &str = "struct S {
+         int x;
+         int m1() { return this->x; }
+         int m2(S* p) { return p->x; }
+     };";
+
+    /// #1361 fixture holding one representative position per kind of
+    /// container the pinned `tree-sitter-cpp` can put a `this` in: the
+    /// `->` receiver, a dereference inside a parenthesised expression, a
+    /// bare return value, both lambda-capture spellings (`[this]` and
+    /// `[=, this]`), a `decltype` trailing return type, a constructor
+    /// body following a member-initialiser list, and a call argument.
+    ///
+    /// Representative, not exhaustive — `delete this;`, `throw this;`,
+    /// `[&, this]`, a default member initialiser and a `this->template
+    /// f<int>()` all parse cleanly too. Every one of them is the same
+    /// childless `{this:215}` leaf under an unclassified wrapper, which
+    /// is precisely why the arm needs no guard and why enumerating them
+    /// would add rows without adding a distinct path (grammar-dispatch
+    /// section 11).
+    ///
+    /// C++23's explicit object parameter (`int g(this S&& self)`) is
+    /// deliberately absent: the pinned grammar cannot parse it and emits
+    /// `type_identifier "this"` plus an `ERROR`, which
+    /// `for_each_node_with_chain` rejects outright. That spelling is
+    /// already an operand through `TypeIdentifier`, so the construct is
+    /// unaffected by this arm either way.
+    const CPP_THIS_POSITIONS: &str = "struct S {
+         int x;
+         void g(S*);
+         int arrow() { return this->x; }
+         int deref() { return (*this).x; }
+         S* ret() { return this; }
+         void cap() { auto l = [this]() { return x; }; }
+         void cap2() { auto l = [=, this]() { return x; }; }
+         auto trail() -> decltype(this->x) { return x; }
+         S(int v) : x(v) { this->x = v; }
+         void call() { g(this); }
+     };";
+
+    /// Asserts `CPP_THIS_RECEIVER_PARITY` for one C++-family language,
+    /// through the metrics store *and* the text-keyed `--ops` store
+    /// (the lesson-4 invariant `n2 == len(dedupe(ops.operands))`).
+    ///
+    /// The `--ops` half pins *which text* the new operand is billed
+    /// under, which the counts alone cannot see: billing the enclosing
+    /// `field_expression` instead of the `this` leaf would hold `n2` at
+    /// 6 while the vocabulary silently became `this->x`.
+    #[track_caller]
+    fn assert_this_receiver_parity<T: crate::ParserTrait>(file: &str, label: &str) {
+        // Operators, keyed by kind_id except the text-keyed primitives:
+        // `{` x3 (class body, `m1`, `m2`), `int` x3, `;` x4 (the field,
+        // the two returns, the struct terminator), `(` x2, `return` x2,
+        // `->` x2, and the one `*` of `S* p`. `struct` is in no arm, and
+        // #695 dropped every closing delimiter. n1 = 7, N1 = 17.
+        //
+        // Operands, keyed by source text: `S` x2 (the name and the
+        // parameter type), `x` x3, `m1`, `m2`, `p` x2, and — the fix —
+        // `this` x1. n2 = 6, N2 = 10. Before #1361: n2 5, N2 9, with
+        // every operator count identical, which is the whole claim.
+        let counts = format!("{label}: this->x and p->x are the same shape");
+        assert_halstead_counts::<T>(CPP_THIS_RECEIVER_PARITY, file, [7, 17, 6, 10], &counts);
+        assert_ops_operands::<T>(
+            CPP_THIS_RECEIVER_PARITY,
+            file,
+            6,
+            vec!["S", "x", "m1", "m2", "p", "this"],
+        );
+    }
+
+    /// Regression for #1361: a C++ `this` is a Halstead operand.
+    ///
+    /// `Cpp::This` / `Mozcpp::This` were in neither arm of
+    /// `CppCode::get_op_type` / `MozcppCode::get_op_type`, so a `this`
+    /// contributed *nothing* — not an operator and not an operand —
+    /// while ten of the thirteen languages here bill their
+    /// self-reference as an operand. Same shape as #1316's character
+    /// literals, and the inverse of the #1351-#1355 over-counts.
+    ///
+    /// Each language asserts separately over the same source rather than
+    /// sharing one call, so reverting one clone's arm fails that row
+    /// alone (grammar-dispatch section 11). Mozcpp owns no file
+    /// extension, so no integration snapshot reaches its clone; this row
+    /// and `cpp_and_mozcpp_agree_on_this` in `tests/parity/` are the
+    /// whole coverage that arm has.
+    #[test]
+    fn cpp_this_is_an_operand() {
+        assert_this_receiver_parity::<CppParser>("this.cpp", "cpp");
+        assert_this_receiver_parity::<MozcppParser>("this.cpp", "mozcpp");
+    }
+
+    /// Every `this` in `CPP_THIS_POSITIONS` classifies as an operand,
+    /// whichever syntactic position it stands in (#1361).
+    ///
+    /// The counts in `cpp_this_is_an_operand` are measured on one
+    /// position only. An arm reached through a parent-scoped guard —
+    /// the shape the neighbouring `RawStringLiteral` `LPAREN` arm uses,
+    /// and the shape a reviewer might reasonably add here — would pass
+    /// that test and still drop `this` in a lambda capture or a
+    /// `decltype`. This walk is what makes the arm's unconditional
+    /// reach a measurement rather than an assumption.
+    #[test]
+    fn cpp_this_is_an_operand_in_every_position() {
+        fn check<L: LanguageInfo + Getter>(label: &str) {
+            let mut seen = 0_usize;
+            for_each_node_with_chain::<L>(CPP_THIS_POSITIONS.as_bytes(), |node, chain| {
+                if node.kind() != "this" {
+                    return;
+                }
+                seen += 1;
+                // `_with_code` is the spelling `compute_halstead` calls.
+                // The default forwards to the byte-less form, so the two
+                // agree for both languages today — which is exactly why
+                // asking the wrong one would read as correct right up
+                // until one of them grew an override
+                // (grammar-dispatch section 7).
+                assert!(
+                    matches!(
+                        L::get_op_type_with_code(
+                            node,
+                            CPP_THIS_POSITIONS.as_bytes(),
+                            Ancestors::known(chain)
+                        ),
+                        HalsteadType::Operand
+                    ),
+                    "{label}: a `this` under `{}` is not an operand",
+                    chain.last().map_or("<root>", Node::kind)
+                );
+            });
+            // One per position: `->` receiver, `(*this)`, bare return,
+            // `[this]`, `[=, this]`, `decltype(this->x)`, the
+            // constructor body, and the call argument.
+            assert_eq!(seen, 8, "{label}: fixture lost a `this` position");
+        }
+
+        check::<CppCode>("cpp");
+        check::<MozcppCode>("mozcpp");
+    }
+
+    /// Pins the two grammar facts the #1361 operand arm rests on, across
+    /// both fixtures and both languages.
+    ///
+    /// * **Grammar-dispatch section 1.** Every node the grammar spells
+    ///   `this` carries the one `kind_id` the arm lists. That is the
+    ///   weaker half of the alias evidence — an alias arises in a
+    ///   *different* syntactic position, which no fixture can enumerate.
+    ///   The strong half is that these generated enums carry
+    ///   numeric-suffix aliases in quantity (`FunctionDefinition2..4`,
+    ///   `QualifiedIdentifier2..4`, `LPAREN2`, `Try2`, `GT2` in this one
+    ///   file) and neither spells a `This2` — `This = 215` is the sole
+    ///   variant rendering `"this"` in `language_cpp.rs` and
+    ///   `language_mozcpp.rs`. This loop is what notices if a grammar
+    ///   bump changes that under an existing fixture.
+    /// * **Grammar-dispatch section 5.** A `this` is a childless leaf and
+    ///   no node containing it is classified. That is both halves of the
+    ///   double-count question: nothing below it can be billed a second
+    ///   time, and no `field_expression` / `pointer_expression` /
+    ///   `lambda_capture_specifier` / `argument_list` wrapper bills the
+    ///   same source text from above.
+    #[test]
+    fn cpp_this_is_a_childless_unaliased_leaf() {
+        fn check<L: LanguageInfo + Getter>(this: u16, label: &str) {
+            let mut seen = 0_usize;
+            for source in [CPP_THIS_RECEIVER_PARITY, CPP_THIS_POSITIONS] {
+                for_each_node_with_chain::<L>(source.as_bytes(), |node, chain| {
+                    if node.kind() != "this" {
+                        return;
+                    }
+                    seen += 1;
+                    assert_eq!(
+                        node.kind_id(),
+                        this,
+                        "{label}: a `this` carries kind_id {} rather than the {this} the \
+                         operand arm lists — an alias the arm cannot see",
+                        node.kind_id()
+                    );
+                    assert_eq!(
+                        node.child_count(),
+                        0,
+                        "{label}: `this` grew children, which the operand arm would now \
+                         double-count against"
+                    );
+                    assert!(!chain.is_empty(), "{label}: a `this` cannot be the root");
+                    // Every ancestor, not just the parent. The claim is
+                    // that *no node containing* a `this` is classified,
+                    // and `(*this)` alone puts two wrappers between the
+                    // leaf and the nearest classified node — checking
+                    // only `chain.last()` would assert something
+                    // narrower than the comment on the arm promises.
+                    // `chain` is the *node's* ancestry, so the ancestor
+                    // at `i` has `chain[..i]` for its own.
+                    for (i, ancestor) in chain.iter().enumerate() {
+                        assert!(
+                            matches!(
+                                L::get_op_type_with_code(
+                                    ancestor,
+                                    source.as_bytes(),
+                                    Ancestors::known(&chain[..i])
+                                ),
+                                HalsteadType::Unknown
+                            ),
+                            "{label}: `{}` contains a `this` and is itself classified, so the \
+                             reference now counts twice",
+                            ancestor.kind()
+                        );
+                    }
+                });
+            }
+            // One `this` in the parity fixture, eight in the positions
+            // fixture. Asserted so a fixture that stopped containing one
+            // cannot make this test pass having checked nothing.
+            assert_eq!(seen, 9, "{label}: fixtures lost a `this`");
+        }
+
+        check::<CppCode>(Cpp::This as u16, "cpp");
+        check::<MozcppCode>(Mozcpp::This as u16, "mozcpp");
+    }
+
     /// Builds a `HalsteadMaps` from explicit occurrence counts.
     ///
     /// The per-language tests above reach these maps only through a

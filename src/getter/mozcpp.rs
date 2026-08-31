@@ -112,8 +112,20 @@ impl Getter for MozcppCode {
             // classified node in a character literal, so it bills one
             // operand per literal, keyed by text, and `Checker::is_string`
             // deliberately stays without a `CharLiteral` arm.
+            //
+            // `This` — the operator-vs-operand derivation lives on the
+            // same arm in `src/getter/cpp.rs` (#1361), where the fork's
+            // upstream carries it. In short: `this` had been in neither
+            // arm and so contributed nothing, and it is an operand
+            // because it is the *receiver* half of `<recv> -> <field>`,
+            // exactly where `p` stands in `p->x`. Mozcpp owns no file
+            // extension, so nothing routes to it and no integration
+            // snapshot reaches this clone — `cpp_and_mozcpp_agree_on_this`
+            // in `tests/parity/cpp_mozcpp_parity.rs` is what keeps it
+            // from drifting, the same guard the `RawStringLiteral`
+            // `LPAREN` arm above relies on.
             Identifier | TypeIdentifier | FieldIdentifier | RawStringLiteral | StringLiteral
-            | CharLiteral | NumberLiteral | True | False | Null | DOTDOTDOT => {
+            | CharLiteral | NumberLiteral | True | False | Null | This | DOTDOTDOT => {
                 HalsteadType::Operand
             }
             // A namespace identifier is an operand only where it

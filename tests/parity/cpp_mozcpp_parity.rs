@@ -45,6 +45,21 @@ fn metric_sums(lang: LANG, source: &str, ext: &str) -> Vec<(&'static str, u64)> 
     ]
 }
 
+/// The value `metric_sums` recorded for `key`, panicking with the whole
+/// row set when the key is absent.
+///
+/// A missing key means `metric_sums` stopped reporting that metric, and
+/// the three call sites below each name several — swallowing it into a
+/// `0` would turn a dropped metric into a plausible assertion failure
+/// about a number the run never produced.
+#[track_caller]
+fn metric(sums: &[(&'static str, u64)], key: &str) -> u64 {
+    sums.iter().find(|(k, _)| *k == key).map_or_else(
+        || panic!("metric_sums omitted {key}: {sums:?}"),
+        |(_, v)| *v,
+    )
+}
+
 #[test]
 fn cpp_and_mozcpp_agree_on_plain_cpp() {
     // Plain C++: `new` / compound-assign / `<=>` / `try`-`catch` are all
@@ -78,11 +93,7 @@ fn cpp_and_mozcpp_agree_on_plain_cpp() {
     // all three ABC dimensions — in particular `conditions`, which is
     // exactly where the docstring's load-bearing `<=>` / `try` / `catch`
     // constructs accumulate.
-    let get = |key: &str| {
-        cpp.iter()
-            .find(|(k, _)| *k == key)
-            .map_or_else(|| panic!("metric_sums omitted {key}: {cpp:?}"), |(_, v)| *v)
-    };
+    let get = |key: &str| metric(&cpp, key);
     // conditions: `<=>` +1, the `< 0` on its result +1, the `if (a < b)`
     // +1, `try` +1, `catch` +1, the `less ? a : b` ternary +1, and that
     // ternary's bare-identifier condition operand +1 (#1102) = 7.
@@ -117,11 +128,7 @@ fn cpp_and_mozcpp_agree_on_raw_string_delimiters() {
         "Cpp and Mozcpp must agree on raw-string delimiter classification"
     );
 
-    let get = |key: &str| {
-        cpp.iter()
-            .find(|(k, _)| *k == key)
-            .map_or_else(|| panic!("metric_sums omitted {key}: {cpp:?}"), |(_, v)| *v)
-    };
+    let get = |key: &str| metric(&cpp, key);
     // Operators: `;` x 3, `=` x 3, `int`, and the one `()` from `f(a)`
     // -> N1 = 8. Before the guard the two raw-string openers added two
     // more `()` -> N1 = 10.
@@ -136,5 +143,50 @@ fn cpp_and_mozcpp_agree_on_raw_string_delimiters() {
         get("halstead.operands"),
         7,
         "both raw-string literals must still count as operands: {cpp:?}"
+    );
+}
+
+#[test]
+fn cpp_and_mozcpp_agree_on_this() {
+    // #1361 added `This` to the operand arm of both `CppCode::get_op_type`
+    // and its `MozcppCode` clone. Mozcpp owns no file extension, so
+    // nothing else at the metric level exercises its copy.
+    //
+    // The fixture pairs `this->x` with `p->x`, which are the same
+    // `<receiver> -> <field>` shape. That pairing is what separates "the
+    // receiver stopped counting" from "every operand stopped counting":
+    // an arm that dropped `this` again takes N2 to 9 while N1 stays at
+    // 17, and only the operand row moves.
+    let source = r"
+        struct S {
+            int x;
+            int m1() { return this->x; }
+            int m2(S* p) { return p->x; }
+        };
+    ";
+
+    let cpp = metric_sums(LANG::Cpp, source, "cpp");
+    let mozcpp = metric_sums(LANG::Mozcpp, source, "cpp");
+    assert_eq!(
+        cpp, mozcpp,
+        "Cpp and Mozcpp must agree on `this` classification"
+    );
+
+    let get = |key: &str| metric(&cpp, key);
+    // Operators: `{` x3, `int` x3, `;` x4, `(` x2, `return` x2, `->` x2,
+    // and the `*` of `S* p` -> N1 = 17. `this` must not appear here —
+    // classifying it as an operator (the Java / C# / Kotlin reading,
+    // #1380) would take this to 18 and the operand row to 9.
+    assert_eq!(
+        get("halstead.operators"),
+        17,
+        "`this` must not be billed as an operator: {cpp:?}"
+    );
+    // Operands: `S` x2, `x` x3, `m1`, `m2`, `p` x2, `this` -> N2 = 10.
+    // Before #1361 `this` was in neither arm, so this was 9.
+    assert_eq!(
+        get("halstead.operands"),
+        10,
+        "`this` must be billed as an operand: {cpp:?}"
     );
 }

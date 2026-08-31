@@ -133,8 +133,62 @@ impl Getter for CppCode {
             // classified node in a character literal, so it bills one
             // operand per literal, keyed by text, and `Checker::is_string`
             // deliberately stays without a `CharLiteral` arm.
+            //
+            // `This` was in *neither* arm until #1361, so a C++ `this`
+            // contributed nothing at all: not an operator and not an
+            // operand. Same shape as #1316, opposite of the #1351-#1355
+            // wrapper/leaf over-counts — the fix adds an arm rather than
+            // deleting one.
+            //
+            // Operand, not operator, on three grounds. **Structure**:
+            // `field_expression` is `<receiver> -> <field>`, and `p->x`
+            // already bills operands `p` / `x` around the `->` operator.
+            // Calling `this` an operator would make `this->x` a binary
+            // operator with one operand, and would score the identical
+            // AST differently for `this->x` than for `p->x`.
+            // **Role**: `this` is a pointer *rvalue* and stands exactly
+            // where a variable stands — `return this;`, `*this`,
+            // `f(this)`, which would otherwise pass an operator as a
+            // call argument — while `->` / `.` / `*` are the operators
+            // already counted acting on it. **Precedent**: eleven of the
+            // fourteen languages here bill their self-reference as an
+            // operand (Rust `Zelf`, Ruby `Zelf`, PHP's `$this`
+            // `variable_name`, the four JS-family `This` arms, and
+            // Python / ObjC / Groovy / Lua, whose grammars spell it a
+            // plain `identifier`), and the JS-family arm in
+            // `src/getter.rs` is the only *reasoned* one among them —
+            // its `MetaProperty` note calls `this` "one atomic operand". Java / C# / Kotlin disagree, but each
+            // swept `This` in as one entry in a run of keywords — under
+            // `// Operator: keywords`, `// Operator: other keywords` and
+            // `// Expression-keyword operators` respectively — grouping
+            // it by lexical class rather than by Halstead role; that
+            // three-way split is #1380, deliberately not settled here.
+            // Keeping C++ an operand also keeps it agreeing with ObjC,
+            // whose `self` is an operand and whose `.mm` files route to
+            // this very impl.
+            //
+            // Safe against a grammar-dispatch section 5 double count:
+            // `this` is a childless leaf in every position the grammar
+            // admits it — `this->x`, `(*this)`, `return this`, `f(this)`,
+            // the `[this]` and `[=, this]` lambda captures, a
+            // `decltype(this->x)` trailing return type, and a
+            // constructor body after a member-initialiser list — and no
+            // node that *contains* it (`field_expression`,
+            // `pointer_expression`, `lambda_capture_specifier`,
+            // `argument_list`) is classified, so it can double-count in
+            // neither direction. Neither generated enum aliases the rule
+            // (`This = 215` is the sole variant spelling `"this"` in
+            // `language_cpp.rs` and `language_mozcpp.rs`), so there is no
+            // `This2` for a single-variant arm to miss;
+            // `cpp_this_is_a_childless_unaliased_leaf` pins both facts.
+            //
+            // C++23's explicit object parameter (`int g(this S&& self)`)
+            // does *not* reach this arm: the pinned grammar cannot parse
+            // it and emits `type_identifier "this"` plus an `ERROR`. That
+            // spelling is already an operand via `TypeIdentifier`, so the
+            // construct is unaffected either way.
             Identifier | TypeIdentifier | FieldIdentifier | RawStringLiteral | StringLiteral
-            | CharLiteral | NumberLiteral | True | False | Null | DOTDOTDOT => {
+            | CharLiteral | NumberLiteral | True | False | Null | This | DOTDOTDOT => {
                 HalsteadType::Operand
             }
             // A namespace identifier is an operand only where it
