@@ -3,14 +3,18 @@
 
 use super::*;
 
-/// The braced-word kinds `Getter::is_subsumed_braced_word` is
-/// instantiated with (#1354): the literal *value* form the guard keys
-/// on, the *script* form it gates on holding a command, and the comment
-/// kind that gate must not mistake for one.
+/// The braced-word kinds `Getter::is_subsumed_braced_word` and
+/// `Getter::braced_word_op_type` are instantiated with (#1354, #1318) —
+/// the twin of the Tcl table, at this grammar's own id block. Every
+/// field means what the Tcl one documents; only the ids differ.
 const BRACED_WORD_KINDS: BracedWordKinds = BracedWordKinds {
     value: Irules::BracedWordSimple as u16,
     script: Irules::BracedWord as u16,
     comment: Irules::Comment as u16,
+    command: Irules::Command as u16,
+    word_list: Irules::WordList as u16,
+    simple_word: Irules::SimpleWord as u16,
+    argument: Irules::Argument as u16,
 };
 
 impl Getter for IrulesCode {
@@ -187,6 +191,27 @@ impl Getter for IrulesCode {
 
             _ => HalsteadType::Unknown,
         }
+    }
+
+    // The byte-reading half of the braced-word rule (#1318) — the twin
+    // of the Tcl override, which carries the derivation. This grammar
+    // models more of the script positions than Tcl's does (`for`,
+    // `switch` with `switch_arm` children, `when`, and the three `dict`
+    // loops all have nodes of their own), so fewer braced words reach
+    // the command-name recognition here; the ones that do — `eval`,
+    // `uplevel`, `after`, `time` and every user proc — behave exactly
+    // as they do in Tcl. Two entries in that list exist for this
+    // dialect alone: `on_handler` / `trap_handler` are emitted only
+    // under `try` (pinned by
+    // `irules_try_handler_kinds_appear_only_under_try`), so a
+    // statement-level `on error {…}` or `trap {…}` is a generic
+    // command and needs its name recognised.
+    fn get_op_type_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> HalsteadType {
+        Self::braced_word_op_type(node, code, ancestors, &BRACED_WORD_KINDS)
     }
 
     get_operator!(Irules);

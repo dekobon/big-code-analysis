@@ -3,14 +3,23 @@
 
 use super::*;
 
-/// The braced-word kinds `Getter::is_subsumed_braced_word` is
-/// instantiated with (#1354): the literal *value* form the guard keys
-/// on, the *script* form it gates on holding a command, and the comment
-/// kind that gate must not mistake for one.
+/// The braced-word kinds `Getter::is_subsumed_braced_word` and
+/// `Getter::braced_word_op_type` are instantiated with (#1354, #1318):
+/// the literal *value* form the guard keys on, the *script* form it
+/// gates on holding a command, the comment kind that gate must not
+/// mistake for one, and the four kinds #1318's role recognition walks —
+/// the generic `command`, its `word_list` argument list, the
+/// `simple_word` a resolvable command name is spelled with, and the
+/// `argument` whose braced child is a parameter default rather than a
+/// script.
 const BRACED_WORD_KINDS: BracedWordKinds = BracedWordKinds {
     value: Tcl::BracedWordSimple as u16,
     script: Tcl::BracedWord as u16,
     comment: Tcl::Comment as u16,
+    command: Tcl::Command as u16,
+    word_list: Tcl::WordList as u16,
+    simple_word: Tcl::SimpleWord as u16,
+    argument: Tcl::Argument as u16,
 };
 
 impl Getter for TclCode {
@@ -70,7 +79,11 @@ impl Getter for TclCode {
             // `if`/`while` condition is an `Expr` (97), and a `proc`
             // parameter list is `Arguments` (94). All three keep their
             // braces as operators, which is what makes keying the value
-            // half on `BracedWordSimple` safe.
+            // half on `BracedWordSimple` safe. (#1318 later carved one
+            // exception out of that list from the other side: a
+            // *defaulted parameter's* value is a `BracedWord` under an
+            // `Argument` (93), and a default is data, so it loses its
+            // brace — the enclosing `Arguments` list keeps its own.)
             //
             // Two limits of the value half, both deliberate and both
             // pinned rather than left implied.
@@ -94,23 +107,38 @@ impl Getter for TclCode {
             // And the grammar emits `BracedWordSimple` only in the
             // value slot of the commands it special-cases, so
             // `lappend x {a b}` parses its literal as a `BracedWord`
-            // script and still fabricates a `{}`. Guarding that kind
-            // too would drop every real block, so closing it needs
-            // command-name recognition (grammar-dispatch §9) rather
-            // than another kind arm — FIXME(#1318). iRules carries the
-            // twin of all of this.
+            // script and its `{` kept fabricating a block. Guarding
+            // that kind here too would drop every real block, so #1318
+            // closed it out-of-band instead, by the enclosing command's
+            // leading word (grammar-dispatch §9) — in
+            // `get_op_type_with_code` below, because the recognition
+            // needs the source bytes. It touches the brace and nothing
+            // else, so every operand this arm decides is unchanged.
             //
             // Cross-walked against the sibling predicates
             // (grammar-dispatch §7) and left as it was:
             // `Checker::is_string` and `Alterator::alterate` both list
             // `BracedWord` beside the two literal forms, so
-            // `bca find -f string` reports a `proc` body as a string
+            // `bca find --type string` reports a `proc` body as a string
             // literal while this arm gives it no operand. That
             // disagreement predates #1354 in shape — an interpolating
             // `QuotedWord` is already `Unknown` here and a string
-            // there — and calling a script body a string is #1318's
-            // role conflation rather than this arm's, so changing
-            // `find`'s answer is left to that issue.
+            // there. #1318 now has the predicate that would settle it
+            // (`Getter::is_value_braced_word`), but `Checker::is_string`
+            // takes neither `code` nor `ancestors`, so applying it there
+            // is a trait widening across all twenty-odd languages rather
+            // than a Tcl edit — filed as #1381. The literal half is
+            // already right: `bca find --type string` reports
+            // `lappend x {a b}`'s `{a b}`, which is a string.
+            //
+            // `Checker::is_call` needs no such follow-up. It calls
+            // every `Command` a call, including the ones inside a value
+            // braced word — and so does this arm, which still bills
+            // their operands. The two agree precisely because #1318
+            // withdrew the brace and not the contents; a rule that
+            // suppressed the contents would have put the getter and
+            // every branching metric on opposite sides of the same
+            // bytes.
             _ if Self::is_subsumed_braced_word(node, ancestors, &BRACED_WORD_KINDS) => {
                 HalsteadType::Unknown
             }
@@ -215,10 +243,9 @@ impl Getter for TclCode {
             // whose brace pair is its only carrier, and deleting the
             // kind scored it zero where its `lappend l ""` synonym
             // scores one. An empty or comment-only `proc` body is
-            // spelled identically and so also counts one — accepted
-            // rather than argued away, since no kind-scoped arm can
-            // separate the two roles (the same conflation FIXME(#1318)
-            // tracks on the operator side).
+            // spelled identically and so also counts one — #1318 can
+            // now tell the two roles apart, but it revises only the
+            // brace, so nothing here changes.
             Tcl::SimpleWord
             | Tcl::Number
             | Tcl::BracedWord
@@ -242,6 +269,23 @@ impl Getter for TclCode {
 
             _ => HalsteadType::Unknown,
         }
+    }
+
+    // The half of the braced-word rule that needs the source bytes
+    // (#1318). `braced_word` serves two roles — the block of
+    // `eval {…}` and the literal of `lappend x {a b}` — and the
+    // grammar spells both the same, so only the enclosing command's
+    // leading word tells them apart (grammar-dispatch §9). This is the
+    // spelling the walk calls (`compute_halstead` →
+    // `get_op_type_with_code`), so the revision reaches every count;
+    // `get_op_type` above stays the byte-less answer for the two
+    // callers that have no source to offer.
+    fn get_op_type_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> HalsteadType {
+        Self::braced_word_op_type(node, code, ancestors, &BRACED_WORD_KINDS)
     }
 
     get_operator!(Tcl);

@@ -542,12 +542,30 @@ tokens involved the same way they spell real operators:
   and a Perl or Ruby pattern each contribute *one operand* — the
   literal — and no operator for the punctuation around it. Otherwise
   the score would move with the author's choice of delimiter, which
-  says nothing about the code. One known exception, tracked in
-  [#1318](https://github.com/dekobon/big-code-analysis/issues/1318):
-  the Tcl grammar parses a braced literal as a *script* everywhere
-  except the value slot of the handful of commands it special-cases,
-  so `lappend x {a b}` still reports a `{}` operator and bills the
-  words inside the braces rather than the literal.
+  says nothing about the code. Tcl and iRules need one extra step to
+  honour this, because their grammars spell a braced literal and a
+  braced script body the same way: whether `{a b}` is a block or a
+  quoted value depends on the command it is passed to, so the
+  classifier reads that command's name. `eval {…}`, `uplevel`,
+  `after`, `time`, and Tcl's `for` and `switch` take scripts and keep
+  their `{}` operator, as does every construct the grammar models with
+  a node of its own (`proc`, `if`, `while`, `foreach`, `catch`, `try`,
+  `namespace`, an iRules `when` handler) — except a defaulted `proc`
+  parameter (`proc p {a {b {x y}}}`), which holds data the interpreter
+  assigns rather than a script it runs. Every other command —
+  `lappend`, `puts`, `list`, and any user-defined proc — is taken to
+  receive a value, so its braces score no operator.
+
+  This decides the *operator* only. The words inside a braced argument
+  are counted either way, because an unrecognised command is as likely
+  to have been handed real code (an `oo::class create C {…}` body, a
+  `tcltest` `-body {…}`) as a list. So a script passed to a command
+  outside the list — a Tk `-command {…}` callback, say — gives up one
+  `{}` occurrence and nothing else. The remaining asymmetry is that a
+  braced value scores one operand where the grammar names the command
+  (`set x {a b}`) and one per word where only the command name would
+  (`lappend x {a b}`); closing that needs a signal neither grammar
+  gives.
 - **A string-interpolation opener is not an operator.** `"{$x}"` in
   PHP, `"#{x}"` in Ruby and Elixir, `"${x}"` in Kotlin and Groovy and
   `$"{x}"` in C# all count the interpolated expression's own operators

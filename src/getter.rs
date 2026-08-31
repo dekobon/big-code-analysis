@@ -289,9 +289,10 @@ pub(crate) fn default_func_space_name<'a, 'tree>(
 /// are not.
 #[doc(hidden)]
 /// The kinds one Tcl-family dialect spells the braced-word construct
-/// with, for [`Getter::is_subsumed_braced_word`]. A struct rather than
-/// three `u16` parameters because the ids are same-typed and positional:
-/// a transposed pair compiles and silently inverts the rule for that
+/// with, for [`Getter::is_subsumed_braced_word`] and
+/// [`Getter::braced_word_op_type`]. A struct rather than a row of `u16`
+/// parameters because the ids are same-typed and positional: a
+/// transposed pair compiles and silently inverts the rule for that
 /// dialect.
 pub(crate) struct BracedWordKinds {
     /// `braced_word_simple`, the literal *value* form.
@@ -301,7 +302,98 @@ pub(crate) struct BracedWordKinds {
     /// `comment`, the one named child of a script that is not a
     /// command.
     pub(crate) comment: u16,
+    /// `command`, the generic command node. Its `name` field carries
+    /// the leading word [`Getter::is_value_braced_word`] recognises the
+    /// construct by, and it is the only parent a *generic* argument
+    /// list hangs from. The hidden `_command` supertype (`Command2` in
+    /// both enums) is deliberately absent: the parser never emits it
+    /// (grammar-dispatch §2).
+    pub(crate) command: u16,
+    /// `word_list`, a command's `arguments` field — and, in both
+    /// grammars, also the argument list of the modelled `namespace`
+    /// construct, which is why the rule reads the grandparent rather
+    /// than stopping here.
+    pub(crate) word_list: u16,
+    /// `simple_word`, the only spelling of a command name this rule
+    /// resolves. A computed name (`$cmd {…}`, `[pick] {…}`) parses as
+    /// `variable_substitution` / `command_substitution` and is not
+    /// statically resolvable at all.
+    pub(crate) simple_word: u16,
+    /// `argument`, one entry of a `proc` parameter list. A modelled
+    /// slot that holds a *value* rather than a script: a defaulted
+    /// parameter (`proc p {a {b {x y}}}`) spells its default as a
+    /// `braced_word`, and a default is never evaluated as code.
+    pub(crate) argument: u16,
 }
+
+/// The core Tcl-family commands that evaluate a braced argument as a
+/// *script* and that neither dialect's grammar models with a node of its
+/// own (#1318).
+///
+/// A command the grammar *does* model — `proc`, `if`, `while`,
+/// `foreach`, `catch`, `try`, `namespace`, iRules' `when`, `for`,
+/// `switch` and `dict for` / `dict update` / `dict with` — needs no
+/// entry: its body is a child of that construct's own node rather than
+/// of a generic `command`, which
+/// [`Getter::generic_argument_command`] already answers `None` for.
+/// `for` and `switch` appear here because the *Tcl* grammar models
+/// neither (#467, #1264); the iRules grammar models both, so those two
+/// rows are live for one dialect and inert for the other.
+///
+/// Each entry is a command whose documented syntax puts a script in a
+/// braced argument:
+///
+/// | command | syntax |
+/// | --- | --- |
+/// | `after` | `after ms script` |
+/// | `eval` | `eval arg ?arg …?` |
+/// | `for` | `for start test next body` — all four are evaluated |
+/// | `on` | `on error {script}`, the iRules `try` clause |
+/// | `switch` | `switch ?options? string pattern body ?pattern body …?` |
+/// | `time` | `time script ?count?` |
+/// | `trap` | `trap {script}`, the iRules `try` clause |
+/// | `uplevel` | `uplevel ?level? arg ?arg …?` |
+///
+/// `on` and `trap` are listed because the iRules grammar models
+/// `on_handler` / `trap_handler` only *under* `try` (pinned by
+/// `irules_try_handler_kinds_appear_only_under_try`); written at
+/// statement level they parse as generic commands, and neither word
+/// takes a value in either dialect.
+///
+/// `lmap varname list body` is deliberately **not** listed even though
+/// its body is a script: the list is per-command, not per-argument, so
+/// listing it would bill `lmap i {1 2 3} {…}`'s *list* as a block —
+/// the same spelling sensitivity this rule exists to remove, and worse
+/// than the one occurrence its body gives up. `for` and `switch` have
+/// no such argument (`for`'s four are all evaluated, `switch`'s braced
+/// argument is the arm list).
+///
+/// Subcommand-dispatched script takers (`dict for`, `interp eval`,
+/// `trace add … {script}`) are absent for a related reason: the
+/// leading word alone cannot tell `dict for` from `dict set`, and
+/// admitting it would misclassify the far commoner value-taking
+/// spellings. Tk callbacks (`bind`, `fileevent`, a `-command {…}`
+/// option) are absent for the same reason as any user proc.
+///
+/// This list is the whole of the heuristic, and it is knowingly
+/// incomplete — see [`Getter::is_value_braced_word`] for what an
+/// unlisted command defaults to and why.
+const SCRIPT_TAKING_COMMANDS: [&str; 8] = [
+    "after",
+    "eval",
+    "for",
+    "on",
+    SWITCH_COMMAND,
+    "time",
+    "trap",
+    "uplevel",
+];
+
+/// Named because two rules have to agree on it: `switch` takes a
+/// script, and its *arm bodies* are scripts too even though the Tcl
+/// grammar hangs them off a `command` named after the pattern
+/// ([`Getter::is_switch_arm`]). Spelling it twice would let one drift.
+const SWITCH_COMMAND: &str = "switch";
 
 pub(crate) trait Getter {
     fn get_func_name<'a, 'tree>(
@@ -445,10 +537,21 @@ pub(crate) trait Getter {
     /// same kind serves as the value slot of every command the grammar
     /// does not special-case, where `lappend l {}` is an empty list and
     /// the brace pair is its only carrier (grammar-dispatch §6). An
-    /// empty or comment-only `proc` body is indistinguishable from it
-    /// and so also scores one operand, its whole text — the cost of a
-    /// grammar that spells both the same way, and the same conflation
-    /// `FIXME(#1318)` tracks on the operator side.
+    /// empty or comment-only `proc` body is spelled identically and so
+    /// also scores one operand, its whole text. #1318 can now tell the
+    /// two apart by the enclosing command, but it bills them alike, so
+    /// this arm needs no help from it.
+    ///
+    /// This is the *byte-less* half of the braced-word rule and it is
+    /// not the whole of it. [`braced_word_op_type`] suppresses the `{`
+    /// of a script-kind word the enclosing command shows to be a plain
+    /// value, and both Tcl-family getters reach it through
+    /// [`get_op_type_with_code`], which is what the walk calls
+    /// (grammar-dispatch §7). It revises no operand, so this arm's
+    /// answers stand unchanged.
+    ///
+    /// [`braced_word_op_type`]: Self::braced_word_op_type
+    /// [`get_op_type_with_code`]: Self::get_op_type_with_code
     fn is_subsumed_braced_word<'a>(
         node: &Node<'a>,
         ancestors: Ancestors<'a, '_>,
@@ -459,6 +562,244 @@ pub(crate) trait Getter {
                 && node
                     .children()
                     .any(|child| child.is_named() && child.kind_id() != kinds.comment))
+    }
+
+    /// The generic `command` node `word` is an argument of, paired with
+    /// that command's own ancestry — or `None` when `word` instead
+    /// fills a slot of a construct the grammar models, and so is a
+    /// script by construction.
+    ///
+    /// Both dialects hang a *generic* command's arguments off a
+    /// `word_list` and a *modelled* construct's slots off that
+    /// construct's own node (`procedure`, `if`, `else`, `elseif`,
+    /// `while`, `foreach`, `catch`, `try`, `finally`, `argument`, plus
+    /// iRules' `when_event`, `for`, `switch_arm`, `on_handler`,
+    /// `trap_handler` and the three `dict` loops). Asking the parent
+    /// kind therefore answers "is this a generic argument" without
+    /// enumerating the modelled parents — a list that would be a
+    /// coverage claim to re-derive on every grammar bump
+    /// (grammar-dispatch §1), and that a grammar gaining one more
+    /// modelled construct would silently invalidate.
+    ///
+    /// A `word_list` whose own parent is *not* a `command` is
+    /// `namespace`'s argument list — the one modelled construct in
+    /// either grammar that reaches its body through a `word_list`. The
+    /// grandparent test answers `None` there, so `namespace eval ns
+    /// {…}` keeps its body a script.
+    ///
+    /// A braced word directly under a `command` is the command *name*
+    /// (`{puts} hi`), not an argument, and also answers `None`: its
+    /// caller decides that case before asking, because a name is
+    /// always a literal and must not pick up the `switch`-arm rescue
+    /// below.
+    fn generic_argument_command<'tree, 'chain>(
+        word: &Node<'tree>,
+        ancestors: Ancestors<'tree, 'chain>,
+        kinds: &BracedWordKinds,
+    ) -> Option<(Node<'tree>, Ancestors<'tree, 'chain>)> {
+        let mut chain = ancestors.iter(word);
+        let (parent, _) = chain.next()?;
+        if parent.kind_id() != kinds.word_list {
+            return None;
+        }
+        let (grandparent, grandparent_ancestors) = chain.next()?;
+        (grandparent.kind_id() == kinds.command).then_some((grandparent, grandparent_ancestors))
+    }
+
+    /// Whether a braced *script*-kind word is really a plain value —
+    /// the literal `{a b}` of `lappend x {a b}` rather than the block
+    /// of `eval {…}` (#1318).
+    ///
+    /// The two roles share one kind, so no kind-scoped arm can separate
+    /// them; recognition is out-of-band, by the enclosing command's
+    /// leading word (grammar-dispatch §9). A word that fills a modelled
+    /// construct's slot is a script; a word passed to a command in
+    /// [`SCRIPT_TAKING_COMMANDS`] is a script; **everything else is a
+    /// value**.
+    ///
+    /// That default is the load-bearing choice, and it is deliberately
+    /// the opposite of "keep today's answer for anything unrecognised":
+    ///
+    /// - The script-taking set is *closed* and small — Tcl defines no
+    ///   user-extensible control structures, so a command that
+    ///   evaluates a braced argument is either a core command listed
+    ///   above or a proc that forwards to `eval` / `uplevel`. The
+    ///   value-taking set is *open*: every user proc and every package
+    ///   command that takes a list or a pattern is in it. An
+    ///   unrecognised name is therefore far likelier to be value-taking.
+    /// - Defaulting to script *fabricates* — it reports a `{}` operator
+    ///   for a block the source does not contain. Defaulting to value
+    ///   can only *omit*, and only one `N1` occurrence of a `{}` whose
+    ///   vocabulary entry any real block in the file already carries.
+    ///   That asymmetry holds only because the answer is scoped to the
+    ///   brace: see [`braced_word_op_type`] for the measurement that
+    ///   decided it, and for why suppressing the *contents* of a value
+    ///   would have made the omission unbounded instead.
+    /// - It stops the score moving with the author's choice of
+    ///   delimiter, which is what #695, #1312 and #1314 each restored
+    ///   elsewhere: `puts {c d}` and `puts "c d"` now agree on the
+    ///   operator column.
+    ///
+    /// The cost is a script passed to an unlisted command — a Tk
+    /// `-command {…}` callback, `trace add variable v w {…}`, a
+    /// user-defined `with_lock {…}` — losing the `{}` its block
+    /// deserves. No structural signal distinguishes those cases: the
+    /// grammar parses `{a b}` and `{puts hi}` into the same shape. The
+    /// code inside them is still counted, so the loss is one operator
+    /// occurrence per such block and nothing else.
+    ///
+    /// [`braced_word_op_type`]: Self::braced_word_op_type
+    fn is_value_braced_word<'a>(
+        word: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+        kinds: &BracedWordKinds,
+    ) -> bool {
+        // Two positions answer "value" without consulting any command
+        // name, and both must be asked before the lookup below,
+        // because neither hangs off a `command` the way an argument
+        // does — and the second must not reach the `switch`-arm
+        // rescue.
+        //
+        // A defaulted `proc` parameter (`proc p {a {b {x y}}}`) is the
+        // one modelled slot holding a value: a default is data the
+        // interpreter assigns, never a script it evaluates.
+        //
+        // A braced word directly under a `command` is that command's
+        // *name* (`{puts} hi` invokes `puts`), so it is a literal word.
+        // Inside a `switch` arm list the name is the arm's *pattern*,
+        // and a braced pattern (`switch -regexp $v { {^a.*b$} {…} }`)
+        // is idiomatic — rescuing it as an arm body would fabricate a
+        // block around a regex.
+        if ancestors.parent_has_kind(word, kinds.argument)
+            || ancestors.parent_has_kind(word, kinds.command)
+        {
+            return true;
+        }
+        let Some((command, command_ancestors)) =
+            Self::generic_argument_command(word, ancestors, kinds)
+        else {
+            return false;
+        };
+        if Self::command_leading_word(&command, code, kinds)
+            .is_some_and(|name| SCRIPT_TAKING_COMMANDS.contains(&name))
+        {
+            return false;
+        }
+        !Self::is_switch_arm(&command, code, command_ancestors, kinds)
+    }
+
+    /// A command's leading word, when it is a statically resolvable
+    /// `simple_word`.
+    ///
+    /// Located by field rather than by index (grammar-dispatch §3): the
+    /// name is `command`'s `name` field in both grammars. A computed
+    /// name (`$cmd {…}`, `[pick] {…}`) parses as a substitution node and
+    /// is not resolvable at all, and a name spelled in quotes or braces
+    /// (`"eval" {…}`) is legal Tcl that this deliberately leaves
+    /// unresolved — the same limitation `tcl_command_name` records for
+    /// the Cognitive and Cyclomatic walkers.
+    fn command_leading_word<'c>(
+        command: &Node<'_>,
+        code: &'c [u8],
+        kinds: &BracedWordKinds,
+    ) -> Option<&'c str> {
+        let name = command.child_by_field_name("name")?;
+        if name.kind_id() != kinds.simple_word {
+            return None;
+        }
+        node_text(code, &name)
+    }
+
+    /// Whether `command` is really one `pattern body` pair of a Tcl
+    /// `switch` arm list rather than a command of its own.
+    ///
+    /// Tcl models no `switch`, so `switch $v {a {…} b {…}}` parses the
+    /// arm list as a braced word whose interior is a `command` named
+    /// after the *first pattern* — `a` here — with the arm bodies as
+    /// its arguments (grammar-dispatch §9; the Cognitive walker reads
+    /// the same shape through `tcl_switch_arm_list`). Without this
+    /// test the bodies would read as literals passed to a command
+    /// called `a`, which is exactly what the value default is for
+    /// everywhere else. iRules models `switch` with `switch_arm`
+    /// children, so its arm bodies never reach here.
+    fn is_switch_arm<'a>(
+        command: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+        kinds: &BracedWordKinds,
+    ) -> bool {
+        ancestors
+            .iter(command)
+            .next()
+            .is_some_and(|(arm_list, above)| {
+                arm_list.kind_id() == kinds.script
+                    && Self::generic_argument_command(&arm_list, above, kinds)
+                        .and_then(|(switch, _)| Self::command_leading_word(&switch, code, kinds))
+                        == Some(SWITCH_COMMAND)
+            })
+    }
+
+    /// Whether the `{` of `node`'s parent braced word opens a block,
+    /// or merely quotes a literal (#1318).
+    ///
+    /// This is #1314's guard with its kind test replaced by a role
+    /// test. #1314 suppressed the opener of a `braced_word_simple`,
+    /// the literal form the grammars emit only in the value slots they
+    /// special-case; everywhere else a literal is a `braced_word`, the
+    /// same kind a block uses, and its `{` still reported a `{}`
+    /// operator for a block the source does not contain —
+    /// `lappend x {a b}`, `puts {c d}`, and every user proc taking a
+    /// list.
+    ///
+    /// **It revises the operator only, and deliberately leaves the
+    /// words inside a value alone.** Suppressing them too would make
+    /// `lappend x {a b}` score like its `set x {a b}` synonym, which
+    /// is the tidier answer for that line — and the wrong one in
+    /// general, because the same braced argument of an unrecognised
+    /// command is just as often real code: an `oo::class create C {…}`
+    /// body, a `tcltest` `-body {…}`, an `apply {{x} {…}}` lambda.
+    /// Suppressing contents was built and measured on a file holding
+    /// one of each; it took n1 5 → 2, N1 8 → 2, n2 25 → 15 and
+    /// N2 32 → 15, the class body, the test body and the lambda each
+    /// collapsing into a single operand, and `halstead.effort` — a
+    /// gated threshold metric — collapsing with them. So the rule only
+    /// ever withdraws a claim the classifier cannot support; it never
+    /// discards code the walk has already read. The residual is the
+    /// asymmetry the issue opens with: a braced value scores one
+    /// operand where the grammar names it (`set`) and one per word
+    /// where only the command name would (`lappend`). Closing that
+    /// needs a signal neither grammar gives — filed as #1382.
+    ///
+    /// Keeping to the operator also keeps the whole thing `O(1)`: only
+    /// a braced word's own opener can change answer, so the test is
+    /// one parent lookup, the same scope #1354 and #1314 use. An
+    /// ancestor scan would have been `O(depth)` per node and quadratic
+    /// on a deeply nested `expr`, the shape #1122 warns about.
+    ///
+    /// [`get_op_type`]: Self::get_op_type
+    fn braced_word_op_type<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+        kinds: &BracedWordKinds,
+    ) -> HalsteadType {
+        let base = Self::get_op_type(node, ancestors);
+        // A braced word's only operator child is its `{` — the closer
+        // has never been classified, and everything between them is a
+        // command or a comment — so no other node can change answer.
+        if !matches!(base, HalsteadType::Operator) {
+            return base;
+        }
+        let quotes_a_literal = ancestors.iter(node).next().is_some_and(|(parent, above)| {
+            parent.kind_id() == kinds.script
+                && Self::is_value_braced_word(&parent, code, above, kinds)
+        });
+        if quotes_a_literal {
+            HalsteadType::Unknown
+        } else {
+            base
+        }
     }
 
     fn get_operator_id_as_str(_id: u16) -> &'static str {

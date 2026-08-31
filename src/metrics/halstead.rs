@@ -5730,8 +5730,16 @@ f() {
     /// empty list whose brace pair is its only carrier. Deleting the
     /// kind scored that zero while its `lappend l ""` synonym — the
     /// last row, the control — scored one. An empty `proc` body is
-    /// spelled identically and so also keeps an operand; no
-    /// kind-scoped arm can separate the two roles.
+    /// spelled identically and so also keeps an operand; #1318 tells
+    /// the two roles apart by the enclosing command, but it bills them
+    /// alike, so this gate is still what keeps the operand.
+    ///
+    /// The rows' *operator* columns moved with #1318 wherever the
+    /// enclosing command takes a value, which is why the `lappend`
+    /// rows here read `0` where the `proc` and `if` rows read the
+    /// block's `{}`. The operand columns are untouched by it — #1318
+    /// revises the brace and nothing else — so every `before` here
+    /// still describes #1354 alone.
     const SCRIPT_BODY_CASES: [BracedWordCase; 9] = [
         BracedWordCase {
             source: "proc p {} { set b 1 }\n",
@@ -5772,20 +5780,24 @@ f() {
         },
         // The value-role twin: inside a literal string Tcl performs no
         // substitution, so `# x` is not a comment at all, and the word
-        // is its one operand exactly as `lappend l {}` below is.
+        // is its one operand exactly as `lappend l {}` below is. Its
+        // operator columns are zero since #1318 — `lappend` takes a
+        // value, so the brace pair is a quote and not a block.
         BracedWordCase {
             source: "lappend l {\n    # x\n}\n",
-            counts: [1, 1, 3, 3],
+            counts: [0, 0, 3, 3],
             before: [3, 3],
             operands: &["lappend", "l", "{\n    # x\n}"],
         },
-        // A `braced_word` in *value* position — the #1318 misparse,
-        // where the same kind carries a literal list. Its interior
-        // words counted before and still do; only the whole-block
-        // operand that was double-billing them is gone.
+        // A `braced_word` in *value* position — the #1318 role, where
+        // the same kind carries a literal list. Its interior words
+        // counted before #1354 and still do; what #1354 removed is the
+        // whole-block operand that was double-billing them, and what
+        // #1318 removed is the `{}` operator (`lappend` takes a value,
+        // so the brace pair quotes rather than opens).
         BracedWordCase {
             source: "lappend l {a b}\n",
-            counts: [1, 1, 4, 4],
+            counts: [0, 0, 4, 4],
             before: [5, 5],
             operands: &["lappend", "l", "a", "b"],
         },
@@ -5793,13 +5805,16 @@ f() {
         // nothing: the brace pair is the empty list's only carrier.
         BracedWordCase {
             source: "lappend l {}\nreturn {}\n",
-            counts: [1, 2, 4, 5],
+            counts: [0, 0, 4, 5],
             before: [4, 5],
             operands: &["lappend", "l", "return", "{}"],
         },
         // The control the row above is measured against: the quoted
         // spelling of the same empty value, which never depended on
-        // the arm and must keep scoring one operand.
+        // the arm and must keep scoring one operand. Since #1318 the
+        // two rows agree on all four columns rather than only on the
+        // operand pair — an empty list is an empty list however it is
+        // spelled.
         BracedWordCase {
             source: "lappend l \"\"\nreturn \"\"\n",
             counts: [0, 0, 4, 5],
@@ -5912,6 +5927,277 @@ f() {
             &IRULES_BRACED_WORD_KINDS,
         ));
         assert_braced_word_children_witnessed(&witnessed, &IRULES_BRACED_WORD_KINDS, "irules");
+    }
+
+    /// One row of the #1318 tables: a fixture and the four Halstead
+    /// columns plus the operand vocabulary behind them.
+    ///
+    /// No `before` column, unlike [`BracedWordCase`]: #1318 is not a
+    /// guard whose absence a walk can model, it is a *classification*.
+    /// The pre-fix counts are recorded per row in prose instead, and
+    /// each was measured against a build without the
+    /// `get_op_type_with_code` overrides.
+    struct BracedWordValueCase {
+        source: &'static str,
+        /// `[n1, N1, n2, N2]`.
+        counts: [u64; 4],
+        operands: &'static [&'static str],
+    }
+
+    /// Runs one #1318 table against one dialect. Both dialects run
+    /// every shared row, so a fix that reached one getter and not its
+    /// clone fails here.
+    fn check_braced_word_value_cases<T: crate::ParserTrait>(
+        cases: &[BracedWordValueCase],
+        file: &str,
+    ) {
+        for case in cases {
+            assert_halstead_counts::<T>(case.source, file, case.counts, case.source);
+            assert_ops_operands::<T>(
+                case.source,
+                file,
+                case.operands.len(),
+                case.operands.to_vec(),
+            );
+        }
+    }
+
+    /// The #1318 rows both dialects share. Every independent path
+    /// through the role test gets a row of its own
+    /// (`.claude/rules/testing.md`, "give one input to each independent
+    /// path"): the value default, the script-command list, a modelled
+    /// construct reached through a `word_list`, the two modelled slots
+    /// that hold values, an unresolvable command name, and both
+    /// nesting directions.
+    ///
+    /// **Every row asserts the operand columns too, and they are the
+    /// half that must not move.** #1318 revises one operator and
+    /// nothing else, so a mutant that suppressed a value word's
+    /// *contents* — the tidier-looking rule, which collapses an
+    /// `oo::class create C {…}` body into a single operand — fails
+    /// here rather than passing as an improvement.
+    const BRACED_WORD_VALUE_CASES: [BracedWordValueCase; 12] = [
+        // The reported fixture. `lappend` takes a list, so `{a b}`
+        // quotes rather than opens: no operator. Before #1318 this
+        // read n1 1 / N1 1 — a `{}` block the line does not contain.
+        BracedWordValueCase {
+            source: "lappend l {a b}\n",
+            counts: [0, 0, 4, 4],
+            operands: &["lappend", "l", "a", "b"],
+        },
+        // The issue's second line, and the one showing the defect
+        // needs no second argument to appear.
+        BracedWordValueCase {
+            source: "puts {c d}\n",
+            counts: [0, 0, 3, 3],
+            operands: &["puts", "c", "d"],
+        },
+        // The headline: one value, two commands, and until #1318 two
+        // different operator counts — `set` reported none, `lappend` a
+        // `{}`. `set` is an operator and `lappend` an operand because
+        // the grammar models one command and not the other; that
+        // asymmetry is the grammar's, not this rule's.
+        BracedWordValueCase {
+            source: "set x {a b}\nlappend y {a b}\n",
+            counts: [1, 1, 6, 6],
+            operands: &["lappend", "x", "y", "{a b}", "a", "b"],
+        },
+        // The script side of the same shape, and the reason `LBRACE`
+        // is gated rather than deleted (grammar-dispatch §6): `eval`
+        // evaluates its argument, so the block is real and keeps its
+        // `{}`.
+        BracedWordValueCase {
+            source: "eval {puts hi}\n",
+            counts: [1, 1, 3, 3],
+            operands: &["eval", "puts", "hi"],
+        },
+        // The default for an unrecognised command — a user proc here,
+        // but equally any package command. Nothing distinguishes it
+        // from `lappend` structurally, so the row exists to pin which
+        // way the coin lands. Note the words inside are still
+        // operands: the rule withdraws the block, never the code.
+        BracedWordValueCase {
+            source: "myproc {g h}\n",
+            counts: [0, 0, 3, 3],
+            operands: &["myproc", "g", "h"],
+        },
+        // `namespace` is the one construct either grammar models that
+        // still reaches its body through a `word_list`, so it is the
+        // row that fails if the rule stops at the parent instead of
+        // reading the grandparent. Its body must stay a script.
+        BracedWordValueCase {
+            source: "namespace eval ns {\n    set a 1\n}\n",
+            counts: [3, 3, 4, 4],
+            operands: &["eval", "ns", "a", "1"],
+        },
+        // A literal nested in a literal: neither brace opens a block,
+        // and both words survive.
+        BracedWordValueCase {
+            source: "puts {a {b c}}\n",
+            counts: [0, 0, 4, 4],
+            operands: &["puts", "a", "b", "c"],
+        },
+        // A `set` inside a literal. The `set` keyword and the `[]`
+        // substitution are real operators of a command the walk
+        // descends into, and they stay — the rule reaches exactly the
+        // one brace whose parent it can classify, never a subtree.
+        // `{x [foo] v}` is a `braced_word_simple`, so #1354 bills it
+        // whole and its `[foo]` interior separately, unchanged.
+        BracedWordValueCase {
+            source: "lappend l {set a {x [foo] v}}\n",
+            counts: [2, 2, 5, 5],
+            operands: &["lappend", "l", "a", "{x [foo] v}", "foo"],
+        },
+        // A braced word in the command *name* position. Legal Tcl —
+        // `{puts} hi` invokes `puts` — and the one generic position
+        // that is not an argument, so it is answered before the
+        // command lookup. It must also never reach the `switch`-arm
+        // rescue, which is what the braced-pattern row in the Tcl
+        // table checks.
+        BracedWordValueCase {
+            source: "{puts} hi\n",
+            counts: [0, 0, 2, 2],
+            operands: &["puts", "hi"],
+        },
+        // A defaulted `proc` parameter — the other modelled slot that
+        // holds a value, decided by the parent kind rather than by a
+        // command name. `{x y}` is data the interpreter assigns, never
+        // a script it runs, and it billed a fourth `{}` before #1318.
+        // The three that remain are the parameter list, the parameter
+        // spec and the body: those two list delimiters group a
+        // declaration rather than quote a value, the line #1354 drew
+        // for `Arguments`.
+        BracedWordValueCase {
+            source: "proc p {a {b {x y}}} { puts $a }\n",
+            counts: [2, 4, 7, 7],
+            operands: &["p", "a", "b", "x", "y", "puts", "$a"],
+        },
+        // A literal nested in a script, the direction that must keep
+        // working: the `proc` body is a block (`{}` twice with the
+        // parameter list) and the list it appends is not.
+        BracedWordValueCase {
+            source: "proc p {} { lappend l {a b} }\n",
+            counts: [2, 3, 5, 5],
+            operands: &["p", "lappend", "l", "a", "b"],
+        },
+        // A computed command name resolves to nothing, so the value
+        // default decides. `$c` is the reference's own operand.
+        BracedWordValueCase {
+            source: "set c puts\n$c {a b}\n",
+            counts: [1, 1, 5, 5],
+            operands: &["c", "puts", "$c", "a", "b"],
+        },
+    ];
+
+    /// Regression for #1318. `braced_word` carries both a block and a
+    /// plain literal, and the grammars spell the two identically, so
+    /// #1314's kind-scoped guard reached only the value slots they
+    /// special-case: `set x {a b}` reported no operator while
+    /// `lappend x {a b}` reported a `{}` for a block the line does not
+    /// contain. The role is recognised out-of-band, by the enclosing
+    /// command's leading word (grammar-dispatch §9).
+    ///
+    /// The three Tcl-only rows are the constructs this grammar models
+    /// with no node of its own (#467, #1264) — `switch` and `for` —
+    /// plus the braced `switch` *pattern* that must not be mistaken
+    /// for an arm body. Their iRules counterparts are dedicated nodes
+    /// and are covered by the sibling test.
+    #[test]
+    fn tcl_braced_word_role_follows_the_enclosing_command_1318() {
+        check_braced_word_value_cases::<TclParser>(&BRACED_WORD_VALUE_CASES, "foo.tcl");
+        let tcl_only: [BracedWordValueCase; 3] = [
+            // `switch` arm bodies. The grammar flattens `pat body pat
+            // body` into a `command` named after the first pattern, so
+            // the bodies read as arguments of a command called `a` —
+            // the shape the value default would call a literal. The
+            // arm list's own `switch` name is what rescues them, and
+            // `puts` occurring in both bodies is what separates n2
+            // from N2.
+            BracedWordValueCase {
+                source: "switch $v { a { puts A } b { puts B } }\n",
+                counts: [1, 3, 7, 8],
+                operands: &["switch", "$v", "a", "b", "puts", "A", "B"],
+            },
+            // …and the limit of that rescue. A braced *pattern* is the
+            // arm command's `name`, not an argument, so it is a
+            // literal — `switch -regexp $v { {^a.*b$} {…} }` is
+            // idiomatic and its regex must not be wrapped in a block.
+            // Rescuing the whole arm command would read N1 4 here.
+            // The leading `-exact` / `--` options are `simple_word`
+            // operands and shift no index, which is why the rescue is
+            // structural rather than positional (grammar-dispatch §9).
+            BracedWordValueCase {
+                source: "switch -exact -- $v {\n    {a b}   { puts X }\n    default { puts Y }\n}\n",
+                counts: [1, 3, 10, 11],
+                operands: &[
+                    "switch", "-exact", "--", "$v", "a", "b", "puts", "X", "default", "Y",
+                ],
+            },
+            // `for` has four braced arguments and all four are
+            // evaluated, so all four keep their braces. `i` appears as
+            // the `set` target and again inside `incr`, and `$i` in
+            // the condition and the body, which is what separates
+            // n2 = 8 from N2 = 10. `<` is an *operand* here rather
+            // than a comparison operator: with no `for` rule there is
+            // no `expr` slot, so the condition parses as a command and
+            // its comparison never surfaces as a token — the same
+            // grammar limitation #1264 recorded for ABC.
+            BracedWordValueCase {
+                source: "for {set i 0} {$i < 3} {incr i} { puts $i }\n",
+                counts: [2, 5, 8, 10],
+                operands: &["for", "i", "0", "$i", "<", "3", "incr", "puts"],
+            },
+        ];
+        check_braced_word_value_cases::<TclParser>(&tcl_only, "foo.tcl");
+    }
+
+    /// The iRules twin of the test above. The shared table runs
+    /// unchanged — the two getters are deliberate clones and #1318
+    /// names both — and the dialect rows cover the handler bodies,
+    /// which have no Tcl spelling.
+    #[test]
+    fn irules_braced_word_role_follows_the_enclosing_command_1318() {
+        check_braced_word_value_cases::<IrulesParser>(&BRACED_WORD_VALUE_CASES, "foo.irule");
+        let irules_only: [BracedWordValueCase; 3] = [
+            // A `when` handler body is a modelled slot, so the literal
+            // inside it is classified independently of the block that
+            // holds it.
+            BracedWordValueCase {
+                source: "when HTTP_REQUEST {\n    lappend b {x y}\n}\n",
+                counts: [2, 2, 5, 5],
+                operands: &["HTTP_REQUEST", "lappend", "b", "x", "y"],
+            },
+            // This grammar models `switch` with `switch_arm` children,
+            // so the arm body fills a modelled slot and never reaches
+            // the command-name list the Tcl rows need.
+            BracedWordValueCase {
+                source: "when HTTP_REQUEST {\n    switch $v { a { pool p1 } }\n}\n",
+                counts: [3, 5, 5, 5],
+                operands: &["HTTP_REQUEST", "$v", "a", "pool", "p1"],
+            },
+            // `on` and `trap` are why the command list carries two
+            // words no *Tcl* command spells. The grammar emits
+            // `on_handler` / `trap_handler` only under `try` — pinned
+            // by `irules_try_handler_kinds_appear_only_under_try` — so
+            // a statement-level handler is a generic command, and
+            // without the list entry its body would lose the `{}` that
+            // the second occurrence here counts.
+            BracedWordValueCase {
+                source: "when RULE_INIT { set x 1 }\non error { log local0. oops }\n",
+                counts: [3, 4, 8, 8],
+                operands: &[
+                    "RULE_INIT",
+                    "x",
+                    "1",
+                    "on",
+                    "error",
+                    "log",
+                    "local0.",
+                    "oops",
+                ],
+            },
+        ];
+        check_braced_word_value_cases::<IrulesParser>(&irules_only, "foo.irule");
     }
 
     #[test]
