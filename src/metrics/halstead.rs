@@ -6976,6 +6976,167 @@ f() {
         }
     }
 
+    #[test]
+    fn ruby_suffixed_numeric_literals_bill_one_operand_1359() {
+        // #1359, the wrapper/leaf double count one arm below #1353's.
+        // `rational` and `complex` wrap the numeral they suffix, and
+        // `get_op_type` billed every level: `a = 1r` scored n2 3 / N2 3
+        // for two operands, and `c = 3ri` — a `complex` over a
+        // `rational` over an `integer` — scored n2 3 / N2 4 for the
+        // same two.
+        //
+        // The rows are ordered by nesting depth on purpose, because the
+        // half-fix is a plausible one to write. Guard the two leaf
+        // kinds and not the intermediate `rational` — `R::Integer |
+        // R::Float` where the arm says `R::Integer | R::Float |
+        // R::Rational` — and the `1r` and `2i` rows still pass; the
+        // `ri` rows, whose middle `rational` must be suppressed as well
+        // as the leaf beneath it, are the two that fail (measured:
+        // `c = 3ri` reports n2 3 / N2 3).
+        //
+        // The trailing rows are the ones that must *not* move. `g = 4`
+        // has no wrapper at all and pins that the guard is scoped to
+        // the numerals inside one (grammar-dispatch §6 — nothing
+        // regresses to zero). `"#{4r}"` and `-3r` put the wrapper
+        // somewhere other than an assignment right-hand side, under a
+        // node that guards its own children (`Interpolation`, whose
+        // enclosing `String` is suppressed by the arm above) and under
+        // one that does not (`unary`); both must still bill the
+        // wrapper once. They do *not* pin parent-versus-ancestor
+        // scoping and nothing can: `complex` and `rational` admit
+        // numeral children only, so an ancestor-scoped guard would
+        // classify every Ruby input identically. And `1r + 1r` is the
+        // row where N2 and n2 come apart, so the `N2` column is
+        // load-bearing on its own rather than tracking `n2`.
+        //
+        // The kind assertions are the grammar-dispatch §1 / §2 drift
+        // marker: a bump that renumbered `complex` or `rational`, or
+        // stopped nesting them, would leave the counts passing while
+        // measuring a construct the guard no longer names. `IntOrFloat`
+        // is the §2 half — the hidden `_int_or_float` the two wrappers
+        // are written over, which a bump could promote into the
+        // numeral's parent and silently stop the guard firing. Not
+        // every kind a row mentions is one the guard names
+        // (`Interpolation` is context), and `unary` and `binary` are
+        // deliberately absent: they carry five and three aliased
+        // variants here, so naming one would pin the alias rather than
+        // the shape.
+        for (source, kinds, counts, operands) in [
+            (
+                "a = 1r\n",
+                &[Ruby::Rational as u16, Ruby::Integer as u16][..],
+                [1, 1, 2, 2],
+                vec!["a", "1r"],
+            ),
+            (
+                "b = 2i\n",
+                &[Ruby::Complex as u16, Ruby::Integer as u16][..],
+                [1, 1, 2, 2],
+                vec!["b", "2i"],
+            ),
+            (
+                "c = 3ri\n",
+                &[
+                    Ruby::Complex as u16,
+                    Ruby::Rational as u16,
+                    Ruby::Integer as u16,
+                ][..],
+                [1, 1, 2, 2],
+                vec!["c", "3ri"],
+            ),
+            (
+                "d = 1.5r\n",
+                &[Ruby::Rational as u16, Ruby::Float as u16][..],
+                [1, 1, 2, 2],
+                vec!["d", "1.5r"],
+            ),
+            (
+                "e = 2.5i\n",
+                &[Ruby::Complex as u16, Ruby::Float as u16][..],
+                [1, 1, 2, 2],
+                vec!["e", "2.5i"],
+            ),
+            (
+                "f = 1.5ri\n",
+                &[
+                    Ruby::Complex as u16,
+                    Ruby::Rational as u16,
+                    Ruby::Float as u16,
+                ][..],
+                [1, 1, 2, 2],
+                vec!["f", "1.5ri"],
+            ),
+            (
+                "g = 4\n",
+                &[Ruby::Integer as u16][..],
+                [1, 1, 2, 2],
+                vec!["g", "4"],
+            ),
+            (
+                "h = \"#{4r}\"\n",
+                &[Ruby::Interpolation as u16, Ruby::Rational as u16][..],
+                [1, 1, 2, 2],
+                vec!["h", "4r"],
+            ),
+            (
+                "i = -3r\n",
+                &[Ruby::Rational as u16, Ruby::Integer as u16][..],
+                [2, 2, 2, 2],
+                vec!["i", "3r"],
+            ),
+            (
+                "j = 1r + 1r\n",
+                &[Ruby::Rational as u16, Ruby::Integer as u16][..],
+                [2, 2, 2, 3],
+                vec!["j", "1r"],
+            ),
+        ] {
+            let parser =
+                RubyParser::new(source.as_bytes().to_vec(), &PathBuf::from("foo.rb"), None);
+            for kind in kinds {
+                assert!(
+                    ast_has_kind_id(&parser, *kind),
+                    "the kind this row measures is unreachable for `{source}`"
+                );
+            }
+            assert!(
+                !ast_has_kind_id(&parser, Ruby::IntOrFloat as u16),
+                "`_int_or_float` is hidden; a grammar that emits it would \
+                 sit between the wrapper and the numeral for `{source}`"
+            );
+
+            assert_halstead_counts::<RubyParser>(source, "foo.rb", counts, source);
+            assert_ops_operands::<RubyParser>(source, "foo.rb", operands.len(), operands);
+        }
+    }
+
+    #[test]
+    fn ruby_numeric_suffixes_stay_distinct_operands_1359() {
+        // The reason #1359 keeps the *wrapper* and gates the leaf
+        // rather than dropping the two wrapper kinds from the arm, as
+        // #1351 and #1358 did for their Bash wrappers. `1`, `1r`, `1i`
+        // and `1ri` are four distinct Ruby constants — Integer,
+        // Rational, Complex and Complex-of-Rational — and only the
+        // wrapper's span carries the suffix that says which.
+        //
+        // This is the assertion to watch fail against the leaf-keeping
+        // alternative: billing the `integer` would file all four under
+        // the operand text `1`, reporting n2 5 / N2 8 where the source
+        // plainly has eight distinct operands. The count alone does not
+        // say that, so the vocabulary is pinned by text.
+        //
+        // expected: operator `=` → n1 1, N1 4; four targets and four
+        // constants, none repeated → n2 = N2 = 8.
+        let source = "w = 1\nx = 1r\ny = 1i\nz = 1ri\n";
+        assert_halstead_counts::<RubyParser>(source, "foo.rb", [1, 4, 8, 8], source);
+        assert_ops_operands::<RubyParser>(
+            source,
+            "foo.rb",
+            8,
+            vec!["w", "x", "y", "z", "1", "1r", "1i", "1ri"],
+        );
+    }
+
     /// Comprehensive iRules Halstead test exercising every operator family
     /// classified in `get_op_type`: declaration/control keywords (`proc`,
     /// `set`, `if`, `return`), structural punctuation (`{}` `[]` `()`),

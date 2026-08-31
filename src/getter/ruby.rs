@@ -184,6 +184,76 @@ impl Getter for RubyCode {
                 ],
             ),
 
+            // The numeral inside a suffixed numeric literal. At the
+            // pinned tree-sitter-ruby the two suffix forms are wrappers
+            // over the numeral they suffix, never leaves:
+            //
+            //   rational: seq($._int_or_float, token.immediate('r'))
+            //   complex:  choice(
+            //               seq($._int_or_float, token.immediate('i')),
+            //               seq(alias($._int_or_float, $.rational),
+            //                   token.immediate('ri')))
+            //
+            // so `2i` is a `complex` over an `integer`, and `3ri` a
+            // `complex` over a `rational` over an `integer` — three
+            // levels deep, every one of which the plain operand arm
+            // below billed. `a = 1r; b = 2i; c = 3ri; d = 4` reported
+            // n2 11 / N2 12 for its eight operands (#1359).
+            //
+            // Neither §1 nor §2 adds a kind to name here, and both
+            // facts are pinned in the test rather than trusted:
+            // `_int_or_float` is hidden, so `Ruby::IntOrFloat` exists
+            // in the enum and the parser never emits it, leaving the
+            // wrapper itself as the numeral's parent; and the `ri`
+            // form's `alias(…, $.rational)` reuses kind 308 instead of
+            // minting a suffixed variant, so the middle node is a
+            // `rational` whose span holds no `r` of its own.
+            //
+            // The wrapper is the keeper here, not the leaf. `1`, `1r`,
+            // `1i` and `1ri` are four distinct Ruby constants; billing
+            // the leaf would file all four under the operand text `1`
+            // and erase what makes them different values. Every other
+            // language here spells the suffix inside a single token
+            // (`1u32`, `1L`, `1j`), so keeping the wrapper is what
+            // makes Ruby agree with its siblings. It is the same
+            // resolution the `Nil` / `Nil2` pair takes below, and the
+            // opposite of the one `%w[…]` takes above — there the
+            // wrapper holds operands that stand on their own, here the
+            // three levels are one constant.
+            //
+            // Gated rather than deleted, though nothing regresses to
+            // zero either way (§6): node-types.json marks both
+            // wrappers' lone numeral child `"required": true`, and an
+            // unsuffixed `4` carries no wrapper at all, so the arm
+            // below still owns it. §6's keeper rule — take the node
+            // present for *every* spelling — would pick the leaf, but
+            // that rule exists to stop a childless variant scoring
+            // zero and neither choice can do that here. With the
+            // hazard absent the tiebreak is operand identity, which
+            // only the wrapper's span carries.
+            //
+            // Written on the parent per §5, but unlike the regex guard
+            // above the choice is unobservable: `complex` and
+            // `rational` admit numeral children and nothing else, so no
+            // node can have either as an *ancestor* without having it
+            // as its parent. No Ruby input tells the two spellings
+            // apart, and no test can pin the difference.
+            //
+            // Every kind in both sets is load-bearing. Drop `Rational`
+            // from the guarded set and the middle node of `3ri` is
+            // billed again; drop it from the parent set and the leaf
+            // under a bare `1r` is. Only their *pairing* is
+            // unobservable — a `rational` directly inside a `rational`
+            // is not a shape this grammar admits.
+            R::Integer | R::Float | R::Rational
+                if matches!(
+                    ancestors.parent(node).map(|p| p.kind_id().into()),
+                    Some(R::Complex | R::Rational)
+                ) =>
+            {
+                HalsteadType::Unknown
+            }
+
             // Operands: identifiers and literals.
             R::Identifier | R::IdentifierSuffix | R::IdentifierSuffixToken1
             | R::Constant | R::ConstantSuffix | R::ConstantSuffixToken1
