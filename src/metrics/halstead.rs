@@ -7948,8 +7948,9 @@ f() {
         assert_this_receiver_parity::<MozcppParser>("this.cpp", "mozcpp");
     }
 
-    /// Every `this` in `CPP_THIS_POSITIONS` classifies as an operand,
-    /// whichever syntactic position it stands in (#1361).
+    /// The `This` arm is unconditional: every `this` in
+    /// `CPP_THIS_POSITIONS` classifies as an operand whatever encloses
+    /// it (#1361).
     ///
     /// The counts in `cpp_this_is_an_operand` are measured on one
     /// position only. An arm reached through a parent-scoped guard —
@@ -7958,8 +7959,13 @@ f() {
     /// that test and still drop `this` in a lambda capture or a
     /// `decltype`. This walk is what makes the arm's unconditional
     /// reach a measurement rather than an assumption.
+    ///
+    /// Named for the *property* rather than for the fixture: the fixture
+    /// samples one position per container kind and is deliberately not
+    /// exhaustive (see `CPP_THIS_POSITIONS`), so a name promising "every
+    /// position" would claim more than it checks.
     #[test]
-    fn cpp_this_is_an_operand_in_every_position() {
+    fn cpp_this_is_an_operand_regardless_of_position() {
         fn check<L: LanguageInfo + Getter>(label: &str) {
             let mut seen = 0_usize;
             for_each_node_with_chain::<L>(CPP_THIS_POSITIONS.as_bytes(), |node, chain| {
