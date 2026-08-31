@@ -49,6 +49,48 @@ impl Getter for RubyCode {
             {
                 HalsteadType::Unknown
             }
+            // Subshell delimiter punctuation — the second delimiter
+            // family of the fabrication the arm above removes for
+            // regexes (#1360, following #1312). tree-sitter-ruby
+            // aliases both ends of a subshell literal to a single
+            // backtick token: `bca dump` at the pinned grammar shows
+            // all seven spellings — the backtick pair plus %x with
+            // {}, (), [], <>, || and !! — emitting BQUOTE (kind 103)
+            // for the opener *and* the closer, so a one-command
+            // literal reported a backtick operator that is nowhere in
+            // the source as an operation. The `Subshell` node itself
+            // is the operand (the string-like arm below), so
+            // suppressing its delimiters loses nothing, and the
+            // childless `` `` `` spelling still bills that wrapper.
+            //
+            // Gated rather than dropped from the operator arm, per
+            // grammar-dispatch §6: a backtick is also a legal Ruby
+            // method name — def and call alike — and at this grammar
+            // that marker is a BQUOTE wrapped in a named `operator`
+            // node, so its parent is `Operator` and never `Subshell`.
+            // Deleting the kind would score the method-name marker
+            // zero.
+            //
+            // Parent, not ancestor, and here the difference is
+            // observable: a backtick method inside a subshell's `#{…}`
+            // interpolation still has `Operator` as its parent but the
+            // `Subshell` as a further ancestor, so an ancestor scan
+            // would swallow it. That is the input
+            // `ruby_subshell_guard_is_parent_scoped_not_ancestor_scoped`
+            // exists to separate — unlike the numeral guard below,
+            // whose two spellings no Ruby input can tell apart.
+            //
+            // One kind, where the regex guard above names two: BQUOTE2
+            // is this family's aliased literal-start token, but unlike
+            // SLASH2 it never sat in the operator arm, so the wildcard
+            // already answers `Unknown` for it and listing it here
+            // would read as load-bearing while doing nothing. Its
+            // reachability is pinned by
+            // `ruby_subshell_start_alias_never_reaches_kind_id`
+            // instead.
+            R::BQUOTE if ancestors.parent_has_kind(node, R::Subshell as u16) => {
+                HalsteadType::Unknown
+            }
             // Control-flow keyword tokens. tree-sitter-ruby gives each
             // keyword its own anonymous numbered variant (e.g. `If2` is
             // the `if` keyword token; `If` is the named statement node).

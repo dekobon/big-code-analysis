@@ -843,7 +843,7 @@ value = 48346.66496041094
 path = "src/getter/ruby.rs"
 qualified = "RubyCode::get_op_type"
 metric = "halstead.effort"
-value = 114672.1239039813
+value = 120865.54836941602
 
 [[entry]]
 path = "src/metrics/abc/csharp.rs"

@@ -6807,6 +6807,150 @@ f() {
     }
 
     #[test]
+    fn ruby_subshell_delimiters_are_not_operators() {
+        // Regression: issue #1360, the second delimiter family of the
+        // fabrication #1312 removed for regexes. tree-sitter-ruby
+        // aliases both ends of a subshell literal to `BQUOTE` — the
+        // same kind id the `` def ` `` method-name marker uses — so
+        // `` x = `echo hi` `` reported a `` ` `` operator with no
+        // backtick method call in the source.
+        //
+        // expected: operator `=` → n1 = N1 = 1. Operands `x` and the
+        // `` `echo hi` `` literal → n2 = N2 = 2. Before the guard the
+        // two delimiters added `` ` `` → n1 = 2, N1 = 3.
+        check_metrics::<RubyParser>("x = `echo hi`\n", "foo.rb", |metric| {
+            assert_eq!(metric.halstead.unique_operators(), 1);
+            assert_eq!(metric.halstead.total_operators(), 1);
+            assert_eq!(metric.halstead.unique_operands(), 2);
+            assert_eq!(metric.halstead.total_operands(), 2);
+        });
+    }
+
+    #[test]
+    fn ruby_subshell_delimiter_choice_is_invariant() {
+        // Companion to the test above (#1360): `%x`-form subshells are
+        // the same literal spelled differently, so every delimiter
+        // choice must produce identical counts. tree-sitter-ruby
+        // aliases all of them to `BQUOTE` — verified with `bca dump`,
+        // which shows `` ` ``/`` ` ``, `%x{`/`}`, `%x(`/`)`, `%x[`/`]`,
+        // `%x<`/`>`, `%x|`/`|` and `%x!`/`!` every one emitting kind
+        // `BQUOTE` — so each row here genuinely exercises the guard
+        // rather than reaching a different, already-clean path. Note
+        // the `%x!…!` and `%x|…|` closers in particular: they are
+        // `BQUOTE`, not the `BANG` / `PIPE` operators they look like.
+        //
+        // The empty row records that `` `` `` parses to a `Subshell`
+        // holding nothing but its two delimiters, and still bills that
+        // wrapper as one operand once both are suppressed. It is
+        // documentation, not a discriminator: the guard deletes nothing
+        // from the operand arm, so grammar-dispatch §6's
+        // childless-variant-regresses-to-zero hazard cannot arise here
+        // and this row moves with the first row under every mutant.
+        //
+        // expected per variant: operator `=` → n1 = N1 = 1; operands
+        // `x` and the literal → n2 = N2 = 2.
+        for literal in [
+            "`echo`", "%x{echo}", "%x(echo)", "%x[echo]", "%x<echo>", "%x|echo|", "%x!echo!", "``",
+        ] {
+            assert_halstead_counts::<RubyParser>(
+                &format!("x = {literal}\n"),
+                "foo.rb",
+                [1, 1, 2, 2],
+                &format!("subshell literal {literal}"),
+            );
+        }
+    }
+
+    #[test]
+    fn ruby_backtick_method_name_survives_the_subshell_guard() {
+        // Control for #1360, and the reason the kind is gated rather
+        // than dropped from the operator arm (grammar-dispatch §6):
+        // `` ` `` is a legal Ruby method name. `bca dump` at the pinned
+        // grammar shows `` def `(cmd) `` emitting a `BQUOTE` wrapped in
+        // a named `operator` node, so its parent is `Operator` and the
+        // parent-scoped guard leaves it alone. Deleting `BQUOTE` from
+        // the operator arm would have scored this construct zero.
+        //
+        // expected: operators `def`, `` ` ``, `(` and `end` →
+        // n1 = N1 = 4 (only the `(` opener counts after #695).
+        // Operand `cmd` twice, parameter and use → n2 = 1, N2 = 2.
+        check_metrics::<RubyParser>("def `(cmd)\n  cmd\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.halstead.unique_operators(), 4);
+            assert_eq!(metric.halstead.total_operators(), 4);
+            assert_eq!(metric.halstead.unique_operands(), 1);
+            assert_eq!(metric.halstead.total_operands(), 2);
+        });
+    }
+
+    #[test]
+    fn ruby_subshell_guard_is_parent_scoped_not_ancestor_scoped() {
+        // The one input that separates the correct parent-scoped guard
+        // from the ancestor-scoped mutant of it (#1360, mirroring
+        // #1312's regex case): backtick *methods* used inside a
+        // subshell's `#{…}` interpolation. Their `BQUOTE` has the named
+        // `operator` node as its parent but the `Subshell` as a further
+        // ancestor, so an ancestor scan would swallow both. Every other
+        // fixture in this file passes under either spelling. Two
+        // markers — a definition and a call — so the mutant moves both
+        // n1 (7 → 6) and N1 (10 → 8), per the #1294 count-only-anchor
+        // lesson.
+        //
+        // expected: operators `=` (1), `def` (1), `` ` `` (2), `(` (2),
+        // `;` (2), `end` (1), `.` (1) → n1 = 7, N1 = 10. Operands `n`,
+        // `c` × 2, `s`, `"x"` → n2 = 4, N2 = 5; the wrapping `Subshell`
+        // is skipped because it carries `Interpolation` children (the
+        // #180 double-count guard), and its `a` / `b` string content is
+        // classified by no arm.
+        check_metrics::<RubyParser>(
+            "n = `a#{def `(c); c; end}b#{s.`(\"x\")}`\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operators(), 7);
+                assert_eq!(metric.halstead.total_operators(), 10);
+                assert_eq!(metric.halstead.unique_operands(), 4);
+                assert_eq!(metric.halstead.total_operands(), 5);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_subshell_start_alias_never_reaches_kind_id() {
+        // Drift marker for #1360's guard, the `BQUOTE2` sibling of
+        // `ruby_regex_start_alias_never_reaches_kind_id`. `BQUOTE2`
+        // sits in the enum's literal-start alias block beside `DQUOTE`,
+        // `COLONDQUOTE` and `SLASH2`, and the runtime
+        // `public_symbol_map` collapses it to `BQUOTE` before
+        // `kind_id()`, exactly like `LPAREN2` in #768.
+        //
+        // `BQUOTE2` is therefore in no dispatch arm at all — not the
+        // guard and not the operator arm — which is the asymmetry with
+        // `SLASH2`, a kind #1312 had to *move* out of the arithmetic
+        // arm. Adding it to the guard would change nothing, since the
+        // wildcard already answers `Unknown` for it. What that leaves
+        // unguarded is the reverse direction: a bump that started
+        // emitting `BQUOTE2` would drop a subshell opener silently
+        // (already the wanted answer) but would also stop counting a
+        // `` def ` `` marker spelled that way. This pins the
+        // reachability so such a bump fails here rather than moving a
+        // metric unobserved.
+        let path = PathBuf::from("foo.rb");
+        for source in ["x = `echo`\n", "x = %x{echo}\n"] {
+            let parser = RubyParser::new(source.as_bytes().to_vec(), &path, None);
+            assert!(
+                !ast_has_kind_id(&parser, Ruby::BQUOTE2 as u16),
+                "Ruby::BQUOTE2 must stay collapsed to Ruby::BQUOTE for `{source}`"
+            );
+            // Positive control: the id the guard actually fires on is
+            // present, so the assertion above cannot pass merely
+            // because no delimiter was parsed at all.
+            assert!(
+                ast_has_kind_id(&parser, Ruby::BQUOTE as u16),
+                "Ruby::BQUOTE must be the delimiter kind for `{source}`"
+            );
+        }
+    }
+
+    #[test]
     fn ruby_interpolation_opener_is_not_an_operator() {
         // Behaviour change, not a fabrication fix: #1314 drops
         // `HASHLBRACE` from Ruby's operator arm. `#{` is a token of its
