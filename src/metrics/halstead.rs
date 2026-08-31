@@ -4720,10 +4720,11 @@ f() {
     /// #1358).
     ///
     /// `expected` is the post-fix `[n1, N1, n2, N2]`. `(n2_before,
-    /// N2_before)` is what the same source measured while `wrapper` was
-    /// still classified as an operand, and both columns are *re-derived*
-    /// from the current parse rather than merely recorded — the arm was the
-    /// only difference between the two classifications, so:
+    /// N2_before)` is what the same source scored while `wrapper` was still
+    /// classified as an operand. Both columns are checked against the
+    /// *current* parse under the model "one spurious operand per wrapper
+    /// node" — they are not measured against the old code, which no longer
+    /// exists to run:
     ///
     /// - `N2_before - N2` must equal the number of `wrapper` nodes. That
     ///   identity *is* the defect: one spurious operand per wrapper.
@@ -4734,8 +4735,13 @@ f() {
     ///   `$"ls"`) or because it spans several (`foo$x`, `$(which ls)`,
     ///   `{1..3}`).
     ///
-    /// A mistyped or stale column therefore fails rather than misinforming
-    /// the next reader; one did, during review of #1351.
+    /// So a mistyped or stale column fails rather than misinforming the next
+    /// reader — one did, during review of #1351 — but neither check can
+    /// catch a *production* regression, because both hold whatever
+    /// `get_op_type` answers. `assert_halstead_counts` below is the only
+    /// assertion here that fails when the wrapper arm comes back; measured
+    /// by neutralising it under the pre-fix arm, which leaves both tables
+    /// green.
     #[track_caller]
     fn assert_bash_wrapper_sheds_one_operand(
         source: &str,
@@ -4914,6 +4920,13 @@ f() {
         // `${#}` carries the residue: it contributes no operand of its own,
         // so the second row pins that the deletion left *both* positions at
         // zero rather than only the wrapper-bearing one.
+        //
+        // Only the command-name half moves under the pre-fix arm; the
+        // argument-position half is the reference the parity is measured
+        // against, and `cmd $"…"` is asserted nowhere else. Measured — with
+        // the argument assertions dropped this test still fails pre-fix,
+        // with the command-name ones dropped it passes — so do not
+        // "simplify" it down to the failing half.
         for (spelling, expected) in [("$\"hi\"", [0, 0, 2, 2]), ("$\"${#}\"", [0, 0, 1, 1])] {
             let as_command_name = format!("{spelling} arg\n");
             let as_argument = format!("cmd {spelling}\n");
