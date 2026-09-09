@@ -4673,6 +4673,53 @@ line3\";",
             "foo.cpp",
             assert_three_code_rows,
         );
+        // The four languages #778 missed, added by #1260. Bash's shape is
+        // the single-quoted `raw_string`; Tcl and its iRules dialect spell
+        // the literal `quoted_word`; Elixir routes the `quoted_content`
+        // every one of its string forms wraps.
+        check_metrics::<BashParser>("s='line1\nline2\nline3'", "foo.sh", assert_three_code_rows);
+        check_metrics::<TclParser>(
+            "set s \"line1\nline2\nline3\"",
+            "foo.tcl",
+            assert_three_code_rows,
+        );
+        check_metrics::<IrulesParser>(
+            "set s \"line1\nline2\nline3\"",
+            "foo.irule",
+            assert_three_code_rows,
+        );
+        check_metrics::<ElixirParser>(
+            "s = \"line1\nline2\nline3\"",
+            "foo.ex",
+            assert_three_code_rows,
+        );
+    }
+
+    #[test]
+    fn multiline_literal_ending_at_eof_credits_every_row() {
+        // The #1260 fix lives in exactly the class both metric harnesses
+        // normalise away: `check_metrics` and the integration
+        // `read_file_with_eol` path each force a trailing newline, so a
+        // node ending at EOF is unreachable from either and a test written
+        // the ordinary way passes against unfixed code (#1051, #1067 —
+        // `.claude/rules/testing.md`). These fixtures reach the parser
+        // byte-for-byte through `metrics_verbatim`, with the closing
+        // delimiter as the last byte of the file.
+        //
+        // expected, in all four languages: three physical rows, all code,
+        // none blank.
+        for (lang, source) in [
+            (crate::LANG::Bash, &b"s='line1\nline2\nline3'"[..]),
+            (crate::LANG::Tcl, &b"set s \"line1\nline2\nline3\""[..]),
+            (crate::LANG::Irules, &b"set s \"line1\nline2\nline3\""[..]),
+            (crate::LANG::Elixir, &b"s = \"line1\nline2\nline3\""[..]),
+        ] {
+            let loc = metrics_verbatim(lang, source, MetricsOptions::default()).loc;
+            assert_eq!(loc.sloc(), 3, "{lang:?} sloc");
+            assert_eq!(loc.ploc(), 3, "{lang:?} ploc");
+            assert_eq!(loc.cloc(), 0, "{lang:?} cloc");
+            assert_eq!(loc.blank(), 0, "{lang:?} blank");
+        }
     }
 
     #[test]
@@ -6111,16 +6158,82 @@ try {
         // surrounding command should count. Mirrors lua_no_string_lloc and
         // elixir_no_string_content_lloc; pins the heredoc-shaped invariant
         // for Tcl quoted_word bodies.
+        //
+        // expected: three physical rows (`set s "line one`, `line two`,
+        // `line three"`), all code — the interior row of a multi-line
+        // string is PLOC, not blank (#1260, following #778 / #415). This
+        // test pinned `ploc 2 / blank 1` until #1260; the row `line two`
+        // held no node at all under the old arm list, so it reached
+        // neither PLOC nor CLOC and `blank = sloc - ploc - cloc` claimed
+        // it. `lloc` is unchanged: only the `set` command counts.
         check_metrics::<TclParser>(
             "set s \"line one\nline two\nline three\"",
             "foo.tcl",
             |metric| {
                 assert_eq!(metric.loc.sloc(), 3);
-                assert_eq!(metric.loc.ploc(), 2);
+                assert_eq!(metric.loc.ploc(), 3);
                 assert_eq!(metric.loc.lloc(), 1);
                 assert_eq!(metric.loc.cloc(), 0);
-                assert_eq!(metric.loc.blank(), 1);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_multiline_quoted_word_credits_every_row_to_ploc() {
+        // Regression test for #1260. A Tcl `quoted_word` carries no child
+        // per row — only the two `"` tokens — so its interior rows reached
+        // neither PLOC nor CLOC and `blank = sloc - ploc - cloc` claimed
+        // them.
+
+        // expected: 4 rows — `set msg "line one`, `line two`,
+        // `line three"`, `puts $msg` — all code, none blank. lloc 2 for the
+        // `set` and the `puts` command.
+        check_metrics::<TclParser>(
+            "set msg \"line one\nline two\nline three\"\nputs $msg",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+
+        // expected: 3 rows whose middle row is empty *inside* the literal —
+        // `set msg "one`, ``, `three"`. Code, not blank, matching every
+        // language that already routes a multi-line literal.
+        check_metrics::<TclParser>("set msg \"one\n\nthree\"", "foo.tcl", |metric| {
+            assert_eq!(metric.loc.sloc(), 3);
+            assert_eq!(metric.loc.ploc(), 3);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
+        });
+    }
+
+    #[test]
+    fn tcl_braced_word_body_blank_rows_stay_blank() {
+        // The #1260 arm deliberately stops at `quoted_word`. Tcl spells a
+        // script body and a braced literal with one kind, `braced_word`,
+        // and the grammar parses both as scripts — `puts {a\n\nb}` yields
+        // `command` children exactly as a `proc` body does, which is why
+        // #1318 had to tell the two roles apart out-of-band. Routing it
+        // would turn every blank line inside every procedure into code.
+        //
+        // expected: 5 rows — `proc p {} {`, `    set x 1`, ``,
+        // `    set y 2`, `}` — with row 3 genuinely blank, so sloc 5,
+        // ploc 4, blank 1. lloc 3 = the procedure plus two `set` commands.
+        check_metrics::<TclParser>(
+            "proc p {} {\n    set x 1\n\n    set y 2\n}",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 1);
             },
         );
     }
@@ -6666,6 +6779,12 @@ function f() {
 
     #[test]
     fn bash_heredoc_loc() {
+        // expected: six physical rows (`f() {`, `cat <<EOF`, `line1`,
+        // `line2`, `EOF`, `}`), all code and none blank — a heredoc body's
+        // rows are real source text (#1260, following #778 / #415). This
+        // test pinned `ploc 5 / blank 1` until #1260: `heredoc_body` is a
+        // childless node spanning both body rows, so the leaf arm credited
+        // only `line1` and `line2` reached neither PLOC nor CLOC.
         check_metrics::<BashParser>(
             "f() {
             cat <<EOF
@@ -6676,13 +6795,197 @@ EOF
             "foo.sh",
             |metric| {
                 assert_eq!(metric.loc.sloc(), 6);
-                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.ploc(), 6);
                 assert_eq!(metric.loc.lloc(), 2);
                 assert_eq!(metric.loc.cloc(), 0);
-                assert_eq!(metric.loc.blank(), 1);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
+    }
+
+    #[test]
+    fn bash_multiline_literals_credit_every_row_to_ploc() {
+        // Regression test for #1260. Bash routed no string kind to a
+        // PLOC/CLOC bucket, so the interior rows of every multi-row literal
+        // reached neither and `blank = sloc - ploc - cloc` claimed them.
+        //
+        // Each fixture isolates one arm of the new match, so a dropped kind
+        // fails here rather than being covered by a sibling
+        // (`.claude/rules/grammar-dispatch.md` section 11): `raw_string`,
+        // `ansi_c_string` and `heredoc_body` are childless nodes the old
+        // leaf arm credited only one row of, while `string` emits a
+        // `string_content` child per row that *has* text and so skipped an
+        // empty interior row.
+
+        // expected: 5 rows — `cat <<DOC`, `line one`, `line two`, `DOC`,
+        // `echo done` — all code, none blank. lloc 2 for the two commands.
+        check_metrics::<BashParser>(
+            "cat <<DOC\nline one\nline two\nDOC\necho done",
+            "foo.sh",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+
+        // expected: 3 rows of a single-quoted `raw_string` — `s='one`,
+        // `two`, `three'` — all code, none blank.
+        check_metrics::<BashParser>("s='one\ntwo\nthree'", "foo.sh", |metric| {
+            assert_eq!(metric.loc.sloc(), 3);
+            assert_eq!(metric.loc.ploc(), 3);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
+        });
+
+        // expected: 2 rows of an `ansi_c_string` (`$'…'`) — `s=$'one` and
+        // `two'` — both code, neither blank.
+        check_metrics::<BashParser>("s=$'one\ntwo'", "foo.sh", |metric| {
+            assert_eq!(metric.loc.sloc(), 2);
+            assert_eq!(metric.loc.ploc(), 2);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
+        });
+
+        // expected: 3 rows of a double-quoted `string` whose middle row is
+        // empty — `s="one`, ``, `three"`. The empty row is inside the
+        // literal, so it is code, not blank: every one of the eighteen
+        // languages that already route a multi-line literal answers 0 blank
+        // for this shape, and Bash now agrees.
+        check_metrics::<BashParser>("s=\"one\n\nthree\"", "foo.sh", |metric| {
+            assert_eq!(metric.loc.sloc(), 3);
+            assert_eq!(metric.loc.ploc(), 3);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
+        });
+
+        // expected: 4 rows of a quoted, tab-stripping heredoc — the
+        // `cat <<-'DOC'` opener, one body row, an empty body row, and the
+        // `DOC` terminator — all code, none blank. `<<-'DOC'` suppresses
+        // interpolation, which is a distinct grammar path from the bare
+        // `<<DOC` above.
+        check_metrics::<BashParser>("cat <<-'DOC'\n\tline one\n\nDOC", "foo.sh", |metric| {
+            assert_eq!(metric.loc.sloc(), 4);
+            assert_eq!(metric.loc.ploc(), 4);
+            assert_eq!(metric.loc.lloc(), 1);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
+        });
+
+        // expected: 2 rows for a heredoc with an empty body — `cat <<DOC`
+        // and the `DOC` terminator. The body node is zero-width here, so
+        // this pins that the new arm adds no phantom row.
+        check_metrics::<BashParser>("cat <<DOC\nDOC", "foo.sh", |metric| {
+            assert_eq!(metric.loc.sloc(), 2);
+            assert_eq!(metric.loc.ploc(), 2);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
+        });
+    }
+
+    #[test]
+    fn bash_literal_that_owns_its_opening_row_still_credits_it() {
+        // The other branch of `add_multiline_string_ploc`'s parent gate,
+        // and the one every fixture above misses: each of those writes the
+        // literal after `s=`, so the opening row is already PLOC and the
+        // gate's *skip* path is harmless. Here the literal is the only
+        // thing on its row.
+        //
+        // Bash is the language where that distinction bites. The helper
+        // skips the opening row when the parent starts on it, which is safe
+        // only where the catch-all credits every node's start row — and
+        // Bash's is leaf-gated, so `command` / `command_name` contribute
+        // nothing and a childless `raw_string` is the sole node covering
+        // its own row. Routing it through the helper alone reported
+        // `ploc 0, blank 1` for a one-line file.
+
+        // expected: one row, one code row, nothing blank. `'ls'` parses as
+        // `command → command_name → raw_string`, none of whose ancestors
+        // reaches PLOC.
+        check_metrics::<BashParser>("'ls'", "foo.sh", |metric| {
+            assert_eq!(metric.loc.sloc(), 1);
+            assert_eq!(metric.loc.ploc(), 1);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
+        });
+
+        // expected: the same for an `ansi_c_string`, the other childless
+        // single-row literal.
+        check_metrics::<BashParser>("$'ls'", "foo.sh", |metric| {
+            assert_eq!(metric.loc.sloc(), 1);
+            assert_eq!(metric.loc.ploc(), 1);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
+        });
+
+        // expected: 3 rows — `f() {`, `  'ls'`, `}` — all code. The literal
+        // sits inside a function body, so a lost row shows as blank 1
+        // rather than as an empty file.
+        check_metrics::<BashParser>("f() {\n  'ls'\n}", "foo.sh", |metric| {
+            assert_eq!(metric.loc.sloc(), 3);
+            assert_eq!(metric.loc.ploc(), 3);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
+        });
+
+        // expected: 2 rows — `# c` (comment-only) and `'ls'` (code). This
+        // also covers the `check_comment_ends_on_code_line` call the gate
+        // skipped along with the row: cloc stays 1 and blank stays 0.
+        check_metrics::<BashParser>("# c\n'ls'", "foo.sh", |metric| {
+            assert_eq!(metric.loc.sloc(), 2);
+            assert_eq!(metric.loc.ploc(), 1);
+            assert_eq!(metric.loc.cloc(), 1);
+            assert_eq!(metric.loc.blank(), 0);
+        });
+
+        // expected: 2 rows of a multi-row raw string that is the whole
+        // command — `'a` and `b'`. Both code. Before #1260 this reported
+        // `ploc 1` (the opening row only); the gate alone would have
+        // reported `ploc 1` again, having traded the opening row for the
+        // closing one.
+        check_metrics::<BashParser>("'a\nb'", "foo.sh", |metric| {
+            assert_eq!(metric.loc.sloc(), 2);
+            assert_eq!(metric.loc.ploc(), 2);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
+        });
+    }
+
+    #[test]
+    fn a_multiline_literal_credits_no_row_past_its_own_span() {
+        // The #1260 arms insert a *range* of rows, so the row after the
+        // literal is the boundary worth pinning: an off-by-one in the range
+        // end, or a literal node whose span is read one row too wide, would
+        // pull the following comment row into PLOC. Each fixture puts a
+        // comment-only row immediately after a closed literal, so that row
+        // must stay comment-only.
+
+        // expected: 7 rows — `cat <<A`, `a1`, `A`, `# note`, `cat <<B`,
+        // `b1`, `B`. Six are code and row 4 is comment-only: ploc 6,
+        // cloc 1, blank 0. Two heredocs, so the row is bracketed on both
+        // sides by a literal.
+        check_metrics::<BashParser>(
+            "cat <<A\na1\nA\n# note\ncat <<B\nb1\nB",
+            "foo.sh",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 6);
+                assert_eq!(metric.loc.cloc(), 1);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+
+        // expected: 4 rows — `set a "x`, `y"`, `# note`, `set b 1` — with
+        // row 3 comment-only: ploc 3, cloc 1, blank 0.
+        check_metrics::<TclParser>("set a \"x\ny\"\n# note\nset b 1", "foo.tcl", |metric| {
+            assert_eq!(metric.loc.sloc(), 4);
+            assert_eq!(metric.loc.ploc(), 3);
+            assert_eq!(metric.loc.cloc(), 1);
+            assert_eq!(metric.loc.blank(), 0);
+        });
     }
 
     #[test]
@@ -8252,6 +8555,75 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
     }
 
     #[test]
+    fn elixir_multiline_string_forms_credit_every_row_to_ploc() {
+        // Regression test for #1260. `quoted_content` — the literal text of
+        // every Elixir string form — is childless, so the leaf branch of
+        // the catch-all credited only its opening row and the interior rows
+        // reached neither PLOC nor CLOC.
+
+        // expected: 3 rows of a plain `"…"` literal — `x = "line one`,
+        // `line two`, `line three"` — all code, none blank.
+        check_metrics::<ElixirParser>(
+            "x = \"line one\nline two\nline three\"",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 3);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+
+        // expected: 4 rows of a `'''` charlist whose third row is empty
+        // inside the literal — `c = '''`, `c1`, ``, `'''`. Code, not blank.
+        check_metrics::<ElixirParser>("c = '''\nc1\n\n'''", "foo.ex", |metric| {
+            assert_eq!(metric.loc.sloc(), 4);
+            assert_eq!(metric.loc.ploc(), 4);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
+        });
+
+        // expected: 4 rows of a `~s"""` sigil heredoc — `s = ~s"""`, `s1`,
+        // `s2`, `"""`. A sigil is a distinct grammar node from `string` and
+        // `charlist`; all three wrap the same `quoted_content`, which is
+        // why one arm covers them.
+        check_metrics::<ElixirParser>("s = ~s\"\"\"\ns1\ns2\n\"\"\"", "foo.ex", |metric| {
+            assert_eq!(metric.loc.sloc(), 4);
+            assert_eq!(metric.loc.ploc(), 4);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
+        });
+    }
+
+    #[test]
+    fn elixir_module_attribute_docstring_rows_are_ploc_not_cloc() {
+        // #1260 had to choose a bucket for `@doc` / `@moduledoc` heredoc
+        // rows, and this pins it: PLOC.
+        //
+        // Python's one carve-out to CLOC is a *bare* string expression
+        // statement whose value is discarded — a docstring by position. An
+        // Elixir module attribute is not that shape: `@doc "…"` is an
+        // assignment whose value the compiler stores and
+        // `Code.fetch_docs/1` reads back, so its Python analogue is
+        // `x = """…"""`, which Python counts as PLOC (#415).
+        //
+        // expected: 7 rows — `defmodule M do`, `  @doc """`, `  docs one`,
+        // `  docs two`, `  """`, `  def f, do: :ok`, `end` — all code, none
+        // blank and none comment. lloc 3 = defmodule + @doc + def.
+        check_metrics::<ElixirParser>(
+            "defmodule M do\n  @doc \"\"\"\n  docs one\n  docs two\n  \"\"\"\n  def f, do: :ok\nend",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+    }
+
+    #[test]
     fn elixir_rescue_arm_counts_lloc() {
         // Each rescue arm's body has a single expression (e.g. `:bad`)
         // that counts as one LLOC; the `stab_clause` header itself is
@@ -9759,9 +10131,46 @@ class A {
         });
     }
 
+    #[test]
+    fn irules_multiline_quoted_word_credits_every_row_to_ploc() {
+        // Regression test for #1260, the dialect half of the Tcl fix: a
+        // `quoted_word` carries no child per row, so its interior rows
+        // reached neither PLOC nor CLOC and
+        // `blank = sloc - ploc - cloc` claimed them.
+        //
+        // expected: 6 rows — `when HTTP_REQUEST {`,
+        // `    set msg "line one`, `line two`, `line three"`,
+        // `    log local0. $msg`, `}` — all code, none blank. lloc 3 for
+        // the handler, the `set` and the `log` command.
+        check_metrics::<IrulesParser>(
+            "when HTTP_REQUEST {\n    set msg \"line one\nline two\nline three\"\n    log local0. $msg\n}",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 6);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+
+        // expected: 3 rows whose middle row is empty *inside* the literal —
+        // `set msg "one`, ``, `three"` — code, not blank.
+        check_metrics::<IrulesParser>("set msg \"one\n\nthree\"", "foo.irule", |metric| {
+            assert_eq!(metric.loc.sloc(), 3);
+            assert_eq!(metric.loc.ploc(), 3);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
+        });
+    }
+
     /// Interior blank lines are counted as BLANK and excluded from PLOC.
     /// sloc 6 (every line) / ploc 4 (4 code lines) / lloc 3 (handler + 2
     /// `set`s) / cloc 0 / blank 2.
+    ///
+    /// Also the dialect's half of the #1260 carve-out: the handler body is
+    /// a `braced_word`, which the grammar parses as a script, so its blank
+    /// rows stay blank — only `quoted_word` is routed to PLOC.
     #[test]
     fn irules_blank() {
         check_metrics::<IrulesParser>(

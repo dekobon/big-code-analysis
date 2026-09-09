@@ -25,7 +25,7 @@ impl Loc for LuaCode {
             // credit every spanned row to PLOC to match Python's #415
             // decision (#778).
             Lua::String => {
-                add_multiline_string_ploc(node, ancestors, stats, start, end);
+                add_multiline_string_ploc(node, ancestors, stats, start);
             }
 
             // Skip tokens that are children of comment nodes.

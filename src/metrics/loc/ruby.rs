@@ -27,7 +27,7 @@ impl Loc for RubyCode {
             // body can span several rows; credit every spanned row to PLOC to
             // match Python's #415 decision (#778).
             R::String | R::HeredocBody => {
-                add_multiline_string_ploc(node, ancestors, stats, start, end);
+                add_multiline_string_ploc(node, ancestors, stats, start);
             }
             // LLOC contributors: control-flow constructs, method/class/module
             // declarations, postfix statement modifiers, and the dedicated

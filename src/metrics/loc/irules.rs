@@ -29,6 +29,18 @@ impl Loc for IrulesCode {
                 add_cloc_lines(stats, start, end);
             }
 
+            // Same multi-row-literal gap as the Tcl impl this dialect forked
+            // from: a quoted word (`"…"`) carries no child per row, so its
+            // interior rows reached neither PLOC nor CLOC and
+            // `blank = sloc - ploc - cloc` mislabelled them as blank
+            // (#1260). `braced_word` stays out for the same reason it does
+            // in Tcl — the grammar parses a braced literal as a script, so
+            // routing it would turn every blank line inside every handler
+            // body into code.
+            Irules::QuotedWord => {
+                add_multiline_string_ploc(node, ancestors, stats, start);
+            }
+
             // Compound-statement headers and dedicated statement productions
             // each count once. `when_event` / `on_handler` / `trap_handler`
             // are the iRules handler headers; `for` / `dict_for` are loops

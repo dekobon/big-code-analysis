@@ -4,23 +4,23 @@ expression: metric.loc
 ---
 {
   "sloc": 3,
-  "ploc": 2,
+  "ploc": 3,
   "lloc": 1,
   "cloc": 0,
-  "blank": 1,
+  "blank": 0,
   "sloc_average": 3.0,
-  "ploc_average": 2.0,
+  "ploc_average": 3.0,
   "lloc_average": 1.0,
   "cloc_average": 0.0,
-  "blank_average": 1.0,
+  "blank_average": 0.0,
   "sloc_min": 3,
   "sloc_max": 3,
   "cloc_min": 0,
   "cloc_max": 0,
-  "ploc_min": 2,
-  "ploc_max": 2,
+  "ploc_min": 3,
+  "ploc_max": 3,
   "lloc_min": 1,
   "lloc_max": 1,
-  "blank_min": 1,
-  "blank_max": 1
+  "blank_min": 0,
+  "blank_max": 0
 }

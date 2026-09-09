@@ -179,17 +179,35 @@ pub(crate) fn add_only_comment_lines(stats: &mut Stats, start: usize, end: usize
 // all of its rows to PLOC (#415). This helper makes every other language
 // agree with that decision (#778).
 //
-// Mirrors Python's `String` arm exactly: the opening row is inserted only
-// when the enclosing statement begins on an earlier row — otherwise that
-// row is already attributed to the parent — and rows `start + 1..=end`
-// (the interior and closing rows) are always inserted.
+// Mirrors Python's `String` arm: the opening row is inserted only when the
+// enclosing statement begins on an earlier row — otherwise that row is
+// already attributed to the parent — and the interior and closing rows are
+// always inserted.
+//
+// **That parent gate assumes the caller's `_` arm is ungated.** It is a
+// skip, and it is only safe where some *other* node on the opening row
+// inserts it — which is guaranteed when the language's catch-all credits
+// every node's start row, as it does in all thirteen languages #778
+// covered. Where the catch-all is leaf-gated (`if node.child_count() == 0`,
+// as in `bash.rs` and `elixir.rs`) a container parent contributes nothing,
+// so a *childless* literal is the only node covering its own row and the
+// gate deletes it: `'ls'` alone in a Bash file reported `ploc 0, blank 1`
+// (#1260). Elixir is unaffected because a `quoted_content`'s parent always
+// carries its opening delimiter as a leaf token on that row; Bash's arm
+// inserts the row itself before calling here, and says why.
+//
+// The last row is derived from [`Node::end_line`] rather than the raw end
+// row: a node whose end column is 0 finished at the *start* of the row
+// below its last content row, so that row is not part of its span. Using
+// the raw row credits a row the literal does not cover — visible as
+// `ploc > sloc` for a string left unterminated at EOF, where the literal
+// absorbs the trailing newline (#1260).
 #[inline]
 pub(crate) fn add_multiline_string_ploc(
     node: &Node,
     ancestors: Ancestors<'_, '_>,
     stats: &mut Stats,
     start: usize,
-    end: usize,
 ) {
     if ancestors
         .parent(node)
@@ -198,7 +216,8 @@ pub(crate) fn add_multiline_string_ploc(
         check_comment_ends_on_code_line(stats, start);
         stats.ploc.lines.insert(start);
     }
-    (start.saturating_add(1)..=end).for_each(|line| {
+    let last_row = node.end_line().saturating_sub(1);
+    (start.saturating_add(1)..=last_row).for_each(|line| {
         stats.ploc.lines.insert(line);
     });
 }

@@ -30,7 +30,7 @@ impl Loc for PhpCode {
             // nowdoc bodies already reach PLOC through their inner statement
             // nodes, so they are not routed here.
             EncapsedString | String => {
-                add_multiline_string_ploc(node, ancestors, stats, start, end);
+                add_multiline_string_ploc(node, ancestors, stats, start);
             }
             // Statement kinds that contribute one logical line each.
             ExpressionStatement

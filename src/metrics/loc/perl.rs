@@ -50,7 +50,7 @@ impl Loc for PerlCode {
             | P::StringQqQuoted
             | P::BacktickQuoted
             | P::CommandQxQuoted => {
-                add_multiline_string_ploc(node, ancestors, stats, start, end);
+                add_multiline_string_ploc(node, ancestors, stats, start);
             }
             P::Comments | P::PodStatement => {
                 add_cloc_lines(stats, start, end);

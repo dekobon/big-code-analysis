@@ -31,6 +31,30 @@ impl Loc for TclCode {
                 add_cloc_lines(stats, start, end);
             }
 
+            // A quoted word (`"…"`) is the one Tcl literal that can span
+            // rows and is unambiguously data. The grammar gives it no child
+            // per row — only the two `"` tokens and any embedded
+            // substitution — so its interior rows reached neither PLOC nor
+            // CLOC and `blank = sloc - ploc - cloc` mislabelled them as
+            // blank (#1260). Credit every spanned row to PLOC, the decision
+            // #778 took for thirteen other languages and #415 took for
+            // Python.
+            //
+            // `braced_word` is deliberately *not* routed here. Tcl spells a
+            // script body and a braced literal with the same kind, and the
+            // grammar parses both as scripts — `puts {a\n\nb}` yields
+            // `command` children exactly as a `proc` body does (#1318 had to
+            // separate the two roles out-of-band, by the enclosing command's
+            // leading word). Routing it would turn every blank line inside
+            // every procedure body into code.
+            //
+            // The `LF` no-op above is unaffected: `LF` is a token child of
+            // the root and of `braced_word`, never of a quoted word, so the
+            // two arms cannot see the same node (#1135).
+            Tcl::QuotedWord => {
+                add_multiline_string_ploc(node, ancestors, stats, start);
+            }
+
             Tcl::Procedure
             | Tcl::If
             | Tcl::Elseif
