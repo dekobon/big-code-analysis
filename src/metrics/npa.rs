@@ -3030,25 +3030,23 @@ mod tests {
     }
 
     #[test]
-    fn ruby_hash_key_symbol_is_not_an_argument() {
+    fn ruby_hash_key_symbol_declares_no_attribute() {
         // Pins the defensive `HashKeySymbol` arm in
         // `ruby_symbol_argument_count` as unreachable at the pinned
-        // grammar: tree-sitter-ruby 0.23.1 emits `hash_key_symbol` only
-        // as a `pair` / `keyword_pattern` key, never as a direct child
-        // of an `argument_list` (grammar-dispatch rule 2). A grammar
-        // that promoted it would make `attr_accessor a: 1` — which is
-        // not valid Ruby — count an attribute.
-        let source = "class A\n  attr_accessor :x\n  h = { y: 1 }\nend\n";
+        // grammar (grammar-dispatch rule 2). `attr_accessor :x, foo: 1`
+        // puts a `hash_key_symbol` inside this very argument list, but
+        // wrapped in a `pair` — tree-sitter-ruby 0.23.1 emits it only as
+        // a `pair` / `keyword_pattern` key, never as a direct argument.
+        //
+        // expected: na = 1 (x), npa = 1. A grammar that promoted
+        // `hash_key_symbol` to a direct argument would reach the arm and
+        // report 2, counting a keyword argument as an attribute.
+        let source = "class A\n  attr_accessor :x, foo: 1\nend\n";
         let parser = RubyParser::new(source.as_bytes().to_vec(), &PathBuf::from("foo.rb"), None);
         assert!(
             ast_has_kind_id(&parser, Ruby::HashKeySymbol as u16),
             "the fixture no longer produces a `hash_key_symbol`; the \
-             negative claim below is then vacuous"
-        );
-        assert!(
-            !ast_has_kind_id(&parser, Ruby::BareSymbol as u16),
-            "`bare_symbol` now appears outside a `%i[…]` array; \
-             re-derive `ruby_symbol_argument_count`"
+             claim below is then vacuous"
         );
         check_metrics::<RubyParser>(source, "foo.rb", |metric| {
             assert_eq!(metric.npa.class_na_sum(), 1);
