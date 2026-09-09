@@ -129,24 +129,27 @@ pub struct MetricInfo {
     /// the CLI threshold accessor's per-space scalar at any interior
     /// space.
     ///
-    /// `true` for the four metrics whose serialized JSON value diverges
+    /// `true` for the five metrics whose serialized headline diverges
     /// from the per-space accessor — `cognitive`, `cyclomatic`,
-    /// `cyclomatic.modified`, and `abc` (#441). The aggregate equals the
-    /// per-space scalar only at a leaf space (no descendant
-    /// function/closure spaces); at any interior space — the file-level
-    /// `unit` or a container with descendants — it is larger.
+    /// `cyclomatic.modified`, `abc` (#441) and, since #1196 moved its
+    /// gate onto the callable's own parameter list, `nargs`. The
+    /// aggregate is at least as large everywhere and equal only where
+    /// the descendants contribute nothing — always at a leaf space (no
+    /// descendant function/closure spaces), and incidentally at an
+    /// interior one whose descendants all score zero.
     ///
-    /// This flag describes the `sum`/`*_sum` *aggregate* field, which
-    /// still diverges. As of #958 the wire shape **also** serializes each
-    /// of these four metrics' per-space own value (`cyclomatic.value`,
-    /// `cyclomatic.modified.value`, `cognitive.value`, `abc.value`), so a
-    /// JSON-walking front-end no longer needs this flag to stay correct:
-    /// it reads the own value directly and emits at every space exactly
-    /// like the CLI. The Python `to_sarif` binding was switched to that
-    /// path in #958; before it, the binding emitted these only at leaf
-    /// spaces to avoid subtree-wide values masquerading as per-space
-    /// findings the CLI never produces (#855). The flag name retains its
-    /// original unit-only framing.
+    /// This flag describes the `sum`/`*_sum`/`total` *aggregate* field,
+    /// which still diverges. As of #958 (and #1236 for `nargs`) the wire
+    /// shape **also** serializes each of these metrics' per-space own
+    /// value (`cyclomatic.value`, `cyclomatic.modified.value`,
+    /// `cognitive.value`, `abc.value`, `nargs.value`), so a JSON-walking
+    /// front-end no longer needs this flag to stay correct: it reads the
+    /// own value directly and emits at every space exactly like the CLI.
+    /// The Python `to_sarif` binding was switched to that path in #958;
+    /// before it, the binding emitted these only at leaf spaces to avoid
+    /// subtree-wide values masquerading as per-space findings the CLI
+    /// never produces (#855). The flag name retains its original
+    /// unit-only framing.
     ///
     /// The flag is **not** derivable from the JSON path string: `nexits`
     /// also serialises a `sum` field, but its CLI accessor (`nexits_sum()`)
@@ -223,7 +226,7 @@ pub const METRICS: &[MetricInfo] = &[
     MetricInfo { id: "nom",                 family: "nom",        long_description: "Number of methods/functions exceeds the configured threshold.",    direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Container },
     MetricInfo { id: "tokens",              family: "tokens",     long_description: "Number of tokens exceeds the configured threshold.",               direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function  },
     MetricInfo { id: "nexits",              family: "nexits",     long_description: "Number of exit points exceeds the configured threshold.",          direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function  },
-    MetricInfo { id: "nargs",               family: "nargs",      long_description: "Number of function arguments exceeds the configured threshold.",   direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function  },
+    MetricInfo { id: "nargs",               family: "nargs",      long_description: "Number of function arguments exceeds the configured threshold.",   direction: Direction::HigherIsWorse, skip_at_unit: true,  scope: MetricScope::Function  },
     MetricInfo { id: "mi.original",         family: "mi",         long_description: "Maintainability Index falls below the configured threshold.",      direction: Direction::LowerIsWorse,  skip_at_unit: false, scope: MetricScope::Function  },
     MetricInfo { id: "mi.sei",              family: "mi",         long_description: "Maintainability Index (SEI) falls below the configured threshold.", direction: Direction::LowerIsWorse,  skip_at_unit: false, scope: MetricScope::Function  },
     MetricInfo { id: "mi.visual_studio",    family: "mi",         long_description: "Maintainability Index (Visual Studio) falls below the configured threshold.", direction: Direction::LowerIsWorse,  skip_at_unit: false, scope: MetricScope::Function  },
@@ -492,14 +495,23 @@ mod tests {
         }
     }
 
-    /// `skip_at_unit` is `true` for exactly the four metrics whose
-    /// serialized JSON headline at the file-level `unit` space is an
-    /// aggregate over descendant spaces that does not match the CLI
-    /// threshold accessor's per-space scalar (#441). The Python
-    /// `to_sarif` binding mirrors this registry; a cross-crate test in
-    /// `big-code-analysis-py/src/sarif.rs` pins its `METRIC_FIELDS`
-    /// table's flags to these values, so this set is the single source
-    /// of truth both front-ends derive from (#442).
+    /// `skip_at_unit` is `true` for exactly the metrics whose serialized
+    /// JSON headline at the file-level `unit` space is an aggregate over
+    /// descendant spaces that does not match the CLI threshold
+    /// accessor's per-space scalar (#441).
+    ///
+    /// Since #958 the flag has no consumer: both front-ends read a
+    /// per-space `value` field instead, and
+    /// `big-code-analysis-py/src/sarif.rs` pins its own JSON paths
+    /// (`metric_field_paths_are_pinned`) rather than deriving them from
+    /// this flag. So what this enumeration buys is a review tripwire,
+    /// not a derived contract — which is exactly what it failed to be
+    /// between #1196 and #1236: #1196 moved the `nargs` gate from
+    /// `total()` (a subtree sum) to the callable's own parameter list
+    /// while `nargs.total` kept its meaning, and the row here stayed
+    /// `false`, leaving the registry asserting a parity that no longer
+    /// held. Editing the set means re-deriving it against the CLI
+    /// `EXTRACTORS` accessors, one row at a time.
     ///
     /// The property is deliberately enumerated rather than derived from
     /// the id string: `nexits` also serialises a `sum` field but reads
@@ -514,7 +526,13 @@ mod tests {
         skip.sort_unstable();
         assert_eq!(
             skip,
-            ["abc", "cognitive", "cyclomatic", "cyclomatic.modified"],
+            [
+                "abc",
+                "cognitive",
+                "cyclomatic",
+                "cyclomatic.modified",
+                "nargs"
+            ],
             "skip_at_unit set drifted from the JSON-aggregate-vs-CLI-accessor \
              property; review against the CLI EXTRACTORS accessors before editing",
         );

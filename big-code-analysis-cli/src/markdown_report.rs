@@ -203,7 +203,7 @@ fn extract_summaries_inner(
             // so reading different quantities let `bca check` exit 0
             // while `bca report` flagged the same function under "Many
             // parameters" for a number the gate no longer enforced.
-            nargs: (m.nargs.function_args() + m.nargs.closure_args()) as usize,
+            nargs: m.nargs.own_args() as usize,
             nexits: m.nexits.nexits_sum() as usize,
             nom: m.nom.total() as usize,
             abc: m.abc.magnitude(),

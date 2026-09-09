@@ -83,13 +83,17 @@ the upload to the repository's Code Scanning alerts.
 container, and each leaf function or closure — whose **own** value
 breaches its limit, exactly matching `bca check --report-format sarif`. For most
 metrics the JSON headline at a space already is that space's own value.
-The four subtree-aggregate metrics — `cyclomatic`,
-`cyclomatic.modified`, `cognitive`, and `abc` — additionally expose a
-`sum` / `magnitude` rolled up across child spaces; the binding reads
-their per-space `value` field instead, so it reports an interior breach
-(for example a function whose own complexity breaches even though a
-nested closure's does not) without being fooled by the larger
-aggregate.
+The five subtree-aggregate metrics — `cyclomatic`,
+`cyclomatic.modified`, `cognitive`, `abc` and `nargs` — additionally
+expose a `sum` / `magnitude` / `total` rolled up across child spaces;
+the binding reads their per-space `value` field instead, so it reports
+an interior breach (for example a function whose own complexity breaches
+even though a nested closure's does not) without being fooled by the
+larger aggregate. For `nargs` that means a function is gated on its own
+parameter list, exactly as `bca check` has been since
+[#1196](https://github.com/dekobon/big-code-analysis/issues/1196); a
+closure with its own space produces its own finding rather than
+inflating the enclosing function's.
 
 Unit findings carry `logicalLocations: [{"fullyQualifiedName":
 "<file>"}]`. Every other space carries its qualified symbol. Within

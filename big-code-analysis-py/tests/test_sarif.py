@@ -54,6 +54,13 @@ def _cli_check_sarif(bca_path: str, path: Path, *, threshold: str) -> dict[str, 
     argv = [
         bca_path,
         "check",
+        # Hermetic: without this the run inherits the repository's own
+        # `bca.toml` (pytest's cwd is inside the checkout), so every
+        # manifest threshold and `[check]` key joins the reference run
+        # alongside the one metric under test. Harmless today, but these
+        # tests assert exact finding sets, so a future manifest edit
+        # would surface as a binding divergence that is not one.
+        "--no-config",
         "--threshold",
         threshold,
         "-O",
@@ -676,6 +683,107 @@ def test_to_sarif_qualified_symbol_matches_cli_for_nested_method(
     )
 
 
+def _sarif_rows(results: list[dict[str, Any]]) -> list[tuple[int, str, str]]:
+    """Reduce SARIF results to ``(startLine, fullyQualifiedName, message)``
+    triples in a deterministic order, so a test can compare them against a
+    hand-written sequence instead of two structurally-equal containers.
+
+    The sort is a normalisation of the *observed* value, which is normally
+    the wrong side to normalise — but emission order genuinely differs
+    between the two front-ends and is not what these tests are about. The
+    binding walks the space tree with an explicit LIFO stack, so it emits
+    sibling spaces in reverse relative to ``bca check``: on the fixture
+    below it reports ``outer``, ``<anon@L3>``, ``<anon@L2>`` where the CLI
+    reports ``outer``, ``<anon@L2>``, ``<anon@L3>``. ``_assert_sarif_results_match``
+    sorts for the same reason. Ordering therefore has to be pinned
+    somewhere else if it is ever made part of the parity contract.
+    """
+    return [
+        (
+            int(r["locations"][0]["physicalLocation"]["region"]["startLine"]),
+            r["locations"][0]["logicalLocations"][0]["fullyQualifiedName"],
+            r["message"]["text"],
+        )
+        for r in sorted(results, key=_sarif_sort_key)
+    ]
+
+
+def test_to_sarif_matches_cli_check_for_nargs_own_parameter_list(
+    bca_binary: str, tmp_path: Path
+) -> None:
+    """CLI parity for ``nargs``, which gates a callable's **own**
+    parameter list (#1196) rather than the ``nargs.total`` subtree sum
+    the JSON headline reports.
+
+    The fixture is #1236's reproducer: ``outer`` declares two parameters
+    and contains a three- and a two-parameter closure, so the subtree sum
+    is 7 while no space owns more than 3. The binding compared
+    ``nargs.total`` and reported ``outer`` at 7 against a limit of 5 — a
+    finding ``bca check`` never emits. A fixture whose own count equals
+    its total would pass whichever field the binding reads.
+    """
+    src = tmp_path / "closures.rs"
+    src.write_text(
+        "fn outer(a: i32, b: i32) {\n"
+        "    let f = |x: i32, y: i32, z: i32| x + y + z;\n"
+        "    let g = |p: i32, q: i32| p + q;\n"
+        "    f(a, b, 0);\n"
+        "    g(a, b);\n"
+        "}\n"
+    )
+
+    analyzed = bca.analyze(src)
+    assert analyzed is not None, "fixture must not be skipped"
+    # The two fields must disagree at the root, or nothing below can fail:
+    # `total` rolls the whole file up, `value` is the root's own count.
+    root_nargs = analyzed["metrics"]["nargs"]
+    assert (root_nargs["total"], root_nargs["value"]) == (7, 0), (
+        f"fixture must separate the subtree sum from the per-space own count; got {root_nargs!r}"
+    )
+
+    # A limit of 5 sits above every space's own count (2, 3, 2) and below
+    # the subtree sum (7) — the exact gap the bug lived in.
+    py_findings = _parse(bca.to_sarif(analyzed, thresholds={"nargs": 5}))["runs"][0]["results"]
+    cli_findings = _cli_check_sarif(bca_binary, src, threshold="nargs=5")["runs"][0]["results"]
+    assert _sarif_rows(py_findings) == [], (
+        f"no space owns more than 3 arguments; got {_sarif_rows(py_findings)!r}"
+    )
+    assert _sarif_rows(cli_findings) == [], (
+        f"CLI reference must agree; got {_sarif_rows(cli_findings)!r}"
+    )
+
+    # A limit of 1 puts all three callables over, each scored on its own
+    # list: the closures are separate findings, not part of `outer`'s.
+    py_doc = _parse(bca.to_sarif(analyzed, thresholds={"nargs": 1}))
+    cli_doc = _cli_check_sarif(bca_binary, src, threshold="nargs=1")
+    py_results = py_doc["runs"][0]["results"]
+    cli_results = cli_doc["runs"][0]["results"]
+    expected = [
+        (1, "outer", "nargs 2 exceeds limit 1"),
+        (2, "outer::<anon@L2>", "nargs 3 exceeds limit 1"),
+        (3, "outer::<anon@L3>", "nargs 2 exceeds limit 1"),
+    ]
+    assert _sarif_rows(py_results) == expected
+    assert _sarif_rows(cli_results) == expected
+    _assert_sarif_results_match(py_results, cli_results)
+
+    # The exact-limit value is acceptable in both front-ends (strict `>`,
+    # #698): at 3 the three-argument closure ties and is not reported; at
+    # 2 it is the only breach.
+    for limit, want in (
+        (3, []),
+        (2, [(2, "outer::<anon@L2>", "nargs 3 exceeds limit 2")]),
+    ):
+        py_rows = _sarif_rows(
+            _parse(bca.to_sarif(analyzed, thresholds={"nargs": limit}))["runs"][0]["results"]
+        )
+        cli_rows = _sarif_rows(
+            _cli_check_sarif(bca_binary, src, threshold=f"nargs={limit}")["runs"][0]["results"]
+        )
+        assert py_rows == want, f"binding at nargs={limit}: {py_rows!r}"
+        assert cli_rows == want, f"CLI at nargs={limit}: {cli_rows!r}"
+
+
 def test_to_sarif_anonymous_space_collapses_to_anon_line() -> None:
     """A space whose name is the literal ``<anonymous>`` (every grammar's
     closure/lambda sentinel) collapses to ``<anon@L{start_line}>``,
@@ -870,34 +978,39 @@ def test_to_sarif_emits_container_level_finding_for_oo_metrics() -> None:
 
 def _own_value_block(metric_name: str, own: float) -> dict[str, Any]:
     """Build a minimal ``metrics`` sub-dict carrying ``own`` at the path
-    the binding thresholds ``metric_name`` against since #958 (the
-    per-space ``value`` field, or ``modified.value`` for the modified
-    variant). Only the walked path needs to be present — ``extract_metric``
-    ignores the sibling aggregate/min/max keys — so the fixtures stay
-    readable.
+    the binding thresholds ``metric_name`` against since #958 — #1236 for
+    ``nargs`` — (the per-space ``value`` field, or ``modified.value`` for
+    the modified variant). Only the walked path needs to be present —
+    ``extract_metric`` ignores the sibling aggregate/min/max keys — so the
+    fixtures stay readable.
     """
     if metric_name == "cyclomatic.modified":
         return {"cyclomatic": {"modified": {"value": own}}}
     if metric_name == "cyclomatic":
         return {"cyclomatic": {"value": own}}
-    if metric_name in ("cognitive", "abc"):
+    if metric_name in ("cognitive", "abc", "nargs"):
         return {metric_name: {"value": own}}
     raise AssertionError(f"unhandled metric {metric_name!r}")
 
 
 @pytest.mark.parametrize(
     "metric_name",
-    ["cyclomatic", "cyclomatic.modified", "cognitive", "abc"],
+    ["cyclomatic", "cyclomatic.modified", "cognitive", "abc", "nargs"],
 )
 def test_to_sarif_emits_interior_space_when_own_value_breaches(metric_name: str) -> None:
     """#958: an interior space (here a function owning a nested closure)
     whose *own* value breaches the limit is now reported — exactly as the
-    CLI's per-space accessor does. For these four metrics the JSON exposes
-    a subtree aggregate (``sum``/``magnitude``) *and*, since #958, the
+    CLI's per-space accessor does. For these five metrics the JSON exposes
+    a subtree aggregate (``sum``/``magnitude``/``total``) *and* the
     per-space ``value``; the binding reads ``value``, so it no longer has
     to skip interior spaces. Before #958 it could read only the aggregate,
     so it skipped every interior space and silently under-emitted this
     breach (the residual gap #855's leaf-only fix left open).
+
+    ``nargs`` is the fifth and joined by the opposite route: its
+    serialized shape did not change in #958, its *gate* changed in #1196,
+    and #1236 serialized the value that gate reads (see the CLI-parity
+    test above for the end-to-end form).
     """
     # outer.value (5) breaches the limit (3); the closure it owns and the
     # file unit stay below it, so only `outer` may be reported.

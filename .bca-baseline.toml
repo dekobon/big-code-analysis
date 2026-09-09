@@ -285,7 +285,7 @@ value = 5.0
 path = "big-code-analysis-cli/src/markdown_report.rs"
 qualified = "extract_summaries_inner"
 metric = "abc"
-value = 40.124805295477756
+value = 39.153543900903784
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report.rs"
@@ -531,7 +531,7 @@ value = 6.0
 path = "big-code-analysis-py/src/types_codegen.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 745.0
+value = 748.0
 
 [[entry]]
 path = "big-code-analysis-py/src/vcs.rs"
@@ -1029,13 +1029,7 @@ value = 5.0
 path = "src/metrics/loc/perl.rs"
 qualified = "PerlCode::compute"
 metric = "halstead.effort"
-value = 52134.594881912846
-
-[[entry]]
-path = "src/metrics/loc/shared.rs"
-qualified = "add_multiline_string_ploc"
-metric = "nargs"
-value = 5.0
+value = 51486.205050501565
 
 [[entry]]
 path = "src/metrics/npa/python.rs"

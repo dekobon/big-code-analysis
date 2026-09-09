@@ -75,7 +75,7 @@ struct MetricExtractor {
 ///
 /// - *Per-space own* value — `cognitive()`, `cyclomatic()`,
 ///   `cyclomatic_modified()`, the `halstead.*`, `mi.*`, `loc.*`, and
-///   `abc` accessors, plus `nargs`'s `function_args() + closure_args()`.
+///   `abc` accessors, plus `nargs`'s `own_args()`.
 ///   These read the value for the single function space under test,
 ///   without rolling up nested children.
 /// - *Sum / total over the subtree* — `tokens_sum()`, `nexits_sum()`,
@@ -86,10 +86,13 @@ struct MetricExtractor {
 /// `nargs` moved from the second group to the first in #1196. It is the
 /// one metric whose subtree sum was actively misleading: a closure's
 /// parameters are not part of the enclosing function's signature, and
-/// every comparable tool counts one callable at a time. Note the
-/// serialized `nargs` keys are still subtree sums — only the gate's
-/// reading changed — so this is also the one entry where the extractor
-/// and the JSON field of the same name disagree.
+/// every comparable tool counts one callable at a time. The serialized
+/// `nargs.total` key is still the subtree sum, so the gate no longer
+/// reads the JSON field of the same name; the value it does read is
+/// serialized alongside as `nargs.value` (#1236), which is how the
+/// JSON-walking `to_sarif` binding reaches it. Adding an extractor whose
+/// accessor has no serialized counterpart re-opens that divergence — the
+/// two front-ends then disagree about which spaces breach.
 ///
 /// The split follows each metric's library accessor and its natural unit
 /// of measurement; it is intentional, not an oversight. When adding a new
@@ -208,7 +211,7 @@ const EXTRACTORS: &[MetricExtractor] = &[
         // anchors `default_thresholds.rs` derives the shipped limit from,
         // so before this the default was calibrated against a different
         // quantity than the gate enforced.
-        extract: |m| (m.nargs.function_args() + m.nargs.closure_args()) as f64,
+        extract: |m| m.nargs.own_args() as f64,
         metric: Metric::Nargs,
     },
     MetricExtractor {

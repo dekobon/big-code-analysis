@@ -778,8 +778,8 @@ is reported separately for *functions* and *closures* so a Rust file
 heavy on `|…| …` closures and a Java file with only methods produce
 comparable numbers. The serialised output
 (`src/metrics/nargs.rs`) is `function_args`, `closure_args`,
-`function_args_average`, `closure_args_average`, `total`, `average`,
-`function_args_min`, `function_args_max`, `closure_args_min`,
+`function_args_average`, `closure_args_average`, `total`, `value`,
+`average`, `function_args_min`, `function_args_max`, `closure_args_min`,
 `closure_args_max`.
 The implementation handles default arguments, variadic arguments,
 keyword-only arguments, and destructured parameters consistently per
@@ -832,6 +832,12 @@ parameters and contains a three-parameter nested function reports
 gate read that sum, so a three-parameter function with a two-parameter
 sort comparator was flagged at 5 — and the remediation its number
 implied, fewer parameters, was not the one that would clear it.
+
+The number the gate does read is serialized as `value`, added in
+[#1236](https://github.com/dekobon/big-code-analysis/issues/1236) so a
+JSON-consuming front-end can reproduce the gate. Until then the Python
+`to_sarif` binding had nothing but `total` to compare and reported
+breaches `bca check` did not.
 
 Nothing escapes the narrower rule. In the twelve grammars whose closures
 open their own space — Rust, JavaScript, TypeScript, TSX, MozJS, C#, Go,

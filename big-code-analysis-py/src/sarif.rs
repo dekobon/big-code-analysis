@@ -47,19 +47,32 @@
 //!
 //! For most metrics the JSON's headline field at any space already IS
 //! that space's own value (e.g. `loc.sloc`, `wmc.total`, `mi.original`,
-//! `halstead.volume`). Four metrics — `cyclomatic`, `cyclomatic.modified`,
-//! `cognitive`, and `abc` — additionally expose a `sum`/`*_sum` aggregate
-//! across child spaces that, at interior spaces, exceeds the per-space
-//! scalar the CLI thresholds against. Before #958 the wire shape exposed
-//! *only* that aggregate for the four, so the binding could compare it
-//! safely only at leaf spaces (where aggregate == own) and conservatively
-//! skipped interior spaces — under-emitting the interior breaches the CLI
-//! reports (#855 closed the over-emission; this residual under-emission
-//! remained). As of #958 the wire shape serializes each of the four's
-//! per-space own value alongside the aggregate (`cyclomatic.value`,
-//! `cyclomatic.modified.value`, `cognitive.value`, `abc.value`), so
-//! [`METRIC_FIELDS`] points every metric at the own-value field and the
-//! binding emits at every space — no leaf-only special-casing remains.
+//! `halstead.volume`). Five metrics — `cyclomatic`, `cyclomatic.modified`,
+//! `cognitive`, `abc`, and `nargs` — additionally expose a
+//! `sum`/`*_sum`/`total` aggregate across child spaces that, at interior
+//! spaces, exceeds the per-space scalar the CLI thresholds against.
+//! Before #958 the wire shape exposed *only* that aggregate for the first
+//! four, so the binding could compare it safely only at leaf spaces
+//! (where aggregate == own) and conservatively skipped interior spaces —
+//! under-emitting the interior breaches the CLI reports (#855 closed the
+//! over-emission; this residual under-emission remained). As of #958 the
+//! wire shape serializes those four spaces' own values alongside the
+//! aggregate (`cyclomatic.value`, `cyclomatic.modified.value`,
+//! `cognitive.value`, `abc.value`), so [`METRIC_FIELDS`] points every
+//! metric at the own-value field and the binding emits at every space —
+//! no leaf-only special-casing remains.
+//!
+//! `nargs` is the fifth and arrived by the opposite route: its serialized
+//! shape did not change, its *gate* did. #1196 moved the CLI extractor
+//! from `total()` to the callable's own parameter list, leaving this
+//! binding comparing the subtree sum — so a two-argument function
+//! containing a three-argument closure scored 5 here and 2 in
+//! `bca check`. #1236 serialized the own value as `nargs.value` and
+//! pointed this table at it. The lesson generalises: a threshold whose
+//! CLI accessor has no serialized counterpart cannot be evaluated by a
+//! JSON-walking front-end, and neither drift guard below can see it —
+//! they pin metric *names* and JSON *paths*, not the semantics of the
+//! field a path reaches.
 //!
 //! Defaults: `thresholds=None` is equivalent to `thresholds={}` — the
 //! CLI itself has no built-in defaults (every check run must supply
@@ -100,9 +113,9 @@ const FILE_SYMBOL: &str = "<file>";
 /// Every entry's `path` reaches that space's **own** per-space scalar —
 /// the value the CLI thresholds against — so a breach is emitted at each
 /// space level the metric's scope admits (#969). For `cyclomatic`,
-/// `cyclomatic.modified`,
-/// `cognitive`, and `abc` that scalar is the `value` field the wire
-/// shape gained in #958 (the sibling `sum`/`magnitude` field is a
+/// `cyclomatic.modified`, `cognitive` and `abc` that scalar is the
+/// `value` field the wire shape gained in #958, and for `nargs` the one
+/// it gained in #1236 (the sibling `sum`/`magnitude`/`total` field is a
 /// subtree aggregate and is deliberately *not* used here); for every
 /// other metric the headline JSON field already is the per-space value.
 #[derive(Clone, Copy)]
@@ -130,11 +143,11 @@ struct MetricField {
 /// pinned by `metric_field_paths_are_pinned` so a path edit is a
 /// deliberate, reviewed change rather than silent drift.
 const METRIC_FIELDS: &[MetricField] = &[
-    // The four aggregate-shaped metrics read the per-space `value` field
-    // (the wire shape's own-scalar projection added in #958), never the
-    // sibling `sum`/`magnitude` subtree aggregate — so a breach is
-    // reported at every space exactly as the CLI's per-space accessor
-    // does (#441, #855, #958).
+    // The five aggregate-shaped metrics read the per-space `value` field
+    // (the wire shape's own-scalar projection added in #958, extended to
+    // `nargs` in #1236), never the sibling `sum`/`magnitude`/`total`
+    // subtree aggregate — so a breach is reported at every space exactly
+    // as the CLI's per-space accessor does (#441, #855, #958, #1236).
     MetricField {
         name: "cognitive",
         path: &["cognitive", "value"],
@@ -150,6 +163,15 @@ const METRIC_FIELDS: &[MetricField] = &[
     MetricField {
         name: "abc",
         path: &["abc", "value"],
+    },
+    // `nargs` joined this group in #1236. Its gate has read the
+    // callable's own parameter list since #1196, while `nargs.total`
+    // kept its meaning as the subtree sum, so the binding scored a
+    // two-argument function containing a three-argument closure at 5 —
+    // a finding `bca check` never reports.
+    MetricField {
+        name: "nargs",
+        path: &["nargs", "value"],
     },
     // Everything below: the headline JSON field already is the CLI's
     // per-space accessor.
@@ -204,10 +226,6 @@ const METRIC_FIELDS: &[MetricField] = &[
     MetricField {
         name: "nexits",
         path: &["nexits", "sum"],
-    },
-    MetricField {
-        name: "nargs",
-        path: &["nargs", "total"],
     },
     MetricField {
         name: "mi.original",
@@ -788,10 +806,11 @@ mod tests {
     /// build failure.
     ///
     /// The registry's `skip_at_unit` flag is no longer mirrored here:
-    /// since #958 every metric reads its per-space own value (the four
-    /// aggregate-shaped metrics via their `value` field), so the binding
-    /// emits at every space and the flag has no consumer in this front-end
-    /// (it still documents the `sum`-field divergence in the registry).
+    /// since #958 (and #1236 for `nargs`) every metric reads its
+    /// per-space own value — the five aggregate-shaped metrics via their
+    /// `value` field — so the binding emits at every space and the flag
+    /// has no consumer in this front-end (it still documents the
+    /// aggregate-field divergence in the registry).
     #[test]
     fn metric_fields_agree_with_shared_registry() {
         use big_code_analysis::metric_catalog::METRICS;
@@ -825,6 +844,7 @@ mod tests {
             ("cyclomatic", &["cyclomatic", "value"]),
             ("cyclomatic.modified", &["cyclomatic", "modified", "value"]),
             ("abc", &["abc", "value"]),
+            ("nargs", &["nargs", "value"]),
             ("halstead.volume", &["halstead", "volume"]),
             ("halstead.difficulty", &["halstead", "difficulty"]),
             ("halstead.effort", &["halstead", "effort"]),
@@ -838,7 +858,6 @@ mod tests {
             ("nom", &["nom", "total"]),
             ("tokens", &["tokens", "tokens"]),
             ("nexits", &["nexits", "sum"]),
-            ("nargs", &["nargs", "total"]),
             ("mi.original", &["mi", "original"]),
             ("mi.sei", &["mi", "sei"]),
             ("mi.visual_studio", &["mi", "visual_studio"]),

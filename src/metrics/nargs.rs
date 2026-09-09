@@ -140,6 +140,24 @@ impl Stats {
         self.function_args_sum() + self.closure_args_sum()
     }
 
+    /// Returns this space's **own** argument count: its function
+    /// parameters plus the parameters of any lambda the language folds
+    /// into it (a lambda that opens no space of its own).
+    ///
+    /// This is the quantity `bca check --threshold nargs=N` gates on
+    /// since #1196, and the one the wire shape serializes as
+    /// `nargs.value` — as opposed to [`total`](Self::total), which sums
+    /// the whole subtree and so charges a function for every nested
+    /// callable's parameters. Named here rather than spelled out at
+    /// each call site so the CLI gate, the serialized field, and any
+    /// future front-end read one definition instead of three copies of
+    /// the same sum (#1236).
+    #[inline]
+    #[must_use]
+    pub fn own_args(&self) -> u64 {
+        self.function_args() + self.closure_args()
+    }
+
     /// Returns the `NArgs` metric average value
     ///
     /// This value is computed dividing the `NArgs` value
@@ -804,7 +822,7 @@ impl NArgs for GroovyCode {
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::test_support::check_metrics_only_shim;
+    use crate::test_support::{check_func_space_only_shim, check_metrics_only_shim};
 
     use super::*;
 
@@ -812,6 +830,9 @@ mod tests {
     // what this module's `metric.nom.functions_sum()` /
     // `closures_sum()` assertions read.
     check_metrics_only_shim!(check_metrics, Nargs);
+    // The same selection, handed the whole space tree: the per-space own
+    // count is only observable one space at a time.
+    check_func_space_only_shim!(check_spaces, Nargs);
 
     /// Regression for #227: a `Stats::default()` that never sees an
     /// observation must not leak the `usize::MAX` sentinel for
@@ -822,6 +843,70 @@ mod tests {
         let stats = Stats::default();
         assert_eq!(stats.function_args_min(), 0);
         assert_eq!(stats.closure_args_min(), 0);
+    }
+
+    /// The per-space **own** argument count, at every space of a tree
+    /// where it differs from the subtree `total` at every level.
+    ///
+    /// `bca check --threshold nargs=N` has gated on `own_args()` since
+    /// #1196, and #1236 serialized it as `nargs.value` so the JSON-walking
+    /// `to_sarif` binding can reproduce that gate. Before #1236 the
+    /// binding compared `nargs.total` and reported `outer` at 7 — a
+    /// finding `bca check` never emits, because `outer` declares two
+    /// parameters and the other five belong to closures that are gated
+    /// on rows of their own.
+    ///
+    /// The fixture is the #1236 reproducer, picked because no space in it
+    /// has `own == total`: a fixture where the two agree passes whichever
+    /// one the code reads.
+    #[test]
+    fn own_args_excludes_nested_closure_spaces() {
+        fn walk(space: &FuncSpace, rows: &mut Vec<(String, usize, u64, u64)>) {
+            rows.push((
+                space.name.clone().unwrap_or_default(),
+                space.start_line,
+                space.metrics.nargs.own_args(),
+                space.metrics.nargs.total(),
+            ));
+            for child in &space.spaces {
+                walk(child, rows);
+            }
+        }
+
+        check_spaces::<RustParser, _>(
+            "fn outer(a: i32, b: i32) {
+                 let f = |x: i32, y: i32, z: i32| x + y + z;
+                 let g = |p: i32, q: i32| p + q;
+                 f(a, b, 0);
+                 g(a, b);
+             }",
+            "closures.rs",
+            |space| {
+                let mut rows = Vec::new();
+                walk(&space, &mut rows);
+                // Hand-pinned in walk order, `(name, start_line, own, total)`.
+                // The file root owns no parameters; `outer` owns its two;
+                // each closure owns its own list. Every row's `total` is
+                // that space's own count plus its descendants'.
+                assert_eq!(
+                    rows,
+                    vec![
+                        ("closures.rs".to_owned(), 1, 0, 7),
+                        ("outer".to_owned(), 1, 2, 7),
+                        ("<anonymous>".to_owned(), 2, 3, 3),
+                        ("<anonymous>".to_owned(), 3, 2, 2),
+                    ],
+                );
+
+                // The serialized projection the Python `to_sarif` binding
+                // walks: `value` is the gate's number, `total` is not.
+                let outer = &space.spaces[0];
+                let json = serde_json::to_value(&outer.metrics.nargs)
+                    .expect("nargs serializes through its wire projection");
+                assert_eq!(json["value"], 2, "nargs.value must be `outer`'s own args");
+                assert_eq!(json["total"], 7, "nargs.total stays the subtree sum");
+            },
+        );
     }
 
     #[test]
@@ -837,6 +922,7 @@ mod tests {
               "function_args_average": 0.0,
               "closure_args_average": 0.0,
               "total": 0,
+              "value": 0,
               "average": 0.0,
               "function_args_min": 0,
               "function_args_max": 0,
@@ -861,6 +947,7 @@ mod tests {
               "function_args_average": 0.0,
               "closure_args_average": 0.0,
               "total": 0,
+              "value": 0,
               "average": 0.0,
               "function_args_min": 0,
               "function_args_max": 0,
@@ -885,6 +972,7 @@ mod tests {
               "function_args_average": 0.0,
               "closure_args_average": 0.0,
               "total": 0,
+              "value": 0,
               "average": 0.0,
               "function_args_min": 0,
               "function_args_max": 0,
@@ -909,6 +997,7 @@ mod tests {
               "function_args_average": 0.0,
               "closure_args_average": 0.0,
               "total": 0,
+              "value": 0,
               "average": 0.0,
               "function_args_min": 0,
               "function_args_max": 0,
@@ -938,6 +1027,7 @@ mod tests {
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
                   "total": 2,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -970,6 +1060,7 @@ mod tests {
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
                   "total": 2,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -1002,6 +1093,7 @@ mod tests {
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
                   "total": 2,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -1032,6 +1124,7 @@ mod tests {
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
                   "total": 2,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -1057,6 +1150,7 @@ mod tests {
               "function_args_average": 0.0,
               "closure_args_average": 1.0,
               "total": 1,
+              "value": 1,
               "average": 1.0,
               "function_args_min": 0,
               "function_args_max": 0,
@@ -1081,6 +1175,7 @@ mod tests {
               "function_args_average": 0.0,
               "closure_args_average": 1.0,
               "total": 1,
+              "value": 0,
               "average": 1.0,
               "function_args_min": 0,
               "function_args_max": 0,
@@ -1108,6 +1203,7 @@ mod tests {
                   "function_args_average": 0.0,
                   "closure_args_average": 2.0,
                   "total": 2,
+                  "value": 2,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 0,
@@ -1133,6 +1229,7 @@ mod tests {
               "function_args_average": 0.0,
               "closure_args_average": 2.0,
               "total": 2,
+              "value": 0,
               "average": 2.0,
               "function_args_min": 0,
               "function_args_max": 0,
@@ -1165,6 +1262,7 @@ mod tests {
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
                   "total": 4,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -1195,6 +1293,7 @@ mod tests {
                   "function_args_average": 2.5,
                   "closure_args_average": 0.0,
                   "total": 5,
+                  "value": 0,
                   "average": 2.5,
                   "function_args_min": 0,
                   "function_args_max": 3,
@@ -1232,6 +1331,7 @@ mod tests {
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
                   "total": 4,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -1266,6 +1366,7 @@ mod tests {
                   "function_args_average": 2.5,
                   "closure_args_average": 0.0,
                   "total": 5,
+                  "value": 0,
                   "average": 2.5,
                   "function_args_min": 0,
                   "function_args_max": 3,
@@ -1351,6 +1452,7 @@ mod tests {
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
                   "total": 4,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -1385,6 +1487,7 @@ mod tests {
                   "function_args_average": 2.5,
                   "closure_args_average": 0.0,
                   "total": 5,
+                  "value": 0,
                   "average": 2.5,
                   "function_args_min": 0,
                   "function_args_max": 3,
@@ -1418,6 +1521,7 @@ mod tests {
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
                   "total": 4,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -1448,6 +1552,7 @@ mod tests {
                   "function_args_average": 2.5,
                   "closure_args_average": 0.0,
                   "total": 5,
+                  "value": 0,
                   "average": 2.5,
                   "function_args_min": 0,
                   "function_args_max": 3,
@@ -1481,6 +1586,7 @@ mod tests {
                   "function_args_average": 1.5,
                   "closure_args_average": 1.0,
                   "total": 5,
+                  "value": 0,
                   "average": 1.25,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -1516,6 +1622,7 @@ mod tests {
                   "function_args_average": 1.5,
                   "closure_args_average": 1.5,
                   "total": 6,
+                  "value": 0,
                   "average": 1.5,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -1548,6 +1655,7 @@ mod tests {
                   "function_args_average": 3.0,
                   "closure_args_average": 1.5,
                   "total": 6,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 3,
@@ -1584,6 +1692,7 @@ mod tests {
                   "function_args_average": 3.0,
                   "closure_args_average": 0.0,
                   "total": 3,
+                  "value": 0,
                   "average": 3.0,
                   "function_args_min": 0,
                   "function_args_max": 3,
@@ -1622,6 +1731,7 @@ mod tests {
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
                   "total": 2,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -1662,6 +1772,7 @@ mod tests {
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
                   "total": 2,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -1703,6 +1814,7 @@ mod tests {
                   "function_args_average": 0.0,
                   "closure_args_average": 2.0,
                   "total": 2,
+                  "value": 0,
                   "average": 1.0,
                   "function_args_min": 0,
                   "function_args_max": 0,
@@ -1744,6 +1856,7 @@ mod tests {
                   "function_args_average": 1.0,
                   "closure_args_average": 0.0,
                   "total": 1,
+                  "value": 0,
                   "average": 1.0,
                   "function_args_min": 0,
                   "function_args_max": 1,
@@ -1772,6 +1885,7 @@ mod tests {
                   "function_args_average": 0.0,
                   "closure_args_average": 0.0,
                   "total": 0,
+                  "value": 0,
                   "average": 0.0,
                   "function_args_min": 0,
                   "function_args_max": 0,
@@ -1800,6 +1914,7 @@ mod tests {
                   "function_args_average": 3.0,
                   "closure_args_average": 0.0,
                   "total": 3,
+                  "value": 0,
                   "average": 3.0,
                   "function_args_min": 0,
                   "function_args_max": 3,
@@ -1832,6 +1947,7 @@ mod tests {
                   "function_args_average": 1.0,
                   "closure_args_average": 0.0,
                   "total": 1,
+                  "value": 0,
                   "average": 1.0,
                   "function_args_min": 0,
                   "function_args_max": 1,
@@ -1860,6 +1976,7 @@ mod tests {
                   "function_args_average": 1.0,
                   "closure_args_average": 0.0,
                   "total": 1,
+                  "value": 0,
                   "average": 1.0,
                   "function_args_min": 0,
                   "function_args_max": 1,
@@ -1890,6 +2007,7 @@ mod tests {
                   "function_args_average": 3.0,
                   "closure_args_average": 0.0,
                   "total": 3,
+                  "value": 0,
                   "average": 3.0,
                   "function_args_min": 0,
                   "function_args_max": 3,
@@ -1919,6 +2037,7 @@ mod tests {
                   "function_args_average": 0.0,
                   "closure_args_average": 2.0,
                   "total": 2,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 0,
@@ -1954,6 +2073,7 @@ mod tests {
                   "function_args_average": 2.0,
                   "closure_args_average": 1.0,
                   "total": 7,
+                  "value": 0,
                   "average": 1.75,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -1988,6 +2108,7 @@ mod tests {
                   "function_args_average": 0.0,
                   "closure_args_average": 0.0,
                   "total": 0,
+                  "value": 0,
                   "average": 0.0,
                   "function_args_min": 0,
                   "function_args_max": 0,
@@ -2025,6 +2146,7 @@ mod tests {
                   "function_args_average": 0.0,
                   "closure_args_average": 0.0,
                   "total": 0,
+                  "value": 0,
                   "average": 0.0,
                   "function_args_min": 0,
                   "function_args_max": 0,
@@ -2062,6 +2184,7 @@ mod tests {
                   "function_args_average": 0.0,
                   "closure_args_average": 0.0,
                   "total": 0,
+                  "value": 0,
                   "average": 0.0,
                   "function_args_min": 0,
                   "function_args_max": 0,
@@ -2098,6 +2221,7 @@ mod tests {
                   "function_args_average": 0.0,
                   "closure_args_average": 0.0,
                   "total": 0,
+                  "value": 0,
                   "average": 0.0,
                   "function_args_min": 0,
                   "function_args_max": 0,
@@ -2133,6 +2257,7 @@ mod tests {
                   "function_args_average": 0.0,
                   "closure_args_average": 0.0,
                   "total": 0,
+                  "value": 0,
                   "average": 0.0,
                   "function_args_min": 0,
                   "function_args_max": 0,
@@ -2168,6 +2293,7 @@ mod tests {
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
                   "total": 2,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -2204,6 +2330,7 @@ mod tests {
                   "function_args_average": 3.0,
                   "closure_args_average": 0.0,
                   "total": 3,
+                  "value": 0,
                   "average": 3.0,
                   "function_args_min": 0,
                   "function_args_max": 3,
@@ -2242,6 +2369,7 @@ mod tests {
                   "function_args_average": 1.5,
                   "closure_args_average": 0.0,
                   "total": 3,
+                  "value": 0,
                   "average": 1.5,
                   "function_args_min": 0,
                   "function_args_max": 3,
@@ -2278,6 +2406,7 @@ mod tests {
                   "function_args_average": 1.0,
                   "closure_args_average": 0.0,
                   "total": 1,
+                  "value": 0,
                   "average": 1.0,
                   "function_args_min": 0,
                   "function_args_max": 1,
@@ -2318,6 +2447,7 @@ mod tests {
                   "function_args_average": 3.0,
                   "closure_args_average": 0.0,
                   "total": 3,
+                  "value": 0,
                   "average": 3.0,
                   "function_args_min": 0,
                   "function_args_max": 3,
@@ -2421,6 +2551,7 @@ mod tests {
                   "function_args_average": 0.0,
                   "closure_args_average": 0.0,
                   "total": 0,
+                  "value": 0,
                   "average": 0.0,
                   "function_args_min": 0,
                   "function_args_max": 0,
@@ -2451,6 +2582,7 @@ mod tests {
                   "function_args_average": 0.0,
                   "closure_args_average": 0.0,
                   "total": 0,
+                  "value": 0,
                   "average": 0.0,
                   "function_args_min": 0,
                   "function_args_max": 0,
@@ -2482,6 +2614,7 @@ mod tests {
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
                   "total": 2,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -2516,6 +2649,7 @@ mod tests {
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
                   "total": 4,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 3,
@@ -2547,6 +2681,7 @@ mod tests {
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
                   "total": 2,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -2641,6 +2776,7 @@ mod tests {
                   "function_args_average": 0.0,
                   "closure_args_average": 2.0,
                   "total": 2,
+                  "value": 0,
                   "average": 1.0,
                   "function_args_min": 0,
                   "function_args_max": 0,
@@ -2746,6 +2882,7 @@ mod tests {
                   "function_args_average": 0.0,
                   "closure_args_average": 0.0,
                   "total": 0,
+                  "value": 0,
                   "average": 0.0,
                   "function_args_min": 0,
                   "function_args_max": 0,
@@ -2777,6 +2914,7 @@ mod tests {
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
                   "total": 2,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -2811,6 +2949,7 @@ mod tests {
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
                   "total": 4,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 3,
@@ -2842,6 +2981,7 @@ mod tests {
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
                   "total": 2,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -2873,6 +3013,7 @@ mod tests {
                   "function_args_average": 0.0,
                   "closure_args_average": 2.0,
                   "total": 2,
+                  "value": 0,
                   "average": 1.0,
                   "function_args_min": 0,
                   "function_args_max": 0,
@@ -2903,6 +3044,7 @@ mod tests {
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
                   "total": 4,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -2933,6 +3075,7 @@ mod tests {
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
                   "total": 4,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 3,
@@ -2962,6 +3105,7 @@ mod tests {
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
                   "total": 2,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -2986,6 +3130,7 @@ mod tests {
               "function_args_average": 0.0,
               "closure_args_average": 2.0,
               "total": 2,
+              "value": 0,
               "average": 2.0,
               "function_args_min": 0,
               "function_args_max": 0,
@@ -3144,6 +3289,7 @@ mod tests {
                   "function_args_average": 2.0,
                   "closure_args_average": 2.0,
                   "total": 4,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -3431,6 +3577,7 @@ proc g {x y z} { puts $x }",
               "function_args_average": 0.0,
               "closure_args_average": 0.0,
               "total": 0,
+              "value": 0,
               "average": 0.0,
               "function_args_min": 0,
               "function_args_max": 0,
@@ -3462,6 +3609,7 @@ proc g {x y z} { puts $x }",
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
                   "total": 2,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -3493,6 +3641,7 @@ proc g {x y z} { puts $x }",
                   "function_args_average": 0.0,
                   "closure_args_average": 1.5,
                   "total": 3,
+                  "value": 0,
                   "average": 1.5,
                   "function_args_min": 0,
                   "function_args_max": 0,
@@ -3523,6 +3672,7 @@ proc g {x y z} { puts $x }",
                   "function_args_average": 1.5,
                   "closure_args_average": 0.0,
                   "total": 3,
+                  "value": 0,
                   "average": 1.5,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -3559,6 +3709,7 @@ proc g {x y z} { puts $x }",
                   "function_args_average": 1.0,
                   "closure_args_average": 1.0,
                   "total": 2,
+                  "value": 0,
                   "average": 1.0,
                   "function_args_min": 0,
                   "function_args_max": 1,
@@ -3934,6 +4085,7 @@ when HTTP_REQUEST { log local0. \"hit\" }
                   "function_args_average": 0.0,
                   "closure_args_average": 0.0,
                   "total": 0,
+                  "value": 0,
                   "average": 0.0,
                   "function_args_min": 0,
                   "function_args_max": 0,
@@ -3966,6 +4118,7 @@ when HTTP_REQUEST { log local0. \"hit\" }
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
                   "total": 2,
+                  "value": 0,
                   "average": 2.0,
                   "function_args_min": 0,
                   "function_args_max": 2,
@@ -3996,6 +4149,7 @@ when HTTP_REQUEST { log local0. \"hit\" }
                   "function_args_average": 3.0,
                   "closure_args_average": 0.0,
                   "total": 3,
+                  "value": 0,
                   "average": 3.0,
                   "function_args_min": 0,
                   "function_args_max": 3,
@@ -4032,6 +4186,7 @@ when HTTP_REQUEST { log local0. \"hit\" }
                   "function_args_average": 0.0,
                   "closure_args_average": 2.0,
                   "total": 2,
+                  "value": 0,
                   "average": 1.0,
                   "function_args_min": 0,
                   "function_args_max": 0,
@@ -4073,6 +4228,7 @@ when HTTP_REQUEST { log local0. \"hit\" }
                   "function_args_average": 0.0,
                   "closure_args_average": 0.0,
                   "total": 0,
+                  "value": 0,
                   "average": 0.0,
                   "function_args_min": 0,
                   "function_args_max": 0,

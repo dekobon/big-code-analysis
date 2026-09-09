@@ -992,10 +992,13 @@ def to_sarif(
     its limit, exactly matching ``bca check --report-format sarif``.
     Emission is scope-gated per metric (``loc.*`` at the file unit,
     ``nom`` / ``wmc`` / ``npm`` / ``npa`` at containers, the rest at
-    function spaces), and the four subtree-aggregate metrics
+    function spaces), and the five subtree-aggregate metrics
     (``cyclomatic``, ``cyclomatic.modified``, ``cognitive``,
-    ``abc``) read the per-space ``value`` field rather than the
-    rolled-up aggregate (#958, #969).
+    ``abc``, ``nargs``) read the per-space ``value`` field rather
+    than the rolled-up aggregate (#958, #969, #1236). For ``nargs``
+    that means a function is scored on its own parameter list, with
+    each closure that opens a space of its own scored on its own
+    finding — never on the sum of the two.
     Unit-level findings carry ``logicalLocations: [{"fullyQualifiedName":
     "<file>"}]``; every other space carries its qualified symbol. Within
     that symbol, a closure/lambda (the ``<anonymous>`` name every grammar

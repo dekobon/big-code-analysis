@@ -192,13 +192,16 @@ class MiDict(TypedDict):
 
 
 class NargsDict(TypedDict):
-    """Number-of-arguments metric block."""
+    """Number-of-arguments metric block. `value` is this space's own argument count, excluding
+    nested function/closure spaces (#1236); `total` is the subtree aggregate.
+    """
 
     function_args: int
     closure_args: int
     function_args_average: float | None
     closure_args_average: float | None
     total: int
+    value: int
     average: float | None
     function_args_min: int
     function_args_max: int

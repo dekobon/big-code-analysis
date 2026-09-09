@@ -522,6 +522,18 @@ serialized shape** (the compute types' own `Serialize` impls delegate
 to them), so the document a compute type emits is exactly the document
 the matching `wire` type parses.
 
+**Field additions are additive within `2.x`.** A `wire` struct gains a
+field whenever the serialized shape does — `cyclomatic.value`,
+`cyclomatic.modified.value`, `cognitive.value` and `abc.value` in #958,
+`nargs.value` in #1236 — and each new field carries a serde default, so
+a document written by an older version still parses. These structs
+carry public fields and no `#[non_exhaustive]`, so a field addition
+*does* break code that builds one with struct-literal syntax or
+destructures it exhaustively; treat them the way the *Per-metric
+`Stats`* rule above asks — read fields by name, construct by
+deserializing rather than by literal — and a field addition costs you
+nothing. Removing or renaming a field remains a `3.0` break.
+
 **Round-trip contract.** For a value produced by this library and read
 back with *this library's* serde stack:
 

@@ -10,17 +10,24 @@ function / class / namespace instead — a shape ready for
 scalar-only ``dict`` per ``FuncSpace`` node. Metric keys use the
 same dotted convention as the CLI's CSV writer (see
 ``src/output/csv.rs::CSV_HEADER``) — ``cyclomatic.modified.sum``,
-``halstead.volume``, ``loc.lloc_average``, … Metric *columns* line
-up with CSV_HEADER's metric columns; the identity columns are
+``halstead.volume``, ``loc.lloc_average``, … The identity columns are
 **not** identical (CSV uses ``space_name`` / ``space_kind`` and
 omits ``parent_name`` / ``depth``; flat records use ``name`` /
-``kind`` and add the parent / depth pair). One known metric also
-diverges: the ``tokens`` family flattens to ``tokens.tokens``,
-``tokens.average``, ``tokens.min``, ``tokens.max`` (the JSON shape).
-Only the sum leaf differs from CSV_HEADER, which spells it
-``tokens.sum``; the ``average`` / ``min`` / ``max`` leaves now match
-(#590). Rename the sum leaf in the consumer if you need an exact CSV
-match.
+``kind`` and add the parent / depth pair), and the metric columns are
+a **superset** of CSV_HEADER's rather than a match:
+
+* ``cognitive.value``, ``cyclomatic.value``,
+  ``cyclomatic.modified.value`` and ``abc.value`` (#958) plus
+  ``nargs.value`` (#1236) are each a space's own per-space scalar —
+  the number ``bca check`` thresholds against. They exist in the JSON
+  shape and in these records; CSV_HEADER, a frozen positional
+  contract, does not carry them.
+* The ``tokens`` family flattens to ``tokens.tokens``,
+  ``tokens.average``, ``tokens.min``, ``tokens.max`` (the JSON shape).
+  Only the sum leaf differs from CSV_HEADER, which spells it
+  ``tokens.sum``; the ``average`` / ``min`` / ``max`` leaves now match
+  (#590). Rename the sum leaf in the consumer if you need an exact CSV
+  match.
 
 Both walkers (the space tree and each space's metrics subtree) use
 explicit stacks rather than recursion, so pathological inputs —

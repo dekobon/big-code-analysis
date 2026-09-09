@@ -8,6 +8,7 @@ expression: metric.nargs
   "function_args_average": 0.0,
   "closure_args_average": 2.0,
   "total": 2,
+  "value": 0,
   "average": 2.0,
   "function_args_min": 0,
   "function_args_max": 0,

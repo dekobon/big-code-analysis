@@ -277,13 +277,16 @@ const SPECS: &[DictSpec] = &[
     },
     DictSpec {
         class: "NargsDict",
-        doc: "Number-of-arguments metric block.",
+        doc: "Number-of-arguments metric block. `value` is this space's \
+              own argument count, excluding nested function/closure \
+              spaces (#1236); `total` is the subtree aggregate.",
         fields: &[
             req("function_args", Int),
             req("closure_args", Int),
             req("function_args_average", Float),
             req("closure_args_average", Float),
             req("total", Int),
+            req("value", Int),
             req("average", Float),
             req("function_args_min", Int),
             req("function_args_max", Int),

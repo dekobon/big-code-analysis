@@ -78,9 +78,10 @@ pub struct Cognitive {
     /// function/closure spaces. Equals [`sum`](Self::sum) only at a leaf
     /// space; at an interior space the sum rolls up descendants while
     /// this stays the per-space scalar the CLI thresholds against
-    /// (#958). `#[serde(default)]` so pre-#958 JSON (which lacks the
-    /// field) still deserializes — e.g. when `bca diff` reads an older
-    /// metrics file.
+    /// (#958). `#[serde(default)]` so a document written before #958
+    /// still deserializes through the public `wire` read-back path
+    /// STABILITY.md advertises. (`bca diff` is *not* that consumer — it
+    /// walks a raw `serde_json::Value`, see `metric_diff.rs`.)
     #[serde(default)]
     pub value: u64,
     /// Average cognitive complexity per function.
@@ -367,6 +368,17 @@ pub struct Nargs {
     pub closure_args_average: f64,
     /// Total arguments (functions + closures).
     pub total: u64,
+    /// This space's own argument count — its function parameters plus
+    /// its closure parameters — excluding nested function/closure
+    /// spaces. Equals [`total`](Self::total) only at a leaf space; at an
+    /// interior space `total` rolls up descendants while this stays the
+    /// per-space scalar the CLI thresholds `nargs` against (#1196,
+    /// #1236). `#[serde(default)]` so a document written before #1236
+    /// still deserializes through the public `wire` read-back path
+    /// STABILITY.md advertises. (`bca diff` is *not* that consumer — it
+    /// walks a raw `serde_json::Value`, see `metric_diff.rs`.)
+    #[serde(default)]
+    pub value: u64,
     /// Average arguments per function/closure.
     #[serde(default = "nan_default", with = "non_finite")]
     pub average: f64,
@@ -388,6 +400,7 @@ impl From<&nargs::Stats> for Nargs {
             function_args_average: s.function_args_average(),
             closure_args_average: s.closure_args_average(),
             total: s.total(),
+            value: s.own_args(),
             average: s.average(),
             function_args_min: s.function_args_min(),
             function_args_max: s.function_args_max(),
