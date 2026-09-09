@@ -482,7 +482,7 @@ pub struct Source<'a> {
 /// let _ = ast.metrics(MetricsOptions::default()).expect("walker succeeds");
 /// ```
 pub struct Ast {
-    inner: crate::langs::AstInner,
+    inner: crate::langs::AnyParser,
     name: Option<String>,
 }
 

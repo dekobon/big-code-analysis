@@ -167,7 +167,7 @@ pub(crate) use crate::langs::{
     PhpCode, PreprocCode, PythonCode, RubyCode, RustCode, TclCode, TsxCode, TypescriptCode,
 };
 // The `<Lang>Parser` aliases are the concrete `Parser<<Lang>Code>` types
-// driven by the `AstInner` dispatch in `crate::langs`; at the crate root
+// driven by the `AnyParser` dispatch in `crate::langs`; at the crate root
 // they are reached only from `#[cfg(test)]` modules, so the re-export is
 // `unused` in a non-test build.
 #[allow(unused_imports)]
@@ -210,13 +210,6 @@ pub(crate) use crate::metrics::{
 // --- Core analysis entry points and result types (spaces.rs) ---
 mod spaces;
 pub use crate::spaces::{Ast, CodeMetrics, FuncSpace, MetricsOptions, Source, SpaceKind, analyze};
-// `metrics_inner` is the per-`ParserTrait` metric walk core consumed by
-// feature-gated arms in `mk_action!` (`AstInner::run_metrics`). With
-// `--no-default-features` and no language feature, every arm compiles
-// out and the re-export becomes nominally unused; the language-features
-// that ship in the default set keep the symbol live in any normal build.
-#[allow(unused_imports)]
-pub(crate) use crate::spaces::metrics_inner;
 
 /// Per-metric implementations.
 ///
@@ -317,7 +310,7 @@ pub use crate::concurrent_files::{
 // --- Comment removal ---
 //
 // `rm_comments` is the internal walk core reached only through the
-// [`Ast::strip_comments`] seam (`AstInner::run_strip_comments`).
+// [`Ast::strip_comments`] seam (`with_any_parser!` in `spaces/ast.rs`).
 mod comment_rm;
 
 // --- Per-file node counting / finding (reached via the `Ast` seam) ---
@@ -339,11 +332,6 @@ mod recursion;
 // --- Halstead operator/operand result type ---
 mod ops;
 pub use crate::ops::Ops;
-// `ops_inner` is the explicit-name walk core consumed by feature-gated
-// `mk_action!` arms (`AstInner::run_ops`); mirrors the `metrics_inner`
-// re-export above and is nominally unused under `--no-default-features`.
-#[allow(unused_imports)]
-pub(crate) use crate::ops::ops_inner;
 
 // --- Preprocessor handling (C/C++) ---
 mod preproc;
@@ -364,13 +352,18 @@ pub(crate) use crate::alterator::Alterator;
 // `Parser`, `ParserTrait`, `Filter`, and `LanguageInfo` are the
 // internal parser machinery driving every metric walk. They are
 // `pub(crate)` only: the single public analysis seam is [`Ast`],
-// which wraps the language-dispatched `AstInner` carrier. See
+// which wraps the language-dispatched `AnyParser` carrier. See
 // STABILITY.md.
 mod parser;
 pub(crate) use crate::parser::Parser;
 
 mod traits;
 pub(crate) use crate::traits::{LanguageInfo, ParserTrait, Search};
+
+// The metric half of the parser contract; `ParserTrait` above is the
+// parse half. See `src/metric_suite.rs`.
+mod metric_suite;
+pub(crate) use crate::metric_suite::MetricSuite;
 
 /// Re-export of the underlying `tree-sitter` crate.
 ///

@@ -589,7 +589,7 @@ fn the_file_root_keeps_its_rollup() {
 /// Asserted here on the serialized kind rather than by walking nodes and
 /// checking `is_func_space_with_code(n) ⇒ get_space_kind_with_code(n) !=
 /// Unknown` directly. `Checker` / `Getter` methods are static and
-/// monomorphised per parser type; `AstInner` hands out a `root_node` but
+/// monomorphised per parser type; `AnyParser` hands out a `root_node` but
 /// no LANG-generic way to invoke them against it, so the node-walk form
 /// would need a new `run_*` dispatch arm on the macro — production
 /// surface grown to host a test. The promoted-but-`Unknown` space *is*

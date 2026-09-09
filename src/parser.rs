@@ -10,21 +10,8 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::abc::Abc;
 use crate::checker::Checker;
-use crate::cognitive::Cognitive;
-use crate::cyclomatic::Cyclomatic;
-use crate::halstead::Halstead;
-use crate::loc::Loc;
-use crate::mi::Mi;
-use crate::nargs::NArgs;
-use crate::nexits::Exit;
 use crate::node::Ancestors;
-use crate::nom::Nom;
-use crate::npa::Npa;
-use crate::npm::Npm;
-use crate::tokens::Tokens;
-use crate::wmc::Wmc;
 
 use crate::alterator::Alterator;
 use crate::getter::Getter;
@@ -42,25 +29,7 @@ use crate::traits::*;
 /// of the language code tags (`RustCode`, `PythonCode`, etc.) declared
 /// by the internal `mk_code!` macro.
 #[derive(Debug)]
-pub(crate) struct Parser<
-    T: LanguageInfo
-        + Alterator
-        + Checker
-        + Getter
-        + Abc
-        + Cognitive
-        + Cyclomatic
-        + Exit
-        + Halstead
-        + Loc
-        + Mi
-        + NArgs
-        + Nom
-        + Npa
-        + Npm
-        + Tokens
-        + Wmc,
-> {
+pub(crate) struct Parser<T: LanguageInfo + Alterator + Checker + Getter> {
     code: Vec<u8>,
     tree: Tree,
     phantom: PhantomData<T>,
@@ -113,42 +82,9 @@ fn get_fake_code<T: LanguageInfo>(
     }
 }
 
-impl<
-    T: 'static
-        + LanguageInfo
-        + Alterator
-        + Checker
-        + Getter
-        + Abc
-        + Cognitive
-        + Cyclomatic
-        + Exit
-        + Halstead
-        + Loc
-        + Mi
-        + NArgs
-        + Nom
-        + Npa
-        + Npm
-        + Tokens
-        + Wmc,
-> ParserTrait for Parser<T>
-{
+impl<T: 'static + LanguageInfo + Alterator + Checker + Getter> ParserTrait for Parser<T> {
     type Checker = T;
     type Getter = T;
-    type Cognitive = T;
-    type Cyclomatic = T;
-    type Halstead = T;
-    type Loc = T;
-    type Nom = T;
-    type Mi = T;
-    type NArgs = T;
-    type Exit = T;
-    type Wmc = T;
-    type Abc = T;
-    type Npm = T;
-    type Npa = T;
-    type Tokens = T;
 
     fn new(code: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>) -> Self {
         let fake_code = get_fake_code::<T>(&code, path, pr);
@@ -248,27 +184,7 @@ impl<
     }
 }
 
-impl<
-    T: 'static
-        + LanguageInfo
-        + Alterator
-        + Checker
-        + Getter
-        + Abc
-        + Cognitive
-        + Cyclomatic
-        + Exit
-        + Halstead
-        + Loc
-        + Mi
-        + NArgs
-        + Nom
-        + Npa
-        + Npm
-        + Tokens
-        + Wmc,
-> Parser<T>
-{
+impl<T: 'static + LanguageInfo + Alterator + Checker + Getter> Parser<T> {
     /// Builds a [`Parser`] from a pre-parsed [`tree_sitter::Tree`]
     /// and the matching source bytes.
     ///

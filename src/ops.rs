@@ -16,7 +16,7 @@ use crate::spaces::{SpaceKind, line_span, push_children};
 
 use crate::halstead::{Halstead, HalsteadMaps};
 
-use crate::traits::ParserTrait;
+use crate::MetricSuite;
 
 /// All operands and operators of a space.
 #[derive(Debug, Clone)]
@@ -119,7 +119,7 @@ struct State<'a> {
 /// frame and `ops_inner` would return [`MetricsError::EmptyRoot`] for an
 /// input where `metrics()` succeeds (issue #789). A `Unit` root needs no
 /// wrapper, so nothing is pushed in that case.
-fn push_synthetic_unit_root<T: ParserTrait>(
+fn push_synthetic_unit_root<T: MetricSuite>(
     state_stack: &mut Vec<State>,
     node: &Node,
     code: &[u8],
@@ -161,7 +161,7 @@ crate::observation::counter!(space_kind_lookups);
 /// property and Elixir's reads the `Call` target text and scans the
 /// ancestor chain for an enclosing `quote` block, so it is not free on
 /// every node either.
-fn classify_space_kind<'a, T: ParserTrait>(
+fn classify_space_kind<'a, T: MetricSuite>(
     node: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
@@ -230,7 +230,7 @@ fn sorted_vocabulary(mut keys: Vec<&[u8]>) -> Vec<String> {
     rendered
 }
 
-fn compute_operators_and_operands<T: ParserTrait>(state: &mut State) {
+fn compute_operators_and_operands<T: MetricSuite>(state: &mut State) {
     let maps = &state.halstead_maps;
 
     // Primitive-type operators live in a second map (keyed by text rather
@@ -255,7 +255,7 @@ fn compute_operators_and_operands<T: ParserTrait>(state: &mut State) {
 /// call would rebuild (and, since #1091, re-sort) the whole file's
 /// vocabulary once per level-drop in the walk, and every result but the
 /// last would be overwritten.
-fn finalize<T: ParserTrait>(state_stack: &mut Vec<State>, diff_level: usize) {
+fn finalize<T: MetricSuite>(state_stack: &mut Vec<State>, diff_level: usize) {
     for _ in 0..diff_level {
         if state_stack.len() < 2 {
             break;
@@ -298,7 +298,7 @@ struct Walk {
 /// is whatever the caller passes in `name`; `name_was_lossy` is left at
 /// its `false` default because an explicit `String` name is never lossy.
 /// Mirrors [`crate::spaces::metrics_inner`].
-pub(crate) fn ops_inner<T: ParserTrait>(
+pub(crate) fn ops_inner<T: MetricSuite>(
     parser: &T,
     name: Option<String>,
 ) -> Result<Ops, MetricsError> {

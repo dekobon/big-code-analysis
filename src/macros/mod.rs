@@ -394,268 +394,138 @@ impl ::std::error::Error for ParseLangError {}
 
 macro_rules! mk_action {
     ( $( ($feature:literal, $camel:ident, $parser:ident) ),* ) => {
-        /// Language-dispatched bundle of a parsed tree plus its
-        /// source bytes, one variant per Cargo-feature-enabled
-        /// language. The public seam is [`crate::Ast`]; this enum is
-        /// the macro-generated internal carrier it wraps.
+        /// A parsed tree plus its source bytes for a language chosen at
+        /// runtime — one variant per [`LANG`], each holding that
+        /// language's `Parser<XCode>`. The public seam is
+        /// [`crate::Ast`]; this enum is the language-dispatched carrier
+        /// it wraps, and the value a caller matches on to reach a
+        /// concrete parser (`with_any_parser!`).
         ///
-        /// With every per-language feature disabled this enum is a
-        /// 0-variant uninhabited type. Each method below therefore
-        /// terminates its `match self` with a
-        /// `#[cfg(not(any(feature = …)))] _ => match *self {}` arm:
-        /// stable Rust treats `&UninhabitedType` as inhabited (E0004),
-        /// so the outer match needs a wildcard, and `match *self {}`
-        /// is exhaustive over the uninhabited dereferenced value —
-        /// divergent, no panic, no `unsafe`, statically unreachable in
-        /// safe code because the public seam `crate::Ast` has only
-        /// fallible constructors that return `Err(LanguageDisabled)`
-        /// for every `LANG` variant under that build.
-        ///
-        /// When a method takes by-value parameters (see
-        /// [`Self::run_metrics`]), prefix the divergent arm with
-        /// `let _ = (param1, param2, …);` to silence
-        /// `unused_variables` under `RUSTFLAGS=-D warnings` — the
-        /// `match *self {}` body is `!`, so the consumed values are
-        /// never actually dropped at runtime.
-        pub(crate) enum AstInner {
+        /// Every variant exists regardless of the Cargo feature set: a
+        /// `Parser<XCode>` *type* needs no grammar crate, only
+        /// [`Self::parse`] / [`Self::from_tree`] do, and those are the
+        /// arms that are feature-gated. A disabled language is therefore
+        /// never *constructed* — the constructors return
+        /// `Err(LanguageDisabled)` for it — but it can always be *named*,
+        /// which is what lets `with_any_parser!` be written once without
+        /// any `cfg` of its own (#1376).
+        pub(crate) enum AnyParser {
             $(
-                #[cfg(feature = $feature)]
+                #[doc = concat!("The `", stringify!($camel), "` parser.")]
                 $camel($parser),
             )*
         }
 
-        impl AstInner {
-            /// Run the metric walker against the held parse. The
-            /// caller passes `name` and `options` per call so a
-            /// single `AstInner` can be reused with different metric
-            /// subsets.
-            pub(crate) fn run_metrics(
-                &self,
-                name: Option<String>,
-                options: MetricsOptions,
-            ) -> Result<FuncSpace, MetricsError> {
-                match self {
+        impl AnyParser {
+            /// Parse `source` as `lang`.
+            ///
+            /// `Parser::new` keys the C-family macro-expansion lookup off
+            /// the caller-supplied path; callers analysing in-memory
+            /// snippets pass `None` and get the empty `Path` (`""`),
+            /// which the lookup ignores. That path never leaks into a
+            /// display name — `Ast` carries the name separately.
+            /// `source` is taken by value so an owned buffer moves
+            /// straight into the parser instead of being copied.
+            ///
+            /// # Errors
+            ///
+            /// `MetricsError::LanguageDisabled` when `lang`'s Cargo
+            /// feature is not enabled in this build.
+            pub(crate) fn parse(
+                lang: LANG,
+                source: Vec<u8>,
+                preproc_path: Option<&Path>,
+                preproc: Option<Arc<PreprocResults>>,
+            ) -> Result<Self, MetricsError> {
+                let preproc_path = preproc_path.unwrap_or(Path::new(""));
+                match lang {
                     $(
                         #[cfg(feature = $feature)]
-                        AstInner::$camel(parser) => metrics_inner(parser, name, options),
+                        LANG::$camel => Ok(AnyParser::$camel($parser::new(source, preproc_path, preproc))),
+                        #[cfg(not(feature = $feature))]
+                        LANG::$camel => {
+                            let _ = (source, preproc_path, preproc);
+                            Err(MetricsError::LanguageDisabled(lang))
+                        },
                     )*
-                    #[cfg(not(any( $( feature = $feature ),* )))]
-                    _ => {
-                        let _ = (name, options);
-                        match *self {}
-                    },
                 }
             }
 
-            /// Run the operator/operand walk against the held parse,
-            /// carrying an explicit `name` end-to-end. Backs
-            /// [`crate::Ast::ops`]; the ops analogue of [`Self::run_metrics`].
-            pub(crate) fn run_ops(
-                &self,
-                name: Option<String>,
-            ) -> Result<Ops, MetricsError> {
-                match self {
+            /// Adopt a caller-built [`tree_sitter::Tree`] produced from
+            /// `source` with `lang`'s grammar.
+            ///
+            /// # Errors
+            ///
+            /// `MetricsError::LanguageDisabled` when `lang`'s Cargo
+            /// feature is not enabled in this build.
+            pub(crate) fn from_tree(
+                lang: LANG,
+                tree: ::tree_sitter::Tree,
+                source: Vec<u8>,
+            ) -> Result<Self, MetricsError> {
+                match lang {
                     $(
                         #[cfg(feature = $feature)]
-                        AstInner::$camel(parser) => ops_inner(parser, name),
+                        LANG::$camel => Ok(AnyParser::$camel($parser::from_tree(tree, source))),
+                        #[cfg(not(feature = $feature))]
+                        LANG::$camel => {
+                            let _ = (tree, source);
+                            Err(MetricsError::LanguageDisabled(lang))
+                        },
                     )*
-                    #[cfg(not(any( $( feature = $feature ),* )))]
-                    _ => {
-                        let _ = name;
-                        match *self {}
-                    },
                 }
             }
 
-            /// Strip comments from the held parse. Backs
-            /// [`crate::Ast::strip_comments`]; the comment-removal analogue
-            /// of [`Self::run_ops`].
-            pub(crate) fn run_strip_comments(&self) -> Option<Vec<u8>> {
-                match self {
-                    $(
-                        #[cfg(feature = $feature)]
-                        AstInner::$camel(parser) => crate::comment_rm::rm_comments(parser),
-                    )*
-                    #[cfg(not(any( $( feature = $feature ),* )))]
-                    _ => match *self {},
-                }
-            }
-
-            /// Detect the span of every function in the held parse. Backs
-            /// [`crate::Ast::functions`].
-            pub(crate) fn run_functions(&self) -> Vec<crate::FunctionSpan> {
-                match self {
-                    $(
-                        #[cfg(feature = $feature)]
-                        AstInner::$camel(parser) => crate::function::function(parser),
-                    )*
-                    #[cfg(not(any( $( feature = $feature ),* )))]
-                    _ => match *self {},
-                }
-            }
-
-            /// Build the AST dump for the held parse under `cfg`. Backs
-            /// [`crate::Ast::dump`].
-            pub(crate) fn run_dump(&self, cfg: crate::AstCfg) -> crate::AstResponse {
-                match self {
-                    $(
-                        #[cfg(feature = $feature)]
-                        AstInner::$camel(parser) => crate::ast::dump_inner(parser, cfg),
-                    )*
-                    #[cfg(not(any( $( feature = $feature ),* )))]
-                    _ => {
-                        let _ = cfg;
-                        match *self {}
-                    },
-                }
-            }
-
-            /// Count `(matching, total)` nodes for `filters` in the held
-            /// parse. Backs [`crate::Ast::count`].
-            pub(crate) fn run_count(&self, filters: &[String]) -> (usize, usize) {
-                match self {
-                    $(
-                        #[cfg(feature = $feature)]
-                        AstInner::$camel(parser) => crate::count::count(parser, filters),
-                    )*
-                    #[cfg(not(any( $( feature = $feature ),* )))]
-                    _ => {
-                        let _ = filters;
-                        match *self {}
-                    },
-                }
-            }
-
-            /// Find every node matching `filters` in the held parse. Backs
-            /// [`crate::Ast::find`]; the returned nodes borrow the held tree.
-            pub(crate) fn run_find(
-                &self,
-                filters: &[String],
-            ) -> Result<Vec<crate::Node<'_>>, MetricsError> {
-                match self {
-                    $(
-                        #[cfg(feature = $feature)]
-                        AstInner::$camel(parser) => crate::find::find(parser, filters),
-                    )*
-                    #[cfg(not(any( $( feature = $feature ),* )))]
-                    _ => {
-                        let _ = filters;
-                        match *self {}
-                    },
-                }
-            }
-
-            /// Collect every in-source suppression marker in the held parse.
-            /// Backs [`crate::Ast::suppressions`].
-            pub(crate) fn run_suppressions(&self) -> Vec<crate::SuppressionMarker> {
-                match self {
-                    $(
-                        #[cfg(feature = $feature)]
-                        AstInner::$camel(parser) => crate::suppression::suppression_markers(parser),
-                    )*
-                    #[cfg(not(any( $( feature = $feature ),* )))]
-                    _ => match *self {},
-                }
-            }
-
-            /// Borrow the root [`crate::Node`] of the held parse. Backs
-            /// [`crate::Ast::root_node`].
-            pub(crate) fn root_node(&self) -> crate::Node<'_> {
-                match self {
-                    $(
-                        #[cfg(feature = $feature)]
-                        AstInner::$camel(parser) => parser.root(),
-                    )*
-                    #[cfg(not(any( $( feature = $feature ),* )))]
-                    _ => match *self {},
-                }
-            }
-
+            /// The language this parser was built for.
+            #[must_use]
             pub(crate) fn language(&self) -> LANG {
                 match self {
-                    $(
-                        #[cfg(feature = $feature)]
-                        AstInner::$camel(_) => LANG::$camel,
-                    )*
-                    #[cfg(not(any( $( feature = $feature ),* )))]
-                    _ => match *self {},
-                }
-            }
-
-            pub(crate) fn code_bytes(&self) -> &[u8] {
-                match self {
-                    $(
-                        #[cfg(feature = $feature)]
-                        AstInner::$camel(parser) => parser.code(),
-                    )*
-                    #[cfg(not(any( $( feature = $feature ),* )))]
-                    _ => match *self {},
-                }
-            }
-
-            pub(crate) fn ts_tree(&self) -> &::tree_sitter::Tree {
-                match self {
-                    $(
-                        #[cfg(feature = $feature)]
-                        AstInner::$camel(parser) => parser.ts_tree(),
-                    )*
-                    #[cfg(not(any( $( feature = $feature ),* )))]
-                    _ => match *self {},
+                    $( AnyParser::$camel(_) => LANG::$camel, )*
                 }
             }
         }
+    };
+}
 
-        /// Internal parse-dispatch shim that backs [`crate::Ast::parse`].
-        /// Lives in the `mk_action!` macro so each new language only
-        /// has to declare its parser tag once.
-        pub(crate) fn ast_parse_dispatch(
-            lang: LANG,
-            source: Vec<u8>,
-            preproc_path: Option<&Path>,
-            preproc: Option<Arc<PreprocResults>>,
-        ) -> Result<AstInner, MetricsError> {
-            // `Parser::new` keys the C++ macro-expansion lookup off the
-            // caller-supplied path; for callers analysing in-memory
-            // snippets with no preprocessor path, fall back to an
-            // empty `Path` ("") which the lookup ignores. The empty
-            // path is *not* leaked into `FuncSpace::name` — that
-            // is carried separately on `Ast`. `source` is taken by value
-            // so an owned `Source` (`Source::from_bytes`) moves its
-            // buffer straight into the parser instead of copying it.
-            let preproc_path = preproc_path.unwrap_or(Path::new(""));
-            match lang {
-                $(
-                    #[cfg(feature = $feature)]
-                    LANG::$camel => Ok(AstInner::$camel($parser::new(source, preproc_path, preproc))),
-                    #[cfg(not(feature = $feature))]
-                    LANG::$camel => {
-                        let _ = (source, preproc_path, preproc);
-                        Err(MetricsError::LanguageDisabled(lang))
-                    },
-                )*
-            }
+/// Dispatches over every [`AnyParser`] variant, binding the concrete
+/// `Parser<XCode>` to `$p` and evaluating `$body` once per arm.
+///
+/// Written out by hand rather than generated inside `mk_action!` so the
+/// arm list stays a plain match: a variant missing here is a
+/// non-exhaustive-match compile error, which is the whole guarantee.
+/// Every arm is unconditional — see the [`AnyParser`] docs for why no
+/// `cfg` is needed. Add a line here when `mk_langs!` gains a language.
+///
+/// [`AnyParser`]: crate::langs::AnyParser
+macro_rules! with_any_parser {
+    ($any:expr, |$p:ident| $body:expr) => {
+        match $any {
+            $crate::langs::AnyParser::Javascript($p) => $body,
+            $crate::langs::AnyParser::Mozjs($p) => $body,
+            $crate::langs::AnyParser::Java($p) => $body,
+            $crate::langs::AnyParser::Go($p) => $body,
+            $crate::langs::AnyParser::Kotlin($p) => $body,
+            $crate::langs::AnyParser::Lua($p) => $body,
+            $crate::langs::AnyParser::Rust($p) => $body,
+            $crate::langs::AnyParser::Tcl($p) => $body,
+            $crate::langs::AnyParser::Irules($p) => $body,
+            $crate::langs::AnyParser::C($p) => $body,
+            $crate::langs::AnyParser::Cpp($p) => $body,
+            $crate::langs::AnyParser::Mozcpp($p) => $body,
+            $crate::langs::AnyParser::Objc($p) => $body,
+            $crate::langs::AnyParser::Csharp($p) => $body,
+            $crate::langs::AnyParser::Elixir($p) => $body,
+            $crate::langs::AnyParser::Python($p) => $body,
+            $crate::langs::AnyParser::Tsx($p) => $body,
+            $crate::langs::AnyParser::Typescript($p) => $body,
+            $crate::langs::AnyParser::Bash($p) => $body,
+            $crate::langs::AnyParser::Ccomment($p) => $body,
+            $crate::langs::AnyParser::Preproc($p) => $body,
+            $crate::langs::AnyParser::Perl($p) => $body,
+            $crate::langs::AnyParser::Php($p) => $body,
+            $crate::langs::AnyParser::Ruby($p) => $body,
+            $crate::langs::AnyParser::Groovy($p) => $body,
         }
-
-        /// Internal tree-adoption dispatch that backs
-        /// [`crate::Ast::from_tree_sitter`].
-        pub(crate) fn ast_from_tree_dispatch(
-            lang: LANG,
-            tree: ::tree_sitter::Tree,
-            source: Vec<u8>,
-        ) -> Result<AstInner, MetricsError> {
-            match lang {
-                $(
-                    #[cfg(feature = $feature)]
-                    LANG::$camel => Ok(AstInner::$camel($parser::from_tree(tree, source))),
-                    #[cfg(not(feature = $feature))]
-                    LANG::$camel => {
-                        let _ = (tree, source);
-                        Err(MetricsError::LanguageDisabled(lang))
-                    },
-                )*
-            }
-        }
-
     };
 }
 
@@ -786,4 +656,5 @@ pub(crate) use kind_sets::{
 };
 pub(crate) use {
     get_language, mk_action, mk_code, mk_emacs_mode, mk_extensions, mk_lang, mk_langs,
+    with_any_parser,
 };

@@ -2,7 +2,7 @@ use crate::MetricsOptions;
 use crate::node::Ancestors;
 use crate::spaces::metrics_inner;
 use crate::test_support::check_func_space;
-use crate::{CppParser, ParserTrait, SpaceKind};
+use crate::{CppParser, MetricSuite, ParserTrait, SpaceKind};
 
 /// `SpaceKind` is `#[non_exhaustive]` (#551); the attribute is a
 /// compile-time forward-compat contract and must not change the
@@ -189,7 +189,7 @@ fn cpp_error_root_yields_unit_top_level_space() {
 /// wrapper path. Issue #220 tracks finding additional per-grammar
 /// fixtures that surface ERROR roots so each language can have
 /// both a contract test and a wrapper-exercising test.
-fn assert_top_level_space_is_unit_contract<P: ParserTrait>(source: &str, filename: &str) {
+fn assert_top_level_space_is_unit_contract<P: MetricSuite>(source: &str, filename: &str) {
     let path = std::path::PathBuf::from(filename);
     let parser = P::new(source.as_bytes().to_vec(), &path, None);
     let space = metrics_inner(
@@ -226,7 +226,7 @@ fn assert_top_level_space_is_unit_contract<P: ParserTrait>(source: &str, filenam
 /// the contract-only path. Use this for languages where a fixture
 /// is known to make the grammar return ERROR (currently: Lua, C++
 /// via mozcpp).
-fn assert_partial_input_yields_synthetic_unit_wrapper<P: ParserTrait>(
+fn assert_partial_input_yields_synthetic_unit_wrapper<P: MetricSuite>(
     source: &str,
     filename: &str,
 ) {

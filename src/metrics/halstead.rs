@@ -484,7 +484,7 @@ mod tests {
     // reported location names the language row instead of a shared line
     // no assertion message distinguishes.
     #[track_caller]
-    fn assert_ops_operands<T: crate::ParserTrait>(
+    fn assert_ops_operands<T: crate::MetricSuite>(
         source: &str,
         file: &str,
         expected_n2: usize,
@@ -517,7 +517,7 @@ mod tests {
     /// plain `fn` that cannot capture a loop variable, so they reach
     /// for the closure-taking helper it wraps. Three copies of that
     /// dance is two too many.
-    fn assert_halstead_counts<T: crate::ParserTrait>(
+    fn assert_halstead_counts<T: crate::MetricSuite>(
         source: &str,
         file: &str,
         expected: [u64; 4],
@@ -3826,7 +3826,7 @@ end",
 
         // Balanced openers must count once and render folded (no bare
         // `(`/`[`, no n1 inflation) — the property #768 feared was broken.
-        fn assert_folded_openers<T: crate::ParserTrait>(source: &str, file: &str) {
+        fn assert_folded_openers<T: crate::MetricSuite>(source: &str, file: &str) {
             let path = PathBuf::from(file);
             let parser = T::new(source.as_bytes().to_vec(), &path, None);
             let ops = crate::ops::ops_inner(&parser, None).expect("ops walk succeeds");
@@ -5571,7 +5571,7 @@ f() {
     /// Every row is measured in *both* dialects, so a fix applied to
     /// one getter and not its clone fails here. `braced_word_shed`'s
     /// drift assertion likewise runs against both grammars.
-    fn check_braced_word_cases<T: crate::ParserTrait, L: crate::LanguageInfo>(
+    fn check_braced_word_cases<T: crate::MetricSuite, L: crate::LanguageInfo>(
         cases: &[BracedWordCase],
         file: &str,
         kinds: &BracedWordKinds,
@@ -5947,7 +5947,7 @@ f() {
     /// Runs one #1318 table against one dialect. Both dialects run
     /// every shared row, so a fix that reached one getter and not its
     /// clone fails here.
-    fn check_braced_word_value_cases<T: crate::ParserTrait>(
+    fn check_braced_word_value_cases<T: crate::MetricSuite>(
         cases: &[BracedWordValueCase],
         file: &str,
     ) {
@@ -8044,7 +8044,7 @@ f() {
     /// of the same `HalsteadMaps` — which is worth knowing before
     /// reading it as independent corroboration of the count.
     #[track_caller]
-    fn assert_char_literal_operands<T: crate::ParserTrait>(file: &str, label: &str) {
+    fn assert_char_literal_operands<T: crate::MetricSuite>(file: &str, label: &str) {
         // `char` x4 and `int` are text-keyed primitive operators, so
         // n1 = 4 (`;`, `=`, `char`, `int`) and N1 = 5 + 5 + 4 + 1.
         // Operands: `a`..`e`, plus `'x'` (twice), `'y'`, `'\n'`, `'ab'`.
@@ -8256,7 +8256,7 @@ f() {
     /// `field_expression` instead of the `this` leaf would hold `n2` at
     /// 6 while the vocabulary silently became `this->x`.
     #[track_caller]
-    fn assert_this_receiver_parity<T: crate::ParserTrait>(file: &str, label: &str) {
+    fn assert_this_receiver_parity<T: crate::MetricSuite>(file: &str, label: &str) {
         // Operators, keyed by kind_id except the text-keyed primitives:
         // `{` x3 (class body, `m1`, `m2`), `int` x3, `;` x4 (the field,
         // the two returns, the struct terminator), `(` x2, `return` x2,

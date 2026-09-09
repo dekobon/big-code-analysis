@@ -7,6 +7,10 @@
 
 use super::*;
 
+use crate::langs::AnyParser;
+use crate::macros::with_any_parser;
+use crate::ops::ops_inner;
+
 impl fmt::Debug for Ast {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // The held parser owns a `tree_sitter::Tree` and a `Vec<u8>`;
@@ -39,8 +43,7 @@ impl Ast {
             preproc_path,
             preproc,
         } = source;
-        let inner =
-            crate::langs::ast_parse_dispatch(lang, code.into_owned(), preproc_path, preproc)?;
+        let inner = AnyParser::parse(lang, code.into_owned(), preproc_path, preproc)?;
         Ok(Self { inner, name })
     }
 
@@ -67,7 +70,7 @@ impl Ast {
         code: Vec<u8>,
         name: Option<String>,
     ) -> Result<Self, MetricsError> {
-        let inner = crate::langs::ast_from_tree_dispatch(lang, tree, code)?;
+        let inner = AnyParser::from_tree(lang, tree, code)?;
         Ok(Self { inner, name })
     }
 
@@ -130,7 +133,11 @@ impl Ast {
     /// [`SpaceKind::Unit`] [`FuncSpace`] before walking, so this method
     /// does not return `Err` in practice today.
     pub fn metrics(&self, options: MetricsOptions) -> Result<FuncSpace, MetricsError> {
-        self.inner.run_metrics(self.name.clone(), options)
+        with_any_parser!(&self.inner, |p| metrics_inner(
+            p,
+            self.name.clone(),
+            options
+        ))
     }
 
     /// Return every operator and operand of each space in the held parse.
@@ -164,7 +171,7 @@ impl Ast {
     /// assert!(!ops.name_was_lossy);
     /// ```
     pub fn ops(&self) -> Result<crate::ops::Ops, MetricsError> {
-        self.inner.run_ops(self.name.clone())
+        with_any_parser!(&self.inner, |p| ops_inner(p, self.name.clone()))
     }
 
     /// Source language of the parsed tree.
@@ -180,7 +187,7 @@ impl Ast {
     #[must_use]
     #[inline]
     pub fn source(&self) -> &[u8] {
-        self.inner.code_bytes()
+        with_any_parser!(&self.inner, |p| p.code())
     }
 
     /// Display name carried through to [`FuncSpace::name`] by every
@@ -201,7 +208,7 @@ impl Ast {
     #[must_use]
     #[inline]
     pub fn as_tree_sitter(&self) -> &tree_sitter::Tree {
-        self.inner.ts_tree()
+        with_any_parser!(&self.inner, |p| p.ts_tree())
     }
 
     /// Strip non-doc comments from the held parse, returning the source
@@ -221,7 +228,7 @@ impl Ast {
     /// ```
     #[must_use]
     pub fn strip_comments(&self) -> Option<Vec<u8>> {
-        self.inner.run_strip_comments()
+        with_any_parser!(&self.inner, |p| crate::comment_rm::rm_comments(p))
     }
 
     /// Detect the span of every function in the held parse. Safe to call
@@ -239,7 +246,7 @@ impl Ast {
     /// ```
     #[must_use]
     pub fn functions(&self) -> Vec<crate::FunctionSpan> {
-        self.inner.run_functions()
+        with_any_parser!(&self.inner, |p| crate::function::function(p))
     }
 
     /// Build the [`AstResponse`](crate::AstResponse) node tree for the held
@@ -264,7 +271,7 @@ impl Ast {
     /// ```
     #[must_use]
     pub fn dump(&self, cfg: crate::AstCfg) -> crate::AstResponse {
-        self.inner.run_dump(cfg)
+        with_any_parser!(&self.inner, |p| crate::ast::dump_inner(p, cfg))
     }
 
     /// Count `(matching, total)` nodes in the held parse, where a node
@@ -286,7 +293,7 @@ impl Ast {
     /// ```
     #[must_use]
     pub fn count(&self, filters: &[String]) -> (usize, usize) {
-        self.inner.run_count(filters)
+        with_any_parser!(&self.inner, |p| crate::count::count(p, filters))
     }
 
     /// Find every node in the held parse whose kind is named in
@@ -299,7 +306,7 @@ impl Ast {
     /// Currently infallible; the [`Result`] wrapper is reserved for a
     /// future strict-parsing mode (matching the other `Ast` walkers).
     pub fn find(&self, filters: &[String]) -> Result<Vec<Node<'_>>, MetricsError> {
-        self.inner.run_find(filters)
+        with_any_parser!(&self.inner, |p| crate::find::find(p, filters))
     }
 
     /// Collect every in-source suppression marker (`// bca: suppress …`)
@@ -307,7 +314,7 @@ impl Ast {
     /// tree is reused.
     #[must_use]
     pub fn suppressions(&self) -> Vec<crate::SuppressionMarker> {
-        self.inner.run_suppressions()
+        with_any_parser!(&self.inner, |p| crate::suppression::suppression_markers(p))
     }
 
     /// Borrow the root [`Node`] of the held parse for callers that drive
@@ -316,6 +323,6 @@ impl Ast {
     #[must_use]
     #[inline]
     pub fn root_node(&self) -> Node<'_> {
-        self.inner.root_node()
+        with_any_parser!(&self.inner, |p| p.root())
     }
 }

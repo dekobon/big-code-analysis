@@ -26,7 +26,7 @@ use crate::traits::ParserTrait;
 /// with the other walk cores so callers can use the `?` operator
 /// uniformly.
 // The `Result` is deliberate forward-compat (see doc above) and is
-// propagated unchanged through `AstInner::run_find` / `Ast::find`;
+// propagated unchanged through `Ast::find`;
 // `unnecessary_wraps` would have us drop it and break that uniform
 // `?`-able shape across the walk cores.
 #[allow(clippy::unnecessary_wraps)]

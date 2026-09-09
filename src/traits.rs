@@ -9,27 +9,14 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::abc::Abc;
 use crate::alterator::Alterator;
 use crate::checker::Checker;
-use crate::cognitive::Cognitive;
-use crate::cyclomatic::Cyclomatic;
 use crate::getter::Getter;
-use crate::halstead::Halstead;
 use crate::langs::*;
-use crate::loc::Loc;
-use crate::mi::Mi;
-use crate::nargs::NArgs;
-use crate::nexits::Exit;
 use crate::node::Ancestors;
 use crate::node::Node;
-use crate::nom::Nom;
-use crate::npa::Npa;
-use crate::npm::Npm;
 use crate::parser::Filter;
 use crate::preproc::PreprocResults;
-use crate::tokens::Tokens;
-use crate::wmc::Wmc;
 
 /// Static identification of a language code tag.
 ///
@@ -45,27 +32,17 @@ pub(crate) trait LanguageInfo {
 }
 
 // Internal language-dispatch trait reached only by the macro-generated
-// `Parser<T>` impls in `src/parser.rs` and the `AstInner` dispatch in
-// `src/macros/mod.rs`. The 15 associated types are not part of any
-// documented extension contract — metric extraction is driven through
-// the public [`crate::Ast`] / [`crate::analyze`] seam, not by
-// implementing this trait. See STABILITY.md.
+// `Parser<T>` impls in `src/parser.rs` and the `AnyParser` dispatch in
+// `src/macros/mod.rs`. It carries the *parse* half of a language: the
+// tree plus its `Checker` / `Getter` classifiers. The per-metric
+// associated types live on the separate [`crate::MetricSuite`] supertrait
+// (#1376), so this half has no dependency on the metric modules. Not
+// part of any documented extension contract — metric extraction is
+// driven through the public [`crate::Ast`] / [`crate::analyze`] seam,
+// not by implementing this trait. See STABILITY.md.
 pub(crate) trait ParserTrait {
     type Checker: Alterator + Checker;
     type Getter: Getter;
-    type Cognitive: Cognitive;
-    type Cyclomatic: Cyclomatic;
-    type Halstead: Halstead;
-    type Loc: Loc;
-    type Nom: Nom;
-    type Mi: Mi;
-    type NArgs: NArgs;
-    type Exit: Exit;
-    type Wmc: Wmc;
-    type Abc: Abc;
-    type Npm: Npm;
-    type Npa: Npa;
-    type Tokens: Tokens;
 
     fn new(code: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>) -> Self;
     fn root(&self) -> Node<'_>;

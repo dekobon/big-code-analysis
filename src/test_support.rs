@@ -14,7 +14,8 @@ use crate::node::{Node, Tree};
 use crate::spaces::metrics_inner;
 use crate::traits::LanguageInfo;
 use crate::{
-    CodeMetrics, FuncSpace, LANG, Metric, MetricsOptions, ParserTrait, Source, SpaceKind, analyze,
+    CodeMetrics, FuncSpace, LANG, Metric, MetricSuite, MetricsOptions, ParserTrait, Source,
+    SpaceKind, analyze,
 };
 
 /// Parses `source` as `filename` under `options` and hands the resulting
@@ -24,7 +25,7 @@ use crate::{
 /// normalise it on the way in: CRLF/CR collapse to LF, and the trailing
 /// newline is regularised to exactly one. Use [`metrics_verbatim`] when a
 /// test's input must reach the parser untouched.
-fn check_func_space_with<T: ParserTrait, F: Fn(FuncSpace)>(
+fn check_func_space_with<T: MetricSuite, F: Fn(FuncSpace)>(
     source: &str,
     filename: &str,
     options: MetricsOptions,
@@ -49,7 +50,7 @@ fn check_func_space_with<T: ParserTrait, F: Fn(FuncSpace)>(
 /// is what made the unit suite pay for ~15 walks per assertion (#1127).
 /// This full-set variant remains for tests whose subject *is* the whole
 /// surface.
-pub(crate) fn check_func_space<T: ParserTrait, F: Fn(FuncSpace)>(
+pub(crate) fn check_func_space<T: MetricSuite, F: Fn(FuncSpace)>(
     source: &str,
     filename: &str,
     check: F,
@@ -64,7 +65,7 @@ pub(crate) fn check_func_space<T: ParserTrait, F: Fn(FuncSpace)>(
 /// `get_space_kind` run regardless of the selection — so structural
 /// assertions (`assert_child_space_kind`, `child_space`, nesting) hold
 /// identically under either variant.
-pub(crate) fn check_func_space_only<T: ParserTrait, F: Fn(FuncSpace)>(
+pub(crate) fn check_func_space_only<T: MetricSuite, F: Fn(FuncSpace)>(
     source: &str,
     filename: &str,
     metrics: &[Metric],
@@ -92,7 +93,7 @@ pub(crate) fn check_func_space_only<T: ParserTrait, F: Fn(FuncSpace)>(
 /// `metric_selection_parity` in `src/spaces_tests.rs` pins that across
 /// each metric and a multi-language fixture set, so a migrated test
 /// asserting the same numbers is asserting the same thing.
-pub(crate) fn check_metrics_only<T: ParserTrait>(
+pub(crate) fn check_metrics_only<T: MetricSuite>(
     source: &str,
     filename: &str,
     metrics: &[Metric],
@@ -122,7 +123,7 @@ pub(crate) fn check_metrics_only<T: ParserTrait>(
 /// ```
 macro_rules! check_metrics_only_shim {
     ($name:ident, $($metric:ident),+ $(,)?) => {
-        fn $name<T: $crate::ParserTrait>(
+        fn $name<T: $crate::MetricSuite>(
             source: &str,
             filename: &str,
             check: fn($crate::CodeMetrics),
@@ -142,7 +143,7 @@ macro_rules! check_metrics_only_shim {
 /// delegating to [`check_func_space_only`].
 macro_rules! check_func_space_only_shim {
     ($name:ident, $($metric:ident),+ $(,)?) => {
-        fn $name<T: $crate::ParserTrait, F: Fn($crate::FuncSpace)>(
+        fn $name<T: $crate::MetricSuite, F: Fn($crate::FuncSpace)>(
             source: &str,
             filename: &str,
             check: F,

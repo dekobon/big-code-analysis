@@ -9899,7 +9899,7 @@ end",
     /// a definition nested in *conditionals*, the `stops` entry on one
     /// nested in another *function*. Both are covered below, plus the two
     /// shapes the fix must leave alone.
-    fn check_js_function_boundary<T: ParserTrait>(filename: &str) {
+    fn check_js_function_boundary<T: MetricSuite>(filename: &str) {
         fn score(space: &FuncSpace, name: &str) -> u64 {
             function_space(space, name).metrics.cognitive.cognitive()
         }

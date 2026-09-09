@@ -7,6 +7,7 @@
 //! `crate::spaces::analyze` (and `pub(crate) metrics_inner`) is preserved.
 
 use super::*;
+use crate::MetricSuite;
 use crate::diag::warn;
 
 // Walks that ended with a cognitive nesting slot still live. Freeing
@@ -24,7 +25,7 @@ crate::observation::counter!(nesting_slots_retained);
 /// absorbed all of its children is wasted work, not a partial sum. Only
 /// [`finalize_state`] calls it, once per space (#1106).
 #[inline]
-fn compute_halstead_and_mi<T: ParserTrait>(state: &mut State, selected: MetricSet) {
+fn compute_halstead_and_mi<T: MetricSuite>(state: &mut State, selected: MetricSet) {
     if selected.contains(Metric::Halstead) {
         state
             .halstead_maps
@@ -55,7 +56,7 @@ fn compute_halstead_and_mi<T: ParserTrait>(state: &mut State, selected: MetricSe
 /// until this runs, and an `Unknown` parent silently drops every
 /// method's cyclomatic from its class WMC.
 #[inline]
-fn compute_wmc<T: ParserTrait>(state: &mut State, selected: MetricSet) {
+fn compute_wmc<T: MetricSuite>(state: &mut State, selected: MetricSet) {
     if selected.contains(Metric::Wmc) {
         T::Wmc::compute(
             state.space.kind,
@@ -82,7 +83,7 @@ fn compute_wmc<T: ParserTrait>(state: &mut State, selected: MetricSet) {
 /// all-zero block on every file root, since a unit is a member scope
 /// like any other.
 #[inline]
-fn note_member_scope<T: ParserTrait>(state: &mut State, selected: MetricSet) {
+fn note_member_scope<T: MetricSuite>(state: &mut State, selected: MetricSet) {
     let kind = state.space.kind;
     if selected.contains(Metric::Npm) && <T::Npm as Npm>::HAS_MEMBERS {
         state.space.metrics.npm.set_space_kind(kind);
@@ -224,7 +225,7 @@ fn anchor_unit_sloc_span(state: &mut State, selected: MetricSet) {
 /// `mi::Stats` both have no-op `merge`s, so nothing reads a parent's
 /// intermediate Halstead/MI, and this call overwrites them from the final
 /// maps anyway (#1106).
-fn finalize_state<T: ParserTrait>(state: &mut State, selected: MetricSet) {
+fn finalize_state<T: MetricSuite>(state: &mut State, selected: MetricSet) {
     anchor_unit_sloc_span(state, selected);
     compute_minmax(state, selected);
     compute_sum(state, selected);
@@ -234,7 +235,7 @@ fn finalize_state<T: ParserTrait>(state: &mut State, selected: MetricSet) {
     compute_averages(state, selected);
 }
 
-fn finalize<T: ParserTrait>(state_stack: &mut Vec<State>, diff_level: usize, selected: MetricSet) {
+fn finalize<T: MetricSuite>(state_stack: &mut Vec<State>, diff_level: usize, selected: MetricSet) {
     if state_stack.is_empty() {
         return;
     }
@@ -324,7 +325,7 @@ struct NodeFacts {
 // cost saving for `with_only(&[Metric::Loc])`. Extracted from
 // `metrics_inner` so the walker stays under clippy's 100-line ceiling.
 #[inline]
-fn compute_per_node<'a, T: ParserTrait>(
+fn compute_per_node<'a, T: MetricSuite>(
     state: &mut State<'a>,
     node: &Node<'a>,
     code: &'a [u8],
@@ -402,7 +403,7 @@ fn compute_per_node<'a, T: ParserTrait>(
 /// had already stopped agreeing with. [`anchor_unit_sloc_span`] now
 /// derives every unit's span from the one [`crate::spaces::line_span`]
 /// recorded, this frame included.
-fn push_synthetic_unit_root<T: ParserTrait>(
+fn push_synthetic_unit_root<T: MetricSuite>(
     state_stack: &mut Vec<State>,
     node: &Node,
     code: &[u8],
@@ -434,7 +435,7 @@ fn push_synthetic_unit_root<T: ParserTrait>(
 /// per-`Call` source-text keyword scan, so it is far from a cheap enum
 /// compare (issue #522; the `Loc` unit flag that used to force it on
 /// every node went away with #1067).
-fn open_func_space<'a, T: ParserTrait>(
+fn open_func_space<'a, T: MetricSuite>(
     state_stack: &mut Vec<State<'a>>,
     node: &Node<'a>,
     code: &'a [u8],
@@ -639,7 +640,7 @@ pub(crate) fn push_children<'a, 's, Tag: Copy>(
     &stack[first..]
 }
 
-pub(crate) fn metrics_inner<T: ParserTrait>(
+pub(crate) fn metrics_inner<T: MetricSuite>(
     parser: &T,
     name: Option<String>,
     options: MetricsOptions,

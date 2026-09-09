@@ -956,7 +956,7 @@ mod tests {
         );
     }
 
-    fn check_returned_object_arrow_nom<T: ParserTrait>(file_name: &str) {
+    fn check_returned_object_arrow_nom<T: MetricSuite>(file_name: &str) {
         check_metrics::<T>(
             "function f() { return { foo: x => x }; }",
             file_name,
