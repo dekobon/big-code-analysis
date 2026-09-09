@@ -27,7 +27,7 @@ impl Loc for BashCode {
             // Every Bash literal that can span rows, so its interior rows
             // reach PLOC instead of being mislabelled blank by
             // `blank = sloc - ploc - cloc` (#1260) — the decision #778 took
-            // for thirteen other languages and #415 took for Python.
+            // for eighteen other languages and #415 took for Python.
             //
             // `String` looks covered without an arm and is not: the grammar
             // emits one `string_content` child per row that *has* text, so
@@ -48,7 +48,7 @@ impl Loc for BashCode {
             //
             // This arm owns its opening row, which is why it calls
             // `add_string_interior_ploc` rather than the parent-gated
-            // `add_multiline_string_ploc` its thirteen siblings use. That
+            // `add_multiline_string_ploc` its siblings use. That
             // gate *skips* the opening row when the parent starts on it,
             // which is safe only where the catch-all credits every node's
             // start row — and Bash's, below, is leaf-gated, so a container

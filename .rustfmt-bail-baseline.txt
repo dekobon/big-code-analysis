@@ -38,6 +38,14 @@
 #   tests/common/mod.rs        an `insta::with_settings!` invocation,
 #                              whose `key => value` token tree is not a
 #                              match at all
+#
+# Known cause-1 increases that added no comment: the arm joined a match
+# that already bailed on section comments inside its or-patterns, the
+# kind #1136 decided to keep, so the count grew by one with nothing new
+# to hoist. Hand-check the arm's formatting instead.
+#
+#   src/getter/ruby.rs         3 -> 4, the `BQUOTE` subshell guard
+#                              (#1360) in `get_op_type`
 #   src/vcs/error.rs           `classify_error_variants!` (#1245): its
 #                              matcher, plus the 11 `$pat => $sample`
 #                              entries at the invocation, which are
@@ -125,7 +133,7 @@ src/getter/python.rs 7
 src/getter/ruby.rs 4
 src/getter/tcl.rs 6
 src/macros/mod.rs 38
-src/metrics/abc/elixir.rs 6
+src/metrics/abc/elixir.rs 5
 src/metrics/cognitive/perl.rs 8
 src/metrics/cyclomatic.rs 7
 src/metrics/cyclomatic/irules.rs 2

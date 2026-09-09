@@ -8282,7 +8282,7 @@ f() {
     /// `Cpp::This` / `Mozcpp::This` were in neither arm of
     /// `CppCode::get_op_type` / `MozcppCode::get_op_type`, so a `this`
     /// contributed *nothing* — not an operator and not an operand —
-    /// while ten of the thirteen languages here bill their
+    /// while eleven of the fourteen languages here bill their
     /// self-reference as an operand. Same shape as #1316's character
     /// literals, and the inverse of the #1351-#1355 over-counts.
     ///

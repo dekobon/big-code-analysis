@@ -61,7 +61,7 @@ impl Loc for ElixirCode {
             // interior rows reached neither PLOC nor CLOC and
             // `blank = sloc - ploc - cloc` mislabelled them as blank
             // (#1260); crediting them to PLOC is the decision #778 took for
-            // thirteen other languages and #415 took for Python.
+            // eighteen other languages and #415 took for Python.
             //
             // That covers `@doc """…"""` and `@moduledoc """…"""` as PLOC,
             // deliberately. Python's one carve-out to CLOC is a *bare*

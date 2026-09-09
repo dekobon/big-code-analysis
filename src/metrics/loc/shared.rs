@@ -186,7 +186,7 @@ pub(crate) fn add_only_comment_lines(stats: &mut Stats, start: usize, end: usize
 //
 // **That parent gate assumes some other node credits the opening row.**
 // It is a skip, and it is only safe where the language's catch-all
-// credits every node's start row, as it does in all thirteen languages
+// credits every node's start row, as it does in all eighteen languages
 // #778 covered. Where the catch-all is leaf-gated
 // (`if node.child_count() == 0`, as in `bash.rs` and `elixir.rs`) a
 // container parent contributes nothing, so a *childless* literal is the

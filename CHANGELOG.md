@@ -117,7 +117,7 @@ for historical reference.
 - Multi-line strings and heredocs no longer read as blank lines in
   Bash, Elixir, Tcl and iRules (#1260). Each language's
   multi-row-capable literals now credit every spanned row to PLOC,
-  matching the thirteen languages #778 covered and Python's #415
+  matching the eighteen languages #778 covered and Python's #415
   decision. Elixir `@doc` / `@moduledoc` rows are PLOC — a module
   attribute is an assignment whose value the compiler stores, so its
   Python analogue is `x = """…"""`, not a discarded docstring —

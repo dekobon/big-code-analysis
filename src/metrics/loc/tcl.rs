@@ -37,7 +37,7 @@ impl Loc for TclCode {
             // substitution — so its interior rows reached neither PLOC nor
             // CLOC and `blank = sloc - ploc - cloc` mislabelled them as
             // blank (#1260). Credit every spanned row to PLOC, the decision
-            // #778 took for thirteen other languages and #415 took for
+            // #778 took for eighteen other languages and #415 took for
             // Python.
             //
             // `braced_word` is deliberately *not* routed here. Tcl spells a
