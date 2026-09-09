@@ -2646,14 +2646,395 @@ class C {
     #[test]
     fn ruby_argument_form_visibility_does_not_flip() {
         // `private :y` is a `call` node (argument form). It does NOT
-        // change the body-wide visibility, so `z` declared after it
-        // remains public.
+        // change the body-wide visibility, so `z` and `w` declared after
+        // it remain public — while `y` itself, which the call names, is
+        // demoted (#1255).
+        //
+        // expected: nm = 3 (y, z, w), npm = 2 (z, w). The three
+        // candidate behaviours are distinguishable from that one number:
+        // no demotion at all gives 3, a body-wide flip gives 1, and only
+        // "demote y, leave the flag alone" gives 2.
         check_metrics::<RubyParser>(
-            "class A\n  def y\n    1\n  end\n  private :y\n  def z\n    1\n  end\nend\n",
+            "class A\n  def y\n    1\n  end\n  private :y\n  def z\n    1\n  end\n  def w\n    1\n  end\nend\n",
             "foo.rb",
             |metric| {
                 assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_visibility_call_wrapping_def_counts_the_method() {
+        // `private def hidden; end` parses as a `private` call whose sole
+        // argument is the `method` node, so `hidden` is never a direct
+        // child of the class body. Before #1255 it vanished from `nm`
+        // altogether instead of counting as a private method.
+        //
+        // expected: nm = 3 (pub1, hidden, pub2), npm = 2 (pub1, pub2),
+        // and `nom.functions_sum` = 3 — the three `def`s each open a
+        // function space, so `nm` must agree with it.
+        check_metrics_with_nom_wmc::<RubyParser>(
+            "class A\n  def pub1\n    1\n  end\n  private def hidden\n    1\n  end\n  def pub2\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.nom.functions_sum(), 3);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_visibility_call_wrapping_def_reads_the_keyword_not_the_flag() {
+        // Seeds the body-wide flag to `private` first, so the assertion
+        // can only pass if the wrapped `def` reads the *keyword*. With
+        // the flag consulted instead, `b` would come out private and
+        // npm would be 0.
+        //
+        // expected: nm = 2 (a, b), npm = 1 — `a` is private by the flag,
+        // `b` is public because `public def b` says so.
+        check_metrics::<RubyParser>(
+            "class A\n  private\n  def a\n    1\n  end\n  public def b\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
                 assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_bare_private_leaves_singleton_methods_public() {
+        // Ruby's `private` sets the default for instance methods only;
+        // `def self.factory` stays public until `private_class_method`
+        // names it (#1255).
+        //
+        // expected: nm = 2 (factory, inst), npm = 1 (factory).
+        check_metrics::<RubyParser>(
+            "class C\n  private\n  def self.factory\n    1\n  end\n  def inst\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_symbol_argument_promotes_under_a_private_flag() {
+        // The demotion pass must be able to move a method *back* to
+        // public, so the flag is seeded to `private` before `public :a`
+        // names the already-declared `a`. Asserting a demotion from a
+        // default-public body could not tell an assignment from a
+        // one-way `&&`.
+        //
+        // expected: nm = 2 (a, c), npm = 1 — `a` promoted by `public :a`,
+        // `c` still private by the flag.
+        check_metrics::<RubyParser>(
+            "class H\n  private\n  def a\n    1\n  end\n  public :a\n  def c\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_class_method_keywords_scope_to_singletons() {
+        // `private_class_method` is the only keyword that reaches a
+        // `def self.`. This fixture covers its symbol form, and
+        // `private def self.sf` proves the instance keyword does *not*
+        // reach one; the wrapping form and `public_class_method` are
+        // covered by `ruby_class_method_keyword_governs_a_wrapped_def`.
+        //
+        // expected: nm = 3 (sf, cm, inst), npm = 2 — `sf` stays public
+        // under `private` (the keyword names instance methods), `cm` is
+        // demoted by `private_class_method :cm`, and `inst` is public by
+        // default.
+        check_metrics::<RubyParser>(
+            "class E\n  private def self.sf\n    1\n  end\n  def self.cm\n    1\n  end\n  private_class_method :cm\n  def inst\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_symbol_argument_does_not_cross_the_singleton_boundary() {
+        // An instance method and a singleton method may share a name.
+        // `private :s` names the instance one only; matching on the name
+        // alone would demote both and report npm = 0.
+        //
+        // expected: nm = 2, npm = 1 (`def self.s` stays public).
+        check_metrics::<RubyParser>(
+            "class K\n  def s\n    1\n  end\n  def self.s\n    2\n  end\n  private :s\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_class_method_symbol_does_not_cross_the_singleton_boundary() {
+        // The mirror of the test above: `private_class_method :s` names
+        // the singleton only, so the instance `s` stays public.
+        //
+        // expected: nm = 2, npm = 1 (`def s` stays public).
+        check_metrics::<RubyParser>(
+            "class L\n  def s\n    1\n  end\n  def self.s\n    2\n  end\n  private_class_method :s\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_symbol_argument_reads_non_identifier_method_names() {
+        // Ruby method names are not all `identifier`s: `val=` is a
+        // `setter` node and `==` an `operator` node, and the symbol
+        // naming the latter may be written delimited (`:"val="`). All
+        // four names must round-trip for the demotion to find them.
+        //
+        // expected: nm = 4, npm = 0 — every method is named by the
+        // `private` call. Reading names by child index instead of the
+        // grammar's `name` field, or handling `simple_symbol` only,
+        // leaves some of them public.
+        check_metrics::<RubyParser>(
+            "class G\n  def ok?\n    1\n  end\n  def bang!\n    1\n  end\n  def val=(v)\n    v\n  end\n  def ==(o)\n    o\n  end\n  private :ok?, :bang!, :\"val=\", :==\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 4);
+                assert_eq!(metric.npm.class_npm_sum(), 0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_parenthesised_bare_keyword_flips_the_flag() {
+        // `private()` is the explicit-parens spelling of the bare
+        // keyword and flips the body-wide flag just as `private` does.
+        // The grammar gives it a `call` node rather than an
+        // `identifier`, so it needs its own arm.
+        //
+        // expected: nm = 1, npm = 0.
+        check_metrics::<RubyParser>(
+            "class F\n  private()\n  def after\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 1);
+                assert_eq!(metric.npm.class_npm_sum(), 0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_visibility_call_with_unresolvable_arguments_changes_nothing() {
+        // A splat (`private *SYMS`) and a bare identifier
+        // (`private foo`) name methods this walk cannot resolve. Neither
+        // may demote anything, and neither may be mistaken for the
+        // argument-less flag form.
+        //
+        // expected: nm = 2, npm = 2 — both methods stay public.
+        check_metrics::<RubyParser>(
+            "class N\n  def a\n    1\n  end\n  private *SYMS\n  private foo\n  def b\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_protected_wrapping_call_is_not_public() {
+        // `protected` is a third state: `Npm` counts *public* methods,
+        // so a protected one lands in `nm` and not in `npm`, in the
+        // wrapping form as in the flag form.
+        //
+        // `module_function` is here as a bare identifier that is *not* a
+        // visibility keyword — it must leave the flag alone rather than
+        // being read as one.
+        //
+        // expected: nm = 2 (prot, pub), npm = 1 (pub).
+        check_metrics::<RubyParser>(
+            "class A\n  module_function\n  protected def prot\n    1\n  end\n  def pub\n    2\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_class_method_keyword_governs_a_wrapped_def() {
+        // The wrapping form of the class-method keyword, plus
+        // `public_class_method`, which no other test reaches. This is
+        // the only fixture that runs `ruby_wrapped_is_public`'s
+        // keyword-governs branch with `targets_singleton = true`.
+        //
+        // expected: nm = 3 (a, b, c), npm = 1 — `a` is demoted by
+        // `private_class_method :a`, `c` by the wrapping form, and `b`
+        // is public (`public_class_method :b` restates its default).
+        check_metrics::<RubyParser>(
+            "class L\n  def self.a\n    1\n  end\n  def self.b\n    2\n  end\n  private_class_method def self.c\n    3\n  end\n  public_class_method :b\n  private_class_method :a\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_private_in_a_singleton_class_body_demotes() {
+        // The one place a bare `private` legitimately demotes a class
+        // method: inside `class << self` the declarations are plain
+        // `method` nodes, so the body-wide flag applies to them. The
+        // singleton exemption keys on the node kind, not on the
+        // enclosing container, which is what makes this work.
+        //
+        // expected: nm = 2 (s1, s2), npm = 1 (s1).
+        //
+        // No edit to the current code perturbs this; what it rules out
+        // is the *other* reading of "singletons ignore the flag" —
+        // exempting every declaration under a `SingletonClass` — which
+        // would report npm = 2.
+        check_metrics::<RubyParser>(
+            "class A\n  class << self\n    def s1\n      1\n    end\n    private\n    def s2\n      2\n    end\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_visibility_call_on_another_object_is_ignored() {
+        // A receiver other than `self` puts the call on a different
+        // object, so it declares and demotes nothing here. Reading the
+        // callee as the leading `identifier` instead of the grammar's
+        // `method` field gets this right only for a local-variable
+        // receiver: a `constant` or an instance variable is not an
+        // `identifier`, so the scan would find `private` and fire —
+        // booking `foreign` into `nm` and demoting `a`.
+        //
+        // expected: nm = 2 (a, b), npm = 2 — `foreign` belongs to
+        // `Other`, not to this class.
+        check_metrics::<RubyParser>(
+            "class A\n  def a\n    1\n  end\n  def b\n    2\n  end\n  Other.private :a\n  @cfg.private def foreign\n    3\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_visibility_call_on_self_is_honoured() {
+        // The receiver gate above must still let `self.private :a`
+        // through — it is the same call on the same class.
+        //
+        // expected: nm = 2, npm = 1.
+        check_metrics::<RubyParser>(
+            "class A\n  def a\n    1\n  end\n  def b\n    2\n  end\n  self.private :a\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_symbol_array_argument_names_every_element() {
+        // `private %i[g h]` is one argument naming two methods. Reading
+        // it as a single symbol resolves nothing and leaves both public.
+        //
+        // expected: nm = 3 (g, h, i), npm = 1 (i).
+        check_metrics::<RubyParser>(
+            "class A\n  def g\n    1\n  end\n  def h\n    2\n  end\n  def i\n    3\n  end\n  private %i[g h]\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_interpolated_symbol_names_nothing() {
+        // `:"get_#{suffix}"` is a `delimited_symbol` carrying a
+        // `string_content` *and* an `interpolation`. Taking the first
+        // `string_content` alone would resolve it to `get_` and demote
+        // the unrelated method of that name.
+        //
+        // The wholly-interpolated `:"#{whatever}"` must be rejected on
+        // the other branch of the same test: it carries no
+        // `string_content` at all, so the guard's first half is what
+        // stops it.
+        //
+        // expected: nm = 2 (get_, keep), npm = 2 — nothing is demoted.
+        check_metrics::<RubyParser>(
+            "class A\n  def get_\n    1\n  end\n  def keep\n    2\n  end\n  private :\"get_#{suffix}\", :\"#{whatever}\"\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_visibility_does_not_leak_into_a_nested_class() {
+        // Each class body opens its own `body_statement`, so the flag a
+        // nested class sets must not reach the outer body's later
+        // declarations — nor the reverse.
+        //
+        // expected: nm = 3 (Inner#i1, O#after, O#before), npm = 2
+        // (before, after) — only `i1` is private.
+        //
+        // The isolation half is correct-by-construction and has no
+        // perturbation: the flag is a local of `compute`, which runs once
+        // per body, so no edit short of threading it through the walk can
+        // leak it. What the numbers do pin is that a nested `class` child
+        // of the body contributes nothing to the *outer* count — a walk
+        // that descended into it rather than leaving it to its own space
+        // would report nm = 4.
+        check_metrics::<RubyParser>(
+            "class O\n  def before\n    1\n  end\n  class Inner\n    private\n    def i1\n      1\n    end\n  end\n  def after\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );

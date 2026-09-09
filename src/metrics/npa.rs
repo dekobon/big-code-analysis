@@ -610,8 +610,11 @@ implement_metric_trait!(
     clippy::too_many_lines
 )]
 mod tests {
+    use std::path::PathBuf;
+
     use crate::test_support::{
-        assert_child_space_kind, check_func_space_only_shim, check_metrics_only_shim, child_space,
+        assert_child_space_kind, ast_has_kind_id, check_func_space_only_shim,
+        check_metrics_only_shim, child_space,
     };
 
     use super::*;
@@ -2926,6 +2929,170 @@ mod tests {
                 // A: 1 public attr. B: 0 public, 1 total.
                 assert_eq!(metric.npa.class_npa_sum(), 1);
                 assert_eq!(metric.npa.class_na_sum(), 2);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_visibility_call_wrapping_attr_macro_counts_symbols() {
+        // `private attr_accessor :b` nests the `attr_accessor` call
+        // inside the `private` call, so the macro is never a direct
+        // child of the body. Before #1255 its symbols were dropped from
+        // `na` entirely rather than counted as private attributes.
+        //
+        // expected: na = 2 (a, b), npa = 1 (a).
+        check_metrics::<RubyParser>(
+            "class D\n  attr_accessor :a\n  private attr_accessor :b\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_wrapped_attr_macro_reads_the_keyword_not_the_flag() {
+        // Seeds the body-wide flag to `private` first, so the assertion
+        // can only pass if the wrapped macro reads the *keyword*. With
+        // the flag consulted instead, `b` would come out private and
+        // npa would be 0.
+        //
+        // expected: na = 2 (a, b), npa = 1 — `a` is private by the flag,
+        // `b` is public because `public attr_reader :b` says so.
+        check_metrics::<RubyParser>(
+            "class D\n  private\n  attr_reader :a\n  public attr_reader :b\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_parenthesised_bare_keyword_flips_the_attribute_flag() {
+        // `private()` is the explicit-parens spelling of the bare
+        // keyword. It is a `call`, not an `identifier`, so it reaches
+        // `Npa` through the visibility-call arm rather than through
+        // `ruby_visibility_marker` — and both walkers must agree that it
+        // flips the flag (grammar-dispatch rule 7).
+        //
+        // expected: na = 2 (a, b), npa = 1 (a).
+        check_metrics::<RubyParser>(
+            "class D\n  attr_accessor :a\n  private()\n  attr_accessor :b\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_attr_macro_counts_symbol_array_elements() {
+        // `attr_writer %i[e f]` passes one argument naming two
+        // attributes. Counting arguments rather than the symbols they
+        // name reports 1; ignoring the `symbol_array` kind reports 0.
+        //
+        // expected: na = 3 (a, e, f), npa = 3.
+        check_metrics::<RubyParser>(
+            "class A\n  attr_accessor :a\n  attr_writer %i[e f]\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_attr_macro_on_another_object_declares_nothing() {
+        // `Other.attr_accessor :b` adds an attribute to `Other`, not
+        // here. The receiver is a `constant`, so a scan for the leading
+        // `identifier` would find `attr_accessor` and count it.
+        //
+        // expected: na = 1 (a), npa = 1.
+        check_metrics::<RubyParser>(
+            "class A\n  attr_accessor :a\n  Other.attr_accessor :b\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 1);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_hash_key_symbol_is_not_an_argument() {
+        // Pins the defensive `HashKeySymbol` arm in
+        // `ruby_symbol_argument_count` as unreachable at the pinned
+        // grammar: tree-sitter-ruby 0.23.1 emits `hash_key_symbol` only
+        // as a `pair` / `keyword_pattern` key, never as a direct child
+        // of an `argument_list` (grammar-dispatch rule 2). A grammar
+        // that promoted it would make `attr_accessor a: 1` — which is
+        // not valid Ruby — count an attribute.
+        let source = "class A\n  attr_accessor :x\n  h = { y: 1 }\nend\n";
+        let parser = RubyParser::new(source.as_bytes().to_vec(), &PathBuf::from("foo.rb"), None);
+        assert!(
+            ast_has_kind_id(&parser, Ruby::HashKeySymbol as u16),
+            "the fixture no longer produces a `hash_key_symbol`; the \
+             negative claim below is then vacuous"
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Ruby::BareSymbol as u16),
+            "`bare_symbol` now appears outside a `%i[…]` array; \
+             re-derive `ruby_symbol_argument_count`"
+        );
+        check_metrics::<RubyParser>(source, "foo.rb", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 1);
+            assert_eq!(metric.npa.class_npa_sum(), 1);
+        });
+    }
+
+    #[test]
+    fn ruby_hidden_call_alias_is_not_emitted() {
+        // The Ruby `Npm` / `Npa` walkers dispatch on
+        // `Call | Call2 | Call3 | Call4`. `Call5` is the hidden `_call`
+        // supertype and is deliberately absent; pin that rather than
+        // leaving it to a comment (grammar-dispatch rule 2).
+        let source =
+            "class A\n  attr_accessor :a\n  private attr_accessor :b\n  self.private :a\nend\n";
+        let parser = RubyParser::new(source.as_bytes().to_vec(), &PathBuf::from("foo.rb"), None);
+        assert!(
+            ast_has_kind_id(&parser, Ruby::Call3 as u16),
+            "the fixture no longer produces the `Call3` alias; the \
+             negative claim below is then vacuous"
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Ruby::Call5 as u16),
+            "tree-sitter-ruby now emits the hidden `_call` supertype; \
+             add `Call5` to every Ruby `Call` dispatch set"
+        );
+    }
+
+    #[test]
+    fn ruby_visibility_call_without_a_wrapped_macro_declares_nothing() {
+        // The visibility-call arm must not invent attributes out of the
+        // symbol form (`private :a`, which names a method) or out of an
+        // argument it cannot resolve (`private *SYMS`). Nor may an
+        // `attr_*` macro count an argument that is not a symbol at all
+        // (`attr_reader name`, whose attribute is known only at
+        // runtime).
+        //
+        // expected: na = 1, npa = 1 — only `attr_accessor :a` declares.
+        check_metrics::<RubyParser>(
+            "class D\n  attr_accessor :a\n  attr_reader name\n  private :a\n  private *SYMS\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 1);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );

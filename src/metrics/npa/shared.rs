@@ -87,25 +87,85 @@ pub(crate) fn php_is_explicit_public(declaration: &Node) -> bool {
     })
 }
 
+// Named arguments of a Ruby `Call`, in source order. The grammar hangs
+// them off an `argument_list` — aliased to two visible ids — whose
+// children include the `(`, `)` and `,` tokens of the parenthesised
+// spelling, so anonymous nodes are filtered out. A call written without
+// an argument list (`private`, spelled as a `Call` only when it has a
+// receiver) yields nothing.
+pub(crate) fn ruby_call_named_arguments<'a>(call: &Node<'a>) -> impl Iterator<Item = Node<'a>> {
+    use Ruby::*;
+
+    call.children()
+        .find(|c| matches!(c.kind_id().into(), ArgumentList | ArgumentList2))
+        .into_iter()
+        .flat_map(|args| args.children().filter(Node::is_named))
+}
+
+// How many attributes / methods one argument to an `attr_*` or
+// visibility macro names. A `%i[a b]` word array is one argument naming
+// several; every other symbol spelling names exactly one. `HashKeySymbol`
+// (`a:`) reaches no argument list at the pinned grammar — it is only ever
+// a `pair` or `keyword_pattern` key — but is kept as a defensive arm
+// (grammar-dispatch rule 2), pinned by
+// `ruby_hash_key_symbol_is_not_an_argument`.
+fn ruby_symbol_argument_count(arg: &Node) -> usize {
+    use Ruby::*;
+
+    match arg.kind_id().into() {
+        SimpleSymbol | DelimitedSymbol | HashKeySymbol | BareSymbol => 1,
+        SymbolArray => arg
+            .children()
+            .filter(|c| matches!(c.kind_id().into(), BareSymbol))
+            .count(),
+        _ => 0,
+    }
+}
+
 // Counts the number of symbol arguments passed to an `attr_accessor` /
 // `attr_reader` / `attr_writer` macro `Call` node. `attr_accessor :a,
 // :b, :c` exposes three attributes; an `attr_*` call with no arguments
 // is ill-formed Ruby but defensively returns zero rather than one.
 pub(crate) fn ruby_attr_macro_symbol_count(call: &Node) -> usize {
-    use Ruby::*;
+    ruby_call_named_arguments(call)
+        .map(|arg| ruby_symbol_argument_count(&arg))
+        .sum()
+}
 
-    call.children()
-        .find(|c| matches!(c.kind_id().into(), ArgumentList | ArgumentList2))
-        .map_or(0, |args| {
-            args.children()
-                .filter(|c| {
-                    matches!(
-                        c.kind_id().into(),
-                        SimpleSymbol | DelimitedSymbol | HashKeySymbol | BareSymbol
-                    )
-                })
-                .count()
-        })
+// The method name a `:foo` argument to `private` / `public` / … names.
+// `simple_symbol` carries the whole literal including the leading colon
+// (`:ok?`, `:==`); `delimited_symbol` (`:"val="`) and the `bare_symbol`
+// elements of a `%i[…]` array both wrap their text in a `string_content`
+// child. A `%i[…]` array names several methods rather than one, so its
+// callers expand it into these elements first. Every other argument
+// shape — a splat (`private *SYMS`), a bare identifier (`private foo`),
+// a string (`private "foo"`) — names nothing this walk can resolve and
+// yields `None` (#1399).
+//
+// A delimited symbol is resolvable only when `string_content` is its
+// *whole* content: `:"get_#{suffix}"` also carries an `interpolation`
+// child, and returning the literal half of it would name — and demote —
+// a different method called `get_`.
+pub(crate) fn ruby_symbol_name<'a>(node: &Node<'a>, source: &'a [u8]) -> Option<&'a str> {
+    match node.kind_id().into() {
+        Ruby::SimpleSymbol => node.utf8_text(source)?.strip_prefix(':'),
+        Ruby::DelimitedSymbol | Ruby::BareSymbol => {
+            let mut content = node.children().filter(Node::is_named);
+            let first = content.next()?;
+            (matches!(first.kind_id().into(), Ruby::StringContent) && content.next().is_none())
+                .then(|| first.utf8_text(source))?
+        }
+        _ => None,
+    }
+}
+
+// The declared name of a Ruby `method` / `singleton_method`. Read from
+// the grammar's required `name` field rather than by child index: the
+// name is the *second* identifier of `def obj.x`, and it is a `setter`
+// (`val=`) or an `operator` (`==`) node rather than an `identifier` for
+// those two spellings (grammar-dispatch rule 3).
+pub(crate) fn ruby_method_name<'a>(method: &Node<'a>, source: &'a [u8]) -> Option<&'a str> {
+    method.child_by_field_name("name")?.utf8_text(source)
 }
 
 // Ruby class-body visibility state. `private` / `public` / `protected`
@@ -136,19 +196,136 @@ pub(crate) fn ruby_visibility_marker(node: &Node, source: &[u8]) -> Option<RubyV
     }
 }
 
+// A Ruby visibility keyword used in call position. `targets_singleton`
+// records *which* method family the keyword names: the bare keywords
+// govern instance methods only, and demoting a `def self.x` takes the
+// dedicated `private_class_method` / `public_class_method` pair (#1255).
+#[derive(Clone, Copy)]
+pub(crate) struct RubyVisibilityCall {
+    pub(crate) visibility: RubyVisibility,
+    pub(crate) targets_singleton: bool,
+}
+
+// What a visibility-keyword `Call` in a Ruby class body does. Shared by
+// `Npm` and `Npa` so the two walkers cannot drift on the same Ruby rule
+// (grammar-dispatch rule 7).
+pub(crate) enum RubyVisibilityEffect {
+    // `private()` — the explicit-parens spelling of the bare keyword,
+    // which sets the default for every later instance-level declaration
+    // exactly as `private` on its own line does. (The bare spelling is
+    // an `identifier`, not a `Call`, and is matched by
+    // `ruby_visibility_marker`.)
+    Flag(RubyVisibility),
+    // `private def x` / `private :foo` / `private attr_accessor :b` —
+    // the keyword governs only what its argument list names, leaving the
+    // body-wide flag alone.
+    Arguments(RubyVisibilityCall),
+}
+
+// Classifies a Ruby class-body `Call` whose callee is a visibility
+// keyword.
+//
+// An argument-less `private_class_method` is an ArgumentError in Ruby
+// rather than a flag flip, so it yields no effect at all.
+pub(crate) fn ruby_visibility_effect(call: &Node, source: &[u8]) -> Option<RubyVisibilityEffect> {
+    let (visibility, targets_singleton) = match ruby_callee_name(call, source)? {
+        "private" => (RubyVisibility::Private, false),
+        "public" => (RubyVisibility::Public, false),
+        "protected" => (RubyVisibility::Protected, false),
+        "private_class_method" => (RubyVisibility::Private, true),
+        "public_class_method" => (RubyVisibility::Public, true),
+        _ => return None,
+    };
+    if ruby_call_named_arguments(call).next().is_none() {
+        return (!targets_singleton).then_some(RubyVisibilityEffect::Flag(visibility));
+    }
+    Some(RubyVisibilityEffect::Arguments(RubyVisibilityCall {
+        visibility,
+        targets_singleton,
+    }))
+}
+
+// Whether a declaration counts as public when no visibility keyword
+// names it: an instance method or attribute takes the body-wide flag,
+// while a singleton method (`def self.x`) ignores that flag entirely —
+// Ruby's `private` governs instance methods only (#1255).
+pub(crate) fn ruby_declaration_is_public(singleton: bool, body_flag: RubyVisibility) -> bool {
+    singleton || body_flag == RubyVisibility::Public
+}
+
+// Whether a declaration nested in a visibility call's argument list is
+// public. The keyword governs it only when it names that method family,
+// so `private def self.x` leaves the singleton alone and
+// `private_class_method` never reaches an instance method or an
+// attribute; an ungoverned declaration falls back to its own default.
+// The single source of the rule for both `Npm` and `Npa` (#1255).
+pub(crate) fn ruby_wrapped_is_public(
+    keyword: RubyVisibilityCall,
+    singleton: bool,
+    body_flag: RubyVisibility,
+) -> bool {
+    if keyword.targets_singleton == singleton {
+        keyword.visibility == RubyVisibility::Public
+    } else {
+        ruby_declaration_is_public(singleton, body_flag)
+    }
+}
+
+// The bare name a Ruby `Call` invokes on the enclosing class body.
+//
+// A receiver other than `self` puts the call on another object, so
+// `Other.private :x` and `@cfg.attr_accessor :y` name nothing in *this*
+// class and yield `None`. Both halves are read from the grammar's
+// `receiver` / `method` fields rather than by scanning for the leading
+// `identifier` (grammar-dispatch rule 3): the scan answers correctly
+// only when the receiver happens to be a local variable, and reports
+// the method name as the callee for a `constant`, an instance variable,
+// a global, or a chained call — all of which are `_primary` receivers.
+fn ruby_callee_name<'a>(call: &Node<'a>, source: &'a [u8]) -> Option<&'a str> {
+    if let Some(receiver) = call.child_by_field_name("receiver")
+        && receiver.kind_id() != Ruby::Zelf as u16
+    {
+        return None;
+    }
+    call.child_by_field_name("method")?.utf8_text(source)
+}
+
 // Identifies the `attr_*` macro family on a Ruby `Call` node. Each
 // macro takes a list of attribute symbols and synthesises the matching
 // reader / writer / accessor methods on the enclosing class.
 pub(crate) fn ruby_attr_macro_name(call: &Node, source: &[u8]) -> Option<&'static str> {
-    let ident = call
-        .children()
-        .find(|c| matches!(c.kind_id().into(), Ruby::Identifier))?;
-    match ident.utf8_text(source)? {
+    match ruby_callee_name(call, source)? {
         "attr_accessor" => Some("attr_accessor"),
         "attr_reader" => Some("attr_reader"),
         "attr_writer" => Some("attr_writer"),
         _ => None,
     }
+}
+
+// Books `count` attributes against the class tallies, all of them
+// public or none. Kept as a helper so the three declaration shapes
+// `ruby_walk_class_body` recognises cannot disagree on the rule.
+fn ruby_add_attributes(stats: &mut Stats, count: usize, public: bool) {
+    stats.class_na += count;
+    if public {
+        stats.class_npa += count;
+    }
+}
+
+// Attributes declared by an `attr_*` macro nested in a visibility call's
+// argument list: `private attr_accessor :b` parses as a `private` call
+// whose sole argument is the `attr_accessor` call, so the macro is never
+// a direct child of the body (#1255).
+fn ruby_wrapped_attr_count(call: &Node, source: &[u8]) -> usize {
+    use Ruby::*;
+
+    ruby_call_named_arguments(call)
+        .filter(|arg| {
+            matches!(arg.kind_id().into(), Call | Call2 | Call3 | Call4)
+                && ruby_attr_macro_name(arg, source).is_some()
+        })
+        .map(|arg| ruby_attr_macro_symbol_count(&arg))
+        .sum()
 }
 
 // Walks the direct children of a Ruby class / singleton-class body
@@ -163,8 +340,16 @@ pub(crate) fn ruby_attr_macro_name(call: &Node, source: &[u8]) -> Option<&'stati
 // `private` / `public` / `protected` identifier flips the default for
 // every subsequent declaration in the body. The default visibility at
 // the top of every class body is `public`. The argument-form of those
-// keywords (`private :foo`, `private def x`) does not flip the body-
-// wide flag — matching Ruby's runtime behaviour.
+// keywords (`private :foo`, `private attr_accessor :b`) does not flip
+// the body-wide flag — matching Ruby's runtime behaviour — but it does
+// govern the declarations it wraps, so an `attr_*` macro nested in a
+// visibility call takes the keyword's visibility (#1255).
+//
+// The retroactive symbol form (`private :b` after `attr_accessor :b`)
+// is deliberately not modelled here. It renames the visibility of the
+// generated *reader* only, leaving `b=` public, so there is no single
+// answer for the attribute — unlike `Npm`, where the symbol names one
+// method (see #1399).
 //
 // Attribute assignments to instance/class variables are visible only
 // via the methods that wrap them, so the visibility flag at the point
@@ -189,19 +374,31 @@ pub(crate) fn ruby_walk_class_body(body: &Node, source: &[u8], stats: &mut Stats
                     continue;
                 };
                 if matches!(lhs.kind_id().into(), InstanceVariable | ClassVariable) {
-                    stats.class_na += 1;
-                    if visibility == RubyVisibility::Public {
-                        stats.class_npa += 1;
-                    }
+                    ruby_add_attributes(stats, 1, ruby_declaration_is_public(false, visibility));
                 }
             }
             Call | Call2 | Call3 | Call4 if ruby_attr_macro_name(&child, source).is_some() => {
-                let count = ruby_attr_macro_symbol_count(&child);
-                stats.class_na += count;
-                if visibility == RubyVisibility::Public {
-                    stats.class_npa += count;
-                }
+                ruby_add_attributes(
+                    stats,
+                    ruby_attr_macro_symbol_count(&child),
+                    ruby_declaration_is_public(false, visibility),
+                );
             }
+            Call | Call2 | Call3 | Call4 => match ruby_visibility_effect(&child, source) {
+                Some(RubyVisibilityEffect::Flag(flag)) => visibility = flag,
+                // `private attr_accessor :b`. An attribute is always an
+                // instance-level declaration, so a class-method keyword
+                // never governs one: the macro it wraps still declares
+                // its attributes, at the body-wide flag.
+                Some(RubyVisibilityEffect::Arguments(keyword)) => {
+                    ruby_add_attributes(
+                        stats,
+                        ruby_wrapped_attr_count(&child, source),
+                        ruby_wrapped_is_public(keyword, false, visibility),
+                    );
+                }
+                None => {}
+            },
             _ => {}
         }
     }

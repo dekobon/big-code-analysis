@@ -5,11 +5,11 @@ expression: metric.npm
 {
   "class_npm_sum": 2,
   "interface_npm_sum": 0,
-  "class_methods": 3,
+  "class_methods": 2,
   "interface_methods": 0,
-  "class_coa": 0.6666666666666666,
+  "class_coa": 1.0,
   "interface_coa": 0.0,
   "total": 2,
-  "total_methods": 3,
-  "coa": 0.6666666666666666
+  "total_methods": 2,
+  "coa": 1.0
 }
