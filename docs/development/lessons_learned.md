@@ -136,6 +136,7 @@ number and the higher number stays as a redirect.
 | [90](#90-re-reading-a-single-consumption-source-yields-empty-not-an-error) | A re-read of a consumable source yields empty, not an error |
 | [91](#91-a-gate-can-filter-out-its-own-subject-before-the-check-runs) | A gate can filter out its own subject before the check runs |
 | [92](#92-an-optimizations-rationale-can-encode-the-waste-it-optimizes-for) | An optimization's rationale can encode the waste it optimizes for |
+| [93](#93-a-gate-that-reads-a-typed-accessor-is-invisible-to-the-front-ends-that-read-the-wire) | A gate that reads a typed accessor is invisible to the front-ends that read the wire |
 
 ---
 
@@ -2509,7 +2510,10 @@ grammars) for builtins that are control flow, recognise them out-of-band
 by their leading word, and locate sub-parts by **structural position**
 rather than a fixed index so detection survives optional option/flag
 prefixes. Add a fixture scoring above the base and test-via-revert that
-the arm fires. See
+the arm fires, and add it in every layout the grammar splits
+differently — a construct with no node of its own has no fixed shape
+either, so the same source can reach the recogniser as one command or
+as several depending on where the newlines fall. See
 [`grammar-dispatch.md` §9](../../.claude/rules/grammar-dispatch.md).
 
 The gap is not a missing enum arm — the *kind* the dispatcher would need
@@ -2528,6 +2532,19 @@ argument — not a fixed child index, because the optional `-exact` /
 `-glob` / `--` options and the matched value precede it; a positional
 index would have broken on every option-form switch (lesson 53's failure
 mode).
+
+**The same `switch` arms scored differently by line layout** (#1318).
+The Tcl grammar breaks the arm list into `command` nodes at newlines, so
+`pattern body pattern body` on one line is one command carrying three
+arguments and written one arm per line is two commands carrying one
+each. The #1318 rescue that keeps an arm command's braced *body* a
+script read every argument of that command as a body, which billed a
+`{}` around the second pattern of a one-line `switch -regexp` and
+nothing around the same pattern on its own line. Tcl pairs the list
+positionally with no marker on either half, so an argument's role is its
+index parity — a place §3's "never by index" inverts, because the
+index is the grammar's only encoding of the role. The multi-line fixture
+alone had passed throughout.
 
 ---
 
@@ -3640,5 +3657,55 @@ metric 723–725 MB against cognitive's 1,264 MB, `--output-dir` came
 within a megabyte of stdout — 1,266 against 1,265 MB, ruling out both
 the wire clone and the reorder buffer — and `bca check`, which has no
 reorder buffer at all, still peaked at 4.5 GB on the same tree.
+
+---
+
+## 93. A gate that reads a typed accessor is invisible to the front-ends that read the wire
+
+**Lesson:** When a threshold gate changes *which number* it measures,
+follow the number to the wire before calling the change done. `bca
+check` extracts from typed per-space accessors; the Python binding, the
+CSV flattener and any JSON-walking consumer can read only what
+`wire.rs` serializes. If the accessor's value has no serialized key,
+every wire consumer keeps the old definition and no test fails, because
+each front-end is consistent with itself. Serialize the own value as
+`<metric>.value` (additive, `#[serde(default)]`), give the sum one
+definition that the extractor, the wire projection and the report all
+call, and pin the two front-ends against each other on one input.
+
+The divergence has no failure signature. Each front-end passes its own
+suite; the parity claim between them lives in prose — the binding's
+docs, `metric_catalog`'s `skip_at_unit` flag — that nothing measures;
+and the JSON shape did not change, so no snapshot moved. Nor does
+writing the divergence down close it: a note at the extractor that the
+JSON field of the same name now disagrees names no consumer, so nobody
+follows it to the binding that reads that field. The consumer that is
+wrong is the one that could not have been right: the number it needed
+was never on the wire.
+
+**`to_sarif` gated `nargs` on the subtree sum after `bca check` stopped**
+(#1196, #1236). #1196 moved the CLI's `nargs` extractor from `total()`
+— own parameters plus every nested closure's — to the callable's own
+list, and touched neither the wire nor the binding: the wire's `Nargs`
+carried sums, averages and extrema but no field for the own count, and
+the binding kept reading `total` because that had been the CLI's
+accessor. A two-argument function holding a three- and a two-argument
+closure scored 7 in the binding and 2 in the CLI, so closure-heavy code
+drew SARIF findings no CLI run produces. Filed five days later; nothing
+had failed. The fix
+serializes `nargs.value`, routes the CLI extractor, the report hotspot
+table and the wire projection through one `Stats::own_args()`, and
+corrects `skip_at_unit` for `nargs` — a documentary flag whose pinned
+set had asserted a parity that stopped holding at #1196.
+
+**The same gap had already been closed once, for four other metrics**
+(#855, #958). `cyclomatic`, `cyclomatic.modified`, `cognitive` and `abc`
+serialized only subtree aggregates, so the binding first over-emitted at
+interior spaces, then — restricted to leaves — could not emit an interior
+space whose own value breached. #958 added those four `*.value` fields;
+`nargs` was not among them because its gate did not yet read the own
+value. When #1196 moved it, the extractor table noted that the JSON
+field now disagreed — and stopped there; the binding that reads that
+field is the consumer the note needed to name.
 
 ---

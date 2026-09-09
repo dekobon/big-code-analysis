@@ -186,6 +186,32 @@ confirm it by perturbing the exact production line the assertion names —
 per the sections above, a test that cannot fail is worse than no test,
 because it reads as coverage.
 
+## Perturb the fixture as well as the production line
+
+A revert test proves the construct reaches the arm *today*. It says
+nothing about whether the fixture still contains the construct tomorrow.
+A test that pairs an excluded construct with a genuine condition and
+asserts the non-zero total keeps passing after someone trims the
+construct out of the fixture, because the surviving comparison supplies
+the total on its own — and every #1297 test had exactly that shape, so
+each could decay into an assertion about the comparison alone with no
+signal.
+
+Anchor the fixture on a second axis that only the construct contributes,
+then verify by deleting the construct from the fixture and watching
+exactly that test fail:
+
+- The three JSX fixtures anchor on `assignments_sum()`: the
+  `className="x"` attribute `=` is each fixture's only assignment.
+- The C# operator overloads are asserted per space rather than through
+  the file total, which is 3 with the overloads and without them.
+- The Perl readlines are three of the sub's four assignments.
+
+Where the construct contributes to no axis once excluded — a Lua
+`<const>` attribute, a TypeScript type argument — there is nothing to
+anchor on, and the revert test is the only coverage available. Say so in
+a comment, so the missing anchor is not read as an oversight.
+
 ## Coverage measures execution, not discrimination
 
 A coverage report answers "did any test run this line?" It never answers

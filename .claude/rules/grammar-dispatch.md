@@ -154,6 +154,16 @@ than assumed. PHP's `primitive_type` is childless for `callable`,
 leaf — the "obvious" innermost choice — would have scored six types
 zero (#1293).
 
+When neither choice can strand a childless node — every wrapper requires
+its leaf and the unwrapped spelling carries no wrapper at all — the
+hazard is absent and the tiebreak is identity: keep the node whose span
+*is* the operand. Ruby's `1r`, `1i` and `1ri` are three constants
+distinct from `1`, and only the `rational` / `complex` wrapper's text
+says which; billing the leaf files all four under `1` (#1359). Bash's
+`$"…"` went the other way for the first reason, not this one — its
+`string` child is the node present in argument position, where the
+grammar emits no wrapper (#1358).
+
 ## 7. Walk the sibling predicates for parity
 
 `Checker::is_string`, `Getter::get_op_type`, `Checker::is_call`,

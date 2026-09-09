@@ -670,6 +670,24 @@ git checkout <INTEGRATION_BRANCH>
 git stash pop  # if stash was used
 ```
 
+### 6c: Review the whole branch as one diff
+
+Once 6a passes, review `main...HEAD` as a single diff in a context that
+has not seen the fixes: spawn an agent that runs `review branch` (the
+worktree-agent rule against invoking skills does not apply to the
+orchestrator), or ask the user to run `/code-review` on the branch.
+Phase 3 reviewed each fix on its own; the defects that survive it are
+the ones visible only across fixes — a sibling one sweep skipped, a
+helper two fixes now share under different rules, an alias one
+language's arm lists and another's does not, a rule whose stated cost
+bound the next fix falsifies. On the 2026-08-30 batch, ten per-issue
+pipelines plus `audit-tests` and a green gate left four real bugs that
+the user's whole-branch `/code-review` found on its first reading.
+
+Fix the findings as a further commit on the integration branch, re-run
+6a, and only then proceed to Step 7. Do not re-run the review over the
+fix commit — that is the pass Phase 3 already says finds nothing.
+
 ---
 
 ## Step 7: Summary
