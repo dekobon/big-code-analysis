@@ -6137,15 +6137,16 @@ f() {
     /// contain. The role is recognised out-of-band, by the enclosing
     /// command's leading word (grammar-dispatch §9).
     ///
-    /// The three Tcl-only rows are the constructs this grammar models
-    /// with no node of its own (#467, #1264) — `switch` and `for` —
-    /// plus the braced `switch` *pattern* that must not be mistaken
-    /// for an arm body. Their iRules counterparts are dedicated nodes
-    /// and are covered by the sibling test.
+    /// The Tcl-only rows are the constructs this grammar models with
+    /// no node of its own (#467, #1264) — `switch` and `for` — plus the
+    /// braced `switch` *pattern* that must not be mistaken for an arm
+    /// body, in both the one-arm-per-line and the one-line layouts.
+    /// Their iRules counterparts are dedicated nodes and are covered by
+    /// the sibling test.
     #[test]
     fn tcl_braced_word_role_follows_the_enclosing_command_1318() {
         check_braced_word_value_cases::<TclParser>(&BRACED_WORD_VALUE_CASES, "foo.tcl");
-        let tcl_only: [BracedWordValueCase; 3] = [
+        let tcl_only: [BracedWordValueCase; 5] = [
             // `switch` arm bodies. The grammar flattens `pat body pat
             // body` into a `command` named after the first pattern, so
             // the bodies read as arguments of a command called `a` —
@@ -6164,14 +6165,37 @@ f() {
             // idiomatic and its regex must not be wrapped in a block.
             // Rescuing the whole arm command would read N1 4 here.
             // The leading `-exact` / `--` options are `simple_word`
-            // operands and shift no index, which is why the rescue is
-            // structural rather than positional (grammar-dispatch §9).
+            // operands of the *`switch`* command and shift nothing:
+            // the arm list is found as the sole `braced_word` argument,
+            // not by index (grammar-dispatch §9).
             BracedWordValueCase {
                 source: "switch -exact -- $v {\n    {a b}   { puts X }\n    default { puts Y }\n}\n",
                 counts: [1, 3, 10, 11],
                 operands: &[
                     "switch", "-exact", "--", "$v", "a", "b", "puts", "X", "default", "Y",
                 ],
+            },
+            // The same arms on one line. Only the *first* pattern is
+            // the arm command's name; `{^b}` is its third argument, and
+            // the name test alone rescued it as a body — N1 4 here,
+            // against N1 3 for the identical arms written one per line.
+            // The arm list is `pattern body pattern body …` by Tcl's
+            // own definition, so the arguments alternate and the
+            // even-indexed ones are the bodies.
+            BracedWordValueCase {
+                source: "switch -regexp $v { {^a} { puts A } {^b} { puts B } }\n",
+                counts: [1, 3, 8, 9],
+                operands: &["switch", "-regexp", "$v", "^a", "puts", "A", "^b", "B"],
+            },
+            // The words that can interpose between a pattern and its
+            // body take one slot each and leave the parity intact: a
+            // `-` fall-through body and a `default` pattern are both
+            // `simple_word`s. The two braced bodies are at indexes 2
+            // and 4 of the run and both keep their `{}`.
+            BracedWordValueCase {
+                source: "switch $v { a - b { puts AB } default { puts D } }\n",
+                counts: [1, 3, 9, 10],
+                operands: &["switch", "$v", "a", "-", "b", "puts", "AB", "default", "D"],
             },
             // `for` has four braced arguments and all four are
             // evaluated, so all four keep their braces. `i` appears as

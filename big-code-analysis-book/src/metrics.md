@@ -561,12 +561,17 @@ tokens involved the same way they spell real operators:
   are counted either way, because an unrecognised command is as likely
   to have been handed real code (an `oo::class create C {…}` body, a
   `tcltest` `-body {…}`) as a list. So a script passed to a command
-  outside the list — a Tk `-command {…}` callback, say — gives up one
-  `{}` occurrence and nothing else. The remaining asymmetry is that a
-  braced value scores one operand where the grammar names the command
-  (`set x {a b}`) and one per word where only the command name would
-  (`lappend x {a b}`); closing that needs a signal neither grammar
-  gives.
+  outside the list — a Tk `-command {…}` callback, a `dict for` body —
+  gives up one `{}` occurrence per block and nothing else, with one
+  visible consequence: a space whose *only* blocks are of that kind
+  has no operator left, and because Halstead's difficulty multiplies
+  by the operator count, its `effort` reads `0.0` rather than slightly
+  low. A `proc` keeps its own `proc` keyword and body brace, so this
+  reaches top-level script fragments, not functions. The remaining
+  asymmetry is that a braced value scores one operand where the
+  grammar names the command (`set x {a b}`) and one per word where
+  only the command name would (`lappend x {a b}`); closing that needs
+  a signal neither grammar gives.
 - **A string-interpolation opener is not an operator.** `"{$x}"` in
   PHP, `"#{x}"` in Ruby and Elixir, `"${x}"` in Kotlin and Groovy and
   `$"{x}"` in C# all count the interpolated expression's own operators

@@ -155,13 +155,21 @@ for historical reference.
   `::` is stripped before the command lookup, so `::eval {…}` — the
   spelling a `namespace eval` body uses to reach the core command past
   a local proc — keeps its block like the unqualified form; a
-  `ns::eval` prefix is a different command and does not.
+  `ns::eval` prefix is a different command and does not. Inside a
+  Tcl `switch` arm list, only even-positioned arguments of an arm
+  command are bodies, so a one-line `switch -regexp $v { {^a} {…}
+  {^b} {…} }` no longer wraps `{^b}` in a block that the same arms
+  written one per line did not.
   **Metric drift:** Tcl and iRules `halstead.unique_operators` /
   `total_operators`, the derived values, and hence `mi` fall for any
   file passing a braced literal to a command the grammar does not
-  model. Operand counts are deliberately unchanged. Supersedes the
-  note in 2.2.0 that a value-position braced literal still reports a
-  `{}` operator.
+  model. A script handed to an unlisted command (`dict for {k v} $d
+  {…}`, a Tk `-command {…}`) loses its `{}` too, and a top-level
+  fragment with no other block then has no operator at all, so its
+  `halstead.effort` reads `0.0`; a `proc` keeps its own keyword and
+  body brace and is unaffected. Operand counts are deliberately
+  unchanged. Supersedes the note in 2.2.0 that a value-position
+  braced literal still reports a `{}` operator.
 
 - A Bash assignment counts as a logical line. `variable_assignment`
   reaches the walk under the alias id the enum spells

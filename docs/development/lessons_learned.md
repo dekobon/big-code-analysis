@@ -3493,14 +3493,18 @@ a denylist must name separately. Both were rewritten to require a
 would have enumerated in advance — a superclass clause
 (`class Foo < Bar`) and an operator-method name (`def <(other)`) — and
 the positive gate covered both without being told about either. C#,
-Kotlin and the JS family kept the denylist form for another two issues,
-and it admitted a fresh role in each: JSX tag delimiters in TypeScript,
-TSX, JavaScript and Mozjs, a `super_expression` in Kotlin, an
-`operator_declaration` in C#, and a Lua 5.4 variable attribute where
-there was no gate at all (#1297). **Every one of those roles was
-invisible until someone wrote the language's construct down** — which is
-the whole argument for the polarity: the allowlist needs to know only
-what a comparison is, and that set does not grow.
+Kotlin and TypeScript carried the denylist form until #1297, and by
+then each had admitted a role nobody listed — JSX tag delimiters, a
+`super_expression`, an `operator_declaration` — while JavaScript (and
+its Mozjs fork), Lua and Perl had no gate at all, and Perl was the row
+the issue had declared immune. The same fix is also the caveat on the
+polarity: C# needed a *second* allowlist entry, because `x is > 0` is
+a comparison that lives outside `binary_expression`, and a one-entry
+allowlist would have under-counted it silently — the closed form's
+failure, which lesson 19 describes and no snapshot shows. Neither
+polarity is free; the allowlist is preferred because its set is the
+smaller one to enumerate and its miss reads as a zero rather than a
+phantom.
 
 **The same token needed opposite polarities eight lines apart** (#1275,
 following #1274). A `?` is the ternary operator and, in C#, also

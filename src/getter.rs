@@ -639,12 +639,22 @@ pub(crate) trait Getter {
     ///   unrecognised name is therefore far likelier to be value-taking.
     /// - Defaulting to script *fabricates* — it reports a `{}` operator
     ///   for a block the source does not contain. Defaulting to value
-    ///   can only *omit*, and only one `N1` occurrence of a `{}` whose
-    ///   vocabulary entry any real block in the file already carries.
-    ///   That asymmetry holds only because the answer is scoped to the
-    ///   brace: see [`braced_word_op_type`] for the measurement that
-    ///   decided it, and for why suppressing the *contents* of a value
-    ///   would have made the omission unbounded instead.
+    ///   can only *omit*: one `N1` occurrence per script handed to an
+    ///   unlisted command, and — when no modelled construct in the same
+    ///   space opens a block — the `{}` vocabulary entry with them.
+    ///   That last case is where the cost shows: a top-level
+    ///   `dict for {k v} $d { puts $k }` with nothing around it has no
+    ///   operator left, and Halstead's difficulty is a product with
+    ///   `n1` in it, so `effort` reads `0.0` rather than a little low.
+    ///   Inside a `proc` the `proc` keyword and body brace keep the
+    ///   space non-zero, which is the scope `halstead.effort` is gated
+    ///   at; and the same `0.0` was already the answer for a file of
+    ///   `set x {a b}` lines, so it is Halstead's shape on an
+    ///   operator-free space, not a new failure mode. The omission
+    ///   stays bounded only because the answer is scoped to the brace:
+    ///   see [`braced_word_op_type`] for the measurement that decided
+    ///   it, and for why suppressing the *contents* of a value would
+    ///   have made it unbounded instead.
     /// - It stops the score moving with the author's choice of
     ///   delimiter, which is what #695, #1312 and #1314 each restored
     ///   elsewhere: `puts {c d}` and `puts "c d"` now agree on the
@@ -652,11 +662,12 @@ pub(crate) trait Getter {
     ///
     /// The cost is a script passed to an unlisted command — a Tk
     /// `-command {…}` callback, `trace add variable v w {…}`, a
-    /// user-defined `with_lock {…}` — losing the `{}` its block
-    /// deserves. No structural signal distinguishes those cases: the
-    /// grammar parses `{a b}` and `{puts hi}` into the same shape. The
-    /// code inside them is still counted, so the loss is one operator
-    /// occurrence per such block and nothing else.
+    /// subcommand dispatch (`dict for`, `interp eval`), a user-defined
+    /// `with_lock {…}` — losing the `{}` its block deserves. No
+    /// structural signal distinguishes those cases: the grammar parses
+    /// `{a b}` and `{puts hi}` into the same shape. The code inside
+    /// them is still counted, so the loss is one operator occurrence
+    /// per such block, plus the vocabulary entry in the case above.
     ///
     /// [`braced_word_op_type`]: Self::braced_word_op_type
     fn is_value_braced_word<'a>(
@@ -697,7 +708,47 @@ pub(crate) trait Getter {
         {
             return false;
         }
-        !Self::is_switch_arm(&command, code, command_ancestors, kinds)
+        !(Self::is_switch_arm(&command, code, command_ancestors, kinds)
+            && Self::is_switch_arm_body(word, &command))
+    }
+
+    /// Whether `word`, an argument of a `switch` arm command
+    /// ([`is_switch_arm`]), sits in a *body* position rather than a
+    /// *pattern* position.
+    ///
+    /// The arm list is a flat run of `pattern body pattern body …`,
+    /// and the grammar breaks it into commands at newlines. One arm per
+    /// line gives each command a pattern for its name and a body for
+    /// its sole argument; several arms on one line give the first
+    /// pattern's command the whole run as arguments, so the arguments
+    /// alternate `body pattern body …`. The command-name test above
+    /// keeps the *first* braced pattern a literal, but without this
+    /// gate every later one was rescued as a body, and a one-line
+    /// `switch -regexp $v { {^a} {…} {^b} {…} }` fabricated a `{}`
+    /// around `{^b}` that the same arms written one per line did not —
+    /// the score moving with layout, which is what the rule exists to
+    /// stop.
+    ///
+    /// Position is the only signal because it is what Tcl itself uses:
+    /// `switch` pairs the list up by index, with no marker on either
+    /// half. The parity holds across the words that can interpose — a
+    /// `-` fall-through body and a `default` pattern are both
+    /// `simple_word`s and take a slot each — so an even index is a body
+    /// and an odd one a pattern. This is the one place the rule counts
+    /// siblings rather than asking a parent kind; the scan is bounded by
+    /// the arms an author put on one line, and runs once per braced
+    /// argument of such a command.
+    ///
+    /// [`is_switch_arm`]: Self::is_switch_arm
+    fn is_switch_arm_body(word: &Node<'_>, command: &Node<'_>) -> bool {
+        command
+            .child_by_field_name("arguments")
+            .and_then(|arguments| {
+                arguments
+                    .children()
+                    .position(|argument| argument.id() == word.id())
+            })
+            .is_some_and(|index| index.is_multiple_of(2))
     }
 
     /// A command's leading word, when it is a statically resolvable
@@ -796,9 +847,14 @@ pub(crate) trait Getter {
     /// Keeping to the operator also keeps the whole thing `O(1)`: only
     /// a braced word's own opener can change answer, so the test is one
     /// kind comparison and one parent lookup, the same scope #1354 and
-    /// #1314 use. An
-    /// ancestor scan would have been `O(depth)` per node and quadratic
-    /// on a deeply nested `expr`, the shape #1122 warns about.
+    /// #1314 use — with the single exception of a `switch` arm
+    /// command, where [`is_switch_arm_body`] scans that command's
+    /// arguments, a run bounded by the arms an author wrote on one
+    /// line. An ancestor scan would have been `O(depth)` per node and
+    /// quadratic on a deeply nested `expr`, the shape #1122 warns
+    /// about.
+    ///
+    /// [`is_switch_arm_body`]: Self::is_switch_arm_body
     ///
     /// [`get_op_type`]: Self::get_op_type
     fn braced_word_op_type<'a>(
