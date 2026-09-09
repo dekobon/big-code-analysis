@@ -24,6 +24,18 @@ for historical reference.
 
 ## [Unreleased]
 
+### Added
+
+- Per-space *own* value for `nargs` in the serialized wire shape:
+  `nargs.value` (#1236). `nargs.total` remains the subtree sum; the new
+  field is the per-space scalar `bca check --threshold nargs=N` has
+  gated on since #1196, exposed so a JSON-walking front-end can
+  reproduce the gate. SemVer-additive, with `#[serde(default)]` so
+  older documents still parse; it appears in every output format
+  (JSON / YAML / TOML / CBOR), in `bca dump`'s metric tree, as a new
+  column in `flatten_spaces` records, and in the Python `NargsDict`
+  TypedDict. The library accessor is `nargs::Stats::own_args()`.
+
 ### Performance
 
 - The metric walk's cognitive nesting map no longer grows to one entry
@@ -58,6 +70,115 @@ for historical reference.
   splicing them into the parent, and two query fixes (an exact-length
   `MISSING` match and a corrected alternative-step skip) that nothing
   here uses.
+
+### Fixed
+
+- **`bca preproc` documents are byte-identical across runs** (#1304).
+  `PreprocResults.files` and `PreprocFile`'s three `HashSet<String>`
+  fields serialized straight off hash order, so an unchanged tree
+  produced a different document on nearly every run — eight distinct
+  hashes over eight runs. They now emit sorted, on stdout as well as
+  through `--output`, closing the last destination in the #1244 /
+  #1303 family. The public field types are unchanged: the ordering is
+  imposed at the serialization seam, so no `BTreeMap` / `BTreeSet`
+  break is needed. Note the document uses two comparators — `files`
+  sorts its `PathBuf` keys component-wise, matching `metrics --output`
+  and `ops --output`, while the `String` name sets sort
+  byte-lexicographically — so `a-b/x.h` precedes `a/x.h` in an include
+  array and follows it as a key. `STABILITY.md` records the emitted
+  order as contract through `3.0`.
+
+- ABC no longer scores a non-comparison `<` or `>` as a condition
+  (#1297). JSX tag delimiters (TypeScript, TSX, JavaScript, Mozjs),
+  Lua 5.4 variable attributes, a C# comparison-operator overload's
+  declared name, a Kotlin qualified super call (`super<A>.g()`), and
+  Perl's `<FH>` / `<$fh>` readlines each scored phantom conditions.
+  Perl was listed as immune by the original survey and was not. C#
+  additionally keeps counting a relational pattern's operator
+  (`x is > 0`), a genuine comparison outside `binary_expression`.
+
+- Multi-line strings and heredocs no longer read as blank lines in
+  Bash, Elixir, Tcl and iRules (#1260). Each language's
+  multi-row-capable literals now credit every spanned row to PLOC,
+  matching the thirteen languages #778 covered and Python's #415
+  decision. Elixir `@doc` / `@moduledoc` rows are PLOC — a module
+  attribute is an assignment whose value the compiler stores, so its
+  Python analogue is `x = """…"""`, not a discarded docstring —
+  and Tcl / iRules `braced_word` is excluded because both grammars
+  parse a braced literal as a script.
+
+- **Ruby `npm` / `npa`: visibility calls no longer hide methods or
+  mis-scope singletons** (#1255). `private def x`,
+  `private attr_accessor :b`, `private :foo`, `%i[…]` argument arrays
+  and the `private_class_method` / `public_class_method` pair are now
+  modelled, and a bare `private` no longer demotes a `def self.x`. The
+  first two corrupted the `class_nm` / `class_na` totals, not just the
+  public split.
+
+- Tcl and iRules braced literals no longer report a `{}` operator for
+  a block the source does not contain (#1318). Both grammars spell a
+  script body and a quoted value with one kind, `braced_word`, so
+  #1314's guard on the literal `braced_word_simple` form reached only
+  the value slots the grammars special-case; everywhere else —
+  `lappend x {a b}`, `puts {c d}`, and every user-defined proc — the
+  brace still opened a block. The role is now recognised by the
+  enclosing command's leading word: `after`, `eval`, `for`, `on`,
+  `switch`, `time`, `trap` and `uplevel` take scripts, as does every
+  construct the grammar models with a node of its own, except a
+  defaulted `proc` parameter and a braced word in the command-name
+  position. An unrecognised command is taken to receive a value.
+  **Metric drift:** Tcl and iRules `halstead.unique_operators` /
+  `total_operators`, the derived values, and hence `mi` fall for any
+  file passing a braced literal to a command the grammar does not
+  model. Operand counts are deliberately unchanged. Supersedes the
+  note in 2.2.0 that a value-position braced literal still reports a
+  `{}` operator.
+
+- Bash translated strings (`$"…"`) are no longer counted twice in
+  Halstead `N2` (#1358). `BashCode::get_op_type` classified both the
+  `translated_string` wrapper and the single required `string` child
+  the grammar gives it, so `a=$"x"` reported `N2` 3 for two operands.
+  The wrapper also defeated the #180 expansion guard, which inspects a
+  node's own children: a `translated_string` has only `$` and
+  `string`, so `b=$"$y"` counted both `$"$y"` and `$y`. **Metric
+  drift:** Bash `N2` falls by one per `$"…"` literal, moving the
+  derived values with it.
+
+- Ruby suffixed numeric literals (`1r`, `2i`, `3ri`) are billed once
+  in Halstead rather than once per level of the grammar's `complex` /
+  `rational` nest (#1359). The wrapper is kept rather than the leaf,
+  because the suffix that distinguishes `1`, `1r`, `1i` and `1ri` as
+  four constants lives on the wrapper's span. **Metric drift:**
+  `halstead.*` and every derived value change for Ruby sources
+  containing a rational or complex literal; the operand vocabulary now
+  records the wrapper's full text, so `1` and `1r` are distinct
+  operands where they previously collapsed.
+
+- Ruby subshell literals no longer fabricate two `` ` `` operators
+  each (#1360) — the delimiter class #1256 and #1312 removed for
+  Elixir and for regexes. tree-sitter-ruby aliases both ends of a
+  subshell to the same backtick token, the one the `` def ` ``
+  method-name marker also uses, so `` u = `echo hi` `` reported `n1` 2
+  / `N1` 3 for a line whose only operation is the assignment, in all
+  seven spellings (`` `…` `` and the six `%x` forms). The delimiters
+  are now parent-guarded under the `subshell`, so a real backtick
+  method, defined or called, still counts. Operand counts do not move.
+
+- **Metric drift:** C++ and mozcpp `this` is now a Halstead operand
+  (#1361). It had been classified as neither operator nor operand, so
+  every `this` was dropped from the vocabulary — the same class of
+  silent drop as #1316's character literals. `n2` rises by one per
+  space and `N2` by one per occurrence; the derived volume /
+  difficulty / effort / time / bugs and the three maintainability-index
+  variants move. Note `difficulty` is `(n1/2)·(N2/n2)`, so a larger
+  `n2` pushes it down as often as up.
+
+- Python `to_sarif`: `thresholds={"nargs": N}` now gates each space on
+  its own argument count, matching `bca check --report-format sarif`
+  exactly (#1236). It compared the `nargs.total` subtree sum, so a
+  two-argument function containing a three- and a two-argument closure
+  was reported at 7 — a finding the CLI never emits — and
+  closure-heavy code drew spurious SARIF findings.
 
 ## [2.2.0] - 2026-08-29
 
