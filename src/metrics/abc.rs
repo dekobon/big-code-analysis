@@ -3602,7 +3602,7 @@ mod tests {
     // the ternary `?` survives), 0 if the fixture stops parsing.
     #[test]
     fn csharp_operator_declaration_is_not_a_condition() {
-        check_metrics::<CsharpParser>(
+        check_func_space::<CsharpParser, _>(
             "class V {
                 public static bool operator <(V a, V b) { return true; }
                 public static bool operator >(V a, V b) { return true; }
@@ -3612,8 +3612,21 @@ mod tests {
                 }
             }",
             "foo.cs",
-            |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 3);
+            |space| {
+                // Assert the claim per space rather than through the
+                // file total, which is 3 with the two overloads and 3
+                // without them — an aggregate assertion would pass on a
+                // fixture that had lost the very construct under test.
+                let class = &space.spaces[0];
+                assert_eq!(class.spaces.len(), 3, "two overloads plus `m`");
+                for (i, member) in class.spaces.iter().enumerate().take(2) {
+                    assert_eq!(
+                        member.metrics.abc.conditions(),
+                        0,
+                        "operator declaration {i} must score no condition"
+                    );
+                }
+                assert_eq!(class.spaces[2].metrics.abc.conditions(), 3);
             },
         );
     }
@@ -5121,6 +5134,11 @@ function f(int $a, int $b): int {
     // (`cyclomatic()` minus the per-space base of 1). Both are 2, one
     // per `if`.
     //
+    // As with the Lua fixture, `Array<string>` leaves no ABC trace once
+    // excluded, so nothing here fails if a later edit drops the
+    // generic; that the generic reaches the arm is established by the
+    // revert test, which fails this test when the gate is removed.
+    //
     // TypeScript gets no JSX fixture because the `.ts` dialect has no
     // JSX to exercise: it lexes `return <div>…</div>` as a type
     // assertion and a comparison chain, sometimes with `ERROR` nodes and
@@ -5489,6 +5507,12 @@ function f(int $a, int $b): int {
             "foo.tsx",
             |metric| {
                 assert_eq!(metric.abc.conditions_sum(), 1);
+                // Fixture-presence anchor: the `className="x"` attribute
+                // `=` is this fixture's only assignment, so the test
+                // fails if a later edit drops the JSX. Without it the
+                // surviving `a < b` alone also scores 1, and the
+                // conditions assertion would pass while proving nothing.
+                assert_eq!(metric.abc.assignments_sum(), 1);
             },
         );
     }
@@ -8783,6 +8807,12 @@ function f(int $a, int $b): int {
             "foo.js",
             |metric| {
                 assert_eq!(metric.abc.conditions_sum(), 1);
+                // Fixture-presence anchor: the `className="x"` attribute
+                // `=` is this fixture's only assignment, so the test
+                // fails if a later edit drops the JSX. Without it the
+                // surviving `a < b` alone also scores 1, and the
+                // conditions assertion would pass while proving nothing.
+                assert_eq!(metric.abc.assignments_sum(), 1);
             },
         );
     }
@@ -9346,6 +9376,12 @@ function f(int $a, int $b): int {
             "foo.js",
             |metric| {
                 assert_eq!(metric.abc.conditions_sum(), 1);
+                // Fixture-presence anchor: the `className="x"` attribute
+                // `=` is this fixture's only assignment, so the test
+                // fails if a later edit drops the JSX. Without it the
+                // surviving `a < b` alone also scores 1, and the
+                // conditions assertion would pass while proving nothing.
+                assert_eq!(metric.abc.assignments_sum(), 1);
             },
         );
     }
@@ -9675,7 +9711,15 @@ function f(int $a, int $b): int {
                  return 0;\n\
              }",
             "foo.pl",
-            |space| assert_deepest_conditions_match_cyclomatic(&space, 2),
+            |space| {
+                assert_deepest_conditions_match_cyclomatic(&space, 2);
+                // Fixture-presence anchor: the three readlines are
+                // three of this sub's four assignments (the fourth is
+                // the `my (...) = @_` unpack), so dropping them from
+                // the fixture fails here rather than leaving a test
+                // that still reports 2 conditions and proves nothing.
+                assert_eq!(space.metrics.abc.assignments_sum(), 4);
+            },
         );
     }
 
@@ -10190,6 +10234,15 @@ function f(int $a, int $b): int {
     // against one genuine `a < b` separate every mis-aim: 5 pre-fix, 1
     // once the arm allows `BinaryExpression`, 0 if it allows the wrong
     // parent or the fixture stops parsing.
+    //
+    // No fixture-presence anchor is available, unlike the JSX and Perl
+    // fixtures: once excluded, a Lua attribute contributes to no ABC
+    // axis at all (`local x <const> = 1` and `local x = 1` score
+    // identically on assignments, branches and conditions), and it
+    // opens no space. Deleting the two attributes would leave this test
+    // passing on the `a < b` alone. The coverage that the attributes
+    // are reaching the arm is the revert test: removing the gate makes
+    // this the only failing test in the suite.
     #[test]
     fn lua_variable_attributes_are_not_conditions() {
         check_metrics::<LuaParser>(
