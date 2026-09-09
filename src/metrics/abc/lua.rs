@@ -127,12 +127,26 @@ impl Abc for LuaCode {
             }
             Lua::EQEQ
             | Lua::TILDEEQ
-            | Lua::LT
-            | Lua::GT
             | Lua::LTEQ
             | Lua::GTEQ
             | Lua::ElseifStatement
             | Lua::ElseStatement => {
+                stats.conditions += 1.;
+            }
+            // Counts `<` / `>` only as the operator token of a
+            // `binary_expression`, the allowlist polarity C / C++ /
+            // Rust / Go / Java use. Ungated, Lua 5.4's to-be-closed and
+            // constant attributes scored two conditions apiece:
+            // `local x <const> = 1` brackets the attribute name with the
+            // same two bare tokens a comparison uses (#1297). A
+            // `grammar.json` sweep of tree-sitter-lua 0.5.0 finds them
+            // in exactly two productions — `binary_expression` and the
+            // hidden `_attrib`, which surfaces aliased as `attribute` —
+            // so the gate is closed rather than a coverage claim
+            // (`.claude/rules/grammar-dispatch.md` §1). `<=` / `>=` and
+            // the 5.3 shifts `<<` / `>>` are distinct tokens and never
+            // reach this arm.
+            Lua::LT | Lua::GT if ancestors.parent_has_kind(node, Lua::BinaryExpression as u16) => {
                 stats.conditions += 1.;
             }
             // Fitzpatrick Rule 9 walker: each operand of an `and` /

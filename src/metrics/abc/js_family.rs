@@ -392,14 +392,29 @@ macro_rules! ts_abc_compute {
                 QMARK if ancestors.parent_has_kind(node, TernaryExpression as u16) => {
                     stats.conditions += 1.;
                 }
-                // `<` and `>` may also delimit type arguments / type
-                // parameters (`Array<number>`, `class Foo<T> {}`); skip
-                // those, count only comparison usage.
-                GT | LT
-                    if ancestors.parent(node).is_some_and(|p| {
-                        !matches!(p.kind_id().into(), TypeArguments | TypeParameters)
-                    }) =>
-                {
+                // Counts `<` / `>` only as the operator token of a
+                // `binary_expression`, the allowlist polarity C / C++ /
+                // Rust / Go / Java use. The previous denylist named
+                // `type_arguments` and `type_parameters` only, so every
+                // JSX tag delimiter scored a condition: a
+                // `jsx_opening_element` contributes `<` and `>`, a
+                // `jsx_closing_element` a `>` (its `</` is one token),
+                // and a `jsx_self_closing_element` a `<` (its `/>` is
+                // one token) — six conditions for
+                // `<div className="a"><span>hi</span></div>` with no
+                // decision in it (#1297). A `grammar.json` sweep of
+                // tree-sitter-typescript 0.23.2 finds a bare `<` / `>`
+                // in exactly six productions — `binary_expression`, the
+                // three JSX ones, `type_arguments` and
+                // `type_parameters` — so the allowlist is the inverse of
+                // a five-entry denylist today and, unlike it, needs no
+                // revisiting when the grammar grows a seventh
+                // (`.claude/rules/grammar-dispatch.md` §1).
+                //
+                // `<=` / `>=` are the distinct `LTEQ` / `GTEQ` tokens
+                // counted above, and the shifts (`<<`, `>>`, `>>>`) are
+                // their own tokens, so none of them reaches this arm.
+                GT | LT if ancestors.parent_has_kind(node, BinaryExpression as u16) => {
                     stats.conditions += 1.;
                 }
                 // Fitzpatrick Rule 9: each operand of a `&&` / `||`
@@ -486,8 +501,10 @@ impl Abc for TsxCode {
 // token-level Fitzpatrick rules as `ts_abc_compute!`, with two
 // adjustments:
 //
-//   1. `LT` / `GT` are always comparison operators in plain JS — there
-//      are no `TypeArguments` / `TypeParameters` nodes to gate against.
+//   1. `LT` / `GT` take the same `binary_expression` gate, against a
+//      shorter list of non-comparison producers: plain JS has no
+//      `TypeArguments` / `TypeParameters`, but it does have the three
+//      JSX productions (#1297).
 //   2. JS runs the same `$const_binding` structural check so `const x = 5`
 //      does not count the initializer `=` as an assignment. `let x = 5`
 //      and `var x = 5` DO count their initializer `=` as an assignment —
@@ -530,8 +547,21 @@ macro_rules! js_abc_compute {
                 // The `default` arm is the unconditional fallthrough and
                 // is excluded, mirroring cyclomatic's `Case`-only count
                 // (issue #469); see the TS macro above for the rationale.
-                EQEQ | EQEQEQ | BANGEQ | BANGEQEQ | LTEQ | GTEQ | LT | GT | QMARK | QMARKQMARK
+                EQEQ | EQEQEQ | BANGEQ | BANGEQEQ | LTEQ | GTEQ | QMARK | QMARKQMARK
                 | Instanceof | Else | Case | Try | Catch => {
+                    stats.conditions += 1.;
+                }
+                // Plain JS has no generics, but it does have JSX, and
+                // both grammars here parse it unconditionally — a `.js`
+                // file returning `<div><span>hi</span></div>` scored six
+                // conditions from tag delimiters alone (#1297). The
+                // `grammar.json` sweep finds a bare `<` / `>` in exactly
+                // four productions in tree-sitter-javascript 0.25.0 and
+                // in the vendored mozjs fork — `binary_expression` plus
+                // the same three JSX ones as TypeScript — so this is the
+                // TS arm above with the two type-syntax productions
+                // absent. See that arm for the polarity rationale.
+                GT | LT if ancestors.parent_has_kind(node, BinaryExpression as u16) => {
                     stats.conditions += 1.;
                 }
                 // Fitzpatrick Rule 9: each operand of a `&&` / `||`

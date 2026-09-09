@@ -108,10 +108,12 @@ fn csharp_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 // C#-specific deltas: every aliased kind id is matched via the
 // `csharp_*_kinds!()` macros (lesson #2); `ObjectCreationExpression`
 // joins `InvocationExpression*` as a branch; the `<` / `>` parent
-// guard widens to `TypeArgumentList | TypeParameterList |
-// FunctionPointerType`; `ConditionalExpression` replaces Java's
-// `TernaryExpression`; `for_statement` exposes its condition via the
-// named `condition` field rather than positional index.
+// allowlist names `RelationalPattern` alongside the two
+// `BinaryExpression` ids, the only such second entry in the workspace,
+// because a C# comparison can sit outside a binary expression;
+// `ConditionalExpression` replaces Java's `TernaryExpression`;
+// `for_statement` exposes its condition via the named `condition`
+// field rather than positional index.
 
 // Whether `eq_node` initialises a `const` binding — a compile-time
 // constant, so its initializer is part of the declaration and not an
@@ -285,20 +287,55 @@ fn csharp_count_token_condition<'a>(
         {
             stats.conditions += 1.;
         }
-        // Excludes `<` and `>` used as type-syntax delimiters: generic
-        // type arguments (`Dictionary<K, V>`), type parameter
-        // declarations (`class Foo<T> { }`), and the parameter-list
-        // delimiters of unsafe function-pointer types
-        // (`delegate*<int, int>`).
-        GT | LT => {
-            if let Some(parent) = ancestors.parent(node)
-                && !matches!(
+        // Counts `<` / `>` only where they are a comparison. A
+        // `grammar.json` sweep of tree-sitter-c-sharp 0.23.5 finds a
+        // bare `<` / `>` in exactly six productions, and two of them
+        // are decisions: `binary_expression` (`a < b`) and
+        // `relational_pattern` (`x is > 0`, and the `> 5 =>` arm of a
+        // switch expression). The other four are type syntax —
+        // `type_argument_list` (`Dictionary<K, V>`),
+        // `type_parameter_list` (`class Foo<T>`), `function_pointer_type`
+        // (`delegate*<int, int>`) and `operator_declaration`
+        // (`public static bool operator <(V a, V b)`), whose `<` names
+        // the operator being *defined* rather than applying it.
+        //
+        // The previous denylist named three of those four and not
+        // `operator_declaration`, so every comparison-operator overload
+        // scored a condition per declaration (#1297). Allowlist
+        // polarity, matching Java's #1274 fix and unlike the `QMARK`
+        // arm above: `<` / `>` have two decision parents against four
+        // type-syntax ones, and a grammar bump that grows a seventh
+        // production should fail closed
+        // (`.claude/rules/grammar-dispatch.md` §1). The `QMARK` arm
+        // takes the opposite polarity for a reason specific to that
+        // token — see its comment.
+        //
+        // `relational_pattern` is in the allowlist to preserve the
+        // count, not to add it: the previous denylist did not name it
+        // either, so the pattern's operator counted then and counts
+        // now. That count double-charges the enclosing
+        // `switch_expression_arm` or `if` condition slot, a
+        // pre-existing divergence from C#'s own cyclomatic decision
+        // count tracked in #1383 — settling it here would have been an
+        // unmeasured behaviour change riding along with #1297.
+        //
+        // `BinaryExpression2` is the id the grammar aliases
+        // `preproc_binary_expression` to, and it is listed defensively
+        // per §1 rather than because it is reachable: C#'s preprocessor
+        // admits only `== != && || !`, so no bare `<` / `>` can have
+        // that parent at this pin. It is genuinely reachable in the
+        // C / C++ arms this one mirrors, where `#if A < B` is legal.
+        // `<=` / `>=` and the shifts are distinct tokens and never
+        // reach this arm.
+        GT | LT
+            if ancestors.parent(node).is_some_and(|parent| {
+                matches!(
                     parent.kind_id().into(),
-                    TypeArgumentList | TypeParameterList | FunctionPointerType
+                    BinaryExpression | BinaryExpression2 | RelationalPattern
                 )
-            {
-                stats.conditions += 1.;
-            }
+            }) =>
+        {
+            stats.conditions += 1.;
         }
         _ => return false,
     }

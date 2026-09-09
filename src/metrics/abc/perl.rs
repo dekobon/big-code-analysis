@@ -280,13 +280,20 @@ impl Abc for PerlCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        // bca: suppress(halstead)
+        // bca: suppress(halstead, cyclomatic)
         // Exhaustive one-arm-per-grammar-kind dispatch table; see the
-        // rationale on `CppCode::compute`. Perl's arm list is the
-        // longest of the family — tree-sitter-perl tokenises all
-        // nineteen assignment operators and all six call-expression
-        // wrappers separately — so `halstead.effort` here is a count of
-        // distinct enum operands, not of reasoning a reader must do.
+        // rationale on `CppCode::compute`, which carries both markers
+        // for the same construct, as do `CCode`, `ObjcCode` and
+        // `MozcppCode`. Perl's arm list is the longest of the family —
+        // tree-sitter-perl tokenises all nineteen assignment operators
+        // and all six call-expression wrappers separately — so
+        // `halstead.effort` here is a count of distinct enum operands,
+        // and the cyclomatic count is the number of node kinds the
+        // grammar can hand us, neither being reasoning a reader must
+        // do. Adding the guarded `<` / `>` arm for #1297 took the
+        // count from 14 to 15; the arm is independent and
+        // self-describing like every other, and there is no semantic
+        // boundary to split this lookup on.
         use Perl as P;
 
         match node.kind_id().into() {
@@ -349,8 +356,6 @@ impl Abc for PerlCode {
             // `elsif` / `else` clause of an `if` / `unless` chain.
             P::EQEQ
             | P::BANGEQ
-            | P::LT
-            | P::GT
             | P::LTEQ
             | P::GTEQ
             | P::LTEQGT
@@ -365,6 +370,28 @@ impl Abc for PerlCode {
             | P::BANGTILDE
             | P::ElsifClause
             | P::ElseClause => {
+                stats.conditions += 1.;
+            }
+            // Counts `<` / `>` only as the operator token of a
+            // `binary_expression`, the allowlist polarity the rest of
+            // the workspace uses. Ungated, a readline scored two
+            // conditions: `<FH>` and `<$fh>` are
+            // `standard_input_to_identifier` and
+            // `standard_input_to_variable`, each a plain three-token
+            // sequence whose brackets are the same bare `<` / `>` a
+            // comparison uses. A `grammar.json` sweep of
+            // tree-sitter-perl 1.1.2 finds them in exactly three
+            // productions — `binary_expression` plus those two — so the
+            // gate is closed (`.claude/rules/grammar-dispatch.md` §1).
+            //
+            // `<STDIN>` is *not* among them: the grammar lexes it as a
+            // single `standard_input` token, which is why #1297's sweep
+            // measured Perl at 0 and wrongly cleared it. The filehandle
+            // and lexical-handle forms are the reachable ones.
+            // `<=` / `>=`, the spaceship `<=>` and the word-form `lt` /
+            // `gt` are distinct tokens counted above, and a heredoc
+            // opener is its own token, so none reaches this arm.
+            P::LT | P::GT if ancestors.parent_has_kind(node, P::BinaryExpression as u16) => {
                 stats.conditions += 1.;
             }
             // Fitzpatrick Rule 9 walker: each operand of a Perl

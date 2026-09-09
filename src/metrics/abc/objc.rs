@@ -71,8 +71,13 @@ impl Abc for ObjcCode {
                 stats.conditions += 1.;
             }
             // Plain `<` / `>` count only in comparison position (parent is
-            // a `binary_expression`). ObjC has no templates, but the parent
-            // check is kept for parity with the C/C++ impl.
+            // a `binary_expression`). ObjC has no C++ templates, but the
+            // gate is not merely parity with the C/C++ impl: a
+            // `grammar.json` sweep of tree-sitter-objc finds a bare
+            // `<` / `>` in `generic_specifier`,
+            // `protocol_reference_list` (`id<NSCopying>`),
+            // `parameterized_arguments` and `argument_list`, every one
+            // of which this gate is what excludes.
             LT | GT
                 if ancestors.parent(node).is_some_and(|p| {
                     matches!(p.kind_id().into(), BinaryExpression | BinaryExpression2)

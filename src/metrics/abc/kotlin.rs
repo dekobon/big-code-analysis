@@ -242,13 +242,31 @@ impl Abc for KotlinCode {
             Else if ancestors.parent_has_kind(node, IfExpression as u16) => {
                 stats.conditions += 1.;
             }
-            // `<` and `>` may appear as type-argument brackets
-            // (`List<Int>`); exclude those by checking the parent kind.
-            LT | GT
-                if ancestors.parent(node).is_some_and(|p| {
-                    !matches!(p.kind_id().into(), TypeArguments | TypeParameters)
-                }) =>
-            {
+            // Counts `<` / `>` only as the operator token of a
+            // `binary_expression`, the allowlist polarity C / C++ /
+            // Rust / Go / Java use. The previous denylist named
+            // `type_arguments` and `type_parameters` only, so a
+            // qualified super call — `super<A>.g()`, which brackets the
+            // disambiguating supertype with the same two bare tokens —
+            // scored two conditions (#1297). A `grammar.json` sweep of
+            // tree-sitter-kotlin-ng 1.1.0 finds a bare `<` / `>` in
+            // exactly four productions: `binary_expression`,
+            // `super_expression`, `type_arguments` and
+            // `type_parameters`. `<=` / `>=` are the distinct `LTEQ` /
+            // `GTEQ` tokens counted above.
+            //
+            // The enumeration is a claim about the grammar, not about
+            // every parse it produces. This grammar resolves a generic
+            // *call* the wrong way: `id<Int>(a)` comes back as nested
+            // `binary_expression` nodes (`id < Int`, then `> (a)`), not
+            // as `type_arguments`, so both brackets satisfy this gate
+            // and the call still scores two conditions (#1394). No
+            // polarity can exclude that — the parse tree genuinely says
+            // `binary_expression`. Groovy's arm records the mirror-image
+            // case, where an explicit type witness lands under `ERROR`;
+            // C# and TypeScript resolve the same call shape correctly
+            // and score it 0.
+            LT | GT if ancestors.parent_has_kind(node, BinaryExpression as u16) => {
                 stats.conditions += 1.;
             }
             // Fitzpatrick Rule 9 walker: each non-comparison operand of a

@@ -3551,9 +3551,10 @@ mod tests {
     #[test]
     fn csharp_function_pointer_type_no_double_count() {
         // EC1 extension — `<` and `>` are also parameter-list delimiters
-        // for unsafe function-pointer types. `FunctionPointerType` must
-        // be in the LT/GT exclusion list, otherwise these brackets
-        // accumulate spurious `conditions` counts.
+        // for unsafe function-pointer types. Since #1297 the arm is an
+        // allowlist, so `FunctionPointerType` is excluded by being
+        // absent from it rather than by being named in a deny set;
+        // either way these brackets must not accumulate `conditions`.
         check_metrics::<CsharpParser>(
             "unsafe class A {
                 public delegate*<int, int, int> Adder;
@@ -3582,6 +3583,67 @@ mod tests {
             }",
             "foo.cs",
             |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    // #1297: `operator <` names the operator a type *defines*; applying
+    // one is what a decision looks like. tree-sitter-c-sharp spells the
+    // declaration's operator with the same bare token as a comparison,
+    // and the previous denylist named only `type_argument_list`,
+    // `type_parameter_list` and `function_pointer_type`, so every
+    // comparison-operator overload scored a condition.
+    //
+    // The fixture carries the two overloads plus one `a < b` inside a
+    // `binary_expression` and one `x is > 0` inside a
+    // `relational_pattern`, which is the second decision parent in the
+    // allowlist. Every mis-aim lands on its own number: 5 pre-fix, 3
+    // once both decision parents are allowed, 2 if `RelationalPattern`
+    // is dropped, 1 if the gate swallows `BinaryExpression` too (only
+    // the ternary `?` survives), 0 if the fixture stops parsing.
+    #[test]
+    fn csharp_operator_declaration_is_not_a_condition() {
+        check_metrics::<CsharpParser>(
+            "class V {
+                public static bool operator <(V a, V b) { return true; }
+                public static bool operator >(V a, V b) { return true; }
+                int m(int a, int b, int x) {
+                    if (a < b) { return 1; }
+                    return x is > 0 ? 2 : 3;
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 3);
+            },
+        );
+    }
+
+    // The `RelationalPattern` half of the allowlist above, on its own
+    // input. Per `.claude/rules/grammar-dispatch.md` §11, the fixture
+    // above cannot prove that entry alone: its `is > 0` sits beside a
+    // `binary_expression` comparison, so a gate allowing only
+    // `BinaryExpression` would still leave a non-zero, plausible total.
+    // Here the relational operators are the *only* `<` / `>` in the
+    // file, so the entry is the only thing that can produce the count.
+    //
+    // 4, not 2: a `switch_expression_arm` is counted by its own arm
+    // above and the pattern's operator by this one, so a relational arm
+    // scores twice what the constant arm `5 => 1` scores. That
+    // divergence from C#'s own cyclomatic decision count predates
+    // #1297 — the old denylist did not name `relational_pattern`
+    // either — and is filed as #1383 rather than changed here, which is
+    // why this asserts the value the gate preserves rather than the §8
+    // parity value.
+    #[test]
+    fn csharp_relational_pattern_still_counts_as_a_condition() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                int n(int x) => x switch { > 5 => 1, < 0 => 2, _ => 3 };
+            }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4);
+            },
         );
     }
 
@@ -4458,6 +4520,38 @@ function f(int $a, int $b): int {
         );
     }
 
+    // #1297: a qualified super call disambiguates its supertype with
+    // the same two bare tokens a comparison uses — `super<A>.g()` is a
+    // `super_expression`, which the previous denylist
+    // (`type_arguments` / `type_parameters`) did not name, so it scored
+    // two conditions. One `super<A>` against one genuine `a < b`
+    // separates every mis-aim: 3 pre-fix, 1 once the arm allows
+    // `BinaryExpression`, 0 if it allows the wrong parent or the
+    // fixture stops parsing.
+    #[test]
+    fn kotlin_super_type_argument_is_not_a_condition() {
+        check_metrics::<KotlinParser>(
+            "class B : A() {
+                override fun g(a: Int, b: Int): Int {
+                    if (a < b) { return super<A>.g(a, b) }
+                    return 0
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1);
+                // Non-vacuity guard: 1 is also what a body whose `if`
+                // survived but whose super call did not would score, so
+                // pin the call itself. Measured: dropping
+                // `super<A>.g(a, b)` takes `branches_sum()` to 0 — the
+                // `A()` primary-constructor delegation in the class
+                // header contributes none, which is #1384 and not this
+                // test's subject.
+                assert_eq!(metric.abc.branches_sum(), 1);
+            },
+        );
+    }
+
     #[test]
     fn kotlin_class_with_methods_and_branches() {
         check_metrics::<KotlinParser>(
@@ -5017,6 +5111,44 @@ function f(int $a, int $b): int {
         );
     }
 
+    // #1297, TypeScript half: the `<` / `>` arm flipped from denying
+    // `type_arguments` / `type_parameters` to allowing
+    // `binary_expression`, and this pins the direction that flip could
+    // have broken. `Array<string>` keeps a generic in scope so the
+    // fixture proves both sides at once, and the assertion is the
+    // grammar-dispatch §8 pin: on the function's own space the ABC
+    // condition count equals the cyclomatic decision count
+    // (`cyclomatic()` minus the per-space base of 1). Both are 2, one
+    // per `if`.
+    //
+    // TypeScript gets no JSX fixture because the `.ts` dialect has no
+    // JSX to exercise: it lexes `return <div>…</div>` as a type
+    // assertion and a comparison chain, sometimes with `ERROR` nodes and
+    // sometimes without, depending on what follows the tag. Either way
+    // the tokens land under `type_arguments` and `binary_expression`
+    // rather than the `jsx_*` productions, so the construct that
+    // motivated #1297 is only reachable through
+    // `tsx_jsx_elements_are_not_conditions` below.
+    //
+    // That mis-parse still over-counts — a `.ts` file containing JSX
+    // scores conditions this gate cannot exclude, because the grammar
+    // genuinely reports a `binary_expression`. It is a wrong-dialect
+    // input rather than a defect in this arm, and no allowlist can
+    // distinguish it; see the same caveat on Kotlin's arm.
+    #[test]
+    fn typescript_comparison_operators_still_count_alongside_generics() {
+        check_func_space::<TypescriptParser, _>(
+            "function m(xs: Array<string>, a: number, b: number): number {
+                if (a < b) { return 1; }
+                if (a > b) { return 2; }
+                void xs;
+                return 0;
+            }",
+            "foo.ts",
+            |space| assert_deepest_conditions_match_cyclomatic(&space, 2),
+        );
+    }
+
     // #1275, TypeScript half. Eleven grammar productions emit a bare
     // `?` and only `ternary_expression` is a decision; the other ten are
     // type syntax. This fixture exercises five of them — `optional_
@@ -5330,6 +5462,33 @@ function f(int $a, int $b): int {
             |metric| {
                 assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // #1297: a JSX tag delimiter is markup punctuation, not a
+    // comparison. The `<` / `>` arm denied only `type_arguments` and
+    // `type_parameters`, so every tag bracket scored a condition —
+    // `jsx_opening_element` contributes both tokens, `jsx_closing_element`
+    // a `>` (its `</` is one token) and `jsx_self_closing_element` a `<`
+    // (its `/>` is one token).
+    //
+    // The fixture pairs seven such brackets — two elements' opening and
+    // closing tags, plus one self-closing tag — against one genuine
+    // `a < b`, so every way of mis-aiming the gate lands on its own
+    // number: 8 pre-fix, 1 once it allows `BinaryExpression`, 0 if it
+    // allows the wrong parent or the fixture stops parsing. Asserting 0
+    // on a JSX-only body would not have separated those last two.
+    #[test]
+    fn tsx_jsx_elements_are_not_conditions() {
+        check_metrics::<TsxParser>(
+            "function f(a: number, b: number) {
+                if (a < b) { return <div className=\"x\"><span>hi</span></div>; }
+                return <br />;
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1);
             },
         );
     }
@@ -8607,6 +8766,27 @@ function f(int $a, int $b): int {
         );
     }
 
+    // #1297 in the `js_abc_compute!` expansion, where `LT` / `GT` had
+    // no gate at all: plain JavaScript has no generics, but
+    // tree-sitter-javascript parses JSX unconditionally, so the same
+    // seven tag brackets that
+    // `tsx_jsx_elements_are_not_conditions` covers scored seven
+    // conditions in a `.js` file too. Same fixture minus the type
+    // annotations, same discriminating numbers: 8 pre-fix, 1 after.
+    #[test]
+    fn javascript_jsx_elements_are_not_conditions() {
+        check_metrics::<JavascriptParser>(
+            "function f(a, b) {
+                if (a < b) { return <div className=\"x\"><span>hi</span></div>; }
+                return <br />;
+            }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1);
+            },
+        );
+    }
+
     #[test]
     fn javascript_number_truthy_condition_counts() {
         // Regression for #772: JS treats every non-zero number as
@@ -9149,6 +9329,28 @@ function f(int $a, int $b): int {
     }
 
     #[test]
+    fn mozjs_jsx_elements_are_not_conditions() {
+        // #1297 in the second expansion of `js_abc_compute!`. The
+        // vendored mozjs fork carries the same three JSX productions as
+        // upstream tree-sitter-javascript with its own `kind_id`s, so
+        // the gate is a distinct instantiation and needs its own
+        // fixture — a passing JavaScript test says nothing about the
+        // macro's other expansion. Same shape and same discriminating
+        // numbers as `javascript_jsx_elements_are_not_conditions`: 8
+        // pre-fix, 1 after.
+        check_metrics::<MozjsParser>(
+            "function f(a, b) {
+                if (a < b) { return <div className=\"x\"><span>hi</span></div>; }
+                return <br />;
+            }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1);
+            },
+        );
+    }
+
+    #[test]
     fn mozjs_if_boolean_literal_condition() {
         check_metrics::<MozjsParser>(
             "function f() {\n\
@@ -9442,6 +9644,38 @@ function f(int $a, int $b): int {
                 assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
+        );
+    }
+
+    // #1297's own sweep cleared Perl, and it was wrong. `<STDIN>` does
+    // lex as a single `standard_input` token and scores 0, which is
+    // what the issue measured — but the filehandle and lexical-handle
+    // readlines do not: `<FH>` is `standard_input_to_identifier` and
+    // `<$fh>` is `standard_input_to_variable`, each a plain three-token
+    // sequence whose brackets are the same bare `<` / `>` a comparison
+    // uses, and the arm was ungated. Each scored two phantom
+    // conditions.
+    //
+    // All three readline spellings against two genuine comparisons, so
+    // every mis-aim lands on its own number: 6 pre-fix, 2 once the arm
+    // allows `BinaryExpression`, 0 if it allows the wrong parent or the
+    // fixture stops parsing. The assertion is also the grammar-dispatch
+    // §8 pin — `cyclomatic()` is 3 on this space, so decisions is 2 and
+    // the two counts agree exactly.
+    #[test]
+    fn perl_readline_angle_brackets_are_not_conditions() {
+        check_func_space::<PerlParser, _>(
+            "sub g {\n\
+                 my ($a, $b, $fh) = @_;\n\
+                 my $l = <FH>;\n\
+                 my $m = <$fh>;\n\
+                 my $n = <STDIN>;\n\
+                 if ($a < $b) { return 1; }\n\
+                 if ($a > $b) { return 2; }\n\
+                 return 0;\n\
+             }",
+            "foo.pl",
+            |space| assert_deepest_conditions_match_cyclomatic(&space, 2),
         );
     }
 
@@ -9946,6 +10180,28 @@ function f(int $a, int $b): int {
                 // operands (+4) = 10.
                 assert_eq!(metric.abc.conditions_sum(), 10);
                 insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // #1297: Lua 5.4 brackets a variable attribute with the same two
+    // bare tokens a comparison uses, and the `<` / `>` arm had no gate,
+    // so `local x <const> = 1` scored two conditions. Two attributes
+    // against one genuine `a < b` separate every mis-aim: 5 pre-fix, 1
+    // once the arm allows `BinaryExpression`, 0 if it allows the wrong
+    // parent or the fixture stops parsing.
+    #[test]
+    fn lua_variable_attributes_are_not_conditions() {
+        check_metrics::<LuaParser>(
+            "local function f(a, b)\n\
+                 local x <const> = 1\n\
+                 local y <close> = nil\n\
+                 if a < b then return x end\n\
+                 return y\n\
+             end",
+            "foo.lua",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1);
             },
         );
     }

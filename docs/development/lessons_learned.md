@@ -3492,10 +3492,15 @@ a denylist must name separately. Both were rewritten to require a
 `binary_expression` parent. Ruby then arrived with two roles nobody
 would have enumerated in advance — a superclass clause
 (`class Foo < Bar`) and an operator-method name (`def <(other)`) — and
-the positive gate covered both without being told about either. **C#,
-Kotlin and the JS family still carry the denylist form**, so they are
-correct only for the roles someone thought of: the state Java and Groovy
-were in before #1274.
+the positive gate covered both without being told about either. C#,
+Kotlin and the JS family kept the denylist form for another two issues,
+and it admitted a fresh role in each: JSX tag delimiters in TypeScript,
+TSX, JavaScript and Mozjs, a `super_expression` in Kotlin, an
+`operator_declaration` in C#, and a Lua 5.4 variable attribute where
+there was no gate at all (#1297). **Every one of those roles was
+invisible until someone wrote the language's construct down** — which is
+the whole argument for the polarity: the allowlist needs to know only
+what a comparison is, and that set does not grow.
 
 **The same token needed opposite polarities eight lines apart** (#1275,
 following #1274). A `?` is the ternary operator and, in C#, also
