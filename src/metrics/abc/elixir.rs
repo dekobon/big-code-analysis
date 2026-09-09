@@ -13,6 +13,15 @@ use super::{Abc, Stats};
 use crate::macros::elixir_bool_terminal_kinds;
 use crate::*;
 
+/// The grammar rule an applied binary operator hangs off, as opposed to
+/// `operator_identifier`, which is how one is *named*
+/// (`&</2`, `Kernel.<(a, b)`).
+///
+/// Matched by name rather than by `kind_id` because the grammar aliases
+/// this one rule to three ids (`Elixir::BinaryOperator` through
+/// `BinaryOperator3`).
+const BINARY_OPERATOR: &str = "binary_operator";
+
 // Elixir ABC unary-conditional walker (Fitzpatrick Rule 9; issue #557).
 // tree-sitter-elixir parses `a && b || c` as a left-nested chain of
 // `binary_operator` nodes (aliased `BinaryOperator`..`BinaryOperator3`
@@ -204,24 +213,44 @@ impl Abc for ElixirCode {
                     stats.conditions += 1.;
                 }
             }
-            // Sigil delimiter `<` / `>` (`~s<hi>`) are spelling, not
-            // comparisons — suppressed with the same parent-is-`Sigil`
-            // guard the Halstead getter uses (#1256). Of the other
-            // delimiter kinds the getter guards (`SLASH` / `LPAREN` /
-            // `LBRACE` / `LBRACK` / `PIPE`), none has an arm in this
-            // impl, so `LT` / `GT` are the only overlap to guard.
-            E::LT | E::GT
-                if ancestors.parent_has_kind(node, E::Sigil as u16) => {}
-            // Comparison operator tokens. `Elixir::LT` / `Elixir::GT`
-            // reach here only outside a sigil (the guard arm above
-            // consumes the delimiter case); Elixir has no Go-style
-            // generic-instantiation brackets, so what remains is a
-            // genuine comparison.
-            E::EQEQ | E::EQEQEQ | E::BANGEQ | E::BANGEQEQ
-            | E::LT | E::GT | E::LTEQ | E::GTEQ
+            E::EQEQ | E::EQEQEQ | E::BANGEQ | E::BANGEQEQ | E::LTEQ | E::GTEQ
             // Guard `when` token: introduces the guard clause of a
             // function head or `case` arm.
             | E::When => {
+                stats.conditions += 1.;
+            }
+            // Counts `<` / `>` only as the operator token of a
+            // `binary_operator`, the allowlist polarity the rest of the
+            // workspace moved to in #1274 and #1297. The previous
+            // denylist excluded a sigil delimiter (`~s<hi>`, #1256) and
+            // nothing else, on the reasoning that "Elixir has no
+            // Go-style generic-instantiation brackets, so what remains
+            // is a genuine comparison" — a coverage claim the grammar
+            // contradicts. A `grammar.json` sweep of the pinned
+            // tree-sitter-elixir finds a bare `<` / `>` in
+            // `binary_operator`, the two quoted-angle sigil rules, and
+            // `operator_identifier`, which is how an operator is
+            // *named* rather than applied: `&</2` and `Kernel.<(a, b)`
+            // each scored a condition against zero decisions, the same
+            // shape as the C# `operator <` declaration #1297 fixed.
+            // (`:<` atoms and `<:` keywords lex as single tokens and
+            // never reach here, as do `<=` / `>=` and `<<` / `>>`.)
+            //
+            // Matched by rule name rather than by `kind_id`: this
+            // grammar aliases `binary_operator` to three ids
+            // (`E::BinaryOperator`, `BinaryOperator2`,
+            // `BinaryOperator3`), and a name comparison stays correct
+            // when a bump adds a fourth
+            // (`.claude/rules/grammar-dispatch.md` §1, the same call
+            // `QUOTED_CONTENT` makes in `src/metrics/loc/elixir.rs`).
+            // The runtime cost that trade buys there is not paid here:
+            // the guard runs only for a `<` or `>` token, not for every
+            // node.
+            E::LT | E::GT
+                if ancestors
+                    .parent(node)
+                    .is_some_and(|parent| parent.kind() == BINARY_OPERATOR) =>
+            {
                 stats.conditions += 1.;
             }
             // Fitzpatrick Rule 9 walker: each non-comparison operand of a

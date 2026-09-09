@@ -6704,12 +6704,48 @@ function f() {
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
                 assert_eq!(metric.loc.ploc(), 7);
-                assert_eq!(metric.loc.lloc(), 4);
+                // `f()`, `local n=5`, `while`, `echo $n`, and the
+                // `n=$((n - 1))` assignment. That last one read as zero
+                // until the LLOC arm learned the `variable_assignment`
+                // alias the parser actually emits, so this asserted 4.
+                assert_eq!(metric.loc.lloc(), 5);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
+    }
+
+    /// A Bash assignment is a logical line where it stands as a
+    /// statement, and no line of its own where it is part of one.
+    ///
+    /// The parser emits `variable_assignment` under the id the enum
+    /// spells `VariableAssignment2`; the unsuffixed `VariableAssignment`
+    /// it never emits, so the LLOC arm listing only that scored a bare
+    /// `a=1` zero (`.claude/rules/grammar-dispatch.md` §1). Adding the
+    /// alias ungated then double-counted the two positions where the
+    /// assignment hangs off a node the same arm already counts — a
+    /// `declaration_command` and a `command`'s environment prefix (§5).
+    ///
+    /// Both halves need a row: a table of standalone assignments alone
+    /// passes with the parent gate deleted, and a table of wrapped ones
+    /// alone passes with the alias never added.
+    #[test]
+    fn bash_assignment_counts_one_logical_line_per_statement() {
+        for (source, lloc) in [
+            (&b"a=1\nb=2\nc=3\n"[..], 3),
+            (&b"local d=4\n"[..], 1),
+            (&b"export e=5\n"[..], 1),
+            (&b"declare -a g=(1 2)\n"[..], 1),
+            (&b"X=1 cmd arg\n"[..], 1),
+            (&b"(h=6)\n"[..], 1),
+            (&b"for i in 1; do j=7; done\n"[..], 2),
+        ] {
+            let measured = metrics_verbatim(crate::LANG::Bash, source, MetricsOptions::default())
+                .loc
+                .lloc();
+            assert_eq!(measured, lloc, "{:?}", String::from_utf8_lossy(source));
+        }
     }
 
     #[test]

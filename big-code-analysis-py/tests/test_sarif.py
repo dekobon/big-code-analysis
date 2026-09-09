@@ -697,14 +697,14 @@ def _sarif_rows(results: list[dict[str, Any]]) -> list[tuple[int, str, str]]:
     reports ``outer``, ``<anon@L2>``, ``<anon@L3>``. ``_assert_sarif_results_match``
     sorts for the same reason. Ordering therefore has to be pinned
     somewhere else if it is ever made part of the parity contract.
+
+    The first two fields come from ``_sarif_sort_key`` rather than being
+    read out again here, so the SARIF location traversal has one spelling
+    in this file and a shape change cannot leave the row extractor
+    raising ``KeyError`` while the sort key still resolves.
     """
     return [
-        (
-            int(r["locations"][0]["physicalLocation"]["region"]["startLine"]),
-            r["locations"][0]["logicalLocations"][0]["fullyQualifiedName"],
-            r["message"]["text"],
-        )
-        for r in sorted(results, key=_sarif_sort_key)
+        (*_sarif_sort_key(r), r["message"]["text"]) for r in sorted(results, key=_sarif_sort_key)
     ]
 
 

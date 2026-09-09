@@ -184,24 +184,19 @@ pub(crate) fn add_only_comment_lines(stats: &mut Stats, start: usize, end: usize
 // already attributed to the parent — and the interior and closing rows are
 // always inserted.
 //
-// **That parent gate assumes the caller's `_` arm is ungated.** It is a
-// skip, and it is only safe where some *other* node on the opening row
-// inserts it — which is guaranteed when the language's catch-all credits
-// every node's start row, as it does in all thirteen languages #778
-// covered. Where the catch-all is leaf-gated (`if node.child_count() == 0`,
-// as in `bash.rs` and `elixir.rs`) a container parent contributes nothing,
-// so a *childless* literal is the only node covering its own row and the
-// gate deletes it: `'ls'` alone in a Bash file reported `ploc 0, blank 1`
-// (#1260). Elixir is unaffected because a `quoted_content`'s parent always
-// carries its opening delimiter as a leaf token on that row; Bash's arm
-// inserts the row itself before calling here, and says why.
-//
-// The last row is derived from [`Node::end_line`] rather than the raw end
-// row: a node whose end column is 0 finished at the *start* of the row
-// below its last content row, so that row is not part of its span. Using
-// the raw row credits a row the literal does not cover — visible as
-// `ploc > sloc` for a string left unterminated at EOF, where the literal
-// absorbs the trailing newline (#1260).
+// **That parent gate assumes some other node credits the opening row.**
+// It is a skip, and it is only safe where the language's catch-all
+// credits every node's start row, as it does in all thirteen languages
+// #778 covered. Where the catch-all is leaf-gated
+// (`if node.child_count() == 0`, as in `bash.rs` and `elixir.rs`) a
+// container parent contributes nothing, so a *childless* literal is the
+// only node covering its own row and the gate deletes it: `'ls'` alone
+// in a Bash file reported `ploc 0, blank 1` (#1260). Elixir is
+// unaffected because a `quoted_content`'s parent always carries its
+// opening delimiter as a leaf token on that row. Bash's arm owns its
+// opening row outright and calls
+// [`add_string_interior_ploc`] instead — do not reach for this one
+// there, where the gate can only be wrong.
 #[inline]
 pub(crate) fn add_multiline_string_ploc(
     node: &Node,
@@ -216,8 +211,30 @@ pub(crate) fn add_multiline_string_ploc(
         check_comment_ends_on_code_line(stats, start);
         stats.ploc.lines.insert(start);
     }
-    let last_row = node.end_line().saturating_sub(1);
-    (start.saturating_add(1)..=last_row).for_each(|line| {
-        stats.ploc.lines.insert(line);
-    });
+    add_string_interior_ploc(node, stats, start);
+}
+
+// Adds a multi-row literal's interior and closing rows to PLOC, leaving
+// its opening row to the caller. The half of
+// [`add_multiline_string_ploc`] a language whose catch-all is leaf-gated
+// wants on its own: those callers must credit the opening row
+// unconditionally, so the parent gate above is dead weight for them and
+// re-running its two statements after the fact reads as a second rule.
+//
+// The last row is derived from [`Node::end_line`] rather than the raw
+// end row: a node whose end column is 0 finished at the *start* of the
+// row below its last content row, so that row is not part of its span,
+// and crediting it claims a row the literal does not cover.
+//
+// `insert_range` rather than a row-at-a-time loop: the range is one
+// bitmap span, and Bash's heredoc bodies push thousands of rows through
+// here where the loop paid a reserve and a bounds check per row.
+#[inline]
+pub(crate) fn add_string_interior_ploc(node: &Node, stats: &mut Stats, start: usize) {
+    // Inclusive, and `insert_range` no-ops on an inverted span, so a
+    // single-row literal inserts nothing here.
+    stats
+        .ploc
+        .lines
+        .insert_range(start.saturating_add(1), node.end_line().saturating_sub(1));
 }

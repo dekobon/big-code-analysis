@@ -7981,6 +7981,55 @@ function f(int $a, int $b): int {
         });
     }
 
+    // #1297's sweep converted six grammars from a denylist of
+    // non-comparison `<` / `>` parents to an allowlist and recorded
+    // Elixir as already covered by its sigil guard. It was not: an
+    // operator *named* rather than applied — the capture `&</2` and the
+    // qualified call `Kernel.<(a, b)` — puts the bare token under an
+    // `operator_identifier`, which no denylist entry mentioned, so each
+    // scored a condition against zero decisions. Same shape as the C#
+    // `operator <` declaration the sweep did fix.
+    //
+    // Each function is its own space and its own row, so a fix that
+    // reached one spelling and not the other fails here. `max/2` is the
+    // control: a qualified call whose name is not an operator was
+    // always 0, so a guard that merely stopped counting `<` everywhere
+    // would pass this row and fail the two below it.
+    #[test]
+    fn elixir_operator_identifier_is_not_a_condition() {
+        check_func_space::<ElixirParser, _>(
+            "defmodule M do\n\
+               def asc(l), do: Enum.sort(l, &</2)\n\
+               def lt(a, b), do: Kernel.<(a, b)\n\
+               def big(a, b), do: Kernel.max(a, b)\n\
+               def cmp(a, b), do: a < b\n\
+             end\n",
+            "foo.ex",
+            |space| {
+                let module = &space.spaces[0];
+                let scored: Vec<(String, u64)> = module
+                    .spaces
+                    .iter()
+                    .map(|f| {
+                        (
+                            f.name.clone().unwrap_or_default(),
+                            f.metrics.abc.conditions(),
+                        )
+                    })
+                    .collect();
+                assert_eq!(
+                    scored,
+                    vec![
+                        ("asc".to_owned(), 0),
+                        ("lt".to_owned(), 0),
+                        ("big".to_owned(), 0),
+                        ("cmp".to_owned(), 1),
+                    ],
+                );
+            },
+        );
+    }
+
     // ----- C++ -----
 
     #[test]

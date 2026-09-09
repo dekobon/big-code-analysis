@@ -288,10 +288,9 @@ impl Getter for RubyCode {
             // unobservable — a `rational` directly inside a `rational`
             // is not a shape this grammar admits.
             R::Integer | R::Float | R::Rational
-                if matches!(
-                    ancestors.parent(node).map(|p| p.kind_id().into()),
-                    Some(R::Complex | R::Rational)
-                ) =>
+                if ancestors
+                    .parent(node)
+                    .is_some_and(|p| matches!(p.kind_id().into(), R::Complex | R::Rational)) =>
             {
                 HalsteadType::Unknown
             }

@@ -108,7 +108,7 @@ pub(crate) fn ruby_call_named_arguments<'a>(call: &Node<'a>) -> impl Iterator<It
 // (`a:`) reaches no argument list at the pinned grammar — it is only ever
 // a `pair` or `keyword_pattern` key — but is kept as a defensive arm
 // (grammar-dispatch rule 2), pinned by
-// `ruby_hash_key_symbol_is_not_an_argument`.
+// `ruby_hash_key_symbol_declares_no_attribute`.
 fn ruby_symbol_argument_count(arg: &Node) -> usize {
     use Ruby::*;
 
@@ -152,8 +152,9 @@ pub(crate) fn ruby_symbol_name<'a>(node: &Node<'a>, source: &'a [u8]) -> Option<
         Ruby::DelimitedSymbol | Ruby::BareSymbol => {
             let mut content = node.children().filter(Node::is_named);
             let first = content.next()?;
-            (matches!(first.kind_id().into(), Ruby::StringContent) && content.next().is_none())
-                .then(|| first.utf8_text(source))?
+            (first.kind_id() == Ruby::StringContent as u16 && content.next().is_none())
+                .then_some(first)?
+                .utf8_text(source)
         }
         _ => None,
     }
@@ -290,16 +291,14 @@ fn ruby_callee_name<'a>(call: &Node<'a>, source: &'a [u8]) -> Option<&'a str> {
     call.child_by_field_name("method")?.utf8_text(source)
 }
 
-// Identifies the `attr_*` macro family on a Ruby `Call` node. Each
-// macro takes a list of attribute symbols and synthesises the matching
-// reader / writer / accessor methods on the enclosing class.
-pub(crate) fn ruby_attr_macro_name(call: &Node, source: &[u8]) -> Option<&'static str> {
-    match ruby_callee_name(call, source)? {
-        "attr_accessor" => Some("attr_accessor"),
-        "attr_reader" => Some("attr_reader"),
-        "attr_writer" => Some("attr_writer"),
-        _ => None,
-    }
+// Whether a Ruby `Call` node invokes the `attr_*` macro family on the
+// enclosing class. Each macro takes a list of attribute symbols and
+// synthesises the matching reader / writer / accessor methods.
+pub(crate) fn ruby_is_attr_macro(call: &Node, source: &[u8]) -> bool {
+    matches!(
+        ruby_callee_name(call, source),
+        Some("attr_accessor" | "attr_reader" | "attr_writer")
+    )
 }
 
 // Books `count` attributes against the class tallies, all of them
@@ -322,7 +321,7 @@ fn ruby_wrapped_attr_count(call: &Node, source: &[u8]) -> usize {
     ruby_call_named_arguments(call)
         .filter(|arg| {
             matches!(arg.kind_id().into(), Call | Call2 | Call3 | Call4)
-                && ruby_attr_macro_name(arg, source).is_some()
+                && ruby_is_attr_macro(arg, source)
         })
         .map(|arg| ruby_attr_macro_symbol_count(&arg))
         .sum()
@@ -377,7 +376,7 @@ pub(crate) fn ruby_walk_class_body(body: &Node, source: &[u8], stats: &mut Stats
                     ruby_add_attributes(stats, 1, ruby_declaration_is_public(false, visibility));
                 }
             }
-            Call | Call2 | Call3 | Call4 if ruby_attr_macro_name(&child, source).is_some() => {
+            Call | Call2 | Call3 | Call4 if ruby_is_attr_macro(&child, source) => {
                 ruby_add_attributes(
                     stats,
                     ruby_attr_macro_symbol_count(&child),

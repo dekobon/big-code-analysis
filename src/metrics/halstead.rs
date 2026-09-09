@@ -5976,7 +5976,26 @@ f() {
     /// *contents* — the tidier-looking rule, which collapses an
     /// `oo::class create C {…}` body into a single operand — fails
     /// here rather than passing as an improvement.
-    const BRACED_WORD_VALUE_CASES: [BracedWordValueCase; 12] = [
+    const BRACED_WORD_VALUE_CASES: [BracedWordValueCase; 16] = [
+        // The rule reaches the opener and *only* the opener. A `;`
+        // separating two commands is a direct child of the
+        // `braced_word` — `_terminator` is a hidden rule, so it is
+        // inlined rather than wrapped — and both dialects classify
+        // `SEMI` as an operator, so a revision keyed on the parent
+        // kind alone swallowed it too: this row read n1 0 / N1 0 and
+        // `halstead.effort` 0.0, against a line that is two commands.
+        // The pairing with the `eval` row below is the point — same
+        // brace, same separator, one command name apart.
+        BracedWordValueCase {
+            source: "lappend l {puts a ; puts b}\n",
+            counts: [1, 1, 5, 6],
+            operands: &["lappend", "l", "puts", "a", "b"],
+        },
+        BracedWordValueCase {
+            source: "eval {puts a ; puts b}\n",
+            counts: [2, 2, 4, 5],
+            operands: &["eval", "puts", "a", "b"],
+        },
         // The reported fixture. `lappend` takes a list, so `{a b}`
         // quotes rather than opens: no operator. Before #1318 this
         // read n1 1 / N1 1 — a `{}` block the line does not contain.
@@ -6010,6 +6029,27 @@ f() {
             source: "eval {puts hi}\n",
             counts: [1, 1, 3, 3],
             operands: &["eval", "puts", "hi"],
+        },
+        // The same command named through the global namespace, which
+        // is the spelling a `namespace eval` body uses to guarantee the
+        // core command over a local proc shadowing it. `::eval` *is*
+        // `eval`, so the two rows must agree on the operator column;
+        // before the leading `::` was stripped this one fell to the
+        // value default and lost its block.
+        BracedWordValueCase {
+            source: "::eval {puts hi}\n",
+            counts: [1, 1, 3, 3],
+            operands: &["::eval", "puts", "hi"],
+        },
+        // The control for that strip: only the *leading* qualifier is
+        // a namespace path to the core command. `ns::eval` is a
+        // different proc living in `ns`, so it takes the value default
+        // like any other unrecognised name — a strip of every `::`
+        // segment would have promoted it to a script.
+        BracedWordValueCase {
+            source: "ns::eval {a b}\n",
+            counts: [0, 0, 3, 3],
+            operands: &["ns::eval", "a", "b"],
         },
         // The default for an unrecognised command — a user proc here,
         // but equally any package command. Nothing distinguishes it
@@ -7104,12 +7144,12 @@ f() {
         // expected: operator `=` → n1 = N1 = 1. Operands `x` and the
         // `` `echo hi` `` literal → n2 = N2 = 2. Before the guard the
         // two delimiters added `` ` `` → n1 = 2, N1 = 3.
-        check_metrics::<RubyParser>("x = `echo hi`\n", "foo.rb", |metric| {
-            assert_eq!(metric.halstead.unique_operators(), 1);
-            assert_eq!(metric.halstead.total_operators(), 1);
-            assert_eq!(metric.halstead.unique_operands(), 2);
-            assert_eq!(metric.halstead.total_operands(), 2);
-        });
+        assert_halstead_counts::<RubyParser>(
+            "x = `echo hi`\n",
+            "foo.rb",
+            [1, 1, 2, 2],
+            "backtick subshell",
+        );
     }
 
     #[test]
@@ -7160,12 +7200,12 @@ f() {
         // expected: operators `def`, `` ` ``, `(` and `end` →
         // n1 = N1 = 4 (only the `(` opener counts after #695).
         // Operand `cmd` twice, parameter and use → n2 = 1, N2 = 2.
-        check_metrics::<RubyParser>("def `(cmd)\n  cmd\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.halstead.unique_operators(), 4);
-            assert_eq!(metric.halstead.total_operators(), 4);
-            assert_eq!(metric.halstead.unique_operands(), 1);
-            assert_eq!(metric.halstead.total_operands(), 2);
-        });
+        assert_halstead_counts::<RubyParser>(
+            "def `(cmd)\n  cmd\nend\n",
+            "foo.rb",
+            [4, 4, 1, 2],
+            "backtick method name",
+        );
     }
 
     #[test]

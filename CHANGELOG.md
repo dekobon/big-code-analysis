@@ -35,6 +35,17 @@ for historical reference.
   (JSON / YAML / TOML / CBOR), in `bca dump`'s metric tree, as a new
   column in `flatten_spaces` records, and in the Python `NargsDict`
   TypedDict. The library accessor is `nargs::Stats::own_args()`.
+  `bca metrics -O csv` is the one output that does not carry it —
+  `CSV_HEADER` is a frozen positional contract, as it already is for
+  the four `.value` fields #958 added. `bca diff` walks the raw
+  document rather than the `wire` types, so diffing a pre-#1236 file
+  against a current one reports `nargs.value` as a change wherever the
+  older side's absent field differs from the newer side's value.
+  `metric_catalog::METRICS` now records `nargs` with
+  `skip_at_unit: true`, matching the four metrics whose serialized
+  aggregate diverges from the CLI accessor; nothing in the workspace
+  reads the flag, so this is a correction to a published description
+  rather than a behaviour change.
 
 ### Performance
 
@@ -96,6 +107,12 @@ for historical reference.
   Perl was listed as immune by the original survey and was not. C#
   additionally keeps counting a relational pattern's operator
   (`x is > 0`), a genuine comparison outside `binary_expression`.
+  Elixir was swept the same way in the same release: an operator
+  *named* rather than applied — the capture `&</2`, the qualified call
+  `Kernel.<(a, b)` — puts a bare `<` under an `operator_identifier`,
+  which its sigil-only denylist did not exclude. **Metric drift:**
+  `abc.magnitude` falls for every file carrying one of these shapes,
+  and `abc` is a gated threshold metric.
 
 - Multi-line strings and heredocs no longer read as blank lines in
   Bash, Elixir, Tcl and iRules (#1260). Each language's
@@ -105,7 +122,9 @@ for historical reference.
   attribute is an assignment whose value the compiler stores, so its
   Python analogue is `x = """…"""`, not a discarded docstring —
   and Tcl / iRules `braced_word` is excluded because both grammars
-  parse a braced literal as a script.
+  parse a braced literal as a script. **Metric drift:** `loc.ploc`
+  rises and `loc.blank` falls for any such file; both are gated at the
+  file scope.
 
 - **Ruby `npm` / `npa`: visibility calls no longer hide methods or
   mis-scope singletons** (#1255). `private def x`,
@@ -127,12 +146,33 @@ for historical reference.
   construct the grammar models with a node of its own, except a
   defaulted `proc` parameter and a braced word in the command-name
   position. An unrecognised command is taken to receive a value.
+  The rule reaches the brace and only the brace: a `;` separating two
+  commands is a direct child of the same `braced_word` — `_terminator`
+  is a hidden rule, so it is inlined rather than wrapped — and both
+  dialects classify it as an operator, so a revision keyed on the
+  parent kind alone withdrew the separators too and took
+  `lappend x {puts a ; puts b}` to `halstead.effort` `0.0`. A leading
+  `::` is stripped before the command lookup, so `::eval {…}` — the
+  spelling a `namespace eval` body uses to reach the core command past
+  a local proc — keeps its block like the unqualified form; a
+  `ns::eval` prefix is a different command and does not.
   **Metric drift:** Tcl and iRules `halstead.unique_operators` /
   `total_operators`, the derived values, and hence `mi` fall for any
   file passing a braced literal to a command the grammar does not
   model. Operand counts are deliberately unchanged. Supersedes the
   note in 2.2.0 that a value-position braced literal still reports a
   `{}` operator.
+
+- A Bash assignment counts as a logical line. `variable_assignment`
+  reaches the walk under the alias id the enum spells
+  `VariableAssignment2`, and the `Loc` dispatch listed only the
+  unsuffixed one, so `a=1` scored `loc.lloc` 0 — a file of nothing but
+  assignments reported no logical lines at all. The alias is gated on
+  the assignment not hanging off a `declaration_command` (`local n=5`)
+  or a `command`'s environment prefix (`X=1 cmd`), both of which the
+  same arm already counts as one line. **Metric drift:** Bash
+  `loc.lloc` rises by one per statement-position assignment, and `mi`
+  moves with it.
 
 - Bash translated strings (`$"…"`) are no longer counted twice in
   Halstead `N2` (#1358). `BashCode::get_op_type` classified both the

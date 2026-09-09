@@ -20,6 +20,7 @@ const BRACED_WORD_KINDS: BracedWordKinds = BracedWordKinds {
     word_list: Tcl::WordList as u16,
     simple_word: Tcl::SimpleWord as u16,
     argument: Tcl::Argument as u16,
+    open_brace: Tcl::LBRACE as u16,
 };
 
 impl Getter for TclCode {

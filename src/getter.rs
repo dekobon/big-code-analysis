@@ -324,6 +324,16 @@ pub(crate) struct BracedWordKinds {
     /// parameter (`proc p {a {b {x y}}}`) spells its default as a
     /// `braced_word`, and a default is never evaluated as code.
     pub(crate) argument: u16,
+    /// `{`, the brace opener — the *only* node
+    /// [`Getter::braced_word_op_type`] may revise. A braced word's
+    /// operator children are not the opener alone: `_terminator` is a
+    /// hidden rule, so a `;` separating two commands is inlined as a
+    /// direct child of the `braced_word` and both dialects classify it
+    /// as an operator. Keying the revision on the parent kind alone
+    /// therefore swallowed those separators too, taking
+    /// `lappend x {puts a ; puts b}` to `n1` 0 / `N1` 0 and
+    /// `halstead.effort` — a gated threshold metric — to `0.0`.
+    pub(crate) open_brace: u16,
 }
 
 /// The core Tcl-family commands that evaluate a braced argument as a
@@ -671,8 +681,9 @@ pub(crate) trait Getter {
         // and a braced pattern (`switch -regexp $v { {^a.*b$} {…} }`)
         // is idiomatic — rescuing it as an arm body would fabricate a
         // block around a regex.
-        if ancestors.parent_has_kind(word, kinds.argument)
-            || ancestors.parent_has_kind(word, kinds.command)
+        if ancestors
+            .parent(word)
+            .is_some_and(|parent| [kinds.argument, kinds.command].contains(&parent.kind_id()))
         {
             return true;
         }
@@ -708,7 +719,18 @@ pub(crate) trait Getter {
         if name.kind_id() != kinds.simple_word {
             return None;
         }
-        node_text(code, &name)
+        let text = node_text(code, &name)?;
+        // `::eval` *is* `eval` — a leading `::` names the global
+        // namespace, and inside a `namespace eval` body it is the
+        // spelling that guarantees the core command rather than a local
+        // proc shadowing it. Without this the qualified form fell to
+        // the value default and lost its block, so the score moved with
+        // how the author spelled a command that resolves identically.
+        //
+        // Only the *leading* qualifier is stripped: `ns::eval` is a
+        // different command living in `ns`, and must not be mistaken
+        // for the core one.
+        Some(text.strip_prefix("::").unwrap_or(text))
     }
 
     /// Whether `command` is really one `pattern body` pair of a Tcl
@@ -772,8 +794,9 @@ pub(crate) trait Getter {
     /// needs a signal neither grammar gives — filed as #1382.
     ///
     /// Keeping to the operator also keeps the whole thing `O(1)`: only
-    /// a braced word's own opener can change answer, so the test is
-    /// one parent lookup, the same scope #1354 and #1314 use. An
+    /// a braced word's own opener can change answer, so the test is one
+    /// kind comparison and one parent lookup, the same scope #1354 and
+    /// #1314 use. An
     /// ancestor scan would have been `O(depth)` per node and quadratic
     /// on a deeply nested `expr`, the shape #1122 warns about.
     ///
@@ -785,10 +808,15 @@ pub(crate) trait Getter {
         kinds: &BracedWordKinds,
     ) -> HalsteadType {
         let base = Self::get_op_type(node, ancestors);
-        // A braced word's only operator child is its `{` — the closer
-        // has never been classified, and everything between them is a
-        // command or a comment — so no other node can change answer.
-        if !matches!(base, HalsteadType::Operator) {
+        // Only the opener can change answer, and the test has to say so
+        // rather than infer it from the parent kind. A braced word's
+        // operator children are the `{` *and* every `;` separating two
+        // of its commands — `_terminator` is a hidden rule, so the
+        // separator is inlined as a direct child of the `braced_word`
+        // and both dialects list `SEMI` as an operator. The closer is
+        // unclassified and a `\n` terminator is not an operator, so
+        // those two are the whole set.
+        if node.kind_id() != kinds.open_brace || !matches!(base, HalsteadType::Operator) {
             return base;
         }
         let quotes_a_literal = ancestors.iter(node).next().is_some_and(|(parent, above)| {

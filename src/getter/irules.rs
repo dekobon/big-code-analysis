@@ -15,6 +15,7 @@ const BRACED_WORD_KINDS: BracedWordKinds = BracedWordKinds {
     word_list: Irules::WordList as u16,
     simple_word: Irules::SimpleWord as u16,
     argument: Irules::Argument as u16,
+    open_brace: Irules::LBRACE as u16,
 };
 
 impl Getter for IrulesCode {

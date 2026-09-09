@@ -157,7 +157,8 @@ impl Getter for CppCode {
             // Python / ObjC / Groovy / Lua, whose grammars spell it a
             // plain `identifier`), and the JS-family arm in
             // `src/getter.rs` is the only *reasoned* one among them —
-            // its `MetaProperty` note calls `this` "one atomic operand". Java / C# / Kotlin disagree, but each
+            // its `MetaProperty` note calls `this` "one atomic
+            // operand". Java / C# / Kotlin disagree, but each
             // swept `This` in as one entry in a run of keywords — under
             // `// Operator: keywords`, `// Operator: other keywords` and
             // `// Expression-keyword operators` respectively — grouping
