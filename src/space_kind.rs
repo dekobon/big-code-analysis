@@ -1,11 +1,43 @@
-//! Inherent and `Display` impl blocks for [`super::SpaceKind`].
+//! The kinds of space the walk opens: functions and the containers
+//! (class, struct, trait, impl, namespace, interface) plus the file unit.
 //!
-//! Split out of `spaces.rs` to keep that module focused on the public
-//! API type definitions. The blocks are moved verbatim; method and
-//! trait resolution is by type, so `crate::spaces::SpaceKind`'s methods
-//! and `Display` impl resolve unchanged.
+//! Defined beside the classifiers because `Getter::get_space_kind`
+//! returns it; `spaces` re-exports it under its historical public path
+//! (#1376).
 
-use super::*;
+use std::fmt;
+
+use serde::{Deserialize, Serialize};
+
+/// The list of supported space kinds.
+// New space kinds land as languages are added (a future module-, mixin-,
+// or enum-style space), so this is marked `#[non_exhaustive]` to keep
+// such additions additive rather than a 2.0 break. CLI/web consumers
+// matching on it already carry a `_ =>` arm.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum SpaceKind {
+    /// An unknown space
+    #[default]
+    Unknown,
+    /// A function space
+    Function,
+    /// A class space
+    Class,
+    /// A struct space
+    Struct,
+    /// A `Rust` trait space
+    Trait,
+    /// A `Rust` implementation space
+    Impl,
+    /// A general space
+    Unit,
+    /// A `C/C++` namespace
+    Namespace,
+    /// An interface
+    Interface,
+}
 
 impl SpaceKind {
     /// Parse a [`SpaceKind`] from its lowercase serialized form — the
@@ -17,7 +49,7 @@ impl SpaceKind {
     /// This is the single source of truth for the string-to-kind mapping a
     /// consumer needs when it reads a serialized `kind` (the Python
     /// `to_sarif` binding uses it to apply per-metric threshold scope via
-    /// [`crate::metric_catalog::MetricScope::admits`]). A round-trip test
+    /// `metric_catalog::MetricScope::admits`). A round-trip test
     /// pins it against the serde representation so the two cannot drift.
     #[must_use]
     pub fn from_serialized(serialized: &str) -> Self {

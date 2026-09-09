@@ -679,21 +679,6 @@ pub(crate) fn rust_item_is_public(node: &Node) -> bool {
         .any(|vis| rust_visibility_modifier_is_public(&vis))
 }
 
-// Single normalization point for Python's aliased `block` kind_ids.
-//
-// tree-sitter-python lists two `kind_id`s that both stringify to
-// `"block"`: `Block` (135, the hidden `_block` supertype) and
-// `Block2` (160, the concrete production). Empirically only `Block2`
-// is ever emitted for real block bodies (function, class, if/for,
-// while/try/with), so `Block` is dead today — but a future grammar
-// bump could promote the supertype to a concrete node. Routing every
-// "is this a block?" check through here means such a bump is handled
-// at one site instead of silently undercounting at several (issue
-// #419; lesson 2 / 34 / 56 in docs/development/lessons_learned.md).
-pub(crate) fn python_is_block(node: &Node) -> bool {
-    matches!(node.kind_id().into(), Python::Block | Python::Block2)
-}
-
 // Kotlin's grammar models classes and interfaces under a single
 // `class_declaration` node; the `class` / `interface` keyword child
 // disambiguates. A `ClassBody` belongs to an interface iff its parent

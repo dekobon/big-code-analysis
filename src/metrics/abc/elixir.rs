@@ -195,7 +195,7 @@ impl Abc for ElixirCode {
             // helper to look up the keyword, but apply different
             // policies on top.
             E::Call => {
-                let keyword = super::cognitive::elixir_call_keyword(node, code);
+                let keyword = crate::lang_helpers::elixir::elixir_call_keyword(node, code);
                 let is_definition_or_directive = matches!(
                     keyword,
                     Some(

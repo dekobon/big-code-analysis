@@ -36,7 +36,7 @@ impl Checker for ElixirCode {
         code: &[u8],
         ancestors: Ancestors<'a, '_>,
     ) -> bool {
-        use crate::metrics::cognitive::{
+        use crate::lang_helpers::elixir::{
             elixir_call_keyword, elixir_is_class_macro, elixir_is_inside_quote_block,
             elixir_is_method_macro,
         };
@@ -57,7 +57,7 @@ impl Checker for ElixirCode {
     }
 
     fn is_func_with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-        use crate::metrics::cognitive::{
+        use crate::lang_helpers::elixir::{
             elixir_call_keyword, elixir_is_inside_quote_block, elixir_is_method_macro,
         };
         let Some(kw) = elixir_call_keyword(node, code) else {

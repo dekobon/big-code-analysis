@@ -6,9 +6,9 @@
 // function so the per-language impl blocks stay readable.
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
-use crate::metrics::halstead::HalsteadType;
+use crate::halstead_type::HalsteadType;
 
-use crate::spaces::SpaceKind;
+use crate::space_kind::SpaceKind;
 use crate::traits::Search;
 
 use crate::*;

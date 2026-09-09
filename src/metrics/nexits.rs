@@ -369,7 +369,7 @@ impl Exit for TclCode {
         // `error` in argument position (`puts error`) is a `word_list`
         // child and is not counted.
         if matches!(
-            crate::metrics::cognitive::tcl_command_name(node, code),
+            crate::lang_helpers::tcl::tcl_command_name(node, code),
             Some("return" | "error" | "throw" | "exit")
         ) {
             stats.exit += 1;

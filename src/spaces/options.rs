@@ -51,7 +51,7 @@ impl MetricsOptions {
     /// Restrict computation to the given metrics. Metrics outside
     /// this set are skipped during the walk; their `Stats` fields on
     /// [`CodeMetrics`] remain at their `Default` value and are
-    /// elided from the [`Serialize`] output. Pass an empty slice to
+    /// elided from the [`Serialize`](serde::Serialize) output. Pass an empty slice to
     /// disable every metric (the walker still runs and produces the
     /// space tree, but no metric values are populated).
     ///

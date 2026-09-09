@@ -131,6 +131,9 @@ mod c_macro;
 mod cfg_predicate;
 mod checker;
 mod getter;
+mod halstead_type;
+mod lang_helpers;
+mod space_kind;
 // Fast hashing for the walk's integer-keyed maps. Shared by `spaces`
 // (node ids) and `metrics::halstead` (grammar `kind_id`s); `metrics::loc`
 // was the third until #1109 moved its line sets to a bitset. The module
@@ -251,7 +254,9 @@ mod diag;
 
 // --- Errors ---
 mod error;
-pub use crate::error::{FromPathError, MetricsError};
+pub use crate::error::MetricsError;
+mod from_path_error;
+pub use crate::from_path_error::FromPathError;
 
 // --- Metric selection ---
 mod metric_set;

@@ -37,7 +37,7 @@
 #![warn(clippy::arithmetic_side_effects)]
 
 use crate::checker::Checker;
-use crate::metrics::npa::python_is_block;
+use crate::lang_helpers::python::python_is_block;
 use std::fmt;
 
 use crate::macros::implement_metric_trait;

@@ -11,7 +11,7 @@ use termcolor::{Color, WriteColor};
 use crate::node::Node;
 use crate::output::ColorMode;
 use crate::output::color::print_to_stdout;
-use crate::tools::{color, intense_color};
+use crate::output::color::{color, intense_color};
 
 /// Dumps the `AST` of a code.
 ///

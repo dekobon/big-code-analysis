@@ -57,7 +57,7 @@ impl Getter for ElixirCode {
         code: &[u8],
         ancestors: Ancestors<'a, '_>,
     ) -> SpaceKind {
-        use crate::metrics::cognitive::{
+        use crate::lang_helpers::elixir::{
             elixir_call_keyword, elixir_is_class_macro, elixir_is_inside_quote_block,
             elixir_is_method_macro,
         };
@@ -103,7 +103,7 @@ impl Getter for ElixirCode {
     ) -> Option<&'a str> {
         use Elixir as E;
 
-        use crate::metrics::cognitive::{
+        use crate::lang_helpers::elixir::{
             elixir_call_keyword, elixir_is_class_macro, elixir_is_inside_quote_block,
             elixir_is_method_macro,
         };

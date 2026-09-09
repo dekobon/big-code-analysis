@@ -30,7 +30,7 @@ impl Cyclomatic for TclCode {
             // Tcl `switch` and `for` are generic `command`s with no dedicated
             // kind (issues #467, #1264), so the kind dispatch above never
             // sees them. The leading word is resolved once and dispatched on.
-            Tcl::Command => match crate::metrics::cognitive::tcl_command_name(node, code) {
+            Tcl::Command => match crate::lang_helpers::tcl::tcl_command_name(node, code) {
                 // Mirroring the C-family convention (see
                 // `impl_cyclomatic_c_family`): each non-`default` arm is a
                 // decision point in standard CCN, while modified CCN

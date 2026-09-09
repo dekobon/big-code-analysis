@@ -1810,7 +1810,7 @@ mod tests {
     // half of the set is covered by the drift guard above.
     #[test]
     fn python_is_lambda_matches_live_lambda_and_agrees_with_is_closure() {
-        use crate::metrics::cognitive::python_is_lambda;
+        use crate::lang_helpers::python::python_is_lambda;
 
         let parser = parse_python("def f():\n    return lambda x: x and x\n");
         let lambda = find_first_kind(&parser, Python::Lambda as u16)

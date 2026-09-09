@@ -28,6 +28,10 @@ use std::collections::HashMap;
 
 use std::fmt;
 
+// Re-exported here so the public `metrics::halstead::HalsteadType` path
+// survives the enum's move beside `Getter`, whose `get_op_type` returns it.
+pub use crate::halstead_type::HalsteadType;
+
 use crate::checker::Checker;
 use crate::getter::Getter;
 use crate::int_hash::IntKeyHashMap;
@@ -43,16 +47,6 @@ pub struct Stats {
     operators: u64,
     u_operands: u64,
     operands: u64,
-}
-
-/// Specifies the type of nodes accepted by the `Halstead` metric.
-pub enum HalsteadType {
-    /// The node is an `Halstead` operator
-    Operator,
-    /// The node is an `Halstead` operand
-    Operand,
-    /// The node is unknown to the `Halstead` metric
-    Unknown,
 }
 
 /// Per-space operator / operand occurrence maps used to compute the

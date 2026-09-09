@@ -23,7 +23,7 @@ impl Npm for ElixirCode {
         _ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        use crate::metrics::cognitive::{elixir_call_keyword, elixir_do_block_call_children};
+        use crate::lang_helpers::elixir::{elixir_call_keyword, elixir_do_block_call_children};
 
         // The space-opening node for a `defmodule` Call is the node
         // itself, and the walker pushes that space before running any

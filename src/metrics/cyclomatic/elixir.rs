@@ -125,7 +125,7 @@ fn elixir_is_default_clause<'a>(
                 .next()
                 .is_some_and(|(parent, _)| parent.kind_id() == E::DoBlock as u16)
                 && chain.next().is_some_and(|(grandparent, _)| {
-                    crate::metrics::cognitive::elixir_call_keyword(&grandparent, code)
+                    crate::lang_helpers::elixir::elixir_call_keyword(&grandparent, code)
                         == Some("cond")
                 })
         }

@@ -19,7 +19,6 @@
 
 use std::borrow::Cow;
 
-use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::Path;
 use std::sync::Arc;
@@ -101,11 +100,13 @@ mod ast;
 mod code_metrics;
 mod options;
 mod source;
-mod space_kind;
 
 // `analyze` is `pub` — re-exported from `lib.rs`, so it must stay
 // reachable at `crate::spaces::analyze`.
 pub use compute::analyze;
+// `SpaceKind` is defined beside `Getter` (whose `get_space_kind` returns
+// it) and re-exported here so `crate::spaces::SpaceKind` keeps resolving.
+pub use crate::space_kind::SpaceKind;
 // `metrics_inner` and `push_children` are `pub(crate)` — `metrics_inner`
 // is re-exported from `lib.rs` and `push_children` is consumed by
 // `crate::ops`, so both must stay reachable at their `crate::spaces::`
@@ -117,36 +118,6 @@ pub(crate) use compute::{metrics_inner, push_children};
 // keep that path resolving after the move into `compute`.
 #[cfg(test)]
 use compute::apply_suppression;
-
-/// The list of supported space kinds.
-// New space kinds land as languages are added (a future module-, mixin-,
-// or enum-style space), so this is marked `#[non_exhaustive]` to keep
-// such additions additive rather than a 2.0 break. CLI/web consumers
-// matching on it already carry a `_ =>` arm.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-#[non_exhaustive]
-pub enum SpaceKind {
-    /// An unknown space
-    #[default]
-    Unknown,
-    /// A function space
-    Function,
-    /// A class space
-    Class,
-    /// A struct space
-    Struct,
-    /// A `Rust` trait space
-    Trait,
-    /// A `Rust` implementation space
-    Impl,
-    /// A general space
-    Unit,
-    /// A `C/C++` namespace
-    Namespace,
-    /// An interface
-    Interface,
-}
 
 /// All metrics data.
 ///
@@ -210,7 +181,7 @@ pub struct CodeMetrics {
     /// [`MetricsOptions::with_only`] the bitfield is restricted to the
     /// caller's selection plus auto-added dependencies.
     ///
-    /// The [`Serialize`] impl consults this set to elide fields the
+    /// The [`Serialize`](serde::Serialize) impl consults this set to elide fields the
     /// caller did not select. The field itself is not serialized.
     pub selected: MetricSet,
 }

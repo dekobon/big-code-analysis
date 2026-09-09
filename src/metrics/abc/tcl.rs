@@ -311,6 +311,6 @@ impl Abc for TclCode {
 // `[pick] x`) therefore stays a branch: it is not statically a builtin,
 // which is what the assignment classification claims.
 fn tcl_command_is_assignment(node: &Node, code: &[u8]) -> bool {
-    crate::metrics::cognitive::tcl_command_name(node, code)
+    crate::lang_helpers::tcl::tcl_command_name(node, code)
         .is_some_and(|name| TCL_ASSIGNMENT_COMMANDS.contains(&name))
 }

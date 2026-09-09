@@ -372,6 +372,9 @@ macro_rules! impl_npa_java_like {
 mod shared;
 pub(crate) use shared::*;
 
+// Reached by the per-language submodules through `use super::*`.
+use crate::lang_helpers::python::python_is_block;
+
 // TypeScript / TSX share the same OOP node shape: `class_declaration`
 // and `abstract_class_declaration` both contain a `class_body`;
 // `interface_declaration` contains an `interface_body`. The

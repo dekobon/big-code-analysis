@@ -27,6 +27,9 @@ use crate::spaces::{Nesting, NestingMap};
 use std::fmt;
 
 use crate::checker::Checker;
+use crate::lang_helpers::elixir::{elixir_call_keyword, elixir_is_method_macro};
+use crate::lang_helpers::python::python_is_lambda;
+use crate::lang_helpers::tcl::tcl_command_name;
 use crate::macros::implement_metric_trait;
 use crate::*;
 
@@ -348,24 +351,6 @@ fn increase_nesting(stats: &mut Stats, nesting: &mut Nesting) {
     stats.boolean_seq.reset();
 }
 
-/// Whether `node` is a Python `lambda` expression, under either of the
-/// grammar's two aliased kind_ids: `Lambda` (196, the concrete
-/// production emitted today) and `Lambda2` (197, the currently-unseen
-/// hidden alias). `Lambda3` (73) is the `lambda` *keyword* token, not a
-/// closure node, and is intentionally excluded.
-///
-/// This is the single normalization chokepoint for the lambda-alias set
-/// — mirroring `npa::python_is_block` for the block aliases (#419). It
-/// is reused by the cognitive lambda-scope walks below and by
-/// [`PythonCode::is_closure`](crate::checker), so a future grammar bump
-/// that promotes `Lambda2` to a concrete node is handled in exactly one
-/// place rather than drifting across sites (#422). The
-/// `python_hidden_block_and_lambda_aliases_stay_unseen` drift guard in
-/// `checker.rs` trips on such a bump.
-pub(crate) fn python_is_lambda(node: &Node) -> bool {
-    matches!(node.kind_id().into(), Python::Lambda | Python::Lambda2)
-}
-
 macro_rules! js_cognitive {
     ($lang:ident) => {
         fn compute<'a>(
@@ -557,60 +542,6 @@ mod tcl;
 mod tsx;
 mod typescript;
 
-// Reads the text of the `target` field of an Elixir `Call` node.
-//
-// Most of Elixir's control-flow constructs (`if`, `unless`, `for`,
-// `while`, `case`, `cond`, `with`, `try`) and method-defining macros
-// (`def`, `defp`, `defmacro`, …) parse as `Call` nodes whose `target`
-// is an `Identifier` whose source text spells the keyword. The
-// `Cyclomatic` and `Exit` impls already follow this pattern; this
-// helper centralises the byte-text lookup so `Cognitive` and `Abc`
-// can share it.
-//
-// Returns `None` for Calls whose target is not a simple identifier
-// (e.g. `Module.func(…)` parses as `RemoteCallWithParentheses` with
-// the dotted name as target) or when the bytes are not valid UTF-8.
-pub(crate) fn elixir_call_keyword<'a>(node: &'a Node<'a>, code: &'a [u8]) -> Option<&'a str> {
-    if node.kind_id() != Elixir::Call as u16 {
-        return None;
-    }
-    let target = node.child_by_field_name("target")?;
-    if target.kind_id() != Elixir::Identifier as u16 {
-        return None;
-    }
-    target.utf8_text(code)
-}
-
-// Reads the leading word of a Tcl `command` node when it is a plain
-// `simple_word` (`switch`, `for`, `puts`, …). Returns `None` for any other
-// node kind, for commands whose leading word is computed (`$cmd`, `[cmd]`
-// parse it as `variable_substitution` / `command_substitution`, never
-// statically resolvable to a builtin), and for non-UTF-8 bytes. Shared by
-// the out-of-band control-flow detectors below (grammar-dispatch §10:
-// identity questions read the bytes).
-//
-// A *literal* name in a quoted or braced spelling is also unresolved, and
-// that is a deliberate limitation: `"for" {set i 0} {$i < 3} {incr i} {…}`
-// and `{for} …` are legal Tcl that still invoke the builtin, but the
-// grammar parses their name as `quoted_word` / `braced_word` rather than
-// `simple_word`, so they score as plain commands. The `simple_word` gate
-// is what keeps the computed forms out; matching the quoted spellings
-// would mean unquoting the bytes for a style no real Tcl uses.
-//
-// Callers dispatch on the returned name so each `command` node resolves it
-// exactly once per metric walk — the helpers below take the resolved
-// identity as a precondition rather than re-deriving it.
-pub(crate) fn tcl_command_name<'a>(node: &'a Node<'a>, code: &'a [u8]) -> Option<&'a str> {
-    if node.kind_id() != Tcl::Command as u16 {
-        return None;
-    }
-    let name = node.child_by_field_name("name")?;
-    if name.kind_id() != Tcl::SimpleWord as u16 {
-        return None;
-    }
-    name.utf8_text(code)
-}
-
 // Tcl's `switch` is a generic `command` (no dedicated kind_id, unlike
 // `if`/`while`/`foreach`/`catch`), so the kind-dispatch in the Cognitive
 // and Cyclomatic impls never sees it (issue #467, lesson 19). Both metrics
@@ -731,59 +662,6 @@ pub(crate) fn irules_switch_decision_arms(node: &Node, code: &[u8]) -> Option<us
         })
         .count();
     Some(decision_arms)
-}
-
-// Method-defining macros (`def`, `defp`, `defmacro`, `defmacrop`). The set
-// is duplicated across checker, getter, and several metric impls
-// because each consults it from a different trait surface; centralising
-// the literal here keeps future additions (e.g. `defguard`) consistent.
-#[inline]
-pub(crate) fn elixir_is_method_macro(kw: &str) -> bool {
-    matches!(kw, "def" | "defp" | "defmacro" | "defmacrop")
-}
-
-// Class-defining macro (`defmodule`). Paired with [`elixir_is_method_macro`]
-// where a caller needs both ("any space-opening declaration").
-#[inline]
-pub(crate) fn elixir_is_class_macro(kw: &str) -> bool {
-    kw == "defmodule"
-}
-
-// Returns true when `node` is lexically nested inside the `do_block` of a
-// `quote do … end` Call (Elixir's metaprogramming template). A `def` /
-// `defp` / `defmacro` / `defmacrop` inside `quote` does not define a
-// method of any enclosing module — the syntax tree is a code template
-// emitted later, when the surrounding macro is invoked. Treating those
-// quoted Calls as methods inflates `Wmc` and disagrees with `Npm`'s
-// direct-children classification (#310).
-//
-// Walks the ancestor chain looking for a `quote` Call ancestor. Stops at
-// the first match (true) or at the root (false). Each step is a single
-// `child_by_field_name("target")` + identifier byte compare, so the cost
-// is O(steps) when `ancestors` is known — with `Ancestors::unknown` each
-// step additionally pays `Node::parent`'s O(depth) (#1084).
-pub(crate) fn elixir_is_inside_quote_block<'a>(
-    node: &Node<'a>,
-    code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-) -> bool {
-    ancestors
-        .iter(node)
-        .any(|(n, _)| elixir_call_keyword(&n, code) == Some("quote"))
-}
-
-// Iterates the direct-child `Call` nodes inside the `do_block` of an
-// Elixir Call (typically a `defmodule`). Used by `Npm` / `Npa` to scan
-// a module body for method-defining macros / `defstruct` without
-// descending into nested modules. Yields no items when the Call has
-// no `do_block`.
-pub(crate) fn elixir_do_block_call_children<'a>(
-    node: &'a Node<'a>,
-) -> impl Iterator<Item = Node<'a>> + 'a {
-    node.children()
-        .filter(|child| child.kind_id() == Elixir::DoBlock as u16)
-        .flat_map(|do_block| do_block.children())
-        .filter(|stmt| stmt.kind_id() == Elixir::Call as u16)
 }
 
 implement_metric_trait!(Cognitive, PreprocCode, CcommentCode);

@@ -21,7 +21,7 @@ use crate::traits::{ParserTrait, Search};
 use crate::checker::Checker;
 use crate::getter::Getter;
 
-use crate::tools::{color, intense_color};
+use crate::output::color::{color, intense_color};
 
 /// Function span data.
 #[derive(Debug)]

@@ -32,7 +32,7 @@ use crate::output::{ColorMode, branch_glyphs};
 use crate::spaces::{CodeMetrics, FuncSpace};
 use crate::wire;
 
-use crate::tools::{color, intense_color};
+use crate::output::color::{color, intense_color};
 
 /// Decimal places used when rendering a non-integer float in the text
 /// dump. JSON output keeps full precision; the terminal view trades the

@@ -41,7 +41,7 @@ impl Checker for PythonCode {
         // nom/nargs or desync from cognitive (issues #419/#422; lesson 2
         // in lessons_learned.md). The drift-guard test below asserts
         // `Lambda2` stays unseen until then.
-        crate::metrics::cognitive::python_is_lambda(node)
+        crate::lang_helpers::python::python_is_lambda(node)
     }
 
     fn is_call(node: &Node) -> bool {
@@ -90,7 +90,7 @@ impl Checker for PythonCode {
     fn is_else_if<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
         node.kind_id() == Python::IfStatement
             && ancestors.iter(node).next().is_some_and(|(parent, above)| {
-                crate::metrics::npa::python_is_block(&parent)
+                crate::lang_helpers::python::python_is_block(&parent)
                     && parent.children().filter(Node::is_named).count() == 1
                     && above
                         .parent(&parent)

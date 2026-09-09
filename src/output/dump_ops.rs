@@ -4,7 +4,7 @@ use crate::ops::Ops;
 use crate::output::color::print_to_stdout;
 use crate::output::{ColorMode, branch_glyphs};
 
-use crate::tools::{color, intense_color};
+use crate::output::color::{color, intense_color};
 
 /// Dumps all operands and operators of a code.
 ///
