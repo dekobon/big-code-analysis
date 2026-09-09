@@ -4673,6 +4673,21 @@ line3\";",
             "foo.cpp",
             assert_three_code_rows,
         );
+        // C has no raw string; tree-sitter-c folds a backslash-newline
+        // continuation into one `string_literal` spanning every row.
+        // Mozjs carries the same `template_string` arm as its upstream
+        // JS siblings, but only `.jsm` routes to it, so the JavaScript
+        // and TypeScript template tests never reach this copy.
+        check_metrics::<CParser>(
+            "const char* s = \"line1\\\nline2\\\nline3\";",
+            "foo.c",
+            assert_three_code_rows,
+        );
+        check_metrics::<MozjsParser>(
+            "const s = `line1\nline2\nline3`;",
+            "foo.jsm",
+            assert_three_code_rows,
+        );
         // The four languages #778 missed, added by #1260. Bash's shape is
         // the single-quoted `raw_string`; Tcl and its iRules dialect spell
         // the literal `quoted_word`; Elixir routes the `quoted_content`

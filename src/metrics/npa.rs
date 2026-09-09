@@ -3017,9 +3017,14 @@ mod tests {
         // here. The receiver is a `constant`, so a scan for the leading
         // `identifier` would find `attr_accessor` and count it.
         //
+        // `self.(:c)` is `self.call(:c)` spelled without a method name:
+        // the `call` node has a `self` receiver and no `method` field,
+        // so the callee lookup must yield nothing rather than assume
+        // every `self`-received call names one.
+        //
         // expected: na = 1 (a), npa = 1.
         check_metrics::<RubyParser>(
-            "class A\n  attr_accessor :a\n  Other.attr_accessor :b\nend\n",
+            "class A\n  attr_accessor :a\n  Other.attr_accessor :b\n  self.(:c)\nend\n",
             "foo.rb",
             |metric| {
                 assert_eq!(metric.npa.class_na_sum(), 1);

@@ -2847,14 +2847,15 @@ class C {
 
     #[test]
     fn ruby_visibility_call_with_unresolvable_arguments_changes_nothing() {
-        // A splat (`private *SYMS`) and a bare identifier
-        // (`private foo`) name methods this walk cannot resolve. Neither
-        // may demote anything, and neither may be mistaken for the
-        // argument-less flag form.
+        // A splat (`private *SYMS`), a bare identifier (`private foo`)
+        // and the empty delimited symbol (`private :""`, a
+        // `delimited_symbol` with no `string_content` child at all) name
+        // methods this walk cannot resolve. None may demote anything,
+        // and none may be mistaken for the argument-less flag form.
         //
         // expected: nm = 2, npm = 2 — both methods stay public.
         check_metrics::<RubyParser>(
-            "class N\n  def a\n    1\n  end\n  private *SYMS\n  private foo\n  def b\n    1\n  end\nend\n",
+            "class N\n  def a\n    1\n  end\n  private *SYMS\n  private foo\n  private :\"\"\n  def b\n    1\n  end\nend\n",
             "foo.rb",
             |metric| {
                 assert_eq!(metric.npm.class_nm_sum(), 2);
