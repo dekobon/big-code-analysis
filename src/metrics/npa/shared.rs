@@ -207,6 +207,16 @@ pub(crate) struct RubyVisibilityCall {
     pub(crate) targets_singleton: bool,
 }
 
+impl RubyVisibilityCall {
+    // Whether this keyword names the given method family, and so decides
+    // the visibility of a declaration in its argument list. `private def
+    // self.x` does not govern the singleton it wraps, and
+    // `private_class_method def x` does not govern the instance method.
+    pub(crate) fn governs(self, singleton: bool) -> bool {
+        self.targets_singleton == singleton
+    }
+}
+
 // What a visibility-keyword `Call` in a Ruby class body does. Shared by
 // `Npm` and `Npa` so the two walkers cannot drift on the same Ruby rule
 // (grammar-dispatch rule 7).
@@ -265,7 +275,7 @@ pub(crate) fn ruby_wrapped_is_public(
     singleton: bool,
     body_flag: RubyVisibility,
 ) -> bool {
-    if keyword.targets_singleton == singleton {
+    if keyword.governs(singleton) {
         keyword.visibility == RubyVisibility::Public
     } else {
         ruby_declaration_is_public(singleton, body_flag)

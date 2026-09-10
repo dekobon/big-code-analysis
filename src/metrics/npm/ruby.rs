@@ -13,6 +13,27 @@ use super::npa::{
 };
 use super::*;
 
+// The five instance methods Ruby makes private the moment they are
+// defined: `Class#new` calls `initialize`, and the other four are
+// dispatched by the runtime rather than by a caller, so `obj.initialize`
+// raises `NoMethodError` (#1400).
+//
+// Measured on ruby 3.0.2 rather than assumed. Three properties of the
+// rule that the spelling alone does not give away:
+// - it beats the body-wide flag, so an explicit `public` marker above
+//   `def initialize` still yields a private method;
+// - it loses to a keyword that names the declaration directly, so
+//   `public def initialize` is public;
+// - it is instance-only, so both `def self.initialize` and a
+//   `def initialize` inside `class << self` stay public.
+const RUBY_AUTO_PRIVATE_METHODS: [&str; 5] = [
+    "initialize",
+    "initialize_copy",
+    "initialize_dup",
+    "initialize_clone",
+    "respond_to_missing?",
+];
+
 // One method declared by a Ruby class body. Visibility cannot be settled
 // arm-by-arm: `private :foo` demotes a method declared *earlier* in the
 // same body, so the tally is taken once the whole body has been read
@@ -32,14 +53,19 @@ struct RubyMethodDecl<'a> {
 // travel together rather than through a parameter list.
 struct RubyClassBody<'a> {
     code: &'a [u8],
+    // `class << x` rather than `class X`. Ruby's automatic-private rule
+    // does not reach a singleton class, so the body needs to know which
+    // of the two it is walking.
+    in_singleton_class: bool,
     visibility: RubyVisibility,
     methods: Vec<RubyMethodDecl<'a>>,
 }
 
 impl<'a> RubyClassBody<'a> {
-    fn new(code: &'a [u8]) -> Self {
+    fn new(code: &'a [u8], in_singleton_class: bool) -> Self {
         Self {
             code,
+            in_singleton_class,
             // Ruby class bodies open in default-public state, whatever
             // the previous body's trailing visibility was.
             visibility: RubyVisibility::Public,
@@ -47,13 +73,31 @@ impl<'a> RubyClassBody<'a> {
         }
     }
 
-    // Records a `method` / `singleton_method` node.
-    fn declare(&mut self, method: &Node<'a>, singleton: bool, public: bool) {
+    // Whether `RUBY_AUTO_PRIVATE_METHODS` covers a declaration of this
+    // name. Two independent ways to be exempt, and the walk sees them at
+    // different levels: `def self.x` carries its own singleton flag,
+    // while a `def x` inside `class << x` is an ordinary `Method` node
+    // that only the enclosing body knows about.
+    fn is_auto_private(&self, name: Option<&str>, singleton: bool) -> bool {
+        !singleton
+            && !self.in_singleton_class
+            && name.is_some_and(|n| RUBY_AUTO_PRIVATE_METHODS.contains(&n))
+    }
+
+    // Records a `method` / `singleton_method` node, taking its
+    // visibility from `keyword` when a visibility call wraps it and from
+    // the body-wide flag otherwise.
+    fn declare(&mut self, method: &Node<'a>, singleton: bool, keyword: Option<RubyVisibilityCall>) {
         let name = ruby_method_name(method, self.code);
+        let named_by_keyword = keyword.is_some_and(|kw| kw.governs(singleton));
+        let public = keyword.map_or_else(
+            || ruby_declaration_is_public(singleton, self.visibility),
+            |kw| ruby_wrapped_is_public(kw, singleton, self.visibility),
+        );
         self.methods.push(RubyMethodDecl {
             name,
             singleton,
-            public,
+            public: public && (named_by_keyword || !self.is_auto_private(name, singleton)),
         });
     }
 
@@ -113,8 +157,7 @@ impl<'a> RubyClassBody<'a> {
                     continue;
                 }
             };
-            let declared_public = ruby_wrapped_is_public(keyword, singleton, self.visibility);
-            self.declare(&arg, singleton, declared_public);
+            self.declare(&arg, singleton, Some(keyword));
         }
     }
 
@@ -129,9 +172,7 @@ impl<'a> RubyClassBody<'a> {
         let kind = child.kind_id().into();
         match kind {
             Method | SingletonMethod => {
-                let singleton = matches!(kind, SingletonMethod);
-                let public = ruby_declaration_is_public(singleton, self.visibility);
-                self.declare(child, singleton, public);
+                self.declare(child, matches!(kind, SingletonMethod), None);
             }
             Call | Call2 | Call3 | Call4 => match ruby_visibility_effect(child, self.code) {
                 Some(RubyVisibilityEffect::Flag(flag)) => self.visibility = flag,
@@ -158,7 +199,9 @@ impl<'a> RubyClassBody<'a> {
 //   `private_class_method` demotes one;
 // - the argument forms do not touch the flag, but do govern what they
 //   name: `private def x` declares a private `x`, and `private :foo`
-//   re-files a method declared earlier in the same body.
+//   re-files a method declared earlier in the same body;
+// - the five `RUBY_AUTO_PRIVATE_METHODS` names are private from the
+//   moment they are defined, over the top of the flag (#1400).
 //
 // `Module` bodies are not classes (the getter routes them to
 // `SpaceKind::Namespace`); they do not contribute to `Npm` so a
@@ -182,7 +225,7 @@ impl Npm for RubyCode {
             return;
         }
 
-        let mut body = RubyClassBody::new(code);
+        let mut body = RubyClassBody::new(code, matches!(parent_kind, SingletonClass));
         for child in node.children() {
             body.visit(&child);
         }

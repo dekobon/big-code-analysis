@@ -2934,6 +2934,255 @@ class C {
         );
     }
 
+    // --- Ruby's automatic-private methods (#1400) -------------------------
+    //
+    // Ruby privatises `initialize`, `initialize_copy`, `initialize_dup`,
+    // `initialize_clone` and `respond_to_missing?` the moment they are
+    // defined. Every expectation below was measured against ruby 3.0.2
+    // with `instance_methods(false)` / `singleton_methods(false)` rather
+    // than reasoned about, because three of the rule's edges are not
+    // guessable from the spelling: it beats the body-wide flag, it loses
+    // to a keyword naming the declaration directly, and it does not
+    // reach a singleton.
+    //
+    // Each fixture pairs the auto-private method with an ordinary public
+    // one, so `npm` discriminates between "the rule fired" (1) and "the
+    // whole tally broke" (0) — a class holding only `initialize` reports
+    // 0 either way. `nm` is asserted alongside in every case, because the
+    // rule moves the public/private split and must never drop a method.
+    //
+    // That `nm` is also the fixture-decay anchor, but only against
+    // *deletion*: trim the auto-private `def` out and the count falls.
+    // A **rename** is caught only by the fixtures whose expected answer
+    // is "the rule fired" — `initialize` renamed to `setup` moves `npm`
+    // there. In the four whose expected answer is "the rule does not
+    // apply" (`…wins`, `…singleton_initialize…`,
+    // `…in_a_singleton_class_body…`, `…public_symbol_republishes…`) the
+    // name contributes to no axis once exempt, so a rename is silent and
+    // no anchor is available — measured, not assumed. That matters most
+    // for `ruby_public_keyword_wrapping_initialize_wins`, the sole guard
+    // on the `named_by_keyword ||` disjunct: rename its method and that
+    // branch goes uncovered with nothing going red.
+
+    #[test]
+    fn ruby_initialize_is_not_a_public_method() {
+        // The issue's own fixture. Ruby reports `[:value]` for
+        // `Init.instance_methods(false)`; `initialize` is reachable only
+        // through `Init.new`.
+        //
+        // expected: nm = 2 (initialize, value), npm = 1 (value).
+        check_metrics::<RubyParser>(
+            "class Init\n  def initialize(x)\n    @x = x\n  end\n  def value\n    @x\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_every_automatically_private_name_is_demoted() {
+        // All five names in one body, so no member of
+        // `RUBY_AUTO_PRIVATE_METHODS` can be dropped without moving a
+        // number here. `respond_to_missing?` is the one whose spelling
+        // is at risk: the grammar's `name` field carries the trailing
+        // `?` as part of the `identifier` token, so a comparison that
+        // lost it would leave that method public and report npm = 2.
+        //
+        // expected: nm = 6 (the five plus `value`), npm = 1 (`value`).
+        check_metrics::<RubyParser>(
+            "class A\n  def initialize(x)\n    @x = x\n  end\n  def initialize_copy(o)\n    1\n  end\n  def initialize_dup(o)\n    2\n  end\n  def initialize_clone(o)\n    3\n  end\n  def respond_to_missing?(n, p)\n    4\n  end\n  def value\n    @x\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 6);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_public_symbol_republishes_initialize() {
+        // `public :initialize` is legal and does exactly what it says
+        // (measured: `B.instance_methods(false)` is `[:initialize]`).
+        // The rule is applied where the name is declared, so #1255's
+        // retroactive refile pass — which runs afterwards, over the
+        // methods already recorded — restores it with no extra code.
+        //
+        // expected: nm = 2, npm = 2. Dropping the `public :initialize`
+        // line takes npm to 1, which is what makes this a test of the
+        // refile ordering rather than of the tally.
+        check_metrics::<RubyParser>(
+            "class B\n  def initialize(x)\n    @x = x\n  end\n  public :initialize\n  def value\n    @x\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_public_keyword_wrapping_initialize_wins() {
+        // `public def initialize` is public in Ruby, so a keyword that
+        // names the declaration directly outranks the automatic rule.
+        // This is the fixture that fails if the rule is applied
+        // unconditionally in `declare` instead of only to declarations
+        // no keyword governs.
+        //
+        // expected: nm = 2, npm = 2.
+        check_metrics::<RubyParser>(
+            "class H\n  public def initialize(x)\n    @x = x\n  end\n  def value\n    @x\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_a_class_method_keyword_does_not_republish_initialize() {
+        // The one shape where a visibility keyword wraps an
+        // auto-private `def` and still does not decide it:
+        // `public_class_method` names the singleton family, so it
+        // governs nothing about the *instance* `initialize` in its
+        // argument list, which falls back to its own default and is
+        // demoted. Measured: `PCM.instance_methods(false)` is
+        // `[:value]` and `initialize` is private, despite the keyword
+        // reading `public`.
+        //
+        // Checking this against Ruby shows one thing that looks like a
+        // disagreement and is not: `PCM.singleton_methods(false)` is
+        // `[:initialize]`, because the keyword republished the
+        // *inherited* `Class#initialize`. That is not a declaration in
+        // the file, and this walk counts declarations, so `nm` stays 2.
+        //
+        // This is the fixture that makes `RubyVisibilityCall::governs`
+        // load-bearing. Every other test here pairs an auto-private
+        // name with a keyword that *does* govern it, so weakening the
+        // check to `keyword.is_some()` passes all of them and reports 2
+        // here.
+        //
+        // expected: nm = 2, npm = 1 (`value`).
+        check_metrics::<RubyParser>(
+            "class PCM\n  public_class_method def initialize(x)\n    @x = x\n  end\n  def value\n    @x\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_public_marker_does_not_republish_initialize() {
+        // The body-wide flag is *not* a keyword naming the declaration,
+        // and Ruby agrees: with an explicit `public` marker above it,
+        // `G.private_instance_methods(false)` is still `[:initialize]`.
+        // Separating this from the wrapping form above is the whole
+        // reason `declare` distinguishes the two.
+        //
+        // No perturbation of the current code isolates this test — every
+        // one that reaches the marker also republishes the plain
+        // `initialize` above, so it always fails alongside
+        // `ruby_initialize_is_not_a_public_method`. It is kept because
+        // the rule it pins is the one a reader is most likely to
+        // "correct" in the wrong direction, and because the fixture
+        // states Ruby's answer where prose would only assert it.
+        //
+        // expected: nm = 2, npm = 1 (`value`).
+        check_metrics::<RubyParser>(
+            "class G\n  public\n  def initialize(x)\n    @x = x\n  end\n  def value\n    @x\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_an_already_private_auto_private_name_is_not_flipped() {
+        // Both spellings of "already private" in one body: `initialize`
+        // demoted by a wrapping keyword, `initialize_copy` by the
+        // body-wide flag. Measured: `D.private_instance_methods(false)`
+        // is `[:initialize, :initialize_copy]`, `instance_methods(false)`
+        // is `[:value]`.
+        //
+        // The second half is the one that carries weight. The rule
+        // *forces* private rather than toggling, and those two agree
+        // everywhere except here — on a name that is already private for
+        // an unrelated reason. Spelling the combination as an `^` passes
+        // every other fixture in this block and republishes
+        // `initialize_copy`, so this test is its only guard.
+        //
+        // The trailing `public` marker is what keeps `value` public
+        // across the flag flip, so npm can distinguish 1 from 0.
+        //
+        // expected: nm = 3, npm = 1 (`value`).
+        check_metrics::<RubyParser>(
+            "class D\n  private def initialize(x)\n    @x = x\n  end\n  private\n  def initialize_copy(o)\n    1\n  end\n  public\n  def value\n    @x\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_singleton_initialize_stays_public() {
+        // `def self.initialize` defines a method on the class object,
+        // which the automatic rule does not reach — measured:
+        // `C.singleton_methods(false)` is `[:initialize, :plain]`. The
+        // `!singleton` half of the gate is what keeps it there.
+        //
+        // expected: nm = 2, npm = 2.
+        check_metrics::<RubyParser>(
+            "class C\n  def self.initialize\n    1\n  end\n  def self.plain\n    2\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_initialize_in_a_singleton_class_body_stays_public() {
+        // The other spelling of the same exemption, and the one the
+        // node kind cannot express: inside `class << self` the
+        // declaration is a plain `method` node, indistinguishable from
+        // an instance method, so only the enclosing `SingletonClass`
+        // says the rule does not apply. Measured:
+        // `J.singleton_methods(false)` is `[:initialize, :other]`.
+        //
+        // Note this cuts the opposite way to
+        // `ruby_private_in_a_singleton_class_body_demotes`, where the
+        // body-wide flag *does* reach these declarations. Both are
+        // Ruby's behaviour; neither generalises to the other.
+        //
+        // expected: nm = 2, npm = 2.
+        check_metrics::<RubyParser>(
+            "class J\n  class << self\n    def initialize\n      1\n    end\n    def other\n      2\n    end\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
     #[test]
     fn ruby_visibility_call_on_another_object_is_ignored() {
         // A receiver other than `self` puts the call on a different
