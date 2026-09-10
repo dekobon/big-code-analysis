@@ -53,9 +53,13 @@ and `cargo run -p big-code-analysis-web --`.
   `node.rs`, `parser.rs`, `traits.rs` (`ParserTrait`), `checker.rs`,
   `getter.rs`, `alterator.rs`, `lang_helpers/`, `preproc.rs`,
   `c_macro.rs`, `comment_rm.rs`, `ast.rs`, `count.rs`, `find.rs`,
-  `tools.rs` — everything that turns bytes into a classified tree and
-  computes no metric. `macros/mod.rs` there holds `mk_langs!` and the
-  `with_any_parser!` dispatch macro.
+  `tools.rs`, plus `space_kind.rs` and `token_role.rs` (the two
+  classifications a `Getter` returns) — everything that turns bytes
+  into a classified tree and computes no metric. `macros/mod.rs` there
+  holds `mk_langs!` and the `with_any_parser!` dispatch macro. Nothing
+  under this crate names a metric: `TokenRole` was `HalsteadType` until
+  #1376, and the "do the member metrics apply" predicate lives in the
+  root as `metrics::MemberScopeExt`.
 - `src/metrics/` — individual metric implementations: `abc.rs`,
   `cognitive.rs`, `cyclomatic.rs`, `nexits.rs`, `halstead.rs`, `loc.rs`,
   `mi.rs`, `nargs.rs`, `nom.rs`, `npa.rs`, `npm.rs`, `tokens.rs`,
@@ -406,7 +410,8 @@ runtime shapes for the gate to pass.
 metric past its recorded `.bca-baseline.toml` value must refresh the
 baseline in the **same PR**. The baseline filter only suppresses a
 violation while the live measurement stays at or below the recorded
-value; once a file grows past it (e.g., #445 grew `src/count.rs`'s
+value; once a file grows past it (e.g., #445 grew what is now
+`big-code-analysis-ast/src/count.rs`'s
 `halstead.effort` from ~103k to ~191k), the filter no longer covers
 the offender and `make self-scan` goes red on a clean checkout — for
 everyone, not just the author (#449). The existing `bca-self-scan`

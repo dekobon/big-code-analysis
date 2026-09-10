@@ -27,12 +27,23 @@ The headlines for library consumers:
 - **MSRV is `1.94`.** Bumping the MSRV is treated as a minor-bump
   event and is flagged in the changelog under **(breaking)** —
   see [STABILITY.md § MSRV policy][stability-msrv].
-- **Escape hatches.** The [`Node`][Node] wrapper exposes
-  `tree_sitter::Node` through `.0`, and the `tree_sitter` crate is
-  re-exported as `big_code_analysis::tree_sitter`. Anything reached
-  through those seams follows the pinned `tree-sitter` version, not
-  our own [SemVer]. See [STABILITY.md § Escape hatches][stability-escape]
-  before depending on them.
+- **Escape hatches.** The [`Node`][Node] wrapper exposes its
+  `tree_sitter::Node` through `Node::as_tree_sitter()`, and the
+  `tree_sitter` crate is re-exported as
+  `big_code_analysis::tree_sitter`. `Node` also carries the accessors
+  the metric walk itself uses (`kind`, `kind_id`, `child`, `children`,
+  `child_by_field_name`, `utf8_text`, the position accessors). Their
+  signatures are shape-stable, but the *values* they return — node
+  kinds and `kind_id` numbers — belong to the pinned grammar and move
+  when it does, so anything reached through those seams follows the
+  pinned `tree-sitter` version rather than our own [SemVer]. See
+  [STABILITY.md § Escape hatches][stability-escape] before depending on
+  them.
+- **`big-code-analysis-ast` is not a stability surface.** Since #1376
+  the parse and classification layer lives in that separate published
+  crate, which this one pins exactly and releases in lockstep. It will
+  appear in your `cargo tree`. Nothing in it carries a promise of its
+  own: depend on `big-code-analysis` and use what it re-exports.
 
 [stability-shape]: https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md#what-is-stable-in-shape
 [stability-msrv]: https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md#msrv-policy

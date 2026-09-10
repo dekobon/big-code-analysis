@@ -63,6 +63,14 @@ per-language pipeline depends on).
 | `tcl`        | `bca-tree-sitter-tcl`                                                          |
 | `typescript` | `tree-sitter-typescript` (used by both the `Typescript` and `Tsx` variants)    |
 
+Since #1376 the grammar crates are dependencies of
+`big-code-analysis-ast`, the parse and classification layer this crate
+is built on, so every feature above forwards to the same-named feature
+there and the grammars appear one level down in `cargo tree`. Nothing
+changes for a consumer: the feature names, the `LANG` enum and the
+whole analysis surface are unaffected, and enabling `rust` still links
+exactly one grammar.
+
 The umbrella `all-languages` feature enables every entry in this
 table. The `bca-tree-sitter-*` crates are in-tree forks of the
 upstream Mozilla / community grammars; the Rust import path remains

@@ -63,6 +63,7 @@ For an individual crate, invoke `cargo` directly:
 
 ```console
 cargo build                              # library only
+cargo build -p big-code-analysis-ast     # parse + classification layer only
 cargo build -p big-code-analysis-cli     # CLI only
 cargo build -p big-code-analysis-web     # web server only
 ```
