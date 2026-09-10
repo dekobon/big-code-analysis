@@ -11492,3 +11492,269 @@ mod keyword_negation_parity {
         );
     }
 }
+
+/// A numeric literal used as a bare `&&` / `||` operand is a Fitzpatrick
+/// Rule 9 unary condition in every truthy-valued language (#1379).
+///
+/// Ruby's terminal-bool set named `integer` and none of `float` /
+/// `rational` / `complex`, Elixir's named `integer` and not `float`, and
+/// Perl's named no numeric kind at all — so `a && 1.0` scored one
+/// condition where `a && 1` scored two, and in Perl even `$a && 1`
+/// scored one. Python had both kinds since #772 and is the control the
+/// other three were brought level with.
+///
+/// The headline claim of each case is a *comparison*: a numeric operand
+/// must score exactly what an identifier operand scores in the same slot.
+/// That is what discriminates the defect — with the kind missing from the
+/// set the numeric form drops while the identifier form does not — and it
+/// gives a failure message naming both spellings.
+/// `every_operand_scores_its_recorded_values` then pins the absolute
+/// numbers, so a regression moving *both* sides equally still fails, and
+/// carries the cross-metric anchor `.claude/rules/grammar-dispatch.md` §8
+/// asks for.
+///
+/// Two slots per language, because the sets feed two independent walker
+/// paths (grammar-dispatch §11) and Perl's defect showed in both: the
+/// operands of a `&&` chain, and the predicate of an `if`. A fixture of
+/// only the first leaves `perl_count_condition` and `ruby_count_condition`
+/// untested.
+///
+/// The recorded cyclomatic figure is the same 3 for both slots — one file
+/// space, one function space, one decision — while conditions differ (2
+/// for the chain, 1 for the predicate, since ABC scores an `if` through
+/// its predicate rather than the keyword). So §8's `conditions ==
+/// cyclomatic - 1` identity is chain-specific arithmetic, not a law; what
+/// generalises is that cyclomatic must not move when only the operand
+/// spelling does, which is what makes a `conditions` move unambiguously
+/// ABC's.
+///
+/// `for_each_case` guards the two ways this table could decay into
+/// asserting nothing: an emptied `numerics` slice, and a template that
+/// loses its `{}` slot (which would make every comparison `x == x`).
+/// Both were reachable in the first draft and neither failed a test.
+#[cfg(test)]
+#[cfg(any(
+    feature = "ruby",
+    feature = "elixir",
+    feature = "perl",
+    feature = "python",
+    feature = "lua",
+    feature = "javascript"
+))]
+mod numeric_bool_operands {
+    use crate::test_support::metrics_verbatim;
+    use crate::{LANG, MetricsOptions};
+
+    /// One fixture shape: a source template with a `{}` operand slot, and
+    /// the `abc.conditions_sum` / `cyclomatic_sum` every spelling of that
+    /// operand must produce.
+    type Slot = (&'static str, u64, u64);
+
+    /// A language's two slots, its identifier baseline operand, the
+    /// numeric operands that must score the same, and how many of those
+    /// there should be.
+    ///
+    /// The count is not bookkeeping. `for_each_case` counts *languages*,
+    /// so trimming a row's operand list back to `&["1"]` — which is
+    /// exactly the pre-#1379 fixture — left the whole module green when
+    /// measured. Pinning the length makes that a deliberate two-line
+    /// edit instead of a silent one.
+    type Case = ([Slot; 2], &'static str, &'static [&'static str], usize);
+
+    fn conditions(lang: LANG, source: &str) -> u64 {
+        metrics_verbatim(lang, source.as_bytes(), MetricsOptions::default())
+            .abc
+            .conditions_sum()
+    }
+
+    fn cyclomatic_sum(lang: LANG, source: &str) -> u64 {
+        metrics_verbatim(lang, source.as_bytes(), MetricsOptions::default())
+            .cyclomatic
+            .cyclomatic_sum()
+    }
+
+    /// `([chain_slot, condition_slot], identifier, numerics)` per language.
+    ///
+    /// `{}` is the right-hand operand of a two-operand short-circuit chain
+    /// in the first slot and the whole `if` predicate in the second, so
+    /// every fixture differs from its own baseline in exactly one token.
+    ///
+    /// Each row lists **one spelling per numeric kind the grammar emits**,
+    /// which is the unit that matters: #1379's misses were sibling rules
+    /// under a shared supertype, not aliases of one rule.
+    ///
+    /// - Ruby: `integer` / `float` / `rational` / `complex`. `1r` parses
+    ///   to `rational(integer)`, `2i` to `complex(integer)` and `1ri` to
+    ///   `complex(rational(integer))` — verified by `bca dump` — and the
+    ///   walker cannot descend into any wrapper, so listing the wrapper
+    ///   is the only way each scores at all. Radix prefixes and `_`
+    ///   separators fold into `integer`.
+    /// - Perl: all five members of the hidden `_numeric_literals` choice.
+    ///   `0xff` and `1.5e10` are here because the first cut of #1379
+    ///   named only `integer` and `floating_point` and left them scoring
+    ///   1 against an identifier's 2. `017` is *not* a sixth row — it
+    ///   lexes as `integer`, and the `octal` kind is unreachable.
+    /// - Elixir: `integer` / `float` / `char`. `?a` is the codepoint 97,
+    ///   a numeric literal wearing a sigil.
+    ///
+    /// Python, Lua and JavaScript were already correct and ride along as
+    /// controls — they are what the first three were measured against,
+    /// and a future edit that breaks them fails here too. Each folds
+    /// every radix into one `Number` / `integer` kind, checked by
+    /// measurement.
+    fn cases(lang: LANG) -> Option<Case> {
+        Some(match lang {
+            LANG::Ruby => (
+                [
+                    ("def f(a)\n  a && {}\nend\n", 2, 3),
+                    ("def f\n  if {}\n    1\n  end\nend\n", 1, 3),
+                ],
+                "b",
+                &["1", "1.0", "1r", "2i", "1ri"],
+                5,
+            ),
+            LANG::Elixir => (
+                [
+                    ("def f(a) do\n  a && {}\nend\n", 2, 3),
+                    ("def f() do\n  if {} do\n    1\n  end\nend\n", 1, 3),
+                ],
+                "b",
+                &["1", "1.0", "?a"],
+                3,
+            ),
+            LANG::Perl => (
+                [
+                    ("sub f {\n  my $x = $a && {};\n}\n", 2, 3),
+                    ("sub f {\n  if ({}) { 1; }\n}\n", 1, 3),
+                ],
+                "$b",
+                &["1", "1.0", "1.5e10", "0xff"],
+                4,
+            ),
+            LANG::Python => (
+                [
+                    ("def f(a):\n    return a and {}\n", 2, 3),
+                    ("def f():\n    if {}:\n        return 1\n", 1, 3),
+                ],
+                "b",
+                &["1", "1.0", "0xff", "1j"],
+                4,
+            ),
+            LANG::Lua => (
+                [
+                    ("function f(a)\n  return a and {}\nend\n", 2, 3),
+                    ("function f()\n  if {} then return 1 end\nend\n", 1, 3),
+                ],
+                "b",
+                &["1", "1.0", "0xff"],
+                3,
+            ),
+            LANG::Javascript => (
+                [
+                    ("function f(a) {\n  return a && {};\n}\n", 2, 3),
+                    ("function f() {\n  if ({}) { return 1; }\n}\n", 1, 3),
+                ],
+                "b",
+                &["1", "1.0", "0xff"],
+                3,
+            ),
+            _ => return None,
+        })
+    }
+
+    /// Runs `check` once per enabled language that has a case, having
+    /// first established that the case can still assert something.
+    ///
+    /// Three guards, all of which had to be added after the first draft
+    /// shipped without them and a measured perturbation of each left the
+    /// whole module green:
+    ///
+    /// - **`checked > 0`** is the non-vacuity half of the rule in
+    ///   `.claude/rules/testing.md`. The `#[cfg(any(feature = …))]` on
+    ///   this module makes the tests *absent* when no truthy-valued
+    ///   language is compiled in; this catches the residual case where
+    ///   the runtime `is_enabled()` check stops agreeing with the feature
+    ///   it compiled under.
+    /// - **the `numerics` list keeps its recorded length** — `checked`
+    ///   counts *languages*, so trimming a row's numeric list back to
+    ///   `&["1"]` (the pre-#1379 fixture) or emptying it left every test
+    ///   passing when measured, with that language's coverage deleted.
+    /// - **every template keeps its `{}`** — without the slot,
+    ///   `str::replace` is a no-op, baseline and candidate are computed
+    ///   from the same string, and the comparison degenerates to
+    ///   `x == x`.
+    ///
+    /// Sharing one driver means no test can lose any of the three.
+    fn for_each_case(check: impl Fn(LANG, Case)) {
+        let mut checked = 0;
+        for lang in LANG::into_enum_iter() {
+            if !lang.is_enabled() {
+                continue;
+            }
+            let Some(case @ (slots, _, numerics, expected_kinds)) = cases(lang) else {
+                continue;
+            };
+            assert_eq!(
+                numerics.len(),
+                expected_kinds,
+                "{lang:?}: the numeric-operand list no longer covers one spelling \
+                 per grammar numeric kind"
+            );
+            for (template, _, _) in slots {
+                assert!(
+                    template.contains("{}"),
+                    "{lang:?}: template lost its `{{}}` operand slot: {template}"
+                );
+            }
+            check(lang, case);
+            checked += 1;
+        }
+        assert!(
+            checked > 0,
+            "no truthy-valued language enabled; this test asserted nothing"
+        );
+    }
+
+    #[test]
+    fn a_numeric_operand_scores_like_an_identifier_operand() {
+        for_each_case(|lang, (slots, identifier, numerics, _)| {
+            for (template, _, _) in slots {
+                let baseline = conditions(lang, &template.replace("{}", identifier));
+                for numeric in numerics {
+                    let source = template.replace("{}", numeric);
+                    let scored = conditions(lang, &source);
+                    assert_eq!(
+                        scored, baseline,
+                        "{lang:?}: `{numeric}` scored {scored} unary conditions against \
+                         `{identifier}`'s {baseline}\n  source: {source}"
+                    );
+                }
+            }
+        });
+    }
+
+    /// The absolute anchor under the comparison above: every operand
+    /// spelling must produce the slot's recorded `conditions`, and must
+    /// leave `cyclomatic` alone. The second half is what rules out a
+    /// regression that moved both metrics together.
+    #[test]
+    fn every_operand_scores_its_recorded_values() {
+        for_each_case(|lang, (slots, identifier, numerics, _)| {
+            for (template, expected_conditions, expected_cyclomatic) in slots {
+                for operand in std::iter::once(identifier).chain(numerics.iter().copied()) {
+                    let source = template.replace("{}", operand);
+                    assert_eq!(
+                        conditions(lang, &source),
+                        expected_conditions,
+                        "{lang:?}: `{operand}` conditions\n  source: {source}"
+                    );
+                    assert_eq!(
+                        cyclomatic_sum(lang, &source),
+                        expected_cyclomatic,
+                        "{lang:?}: `{operand}` cyclomatic_sum\n  source: {source}"
+                    );
+                }
+            }
+        });
+    }
+}

@@ -141,6 +141,11 @@ macro_rules! java_bool_terminal_kinds {
 // `CastExpression`, `ParenthesizedTypeCast`, `InstanceofExpression`);
 // the dekobon Groovy grammar has no `await` or `array_access`
 // analogues, so those collapse out of the C# set.
+//
+// FIXME(#1410): Groovy truth makes every non-zero number truthy, so this
+// set is missing the numeric literal kinds — `a && 1` scores one
+// condition where `a && b` scores two. Deferred out of #1379 because the
+// integration corpora carry Groovy files and the fix moves snapshots.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! groovy_bool_terminal_kinds {
@@ -237,6 +242,10 @@ macro_rules! cpp_bool_terminal_kinds {
     };
 }
 
+// FIXME(#1410): PHP treats every non-zero number as truthy, so this set
+// is missing the numeric literal kinds — `$a && 1` scores one condition
+// where `$a && $b` scores two. Deferred out of #1379 because the
+// integration corpora carry PHP files and the fix moves snapshots.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! php_bool_terminal_kinds {
@@ -299,6 +308,39 @@ macro_rules! python_bool_terminal_kinds {
     };
 }
 
+// Terminal-bool operand kinds for Perl's ABC unary-conditional walker
+// (Fitzpatrick Rule 9; issue #557): the bare boolean operands of a
+// `binary_expression` short-circuit chain and of an `if` / `while` /
+// `unless` / `until` / ternary / C-style-`for` condition slot.
+//
+// Perl is truthy-valued — every scalar but `0`, `"0"`, `""` and `undef`
+// is true — so a numeric literal is a unary condition here for the same
+// reason `Number` is in Lua and JavaScript (#772) and `Integer` /
+// `Float` are in Python. Naming none of them scored `$a && 1` one
+// condition against Python's two for `a and 1`, and `if (1)` zero
+// against Python's one for `if 1:` (#1379).
+//
+// **The unit to check is the supertype, not the alias list.**
+// tree-sitter-perl 1.1.2 has no numeric-suffix aliases at all, so an
+// alias sweep (grammar-dispatch §1) comes back clean and proves nothing:
+// the numerals are five *sibling rules* under the hidden
+// `_numeric_literals` choice (`Perl::NumericLiterals`) — `integer`,
+// `floating_point`, `scientific_notation`, `hexadecimal`, `octal`, ids
+// 128-132. #1379 first landed with only the first two, leaving `$a &&
+// 0xff` and `$a && 1.5e10` scoring 1 against `$a && $b`'s 2. Read the
+// supertype's arm list before calling such a set complete.
+//
+// `octal` is currently unreachable and listed defensively: the lexer
+// resolves `017` to `integer` (verified by `bca dump`), and `0o17` is
+// not Perl syntax — it parses as a bareword call. A future grammar that
+// starts emitting it should count it, so there is nothing to guard
+// against by omission (grammar-dispatch §2).
+//
+// The statically-typed sets (C#, Java, Kotlin, Rust, Go, C, C++)
+// deliberately name no numeric kind: a bare number in a boolean slot is
+// a compile error there, so there is nothing to count. PHP and Groovy
+// are the two remaining truthy-valued languages that still omit one —
+// tracked in #1410, not deliberate.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! perl_bool_terminal_kinds {
@@ -307,6 +349,11 @@ macro_rules! perl_bool_terminal_kinds {
             | $crate::Perl::Boolean
             | $crate::Perl::True
             | $crate::Perl::False
+            | $crate::Perl::Integer
+            | $crate::Perl::FloatingPoint
+            | $crate::Perl::ScientificNotation
+            | $crate::Perl::Hexadecimal
+            | $crate::Perl::Octal
             | $crate::Perl::ScalarVariable
             | $crate::Perl::ArrayVariable
             | $crate::Perl::HashVariable
@@ -323,6 +370,11 @@ macro_rules! perl_bool_terminal_kinds {
     };
 }
 
+// Lua's `number` is one kind for the integer and the float spelling
+// alike, so `a and 1` and `a and 1.0` both score through `Number` and
+// the language has no counterpart of the #1379 Ruby / Elixir / Perl gap.
+// The same holds for Tcl, iRules and the four JS-family sets, each
+// measured rather than read off the grammar.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! lua_bool_terminal_kinds {
@@ -520,8 +572,35 @@ macro_rules! kotlin_bool_terminal_kinds {
 // (`Call`..`Call4` — lesson #2; a bare predicate method `ready?` is a
 // `call`), the literals `true` / `false` / `nil`, the variable sigils
 // (`@ivar`, `@@cvar`, `$gvar`), `constant`, `element_reference`
-// (`items[0]`), and `integer`. Comparison operands (`x > 0`) are nested
+// (`items[0]`), and the four numeric literal kinds `integer` / `float` /
+// `rational` / `complex`. Comparison operands (`x > 0`) are nested
 // `binary` nodes, so they are absent here and contribute nothing.
+//
+// Ruby is truthy-valued — every number including `0` and `0.0` is
+// truthy — so a bare numeric operand is a Fitzpatrick unary condition
+// exactly as it is in Python and Lua (#772). Listing `integer` alone
+// scored `a && 1.0` / `a && 1r` / `a && 2i` one condition where
+// `a && 1` scores two (#1379).
+//
+// `rational` and `complex` are WRAPPERS over the numeral (`1r` is
+// `rational(integer)`, `2i` is `complex(integer)`, `1ri` is
+// `complex(rational(integer))` — verified by `bca dump`), and the
+// **wrapper** is what has to be listed: `ruby_inspect_container` breaks
+// out of its descent for any node that is neither
+// `parenthesized_statements` nor a `!` / `not` unary, so the walker
+// cannot reach the inner numeral at all. Listing `Integer` alone scores
+// all three suffixed literals zero, which is what #1379 measured.
+//
+// The mirror-image hazard — grammar-dispatch §5's container/contained
+// double-count — is absent here for the same reason, and `Integer`
+// staying in the set alongside them is not redundancy: it is what scores
+// a bare `1`. Do not "simplify" by removing either half. (#1359 reached
+// the same keep-the-wrapper answer for Halstead operand identity, where
+// the walk *does* visit every node and the double-count is real.)
+//
+// None of the four kinds has a numeric-suffix alias in tree-sitter-ruby
+// 0.23.1; `_int_or_float` (`Ruby::IntOrFloat`) is a hidden supertype the
+// parser never emits (grammar-dispatch §2).
 #[macro_export]
 #[doc(hidden)]
 macro_rules! ruby_bool_terminal_kinds {
@@ -540,6 +619,9 @@ macro_rules! ruby_bool_terminal_kinds {
             | $crate::Ruby::Constant
             | $crate::Ruby::ElementReference
             | $crate::Ruby::Integer
+            | $crate::Ruby::Float
+            | $crate::Ruby::Rational
+            | $crate::Ruby::Complex
     };
 }
 
@@ -550,9 +632,23 @@ macro_rules! ruby_bool_terminal_kinds {
 // boolean operands surface as: `identifier`, `call` (both `ready?()` and
 // the no-paren dot access `cfg.enabled` parse as `call`), `dot`
 // (`Mod.fun` reference), the `boolean` literal wrapper (`true` / `false`
-// parse as `boolean`, verified by AST dump), `nil`, `atom`, `integer`,
-// and `access_call` (`xs[i]`). Comparison operands are nested
-// `binary_operator` nodes and so contribute nothing.
+// parse as `boolean`, verified by AST dump), `nil`, `atom`, the three
+// numeric literal kinds `integer` / `float` / `char`, and `access_call`
+// (`xs[i]`). Comparison operands are nested `binary_operator` nodes and
+// so contribute nothing.
+//
+// Elixir's `&&` / `||` are truthy operators (everything but `false` and
+// `nil` is truthy), so a bare numeric operand counts as a Fitzpatrick
+// unary condition. `integer` alone scored `a && 1.0` one condition where
+// `a && 1` scores two (#1379).
+//
+// The grammar's numeric family is `integer` / `float` / `char`, none of
+// them aliased, and there are no rational or complex kinds. `char` is
+// here because `?a` **is** an integer in Elixir — it evaluates to the
+// codepoint 97 — so it is a numeric literal wearing a sigil, not a
+// string; `x && ?a` scored 1 against `x && b`'s 2 until it was listed.
+// Radix prefixes (`0x`, `0o`, `0b`) fold into `integer`, verified by
+// measurement.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! elixir_bool_terminal_kinds {
@@ -570,6 +666,8 @@ macro_rules! elixir_bool_terminal_kinds {
             | $crate::Elixir::Nil
             | $crate::Elixir::Atom
             | $crate::Elixir::Integer
+            | $crate::Elixir::Float
+            | $crate::Elixir::Char
             | $crate::Elixir::AccessCall
     };
 }
