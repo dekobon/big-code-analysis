@@ -12,6 +12,294 @@ tier = "soft"
 headroom = 0.95
 
 [[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 545.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "Alterator::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "Alterator::get_ast_node"
+metric = "nargs"
+value = 6.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "Alterator::get_default"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "BashCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "CCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "CppCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "CsharpCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "ElixirCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "GoCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "GroovyCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "IrulesCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "JavaCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "JavascriptCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "KotlinCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "LuaCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "MozcppCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "MozjsCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "ObjcCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "PerlCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "PhpCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "PythonCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "RubyCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "RustCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "TclCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "TsxCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/alterator.rs"
+qualified = "TypescriptCode::alterate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/ast.rs"
+qualified = "AstNode::with_field_name"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/ast.rs"
+qualified = "Span::new"
+metric = "nargs"
+value = 6.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/ast.rs"
+qualified = "build"
+metric = "halstead.effort"
+value = 72581.41181251501
+
+[[entry]]
+path = "big-code-analysis-ast/src/c_macro.rs"
+qualified = "replace"
+metric = "halstead.effort"
+value = 82074.58162485641
+
+[[entry]]
+path = "big-code-analysis-ast/src/c_macro.rs"
+qualified = "step_normal"
+metric = "halstead.effort"
+value = 66515.67234293568
+
+[[entry]]
+path = "big-code-analysis-ast/src/c_macro.rs"
+qualified = "step_normal"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/c_macro.rs"
+qualified = "step_normal"
+metric = "nexits"
+value = 6.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/c_macro.rs"
+qualified = "step_raw_string"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/getter/bash.rs"
+qualified = "BashCode::get_op_type"
+metric = "halstead.effort"
+value = 57421.05047463073
+
+[[entry]]
+path = "big-code-analysis-ast/src/getter/elixir.rs"
+qualified = "ElixirCode::get_op_type"
+metric = "halstead.effort"
+value = 68425.65670070829
+
+[[entry]]
+path = "big-code-analysis-ast/src/getter/irules.rs"
+qualified = "IrulesCode::get_op_type"
+metric = "halstead.effort"
+value = 51602.8394982239
+
+[[entry]]
+path = "big-code-analysis-ast/src/getter/perl.rs"
+qualified = "PerlCode::get_op_type"
+metric = "halstead.effort"
+value = 106425.53731125958
+
+[[entry]]
+path = "big-code-analysis-ast/src/getter/php.rs"
+qualified = "PhpCode::get_op_type"
+metric = "halstead.effort"
+value = 92711.94569253008
+
+[[entry]]
+path = "big-code-analysis-ast/src/getter/python.rs"
+qualified = "PythonCode::get_op_type"
+metric = "halstead.effort"
+value = 48346.66496041094
+
+[[entry]]
+path = "big-code-analysis-ast/src/getter/ruby.rs"
+qualified = "RubyCode::get_op_type"
+metric = "halstead.effort"
+value = 120805.48245794396
+
+[[entry]]
+path = "big-code-analysis-ast/src/node.rs"
+qualified = "Node<'a>"
+metric = "nom"
+value = 33.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/parser.rs"
+qualified = "Parser<T>::filters"
+metric = "halstead.effort"
+value = 58860.61554860244
+
+[[entry]]
+path = "big-code-analysis-ast/src/preproc.rs"
+qualified = "accumulate_reachable_includes"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/preproc.rs"
+qualified = "classify_preproc_node"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/preproc.rs"
+qualified = "record_indirect_includes"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/tools.rs"
+qualified = "read_gated"
+metric = "nexits"
+value = 7.0
+
+[[entry]]
 path = "big-code-analysis-cli/src/baseline.rs"
 qualified = "Baseline::from_str"
 metric = "halstead.effort"
@@ -594,258 +882,6 @@ metric = "nexits"
 value = 8.0
 
 [[entry]]
-path = "src/alterator.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 545.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "Alterator::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "Alterator::get_ast_node"
-metric = "nargs"
-value = 6.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "Alterator::get_default"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "BashCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "CCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "CppCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "CsharpCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "ElixirCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "GoCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "GroovyCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "IrulesCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "JavaCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "JavascriptCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "KotlinCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "LuaCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "MozcppCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "MozjsCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "ObjcCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "PerlCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "PhpCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "PythonCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "RubyCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "RustCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "TclCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "TsxCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "TypescriptCode::alterate"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/ast.rs"
-qualified = "AstNode::with_field_name"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/ast.rs"
-qualified = "Span::new"
-metric = "nargs"
-value = 6.0
-
-[[entry]]
-path = "src/ast.rs"
-qualified = "build"
-metric = "halstead.effort"
-value = 72581.41181251501
-
-[[entry]]
-path = "src/c_macro.rs"
-qualified = "replace"
-metric = "halstead.effort"
-value = 82074.58162485641
-
-[[entry]]
-path = "src/c_macro.rs"
-qualified = "step_normal"
-metric = "halstead.effort"
-value = 66515.67234293568
-
-[[entry]]
-path = "src/c_macro.rs"
-qualified = "step_normal"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/c_macro.rs"
-qualified = "step_normal"
-metric = "nexits"
-value = 6.0
-
-[[entry]]
-path = "src/c_macro.rs"
-qualified = "step_raw_string"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/getter/bash.rs"
-qualified = "BashCode::get_op_type"
-metric = "halstead.effort"
-value = 57421.05047463073
-
-[[entry]]
-path = "src/getter/elixir.rs"
-qualified = "ElixirCode::get_op_type"
-metric = "halstead.effort"
-value = 68425.65670070829
-
-[[entry]]
-path = "src/getter/irules.rs"
-qualified = "IrulesCode::get_op_type"
-metric = "halstead.effort"
-value = 51602.8394982239
-
-[[entry]]
-path = "src/getter/perl.rs"
-qualified = "PerlCode::get_op_type"
-metric = "halstead.effort"
-value = 106425.53731125958
-
-[[entry]]
-path = "src/getter/php.rs"
-qualified = "PhpCode::get_op_type"
-metric = "halstead.effort"
-value = 92711.94569253008
-
-[[entry]]
-path = "src/getter/python.rs"
-qualified = "PythonCode::get_op_type"
-metric = "halstead.effort"
-value = 48346.66496041094
-
-[[entry]]
-path = "src/getter/ruby.rs"
-qualified = "RubyCode::get_op_type"
-metric = "halstead.effort"
-value = 120865.54836941602
-
-[[entry]]
 path = "src/metrics/abc/csharp.rs"
 qualified = "csharp_inspect_container"
 metric = "cognitive"
@@ -1038,12 +1074,6 @@ metric = "nexits"
 value = 6.0
 
 [[entry]]
-path = "src/node.rs"
-qualified = "Node<'a>"
-metric = "nom"
-value = 33.0
-
-[[entry]]
 path = "src/ops.rs"
 qualified = "ops_inner"
 metric = "halstead.effort"
@@ -1134,30 +1164,6 @@ metric = "halstead.effort"
 value = 80351.11907066956
 
 [[entry]]
-path = "src/parser.rs"
-qualified = "Parser<T>::filters"
-metric = "halstead.effort"
-value = 58860.61554860244
-
-[[entry]]
-path = "src/preproc.rs"
-qualified = "accumulate_reachable_includes"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/preproc.rs"
-qualified = "classify_preproc_node"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
-path = "src/preproc.rs"
-qualified = "record_indirect_includes"
-metric = "nargs"
-value = 5.0
-
-[[entry]]
 path = "src/spaces.rs"
 qualified = "FuncSpace::new"
 metric = "nargs"
@@ -1210,12 +1216,6 @@ path = "src/suppression.rs"
 qualified = "parse_native"
 metric = "nexits"
 value = 6.0
-
-[[entry]]
-path = "src/tools.rs"
-qualified = "read_gated"
-metric = "nexits"
-value = 7.0
 
 [[entry]]
 path = "src/vcs/bus_factor.rs"

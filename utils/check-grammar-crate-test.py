@@ -2,7 +2,7 @@
 """Tests for check-grammar-crate.py.
 
 The headline test re-derives the grammar -> extension mapping from the
-single source of truth (`src/langs.rs` `mk_langs!`) and asserts the
+single source of truth (`big-code-analysis-ast/src/langs.rs` `mk_langs!`) and asserts the
 hand-maintained `EXTENSIONS` table matches it exactly. This is the
 anti-drift guard for #869: the old table had gone stale across the
 #507 / #720 / #721 / #724 refactors (wrong files, a wrong crate-name
@@ -24,7 +24,7 @@ import unittest
 UTILS_DIR = pathlib.Path(__file__).resolve().parent
 REPO_ROOT = UTILS_DIR.parent
 SCRIPT_SRC = UTILS_DIR / "check-grammar-crate.py"
-LANGS_RS = REPO_ROOT / "src" / "langs.rs"
+LANGS_RS = REPO_ROOT / "big-code-analysis-ast" / "src" / "langs.rs"
 
 # The tree-sitter function token in `mk_langs!` maps 1:1 to the grammar
 # crate name (underscores -> hyphens) for every variant EXCEPT the Tsx
@@ -112,12 +112,12 @@ def _mk_langs_tuples(block: str) -> list[str]:
 
 
 def _derive_extensions_from_langs_rs() -> dict[str, list[str]]:
-    """Re-derive the grammar -> extension-glob table from src/langs.rs."""
+    """Re-derive the grammar -> extension-glob table from langs.rs."""
     text = "\n".join(
         _strip_line_comment(line) for line in LANGS_RS.read_text().splitlines()
     )
     opener = re.search(r"mk_langs!\s*\(", text)
-    assert opener is not None, "mk_langs! macro not found in src/langs.rs"
+    assert opener is not None, f"mk_langs! macro not found in {LANGS_RS}"
     start = opener.end() - 1
     depth = 0
     end = start
@@ -157,7 +157,7 @@ class ExtensionsSyncTest(unittest.TestCase):
             table,
             derived,
             "check-grammar-crate.py EXTENSIONS has drifted from "
-            "src/langs.rs mk_langs!; update the table (see #869)",
+            "big-code-analysis-ast/src/langs.rs mk_langs!; update the table (see #869)",
         )
 
     def test_every_key_is_a_real_grammar_crate(self) -> None:

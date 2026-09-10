@@ -2,8 +2,10 @@
 # check-enums-codegen-drift
 #
 # Runs the `enums/` codegen into a tempdir, formats the output,
-# and diffs against the checked-in `src/c_langs_macros/*.rs` and
-# `src/languages/language_*.rs` files. Any divergence fails.
+# and diffs against the checked-in
+# `big-code-analysis-ast/src/c_langs_macros/*.rs` and
+# `big-code-analysis-ast/src/languages/language_*.rs` files. Any
+# divergence fails.
 #
 # Closes the failure mode from #405: running any grammar regen
 # silently regenerated `c_macros.rs` / `c_specials.rs` to a
@@ -49,7 +51,7 @@ if ! cargo build --manifest-path "$MANIFEST" --quiet; then
 fi
 
 # Each codegen mode pairs an `enums -l<mode>` flag with the
-# target subdir under `src/`. Parallel arrays (rather than a
+# target subdir under `big-code-analysis-ast/src/`. Parallel arrays (rather than a
 # `:`-separated single array) keep this safe if a future mode
 # name ever contains `:` and stay bash-3 compatible (no
 # associative-array dependency for macOS contributors).
@@ -131,7 +133,7 @@ diff_dir() {
 	# Reverse: checked-in → codegen output. Skip `mod.rs`
 	# (hand-maintained module index, not generated). If a
 	# future hand-maintained file is added to either target
-	# subdir (e.g., a `src/languages/shared.rs`), extend the
+	# subdir (e.g., a `languages/shared.rs`), extend the
 	# skip list — flagged orphans would otherwise look like
 	# real drift to a confused reviewer.
 	for f in "$checked_in_dir"/*.rs; do
@@ -147,8 +149,8 @@ diff_dir() {
 	done
 }
 
-diff_dir "$WORK_DIR/languages" "src/languages"
-diff_dir "$WORK_DIR/c_langs_macros" "src/c_langs_macros"
+diff_dir "$WORK_DIR/languages" "big-code-analysis-ast/src/languages"
+diff_dir "$WORK_DIR/c_langs_macros" "big-code-analysis-ast/src/c_langs_macros"
 
 if [ "$fail" -ne 0 ]; then
 	{
@@ -156,9 +158,9 @@ if [ "$fail" -ne 0 ]; then
 		echo "Codegen drift detected. Either:"
 		echo "  - Regenerate the checked-in files:"
 		echo "      cargo run --manifest-path ./enums/Cargo.toml -- \\"
-		echo "          -lrust -o ./src/languages"
+		echo "          -lrust -o ./big-code-analysis-ast/src/languages"
 		echo "      cargo run --manifest-path ./enums/Cargo.toml -- \\"
-		echo "          -lc_macros -o ./src/c_langs_macros"
+		echo "          -lc_macros -o ./big-code-analysis-ast/src/c_langs_macros"
 		echo "      cargo fmt"
 		echo "  - Or update enums/templates/ to match the checked-in form."
 		echo "  - Or, for stale generated files in repo but not produced"

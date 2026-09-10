@@ -53,13 +53,14 @@ jobs:
           mkdir -p target/mutants
           cargo mutants \
             --package big-code-analysis \
+            --package big-code-analysis-ast \
             --no-shuffle \
             --in-place \
             -j 2 \
             --minimum-test-timeout 120 \
             -f src/metrics/ \
-            -f src/checker.rs \
-            -f src/getter.rs \
+            -f big-code-analysis-ast/src/checker.rs \
+            -f big-code-analysis-ast/src/getter.rs \
             --output target/mutants \
             | tee target/mutants/mutants.log
 

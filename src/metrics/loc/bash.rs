@@ -42,9 +42,9 @@ impl Loc for BashCode {
             // `HeredocBody2` is the parser-node symbol observed parse trees
             // actually carry; the duplicate `HeredocBody` entry is a
             // defensive arm that tree-sitter-bash 0.25.1 does not surface —
-            // `src/checker/bash.rs` records the same finding for `is_string`
-            // and omits it there (`.claude/rules/grammar-dispatch.md`
-            // sections 1 and 2).
+            // `big-code-analysis-ast/src/checker/bash.rs` records the
+            // same finding for `is_string` and omits it there
+            // (`.claude/rules/grammar-dispatch.md` sections 1 and 2).
             //
             // This arm owns its opening row, which is why it calls
             // `add_string_interior_ploc` rather than the parent-gated

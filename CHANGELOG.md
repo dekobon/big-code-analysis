@@ -26,6 +26,34 @@ for historical reference.
 
 ### Added
 
+- The parse and classification layer now lives in its own published
+  crate, `big-code-analysis-ast` (#1376). It depends on nothing in this
+  crate, in either direction, so it can be built and tested alone: the generated per-grammar
+  kind enums, `LANG`, `Node`, `Checker` / `Getter` / `Alterator`, the
+  C-family preprocessor pass, comment stripping, the AST dump and node
+  counting / finding. The root crate depends on it at an exact `=X.Y.Z`
+  pin, forwards every per-language Cargo feature to it under the same
+  name, and re-exports everything it re-exported before at the same
+  paths, so no caller of `big-code-analysis` changes. The sub-crate is
+  internal plumbing with no stability promise of its own (see
+  `STABILITY.md` and its README); it exists so a second structural
+  consumer can share the classifiers without the metric walk.
+- `Node` gains public, documented accessors for the parts of a
+  tree-sitter node the metric walk reads: `kind`, `kind_id`, `id`,
+  `is_named`, `utf8_text`, the byte / row / column position accessors,
+  `child`, `child_count`, `child_by_field_name`, `children`,
+  `children_with`, `cursor`, `parent`, and `previous_sibling`. Their
+  signatures are shape-stable; their values follow the tree-sitter pin
+  (see the escape-hatches section of `STABILITY.md`).
+- `SpaceKind` and the operator/operand classification are now defined in
+  `big-code-analysis-ast` (they are `Getter` return types) and
+  re-exported at their existing paths; `MetricsError` likewise. One
+  consequence is additive on the published surface: `SpaceKind` gains a
+  public `is_member_scope()` — the walk consults it across the new crate
+  boundary, so it can no longer be `pub(crate)`. It answers "does this
+  kind roll up `npm` / `npa` members", i.e. anything but `Function` and
+  `Unknown`.
+
 - Per-space *own* value for `nargs` in the serialized wire shape:
   `nargs.value` (#1236). `nargs.total` remains the subtree sum; the new
   field is the per-space scalar `bca check --threshold nargs=N` has
@@ -68,6 +96,15 @@ for historical reference.
   top of it (`metrics --output <FILE>`, structured stdout).
 
 ### Changed
+
+- `metrics::halstead::HalsteadType` is renamed **`TokenRole`** and moves
+  to `big_code_analysis_ast::token_role`. It answers whether a node acts
+  as an operator or an operand, which the grammar decides and any
+  structural consumer can use; naming it after the one metric that reads
+  it made the parse layer look like it carried metric vocabulary.
+  `HalsteadType` remains as a deprecated type alias at its old path, so
+  no code breaks; the alias goes away at `3.0`. The variants are
+  unchanged.
 
 - The `tree-sitter` runtime is `=0.26.13`, up one upstream patch
   release, pinned in lockstep across the root manifest, `enums`, the

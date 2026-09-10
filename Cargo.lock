@@ -417,27 +417,16 @@ dependencies = [
 name = "big-code-analysis"
 version = "2.2.1"
 dependencies = [
- "aho-corasick",
- "bca-tree-sitter-ccomment",
- "bca-tree-sitter-mozcpp",
- "bca-tree-sitter-mozjs",
- "bca-tree-sitter-preproc",
- "bca-tree-sitter-tcl",
+ "big-code-analysis-ast",
  "bstr",
  "ciborium",
  "crossbeam",
  "csv",
- "dekobon-tree-sitter-groovy",
  "gix",
  "globset",
  "hmac",
  "insta",
  "jsonschema",
- "num-derive",
- "num-format",
- "num-traits",
- "petgraph",
- "pretty_assertions",
  "quick-xml",
  "regex",
  "serde",
@@ -447,6 +436,30 @@ dependencies = [
  "tempfile",
  "termcolor",
  "toml",
+ "tree-sitter",
+ "walkdir",
+]
+
+[[package]]
+name = "big-code-analysis-ast"
+version = "2.2.1"
+dependencies = [
+ "aho-corasick",
+ "bca-tree-sitter-ccomment",
+ "bca-tree-sitter-mozcpp",
+ "bca-tree-sitter-mozjs",
+ "bca-tree-sitter-preproc",
+ "bca-tree-sitter-tcl",
+ "dekobon-tree-sitter-groovy",
+ "num-derive",
+ "num-format",
+ "num-traits",
+ "petgraph",
+ "pretty_assertions",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
  "tree-sitter",
  "tree-sitter-bash",
  "tree-sitter-c",
@@ -466,7 +479,6 @@ dependencies = [
  "tree-sitter-ruby",
  "tree-sitter-rust",
  "tree-sitter-typescript",
- "walkdir",
 ]
 
 [[package]]

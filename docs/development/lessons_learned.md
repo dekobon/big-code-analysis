@@ -296,7 +296,8 @@ you change Halstead classification, add a `kind_id` to `is_primitive`,
 or touch finalize / parent-merge, add a regression test that runs both
 `metrics()` and `operands_and_operators()` on the same input and asserts
 it. When auditing a new language, also check no kind_id is classified as
-*both* operator and operand — `HalsteadType` is exhaustive but the
+*both* operator and operand — `TokenRole` (then `HalsteadType`) is
+exhaustive but the
 routing in `getter.rs` is not, and a copy-paste can land one kind_id in
 two arms.
 
@@ -1412,7 +1413,7 @@ of (node kind, predicates that classify it).
 `TemplateString`, so a `String2` node — the `string` type-keyword alias
 — is counted by `find string` and contributes to Halstead string-operand
 totals. But the TS `impl_js_family_get_op_type!` invocation's
-`operand_extras` omits `String2`, so the same node is `HalsteadType::
+`operand_extras` omits `String2`, so the same node is `TokenRole::
 Unknown` to the Halstead walker. JS, MozJS, and TSX all include it; only
 TS does not. The drift predates #299 — the four pre-refactor impls had
 the same asymmetry — but the macro consolidation made the parity table

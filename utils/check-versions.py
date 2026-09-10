@@ -52,6 +52,7 @@ EXCLUDED_LEAF_DIRS = (
 INTERNAL_PIN_MANIFESTS = (
     "Cargo.toml",
     "enums/Cargo.toml",
+    "big-code-analysis-ast/Cargo.toml",
     "big-code-analysis-cli/Cargo.toml",
     "big-code-analysis-web/Cargo.toml",
 )
@@ -145,9 +146,17 @@ PACKAGE_VERSION_RE = re.compile(
 INTERNAL_TABLE_RE = re.compile(r"(?P<key>[\w-]+)\s*=\s*\{(?P<body>[^}]*?)\}")
 INTERNAL_VERSION_PIN_RE = re.compile(r"\bversion\s*=\s*\"=([^\"]+)\"")
 # An internal crate is identified by the dependency table KEY being
-# `big-code-analysis` / `bca-tree-sitter-*`, OR by the table body
-# aliasing a `bca-tree-sitter-*` package (the vendored grammar form).
-_INTERNAL_KEY_RE = re.compile(r"bca-tree-sitter-[\w-]+|big-code-analysis")
+# `big-code-analysis` / `big-code-analysis-*` / `bca-tree-sitter-*`, OR
+# by the table body aliasing a `bca-tree-sitter-*` package (the vendored
+# grammar form).
+#
+# The `-*` suffix group is what makes `big-code-analysis-ast` (#1376)
+# match: the pre-#1376 spelling was a bare `big-code-analysis`
+# alternative under `fullmatch`, so the root's two `=X.Y.Z` pins on the
+# parse layer were silently skipped while the gate still reported
+# "versions OK: every owned crate at …". Any future owned
+# `big-code-analysis-<something>` is covered by construction.
+_INTERNAL_KEY_RE = re.compile(r"bca-tree-sitter-[\w-]+|big-code-analysis(?:-[\w-]+)?")
 _INTERNAL_PACKAGE_RE = re.compile(r"\bpackage\s*=\s*\"bca-tree-sitter-[\w-]+\"")
 # Match: `big-code-analysis = "X.Y.Z"`, `bca-tree-sitter-* = "X.Y"`,
 # or `big-code-analysis = "= X.Y.Z"` style snippets in doc prose.

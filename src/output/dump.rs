@@ -683,7 +683,8 @@ mod tests {
 
     #[test]
     fn dump_output_depth_limits_recursion() {
-        // `bca find` dumps with depth=1 (src/find.rs) to show only the
+        // `bca find` dumps with depth=1
+        // (`big-code-analysis-ast/src/find.rs`) to show only the
         // matched node, not its subtree. depth=1 renders the node and stops
         // before its children; depth=0 renders nothing. This is the only
         // positive-depth path in production, and it is what the `depth - 1`

@@ -88,8 +88,6 @@ use crate::npm::{self, Npm};
 use crate::tokens::{self, Tokens};
 use crate::wmc::{self, Wmc};
 
-use crate::traits::*;
-
 mod compute;
 
 // Inherent / trait impl blocks for the public types defined below live
@@ -108,9 +106,12 @@ pub use compute::analyze;
 // it) and re-exported here so `crate::spaces::SpaceKind` keeps resolving.
 pub use crate::space_kind::SpaceKind;
 // `metrics_inner` and `push_children` are `pub(crate)` — `metrics_inner`
-// is re-exported from `lib.rs` and `push_children` is consumed by
-// `crate::ops`, so both must stay reachable at their `crate::spaces::`
-// paths.
+// is called from `crate::spaces::ast` (through `with_any_parser!`),
+// `crate::test_support` and `crate::spaces_tests`, and `push_children`
+// is consumed by `crate::ops`, so both must stay reachable at their
+// `crate::spaces::` paths. (Before #1376 `metrics_inner` was also
+// re-exported from `lib.rs` for the feature-gated `mk_action!` arms;
+// that re-export is gone with the arms.)
 pub(crate) use compute::{metrics_inner, push_children};
 // The inline `mod tests` drives `apply_suppression` via
 // `super::apply_suppression`; re-import the name into this module

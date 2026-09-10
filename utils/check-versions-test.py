@@ -85,6 +85,18 @@ class InternalVendoredPinTest(unittest.TestCase):
         line = 'big-code-analysis = { path = "..", version = "=1.1.0" }'
         self.assertEqual(_scan_internal_pins(line), [("big-code-analysis", "1.1.0")])
 
+    def test_sub_crate_consumer_pin_is_recognized(self) -> None:
+        # #1376: the root pins `big-code-analysis-ast` at `=X.Y.Z` in
+        # both `[dependencies]` and `[dev-dependencies]`. The pre-#1376
+        # key alternative was a bare `big-code-analysis` under
+        # `fullmatch`, so neither pin was seen and the gate still
+        # reported every owned crate in lockstep.
+        line = (
+            'big-code-analysis-ast = { path = "big-code-analysis-ast", '
+            'version = "=1.1.0", default-features = false }'
+        )
+        self.assertEqual(_scan_internal_pins(line), [("big-code-analysis-ast", "1.1.0")])
+
     def test_external_grammar_table_not_treated_as_internal(self) -> None:
         # A non-vendored grammar declared as an inline table (no
         # bca-* package alias) must NOT be swept into the internal pin
@@ -108,13 +120,15 @@ class InternalVendoredPinTest(unittest.TestCase):
 
     def test_real_manifests_expose_all_vendored_pins(self) -> None:
         # Across the real INTERNAL_PIN_MANIFESTS the scan must find the
-        # 10 vendored grammar pins plus the 2 consumer pins (12 total),
-        # all at the canonical workspace version.
+        # 10 vendored grammar pins, the 2 `big-code-analysis` consumer
+        # pins, and the 2 `big-code-analysis-ast` pins the root carries
+        # in `[dependencies]` and `[dev-dependencies]` since #1376
+        # (14 total), all at the canonical workspace version.
         canonical = cv.workspace_version(REPO_ROOT)
         pins: list[tuple[str, str]] = []
         for manifest_path in cv.INTERNAL_PIN_MANIFESTS:
             pins += _scan_internal_pins(cv.read(REPO_ROOT / manifest_path))
-        self.assertEqual(len(pins), 12, pins)
+        self.assertEqual(len(pins), 14, pins)
         self.assertTrue(all(ver == canonical for _, ver in pins), pins)
 
 

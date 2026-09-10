@@ -41,8 +41,9 @@ fn space_kind_non_exhaustive_serde_roundtrip_unchanged() {
 /// `tree-sitter-mozcpp` currently emits. The structural
 /// `FunctionDefinition*` contract for the aliased kind_ids
 /// (489/491/494) that no observed input parses to is documented
-/// at the predicate call sites in `src/checker.rs` and
-/// `src/getter.rs` — see issue #285.
+/// at the predicate call sites in
+/// `big-code-analysis-ast/src/checker.rs` and
+/// `big-code-analysis-ast/src/getter.rs` — see issue #285.
 #[test]
 fn cpp_function_definition_is_classified_as_function() {
     use crate::Cpp;
@@ -2529,5 +2530,52 @@ fn walk_frees_every_cognitive_nesting_slot() {
             before,
             "{lang:?}: a nesting slot outlived the walk"
         );
+    }
+}
+
+#[cfg(test)]
+mod empty_root_contract {
+    use crate::{LANG, MetricsOptions, Source, SpaceKind, analyze};
+
+    // Regression guard for issue #262: the `MetricsError::EmptyRoot`
+    // variant is documented as "Reserved — not produced today".
+    // `metrics_with_options` pushes a synthetic top-level Unit
+    // `FuncSpace` before walking, so every parse — including empty,
+    // whitespace-only, and comment-only input — currently returns
+    // `Ok(FuncSpace { kind: Unit, .. })`. If the walker is ever
+    // changed to legitimately drain its state stack (e.g. by
+    // dropping the synthetic root), this test will start failing
+    // and the variant docs must be revisited.
+    #[test]
+    fn empty_and_comment_only_input_never_returns_empty_root() {
+        // Pair every enabled language with sources that would, by
+        // the old (false) variant doc, surface `EmptyRoot`. The
+        // comment syntaxes cover line and block forms across the
+        // supported language families.
+        let inputs: &[&[u8]] = &[b"", b"   \n\t\n", b"// just a comment\n", b"/* block */\n"];
+
+        for lang in LANG::into_enum_iter() {
+            if !lang.is_enabled() {
+                continue;
+            }
+            for src in inputs {
+                let space = analyze(Source::new(lang, src), MetricsOptions::default())
+                    .unwrap_or_else(|err| {
+                        panic!(
+                            "{} on input {:?} unexpectedly returned {err:?}; \
+                             EmptyRoot is documented as not produced today",
+                            lang.name(),
+                            String::from_utf8_lossy(src),
+                        )
+                    });
+                assert_eq!(
+                    space.kind,
+                    SpaceKind::Unit,
+                    "{} on input {:?} produced a non-Unit top-level FuncSpace",
+                    lang.name(),
+                    String::from_utf8_lossy(src),
+                );
+            }
+        }
     }
 }

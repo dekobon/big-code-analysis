@@ -135,7 +135,7 @@ help:
 	@echo "  grammar-marker-sync-test             Self-tests for the grammar-marker-sync gate"
 	@echo "  check-versions                       Enforce lockstep version invariant across owned crates"
 	@echo "  check-versions-test                  Self-tests for the check-versions gate"
-	@echo "  check-grammar-crate-test            Sync-test EXTENSIONS table vs src/langs.rs"
+	@echo "  check-grammar-crate-test            Sync-test EXTENSIONS table vs langs.rs"
 	@echo "  check-excluded-manifests             Assert excluded crates root a workspace, declare lints, and =-pin grammars"
 	@echo "  check-excluded-manifests-test        Self-tests for the check-excluded-manifests gate"
 	@echo "  check-ruff-lockstep                  Assert the ruff-pre-commit rev, uv.lock, and the requirements export agree"
@@ -322,17 +322,18 @@ test-doc:
 # triples the lib suite's wall time. Runs in the `chain-audit` CI lane;
 # run it locally around any change to a walk's truncate/push bookkeeping.
 #
-# Library-scoped, matching that lane: all five walks that thread a chain
-# live in the root crate, so the CLI / web / integration tiers would
-# re-pay the quadratic cost without reaching an assertion the lib tests
-# do not already reach.
+# Library-scoped, matching that lane: the five walks that thread a chain
+# live in the root crate (`spaces::compute`, `ops`, `suppression`) and
+# in `big-code-analysis-ast` (`comment_rm`, `Search::act_on_node`), so
+# the CLI / web / integration tiers would re-pay the quadratic cost
+# without reaching an assertion the lib tests do not already reach.
 #
 # RUSTFLAGS rather than a Cargo feature on purpose: `make test` passes
 # `--all-features`, so a feature would switch the audit back on in the
 # very inner loop this target exists to keep fast.
 chain-audit:
 	RUSTFLAGS="$${RUSTFLAGS:-} --cfg chain_audit" \
-	  cargo test -p big-code-analysis --lib --all-features
+	  cargo test -p big-code-analysis -p big-code-analysis-ast --lib --all-features
 
 # `cargo insta test` shells out to `cargo test`, not $(TEST_CMD): insta's
 # nextest integration needs `--test-runner nextest`, and under it insta
@@ -465,8 +466,9 @@ grammar-marker-sync:
 
 # Enums-codegen drift gate. Closes #405: running any
 # `recreate-grammars.sh` invocation silently regenerated
-# `src/c_langs_macros/{c_macros,c_specials}.rs` to a pre-
-# optimization form. This gate runs the codegen into a tempdir
+# `big-code-analysis-ast/src/c_langs_macros/{c_macros,c_specials}.rs`
+# to a pre-optimization form. This gate runs the codegen into a
+# tempdir
 # and diffs against the checked-in files; drift fails.
 enums-codegen-drift:
 	@echo "Checking enums codegen drift..."
@@ -586,7 +588,7 @@ check-ruff-lockstep-test:
 	@(cd $(BASE_DIR) && python3 -m unittest -q utils/check-ruff-lockstep-test.py)
 
 # Publish-metadata gate (#1224). `cargo publish --dry-run` is the
-# natural pre-tag check, but it cannot run for the three top-level
+# natural pre-tag check, but it cannot run for the four top-level
 # crates: each pins an internal dependency at `=<version>`, and the
 # Lockstep policy makes that the version being released — which is by
 # definition not yet on crates.io. The workaround it replaces skipped
@@ -652,8 +654,9 @@ check-safety-doc-pin-test:
 	@(cd $(BASE_DIR) && python3 -m unittest -q utils/check-safety-doc-pin-test.py)
 
 # Sync gate for check-grammar-crate.py's EXTENSIONS table. Re-derives
-# the grammar -> extension mapping from src/langs.rs `mk_langs!` and
-# fails if the hand-maintained table has drifted (#869). Static — no
+# the grammar -> extension mapping from the parse layer's langs.rs
+# `mk_langs!` and fails if the hand-maintained table has drifted
+# (#869). Static — no
 # network, no cargo — so it rides the cheap test DAG alongside the
 # other helper-script self-tests.
 check-grammar-crate-test:
@@ -1440,7 +1443,7 @@ doc-check-docsrs:
 	@if rustup toolchain list 2>/dev/null | grep -q '^nightly'; then \
 	  echo "Building docs.rs-style rustdoc (nightly, --cfg docsrs, -D warnings)..."; \
 	  RUSTDOCFLAGS="--cfg docsrs -D warnings" \
-	    cargo +nightly doc --no-deps -p big-code-analysis --all-features; \
+	    cargo +nightly doc --no-deps -p big-code-analysis -p big-code-analysis-ast --all-features; \
 	else \
 	  echo "nightly toolchain not found; skipping docs.rs-style doc check"; \
 	fi
@@ -2026,7 +2029,7 @@ verify-changelog:
 #
 # Only the five vendored grammar leaves can be dry-run, so they are all
 # that last sentence covers. They carry no internal pins, so `cargo
-# publish --dry-run` resolves for them at any time. The three top-level
+# publish --dry-run` resolves for them at any time. The four top-level
 # crates cannot: each pins an internal
 # dependency at `=<version>` and the Lockstep policy makes that the
 # version being released, which is by definition not yet on

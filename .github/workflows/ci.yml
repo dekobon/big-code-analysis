@@ -297,7 +297,7 @@ jobs:
           # warnings` is repeated here deliberately. Keep the two in
           # step if the workflow-level value ever gains a flag.
           RUSTFLAGS: "-D warnings --cfg chain_audit"
-        run: cargo test -p big-code-analysis --lib --all-features --locked
+        run: cargo test -p big-code-analysis -p big-code-analysis-ast --lib --all-features --locked
 
   coverage:
     name: coverage
@@ -403,6 +403,14 @@ jobs:
           # `Tsx` variant).
           - name: minimal-langs (lib)
             flags: --no-default-features --features rust,typescript -p big-code-analysis
+          # The parse layer builds on its own too (#1376): the three lib
+          # legs again, against the crate that actually links the grammars.
+          - name: default (ast)
+            flags: -p big-code-analysis-ast
+          - name: no-default-features (ast)
+            flags: --no-default-features -p big-code-analysis-ast
+          - name: minimal-langs (ast)
+            flags: --no-default-features --features rust,typescript -p big-code-analysis-ast
           - name: default (cli)
             flags: -p big-code-analysis-cli
           - name: no-default-features (cli)

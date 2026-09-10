@@ -1,5 +1,5 @@
 //! Behavioural coverage for the per-language `Alterator::alterate`
-//! string-flattening arms in `src/alterator.rs`.
+//! string-flattening arms in `big-code-analysis-ast/src/alterator.rs`.
 //!
 //! `alterate` collapses a string-like literal into a single leaf
 //! [`AstNode`] holding its verbatim source text, so the AST dump (and the

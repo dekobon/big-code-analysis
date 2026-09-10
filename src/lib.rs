@@ -124,16 +124,16 @@
 // Cargo lint (#1227).
 #![cfg_attr(not(test), warn(clippy::unwrap_used))]
 
-// Internal-only modules. Nothing is re-exported from these.
-mod c_declarator;
-mod c_langs_macros;
-mod c_macro;
-mod cfg_predicate;
-mod checker;
-mod getter;
-mod halstead_type;
-mod lang_helpers;
-mod space_kind;
+// The parse and classification layer lives in `big-code-analysis-ast`
+// (#1376). Its public names — the generated token enums, the `*Code` /
+// `*Parser` tags, `Node`, `Ancestors`, `Checker`, `Getter`, the language
+// helpers — are the working vocabulary every metric module reaches
+// through `use crate::*`, so the whole crate root is glob-imported here
+// at `pub(crate)`. Only the explicit `pub use` lines further down widen
+// the published surface.
+#[doc(hidden)]
+pub(crate) use big_code_analysis_ast::*;
+
 // Fast hashing for the walk's integer-keyed maps. Shared by `spaces`
 // (node ids) and `metrics::halstead` (grammar `kind_id`s); `metrics::loc`
 // was the third until #1109 moved its line sets to a bitset. The module
@@ -141,59 +141,24 @@ mod space_kind;
 // collections are excluded — extend it, not this line, when a third
 // arrives.
 mod int_hash;
-#[cfg(test)]
-mod language_enum_roundtrip;
-mod languages;
+// The metric-side macros (`implement_metric_trait!`) plus re-exports of
+// the kind-set and dispatch macros defined in `big-code-analysis-ast`.
 mod macros;
-// One declaration form for the thread-local counters that make an
-// output-invisible optimization testable. The module doc states the
-// shared invariant (the counter is unconditional, only its accessor is
-// test-gated) once; each invocation carries its own narrative.
-mod observation;
 // Parse-and-inspect shims shared by the per-metric test modules. Kept out
 // of any production file so the self-scan gate does not spend a shipping
 // module's metric budget on test-only code (#1066).
 #[cfg(test)]
 mod test_support;
+// Drift guard for the crate-level `## Supported Languages` list above.
+#[cfg(test)]
+mod c_family_space_names_tests;
+#[cfg(test)]
+mod lib_docs_tests;
+#[cfg(test)]
+mod observation_tests;
 
-// `langs` hosts the `mk_langs!` macro expansion. `LANG` is the only
-// public name; the per-language `<Lang>Code` tags and `<Lang>Parser`
-// aliases are `pub(crate)` parser machinery reached only through the
-// [`Ast`] seam.
-mod langs;
-pub use crate::langs::{LANG, get_from_emacs_mode, get_from_ext};
-// `<Lang>Code` tags are reached crate-internally through `use crate::*`
-// in the per-language `Checker` / `Getter` / `Alterator` / metric impls.
-pub(crate) use crate::langs::{
-    BashCode, CCode, CcommentCode, CppCode, CsharpCode, ElixirCode, GoCode, GroovyCode, IrulesCode,
-    JavaCode, JavascriptCode, KotlinCode, LuaCode, MozcppCode, MozjsCode, ObjcCode, PerlCode,
-    PhpCode, PreprocCode, PythonCode, RubyCode, RustCode, TclCode, TsxCode, TypescriptCode,
-};
-// The `<Lang>Parser` aliases are the concrete `Parser<<Lang>Code>` types
-// driven by the `AnyParser` dispatch in `crate::langs`; at the crate root
-// they are reached only from `#[cfg(test)]` modules, so the re-export is
-// `unused` in a non-test build.
-#[allow(unused_imports)]
-pub(crate) use crate::langs::{
-    BashParser, CParser, CcommentParser, CppParser, CsharpParser, ElixirParser, GoParser,
-    GroovyParser, IrulesParser, JavaParser, JavascriptParser, KotlinParser, LuaParser,
-    MozcppParser, MozjsParser, ObjcParser, PerlParser, PhpParser, PreprocParser, PythonParser,
-    RubyParser, RustParser, TclParser, TsxParser, TypescriptParser,
-};
-// `ParseLangError` is the `FromStr` error for `LANG`; it is defined in
-// the `mk_lang!` macro layer (`crate::macros`) rather than `crate::langs`.
-pub use crate::macros::ParseLangError;
-
-// Internal crate-root re-exports. Hand-written per-language modules
-// (`src/getter.rs`, `src/checker.rs`, `src/alterator.rs`, the
-// per-language metric impls) use `use crate::*` to bring the
-// macro-generated `<Lang>Code` token enums and per-language helper
-// types into scope; the per-language token enums in
-// `src/languages/language_*.rs` are also reached through the crate
-// root. Re-exporting these as `pub(crate)` keeps internal compilation
-// working without widening the published surface.
-pub(crate) use crate::checker::*;
-pub(crate) use crate::languages::*;
+// --- Language identification (defined in `big-code-analysis-ast`) ---
+pub use big_code_analysis_ast::{LANG, ParseLangError, get_from_emacs_mode, get_from_ext};
 
 // Hand-written modules (`src/spaces.rs`, `src/output/dump_metrics.rs`,
 // the metric macros) refer to per-metric submodules by their short
@@ -253,8 +218,12 @@ pub mod vcs;
 mod diag;
 
 // --- Errors ---
-mod error;
-pub use crate::error::MetricsError;
+//
+// `MetricsError` is the parse layer's error (every dispatch entry point
+// returns it, including `LANG::tree_sitter_language`), so it is defined
+// in `big-code-analysis-ast`; `FromPathError` wraps it for the
+// file-backed `Ast::from_path` and stays here.
+pub use big_code_analysis_ast::MetricsError;
 mod from_path_error;
 pub use crate::from_path_error::FromPathError;
 
@@ -295,13 +264,10 @@ pub use crate::output::{
 };
 
 // --- AST plumbing (Node) ---
-mod node;
-pub(crate) use crate::node::Ancestors;
-pub use crate::node::Node;
+pub use big_code_analysis_ast::Node;
 
 // --- Language detection / I/O helpers ---
-mod tools;
-pub use crate::tools::{
+pub use big_code_analysis_ast::{
     SkipReason, get_language_for_file, guess_language, is_generated, normalize_eol, read_file,
     read_file_with_eol, read_file_with_eol_classified, write_file,
 };
@@ -312,61 +278,36 @@ pub use crate::concurrent_files::{
     ConcurrentErrors, ConcurrentRunner, FilesData, NumJobs, ParseNumJobsError,
 };
 
-// --- Comment removal ---
-//
-// `rm_comments` is the internal walk core reached only through the
-// [`Ast::strip_comments`] seam (`with_any_parser!` in `spaces/ast.rs`).
-mod comment_rm;
-
-// --- Per-file node counting / finding (reached via the `Ast` seam) ---
-mod count;
-pub use crate::count::{Count, CountCollector};
-
-mod find;
+// --- Per-file node counting (reached via the `Ast` seam) ---
+pub use big_code_analysis_ast::{Count, CountCollector};
 
 mod function;
 pub use crate::function::{FunctionSpan, dump_function_spans, dump_function_spans_with_color};
 
 // --- AST dump ---
-mod ast;
-pub use crate::ast::{AstCfg, AstNode, AstPayload, AstResponse, MAX_AST_SERIALIZE_DEPTH, Span};
-
-// --- Stack-depth bounds shared by the crate's recursive types ---
-mod recursion;
+pub use big_code_analysis_ast::{
+    AstCfg, AstNode, AstPayload, AstResponse, MAX_AST_SERIALIZE_DEPTH, Span,
+};
 
 // --- Halstead operator/operand result type ---
 mod ops;
 pub use crate::ops::Ops;
 
 // --- Preprocessor handling (C/C++) ---
-mod preproc;
-pub use crate::preproc::{
+pub use big_code_analysis_ast::{
     PreprocDiagnostic, PreprocFile, PreprocResults, fix_includes, get_macros, preprocess,
 };
 
-// --- Alterator trait (per-language AST simplification) ---
+// --- Generic parser plumbing ---
 //
-// Crate-internal: an extension trait over the `pub(crate)` `Checker`
-// machinery, used only by the per-language `Parser<T>` impls behind the
-// [`Ast`] seam.
-mod alterator;
-pub(crate) use crate::alterator::Alterator;
-
-// --- Generic parser plumbing (crate-internal) ---
+// `Parser`, `ParserTrait`, `Filter`, `LanguageInfo`, `Checker`,
+// `Getter` and `Alterator` are defined in `big-code-analysis-ast` and
+// reach this crate through the glob import above. They are not
+// re-exported: the single public analysis seam is [`Ast`], which wraps
+// the language-dispatched `AnyParser` carrier. See STABILITY.md.
 //
-// `Parser`, `ParserTrait`, `Filter`, and `LanguageInfo` are the
-// internal parser machinery driving every metric walk. They are
-// `pub(crate)` only: the single public analysis seam is [`Ast`],
-// which wraps the language-dispatched `AnyParser` carrier. See
-// STABILITY.md.
-mod parser;
-pub(crate) use crate::parser::Parser;
-
-mod traits;
-pub(crate) use crate::traits::{LanguageInfo, ParserTrait, Search};
-
-// The metric half of the parser contract; `ParserTrait` above is the
-// parse half. See `src/metric_suite.rs`.
+// The metric half of the parser contract; `ParserTrait` is the parse
+// half. See `src/metric_suite.rs`.
 mod metric_suite;
 pub(crate) use crate::metric_suite::MetricSuite;
 

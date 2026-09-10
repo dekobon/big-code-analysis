@@ -12,6 +12,7 @@ on:
     paths:
       - 'big-code-analysis-book/**'
       - 'src/**'
+      - 'big-code-analysis-ast/**'
       - 'big-code-analysis-cli/**'
       - 'big-code-analysis-web/**'
       - 'big-code-analysis-py/**'
@@ -35,6 +36,7 @@ on:
     paths:
       - 'big-code-analysis-book/**'
       - 'src/**'
+      - 'big-code-analysis-ast/**'
       - 'big-code-analysis-cli/**'
       - 'big-code-analysis-web/**'
       - 'big-code-analysis-py/**'

@@ -195,8 +195,32 @@ class EditionTest(unittest.TestCase):
             "2021",
         )
         self.assertEqual(
-            gate.edition_for(REPO_ROOT / "src/getter/lua.rs", REPO_ROOT), "2024"
+            gate.edition_for(REPO_ROOT / "src/lib.rs", REPO_ROOT), "2024"
         )
+
+    def test_a_member_crate_inheriting_the_edition_resolves_to_2024(self) -> None:
+        # The third crate shape, and since #1376 the one that owns 19 of
+        # the 25 baselined bail files: a workspace *member* whose
+        # manifest spells `edition.workspace = true` rather than a
+        # literal. `edition_for` has no inheritance branch and reaches
+        # DEFAULT_EDITION for it, which is right today only because the
+        # workspace edition is also 2024 -- pin it so a workspace bump
+        # that leaves the fallback behind fails here rather than as
+        # "rustfmt refused to parse these files".
+        #
+        # The paths are checked for existence first: an `edition_for`
+        # lookup never stats its argument (it walks parents looking for
+        # a Cargo.toml), so a stale path resolves through the repo root
+        # and asserts nothing -- which is how `src/getter/lua.rs`
+        # survived this file's move.
+        for relative in (
+            "big-code-analysis-ast/src/getter/lua.rs",
+            "big-code-analysis-cli/src/lib.rs",
+        ):
+            with self.subTest(path=relative):
+                path = REPO_ROOT / relative
+                self.assertTrue(path.is_file(), f"{relative} must exist")
+                self.assertEqual(gate.edition_for(path, REPO_ROOT), "2024")
 
     @unittest.skipUnless(HAVE_RUSTFMT, "rustfmt not installed")
     def test_a_2024_keyword_as_an_identifier_parses_under_2021(self) -> None:

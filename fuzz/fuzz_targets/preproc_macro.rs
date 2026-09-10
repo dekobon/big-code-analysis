@@ -4,7 +4,8 @@
 //! # Why this target exists
 //!
 //! It is the direct residue of #1152. Adopting
-//! `clippy::indexing_slicing` on `src/c_macro.rs` left nine per-function
+//! `clippy::indexing_slicing` on `big-code-analysis-ast/src/c_macro.rs`
+//! left nine per-function
 //! `#[allow]`s — every one a computed index into attacker-controlled
 //! bytes whose bound is asserted by a human comment rather than by the
 //! compiler. That is precisely the population a fuzzer is for, and #126

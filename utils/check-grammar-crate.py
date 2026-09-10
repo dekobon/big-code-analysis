@@ -42,7 +42,7 @@ NEW_SUFFIX = "-new"
 
 # File-extension globs each tree-sitter grammar crate owns.
 #
-# SOURCE OF TRUTH: `src/langs.rs` `mk_langs!` — the per-variant
+# SOURCE OF TRUTH: `big-code-analysis-ast/src/langs.rs` `mk_langs!` — the per-variant
 # extension lists routed by `get_from_ext`. Keys here are the grammar
 # *crate* names from the root `Cargo.toml` (e.g. `tree-sitter-kotlin-ng`,
 # `tree-sitter-c-sharp`), because a grammar bump names the crate. Each
@@ -51,7 +51,7 @@ NEW_SUFFIX = "-new"
 #
 # Drift here means a bump tests the wrong files (or none). The
 # `check-grammar-crate-test.py` sync test re-derives this table from
-# `src/langs.rs` and fails on any divergence (#869). When `mk_langs!`
+# that file and fails on any divergence (#869). When `mk_langs!`
 # changes (new language, moved extension), update both together.
 #
 # Notes on the non-obvious entries:

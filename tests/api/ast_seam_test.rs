@@ -606,6 +606,53 @@ fn find_returns_named_nodes() {
 
 #[cfg(feature = "rust")]
 #[test]
+fn node_accessors_are_reachable_through_the_root_crate() {
+    // #1376 moved `Node` into `big-code-analysis-ast` and made the
+    // accessors the metric walk uses public; they are part of this
+    // crate's escape-hatch surface now (STABILITY.md), so pin that a
+    // caller of `big_code_analysis` alone can reach every one of them.
+    // The values are the pinned grammar's and are not asserted beyond
+    // what any tree-sitter-rust release must agree on.
+    let source = b"fn a(x: u8) {}
+";
+    let ast = Ast::parse(Source::new(LANG::Rust, source)).expect("rust feature enabled");
+    let root = ast.root_node();
+    assert_eq!(root.kind(), "source_file");
+    assert!(root.is_named());
+    assert_eq!(root.start_byte(), 0);
+    assert_eq!(root.end_byte(), source.len());
+    assert_eq!(root.start_position(), (0, 0));
+    assert_eq!(root.start_row(), 0);
+    assert!(root.parent().is_none());
+
+    let item = root.child(0).expect("the file has one item");
+    assert_eq!(item.kind(), "function_item");
+    assert_eq!(
+        item.kind_id(),
+        root.children().next().expect("same child").kind_id()
+    );
+    assert_eq!(
+        item.child_count(),
+        root.children_with(&mut root.cursor())
+            .next()
+            .expect("same child")
+            .child_count()
+    );
+    assert_ne!(item.id(), root.id());
+    assert!(item.previous_sibling().is_none());
+    assert_eq!(item.end_line(), 1);
+
+    let name = item
+        .child_by_field_name("name")
+        .expect("function_item has a name field");
+    assert_eq!(name.utf8_text(source), Some("a"));
+    assert_eq!(name.parent().map(|p| p.id()), Some(item.id()));
+    assert_eq!((name.start_row(), name.end_row()), (0, 0));
+    assert_eq!(name.end_position(), (0, 4));
+}
+
+#[cfg(feature = "rust")]
+#[test]
 fn suppressions_collects_in_source_markers() {
     use big_code_analysis::{Metric, SuppressionScope};
 

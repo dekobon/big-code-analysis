@@ -30,7 +30,8 @@
 # comment to hoist in these:
 #
 #   enums/src/macros.rs        `Lang::$camel => stringify!($camel)`
-#   src/macros/mod.rs          `mk_lang!` / `mk_action!` / `mk_langs!`
+#   big-code-analysis-ast/src/macros/mod.rs
+#                              `mk_lang!` / `mk_action!` / `mk_langs!`
 #                              bodies; every arm is `LANG::$camel => …`
 #   src/metrics/cyclomatic.rs  `impl_cyclomatic_c_family!`, whose arm
 #                              `… | $ternary $(| $short_circuit)+ =>`
@@ -44,7 +45,8 @@
 # kind #1136 decided to keep, so the count grew by one with nothing new
 # to hoist. Hand-check the arm's formatting instead.
 #
-#   src/getter/ruby.rs         3 -> 4, the `BQUOTE` subshell guard
+#   big-code-analysis-ast/src/getter/ruby.rs
+#                              3 -> 4, the `BQUOTE` subshell guard
 #                              (#1360) in `get_op_type`
 #   src/vcs/error.rs           `classify_error_variants!` (#1245): its
 #                              matcher, plus the 11 `$pat => $sample`
@@ -113,26 +115,26 @@
 # not checking it, and it does drift: before #1136 `src/getter/java.rs`
 # carried a 252-character match arm.
 
+big-code-analysis-ast/src/getter.rs 3
+big-code-analysis-ast/src/getter/bash.rs 3
+big-code-analysis-ast/src/getter/c.rs 3
+big-code-analysis-ast/src/getter/cpp.rs 5
+big-code-analysis-ast/src/getter/csharp.rs 5
+big-code-analysis-ast/src/getter/elixir.rs 3
+big-code-analysis-ast/src/getter/go.rs 1
+big-code-analysis-ast/src/getter/groovy.rs 5
+big-code-analysis-ast/src/getter/irules.rs 6
+big-code-analysis-ast/src/getter/java.rs 2
+big-code-analysis-ast/src/getter/kotlin.rs 4
+big-code-analysis-ast/src/getter/lua.rs 3
+big-code-analysis-ast/src/getter/mozcpp.rs 5
+big-code-analysis-ast/src/getter/perl.rs 3
+big-code-analysis-ast/src/getter/php.rs 11
+big-code-analysis-ast/src/getter/python.rs 7
+big-code-analysis-ast/src/getter/ruby.rs 4
+big-code-analysis-ast/src/getter/tcl.rs 6
+big-code-analysis-ast/src/macros/mod.rs 14
 enums/src/macros.rs 1
-src/getter.rs 3
-src/getter/bash.rs 3
-src/getter/c.rs 3
-src/getter/cpp.rs 5
-src/getter/csharp.rs 5
-src/getter/elixir.rs 3
-src/getter/go.rs 1
-src/getter/groovy.rs 5
-src/getter/irules.rs 6
-src/getter/java.rs 2
-src/getter/kotlin.rs 4
-src/getter/lua.rs 3
-src/getter/mozcpp.rs 5
-src/getter/perl.rs 3
-src/getter/php.rs 11
-src/getter/python.rs 7
-src/getter/ruby.rs 4
-src/getter/tcl.rs 6
-src/macros/mod.rs 38
 src/metrics/abc/elixir.rs 5
 src/metrics/cognitive/perl.rs 8
 src/metrics/cyclomatic.rs 7

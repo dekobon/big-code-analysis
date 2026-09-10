@@ -4,8 +4,9 @@
 Each test stages a synthetic mini-repo in a tempdir: the
 `enums/` crate is symlinked to the live repo (path-dep
 resolution depends on a real sibling layout, and the data files
-are read verbatim), but `src/c_langs_macros/` and
-`src/languages/` are deep-copied so per-test mutations stay
+are read verbatim), but `big-code-analysis-ast/src/c_langs_macros/`
+and `big-code-analysis-ast/src/languages/` are deep-copied so
+per-test mutations stay
 isolated. The drift script is then invoked from the tempdir.
 
 The shared cargo target cache (`enums/target/`) is warmed once
@@ -29,6 +30,8 @@ import unittest
 # or writes is anchored at the repository root one level above.
 UTILS_DIR = pathlib.Path(__file__).resolve().parent
 REPO_ROOT = UTILS_DIR.parent
+# Where the generated files live since #1376 (relative to the repo root).
+AST_SRC = "big-code-analysis-ast/src"
 SCRIPT_SRC = UTILS_DIR / "check-enums-codegen-drift.sh"
 
 
@@ -42,9 +45,7 @@ def _staged(tmpdir: pathlib.Path) -> pathlib.Path:
     return tmpdir / "utils" / SCRIPT_SRC.name
 
 
-def _run(
-    tmpdir: pathlib.Path, *args: str
-) -> subprocess.CompletedProcess[str]:
+def _run(tmpdir: pathlib.Path, *args: str) -> subprocess.CompletedProcess[str]:
     """Run the drift script from `tmpdir` (its $ROOT)."""
     return subprocess.run(
         ["bash", str(_staged(tmpdir)), *args],
@@ -69,8 +70,7 @@ class DriftGateTest(unittest.TestCase):
         )
         if result.returncode != 0:
             raise RuntimeError(
-                f"warm-up cargo build failed (rc={result.returncode}):\n"
-                f"{result.stderr}"
+                f"warm-up cargo build failed (rc={result.returncode}):\n{result.stderr}"
             )
 
     def setUp(self) -> None:
@@ -93,11 +93,11 @@ class DriftGateTest(unittest.TestCase):
             (self.tmpdir / ts_crate).symlink_to(REPO_ROOT / ts_crate)
         # Copy the mutable artifact dirs; per-test mutations
         # land here and are torn down with the tempdir.
-        (self.tmpdir / "src").mkdir()
+        (self.tmpdir / AST_SRC).mkdir(parents=True)
         for sub in ("c_langs_macros", "languages"):
             shutil.copytree(
-                REPO_ROOT / "src" / sub,
-                self.tmpdir / "src" / sub,
+                REPO_ROOT / AST_SRC / sub,
+                self.tmpdir / AST_SRC / sub,
             )
         # Copy the script itself so `dirname "$BASH_SOURCE"/..`
         # resolves to the tempdir. (`git rev-parse
@@ -126,7 +126,7 @@ class DriftGateTest(unittest.TestCase):
         # diverges. The script must report drift, the specific
         # filename, AND the remediation block (defended by the
         # pipefail-safe diff pipeline).
-        target = self.tmpdir / "src" / "c_langs_macros" / "c_macros.rs"
+        target = self.tmpdir / AST_SRC / "c_langs_macros" / "c_macros.rs"
         text = target.read_text(encoding="utf-8")
         target.write_text(
             text.replace('"INT16_C",', '"FAKE_INT16_C",', 1),
@@ -134,9 +134,7 @@ class DriftGateTest(unittest.TestCase):
         )
         result = _run(self.tmpdir)
         self.assertEqual(result.returncode, 1)
-        self.assertIn(
-            "drift: src/c_langs_macros/c_macros.rs", result.stderr
-        )
+        self.assertIn(f"drift: {AST_SRC}/c_langs_macros/c_macros.rs", result.stderr)
         # Remediation block must print despite the diff
         # truncation pipeline — this is the regression test
         # for the `diff | head -40` pipefail abort that the
@@ -145,9 +143,9 @@ class DriftGateTest(unittest.TestCase):
         self.assertIn("Regenerate the checked-in files", result.stderr)
 
     def test_mutated_language_file_fails_with_drift_message(self) -> None:
-        # Same as above but on the src/languages side, to
+        # Same as above but on the languages side, to
         # exercise both diff_dir invocations.
-        target = self.tmpdir / "src" / "languages" / "language_rust.rs"
+        target = self.tmpdir / AST_SRC / "languages" / "language_rust.rs"
         text = target.read_text(encoding="utf-8")
         target.write_text(
             text.replace("pub enum Rust", "pub enum RustFake", 1),
@@ -155,9 +153,7 @@ class DriftGateTest(unittest.TestCase):
         )
         result = _run(self.tmpdir)
         self.assertEqual(result.returncode, 1)
-        self.assertIn(
-            "drift: src/languages/language_rust.rs", result.stderr
-        )
+        self.assertIn(f"drift: {AST_SRC}/languages/language_rust.rs", result.stderr)
         self.assertIn("Codegen drift detected", result.stderr)
 
     # --- orphan detection ---
@@ -165,7 +161,7 @@ class DriftGateTest(unittest.TestCase):
     def test_orphan_language_file_fails_with_stale_message(self) -> None:
         # A `language_zombie.rs` that the codegen doesn't emit
         # must trip the reverse-direction (orphan) check.
-        orphan = self.tmpdir / "src" / "languages" / "language_zombie.rs"
+        orphan = self.tmpdir / AST_SRC / "languages" / "language_zombie.rs"
         orphan.write_text(
             "// orphan generated file no codegen produces\n",
             encoding="utf-8",
@@ -179,7 +175,7 @@ class DriftGateTest(unittest.TestCase):
         )
 
     def test_orphan_c_langs_macros_file_fails(self) -> None:
-        orphan = self.tmpdir / "src" / "c_langs_macros" / "c_extra.rs"
+        orphan = self.tmpdir / AST_SRC / "c_langs_macros" / "c_extra.rs"
         orphan.write_text("// orphan\n", encoding="utf-8")
         result = _run(self.tmpdir)
         self.assertEqual(result.returncode, 1)
@@ -203,13 +199,11 @@ class DriftGateTest(unittest.TestCase):
         # exceed the 40-line head cap. The footer must report
         # how many lines were hidden so the reviewer knows the
         # output is incomplete.
-        target = self.tmpdir / "src" / "c_langs_macros" / "c_macros.rs"
+        target = self.tmpdir / AST_SRC / "c_langs_macros" / "c_macros.rs"
         text = target.read_text(encoding="utf-8")
-        fake_block = "\n".join(
-            f'    "FAKE_ENTRY_{i:03d}",' for i in range(50)
-        )
+        fake_block = "\n".join(f'    "FAKE_ENTRY_{i:03d}",' for i in range(50))
         target.write_text(
-            text.replace('"INT16_C",', f"{fake_block}\n    \"INT16_C\",", 1),
+            text.replace('"INT16_C",', f'{fake_block}\n    "INT16_C",', 1),
             encoding="utf-8",
         )
         result = _run(self.tmpdir)
@@ -222,9 +216,7 @@ class DriftGateTest(unittest.TestCase):
 
     # --- script failure-propagation path (exit 2) ---
 
-    def _run_with_cargo_stub(
-        self, stub_body: str
-    ) -> subprocess.CompletedProcess[str]:
+    def _run_with_cargo_stub(self, stub_body: str) -> subprocess.CompletedProcess[str]:
         """Run the drift script with a fake `cargo` shadowing PATH.
 
         Mirrors `test_independent_of_fd`'s stub-on-PATH technique:
@@ -335,7 +327,7 @@ class DriftGateTest(unittest.TestCase):
         # Mutate, run (expect failure), revert, re-run (expect OK).
         # Pins that the script doesn't leave state behind that
         # would make subsequent invocations fail.
-        target = self.tmpdir / "src" / "c_langs_macros" / "c_macros.rs"
+        target = self.tmpdir / AST_SRC / "c_langs_macros" / "c_macros.rs"
         original = target.read_text(encoding="utf-8")
         target.write_text(
             original.replace('"INT16_C",', '"FAKE",', 1),
@@ -411,9 +403,7 @@ class MacroGeneratorPruneTest(unittest.TestCase):
         self._run_generator()
         from_empty = self._emitted_names()
 
-        self.data_file.write_text(
-            "EXTRA_ONE\nEXTRA_TWO\n", encoding="utf-8"
-        )
+        self.data_file.write_text("EXTRA_ONE\nEXTRA_TWO\n", encoding="utf-8")
         self._run_generator()
         from_polluted = self._emitted_names()
 

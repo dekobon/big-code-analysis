@@ -22,7 +22,8 @@ fails, *decreases* are silent and can be locked in with ``--update``.
 Probing every arm is load-bearing. The bail is scoped to the enclosing
 ``match``, so a file whose first match formats cleanly still hides a
 later one that does not; the first-arm-only version of this probe gave
-11 false verdicts out of 18 bailing modules in ``src/getter/`` (#1136).
+11 false verdicts out of 18 bailing modules in
+``big-code-analysis-ast/src/getter/`` (#1136).
 
 ## Three causes, one measurement
 
@@ -304,9 +305,10 @@ def probe_arms(
 
     The text is fed to rustfmt on **stdin**. That matters: given a path,
     rustfmt resolves and recurses into ``mod`` declarations, so probing
-    ``src/getter.rs`` or ``src/metrics/cognitive.rs`` standalone errors
-    out with "file not found for module" — an error that reads exactly
-    like a bail if stderr is discarded, and the reason
+    ``big-code-analysis-ast/src/getter.rs`` or
+    ``src/metrics/cognitive.rs`` standalone errors out with "file not
+    found for module" — an error that reads exactly like a bail if
+    stderr is discarded, and the reason
     ``.claude/rules/formatting.md`` calls those two files unprobeable.
     On stdin there is nothing to resolve, so they probe like any other.
     """
@@ -361,9 +363,10 @@ def discover_targets(root: pathlib.Path) -> list[pathlib.Path]:
 
     The sweep is workspace-wide on purpose. The site list in
     ``.claude/rules/formatting.md`` was scoped to ``src/metrics/`` for
-    two revisions, which is exactly why ``src/getter/`` — where the bail
-    is close to universal — went unmentioned: a directory nobody swept
-    reads as clean.
+    two revisions, which is exactly why
+    ``big-code-analysis-ast/src/getter/`` — where the bail is close to
+    universal — went unmentioned: a directory nobody swept reads as
+    clean.
     """
     listed = subprocess.run(
         ["git", "ls-files", "-z", "*.rs"],

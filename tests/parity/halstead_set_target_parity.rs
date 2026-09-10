@@ -10,7 +10,8 @@
 //! every assigned variable from `n2`/`N2` (#1294). The two dialects had
 //! drifted in opposite directions — this fixture keeps them agreeing.
 //!
-//! `src/getter/tcl.rs` and `src/getter/irules.rs` are deliberate clones
+//! `big-code-analysis-ast/src/getter/tcl.rs` and its `irules.rs`
+//! sibling are deliberate clones
 //! and a defect in one is a defect in both, so a fix landed in only one
 //! of them is what these tests exist to catch. Each drives the same
 //! source through both dialects and asserts the same operand list.

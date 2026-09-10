@@ -28,9 +28,23 @@ use std::collections::HashMap;
 
 use std::fmt;
 
-// Re-exported here so the public `metrics::halstead::HalsteadType` path
-// survives the enum's move beside `Getter`, whose `get_op_type` returns it.
-pub use crate::halstead_type::HalsteadType;
+// The operator / operand classification is syntactic and lives beside
+// the per-language `Getter` tables that produce it; re-exported here
+// because this metric is what consumes it.
+pub use crate::token_role::TokenRole;
+
+/// The former name of [`TokenRole`], kept so the
+/// `metrics::halstead::HalsteadType` path still resolves.
+///
+/// The classification never was Halstead-specific — it answers whether
+/// a node acts as an operator or an operand, which the grammar decides
+/// and other consumers can use (#1376). Renaming it outright would be a
+/// SemVer break, so the old spelling stays until the next major.
+#[deprecated(
+    since = "2.3.0",
+    note = "renamed to `TokenRole`: the classification is syntactic, not Halstead-specific"
+)]
+pub type HalsteadType = TokenRole;
 
 use crate::checker::Checker;
 use crate::getter::Getter;
@@ -370,7 +384,7 @@ fn compute_halstead<'a, T: Getter + Checker>(
     halstead_maps: &mut HalsteadMaps<'a>,
 ) {
     match T::get_op_type_with_code(node, code, ancestors) {
-        HalsteadType::Operator => {
+        TokenRole::Operator => {
             if T::is_primitive(node) {
                 // Store primitive-type operators by text so distinct
                 // primitives (e.g. `int` vs `double`) that share a
@@ -383,7 +397,7 @@ fn compute_halstead<'a, T: Getter + Checker>(
                 *halstead_maps.operators.entry(node.kind_id()).or_insert(0) += 1;
             }
         }
-        HalsteadType::Operand => {
+        TokenRole::Operand => {
             *halstead_maps
                 .operands
                 .entry(T::get_operand_id(node, code, ancestors))
@@ -396,9 +410,10 @@ fn compute_halstead<'a, T: Getter + Checker>(
 // Every language's `Halstead::compute` is the same forward to
 // `compute_halstead`, which classifies each node through the language's
 // own `Getter` / `Checker`. Nothing per-language lives here — it lives
-// in `src/getter/<lang>.rs` — so writing the impls out was 23 copies of
-// one signature. (This is the only metric whose per-language impls are
-// all identical; every other trait has real per-language bodies.)
+// in `big-code-analysis-ast/src/getter/<lang>.rs` — so writing the
+// impls out was 23 copies of one signature. (This is the only metric
+// whose per-language impls are all identical; every other trait has
+// real per-language bodies.)
 macro_rules! impl_halstead_forwarding {
     ($($code:ty),+ $(,)?) => {
         $(
@@ -465,6 +480,27 @@ mod tests {
     use super::*;
 
     check_metrics_only_shim!(check_metrics, Halstead);
+
+    // `HalsteadType` is the pre-#1376 name for `TokenRole`, kept as a
+    // deprecated alias because removing it before `3.0` would be a
+    // SemVer break (STABILITY.md). Nothing in this repository uses the
+    // old spelling any more, so only this guard would notice it being
+    // dropped — and dropping it silently is exactly what the promise
+    // rules out.
+    //
+    // The `matches!` arms are the assertion: a value typed through the
+    // alias can only be matched against `TokenRole`'s variants if the
+    // alias still names that enum, so this fails to *compile* if the
+    // alias is removed or re-pointed, rather than failing at runtime.
+    // `TokenRole` derives nothing, so there is no `assert_eq!` to reach
+    // for here.
+    #[test]
+    #[allow(deprecated)]
+    fn halstead_type_alias_still_names_token_role() {
+        let via_alias: HalsteadType = HalsteadType::Operand;
+        assert!(matches!(via_alias, TokenRole::Operand));
+        assert!(!matches!(via_alias, TokenRole::Operator));
+    }
 
     // Pins the lesson-4 invariant `n2 == len(dedupe(ops.operands))` by
     // running `operands_and_operators` (the text-keyed `--ops` store)
@@ -946,10 +982,11 @@ mod tests {
         // Regression for issue #95 (lesson #2): the Rust grammar emits 17
         // distinct `kind_id`s for `primitive_type` (one base plus 16
         // numeric-suffixed alias variants). `RustCode::is_primitive` in
-        // `src/checker.rs` must list every variant; if a future regression
-        // omits one, primitive type names emitted in that aliased position
-        // silently drop into the kind_id-keyed operators bucket instead of
-        // the text-keyed primitive_operators map, miscounting Halstead n1.
+        // `big-code-analysis-ast/src/checker.rs` must list every variant;
+        // if a future regression omits one, primitive type names emitted
+        // in that aliased position silently drop into the kind_id-keyed
+        // operators bucket instead of the text-keyed primitive_operators
+        // map, miscounting Halstead n1.
         //
         // The snippet exercises every primitive scalar type across many
         // syntactic positions (function parameter types, return types,
@@ -1013,7 +1050,7 @@ mod tests {
     fn rust_field_identifier_is_operand() {
         // Regression for issue #390: prior to the fix, `FieldIdentifier`
         // (e.g. the `x` / `y` in `p.x`, `p.y`) fell through to
-        // `HalsteadType::Unknown`, so the field names were not counted
+        // `TokenRole::Unknown`, so the field names were not counted
         // as operands. Both C++ and Go already classify FieldIdentifier
         // as an operand. After the fix:
         //   unique operators: fn, (), {}, let, =, +, ;, .
@@ -1062,7 +1099,7 @@ mod tests {
     fn rust_type_identifier_is_operand() {
         // Regression for issue #390: `TypeIdentifier` (e.g. `Vec`,
         // `HashMap`, `String` when used as a path name) was dropped to
-        // `HalsteadType::Unknown` for Rust. C++ and Go classify them as
+        // `TokenRole::Unknown` for Rust. C++ and Go classify them as
         // operands. After the fix, u_operands = 8:
         //   main, v, m, Vec, HashMap, new, K, V
         // (`i32` is a primitive type, classified as an operator.)
@@ -1118,7 +1155,7 @@ mod tests {
         // Java, C#, and Kotlin all classify it as an operator. Path-
         // heavy code (`std::collections::HashMap`, `Vec::new`,
         // `T::method`) had every `::` silently dropped into
-        // HalsteadType::Unknown.
+        // TokenRole::Unknown.
         //
         // Snippet has three `::` tokens (`std::collections::HashMap`,
         // counted as two `::` separators, plus `HashMap::new`).
@@ -1350,7 +1387,7 @@ mod tests {
         // Regression: issue #192. A backtick-delimited `` `hello` ``
         // without `${...}` is semantically identical to `"hello"` /
         // `'hello'` and must contribute exactly one operand — before
-        // the fix `TemplateString` fell through to `HalsteadType::Unknown`
+        // the fix `TemplateString` fell through to `TokenRole::Unknown`
         // and contributed zero. expected: operands are `f` (function
         // name) and the wrapping `` `hello` `` template literal →
         // u_operands = 2, N2 = 2 (matches the equivalent
@@ -3078,7 +3115,7 @@ mod tests {
     #[test]
     fn perl_plain_heredoc_counts_as_one_operand() {
         // Regression: issue #287. A plain (non-interpolating) Perl
-        // heredoc body used to be classified `HalsteadType::Unknown`,
+        // heredoc body used to be classified `TokenRole::Unknown`,
         // so its visible `HeredocBodyStatement` node contributed
         // nothing to N2 even though it is a string literal. The fix
         // adds `HeredocBodyStatement` to the interpolation-aware
@@ -5161,7 +5198,7 @@ f() {
         // Regression for #277. Before the fix, `"$x is $y"` produced an
         // extra operand for the wrapping `QuotedWord` on top of the two
         // inner `VariableSubstitution` operands (`$x`, `$y`), giving 7.
-        // After the fix, the wrapper is `HalsteadType::Unknown` whenever
+        // After the fix, the wrapper is `TokenRole::Unknown` whenever
         // it carries an interpolation child, so operand attribution
         // belongs solely to the inner substitutions.
         check_metrics::<TclParser>(
@@ -5876,8 +5913,9 @@ f() {
     }
 
     /// The iRules twin. The tables are shared, so a fix that reached
-    /// only `src/getter/tcl.rs` fails every row here — the two getters
-    /// are deliberate clones and #1354 names both.
+    /// only `big-code-analysis-ast/src/getter/tcl.rs` fails every row
+    /// here — the two getters are deliberate clones and #1354 names
+    /// both.
     #[test]
     fn irules_braced_word_bills_its_content_once_1354() {
         let mut witnessed = check_braced_word_cases::<IrulesParser, IrulesCode>(
@@ -6969,7 +7007,8 @@ f() {
         // A bare string literal contributes exactly one operand. The
         // counterpart to `ruby_halstead_interpolated_string_no_double_count`
         // — verifies the "no interpolation" branch of the same arm
-        // (see `src/getter.rs::get_op_type`'s `R::String | …` case).
+        // (see `get_op_type`'s `R::String | …` case in
+        // `big-code-analysis-ast/src/getter.rs`).
         // expected: operators = {def, end} = 2; operands = {f, "hello"} = 2.
         check_metrics::<RubyParser>("def f\n  \"hello\"\nend\n", "foo.rb", |metric| {
             assert_eq!(metric.halstead.unique_operators(), 2);
@@ -8169,7 +8208,7 @@ f() {
                                 source.as_bytes(),
                                 Ancestors::known(chain)
                             ),
-                            HalsteadType::Unknown
+                            TokenRole::Unknown
                         ),
                         "{label}: `{}` inside a character literal is classified, so the \
                          literal now double-counts against its wrapper",
@@ -8330,7 +8369,7 @@ f() {
                             CPP_THIS_POSITIONS.as_bytes(),
                             Ancestors::known(chain)
                         ),
-                        HalsteadType::Operand
+                        TokenRole::Operand
                     ),
                     "{label}: a `this` under `{}` is not an operand",
                     chain.last().map_or("<root>", Node::kind)
@@ -8406,7 +8445,7 @@ f() {
                                     source.as_bytes(),
                                     Ancestors::known(&chain[..i])
                                 ),
-                                HalsteadType::Unknown
+                                TokenRole::Unknown
                             ),
                             "{label}: `{}` contains a `this` and is itself classified, so the \
                              reference now counts twice",

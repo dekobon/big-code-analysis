@@ -1,6 +1,9 @@
 // See `src/languages/mod.rs` for the rationale behind the per-file
 // pedantic carve-outs below.
 #![allow(clippy::match_same_arms, clippy::too_many_lines)]
+// One variant per grammar kind id, named after the rule; the name is
+// the documentation and there is nothing per-variant to add.
+#![allow(missing_docs)]
 
 // Code generated; DO NOT EDIT.
 

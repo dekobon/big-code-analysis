@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+  "big-code-analysis-ast",
   "big-code-analysis-bench",
   "big-code-analysis-cli",
   "big-code-analysis-py",
@@ -19,7 +20,12 @@ members = [
 # `cargo build --workspace`, but a bare `cargo build` at the repo root
 # should not pull in artefacts that have no shipping counterpart in a
 # Rust-only build.
-default-members = [".", "big-code-analysis-cli", "big-code-analysis-web"]
+default-members = [
+  ".",
+  "big-code-analysis-ast",
+  "big-code-analysis-cli",
+  "big-code-analysis-web",
+]
 exclude = [
   "enums",
   # The cargo-fuzz crate (#1154). Excluded so `cargo test --workspace`
@@ -126,7 +132,7 @@ module_name_repetitions = "allow"
 
 # `clippy::unwrap_used` is deliberately NOT declared here. It is set as
 # `#![cfg_attr(not(test), warn(clippy::unwrap_used))]` at each production
-# crate root instead (the eight lib/bin roots), because a Cargo lint
+# crate root instead (the nine lib/bin roots), because a Cargo lint
 # applies to every target of its package and the `unwrap` ban is a
 # production rule: this workspace's test targets hold 1_023 legitimate
 # `unwrap()` calls, against 0 in production. `cfg(test)` is set for
@@ -179,7 +185,6 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-aho-corasick = "^1.0"
 # `bstr` carries the raw, possibly-non-UTF-8 bytes git stores for paths
 # and author identities through the VCS pipeline; UTF-8 conversion is
 # deferred to the output boundary with explicit error handling (per the
@@ -210,10 +215,6 @@ gix = { version = "^0.87", default-features = false, features = [
   # listed explicitly or `gix-hash::Kind` compiles with no variants.
   "sha1",
 ], optional = true }
-num-derive = "^0.5"
-num-format = "^0.4"
-num-traits = "^0.2"
-petgraph = "^0.8"
 regex = "^1.7"
 serde.workspace = true
 # `float_roundtrip` makes serde_json's float *parser* bit-exact, so a value
@@ -241,54 +242,29 @@ hmac = "=0.13.0"
 termcolor = "^1.2"
 
 tree-sitter.workspace = true
-# Grammar crates are gated behind per-language Cargo features (see
-# `[features]` below). The default feature set `all-languages` enables
-# every grammar so a bare `cargo build` matches the historical
-# behaviour; consumers that only need a subset of languages can opt
-# into a narrower set with `--no-default-features --features rust,…`.
-tree-sitter-bash = { workspace = true, optional = true }
-tree-sitter-c-sharp = { workspace = true, optional = true }
-tree-sitter-elixir = { workspace = true, optional = true }
-tree-sitter-go = { workspace = true, optional = true }
-dekobon-tree-sitter-groovy = { workspace = true, optional = true }
-tree-sitter-irules = { workspace = true, optional = true }
-tree-sitter-java = { workspace = true, optional = true }
-tree-sitter-javascript = { workspace = true, optional = true }
-tree-sitter-kotlin-ng = { workspace = true, optional = true }
-tree-sitter-lua = { workspace = true, optional = true }
-tree-sitter-objc = { workspace = true, optional = true }
-tree-sitter-perl = { workspace = true, optional = true }
-tree-sitter-php = { workspace = true, optional = true }
-tree-sitter-python = { workspace = true, optional = true }
-tree-sitter-ruby = { workspace = true, optional = true }
-tree-sitter-rust = { workspace = true, optional = true }
-tree-sitter-typescript = { workspace = true, optional = true }
-tree-sitter-ccomment = { workspace = true, optional = true }
-tree-sitter-mozcpp = { workspace = true, optional = true }
-tree-sitter-cpp = { workspace = true, optional = true }
-tree-sitter-c = { workspace = true, optional = true }
-tree-sitter-mozjs = { workspace = true, optional = true }
-tree-sitter-preproc = { workspace = true, optional = true }
-tree-sitter-tcl = { workspace = true, optional = true }
+# The parse and classification layer (#1376): the generated kind enums,
+# `LANG`, `Node`, the `Checker` / `Getter` / `Alterator` classifiers and
+# the C preprocessor pass. Version-locked like the vendored grammar leaves;
+# the per-language features below forward to it, so a `--features rust`
+# build of this crate still links exactly one grammar.
+big-code-analysis-ast = { path = "big-code-analysis-ast", version = "=2.2.1", default-features = false }
 
 # Per-language Cargo features. `default = ["all-languages"]` keeps the
 # library's historical "every grammar compiled in" behaviour for
 # callers that take the crate as a black box (the CLI and web crates
 # pin to `features = ["all-languages"]` for exactly this reason).
 #
-# Each language feature pulls in only the grammar crate(s) the
-# matching `src/languages/language_*.rs` module needs at runtime — the
-# token enums themselves carry no grammar-crate references and stay
-# unconditionally compiled, so the `LANG` enum, the per-language
-# `*Code` / `*Parser` tags, and the `Tree::new` / `analyze` dispatch
-# surface remain identical across feature sets. Disabling a feature
-# strips the grammar crate from the dep graph; calling into a
-# disabled variant produces `Err(MetricsError::LanguageDisabled(LANG))`
-# from every entry point that returns a `Result`.
-#
-# `cpp`, `c`, and `mozcpp` share the C-family helper crates
-# (`tree-sitter-ccomment`, `tree-sitter-preproc`); listing the deps on
-# each leaves their union enabled when any of those features is on.
+# Since #1376 the grammar crates are dependencies of
+# `big-code-analysis-ast`, and every language feature here forwards to
+# the same-named feature there — one name per language on both sides,
+# so `--no-default-features --features rust` still links exactly one
+# grammar. The token enums, the `LANG` enum, the per-language `*Code` /
+# `*Parser` tags and the dispatch surface are compiled unconditionally
+# in that crate; a disabled feature only strips the grammar from the dep
+# graph, and calling into its variant produces
+# `Err(MetricsError::LanguageDisabled(LANG))` from every entry point
+# that returns a `Result`. Root-side `#[cfg(feature = …)]` gates (all in
+# tests) keep working because the names are the same.
 [features]
 default = ["all-languages"]
 # Change-history (VCS) metrics (issue #328). `vcs` is the umbrella
@@ -303,6 +279,14 @@ default = ["all-languages"]
 vcs = ["vcs-git"]
 vcs-git = ["dep:gix", "dep:bstr"]
 all-languages = [
+  # Forwarded so the sub-crate sees its own umbrella feature and not just
+  # the 22 language features below. Its
+  # `#![cfg_attr(not(feature = "all-languages"), allow(dead_code))]`
+  # keys on exactly this name, so without the line a `-p
+  # big-code-analysis --all-features` build relaxes dead-code in the
+  # parse layer while every one of its languages is live — the opposite
+  # of what that attribute's comment promises.
+  "big-code-analysis-ast/all-languages",
   "bash",
   "c",
   "cpp",
@@ -326,67 +310,60 @@ all-languages = [
   "tcl",
   "typescript",
 ]
-bash = ["dep:tree-sitter-bash"]
-# Since #720 the `Cpp` LANG variant uses the upstream community
-# `tree-sitter-cpp` grammar (see `get_language!(tree_sitter_cpp)` in
-# `src/macros.rs`); the Mozilla fork moved to the opt-in `mozcpp`
-# feature / `LANG::Mozcpp` below. The `Ccomment` and `Preproc` LANG
-# variants are internal C-family helpers (comment stripping +
-# preprocessor directives) shared by all three C-family features, so
-# `cpp`, `c` (added in #721), and `mozcpp` each pull them. NOTE: the
-# `cpp` dep set changed in #720 (`tree-sitter-mozcpp` → `tree-sitter-cpp`)
-# — a SemVer break for `--no-default-features` consumers, recorded in
-# CHANGELOG under the 2.0 milestone.
-# Internal: the C-family comment-stripping (`Ccomment`) and
-# preprocessor (`Preproc`) helper variants. Enabled automatically by
-# every C-family language feature below (`cpp`, `c`, `mozcpp`) so those
-# helper LANG variants are compiled in whenever any C-family grammar is.
-# Not meant to be selected on its own — it pulls no user-facing language.
-# (Before #721 these crates were listed directly on each C-family
-# feature, but the `Ccomment` / `Preproc` LANG variants were gated on
-# `cpp` alone, so a `--features c` / `--features mozcpp` build without
-# `cpp` had the crates yet disabled the variants — breaking `strip-comments`
-# / `preproc` for C-only and Mozcpp-only builds.)
-c-family-helpers = ["dep:tree-sitter-ccomment", "dep:tree-sitter-preproc"]
-cpp = ["dep:tree-sitter-cpp", "c-family-helpers"]
-# Dedicated C language (`LANG::C`, upstream `tree-sitter-c`), added in
-# #721. Owns `.c`; shares the C-family `ccomment` / `preproc` helpers.
-c = ["dep:tree-sitter-c", "c-family-helpers"]
-# Opt-in Mozilla/Gecko C++ dialect (vendored `tree-sitter-mozcpp` fork,
-# `LANG::Mozcpp`). Owns zero file extensions — selected only explicitly
-# (`--language mozcpp`, manifest, API), mirroring `mozjs` since #507.
-# Enabling `mozcpp` alone therefore analyzes no files by extension.
-mozcpp = ["dep:tree-sitter-mozcpp", "c-family-helpers"]
-csharp = ["dep:tree-sitter-c-sharp"]
-elixir = ["dep:tree-sitter-elixir"]
-go = ["dep:tree-sitter-go"]
-groovy = ["dep:dekobon-tree-sitter-groovy"]
-irules = ["dep:tree-sitter-irules"]
-java = ["dep:tree-sitter-java"]
-javascript = ["dep:tree-sitter-javascript"]
-kotlin = ["dep:tree-sitter-kotlin-ng"]
-lua = ["dep:tree-sitter-lua"]
-mozjs = ["dep:tree-sitter-mozjs"]
-# Objective-C (`LANG::Objc`, upstream `tree-sitter-objc`). Owns `.m`;
-# `.mm` Objective-C++ stays on `LANG::Cpp` (the ObjC grammar parses C
-# but not the C++ half of `.mm` files) — see #724.
-objc = ["dep:tree-sitter-objc"]
-perl = ["dep:tree-sitter-perl"]
-php = ["dep:tree-sitter-php"]
-python = ["dep:tree-sitter-python"]
-ruby = ["dep:tree-sitter-ruby"]
-rust = ["dep:tree-sitter-rust"]
-tcl = ["dep:tree-sitter-tcl"]
-typescript = ["dep:tree-sitter-typescript"]
+bash = ["big-code-analysis-ast/bash"]
+# The C-family trio and their shared `Ccomment` / `Preproc` helper
+# variants: the rationale (and the #720 / #721 / #724 history) lives on
+# the same-named features in `big-code-analysis-ast/Cargo.toml`.
+# `c-family-helpers` is internal there and forwarded here only so the
+# root's feature set stays a superset of the sub-crate's.
+c-family-helpers = ["big-code-analysis-ast/c-family-helpers"]
+cpp = ["big-code-analysis-ast/cpp"]
+c = ["big-code-analysis-ast/c"]
+mozcpp = ["big-code-analysis-ast/mozcpp"]
+csharp = ["big-code-analysis-ast/csharp"]
+elixir = ["big-code-analysis-ast/elixir"]
+go = ["big-code-analysis-ast/go"]
+groovy = ["big-code-analysis-ast/groovy"]
+irules = ["big-code-analysis-ast/irules"]
+java = ["big-code-analysis-ast/java"]
+javascript = ["big-code-analysis-ast/javascript"]
+kotlin = ["big-code-analysis-ast/kotlin"]
+lua = ["big-code-analysis-ast/lua"]
+mozjs = ["big-code-analysis-ast/mozjs"]
+objc = ["big-code-analysis-ast/objc"]
+perl = ["big-code-analysis-ast/perl"]
+php = ["big-code-analysis-ast/php"]
+python = ["big-code-analysis-ast/python"]
+ruby = ["big-code-analysis-ast/ruby"]
+rust = ["big-code-analysis-ast/rust"]
+tcl = ["big-code-analysis-ast/tcl"]
+typescript = ["big-code-analysis-ast/typescript"]
 
 [lints]
 workspace = true
 
 [dev-dependencies]
+# The parse-and-inspect helpers the metric tests share with the parse
+# layer's own tests. Feature unification keeps `test-support` out of the
+# non-test build.
+#
+# `default-features = false` is load-bearing, not tidiness: cargo unions
+# the feature sets of a package's normal and dev dependencies whenever a
+# dev target is in the build, so omitting it re-enables `all-languages`
+# on the parse layer for every `cargo test` / `cargo check --all-targets`
+# — including the `no-default-features (lib)` and `minimal-langs (lib)`
+# CI legs, which then link all 25 grammars and stop testing the subset
+# they exist to test. It also failed the two `LanguageDisabled`
+# assertions in `tests/api/ast_seam_test.rs`, because the root's
+# `javascript` was off while the parse layer's was on. The language
+# features come from the normal dependency above; this entry adds only
+# `test-support`.
+big-code-analysis-ast = { path = "big-code-analysis-ast", version = "=2.2.1", default-features = false, features = [
+  "test-support",
+] }
 insta = { version = "1.29.0", features = ["yaml", "json", "redactions"] }
 jsonschema = "^0.49"
 tempfile.workspace = true
-pretty_assertions = "^1.3"
 quick-xml = "^0.41"
 # Test-only: the integration corpus harness and the concurrent_files
 # unit tests walk fixture trees; production code no longer walks (#495).

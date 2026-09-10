@@ -9,7 +9,7 @@ Why it exists
 ``cargo publish --dry-run`` is the natural pre-tag gate: it rejects a
 missing ``description`` / ``license``, a ``readme`` pointing outside the
 package, and an ``include`` whitelist that stopped covering what the
-crate needs. For the three top-level crates it cannot run before the
+crate needs. For the four top-level crates it cannot run before the
 tag, and the workaround that was in place did not run *ever*.
 
 ``big-code-analysis`` pins each vendored grammar leaf at

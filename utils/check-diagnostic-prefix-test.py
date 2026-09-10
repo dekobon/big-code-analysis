@@ -150,8 +150,9 @@ class ScanTextNonOffenders(unittest.TestCase):
         # without being one. Reading either as an open skips every line
         # until the next quote, and the offender hiding in there is a
         # false *clean* — the one outcome this gate exists to prevent.
-        # Both shapes are live in this tree (`src/tools.rs:409`,
-        # `src/languages/language_ruby.rs:481`).
+        # Both shapes are live in this tree
+        # (`big-code-analysis-ast/src/tools.rs:409`,
+        # `big-code-analysis-ast/src/languages/language_ruby.rs:481`).
         text = 'let l = s.strip_suffix(b"\\r").unwrap_or(s);\neprintln!("Error: x");\n'
         self.assertEqual([(2, "Error")], [(n, w) for n, w, _ in GATE.scan_text(text)])
 

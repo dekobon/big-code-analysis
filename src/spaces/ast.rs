@@ -187,7 +187,7 @@ impl Ast {
     #[must_use]
     #[inline]
     pub fn source(&self) -> &[u8] {
-        with_any_parser!(&self.inner, |p| p.code())
+        self.inner.code()
     }
 
     /// Display name carried through to [`FuncSpace::name`] by every
@@ -208,7 +208,7 @@ impl Ast {
     #[must_use]
     #[inline]
     pub fn as_tree_sitter(&self) -> &tree_sitter::Tree {
-        with_any_parser!(&self.inner, |p| p.ts_tree())
+        self.inner.ts_tree()
     }
 
     /// Strip non-doc comments from the held parse, returning the source
@@ -228,7 +228,7 @@ impl Ast {
     /// ```
     #[must_use]
     pub fn strip_comments(&self) -> Option<Vec<u8>> {
-        with_any_parser!(&self.inner, |p| crate::comment_rm::rm_comments(p))
+        self.inner.strip_comments()
     }
 
     /// Detect the span of every function in the held parse. Safe to call
@@ -271,7 +271,7 @@ impl Ast {
     /// ```
     #[must_use]
     pub fn dump(&self, cfg: crate::AstCfg) -> crate::AstResponse {
-        with_any_parser!(&self.inner, |p| crate::ast::dump_inner(p, cfg))
+        self.inner.dump(cfg)
     }
 
     /// Count `(matching, total)` nodes in the held parse, where a node
@@ -293,7 +293,7 @@ impl Ast {
     /// ```
     #[must_use]
     pub fn count(&self, filters: &[String]) -> (usize, usize) {
-        with_any_parser!(&self.inner, |p| crate::count::count(p, filters))
+        self.inner.count(filters)
     }
 
     /// Find every node in the held parse whose kind is named in
@@ -306,7 +306,7 @@ impl Ast {
     /// Currently infallible; the [`Result`] wrapper is reserved for a
     /// future strict-parsing mode (matching the other `Ast` walkers).
     pub fn find(&self, filters: &[String]) -> Result<Vec<Node<'_>>, MetricsError> {
-        with_any_parser!(&self.inner, |p| crate::find::find(p, filters))
+        self.inner.find(filters)
     }
 
     /// Collect every in-source suppression marker (`// bca: suppress …`)
@@ -323,6 +323,6 @@ impl Ast {
     #[must_use]
     #[inline]
     pub fn root_node(&self) -> Node<'_> {
-        with_any_parser!(&self.inner, |p| p.root())
+        self.inner.root_node()
     }
 }

@@ -78,25 +78,35 @@ dependencies = [
 name = "big-code-analysis"
 version = "2.2.1"
 dependencies = [
+ "big-code-analysis-ast",
+ "crossbeam",
+ "csv",
+ "hmac",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "termcolor",
+ "tree-sitter",
+]
+
+[[package]]
+name = "big-code-analysis-ast"
+version = "2.2.1"
+dependencies = [
  "aho-corasick",
  "bca-tree-sitter-ccomment",
  "bca-tree-sitter-mozcpp",
  "bca-tree-sitter-mozjs",
  "bca-tree-sitter-preproc",
  "bca-tree-sitter-tcl",
- "crossbeam",
- "csv",
  "dekobon-tree-sitter-groovy",
- "hmac",
  "num-derive",
  "num-format",
  "num-traits",
  "petgraph",
  "regex",
  "serde",
- "serde_json",
- "sha2",
- "termcolor",
  "tree-sitter",
  "tree-sitter-bash",
  "tree-sitter-c",

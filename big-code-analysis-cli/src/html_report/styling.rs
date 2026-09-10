@@ -237,8 +237,9 @@ table.hotspot tr:nth-child(even) td.risk-heat-4,table.hotspot td.risk-heat-4\
 /// suite. `"other"` is the neutral fallback for any name not listed.
 ///
 /// Names match production output of [`big_code_analysis::LANG::name`]
-/// (see `src/langs.rs`), which since #540 is the canonical lowercase
-/// slug for every variant (`"cpp"`, `"csharp"`, `"tsx"`). `LANG::Tsx`
+/// (see `big-code-analysis-ast/src/langs.rs`), which since #540 is
+/// the canonical lowercase slug for every variant (`"cpp"`,
+/// `"csharp"`, `"tsx"`). `LANG::Tsx`
 /// (`"tsx"`) reuses the `"typescript"` tint (it is TypeScript + JSX),
 /// and the Mozilla-fork `"mozjs"` reuses the `"javascript"` tint (it
 /// is JavaScript, just a different grammar), and likewise `"mozcpp"`

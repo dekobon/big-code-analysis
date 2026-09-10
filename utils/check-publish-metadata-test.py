@@ -153,7 +153,9 @@ class ResolveIncludeTest(unittest.TestCase):
 
     def test_inheritance_from_a_workspace_without_the_key_is_none(self) -> None:
         manifest = {"package": {"include": {"workspace": True}}}
-        self.assertIsNone(GATE.resolve_include(manifest, {"workspace": {"package": {}}}))
+        self.assertIsNone(
+            GATE.resolve_include(manifest, {"workspace": {"package": {}}})
+        )
         self.assertIsNone(GATE.resolve_include(manifest, {}))
 
     def test_unrecognised_include_table_is_a_hard_error(self) -> None:
@@ -238,13 +240,20 @@ class MeasureListingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             root = pathlib.Path(raw)
             self._tree(root)
-            listing = ["src/lib.rs", "README.md", "Cargo.toml.orig", ".cargo_vcs_info.json"]
+            listing = [
+                "src/lib.rs",
+                "README.md",
+                "Cargo.toml.orig",
+                ".cargo_vcs_info.json",
+            ]
             self.assertEqual(GATE.measure_listing(listing, root), 123)
 
     def test_every_generated_entry_is_skipped(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = pathlib.Path(raw)
-            self.assertEqual(GATE.measure_listing(sorted(GATE.GENERATED_ENTRIES), root), 0)
+            self.assertEqual(
+                GATE.measure_listing(sorted(GATE.GENERATED_ENTRIES), root), 0
+            )
 
     def test_an_unexpected_absent_entry_is_a_hard_error(self) -> None:
         # Without this the wrong-base-directory case totals zero bytes
@@ -377,7 +386,9 @@ class RunCargoTest(unittest.TestCase):
             self.assertEqual(GATE.run_cargo(["metadata"], REPO_ROOT), "out")
 
     def test_non_zero_exit_is_a_hard_error_carrying_stderr(self) -> None:
-        completed = subprocess.CompletedProcess(["cargo"], 101, stdout="", stderr="boom")
+        completed = subprocess.CompletedProcess(
+            ["cargo"], 101, stdout="", stderr="boom"
+        )
         with (
             mock.patch.object(subprocess, "run", return_value=completed),
             self.assertRaises(SystemExit) as caught,
@@ -495,7 +506,10 @@ class AuditTest(unittest.TestCase):
         self.assertIn("include", problems[0])
 
     def test_an_oversized_crate_is_reported(self) -> None:
-        with self.stubbed_listings(), mock.patch.object(GATE, "MAX_PACKAGED_BYTES", 600):
+        with (
+            self.stubbed_listings(),
+            mock.patch.object(GATE, "MAX_PACKAGED_BYTES", 600),
+        ):
             problems = GATE.audit(self.metadata())
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("root:", problems[0])
@@ -544,7 +558,9 @@ class MainTest(unittest.TestCase):
         self.assertEqual(err, "")
 
     def test_findings_exit_one_and_reach_stderr_with_remediation(self) -> None:
-        code, out, err = self._run(["  demo: [package].description is missing or empty"])
+        code, out, err = self._run(
+            ["  demo: [package].description is missing or empty"]
+        )
         self.assertEqual(code, 1)
         self.assertEqual(out, "")
         self.assertIn("demo: [package].description", err)
@@ -585,16 +601,22 @@ class RealRepositoryTest(unittest.TestCase):
             parent["readme"], GATE.package_listing("big-code-analysis", REPO_ROOT)
         )
 
-    def test_the_three_top_level_crates_are_the_ones_checked(self) -> None:
+    def test_the_four_top_level_crates_are_the_ones_checked(self) -> None:
         # Pins the discovery rule, not just that discovery found
         # something: `publish = false` on the bench and Python crates is
         # what keeps them out, and a change there must be deliberate.
         names = sorted(
-            entry["name"] for entry in GATE.publishable_packages(GATE.cargo_metadata(REPO_ROOT))
+            entry["name"]
+            for entry in GATE.publishable_packages(GATE.cargo_metadata(REPO_ROOT))
         )
         self.assertEqual(
             names,
-            ["big-code-analysis", "big-code-analysis-cli", "big-code-analysis-web"],
+            [
+                "big-code-analysis",
+                "big-code-analysis-ast",
+                "big-code-analysis-cli",
+                "big-code-analysis-web",
+            ],
         )
 
 
