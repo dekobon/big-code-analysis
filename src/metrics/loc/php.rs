@@ -24,12 +24,42 @@ impl Loc for PhpCode {
             Comment => {
                 add_cloc_lines(stats, start, end);
             }
-            // A PHP double-quoted (`encapsed_string`) or single-quoted
-            // (`string`) literal can span several rows; credit every spanned
-            // row to PLOC to match Python's #415 decision (#778). Heredoc /
-            // nowdoc bodies already reach PLOC through their inner statement
-            // nodes, so they are not routed here.
-            EncapsedString | String => {
+            // Every PHP literal that can span rows, so its interior rows
+            // reach PLOC instead of being claimed by
+            // `blank = sloc - ploc - cloc` (#778, #1396) — the decision #415
+            // took for Python and #1260 took for the last four languages.
+            //
+            // #778 routed the quoted forms and excluded the heredoc, on the
+            // premise that its body "already reaches PLOC through its inner
+            // statement nodes". Half true, and it cost a phantom blank row
+            // per spelling: tree-sitter-php emits a body child only for a row
+            // that *has* text. Heredoc drops just the row empty inside the
+            // literal; nowdoc is worse, emitting one `nowdoc_string` for the
+            // first line and a single multi-row one for the rest, whose
+            // interior rows the catch-all's start-row insertion all lost
+            // whether or not any of them was empty.
+            //
+            // The wrapper is routed rather than `HeredocBody` / `NowdocBody`
+            // because a body of one empty row emits no body node at all —
+            // `heredoc` is the node present for every spelling
+            // (`.claude/rules/grammar-dispatch.md` section 6). Its span runs
+            // from `<<<` to the closing marker, so its interior is the body
+            // rows plus that marker's row, which is code either way.
+            //
+            // `ShellCommandExpression` (`` `…` ``) is the fifth form and had
+            // the nowdoc shape exactly: one multi-row `string_content` child,
+            // so every interior row was lost. It is routed here for the same
+            // reason, which makes this arm agree with
+            // `PhpCode::is_string` (`big-code-analysis-ast/src/checker/php.rs`)
+            // on every kind that grammar can span rows with — section 7's
+            // parity cross-walk.
+            //
+            // Aliases (section 1): none of the five routed kinds has a
+            // numeric-suffix variant. `String2` is the anonymous `string`
+            // *type* keyword and `String3` is the hidden `_string` supertype
+            // the parser never emits (section 2) — neither is a literal, so
+            // neither belongs here.
+            EncapsedString | String | Heredoc | Nowdoc | ShellCommandExpression => {
                 add_multiline_string_ploc(node, ancestors, stats, start);
             }
             // Statement kinds that contribute one logical line each.

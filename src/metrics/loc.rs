@@ -8402,6 +8402,177 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         });
     }
 
+    /// Analyses `source` byte-for-byte as PHP, for the two #1396 tests
+    /// `check_metrics` cannot carry: one ends at EOF, which that shim
+    /// normalises away, and the other loops over labelled cases, which
+    /// its bare `fn` callback cannot close over.
+    #[cfg(feature = "php")]
+    fn php_loc(source: &[u8]) -> Stats {
+        metrics_verbatim(
+            crate::LANG::Php,
+            source,
+            crate::MetricsOptions::default().with_only(&[crate::Metric::Loc]),
+        )
+        .loc
+    }
+
+    /// #1396: a heredoc row that is empty *inside* the literal read as
+    /// blank. tree-sitter-php emits one `string_content` child per body
+    /// row that **has text**, so a row empty inside the literal held no
+    /// node at all and `blank = sloc - ploc - cloc` claimed it. #778
+    /// routed PHP's quoted literals through `add_multiline_string_ploc`
+    /// but excluded the heredoc, on the premise that its inner nodes
+    /// already covered every row.
+    ///
+    /// `sloc` is the fixture anchor (`.claude/rules/testing.md`):
+    /// deleting the empty row drops it to 5 and fails this test, rather
+    /// than leaving it quietly asserting `blank 0` about a literal with
+    /// no interior gap left to misclassify.
+    #[cfg(feature = "php")]
+    #[test]
+    fn php_heredoc_empty_interior_row_is_code_not_blank() {
+        // expected: six rows, every one code — `<?php`, the opening
+        // `<<<EOT`, `a`, the empty body row, `b`, and the closing marker.
+        check_metrics::<PhpParser>("<?php\n$s = <<<EOT\na\n\nb\nEOT;\n", "foo.php", |metric| {
+            assert_eq!(metric.loc.sloc(), 6);
+            assert_eq!(metric.loc.ploc(), 6);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.lloc(), 1);
+            assert_eq!(metric.loc.blank(), 0);
+        });
+    }
+
+    /// The nowdoc half of #1396, which the issue did not measure and
+    /// which was worse: it reported `ploc 4, blank 2` on this fixture
+    /// against the heredoc's `ploc 5, blank 1`. The grammar shape
+    /// differs — a nowdoc body is *not* one `nowdoc_string` per row.
+    /// tree-sitter-php 0.24.2 emits one for the first line and a single
+    /// multi-row `nowdoc_string` for everything after it, so the
+    /// catch-all's start-row insertion lost every interior row of that
+    /// second node rather than just the empty one.
+    ///
+    /// Same `sloc` fixture anchor as the heredoc test above.
+    #[cfg(feature = "php")]
+    #[test]
+    fn php_nowdoc_empty_interior_row_is_code_not_blank() {
+        // expected: the heredoc fixture's six rows, all code.
+        check_metrics::<PhpParser>(
+            "<?php\n$s = <<<'EOT'\na\n\nb\nEOT;\n",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 6);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+    }
+
+    /// The four #1396 spellings the two tests above do not cover, each
+    /// exercising a different part of the new arm.
+    ///
+    /// The all-empty body is why the arm routes the `heredoc` / `nowdoc`
+    /// wrapper rather than `heredoc_body` / `nowdoc_body`: for a body of
+    /// one empty row the grammar emits **no body node at all**, so an
+    /// arm keyed on the body would still report that row blank
+    /// (`.claude/rules/grammar-dispatch.md` section 6). The interpolated
+    /// form checks that an interior `{$v}` — whose own nodes cover only
+    /// their row — does not stop the empty row above it being credited.
+    /// The PHP 7.3 indented closing marker is syntax coverage rather
+    /// than a distinct code path: `heredoc_end` is credited by the
+    /// catch-all whatever its indentation, so nothing here can observe
+    /// an end-row error. It earns its place by failing pre-fix on its
+    /// interior empty row, like the rest.
+    ///
+    /// The backtick `shell_command_expression` is the fifth PHP literal
+    /// that can span rows and had the nowdoc shape — one multi-row
+    /// `string_content` — so it lost interior rows too.
+    ///
+    /// Every row of every fixture is code, so each case's `sloc` is the
+    /// fixture anchor: trimming a row from any of them fails that row's
+    /// case by name. `php_heredoc_credits_only_the_literals_rows` below
+    /// carries the other half — that the arm credits no row the literal
+    /// does not span.
+    #[cfg(feature = "php")]
+    #[test]
+    fn php_heredoc_spellings_credit_every_row_to_ploc() {
+        // (label, source, expected sloc) — expected ploc is that same
+        // sloc and expected blank is 0 for all four, which is the
+        // property under test.
+        let cases = [
+            ("all-empty heredoc body", "<?php\n$s = <<<EOT\n\nEOT;\n", 4),
+            ("all-empty nowdoc body", "<?php\n$s = <<<'EOT'\n\nEOT;\n", 4),
+            (
+                "interpolated heredoc",
+                "<?php\n$v = 1;\n$s = <<<EOT\na\n\n{$v}\nEOT;\n",
+                7,
+            ),
+            (
+                "indented closing marker",
+                "<?php\n$s = <<<EOT\n    a\n\n    b\n    EOT;\n",
+                6,
+            ),
+            ("backtick shell command", "<?php\n$s = `ls\n\n-l`;\n", 4),
+        ];
+        for (label, source, sloc) in cases {
+            let loc = php_loc(source.as_bytes());
+            assert_eq!(loc.sloc(), sloc, "{label} sloc");
+            assert_eq!(loc.ploc(), sloc, "{label} ploc");
+            assert_eq!(loc.cloc(), 0, "{label} cloc");
+            assert_eq!(loc.blank(), 0, "{label} blank");
+        }
+    }
+
+    /// The upper bound the other #1396 tests cannot state. Every fixture
+    /// above is 100% code, so `ploc == sloc` and `blank == 0` hold just
+    /// as well for an arm that credits *more* than the literal — an arm
+    /// inserting `start - 1`, or the whole file from row 0, passes all
+    /// of them and the rest of the lib suite besides (measured).
+    ///
+    /// This fixture carries a comment row and a genuine blank row
+    /// *outside* the literal, so `cloc` and `blank` are the axes that
+    /// only a correctly-bounded arm can hit. Both over-crediting
+    /// perturbations above drive `blank` to 0 and fail here.
+    ///
+    /// It is also a #1396 regression test in its own right: pre-fix the
+    /// heredoc's empty interior row made this `ploc 5, blank 2`.
+    #[cfg(feature = "php")]
+    #[test]
+    fn php_heredoc_credits_only_the_literals_rows() {
+        // rows: 1 `<?php`, 2 comment, 3 blank, 4 opening, 5 `a`,
+        // 6 empty-inside-the-literal, 7 `b`, 8 closing marker.
+        // expected: ploc 6 (1, 4-8), cloc 1 (row 2), blank 1 (row 3).
+        let loc = php_loc(b"<?php\n// note\n\n$s = <<<EOT\na\n\nb\nEOT;\n");
+        assert_eq!(loc.sloc(), 8);
+        assert_eq!(loc.ploc(), 6);
+        assert_eq!(loc.cloc(), 1);
+        assert_eq!(loc.blank(), 1);
+    }
+
+    /// #1396 in the input class both metric harnesses normalise away: a
+    /// heredoc whose closing marker is the last byte of the file.
+    /// `check_metrics` trims and re-appends a trailing newline, so that
+    /// shape cannot reach the parser through it at all
+    /// (`.claude/rules/testing.md`); `metrics_verbatim` hands the bytes
+    /// over untouched.
+    ///
+    /// Unlike #1051 and #1067, no *known* defect hides in this class for
+    /// #1396 — the trailing-newline twin above already fails against
+    /// unfixed code, and no perturbation yet found separates the two.
+    /// A distinct input class costs one call, so it stays.
+    #[cfg(feature = "php")]
+    #[test]
+    fn php_heredoc_ending_at_eof_credits_every_row() {
+        // expected: the six rows of the issue's fixture, all code, with
+        // no newline after `EOT;`.
+        let loc = php_loc(b"<?php\n$s = <<<EOT\na\n\nb\nEOT;");
+        assert_eq!(loc.sloc(), 6);
+        assert_eq!(loc.ploc(), 6);
+        assert_eq!(loc.cloc(), 0);
+        assert_eq!(loc.blank(), 0);
+    }
+
     #[test]
     fn elixir_blank() {
         // Two blank lines separate three top-level expressions.
