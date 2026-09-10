@@ -276,6 +276,30 @@ macro_rules! mk_action {
         /// `Err(LanguageDisabled)` for it — but it can always be *named*,
         /// which is what lets `with_any_parser!` be written once without
         /// any `cfg` of its own (#1376).
+        ///
+        /// The cost is real and was priced: because the match is total
+        /// over all 25 variants, every generic walk is monomorphised for
+        /// every language whatever features were selected. Measured on a
+        /// `--no-default-features --features rust` build, `metrics_inner`
+        /// and `ops_inner` each get 25 instantiations where the
+        /// pre-split crate got one.
+        ///
+        /// **DECIDED (#1376): it stays.** Reversing it means moving the
+        /// dispatch macro into `big-code-analysis`, so the `cfg`s are
+        /// evaluated in the crate whose features they name — a
+        /// `#[cfg]` inside a `#[macro_export]` macro is evaluated in the
+        /// *invoking* crate, which is the whole reason this shape exists
+        /// — and that buys an eighth site enumerating every language,
+        /// permanently. A visitor trait does not help: one defined here
+        /// can only bound its type parameter by traits this crate can
+        /// name, so it hands back a `ParserTrait` where the metric walks
+        /// need the root's `MetricSuite`, and Rust cannot let a caller
+        /// supply that bound. Nothing in this workspace pays the cost —
+        /// the CLI, the server and the Python bindings all build
+        /// `all-languages` — and what it costs is compile time and rlib
+        /// size, not shipped binary size, since unreferenced
+        /// instantiations are dropped at link time. Revisit only if a
+        /// consumer of the narrow feature set actually appears.
         pub enum AnyParser {
             $(
                 #[doc = concat!("The `", stringify!($camel), "` parser.")]
