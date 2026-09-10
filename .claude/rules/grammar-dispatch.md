@@ -184,7 +184,8 @@ Minimum cross-walk when you edit one:
   into a **wrong count**, which a snapshot diff shows you. This one
   disagrees into an **absent key**: a node the walker promoted but the
   getter left `Unknown` is not a member scope
-  (`SpaceKind::is_member_scope`), so its space serializes no `npm` /
+  (`MemberScopeExt::is_member_scope`, `src/metrics/mod.rs`), so its
+  space serializes no `npm` /
   `npa` block at all — which looks exactly like a language that
   legitimately has no containers. Nothing diffs. §6's "gate all three
   on the same predicate" is this bullet's fix.

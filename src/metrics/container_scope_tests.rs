@@ -15,7 +15,8 @@
 //! #1184 added Kotlin property accessors and `init` / `static` blocks to
 //! the list, next to sibling methods that had none.
 //!
-//! The rule is [`SpaceKind::is_member_scope`], which `wmc` already used:
+//! The rule is `MemberScopeExt::is_member_scope`, which `wmc` already
+//! used:
 //! containers and the file unit carry the block, a function space never
 //! does. Both directions are asserted below, because narrowing too far
 //! would silently delete the whole-file roll-up rather than the all-zero
@@ -581,7 +582,7 @@ fn the_file_root_keeps_its_rollup() {
 /// node the walker promoted — via
 /// `Checker::promotes_to_func_space_with_code` — whose classifier
 /// answered `Unknown` becomes a space that is not a
-/// [`SpaceKind::is_member_scope`], and `note_member_scope` then records
+/// `MemberScopeExt::is_member_scope`, and `note_member_scope` then records
 /// a kind that suppresses `npm` / `npa` outright. That is an *absent
 /// key*, not a wrong count: it reads the same as a language with no
 /// containers, so no snapshot diff and no value assertion can see it.

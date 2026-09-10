@@ -47,12 +47,12 @@ for historical reference.
   (see the escape-hatches section of `STABILITY.md`).
 - `SpaceKind` and the operator/operand classification are now defined in
   `big-code-analysis-ast` (they are `Getter` return types) and
-  re-exported at their existing paths; `MetricsError` likewise. One
-  consequence is additive on the published surface: `SpaceKind` gains a
-  public `is_member_scope()` — the walk consults it across the new crate
-  boundary, so it can no longer be `pub(crate)`. It answers "does this
-  kind roll up `npm` / `npa` members", i.e. anything but `Function` and
-  `Unknown`.
+  re-exported at their existing paths; `MetricsError` likewise. The
+  public surface is unchanged in shape. `SpaceKind::is_member_scope`,
+  which answers whether `wmc` / `npm` / `npa` roll up on a kind, is not
+  part of that move: it is a question only this crate can ask, so it
+  became a `pub(crate)` extension trait here rather than an inherent
+  method on a type the parse layer owns.
 
 - Per-space *own* value for `nargs` in the serialized wire shape:
   `nargs.value` (#1236). `nargs.total` remains the subtree sum; the new

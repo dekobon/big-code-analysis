@@ -18,6 +18,7 @@ use std::fmt;
 
 use crate::checker::Checker;
 use crate::macros::implement_metric_trait;
+use crate::metrics::MemberScopeExt;
 use crate::*;
 
 /// The `Wmc` metric.
