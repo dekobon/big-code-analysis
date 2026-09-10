@@ -121,11 +121,21 @@ jobs:
             ~/.cargo/bin/clippy-sarif
             ~/.cargo/bin/sarif-fmt
           key: sarif-tools-${{ runner.os }}-0.8.0
+      # `--force` because two cache layers own `~/.cargo/bin`: the
+      # `Swatinem/rust-cache` step above runs with `cache-bin: true` and
+      # restores these two binaries, while the dedicated cache below
+      # them can still report a miss (its key is scoped separately, so a
+      # branch that has never populated it misses while rust-cache
+      # restores from the default branch). `cargo install` then aborts
+      # with "binary `clippy-sarif` already exists in destination" and
+      # takes the whole clippy job with it. `--force` makes the install
+      # idempotent in both states; it is reached only on a miss, so the
+      # warm path still skips the build entirely.
       - name: Install clippy-sarif and sarif-fmt
         if: steps.cache-sarif-tools.outputs.cache-hit != 'true'
         run: |
-          cargo install clippy-sarif --version 0.8.0 --locked
-          cargo install sarif-fmt --version 0.8.0 --locked
+          cargo install clippy-sarif --version 0.8.0 --locked --force
+          cargo install sarif-fmt --version 0.8.0 --locked --force
       # Capture clippy's JSON diagnostics to a file (not a pipe) so the SARIF
       # is generated from a complete document — a hard compile-error that
       # aborts clippy mid-stream cannot truncate a piped report.
