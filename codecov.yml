@@ -67,5 +67,16 @@ ignore:
   # libFuzzer, not by the test suite.
   - "fuzz/**"
   - "xtask/**"
+  # The benchmark harness, for the same reason as xtask: dev tooling this
+  # repo authors but never ships, and criterion drives it rather than the
+  # test suite.
+  - "big-code-analysis-bench/**"
+  # The PyO3 crate's *Rust* layer, for the reason the measurement-gap note
+  # above already gives: pytest exercises it and `cargo llvm-cov nextest`
+  # cannot see that, so it measures ~52% while being far better tested than
+  # that implies. Reporting the misleading number would only invite the
+  # redundant cargo tests that note warns against. The pure-Python surface
+  # is still measured under the `python` flag.
+  - "big-code-analysis-py/src/**"
   - "**/tests/**"
   - "**/build.rs"

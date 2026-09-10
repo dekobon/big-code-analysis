@@ -348,8 +348,16 @@ jobs:
         run: cargo llvm-cov --no-report nextest --all-features --workspace --locked
       # Codecov's native format preserves region coverage (lcov would drop to
       # line-only).
+      #
+      # `--workspace` has to be repeated here: the scope flags on the *run*
+      # above only decide which tests execute, while `report` scopes the
+      # emitted file set to the current package on its own. Without it
+      # cargo-llvm-cov builds an `--ignore-filename-regex` naming every other
+      # workspace member directory, so the CLI and the web crate were never
+      # reported, and after #1376 the whole parse layer left the report too —
+      # 103 files that are in fact ~98% covered. Keep the two in step.
       - name: Generate Codecov report
-        run: cargo llvm-cov report --codecov --output-path codecov.json
+        run: cargo llvm-cov report --workspace --codecov --output-path codecov.json
       # Per-file coverage table in the run's Summary tab, so reviewers can
       # read coverage without leaving GitHub or waiting on the Codecov PR
       # comment.
@@ -359,7 +367,7 @@ jobs:
             echo '### Coverage'
             echo ''
             echo '```'
-            cargo llvm-cov report
+            cargo llvm-cov report --workspace
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       # token authenticates same-repo runs; fork PRs fall back to Codecov's
