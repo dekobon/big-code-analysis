@@ -1718,6 +1718,90 @@ mod tests {
     }
 
     #[test]
+    fn kotlin_primary_constructor_superclass_call_is_a_branch() {
+        // Kotlin's *primary*-constructor superclass call is a
+        // `constructor_invocation` under a `delegation_specifier` — a third
+        // production, distinct from both `CallExpression` and the
+        // `ConstructorDelegationCall` #1279 added, so it scored zero while
+        // the secondary form beside it scored one (#1384). An object
+        // expression's superclass call uses the same production.
+        //
+        // `class Plain : Marker` is the negative case: a delegation
+        // specifier with no argument list is a plain `user_type`, so it
+        // must stay at zero. It contributes to no ABC axis, so nothing
+        // anchors it — deleting the line keeps this test green. What it
+        // buys is discrimination: with it present, broadening the arm to
+        // bare `DelegationSpecifier` fails here; without it, only
+        // `kotlin_constructor_delegation_is_a_branch` catches that.
+        //
+        // expected: 2 branches — `Base(1, 2)` and `Base(3)`. Nothing else
+        // in the fixture is a call, so deleting either construction from
+        // the fixture moves the total.
+        check_metrics::<KotlinParser>(
+            "class Sub : Base(1, 2) { }
+             class Plain : Marker { }
+             fun make(): Any = object : Base(3) { }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_annotation_arguments_are_not_a_branch() {
+        // The parent gate on that arm is load-bearing, not decoration:
+        // tree-sitter-kotlin-ng spells an annotation's argument list with
+        // the *same* `constructor_invocation` production — `@Mark("a")`
+        // parses as `annotation > constructor_invocation` and
+        // `@file:Suppress(…)` as `file_annotation > constructor_invocation`.
+        // Ungated, every argument-carrying annotation in a Kotlin file
+        // would bill a branch, and annotations are everywhere (#1384).
+        //
+        // The fixture pairs three annotation spellings — file-level,
+        // class-level and use-site-targeted — with one real superclass
+        // call, so the total discriminates in both directions: 1 with the
+        // gate, 4 without it, 0 without the arm at all.
+        //
+        // A correctly-excluded annotation contributes to no ABC axis, so
+        // `branches_sum()` alone cannot notice the annotations being
+        // trimmed out of the fixture — measured: dropping any of the three
+        // leaves this test green, and with all three gone, removing the
+        // production gate fails nothing. The node census below is the
+        // anchor: it pins that the fixture really does hand the arm four
+        // `constructor_invocation` nodes for it to score 1 out of, and
+        // that the `file_annotation` parent — the spelling a denylist of
+        // `Annotation` alone would have missed — is among them.
+        //
+        // expected: 1 branch — `Base(1)` only.
+        let src = r#"@file:Suppress("unused")
+             @Mark("a")
+             class Ann : Base(1) {
+                 @get:Mark("b")
+                 val v: Int = 0
+             }"#;
+        let parser = KotlinParser::new(
+            src.as_bytes().to_vec(),
+            &std::path::PathBuf::from("foo.kt"),
+            None,
+        );
+        assert_eq!(
+            parser
+                .root()
+                .preorder()
+                .filter(|n| n.kind_id() == Kotlin::ConstructorInvocation as u16)
+                .count(),
+            4,
+            "fixture must keep three annotations plus the superclass call"
+        );
+        assert!(ast_has_kind_id(&parser, Kotlin::FileAnnotation as u16));
+
+        check_metrics::<KotlinParser>(src, "foo.kt", |metric| {
+            assert_eq!(metric.abc.branches_sum(), 1);
+        });
+    }
+
+    #[test]
     fn groovy_constructor_delegation_is_a_branch() {
         // Groovy already counted this shape before #1279; the assertion
         // pins the JVM-family parity the Java and Kotlin fixes restore.
@@ -4556,11 +4640,11 @@ function f(int $a, int $b): int {
                 // Non-vacuity guard: 1 is also what a body whose `if`
                 // survived but whose super call did not would score, so
                 // pin the call itself. Measured: dropping
-                // `super<A>.g(a, b)` takes `branches_sum()` to 0 — the
-                // `A()` primary-constructor delegation in the class
-                // header contributes none, which is #1384 and not this
-                // test's subject.
-                assert_eq!(metric.abc.branches_sum(), 1);
+                // `super<A>.g(a, b)` takes `branches_sum()` from 2 to 1 —
+                // the remaining branch is the `A()` primary-constructor
+                // delegation in the class header, which #1384 taught this
+                // metric to count.
+                assert_eq!(metric.abc.branches_sum(), 2);
             },
         );
     }

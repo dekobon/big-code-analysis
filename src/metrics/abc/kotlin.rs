@@ -197,6 +197,27 @@ impl Abc for KotlinCode {
             CallExpression | ConstructorDelegationCall => {
                 stats.branches += 1.;
             }
+            // `ConstructorInvocation` is the *primary*-constructor
+            // superclass call — `class Sub : Base(1, 2)`, and the same
+            // production inside `object : Base(1) { }`. #1279 added the
+            // secondary form above and left this one at zero (#1384).
+            //
+            // The parent gate is not optional. tree-sitter-kotlin-ng gives
+            // the production exactly three parents (node-types.json), and
+            // two of them are annotations: `@Suppress("x")` parses as
+            // `annotation > constructor_invocation` and `@file:Suppress("x")`
+            // as `file_annotation > constructor_invocation`, so an ungated
+            // arm bills every argument-carrying annotation as a branch.
+            // Gating *positively* on the delegation specifier — rather than
+            // denying the two annotation kinds — keeps any future
+            // annotation-shaped parent at zero too. A supertype with no
+            // argument list (`class Sub : Marker`) is a plain `user_type`
+            // and never reaches here.
+            ConstructorInvocation
+                if ancestors.parent_has_kind(node, DelegationSpecifier as u16) =>
+            {
+                stats.branches += 1.;
+            }
             // Conditions: comparison operators, identity equality,
             // ternary-elvis (`?:`), `as?` safe-cast, and the arms of
             // control-flow constructs (`else`, `catch`, `when` entries).
