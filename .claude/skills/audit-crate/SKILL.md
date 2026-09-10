@@ -19,7 +19,7 @@ titles). Never let an unresolved or empty `$ARGUMENTS` reach a template like
 `audit-state-$ARGUMENTS` — that would write to a malformed memory key.
 
 **Memory-key sanitization**: when `$ARGUMENTS` is a directory path (e.g.,
-`src/languages`), replace `/` with `-` before composing memory keys so the
+`big-code-analysis-ast/src/languages`), replace `/` with `-` before composing memory keys so the
 key is a single flat token (e.g., `audit-state-src-languages`, not
 `audit-state-src/languages`). This avoids backend interpretation of slashes
 as path separators. Apply the same rule to every memory-key reference
@@ -249,7 +249,7 @@ Group every file into one of these categories before auditing:
 
 | Group | Contents |
 |-------|----------|
-| A — Library core | `src/lib.rs` and the modules it exports (`src/languages/`, `src/metrics/`, `src/output/`, `src/spaces.rs`, `src/parser.rs`, `src/checker.rs`, `src/getter.rs`, `src/alterator.rs`, `src/node.rs`, `src/traits.rs`, etc.) |
+| A — Library core | `src/lib.rs` and the modules it exports (`big-code-analysis-ast/src/languages/`, `src/metrics/`, `src/output/`, `src/spaces.rs`, `big-code-analysis-ast/src/parser.rs`, `big-code-analysis-ast/src/checker.rs`, `big-code-analysis-ast/src/getter.rs`, `big-code-analysis-ast/src/alterator.rs`, `big-code-analysis-ast/src/node.rs`, `big-code-analysis-ast/src/traits.rs`, etc.) |
 | B — Binaries | `src/bin/` entries plus the workspace crates `big-code-analysis-cli` and `big-code-analysis-web` when those are the audit target |
 | C — Tests | `tests/` directory |
 | D — Supporting files | `README.md`, examples, `Cargo.toml`, `big-code-analysis-book/`, helper scripts, `.claude/rules/` if present |
@@ -353,7 +353,7 @@ will apply, so the vocabulary must match end-to-end. Mapping rules:
 
 ### Project-Specific (big-code-analysis)
 
-27. Per-language modules under `src/languages/` deliberately mirror each
+27. Per-language modules under `big-code-analysis-ast/src/languages/` deliberately mirror each
     other. Does any change introduce a discrepancy that one language exhibits
     and another does not (different metric formula, different node-type
     handling, different operator/operand classification) without justification?
@@ -554,7 +554,7 @@ last_model: <model-id>
 
 ## File Coverage
 src/lib.rs | full | 2026-04-25 | 3 findings | claude-opus-4-7
-src/languages/language_rust.rs | partial | 2026-04-25 | 1 finding | claude-opus-4-7
+big-code-analysis-ast/src/languages/language_rust.rs | partial | 2026-04-25 | 1 finding | claude-opus-4-7
 src/metrics/halstead.rs | none | - | - | -
 tests/parser.rs | full | 2026-04-25 | 0 findings | claude-sonnet-4-6
 ```

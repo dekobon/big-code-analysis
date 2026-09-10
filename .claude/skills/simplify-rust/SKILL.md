@@ -57,7 +57,7 @@ Look for duplicated logic and missing abstractions.
 - Manual error mapping chains replaceable by a single `From` impl
 - Identical match arms that can be consolidated
 - Helper functions that duplicate standard library or crate functionality
-- Per-language duplicated logic in `src/languages/` that could be expressed via
+- Per-language duplicated logic in `big-code-analysis-ast/src/languages/` that could be expressed via
   a trait method or macro instead of being copied across language modules
   (when consolidating into a macro, follow `.claude/rules/macro-comments.md`:
   hoist per-language rationale comments above each invocation, not into the

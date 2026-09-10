@@ -249,9 +249,9 @@ Files:
 - `src/metrics/npm.rs`
 - `src/metrics/tokens.rs`
 - `src/metrics/wmc.rs`
-- `src/checker.rs`
-- `src/getter.rs`
-- `src/alterator.rs`
+- `big-code-analysis-ast/src/checker.rs`
+- `big-code-analysis-ast/src/getter.rs`
+- `big-code-analysis-ast/src/alterator.rs`
 
 Checklist focus: all 50 questions. Special attention to Q31–Q36, Q39–Q42,
 Q44–Q46, Q50 (metrics-specific section).
@@ -259,10 +259,10 @@ Q44–Q46, Q50 (metrics-specific section).
 ### Partition B — JS-family language modules
 
 Files:
-- `src/languages/language_mozjs.rs`
-- `src/languages/language_javascript.rs`
-- `src/languages/language_typescript.rs`
-- `src/languages/language_tsx.rs`
+- `big-code-analysis-ast/src/languages/language_mozjs.rs`
+- `big-code-analysis-ast/src/languages/language_javascript.rs`
+- `big-code-analysis-ast/src/languages/language_typescript.rs`
+- `big-code-analysis-ast/src/languages/language_tsx.rs`
 
 Checklist focus: all 50 questions. Special attention to Q32–Q36, Q38–Q45
 (aliased variants, sibling parity, Halstead, dispatch gaps).
@@ -281,12 +281,12 @@ Report any discrepancy as a separate FINDING.
 ### Partition C — C-family language modules
 
 Files:
-- `src/languages/language_c.rs`
-- `src/languages/language_cpp.rs`
-- `src/languages/language_mozcpp.rs`
-- `src/languages/language_csharp.rs`
-- `src/languages/language_java.rs`
-- `src/languages/language_kotlin.rs`
+- `big-code-analysis-ast/src/languages/language_c.rs`
+- `big-code-analysis-ast/src/languages/language_cpp.rs`
+- `big-code-analysis-ast/src/languages/language_mozcpp.rs`
+- `big-code-analysis-ast/src/languages/language_csharp.rs`
+- `big-code-analysis-ast/src/languages/language_java.rs`
+- `big-code-analysis-ast/src/languages/language_kotlin.rs`
 
 Checklist focus: all 50 questions. Special attention to Q32, Q37–Q42
 (grammar root, else-if structural model, cross-language parity, dispatch gaps).
@@ -297,24 +297,24 @@ the JVM/managed side (`csharp`, `java`, `kotlin`).
 
 ### Partition D — Other language modules
 
-Files (every `src/languages/language_*.rs` not in B or C):
-- `src/languages/language_python.rs`
-- `src/languages/language_rust.rs`
-- `src/languages/language_go.rs`
-- `src/languages/language_bash.rs`
-- `src/languages/language_php.rs`
-- `src/languages/language_ruby.rs`
-- `src/languages/language_lua.rs`
-- `src/languages/language_perl.rs`
-- `src/languages/language_tcl.rs`
-- `src/languages/language_elixir.rs`
-- `src/languages/language_groovy.rs`
-- `src/languages/language_objc.rs`
-- `src/languages/language_irules.rs`
-- `src/languages/language_ccomment.rs`
-- `src/languages/language_preproc.rs`
+Files (every `big-code-analysis-ast/src/languages/language_*.rs` not in B or C):
+- `big-code-analysis-ast/src/languages/language_python.rs`
+- `big-code-analysis-ast/src/languages/language_rust.rs`
+- `big-code-analysis-ast/src/languages/language_go.rs`
+- `big-code-analysis-ast/src/languages/language_bash.rs`
+- `big-code-analysis-ast/src/languages/language_php.rs`
+- `big-code-analysis-ast/src/languages/language_ruby.rs`
+- `big-code-analysis-ast/src/languages/language_lua.rs`
+- `big-code-analysis-ast/src/languages/language_perl.rs`
+- `big-code-analysis-ast/src/languages/language_tcl.rs`
+- `big-code-analysis-ast/src/languages/language_elixir.rs`
+- `big-code-analysis-ast/src/languages/language_groovy.rs`
+- `big-code-analysis-ast/src/languages/language_objc.rs`
+- `big-code-analysis-ast/src/languages/language_irules.rs`
+- `big-code-analysis-ast/src/languages/language_ccomment.rs`
+- `big-code-analysis-ast/src/languages/language_preproc.rs`
 
-If `ls src/languages/language_*.rs` reveals a module not in this list
+If `ls big-code-analysis-ast/src/languages/language_*.rs` reveals a module not in this list
 (or in Partitions B/C), add it to this partition and flag the omission
 in the Step 8 summary so the file list can be refreshed.
 
@@ -326,11 +326,11 @@ dispatch gaps).
 
 Files:
 - `src/spaces.rs`
-- `src/node.rs`
-- `src/parser.rs`
-- `src/traits.rs`
-- `src/macros/` (all files)
-- `src/c_macro.rs`
+- `big-code-analysis-ast/src/node.rs`
+- `big-code-analysis-ast/src/parser.rs`
+- `big-code-analysis-ast/src/traits.rs`
+- `big-code-analysis-ast/src/macros/` (all files)
+- `big-code-analysis-ast/src/c_macro.rs`
 - `src/lib.rs`
 
 Checklist focus: all 50 questions. Special attention to Q5–Q7, Q28, Q41,
@@ -432,7 +432,7 @@ Track depth per file: `full` | `partial` | `skimmed`.
 
 ### Section F — Project-Specific Baseline (Q27–Q30)
 
-27. Per-language modules under `src/languages/` deliberately mirror each other.
+27. Per-language modules under `big-code-analysis-ast/src/languages/` deliberately mirror each other.
     Does any change introduce a discrepancy that one language exhibits and
     another does not (different metric formula, different node-type handling,
     different operator/operand classification) without justification?
@@ -471,8 +471,8 @@ Partitions A–D.
     numeric-suffix variants (`Kind2`, `Kind3`, … `Kind17`) of every matched
     rule either explicitly listed or explicitly excluded with a comment? Run:
     ```bash
-    rg 'Lang::([A-Za-z]+)\b' src/getter.rs src/checker.rs \
-      src/alterator.rs src/spaces.rs src/metrics/
+    rg 'Lang::([A-Za-z]+)\b' big-code-analysis-ast/src/getter.rs big-code-analysis-ast/src/checker.rs \
+      big-code-analysis-ast/src/alterator.rs src/spaces.rs src/metrics/
     ```
     then cross-reference against the regenerated `language_<lang>.rs` to
     confirm every suffixed variant is accounted for.
@@ -484,7 +484,7 @@ Partitions A–D.
     arm present and correct in all three siblings? Run:
     ```bash
     rg '<symbol_or_match_arm>' \
-      src/languages/language_{javascript,mozjs,typescript,tsx}.rs \
+      big-code-analysis-ast/src/languages/language_{javascript,mozjs,typescript,tsx}.rs \
       src/{getter,checker}.rs
     ```
     Apply the same check to C-family siblings (`c`, `cpp`, `mozcpp`) and to
@@ -587,15 +587,15 @@ Partitions A–D.
 
     ```bash
     # Loops that might be missing from cyclomatic/cognitive dispatch:
-    rg 'For[A-Z]' src/languages/
+    rg 'For[A-Z]' big-code-analysis-ast/src/languages/
     # Ternary/conditional that might be missing:
-    rg 'Conditional|Ternary' src/languages/
+    rg 'Conditional|Ternary' big-code-analysis-ast/src/languages/
     # Enhanced/range-based loop variants:
-    rg 'Enhanced|Range|For[A-Z]' src/languages/
+    rg 'Enhanced|Range|For[A-Z]' big-code-analysis-ast/src/languages/
     # Pattern matching / structural match:
-    rg 'Match|Case[A-Z]|Pattern' src/languages/
+    rg 'Match|Case[A-Z]|Pattern' big-code-analysis-ast/src/languages/
     # Nullish / short-circuit operators:
-    rg 'Nullish|NullCoal' src/languages/
+    rg 'Nullish|NullCoal' big-code-analysis-ast/src/languages/
     ```
 
     For each candidate kind found, confirm it is either:
@@ -827,7 +827,7 @@ Also list:
 - Any partitions skipped (priority 5 — recently scanned and unchanged).
 - Any partitions whose scope listed files that did not exist on disk —
   name the missing files. This catches drift between the skill's
-  partition tables and `src/languages/`.
+  partition tables and `big-code-analysis-ast/src/languages/`.
 
 If `/tmp/scan-metrics.json` from Step 2b is missing or empty, prefix the
 summary with a `DEGRADED: metric hotspots unavailable — <reason>` banner

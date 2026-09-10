@@ -52,9 +52,9 @@ this project to evaluate metrics.
 
 At this point we should have a new grammar file for the new language
 in
-[/src/languages/](https://github.com/dekobon/big-code-analysis/tree/main/src/languages).
+[/big-code-analysis-ast/src/languages/](https://github.com/dekobon/big-code-analysis/tree/main/big-code-analysis-ast/src/languages).
 See
-[/src/languages/language_rust.rs](https://github.com/dekobon/big-code-analysis/blob/main/src/languages/language_rust.rs)
+[/big-code-analysis-ast/src/languages/language_rust.rs](https://github.com/dekobon/big-code-analysis/blob/main/big-code-analysis-ast/src/languages/language_rust.rs)
 as an example of the generated enum.
 
 ## Adding the new grammar to big-code-analysis
@@ -66,7 +66,7 @@ as an example of the generated enum.
    [Cargo.toml](https://github.com/dekobon/big-code-analysis/blob/main/Cargo.toml)
    is `tree-sitter-rust = "=0.24.2"`.
 1. Next we add the new `tree-sitter` language namespace to
-   [/src/languages/mod.rs](https://github.com/dekobon/big-code-analysis/blob/main/src/languages/mod.rs)
+   [/big-code-analysis-ast/src/languages/mod.rs](https://github.com/dekobon/big-code-analysis/blob/main/big-code-analysis-ast/src/languages/mod.rs)
    eg.
 
 ```rust
@@ -76,7 +76,7 @@ pub use language_rust::*;
 
 1. Lastly, we add a definition of the language to the arguments of
    `mk_langs!` macro in
-   [/src/langs.rs](https://github.com/dekobon/big-code-analysis/blob/main/src/langs.rs).
+   [/big-code-analysis-ast/src/langs.rs](https://github.com/dekobon/big-code-analysis/blob/main/big-code-analysis-ast/src/langs.rs).
 
 ```rust
 // 1) Cargo feature name that enables this variant's grammar
@@ -111,15 +111,15 @@ must also implement the AST plumbing and every metric trait the
 workspace defines:
 
 - **`Checker`** in
-  [/src/checker.rs](https://github.com/dekobon/big-code-analysis/blob/main/src/checker.rs)
+  [/big-code-analysis-ast/src/checker.rs](https://github.com/dekobon/big-code-analysis/blob/main/big-code-analysis-ast/src/checker.rs)
   — comment, function, closure, call, string-literal, and `else-if`
   predicates over the grammar's `kind_id`s.
 - **`Getter`** in
-  [/src/getter.rs](https://github.com/dekobon/big-code-analysis/blob/main/src/getter.rs)
+  [/big-code-analysis-ast/src/getter.rs](https://github.com/dekobon/big-code-analysis/blob/main/big-code-analysis-ast/src/getter.rs)
   — `get_space_kind` plus the Halstead operator/operand classification
   table.
 - **`Alterator`** in
-  [/src/alterator.rs](https://github.com/dekobon/big-code-analysis/blob/main/src/alterator.rs)
+  [/big-code-analysis-ast/src/alterator.rs](https://github.com/dekobon/big-code-analysis/blob/main/big-code-analysis-ast/src/alterator.rs)
   — usually only string-literal preservation; the default impl works
   for most languages.
 - **All thirteen metric traits**: `Abc`, `Cognitive`, `Cyclomatic`,

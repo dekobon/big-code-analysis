@@ -2,8 +2,11 @@
 
 How `big-code-analysis` decides which language a file is written in, and
 what it reads off disk before parsing. All of the logic lives in
-[`src/tools.rs`](../src/tools.rs), [`src/langs.rs`](../src/langs.rs),
-and the macros in [`src/macros/mod.rs`](../src/macros/mod.rs).
+[`big-code-analysis-ast/src/tools.rs`](../big-code-analysis-ast/src/tools.rs),
+[`big-code-analysis-ast/src/langs.rs`](../big-code-analysis-ast/src/langs.rs),
+and the macros in
+[`big-code-analysis-ast/src/macros/mod.rs`](../big-code-analysis-ast/src/macros/mod.rs)
+(the `big-code-analysis-ast` crate, re-exported by the root).
 
 ## Reading the file
 
@@ -30,7 +33,7 @@ would shift line numbers and break LoC counts.
 ## Detecting the language
 
 There are two public entry points, both returning a
-[`LANG`](../src/langs.rs) variant:
+[`LANG`](../big-code-analysis-ast/src/langs.rs) variant:
 
 ### `get_language_for_file(path)`: extension only
 
@@ -140,7 +143,7 @@ the #724 change: `.m` now reports `"objc"` natively and `.mm` reports
 
 The per-language extension list and Emacs mode list are declared as the
 last two tuple fields of each `mk_langs!` entry in
-[`src/langs.rs`](../src/langs.rs):
+[`big-code-analysis-ast/src/langs.rs`](../big-code-analysis-ast/src/langs.rs):
 
 ```rust
 (
@@ -156,7 +159,8 @@ last two tuple fields of each `mk_langs!` entry in
 ```
 
 The `mk_extensions!` and `mk_emacs_mode!` macros in
-[`src/macros/mod.rs`](../src/macros/mod.rs) expand these into the public
+[`big-code-analysis-ast/src/macros/mod.rs`](../big-code-analysis-ast/src/macros/mod.rs)
+expand these into the public
 `get_from_ext(ext) -> Option<LANG>` and
 `get_from_emacs_mode(mode) -> Option<LANG>` lookup functions. Both are
 plain `match` arms: no fuzzy matching, no fallback.
@@ -195,5 +199,6 @@ If `guess_language` returns `(None, _)`:
 Beyond the shebang scan described above, there is no content-based
 heuristic and no MIME sniffing. Add a missing extension or Emacs mode
 to `mk_langs!` rather than working around it at the call site, and
-extend the shebang interpreter table in `src/tools.rs` if a new
+extend the shebang interpreter table in
+`big-code-analysis-ast/src/tools.rs` if a new
 script interpreter needs to be recognised.

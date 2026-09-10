@@ -159,7 +159,7 @@ predicate in the walk that asked a node for its parent was therefore
 `O(depth)` per node and `O(depth^2)` over a deeply nested file, however
 few steps it took. [#1084][parent-walk] fixed three of them by having
 the metric walk carry the ancestor chain down with it (`Ancestors` in
-`src/node.rs`), so a predicate reads an ancestor as a slice index. Their
+`big-code-analysis-ast/src/node.rs`), so a predicate reads an ancestor as a slice index. Their
 bounds moved to the linear bound in that same change, which is what now
 catches a relapse. `cognitive/nested-fn` is the fourth of the same
 family: `increment_function_depth` was deferred out of #1084 and fixed
@@ -239,7 +239,7 @@ not have caught why. A forward pass over the parent's children is
 `O(children)` and flat in depth; the backward walk is the reverse. The
 measured costs behind that trade, and the break-even they put it at,
 live on `MAX_FORWARD_ATTRIBUTE_SCAN_CHILDREN` and
-`FORWARD_ATTRIBUTE_SCAN_CHILDREN_PER_DEPTH` in `src/checker.rs` — one
+`FORWARD_ATTRIBUTE_SCAN_CHILDREN_PER_DEPTH` in `big-code-analysis-ast/src/checker.rs` — one
 copy, so re-measuring updates one place. Reading forward
 unconditionally fixed the depth axis and broke the width one: a
 generated file of 2 000 top-level attributed items went from 6.0 ms to
@@ -262,7 +262,7 @@ covers what it claims and that the depth probes do not.
 
 The unit suite still pins the *dispatch* separately:
 `the_exclude_tests_prune_reads_forward_up_to_its_depth_scaled_budget`
-in `src/node.rs` asserts which arm each boundary shape takes, so
+in `big-code-analysis-ast/src/node.rs` asserts which arm each boundary shape takes, so
 widening the budget past a shallow parent fails a test rather than
 slipping through. The break-even *numbers* the budget is derived from
 remain unguarded — the gate sees the complexity class, not the
@@ -336,7 +336,7 @@ which a `metrics()` call runs, so they are absent from the figures
 above.
 
 `Node::children_with` lets all five hoist one cursor out of their loop,
-and the counter `child_scan_cursors` in `src/node.rs` is what keeps
+and the counter `child_scan_cursors` in `big-code-analysis-ast/src/node.rs` is what keeps
 them there, since the change moves no metric value. All five are
 asserted: the walks reachable from `node.rs` in
 `the_converted_traversals_scan_a_tree_on_one_cursor`, and the renderer

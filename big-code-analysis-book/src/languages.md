@@ -2,7 +2,7 @@
 
 This is the list of programming languages parsed by
 **big-code-analysis**. Each entry below is a real `LANG` variant
-(defined by the `mk_langs!` invocation in `src/langs.rs`) and is
+(defined by the `mk_langs!` invocation in `big-code-analysis-ast/src/langs.rs`) and is
 gated behind the matching per-language Cargo feature documented in
 [Per-language Cargo features](./library/cargo-features.md).
 

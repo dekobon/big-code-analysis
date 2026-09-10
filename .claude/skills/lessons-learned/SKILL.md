@@ -294,7 +294,7 @@ edit them unprompted.
 
 **Renumbering is a breaking change and is never in scope.** Roughly
 sixty files cite lessons by number, including production source
-(`src/checker/*.rs`, `src/macros/kind_sets.rs`), the cross-language
+(`big-code-analysis-ast/src/checker/*.rs`, `big-code-analysis-ast/src/macros/kind_sets.rs`), the cross-language
 parity tests, `AGENTS.md`, `CONTRIBUTING.md`, the book, and the
 `Makefile`; #2, #11, #19, #4 and #6 carry the most references. Verify
 before assuming a number is free:

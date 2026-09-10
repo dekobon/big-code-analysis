@@ -220,7 +220,7 @@ whenever many tests reach a line while all supplying the same value to
 the part that matters, and the tool cannot see the difference because
 which-inputs-varied is not what it measures.
 
-`CommaIndex::splits` (`src/cfg_predicate.rs`) measured 11 of 11 regions
+`CommaIndex::splits` (`big-code-analysis-ast/src/cfg_predicate.rs`) measured 11 of 11 regions
 covered and was entered 150,200 times in one run. Replacing its
 `region.start` lower bound with `0` panics on ordinary input — and
 before #1105 that perturbation failed **none** of the 3,969 tests then

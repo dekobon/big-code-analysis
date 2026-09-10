@@ -437,7 +437,7 @@ In `bca.toml`:
 [check]
 exclude = [
     "tests/**",
-    "src/languages/language_*.rs",
+    "big-code-analysis-ast/src/languages/language_*.rs",
     "xtask/**",
 ]
 ```

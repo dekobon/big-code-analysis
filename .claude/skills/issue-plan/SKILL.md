@@ -39,7 +39,7 @@ Before planning, understand the relevant code:
    `big-code-analysis-cli`, `big-code-analysis-web`,
    `big-code-analysis-py` (PyO3 bindings), `xtask` (man-page
    generation), and `enums` (language-enum codegen). Per-language
-   logic lives under `src/languages/` (one `language_<lang>.rs` per
+   logic lives under `big-code-analysis-ast/src/languages/` (one `language_<lang>.rs` per
    supported language) and metric implementations under `src/metrics/`.
 3. Use Serena LSP tools (`find_symbol`, `get_symbols_overview`,
    `find_referencing_symbols`) — or Grep / Glob if Serena is unavailable —
@@ -47,7 +47,7 @@ Before planning, understand the relevant code:
 4. Note the scope: how many files, which crate(s), which language modules,
    whether public API is affected, whether tree-sitter grammar versions
    are involved.
-5. **Cross-language sweep**: if the issue is in `src/languages/` or
+5. **Cross-language sweep**: if the issue is in `big-code-analysis-ast/src/languages/` or
    `src/metrics/`, check whether the same defect exists in sibling
    language modules. A bug in one usually exists in several.
 

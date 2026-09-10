@@ -2,7 +2,7 @@
 
 `big-code-analysis` runs [cargo-mutants][cm] on a quarterly schedule
 against the highest-leverage modules: every metric implementation
-under `src/metrics/`, plus `src/checker.rs` and `src/getter.rs`.
+under `src/metrics/`, plus `big-code-analysis-ast/src/checker.rs` and `big-code-analysis-ast/src/getter.rs`.
 Mutation testing complements the regular test suite by mechanically
 mutating production code (e.g. flipping `>` to `>=`, replacing a
 function body with `Default::default()`) and re-running the tests.
@@ -32,8 +32,8 @@ The job:
 
 1. Checks out the repo with submodules.
 2. Installs `cargo-mutants` via `taiki-e/install-action@v2`.
-3. Runs `cargo mutants` against `src/metrics/`, `src/checker.rs`,
-   and `src/getter.rs`.
+3. Runs `cargo mutants` against `src/metrics/`, `big-code-analysis-ast/src/checker.rs`,
+   and `big-code-analysis-ast/src/getter.rs`.
 4. Uploads `target/mutants/` as the `cargo-mutants-report` artifact
    (90-day retention).
 5. On non-zero exit, opens a GitHub issue labelled
@@ -64,7 +64,9 @@ cargo mutants -f src/metrics/cognitive.rs
 To exercise the same surface as CI:
 
 ```bash
-cargo mutants -f src/metrics/ -f src/checker.rs -f src/getter.rs
+cargo mutants --package big-code-analysis --package big-code-analysis-ast \
+  -f src/metrics/ -f big-code-analysis-ast/src/checker.rs \
+  -f big-code-analysis-ast/src/getter.rs
 ```
 
 Plan on tens of minutes per file on a laptop. Use `-j N` to bound

@@ -21,7 +21,7 @@ resolved value for every subsequent reference (memory keys, `cargo -p`, issue
 titles).
 
 **Memory-key sanitization**: when `$ARGUMENTS` is a directory path (e.g.,
-`src/languages`), replace `/` with `-` before composing memory keys so the
+`big-code-analysis-ast/src/languages`), replace `/` with `-` before composing memory keys so the
 key is a single flat token (e.g., `naming-audit-state-src-languages`, not
 `naming-audit-state-src/languages`). Apply this sanitization to every
 memory-key reference below.
@@ -208,11 +208,11 @@ detect.
 
 | Group | Contents |
 |-------|----------|
-| A — Library core | `src/lib.rs`, `src/languages/`, `src/metrics/`, `src/output/`, `src/parser.rs`, `src/checker.rs`, `src/getter.rs`, `src/alterator.rs`, `src/spaces.rs`, `src/node.rs`, `src/traits.rs`, etc. |
+| A — Library core | `src/lib.rs`, `big-code-analysis-ast/src/languages/`, `src/metrics/`, `src/output/`, `big-code-analysis-ast/src/parser.rs`, `big-code-analysis-ast/src/checker.rs`, `big-code-analysis-ast/src/getter.rs`, `big-code-analysis-ast/src/alterator.rs`, `src/spaces.rs`, `big-code-analysis-ast/src/node.rs`, `big-code-analysis-ast/src/traits.rs`, etc. |
 | B — Tests | `tests/` directory and `#[cfg(test)]` modules |
 | C — Workspace binaries | `big-code-analysis-cli/src/`, `big-code-analysis-web/src/` (when those are the audit target) |
 
-Per-language modules under `src/languages/` deliberately mirror each other —
+Per-language modules under `big-code-analysis-ast/src/languages/` deliberately mirror each other —
 naming inconsistency *between* languages (same concept named differently)
 is a primary target for this audit.
 
@@ -411,7 +411,7 @@ last_model: <model-id>
 
 ## File Coverage
 src/lib.rs | full | 2026-04-26 | 3 findings | claude-opus-4-7
-src/languages/language_rust.rs | partial | 2026-04-26 | 1 finding | claude-opus-4-7
+big-code-analysis-ast/src/languages/language_rust.rs | partial | 2026-04-26 | 1 finding | claude-opus-4-7
 src/metrics/halstead.rs | none | - | - | -
 ```
 

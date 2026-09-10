@@ -195,9 +195,9 @@ Per-metric unit-test counts across `src/metrics/*.rs`. Numbers combine
 
 Plus module-level tests not counted above:
 
-- `src/checker.rs` — 4 `bash_*` tests
+- `big-code-analysis-ast/src/checker.rs` — 4 `bash_*` tests
 - `src/spaces.rs` — 1 `c_*`, 1 `cpp_*` test
-- `src/alterator.rs` — 1 each for `javascript`, `typescript`, `tsx`
+- `big-code-analysis-ast/src/alterator.rs` — 1 each for `javascript`, `typescript`, `tsx`
 
 Best-covered: **C#** (110 unit tests, 11 of 13 metrics, plus Pattern-B
 corpus). Close runner-up: **Java** (104, 12 of 13, plus cross-language

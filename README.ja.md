@@ -146,6 +146,6 @@ make pre-commit   # CI と同等のローカルゲート一式
 - 同梱の文法クレート（`tree-sitter-ccomment`、`tree-sitter-mozcpp`、`tree-sitter-mozjs`、
   `tree-sitter-preproc`、`tree-sitter-tcl`）は MIT ライセンスで公開されています。
 
-- **big-code-analysis**、**big-code-analysis-cli**、**big-code-analysis-web**、
-  **big-code-analysis-py** は [Mozilla Public License v2.0](https://www.mozilla.org/MPL/2.0/)
+- **big-code-analysis**、**big-code-analysis-ast**、**big-code-analysis-cli**、
+  **big-code-analysis-web**、**big-code-analysis-py** は [Mozilla Public License v2.0](https://www.mozilla.org/MPL/2.0/)
   のもとで公開されています。

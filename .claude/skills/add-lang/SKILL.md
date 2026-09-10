@@ -25,7 +25,7 @@ Parse `$ARGUMENTS` as: `<lang-name> <grammar-crate>=<version> [<file-ext>...]`
 
 - `<lang-name>` (required): PascalCase enum variant name, e.g. `Go`,
   `Ruby`, `Swift`. Must not collide with existing variants in
-  `src/langs.rs` or `enums/src/languages.rs`.
+  `big-code-analysis-ast/src/langs.rs` or `enums/src/languages.rs`.
 - `<grammar-crate>=<version>` (required): the tree-sitter crate name
   and pinned version, e.g. `tree-sitter-ruby=0.23.1`. The version MUST
   be pinned with `=X.Y.Z` (project convention — see `AGENTS.md`).
@@ -45,8 +45,10 @@ continuing.
 - **No public-API breaks** in unrelated crates. The new language
   variant is itself a public-API addition (acceptable; minor bump);
   do not change other variants or trait signatures.
-- **Pin the grammar version** with `=X.Y.Z` in both `Cargo.toml` and
-  `enums/Cargo.toml`. Never use a range without explicit user
+- **Pin the grammar version** with `=X.Y.Z` in the root `Cargo.toml`
+  (`[workspace.dependencies]`) and in `enums/Cargo.toml`; the
+  `big-code-analysis-ast` manifest inherits the pin with
+  `workspace = true`. Never use a range without explicit user
   approval.
 - **Cross-language parity.** All 12 metric trait impls
   (`Abc`, `Cognitive`, `Cyclomatic`, `Exit`, `Halstead`, `Loc`, `Mi`,
@@ -77,7 +79,7 @@ the user's behalf.
 ### 0b: Validate name and version pin
 
 - Confirm `<lang-name>` is not already a variant in
-  `src/langs.rs` (search for `Lang::<lang-name>`).
+  `big-code-analysis-ast/src/langs.rs` (search for `Lang::<lang-name>`).
 - Confirm `<grammar-crate>=<version>` parses cleanly and that
   `crates.io/crates/<grammar-crate>` actually publishes
   `<version>` — fetch the crate page or `cargo search` to verify.
@@ -99,7 +101,7 @@ symbol-level navigation/editing is the default for all `.rs` edits.
 ## Step 1: Wire up the `enums` codegen helper
 
 The `enums` crate is excluded from the default workspace and exists
-solely to regenerate `src/languages/language_<lang>.rs` from a tree-sitter
+solely to regenerate `big-code-analysis-ast/src/languages/language_<lang>.rs` from a tree-sitter
 grammar's node-kind table. Wire it up first so we can produce the enum
 file before touching the main crate.
 
@@ -182,7 +184,8 @@ empty kind name at one position. If it is missing, add it.
 From the repo root, mirroring `recreate-grammars.sh`:
 
 ```bash
-cargo run --manifest-path ./enums/Cargo.toml -- -l rust -o ./src/languages
+cargo run --manifest-path ./enums/Cargo.toml -- \
+    -l rust -o ./big-code-analysis-ast/src/languages
 cargo fmt --all
 ```
 
@@ -197,8 +200,8 @@ one. The `enums` binary iterates `Lang::into_enum_iter()` and writes
 one file per registered variant. After running, inspect the diff:
 
 ```bash
-git status -- src/languages/
-git diff src/languages/
+git status -- big-code-analysis-ast/src/languages/
+git diff big-code-analysis-ast/src/languages/
 ```
 
 The new `language_<lang>.rs` should appear as a new file. Existing
@@ -212,14 +215,15 @@ no longer matching what the workspace clippy gate expects); fix the
 template — not the emitted output — and re-run codegen. See lesson
 17 in `lessons_learned.md`.
 
-Confirm the new file exists at `src/languages/language_<lang>.rs` and
+Confirm the new file exists at `big-code-analysis-ast/src/languages/language_<lang>.rs` and
 that it begins with `// Code generated; DO NOT EDIT.`.
 
 If the project also depends on C-macro tables for the new language
 (only relevant for C/C++ family preprocessor work), also run:
 
 ```bash
-cargo run --manifest-path ./enums/Cargo.toml -- -l c_macros -o ./src/c_langs_macros
+cargo run --manifest-path ./enums/Cargo.toml -- \
+    -l c_macros -o ./big-code-analysis-ast/src/c_langs_macros
 ```
 
 Most languages do not need this step.
@@ -228,16 +232,44 @@ Most languages do not need this step.
 
 ## Step 2: Wire the grammar into the main crate
 
-### 2a: Add the grammar to root `Cargo.toml`
+### 2a: Wire the grammar into two manifests
 
-Same pinned-version line as 1a, inserted alphabetically among the
-other `tree-sitter-*` deps:
+Since #1376 the grammar crates are dependencies of
+`big-code-analysis-ast`, not of the root crate, so a language needs
+three edits across two manifests. Missing any of them leaves
+`LANG::<New>` returning `LanguageDisabled` in every build, or leaves an
+unused dependency that `cargo +nightly udeps` fails on.
 
-```toml
-tree-sitter-<lang> = "=<version>"
-```
+1. Root `Cargo.toml`, `[workspace.dependencies]` — the version pin,
+   inserted alphabetically among the other `tree-sitter-*` entries
+   (same pinned-version line as 1a):
 
-### 2b: Export the generated module from `src/languages/mod.rs`
+   ```toml
+   tree-sitter-<lang> = "=<version>"
+   ```
+
+2. `big-code-analysis-ast/Cargo.toml` — the optional dependency and the
+   feature that enables it, plus an entry in `all-languages`:
+
+   ```toml
+   [dependencies]
+   tree-sitter-<lang> = { workspace = true, optional = true }
+
+   [features]
+   all-languages = [..., "<lang>", ...]
+   <lang> = ["dep:tree-sitter-<lang>"]
+   ```
+
+3. Root `Cargo.toml`, `[features]` — the forwarding feature and the
+   matching `all-languages` entry, so the root's feature set stays a
+   superset of the sub-crate's:
+
+   ```toml
+   all-languages = [..., "<lang>", ...]
+   <lang> = ["big-code-analysis-ast/<lang>"]
+   ```
+
+### 2b: Export the generated module from `big-code-analysis-ast/src/languages/mod.rs`
 
 ```rust
 pub mod language_<lang>;
@@ -246,7 +278,7 @@ pub use language_<lang>::*;
 
 Insert alphabetically.
 
-### 2c: Add the language definition to `src/langs.rs`
+### 2c: Add the language definition to `big-code-analysis-ast/src/langs.rs`
 
 Append a `mk_langs!` tuple alphabetically:
 
@@ -306,7 +338,7 @@ test that parses a deliberately malformed fixture and asserts
 `blank ≥ 0` and `kind == Unit` at the file level. See lesson 9 in
 `lessons_learned.md` (issue #80, `dc09eb3`).
 
-### 3a: `Checker` impl in `src/checker.rs`
+### 3a: `Checker` impl in `big-code-analysis-ast/src/checker.rs`
 
 Append an `impl Checker for <LangName>Code` block. Required methods:
 
@@ -346,7 +378,7 @@ Append an `impl Checker for <LangName>Code` block. Required methods:
 - `is_primitive` — usually `false` unless the grammar emits a
   primitive-type kind (most don't).
 
-### 3b: `Getter` impl in `src/getter.rs`
+### 3b: `Getter` impl in `big-code-analysis-ast/src/getter.rs`
 
 Append an `impl Getter for <LangName>Code` block. Required methods:
 
@@ -374,7 +406,7 @@ clashed with `use Go::*` in pattern position; the fix was
 `use Go as G;`. Detect the collision proactively after Step 1e:
 
 ```bash
-rg "^\s*<LangName>\s*=" src/languages/language_<lang>.rs
+rg "^\s*<LangName>\s*=" big-code-analysis-ast/src/languages/language_<lang>.rs
 ```
 
 If the search returns a hit, alias the import at the top of the
@@ -392,7 +424,7 @@ assert the load-bearing invariants from lesson 4: run both
 assert that `len(dedupe(ops.operators)) == n1` and
 `len(dedupe(ops.operands)) == n2`.
 
-### 3c: `Alterator` impl in `src/alterator.rs`
+### 3c: `Alterator` impl in `big-code-analysis-ast/src/alterator.rs`
 
 If the language has string/raw-string/char-literal node kinds whose
 default text representation should be preserved verbatim (no whitespace
@@ -451,7 +483,7 @@ rule-name root for which both an unsuffixed variant and one or more
 numbered siblings exist in the generated enum:
 
 ```bash
-LANG_FILE="src/languages/language_<lang>.rs"
+LANG_FILE="big-code-analysis-ast/src/languages/language_<lang>.rs"
 comm -12 \
   <(rg -o '^\s+([A-Z][A-Za-z]*)\d+\s*=' -r '$1' "$LANG_FILE" | sort -u) \
   <(rg -o '^\s+([A-Z][A-Za-z]*)\s*=' -r '$1' "$LANG_FILE" | sort -u)
@@ -465,8 +497,8 @@ names whose every numbered variant is a potential aliasing risk.
 
 For each printed base, confirm that EVERY numbered variant in its
 group holds one of the following in EVERY file that does a `match`
-on the underlying rule (`src/checker.rs`, `src/getter.rs`,
-`src/alterator.rs`, `src/metrics/*.rs`, `src/spaces.rs`):
+on the underlying rule (`big-code-analysis-ast/src/checker.rs`, `big-code-analysis-ast/src/getter.rs`,
+`big-code-analysis-ast/src/alterator.rs`, `src/metrics/*.rs`, `src/spaces.rs`):
 
 1. The variant is explicitly listed in the relevant arm (typically
    alongside its unsuffixed sibling:
@@ -561,7 +593,7 @@ whose name suggests the construct:
 
 ```bash
 rg 'For[A-Z]|While[A-Z]|If[A-Z]|Switch[A-Z]|Conditional|Ternary|Try[A-Z]|Catch[A-Z]|Match[A-Z]|Case[A-Z]' \
-   src/languages/language_<lang>.rs
+   big-code-analysis-ast/src/languages/language_<lang>.rs
 ```
 
 Confirm each hit is either explicitly matched, or explicitly excluded
@@ -1059,16 +1091,17 @@ Before exiting, print a one-screen summary:
 Added <LangName> language support.
 
 Files changed:
-  Cargo.toml
+  Cargo.toml                                               ([workspace.dependencies] pin + forwarding feature)
+  big-code-analysis-ast/Cargo.toml                         (optional dep + feature)
   enums/Cargo.toml
   enums/src/languages.rs
   enums/src/macros.rs
-  src/langs.rs
-  src/languages/mod.rs
-  src/languages/language_<lang>.rs   (generated)
-  src/checker.rs
-  src/getter.rs
-  src/alterator.rs                   (if applicable)
+  big-code-analysis-ast/src/langs.rs
+  big-code-analysis-ast/src/languages/mod.rs
+  big-code-analysis-ast/src/languages/language_<lang>.rs   (generated)
+  big-code-analysis-ast/src/checker.rs
+  big-code-analysis-ast/src/getter.rs
+  big-code-analysis-ast/src/alterator.rs                   (if applicable)
   src/metrics/{abc,cognitive,cyclomatic,nexits,halstead,loc,mi,nargs,nom,npa,npm,wmc}.rs
   big-code-analysis-book/src/languages.md
   *.snap                             (new insta snapshots)
@@ -1083,7 +1116,7 @@ manually.
 **Heads up: mutation testing.** Quarterly mutation testing
 (`.github/workflows/mutation-test.yml`, see
 `docs/development/mutation_testing.md`) runs against
-`src/metrics/`, `src/checker.rs`, and `src/getter.rs`. Within one
+`src/metrics/`, `big-code-analysis-ast/src/checker.rs`, and `big-code-analysis-ast/src/getter.rs`. Within one
 cycle, expect auto-filed issues labelled `mutation-testing` against
 the new language's impls; treat them as standard fix-issue work.
 Escapes mean the per-language test set under-specified the new

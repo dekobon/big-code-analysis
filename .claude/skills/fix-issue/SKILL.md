@@ -16,11 +16,11 @@ description: Complete workflow for fixing GitHub issues including investigation,
    directly relevant so it can be cited in the fix.
 4. Investigate the codebase to understand the root cause. For tree-sitter
    grammar / language-specific behavior, examine the corresponding module under
-   `src/languages/` and confirm whether the bug is in our wrapper or upstream
+   `big-code-analysis-ast/src/languages/` and confirm whether the bug is in our wrapper or upstream
    in the grammar crate. If the bug is upstream, scope the fix accordingly
    (workaround locally, file an issue against the grammar repo, or both).
 5. Check for the same bug pattern elsewhere in the codebase. The
-   `src/languages/` modules deliberately mirror each other; a bug in one
+   `big-code-analysis-ast/src/languages/` modules deliberately mirror each other; a bug in one
    language's metric implementation often exists in several. Fix all
    instances — do not leave known-broken siblings for a follow-up.
 6. **Plan the fix with explicit step-by-step reasoning.** If the
@@ -60,7 +60,7 @@ description: Complete workflow for fixing GitHub issues including investigation,
      `cargo build --workspace` before integration tests so they exercise the
      new binaries — never test against a stale binary.
    - **Per-language coverage**: if the fix touches metric computation, AST
-     traversal, or any code under `src/languages/`, exercise **every**
+     traversal, or any code under `big-code-analysis-ast/src/languages/`, exercise **every**
      language affected. A regression in one language is not caught by passing
      tests in another.
    - **Regression check**: `cargo test --workspace` and

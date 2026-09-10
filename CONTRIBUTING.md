@@ -347,7 +347,7 @@ for why this matters.
   paths used as identifiers (map keys, JSON output, error correlation);
   use `to_str()` with explicit error handling.
 - **Per-language modules mirror each other**: a bug in one
-  `src/languages/language_<lang>.rs` typically exists in several. Fix
+  `big-code-analysis-ast/src/languages/language_<lang>.rs` typically exists in several. Fix
   every affected sibling together.
 - **Public API**: this is a published library on crates.io. Treat
   `lib.rs` re-exports, public traits (`ParserTrait`, `LanguageInfo`,

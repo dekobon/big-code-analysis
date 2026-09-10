@@ -15,11 +15,11 @@ The target set is deliberately narrow. Two pieces of evidence bound it.
 
 **The static lints already cover the known class.** #1152 adopted
 `clippy::arithmetic_side_effects` on the `loc` metric module and
-`clippy::indexing_slicing` on `src/c_macro.rs`, and would have caught the
+`clippy::indexing_slicing` on `big-code-analysis-ast/src/c_macro.rs`, and would have caught the
 five-byte input that panicked the library (#1051) at compile time.
 What a lint cannot check is the residue it could not discharge: the nine
 per-function `#[allow(clippy::indexing_slicing)]` sites in
-`src/c_macro.rs`, each a computed index into attacker-controlled bytes
+`big-code-analysis-ast/src/c_macro.rs`, each a computed index into attacker-controlled bytes
 whose bound is asserted by a human comment. That population is what
 `preproc_macro` exists for.
 

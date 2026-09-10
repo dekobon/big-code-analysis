@@ -230,7 +230,7 @@ against, which equals `magnitude` at a leaf space), the per-component
 averages (`assignments_average`, `branches_average`,
 `conditions_average`), and per-component `*_min` / `*_max` at the file
 scope, for fourteen fields total. The metric is specialised per
-language in `src/languages/language_*.rs`.
+language in `big-code-analysis-ast/src/languages/language_*.rs`.
 
 ### How to read it
 

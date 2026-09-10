@@ -324,7 +324,7 @@ Eliminates custom `Serialize`/`Deserialize` impls on single-field wrappers.
 ### E3. Replace repetitive `impl` blocks with declarative macros
 If 3+ types share identical method implementations differing only in type name,
 extract a `macro_rules!` to generate them. (This pattern is already used heavily
-across `src/languages/` — prefer extending the existing macros over inventing new
+across `big-code-analysis-ast/src/languages/` — prefer extending the existing macros over inventing new
 ones.) When consolidating, follow `.claude/rules/macro-comments.md`: keep the
 macro body minimal and hoist per-call rationale comments above each invocation,
 never into the macro definition.

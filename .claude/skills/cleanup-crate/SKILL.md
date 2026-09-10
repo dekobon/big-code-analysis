@@ -170,7 +170,7 @@ The agent must:
    - **Without Serena**: use Grep across the crate (`pub(crate)`/private) or
      workspace (`pub`).
 
-3. Per-language modules under `src/languages/` deliberately mirror each
+3. Per-language modules under `big-code-analysis-ast/src/languages/` deliberately mirror each
    other. A symbol that *appears* unused in one language may be present so
    the language modules expose the same shape — verify by checking sibling
    modules before flagging.
@@ -310,7 +310,7 @@ Before deleting any code, confirm the finding is still valid (re-run
 3. Stay within scope — only remove items in your removal area.
 4. Never remove items in `#[cfg(test)]` blocks or `tests/` directories.
 5. **Per-language consistency**: if you remove a symbol from
-   `src/languages/language_<X>.rs`, verify the same symbol is also unused
+   `big-code-analysis-ast/src/languages/language_<X>.rs`, verify the same symbol is also unused
    in every sibling `language_*.rs`. If a sibling still uses it, do NOT
    remove — flag as inconsistent and SKIP this area.
 
@@ -476,6 +476,6 @@ If approval-required items exist, suggest `--aggressive`.
 - Do NOT re-examine files marked clean unless they have new git changes
 - Do NOT use `git push --force` or destructive git operations
 - Do NOT delete worktrees
-- If a removal would create cross-language inconsistency in `src/languages/`,
+- If a removal would create cross-language inconsistency in `big-code-analysis-ast/src/languages/`,
   SKIP it
 - When in doubt, leave it alone

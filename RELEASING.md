@@ -17,7 +17,8 @@ Rationale:
 
 - Edition 2024 is the active edition for every crate; `let-else`,
   let-chains, and the relaxed lifetime-elision rules used across
-  `src/languages/` require Rust 1.85+, but several individual
+  `big-code-analysis-ast/src/languages/` require Rust 1.85+, but
+  several individual
   improvements rely on later releases (e.g. const slice indexing
   stabilizations, refined drop-order semantics).
 - Treating 1.94 as the floor avoids "works on my machine" reports
@@ -65,8 +66,9 @@ One push of a `v*` tag will run this end-to-end:
 7. **publish-crates**: for non pre-releases, **subject to the gating
    variables below**, runs `cargo publish` for each publishable
    workspace crate in dependency order: the five `bca-tree-sitter-*`
-   grammar leaves first, then `big-code-analysis` (library), then
-   `big-code-analysis-cli` and `big-code-analysis-web`. Skips
+   grammar leaves first, then `big-code-analysis-ast`, then
+   `big-code-analysis` (library), then `big-code-analysis-cli` and
+   `big-code-analysis-web`. Skips
    idempotently if the version is already on crates.io.
 8. **verify**: downloads the published musl tarball back out of the
    release, verifies the minisign signature, checksum, and SLSA
@@ -161,10 +163,11 @@ only resolve once each leaf is on crates.io. The sparse-index
 existence check in each step makes the job idempotent across re-runs
 of the same tag.
 
-**The three top-level crates cannot be dry-run before the tag.**
-`big-code-analysis` pins each leaf at `bca-tree-sitter-<lang> =
-"=<version>"`, and `big-code-analysis-cli` / `big-code-analysis-web`
-pin `big-code-analysis` the same way. Packaging resolves those
+**The four top-level crates cannot be dry-run before the tag.**
+`big-code-analysis-ast` pins each leaf at `bca-tree-sitter-<lang> =
+"=<version>"`, `big-code-analysis` pins `big-code-analysis-ast` and
+the leaves, and `big-code-analysis-cli` / `big-code-analysis-web` pin
+`big-code-analysis` the same way. Packaging resolves those
 requirements against the registry, and the Lockstep version policy
 below makes the pinned version the one this tag is releasing — which
 is, by definition, not yet published. So it fails, every time, not
@@ -207,14 +210,16 @@ release-check`, and the `preflight` job of `release.yml`. The five
 vendored leaves are not in its scope: they carry no internal pins, so
 `release-check` and `preflight` dry-run them for real.
 
-**The leaves still publish first.** That ordering is what lets the
-parent resolve during `publish-crates`, and it is unchanged. It also
+**The leaves still publish first, then `big-code-analysis-ast`.** That
+ordering is what lets each crate resolve its pins during
+`publish-crates`, and it is unchanged in kind. It also
 means a metadata regression in the parent or the binaries would fail
 *after* the five leaves are irrevocably on crates.io — the split
 release the gate above exists to make unreachable.
 
 **Lockstep version policy.** Every crate in this repository (the
-library, the CLI, the web crate, the Python crate, the `enums` /
+library, the `big-code-analysis-ast` parse layer, the CLI, the web
+crate, the Python crate, the `enums` /
 `xtask` helpers, and the five `bca-tree-sitter-*` vendored grammar
 leaves) shares one version number. There is no per-crate version
 drift. A version bump touches:
@@ -231,7 +236,9 @@ drift. A version bump touches:
    matching block in `enums/Cargo.toml`.
 5. The `version = "=<new>"` pin on the `big-code-analysis` path-dep
    in `big-code-analysis-cli/Cargo.toml` and
-   `big-code-analysis-web/Cargo.toml`.
+   `big-code-analysis-web/Cargo.toml`, and the two pins on the
+   `big-code-analysis-ast` path-dep in the root `Cargo.toml`
+   (`[dependencies]` and `[dev-dependencies]`).
 6. Only when the bump is the release-prep commit for the version
    being cut: the hard-coded version references in user-facing docs
    (`README.md`, `STABILITY.md`, the book's `quick-start.md` and
@@ -365,8 +372,9 @@ Stable releases push to (subject to the gating variables above):
   commits only `bucket/big-code-analysis.json` and leaves the other
   manifests in the bucket untouched.
 - crates.io, leaf-first: the five `bca-tree-sitter-*` grammar
-  crates, then `big-code-analysis` (library), then
-  `big-code-analysis-cli` and `big-code-analysis-web`. See
+  crates, then `big-code-analysis-ast`, then `big-code-analysis`
+  (library), then `big-code-analysis-cli` and `big-code-analysis-web`.
+  See
   [crates.io ownership](#cratesio-ownership) for the publish loop
   and rate-limit details.
 
@@ -374,8 +382,8 @@ Both tap and bucket repos must exist and accept the configured PAT.
 
 ### crates.io ownership
 
-Before the first automated publish you must manually claim **all eight
-crate names**: the five `bca-tree-sitter-*` leaves plus the three
+Before the first automated publish you must manually claim **all nine
+crate names**: the five `bca-tree-sitter-*` leaves plus the four
 top-level crates. The `publish-crates` job in `release.yml` uses
 Trusted Publishing which requires the crate to exist before TP can be
 registered, so the very first publish has to be a hand-rolled
@@ -386,6 +394,7 @@ registered, so the very first publish has to be a hand-rolled
 
    - `bca-tree-sitter-ccomment`, `…-mozcpp`, `…-mozjs`, `…-preproc`,
      `…-tcl`
+   - `big-code-analysis-ast`
    - `big-code-analysis`
    - `big-code-analysis-cli`
    - `big-code-analysis-web`
@@ -444,6 +453,7 @@ registered, so the very first publish has to be a hand-rolled
    # Parent + binaries. These will hit the new-crate rate limit on
    # the first try; the until-loop retries every 60s until cargo
    # exits 0.
+   until cargo publish -p big-code-analysis-ast --locked; do sleep 60; done
    until cargo publish -p big-code-analysis --locked;     do sleep 60; done
    until cargo publish -p big-code-analysis-cli --locked; do sleep 60; done
    until cargo publish -p big-code-analysis-web --locked; do sleep 60; done
@@ -479,9 +489,9 @@ one-time setup steps are required on top of the
    The name must match the TP registration exactly; a typo here is
    the most common self-inflicted failure mode.
 
-2. **Register a Trusted Publisher for each of the eight crates.**
+2. **Register a Trusted Publisher for each of the nine crates.**
    On crates.io, open the settings page for each of the five
-   `bca-tree-sitter-*` leaves, `big-code-analysis`,
+   `bca-tree-sitter-*` leaves, `big-code-analysis-ast`, `big-code-analysis`,
    `big-code-analysis-cli`, and `big-code-analysis-web`. In the
    **Trusted Publishing** section, add a GitHub publisher with:
 
@@ -535,8 +545,8 @@ cargo update --workspace
 cargo metadata --format-version 1 --no-deps \
   | python3 -c "import json,sys; d=json.load(sys.stdin); \
       print({p['name']: p['version'] for p in d['packages']})"
-# Expect big-code-analysis, big-code-analysis-cli, and
-# big-code-analysis-web at the target version.
+# Expect big-code-analysis-ast, big-code-analysis, big-code-analysis-cli,
+# and big-code-analysis-web at the target version.
 ```
 
 The `cargo update --workspace` step is **mandatory**, not
@@ -754,7 +764,7 @@ Before tagging, on `main`:
       `grep '^untrusted comment: placeholder' minisign.pub`; it
       should print nothing).
 - [ ] `make check-publish-metadata` passes. It is the only pre-tag
-      gate on the three top-level crates' publish metadata — none of
+      gate on the four top-level crates' publish metadata — none of
       them can be `cargo publish --dry-run`-ed before the tag — and it
       is what catches an `[package].include` block that has regressed
       or stopped covering a newly-added directory. See

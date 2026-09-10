@@ -25,13 +25,13 @@ Confirm every numeric-suffix variant of every matched rule is either
 listed or excluded with a comment:
 
 ```bash
-rg 'Lang::([A-Za-z]+)\b' src/getter/ src/checker/ src/alterator.rs \
+rg 'Lang::([A-Za-z]+)\b' big-code-analysis-ast/src/getter/ big-code-analysis-ast/src/checker/ big-code-analysis-ast/src/alterator.rs \
    src/spaces.rs src/metrics/
 ```
 
 The bug class reaches every match on a grammar rule — `alterator.rs`,
 `spaces.rs`, and `src/metrics/*` are as susceptible as `getter.rs` and
-`checker.rs`. Centralised alias sets live in `src/macros/kind_sets.rs`;
+`checker.rs`. Centralised alias sets live in `big-code-analysis-ast/src/macros/kind_sets.rs`;
 prefer extending those over open-coding a list. When a rule has many
 aliases, prefer one `node.kind()` string comparison over enumerating
 seventeen variants — pay the small runtime cost for forward
@@ -42,7 +42,8 @@ manifests in lockstep (root `Cargo.toml` and `enums/Cargo.toml` — the
 excluded crate cannot inherit the workspace pin), then:
 
 ```bash
-cargo run --manifest-path ./enums/Cargo.toml -- -lrust -o ./src/languages
+cargo run --manifest-path ./enums/Cargo.toml -- \
+    -lrust -o ./big-code-analysis-ast/src/languages
 ```
 
 Stable *named*-node ids are not evidence the ids held. Inserting one
@@ -55,7 +56,7 @@ anonymous terminal renumbers the whole anonymous block after it, so
 A rule whose name begins with `_` (`_string`, `_multiline_string_literal`)
 is hidden: the variant exists in the enum and the parser never emits it.
 Check the `Lang::Variant => "name"` arm in
-`src/languages/language_<lang>.rs` before listing a "looks like an alias"
+`big-code-analysis-ast/src/languages/language_<lang>.rs` before listing a "looks like an alias"
 variant. Keep the defensive arm *and* pin its hidden status with a
 `!ast_has_kind_id(&parser, Lang::HiddenVariant as u16)` assertion naming
 the hidden rule — otherwise a future grammar that promotes the rule
@@ -92,8 +93,8 @@ new one. **Re-derive it rather than trusting the list below** — it moves
 whenever a language is added:
 
 ```bash
-rg -o 'impl_is_else_if_(\w+)!\(\s*(\w+)' -r '$1 $2' src/checker/ --no-filename | sort
-rg -l 'fn is_else_if' src/checker/          # hand-written impls
+rg -o 'impl_is_else_if_(\w+)!\(\s*(\w+)' -r '$1 $2' big-code-analysis-ast/src/checker/ --no-filename | sort
+rg -l 'fn is_else_if' big-code-analysis-ast/src/checker/          # hand-written impls
 ```
 
 | Strategy | Macro | Languages |
@@ -280,7 +281,7 @@ that descends — and test-via-revert that arm alone per
 ## When you fix one language, sweep the rest
 
 Every item above is a per-language failure that almost always exists in
-siblings. `src/languages/` modules are deliberate clones, so the fix for
+siblings. `big-code-analysis-ast/src/languages/` modules are deliberate clones, so the fix for
 one is the audit table for the other twenty. Build that table in the
 issue, land the sibling fixes in one commit so the symmetry is visible
 to a reviewer, and anchor any known-wrong-but-unfixed case with an

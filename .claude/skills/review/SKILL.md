@@ -159,7 +159,7 @@ EFFORT: trivial | small | medium
 41. Is this the simplest implementation that solves the problem? No
     over-engineering, premature abstraction, or speculative generality.
 42. Are there duplicated logic blocks that should share a helper or macro?
-    (Per-language modules in `src/languages/` deliberately use macros for
+    (Per-language modules in `big-code-analysis-ast/src/languages/` deliberately use macros for
     shared structure — extend them rather than copy-pasting.)
 43. Are there functions longer than ~50 lines of logic that should be
     decomposed?

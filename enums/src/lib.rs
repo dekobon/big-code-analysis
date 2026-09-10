@@ -3,7 +3,7 @@
 //! Every grammar in [`Lang`] is loaded through its tree-sitter crate,
 //! its node kinds are enumerated, and the result is rendered through
 //! one of the `templates/` files into a Rust, Go, or JSON module. The
-//! Rust output is what lands in the parent crate's `src/languages/`;
+//! Rust output is what lands in `big-code-analysis-ast/src/languages/`;
 //! `make enums-codegen-drift` fails when the checked-in files no longer
 //! match what this crate emits.
 

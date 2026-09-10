@@ -66,7 +66,7 @@ Three things that version gets right and the hand-rolled probe below
 did not:
 
 - **It feeds rustfmt on stdin.** Given a *path*, rustfmt resolves and
-  recurses into `mod` declarations, so `src/getter.rs` and
+  recurses into `mod` declarations, so `big-code-analysis-ast/src/getter.rs` and
   `src/metrics/cognitive.rs` error out with "file not found for module"
   — which reads exactly like a bail if stderr is discarded. On stdin
   there is nothing to resolve, so those two probe like any other file.
@@ -81,10 +81,11 @@ did not:
   literals**. Do not act on a count from a probe that skips this step.
 - **It probes every arm, not the first.** The bail is match-scoped, so a
   file whose first `match` formats cleanly still hides a later one that
-  does not (`src/getter/c.rs`), and a module whose arms are all
+  does not (`big-code-analysis-ast/src/getter/c.rs`), and a module whose arms are all
   expression-bodied (`… => HalsteadType::Operator,` in
-  `src/getter/go.rs`) has no `=> {` to probe at all. Over `src/getter`
-  the first-arm-only version gave 11 false verdicts out of 18.
+  `big-code-analysis-ast/src/getter/go.rs`) has no `=> {` to probe at
+  all. Over `big-code-analysis-ast/src/getter` the first-arm-only
+  version gave 11 false verdicts out of 18.
 
 ## Two causes, one measurement
 
@@ -114,7 +115,7 @@ never go away.
 That is a deliberate change from how this section used to read. It
 carried a hand-maintained list of files, and that list was wrong twice:
 first by naming only `src/metrics/`, which hid the largest cluster
-(`src/getter/`, 18 of 25 modules) for two revisions of this file, and
+(`big-code-analysis-ast/src/getter/`, 18 of 25 modules) for two revisions of this file, and
 then by going stale the moment #1136 hoisted seven comments out of
 `src/metrics/cognitive/`. A stale list of bailing files reads exactly
 like a clean tree — the failure this whole rule exists to prevent — so
@@ -132,7 +133,7 @@ reported clean, and every one was found by reading the diff instead.
 
 ## How to apply
 
-- After any bulk, scripted, or regex edit under `src/getter/` or
+- After any bulk, scripted, or regex edit under `big-code-analysis-ast/src/getter/` or
   `src/metrics/`, read the resulting diff rather than trusting the fmt
   gate. Check indentation and line length by eye.
 - Line length is worth a direct check, since it is mechanical:

@@ -135,7 +135,7 @@ These tests verify something different from what their name implies.
 16. **Wrong language tested**: Does a test named for one language (e.g.,
     `test_python_function_count`) actually parse a different language's
     source? Easy to introduce when tests are copy-pasted across the
-    `src/languages/` modules.
+    `big-code-analysis-ast/src/languages/` modules.
 
 ### Incidental coupling
 

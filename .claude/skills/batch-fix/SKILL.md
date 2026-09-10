@@ -9,7 +9,7 @@ Fix multiple GitHub issues on a single integration branch. Issues are
 classified by affected crate(s) and triaged for quick-win priority and
 cross-issue dependencies, then scheduled into waves where issues touching
 different crates run in parallel. Quick wins are front-loaded for fast
-feedback. Issues sharing a crate, or any issue that touches `src/languages/`
+feedback. Issues sharing a crate, or any issue that touches `big-code-analysis-ast/src/languages/`
 (per-language modules deliberately mirror each other), are serialized to
 avoid merge conflicts. Each issue goes through the full pipeline:
 investigate, fix, simplify, review, remediate, validate, commit. Successful
@@ -132,7 +132,7 @@ Use these signals in priority order:
      `big-code-analysis`
    - "checker", "getter", "alterator", "spaces" -> `big-code-analysis`
    - "language X", a specific language name (rust, python, javascript, c,
-     cpp, java, kotlin, typescript, etc.), or `src/languages/` path ->
+     cpp, java, kotlin, typescript, etc.), or `big-code-analysis-ast/src/languages/` path ->
      `big-code-analysis` with `cross_lang: true` (see special case below)
    - "CLI", "command-line", "argument", "output format" (JSON/YAML/TOML/CBOR
      CLI flags) -> `big-code-analysis-cli`
@@ -146,8 +146,8 @@ Use these signals in priority order:
 3. **Ambiguous**: If the crate cannot be determined from labels or keywords,
    classify as `unknown`.
 
-**Special case — `src/languages/` and cross-language code**: The
-per-language modules under `src/languages/` deliberately mirror each other;
+**Special case — `big-code-analysis-ast/src/languages/` and cross-language code**: The
+per-language modules under `big-code-analysis-ast/src/languages/` deliberately mirror each other;
 a bug in one language often exists in several. Issues that touch this
 directory or any metric implementation that walks the AST should be flagged
 `cross_lang: true`. These are NOT cross-crate (they all live in
@@ -214,7 +214,7 @@ For each issue, record:
 - `crate`: the primary affected crate name, or `unknown`
 - `cross_crate`: `true` if the issue clearly spans multiple crates, `false`
   otherwise
-- `cross_lang`: `true` if the issue touches `src/languages/` or otherwise
+- `cross_lang`: `true` if the issue touches `big-code-analysis-ast/src/languages/` or otherwise
   requires changes mirrored across language modules
 - `quick_win`: `true` if the issue matches the quick-win criteria above
 - `depends_on`: list of issue numbers this issue depends on (empty if none)
@@ -848,12 +848,12 @@ Follow the `/fix-issue` workflow:
    any lessons relevant to this issue's domain.
 3. Investigate the codebase to understand root cause. For tree-sitter
    grammar / language-specific behavior, examine the corresponding module
-   under `src/languages/` and confirm whether the bug is in our wrapper or
+   under `big-code-analysis-ast/src/languages/` and confirm whether the bug is in our wrapper or
    upstream in the grammar crate. If the bug is upstream, scope the fix
    accordingly (workaround locally, file an issue against the grammar repo,
    or both — do NOT silently paper over an upstream grammar bug).
 4. **Check for the same bug pattern across sibling languages.** The
-   `src/languages/` modules deliberately mirror each other; a bug in one
+   `big-code-analysis-ast/src/languages/` modules deliberately mirror each other; a bug in one
    language's metric implementation often exists in several. If the root
    cause is repeated, fix all instances. Similarly, if metric code under
    `src/metrics/` has the same anti-pattern in multiple metrics, fix all of
@@ -912,7 +912,7 @@ Follow the `/fix-issue` workflow:
      `cargo build --workspace` before integration tests so they exercise
      the new binaries — never test against a stale binary.
    - **Per-language coverage**: if the fix touches metric computation, AST
-     traversal, or any code under `src/languages/`, exercise **every**
+     traversal, or any code under `big-code-analysis-ast/src/languages/`, exercise **every**
      language affected.
    - **Snapshot tests** (`insta`): if existing snapshots changed, run
      `cargo insta test --review` and accept each diff individually rather
@@ -968,7 +968,7 @@ directly:
 - Helper functions that duplicate standard library or crate functionality
 - Duplicate logic across sibling language modules that should live in a
   shared helper, trait method, or macro (the project already uses
-  `src/c_langs_macros/`, `src/macros/`, and `src/c_macro.rs` for shared
+  `big-code-analysis-ast/src/c_langs_macros/`, `big-code-analysis-ast/src/macros/`, and `big-code-analysis-ast/src/c_macro.rs` for shared
   structure; follow `.claude/rules/macro-comments.md` when consolidating)
 
 **Clarity**:

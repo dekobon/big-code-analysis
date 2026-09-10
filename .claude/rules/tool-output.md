@@ -16,7 +16,7 @@ it:
 - `sort | uniq -c` — the counts you are hunting are the largest, and
   they sort **last** unless you passed `-rn`.
 - `rg` over a tree — hits arrive in path order, so a sweep across
-  `src/languages/` or `src/getter/` shows the alphabetically early
+  `big-code-analysis-ast/src/languages/` or `big-code-analysis-ast/src/getter/` shows the alphabetically early
   languages and hides every one after them.
 - `cargo test` / `make pre-commit` — the failure summary is at the end,
   behind all the passing output.

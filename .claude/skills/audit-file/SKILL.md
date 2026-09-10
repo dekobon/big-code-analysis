@@ -248,7 +248,7 @@ Read the target file entirely. Then briefly establish:
 - Does it export items re-exported from `lib.rs`? (If so, public-API
   stability rules apply — see checklist Q28.)
 - Does it belong to a family that mirrors other language modules under
-  `src/languages/`? (If so, cross-language consistency rules apply —
+  `big-code-analysis-ast/src/languages/`? (If so, cross-language consistency rules apply —
   see checklist Q27.)
 - Does it contain metric computation or AST traversal? (If so, security
   checklist items Q7-Q10 apply with higher weight.)
@@ -342,7 +342,7 @@ will apply. Mapping rules:
 
 ### Project-Specific (big-code-analysis)
 
-27. Per-language modules under `src/languages/` deliberately mirror each
+27. Per-language modules under `big-code-analysis-ast/src/languages/` deliberately mirror each
     other. Does any change introduce a discrepancy that one language exhibits
     and another does not (different metric formula, different node-type
     handling, different operator/operand classification) without justification?

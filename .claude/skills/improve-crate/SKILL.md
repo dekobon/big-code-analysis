@@ -35,7 +35,7 @@ Parse `$ARGUMENTS` as: `<crate-name> [--dry-run]`
   re-exports, public traits (`ParserTrait`, `LanguageInfo`, etc.), and
   public types (`Metrics`, `FuncSpace`, language enums) are off-limits
   unless the user explicitly authorizes a version bump
-- **Cross-language parity**: per-language modules under `src/languages/`
+- **Cross-language parity**: per-language modules under `big-code-analysis-ast/src/languages/`
   deliberately mirror each other; any change to one usually requires the
   same change to all sibling language modules
 - **Do not merge to main**: leave the integration branch for the user
@@ -165,7 +165,7 @@ The agent must:
    - Touches a cohesive set of symbols (ideally within one file)
    - Can be described in a single conventional commit message
    - Is independent of other change areas
-   - For changes under `src/languages/`, ALL affected sibling language
+   - For changes under `big-code-analysis-ast/src/languages/`, ALL affected sibling language
      modules are included in the same area (you cannot improve one
      language module without bringing the rest along)
 6. Return as structured list:
@@ -279,7 +279,7 @@ Read, Edit, Grep, Glob.
    `src/lib.rs`, it is part of the published API surface. Do NOT change
    its signature or behavior. Limit changes to internal implementation.
 3. **Cross-language parity**: if your change area includes a symbol in
-   one `src/languages/language_<X>.rs`, apply the equivalent change in
+   one `big-code-analysis-ast/src/languages/language_<X>.rs`, apply the equivalent change in
    every sibling `language_*.rs` that defines the same symbol.
 4. Apply improvements:
    - **With Serena**: `replace_symbol_body`, `insert_before_symbol`,
@@ -299,7 +299,7 @@ full. Apply fixes directly:
 - Manual error-mapping chains replaceable by a single `From` impl
 - Identical match arms that can be consolidated
 - Helpers duplicated across `language_*.rs` that could move to
-  `src/macros/` / `src/c_langs_macros/` / a shared module (follow
+  `big-code-analysis-ast/src/macros/` / `big-code-analysis-ast/src/c_langs_macros/` / a shared module (follow
   `.claude/rules/macro-comments.md` when consolidating into macros)
 
 **Clarity**:
@@ -509,7 +509,7 @@ review. Merge to `main` when satisfied."
 - Do NOT merge `improve/<crate-name>` into `main`
 - Do NOT change public APIs, public traits, or data models
 - Do NOT change items re-exported from `src/lib.rs` without authorization
-- Do NOT introduce per-language inconsistency in `src/languages/`
+- Do NOT introduce per-language inconsistency in `big-code-analysis-ast/src/languages/`
 - Do NOT touch code outside the target crate
 - Do NOT loosen tree-sitter grammar version pins in `Cargo.toml`
 - Do NOT re-examine symbols marked clean or changed unless the file has
