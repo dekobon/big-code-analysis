@@ -107,10 +107,10 @@ fn csharp_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 // ABC token-level helpers for C#. Mirror of Java's helper layout with
 // C#-specific deltas: every aliased kind id is matched via the
 // `csharp_*_kinds!()` macros (lesson #2); `ObjectCreationExpression`
-// joins `InvocationExpression*` as a branch; the `<` / `>` parent
-// allowlist names `RelationalPattern` alongside the two
-// `BinaryExpression` ids, the only such second entry in the workspace,
-// because a C# comparison can sit outside a binary expression;
+// joins `InvocationExpression*` as a branch; each of the four tokens a
+// `relational_pattern` can spell (`<` `>` `<=` `>=`) excludes that
+// parent, because a C# pattern's operator belongs to the arm that owns
+// it rather than scoring on its own (#1383);
 // `ConditionalExpression` replaces Java's `TernaryExpression`;
 // `for_statement` exposes its condition via the named `condition`
 // field rather than positional index.
@@ -222,7 +222,32 @@ fn csharp_count_token_condition<'a>(
         // arrow `default ->` forms) is the unconditional fallthrough and
         // is excluded, mirroring cyclomatic's `Case`-only count and the
         // expression-arm discard rule below (issues #456, #469).
-        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Try | Catch => {
+        EQEQ | BANGEQ | Else | Case | Try | Catch => {
+            stats.conditions += 1.;
+        }
+        // The other half of #1383. A `relational_pattern` spells its
+        // operator as any of `<` `>` `<=` `>=`, and the last two are
+        // distinct tokens that never reach the `GT | LT` arm below, so
+        // fixing only that arm would leave `x switch { >= 10 => … }`
+        // double-counted while `x switch { > 10 => … }` was not — the
+        // same bug surviving under a different token. The arm that owns
+        // the pattern is the decision; see the `GT | LT` comment.
+        //
+        // Denylist polarity here rather than the allowlist the `GT` /
+        // `LT` arm uses, because these two tokens have no type syntax
+        // to fail closed against: `<=` and `>=` reach this arm from
+        // `binary_expression`, `relational_pattern` and
+        // `operator_declaration` only. That third parent is the
+        // `>=` / `<=` spelling of #1297's operator-overload bug, which
+        // that fix reached only through the `GT` / `LT` allowlist and
+        // which `==` / `!=` share.
+        //
+        // FIXME(#1420): `operator <=` / `>=` / `==` / `!=` still score
+        // a spurious condition each, measured. Left alone here so this
+        // commit changes one behaviour; the fix is to give all four
+        // tokens the `BinaryExpression` allowlist polarity, which
+        // subsumes the denial below.
+        GTEQ | LTEQ if !ancestors.parent_has_kind(node, RelationalPattern as u16) => {
             stats.conditions += 1.;
         }
         // tree-sitter-c-sharp emits a bare `?` from exactly four
@@ -287,37 +312,38 @@ fn csharp_count_token_condition<'a>(
         {
             stats.conditions += 1.;
         }
-        // Counts `<` / `>` only where they are a comparison. A
-        // `grammar.json` sweep of tree-sitter-c-sharp 0.23.5 finds a
-        // bare `<` / `>` in exactly six productions, and two of them
-        // are decisions: `binary_expression` (`a < b`) and
-        // `relational_pattern` (`x is > 0`, and the `> 5 =>` arm of a
-        // switch expression). The other four are type syntax —
-        // `type_argument_list` (`Dictionary<K, V>`),
+        // Counts `<` / `>` only where they score a decision of their
+        // own. A `grammar.json` sweep of tree-sitter-c-sharp 0.23.5
+        // finds a bare `<` / `>` in exactly six productions, and only
+        // `binary_expression` (`a < b`) qualifies. Four are type
+        // syntax — `type_argument_list` (`Dictionary<K, V>`),
         // `type_parameter_list` (`class Foo<T>`), `function_pointer_type`
         // (`delegate*<int, int>`) and `operator_declaration`
         // (`public static bool operator <(V a, V b)`), whose `<` names
-        // the operator being *defined* rather than applying it.
+        // the operator being *defined* rather than applying it. The
+        // sixth is `relational_pattern`, excluded for a different
+        // reason — see below.
         //
         // The previous denylist named three of those four and not
         // `operator_declaration`, so every comparison-operator overload
         // scored a condition per declaration (#1297). Allowlist
         // polarity, matching Java's #1274 fix and unlike the `QMARK`
-        // arm above: `<` / `>` have two decision parents against four
-        // type-syntax ones, and a grammar bump that grows a seventh
-        // production should fail closed
+        // arm above: `<` / `>` have one decision parent against five
+        // excluded productions, and a grammar bump that grows a seventh
+        // should fail closed
         // (`.claude/rules/grammar-dispatch.md` §1). The `QMARK` arm
         // takes the opposite polarity for a reason specific to that
         // token — see its comment.
         //
-        // `relational_pattern` is in the allowlist to preserve the
-        // count, not to add it: the previous denylist did not name it
-        // either, so the pattern's operator counted then and counts
-        // now. That count double-charges the enclosing
-        // `switch_expression_arm` or `if` condition slot, a
-        // pre-existing divergence from C#'s own cyclomatic decision
-        // count tracked in #1383 — settling it here would have been an
-        // unmeasured behaviour change riding along with #1297.
+        // `relational_pattern` is deliberately *not* in the allowlist
+        // (#1383). A pattern's comparison operator is not its own
+        // decision: the enclosing `switch_expression_arm` or `if`
+        // condition slot already scores one, so counting the operator
+        // too charged `x switch { > 5 => … }` twice what the constant
+        // arm `x switch { 5 => … }` scores and twice C#'s own
+        // cyclomatic decision count. #1297 kept the entry to avoid an
+        // unmeasured behaviour change riding along with it; this is
+        // that measured change.
         //
         // `BinaryExpression2` is the id the grammar aliases
         // `preproc_binary_expression` to, and it is listed defensively
@@ -331,7 +357,7 @@ fn csharp_count_token_condition<'a>(
             if ancestors.parent(node).is_some_and(|parent| {
                 matches!(
                     parent.kind_id().into(),
-                    BinaryExpression | BinaryExpression2 | RelationalPattern
+                    BinaryExpression | BinaryExpression2
                 )
             }) =>
         {

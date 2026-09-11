@@ -498,6 +498,71 @@ mod tests {
         assert_eq!(deepest.metrics.abc.conditions(), decisions);
     }
 
+    // The sibling form of the helper above, for a fixture whose point is
+    // that several *different* spellings of one construct agree. The
+    // deepest-space walk cannot serve those: it follows `spaces.last()`
+    // and so inspects exactly one member, which is the shape #1383's
+    // over-count hid behind — a merged root total cannot tell a
+    // relational method scoring 2 from the constant control scoring 2.
+    fn assert_every_member_scores(
+        container: &crate::FuncSpace,
+        members: usize,
+        expected: u64,
+        why: &str,
+    ) {
+        // The count is a parameter rather than a `!is_empty()` check so
+        // a caller cannot omit it: without it a fixture that lost every
+        // member but one still satisfies "every member scores N".
+        assert_eq!(
+            container.spaces.len(),
+            members,
+            "member count changed — the fixture moved, not the metric"
+        );
+        for member in &container.spaces {
+            let name = member.name.as_deref().unwrap_or("?");
+            assert_eq!(member.metrics.abc.conditions(), expected, "{name}: {why}");
+            assert_eq!(
+                member.metrics.abc.conditions(),
+                member.metrics.cyclomatic.cyclomatic() - 1,
+                "{name}: §8 parity with the cyclomatic decision count"
+            );
+        }
+    }
+
+    // #1383's fix makes a relational pattern's operator score *zero*, so
+    // its tests have no second axis to anchor on: trimming `> 5` down to
+    // `5` leaves every assertion satisfied and the construct under test
+    // gone (`.claude/rules/testing.md`, "Perturb the fixture as well as
+    // the production line"). Asserting the kind ids are still present in
+    // the parsed fixture is the anchor that replaces it — editing a
+    // spelling out of the source now fails here by name instead of
+    // silently turning the method into a copy of the control.
+    // Counts rather than presence, because these fixtures carry several
+    // methods spelling the same construct: a bare `ast_has_kind_id` is
+    // still satisfied after one method loses its pattern, which is
+    // exactly the decay that turns that method into a silent duplicate
+    // of the control. Measured — with presence-only anchoring, rewriting
+    // `if (x is > 0)` to `if (x > 0)` in one method of five failed
+    // nothing.
+    fn assert_csharp_fixture_spells(src: &str, kinds: &[(u16, usize, &str)]) {
+        let parser = CsharpParser::new(
+            src.as_bytes().to_vec(),
+            std::path::Path::new("foo.cs"),
+            None,
+        );
+        for (kind, want, spelling) in kinds {
+            let found = parser
+                .root()
+                .preorder()
+                .filter(|n| n.kind_id() == *kind)
+                .count();
+            assert_eq!(
+                found, *want,
+                "fixture has {found} of {spelling}, expected {want} — the construct under test was edited"
+            );
+        }
+    }
+
     /// Regression for #227: a `Stats::default()` that never sees an
     /// observation must not leak the `f64::MAX` sentinel for
     /// `assignments_min`, `branches_min`, or `conditions_min`. All
@@ -3679,11 +3744,11 @@ mod tests {
     //
     // The fixture carries the two overloads plus one `a < b` inside a
     // `binary_expression` and one `x is > 0` inside a
-    // `relational_pattern`, which is the second decision parent in the
-    // allowlist. Every mis-aim lands on its own number: 5 pre-fix, 3
-    // once both decision parents are allowed, 2 if `RelationalPattern`
-    // is dropped, 1 if the gate swallows `BinaryExpression` too (only
-    // the ternary `?` survives), 0 if the fixture stops parsing.
+    // `relational_pattern`. Every mis-aim lands on its own number: 5
+    // with neither gate, 3 if `RelationalPattern` is readmitted to the
+    // allowlist (#1383 dropped it), 1 if the gate swallows
+    // `BinaryExpression` too (only the ternary `?` survives), 0 if the
+    // fixture stops parsing.
     #[test]
     fn csharp_operator_declaration_is_not_a_condition() {
         check_func_space::<CsharpParser, _>(
@@ -3698,7 +3763,7 @@ mod tests {
             "foo.cs",
             |space| {
                 // Assert the claim per space rather than through the
-                // file total, which is 3 with the two overloads and 3
+                // file total, which is 2 with the two overloads and 2
                 // without them — an aggregate assertion would pass on a
                 // fixture that had lost the very construct under test.
                 let class = &space.spaces[0];
@@ -3710,36 +3775,214 @@ mod tests {
                         "operator declaration {i} must score no condition"
                     );
                 }
-                assert_eq!(class.spaces[2].metrics.abc.conditions(), 3);
+                // 2, not 3, since #1383: the `a < b` comparison and the
+                // ternary `?`. `m`'s `x is > 0` no longer adds a third
+                // — the ternary it sits in is the decision.
+                assert_eq!(class.spaces[2].metrics.abc.conditions(), 2);
             },
         );
     }
 
-    // The `RelationalPattern` half of the allowlist above, on its own
-    // input. Per `.claude/rules/grammar-dispatch.md` §11, the fixture
-    // above cannot prove that entry alone: its `is > 0` sits beside a
-    // `binary_expression` comparison, so a gate allowing only
-    // `BinaryExpression` would still leave a non-zero, plausible total.
-    // Here the relational operators are the *only* `<` / `>` in the
-    // file, so the entry is the only thing that can produce the count.
+    // #1383: a `relational_pattern`'s operator is not a condition of
+    // its own — the `switch_expression_arm` that owns it already scores
+    // the decision, exactly as it does for the constant arm `5 => 1`.
+    // Counting both charged a relational arm twice, and twice C#'s own
+    // cyclomatic decision count.
     //
-    // 4, not 2: a `switch_expression_arm` is counted by its own arm
-    // above and the pattern's operator by this one, so a relational arm
-    // scores twice what the constant arm `5 => 1` scores. That
-    // divergence from C#'s own cyclomatic decision count predates
-    // #1297 — the old denylist did not name `relational_pattern`
-    // either — and is filed as #1383 rather than changed here, which is
-    // why this asserts the value the gate preserves rather than the §8
-    // parity value.
+    // Per `.claude/rules/grammar-dispatch.md` §11 the `operator <`
+    // fixture above cannot prove this alone: its `is > 0` sits beside a
+    // `binary_expression` comparison that supplies a plausible total on
+    // its own. Here the pattern operators are the *only* `<` / `>` /
+    // `>=` / `<=` in the file, so a readmitted `RelationalPattern`
+    // parent is the only thing that can lift the count.
+    //
+    // Both spellings are covered because they reach two different arms:
+    // `n`'s `>` / `<` are gated by the `GT | LT` parent allowlist,
+    // `g`'s `>=` / `<=` by their own `RelationalPattern` denial. Fixing
+    // one arm and not the other leaves the *other method* at 4, which
+    // is why this asserts per member and not through a total:
+    //
+    // | state | `n` | `g` | `c` |
+    // |---|---|---|---|
+    // | both halves gated (shipped) | 2 | 2 | 2 |
+    // | only `GT \| LT` gated       | 2 | 4 | 2 |
+    // | only `GTEQ \| LTEQ` gated   | 4 | 2 | 2 |
+    // | neither                     | 4 | 4 | 2 |
+    //
+    // `c` is the constant-pattern control and reads 2 in every column:
+    // it is what the relational methods are supposed to agree with.
     #[test]
-    fn csharp_relational_pattern_still_counts_as_a_condition() {
-        check_metrics::<CsharpParser>(
-            "class A {
+    fn csharp_relational_pattern_does_not_double_count_its_arm() {
+        let src = "class A {
                 int n(int x) => x switch { > 5 => 1, < 0 => 2, _ => 3 };
+                int g(int x) => x switch { >= 5 => 1, <= 0 => 2, _ => 3 };
+                int c(int x) => x switch { 5 => 1, 0 => 2, _ => 3 };
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (Csharp::RelationalPattern as u16, 4, "relational patterns"),
+                (Csharp::GT as u16, 1, "`>`"),
+                (Csharp::LT as u16, 1, "`<`"),
+                (Csharp::GTEQ as u16, 1, "`>=`"),
+                (Csharp::LTEQ as u16, 1, "`<=`"),
+            ],
+        );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            // Per space, not through the root: the root can only see
+            // the sum, and a `{4, 2, 0}` regression sums to the same 6
+            // as the correct `{2, 2, 2}`. `cyclomatic()` parity is also
+            // only expressible per space — `cyclomatic_sum()` folds in
+            // a base of 1 for each one.
+            assert_every_member_scores(&space.spaces[0], 3, 2, "one condition per non-discard arm");
+        });
+    }
+
+    // The `is` half of #1383, and the one whose over-count came from a
+    // different owner: `if (x is > 0)` scored the `IfStatement`
+    // condition slot *and* the pattern's `>`. `f`'s guard is the
+    // deliberate control — a `binary_expression` comparison in the same
+    // slot still scores exactly one, so the fix cannot be read as
+    // "stop counting `if` conditions".
+    //
+    // The two combinator methods pin the compound forms the issue asks
+    // about. `and` / `or` are keyword tokens C# ABC never listed and C#
+    // cyclomatic never counts, so the arm stays the single decision
+    // however many relational operands it carries — which is exactly
+    // what would regress if a later fix re-derived the gate from the
+    // operand instead of the parent.
+    #[test]
+    fn csharp_is_pattern_and_combinators_score_one_decision() {
+        let src = "class A {
+                int m(int x) { if (x is > 0) { return 1; } return 0; }
+                int f(int x) { if (x > 0) { return 1; } return 0; }
+                int a(int x) { if (x is > 0 and < 9) { return 1; } return 0; }
+                int o(int x) { if (x is < 0 or >= 100) { return 1; } return 0; }
+                int n(int x) { if (x is not > 5) { return 1; } return 0; }
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (Csharp::RelationalPattern as u16, 6, "relational patterns"),
+                (Csharp::IsPatternExpression as u16, 4, "`is` pattern tests"),
+                (Csharp::AndPattern as u16, 1, "`and`"),
+                (Csharp::OrPattern as u16, 1, "`or`"),
+                (Csharp::NegatedPattern as u16, 1, "`not`"),
+                (Csharp::GTEQ as u16, 1, "`>=` (only `o` carries one)"),
+            ],
+        );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            assert_every_member_scores(&space.spaces[0], 5, 1, "the `if` is the only decision");
+        });
+    }
+
+    // #1383's second, quieter effect, and the one its issue does not
+    // mention: a relational pattern outside any decision slot went from
+    // 1 to 0 as well, because the gate is on the operator's parent and
+    // not on what encloses the pattern.
+    //
+    // That is the right side of the trade, but it is a trade and the
+    // numbers should be visible. It puts `x is > 5` in agreement with
+    // the plain type test `x is int` (`t`, always 0 — note the grammar
+    // spells that one `is_expression`, not a pattern at all) and with
+    // cyclomatic, where before the fix it disagreed with both. The
+    // price is `q`:
+    // the equivalent binary comparison `x > 5` still scores 1 in the
+    // same slot, so a relational pattern now reads one lower than the
+    // comparison it is sugar for. Fitzpatrick counts comparison
+    // operators wherever they appear, so `q` is the spec-faithful one
+    // and these four are the deliberate exception — kept because the
+    // decision-slot case is what the metric is for, and Option 2 in
+    // #1383 (count the operator, drop the arm) could not justify
+    // itself.
+    #[test]
+    fn csharp_relational_pattern_outside_a_decision_slot_scores_zero() {
+        let src = "class A {
+                static bool M(bool b) { return b; }
+                bool p(int x) { bool b = x is > 5; return b; }
+                bool q(int x) { bool b = x > 5; return b; }
+                bool r(int x) { return x is > 5; }
+                bool s(int x) { return M(x is > 5); }
+                bool t(object x) { bool b = x is int; return b; }
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (Csharp::RelationalPattern as u16, 3, "relational patterns"),
+                (Csharp::IsPatternExpression as u16, 3, "`is` pattern tests"),
+                (Csharp::IsExpression as u16, 1, "the `is int` control"),
+            ],
+        );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            let class = &space.spaces[0];
+            assert_eq!(class.spaces.len(), 6, "`M` plus five probes");
+            let by_name = |n: &str| {
+                class
+                    .spaces
+                    .iter()
+                    .find(|s| s.name.as_deref() == Some(n))
+                    .unwrap_or_else(|| panic!("fixture lost `{n}`"))
+                    .metrics
+                    .abc
+                    .conditions()
+            };
+            // Named rather than indexed: the claim is about which
+            // spelling scores what, so a reordering of the fixture must
+            // not silently re-point the assertions.
+            for probe in ["p", "r", "s"] {
+                assert_eq!(by_name(probe), 0, "`{probe}`: pattern operator excluded");
+            }
+            assert_eq!(by_name("t"), 0, "type pattern, the agreement target");
+            assert_eq!(by_name("q"), 1, "a plain comparison still counts");
+        });
+    }
+
+    // The boundary of #1383: the pattern's operator stops counting, an
+    // operator in the arm's `when` guard keeps counting. Both sit under
+    // the same `switch_expression_arm`, so this is what stops a later
+    // "patterns don't count" pass from suppressing the guard too.
+    //
+    // It is also where §8 does not hold, and the reason is worth
+    // stating precisely, because the obvious reading is wrong. Neither
+    // metric models the guard as a branch — C# cyclomatic has no
+    // `when_clause` arm, and ABC has no guard rule either. ABC's extra
+    // count is simply the `==` *token*, which happens to sit inside the
+    // guard. Measured:
+    //
+    // | guard | `conditions()` | `cyclomatic() - 1` |
+    // |---|---|---|
+    // | `when x % 2 == 0` (this fixture) | 3 | 2 |
+    // | `when x > 2`                     | 3 | 2 |
+    // | `when IsEven(x)`                 | 2 | 2 |
+    //
+    // So the gap is not "ABC models guards better"; it is that a
+    // call-shaped guard restores parity while an operator-shaped one
+    // does not. That inconsistency is real, predates #1383, and is
+    // filed rather than changed here — see #1422.
+    //
+    // The `==` is the guard's own operator and the only `==` in the
+    // file, so trimming the `when` clause out of the fixture drops the
+    // count to 2 rather than leaving the assertion satisfied by
+    // something else.
+    #[test]
+    fn csharp_switch_arm_guard_operator_still_counts() {
+        check_func_space::<CsharpParser, _>(
+            "class A {
+                int w(int x) => x switch { > 0 when x % 2 == 0 => 1, > 0 => 2, _ => 3 };
             }",
             "foo.cs",
-            |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4);
+            |space| {
+                let m = &space.spaces[0].spaces[0];
+                assert_eq!(m.name.as_deref(), Some("w"));
+                // 4 if the `when_clause` itself started counting, 2 if
+                // the guard's `==` were suppressed along with the
+                // pattern operators — both are live regressions.
+                assert_eq!(
+                    m.metrics.abc.conditions(),
+                    3,
+                    "two arms plus the guard's `==`"
+                );
+                assert_eq!(m.metrics.cyclomatic.cyclomatic(), 3);
             },
         );
     }
