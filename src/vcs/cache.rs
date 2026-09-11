@@ -251,6 +251,10 @@ impl HistoryCache {
 /// documents what the value covers and why it digests gix's merged
 /// snapshot rather than the raw source bytes.
 ///
+/// It is not the only walk input outside `Options`: the git diff
+/// configuration (`diff.algorithm`, diff drivers) decides the recorded
+/// churn and is not fingerprinted yet — see the `git::cached` module docs.
+///
 /// Note what this term does *not* generalise to. An input is fingerprinted
 /// only when it is hashed here, and what is hashed is the option's
 /// *value*, never the behaviour it selects: `bot_pattern` is the pattern

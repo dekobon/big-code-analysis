@@ -1006,12 +1006,14 @@ def to_sarif(
     ``<anon@L{start_line}>``, matching the CLI's ``space_segment``.
 
     Findings are emitted in the CLI's order as well as its shape
-    (#1402): depth-first through the space tree in source order, a
-    space before its children and siblings left to right, and within
-    one space, alphabetically by metric name — so ``results`` for a
-    given file is comparable positionally, not just as a set. Order
-    *between* files is whatever the iterable passed as ``result``
-    yields, where ``bca check`` follows its own resolved walk list.
+    (#1402): sorted by path, then start line, then metric name — the
+    sort ``bca check`` applies after its walk — with findings that tie
+    on all three in depth-first source order. ``results`` is therefore
+    comparable positionally, not just as a set, against
+    ``bca check --no-suppress``: ``to_sarif`` compares raw metric
+    values, so it applies no in-source suppression markers (a marked
+    space keeps its ``suppressed`` key), no baseline and no
+    ``[check] exclude`` globs.
 
     Raises
     ------

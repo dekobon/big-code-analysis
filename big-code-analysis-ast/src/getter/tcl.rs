@@ -99,20 +99,21 @@ impl Getter for TclCode {
             // else, so every operand this arm decides is unchanged.
             //
             // Cross-walked against the sibling predicates
-            // (grammar-dispatch §7) and left as it was:
-            // `Checker::is_string` and `Alterator::alterate` both list
-            // `BracedWord` beside the two literal forms, so
-            // `bca find --type string` reports a `proc` body as a string
-            // literal while this arm gives it no operand. That
-            // disagreement predates #1354 in shape — an interpolating
-            // `QuotedWord` is already `Unknown` here and a string
-            // there. #1318 now has the predicate that would settle it
-            // (`Getter::is_value_braced_word`), but `Checker::is_string`
-            // takes neither `code` nor `ancestors`, so applying it there
-            // is a trait widening across all twenty-odd languages rather
-            // than a Tcl edit — filed as #1381. The literal half is
-            // already right: `bca find --type string` reports
-            // `lappend x {a b}`'s `{a b}`, which is a string.
+            // (grammar-dispatch §7): `Checker::is_string` and
+            // `Alterator::alterate` both list `BracedWord` beside the two
+            // literal forms, and #1381 narrows both for a script body —
+            // `Checker::is_string_with_code` and
+            // `Alterator::keeps_children` ask
+            // `Getter::is_braced_script_word` — so `bca find --type
+            // string` reports `lappend x {a b}`'s `{a b}` and not a
+            // `proc` body, agreeing with this arm. Three disagreements
+            // remain, each recorded where it lives: an interpolating
+            // `QuotedWord` is `Unknown` here and a string there, which
+            // predates #1354; an empty or comment-only script body is an
+            // operand here and not a string there; and the value slots
+            // `is_braced_literal_slot` recognises (`proc {my proc}`,
+            // `namespace export {…}`) are strings there while
+            // `get_op_type_with_code` still bills their `{` as a block.
             //
             // `Checker::is_call` needs no such follow-up. It calls
             // every `Command` a call, including the ones inside a value

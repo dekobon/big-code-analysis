@@ -62,32 +62,6 @@
 //! metric at the own-value field and the binding emits at every space —
 //! no leaf-only special-casing remains.
 //!
-//! # Emission order
-//!
-//! Order is part of the parity contract, not just the finding set: for
-//! one input file the two front-ends emit the same results in the same
-//! sequence, so a consumer may diff the documents positionally. Two
-//! axes decide that sequence, and #1402 fixed both:
-//!
-//! * **Across spaces** — both walk the space tree depth-first in source
-//!   order, a space then its children left to right, which for a LIFO
-//!   stack means pushing each sibling set reversed (see
-//!   [`push_child_spaces`]). This binding pushed them in source order
-//!   and so reported every sibling set backwards.
-//! * **Within one space** — the CLI's `ThresholdSet` iterates a
-//!   `BTreeMap`, so a space breaching several metrics reports them
-//!   alphabetically by canonical name; iterating the `thresholds`
-//!   `PyDict` yielded the caller's insertion order instead.
-//!   [`resolve_thresholds`] now sorts to match.
-//!
-//! Both bugs left the finding *set* correct and only the sequence
-//! wrong, which is why the sorted parity helpers in
-//! `tests/test_sarif.py` never saw either.
-//!
-//! Order *across files* is the caller's: [`collect_offenders_from_iter`]
-//! follows the iterable it is handed, where `bca check` follows its own
-//! resolved walk list.
-//!
 //! `nargs` is the fifth and arrived by the opposite route: its serialized
 //! shape did not change, its *gate* did. #1196 moved the CLI extractor
 //! from `total()` to the callable's own parameter list, leaving this
@@ -105,6 +79,28 @@
 //! its own limits), so this binding adopts the same posture. An empty
 //! `thresholds` produces a well-formed SARIF run with `results: []`
 //! and `rules: []`, matching the CLI's empty case.
+//!
+//! # Emission order
+//!
+//! Order is part of the parity contract, not only the finding set, so a
+//! consumer may diff the two documents positionally (#1402). The binding
+//! sorts its findings with the comparator `bca check` applies after its
+//! walk — path, then start line, then metric name — in
+//! [`collect_offenders_for_input`]. The sort is stable, so findings tying
+//! on all three keys (one metric breached by two spaces that start on the
+//! same line) keep the depth-first, source-order walk both front-ends
+//! share, which is the one job left to [`push_child_spaces`]'s reversal.
+//!
+//! Mirroring the walk alone is not enough, because the CLI sorts *after*
+//! walking. A function starting on line 1 that breaches `cyclomatic`
+//! precedes the file unit's `loc.sloc` breach on that line, and several
+//! files come out in path order whatever order they were handed in.
+//!
+//! The reference is `bca check --no-suppress`, not a bare `bca check`:
+//! this binding compares raw metric values, so it applies none of the
+//! in-source suppression markers `bca check` honours by default (a marked
+//! space keeps its `suppressed` key for a caller that wants to filter),
+//! no baseline, and no `[check] exclude` globs.
 
 use std::path::{Path, PathBuf};
 
@@ -363,16 +359,6 @@ fn resolve_thresholds(thresholds: Option<&Bound<'_, PyDict>>) -> PyResult<Vec<Th
             scope,
         });
     }
-    // The CLI builds its `entries` by iterating a `BTreeMap<String, f64>`
-    // (`ThresholdSet::build_tiered`), so a space breaching several metrics
-    // reports them alphabetically by canonical name. Iterating a `PyDict`
-    // yields the caller's insertion order instead, which made a two-metric
-    // `to_sarif` disagree with `bca check` on the order of one space's
-    // findings — and made the binding's own output depend on how the
-    // caller happened to spell the dict. Sorting here reproduces the
-    // CLI's order and drops that dependency (#1402). Names are unique,
-    // so the sort needs no tiebreak.
-    out.sort_unstable_by_key(|t| t.name);
     Ok(out)
 }
 
@@ -595,10 +581,12 @@ fn record_threshold_breaches(
 /// Children land on the stack in **reverse** source order so the caller's
 /// `pop()` visits them in source order, matching the CLI's
 /// `evaluate_with_policy` (which pushes `spaces.iter().rev()` for the same
-/// reason) — emission order is part of the SARIF parity contract (#1402).
-/// Reversing the tail this call appended, rather than the input, keeps the
-/// walk working for any Python iterable — `spaces` need not be a sequence —
-/// and allocates nothing extra.
+/// reason). The final sort in [`collect_offenders_for_input`] decides the
+/// emission order; this walk order survives it only as the tiebreak between
+/// findings that share a path, start line and metric (#1402). Reversing the
+/// tail this call appended, rather than the input, keeps the walk working
+/// for any Python iterable — `spaces` need not be a sequence — and
+/// allocates nothing extra.
 fn push_child_spaces<'py>(
     space: &Bound<'py, PyDict>,
     child_prefix: &str,
@@ -710,6 +698,15 @@ fn collect_offenders_for_input(
     let thresholds = resolve_thresholds(thresholds)?;
     let mut offenders: Vec<OffenderRecord> = Vec::new();
     dispatch_by_input_kind(result, &thresholds, &mut offenders)?;
+    // `bca check`'s own comparator, applied after the walk exactly as
+    // `run_check_walk` applies it — see "Emission order" in the module doc.
+    // Stable, so findings tying on all three keys keep the walk's order.
+    offenders.sort_by(|a, b| {
+        a.path
+            .cmp(&b.path)
+            .then(a.start_line.cmp(&b.start_line))
+            .then(a.metric.cmp(&b.metric))
+    });
     Ok(offenders)
 }
 

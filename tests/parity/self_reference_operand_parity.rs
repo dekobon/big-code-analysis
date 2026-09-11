@@ -24,13 +24,14 @@
 //! language with no self-reference says so with `None` rather than
 //! falling through a wildcard.
 //!
-//! The two *declarator* uses of the same keyword — C#'s
-//! `public int this[int i]` and Java's `? super String` wildcard bound —
-//! are deliberately absent from these fixtures: they are operators, so
-//! a fixture containing one would put the keyword in both vocabularies
-//! and fail the assertion below. They are pinned instead by
-//! `csharp_indexer_declaration_keyword_is_not_a_self_reference` and
-//! `java_wildcard_super_bound_stays_an_operator` in
+//! The *declarator* uses of the same keywords — C#'s
+//! `public int this[int i]`, and the `? super String` wildcard bound in
+//! Java and Groovy — are deliberately absent from these fixtures: they
+//! are operators, so a fixture containing one would put the keyword in
+//! both vocabularies and fail the assertion below. They are pinned
+//! instead by `csharp_indexer_declaration_keyword_is_not_a_self_reference`,
+//! `java_wildcard_super_bound_stays_an_operator` and
+//! `groovy_wildcard_super_bound_stays_an_operator` in
 //! `src/metrics/halstead.rs`.
 
 use big_code_analysis::{Ast, LANG, Source};
@@ -92,12 +93,15 @@ fn fixture(lang: LANG) -> Option<(&'static str, &'static str, &'static [&'static
             &["this", "base"],
         ),
         // Grammar accident, and the interesting one: `getter/groovy.rs`
-        // *does* list `Super` among its operators, but the grammar emits
-        // a plain `identifier` for both `this` and `super` in receiver
-        // position — verified by dump for `super(1)`, `super.h()`,
-        // `A.super.h()` and `super::h` — so that arm is dead at the
-        // current pin and Groovy is an operand language in fact. This
-        // row is what notices if a bump ever wakes the arm up.
+        // lists `Super` among its operators with no parent gate, but the
+        // pinned grammar emits `Groovy::Super` only as a `wildcard` bound
+        // (`? super T`, a declarator use kept an operator as in Java and
+        // left out of this fixture). In receiver position `this` and
+        // `super` are a plain `identifier` — verified by dump for
+        // `super(1)`, `super.h()`, `A.super.h()` and `super::h` — so the
+        // arm never sees a reference, and Groovy is an operand language
+        // in fact. This row is what notices if a bump ever routes a
+        // reference to that kind (#1419).
         LANG::Groovy => (
             "class A extends B {\n  def f() { return this.x }\n  \
              def g() { return super.h() }\n}\n",

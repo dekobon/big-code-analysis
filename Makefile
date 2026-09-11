@@ -322,10 +322,11 @@ test-doc:
 # triples the lib suite's wall time. Runs in the `chain-audit` CI lane;
 # run it locally around any change to a walk's truncate/push bookkeeping.
 #
-# Library-scoped, matching that lane: the five walks that thread a chain
-# live in the root crate (`spaces::compute`, `ops`, `suppression`) and
-# in `big-code-analysis-ast` (`comment_rm`, `Search::act_on_node`), so
-# the CLI / web / integration tiers would re-pay the quadratic cost
+# Library-scoped, matching that lane: the walks that thread a chain live
+# in the root crate (`spaces::compute`, `ops`, `suppression`) and in
+# `big-code-analysis-ast` (`comment_rm`, `Search::act_on_node` — which
+# `find` and `count` also walk through — and the `Ast` dump's `build`),
+# so the CLI / web / integration tiers would re-pay the quadratic cost
 # without reaching an assertion the lib tests do not already reach.
 #
 # RUSTFLAGS rather than a Cargo feature on purpose: `make test` passes

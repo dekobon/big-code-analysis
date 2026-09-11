@@ -162,10 +162,14 @@ const FOLD_GRACE_INTO_ADA: &str = "Ada <ada@example.com> Grace <grace@example.co
 /// One file's distinct-author count over the long window.
 fn authors_long(index: &vcs::HistoryIndex, path: &str) -> u32 {
     index
-        .iter()
-        .find(|(candidate, _)| candidate.to_string_lossy() == path)
-        .map(|(_, stats)| stats.authors_long)
-        .expect("file is ranked")
+        .get(Path::new(path))
+        .unwrap_or_else(|| {
+            panic!(
+                "expected {path} to be ranked; index has {} files",
+                index.len()
+            )
+        })
+        .authors_long
 }
 
 #[test]

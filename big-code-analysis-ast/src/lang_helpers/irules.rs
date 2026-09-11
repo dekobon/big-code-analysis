@@ -14,5 +14,7 @@ pub(crate) const BRACED_WORD_KINDS: BracedWordKinds = BracedWordKinds {
     word_list: Irules::WordList as u16,
     simple_word: Irules::SimpleWord as u16,
     argument: Irules::Argument as u16,
+    procedure: Irules::Procedure as u16,
+    namespace: Irules::Namespace as u16,
     open_brace: Irules::LBRACE as u16,
 };

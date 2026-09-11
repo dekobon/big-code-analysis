@@ -213,9 +213,10 @@ above is still the reason to reach for a field lookup first.
 
 The `Ancestors::unknown()` call sites that remain are deliberate rather
 than deferred: the two synthetic-`Unit`-root pushes hand it a node that
-*is* the root, `parser.rs`'s `--filter function` predicate is applied
-outside any walk, and the `Npm` arms that test a node's children cannot
-extend a borrowed slice by one element without allocating.
+*is* the root, and the `Npm` arms that test a node's children cannot
+extend a borrowed slice by one element without allocating. The
+`parser.rs` filter predicates were the third until #1381 routed `find`
+and `count` through `Search::act_on_node`'s chain.
 
 `nom/nested-attributed-fn` and `nom/wide-attributed-fn` are the first
 probes that walk under a non-default `MetricsOptions`. Both hot paths

@@ -57,12 +57,13 @@ impl Checker for IrulesCode {
     // cannot separate the two roles and `is_string_with_code` does.
     impl_simple_is_string!(Irules, QuotedWord, BracedWord, BracedWordSimple);
 
-    // The twin of `TclCode::is_string_with_code` (#1381). This grammar
-    // models more script positions than Tcl's — `when`, `for`, `switch`
-    // and the `dict` loops each have a node of their own — so the
-    // handler bodies this rescues are recognised structurally rather
-    // than by command name, and a `when` body is a script whatever it
-    // is called.
+    // The twin of `TclCode::is_string_with_code` (#1381), including the
+    // two places it parts company with Halstead that the Tcl comment
+    // records. This grammar models more script positions than Tcl's —
+    // `when`, `for`, `switch` and the `dict` loops each have a node of
+    // their own — so the handler bodies this rescues are recognised
+    // structurally rather than by command name, and a `when` body is a
+    // script whatever it is called.
     fn is_string_with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
         Self::is_string(node)
             && !<Self as Getter>::is_braced_script_word(node, code, ancestors, &BRACED_WORD_KINDS)

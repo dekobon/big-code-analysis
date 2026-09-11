@@ -234,10 +234,13 @@ by the resolved `HEAD` SHA and the repository's identity:
 
 The cache is a pure optimization: a hit is **bit-identical** to a fresh
 walk, and the time windows are recomputed against the *current* moment on
-every run, so a cached result is never stale. An entry is ignored — and
+every run rather than frozen when the entry was written. An entry is ignored — and
 the history recomputed — whenever the schema, the score-formula version,
-or the *walk-affecting* options differ; in particular **changing a window
-forces a fresh walk**. (Finalization-only knobs such as `--risk-formula`,
+the *walk-affecting* options, or the repository's effective `.mailmap`
+differ; in particular **changing a window forces a fresh walk**. One walk
+input is not covered: the git diff configuration (`diff.algorithm`, diff
+drivers) decides the recorded churn, so after changing it run once with
+`--clear-cache`. (Finalization-only knobs such as `--risk-formula`,
 `--emit-author-details`, `--author-hash-key`, and `--include-deleted` are
 applied on replay, so they reuse the same cached walk — a cached walk even
 re-finalizes under a *different* author-hash key without re-walking.)

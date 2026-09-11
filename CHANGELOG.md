@@ -132,13 +132,18 @@ for historical reference.
   — over four unrelated recovery shapes (heredoc, unterminated string
   delimiter, unclosed bracket, dangling line continuation), so each
   space's line sets are now clamped to its own span at finalization
-  rather than per arm. A `cloc > sloc` case (Perl POD) of the same
-  mechanism is fixed with it. Note a clean parse is not evidence of an
-  in-span tree: Ruby's `x = <<~DOC` with an unterminated body parses
-  without an error node and still emits the phantom row. **Metric
-  drift:** `loc.ploc` / `loc.cloc` fall and `loc.blank` rises on files a
+  rather than per arm. A Perl POD block that runs to end-of-file without
+  `=cut` — valid Perl that parses cleanly — reached `cloc > sloc` by a
+  different route: the node ends at column 0 of the row past the last
+  one, and the comment arms counted that raw end row. The same clamp
+  removes it. A clean parse is not evidence of an in-span tree in the
+  other direction either: Ruby's `x = <<~DOC` with an unterminated body
+  parses without an error node and still emits the phantom row.
+  **Metric drift:** `loc.ploc` / `loc.cloc` fall and `loc.blank` rises
+  on files whose tree reaches past their last row — mostly files a
   grammar cannot fully parse, including at least one ordinary shell
-  script in the DeepSpeech corpus.
+  script in the DeepSpeech corpus, and also Perl files whose last POD
+  block has no `=cut` (`cloc` −1, `blank` +1).
 
 - **ABC counts a bare numeric literal operand in Ruby, Elixir and Perl**
   (#1379). All three are truthy-valued, so a number used as a bare `&&`
@@ -154,10 +159,12 @@ for historical reference.
   Ruby's `rational` / `complex` wrap the numeral and the walker cannot
   descend into a wrapper, so the wrapper is classified and `integer`
   stays listed alongside it for the bare `1`. Lua, Tcl, iRules and the
-  JS family were measured and have no gap. PHP and Groovy carry the same
-  defect and are tracked in #1410. **Metric drift:** `abc.conditions`
-  and `abc.magnitude` rise for any Ruby, Elixir or Perl file using a
-  numeric in a boolean-operand or condition slot.
+  JS family were measured and have no gap. PHP, Groovy and the C family
+  (C, C++, Mozcpp, Objective-C) carry the same defect and are tracked in
+  #1410. **Metric drift:** `abc.conditions` and `abc.magnitude` rise for
+  Perl files using any numeric literal, and Ruby or Elixir files using a
+  non-integer one (`1.0`, `1r`, `2i`, `?a`), as a bare `&&` / `||`
+  operand or (Perl, Ruby) an `if` predicate.
 
 - **A relational pattern no longer double-counts its operator against
   the arm that owns it** in C# ABC (#1383). `x switch { > 5 => …, < 0
@@ -166,7 +173,12 @@ for historical reference.
   where `cyclomatic() - 1` is 2; `if (x is > 0)` gave 2 against 1. The
   enclosing switch arm and `is` condition slot already pay for the
   decision, so the pattern's own operator is now excluded — matching how
-  a constant pattern is treated. This covers `>=` and `<=` as well as
+  a constant pattern is treated. The gate is on the operator's parent,
+  so a relational pattern no arm or condition slot owns scores 0 too —
+  `bool b = x is > 5;`, `return x is > 5;`, a lambda or expression body,
+  a `when` guard or `catch` filter — in step with `x is 5`, `x is int`
+  and cyclomatic but one below the equivalent `x > 5` (guards: #1422).
+  This covers `>=` and `<=` as well as
   `>` and `<`: those are distinct token ids reaching a separate arm, so
   the allowlist named in #1297 never saw them. **Metric drift:**
   `abc.conditions` and `abc.magnitude` fall for every C# file using
@@ -204,17 +216,21 @@ for historical reference.
   `volume`, `difficulty`, `effort`, `time`, `bugs` and all three
   maintainability-index variants with them.
 
-- **PHP heredoc, nowdoc and backtick rows that are empty inside the
-  literal are counted as `ploc` rather than `blank`** (#1396), matching
-  every other language with a multi-line literal. #778 recorded PHP as
-  already correct; it was not, for the one shape that release never
-  measured. The nowdoc case was worse than the heredoc case and
-  structurally different — its body is one node for the first line plus
-  a single multi-row node for the rest, so it lost every interior row
-  regardless of emptiness. The wrapper is routed rather than the body,
-  because a heredoc whose body is a single empty row emits no body node
-  at all. **Metric drift:** `loc.ploc` rises and `loc.blank` falls for
-  PHP files containing these literals.
+- **PHP heredoc, nowdoc and backtick literals credit every row they
+  span to `ploc`** (#1396), as the languages #778 and #1260 routed
+  already did; rows empty inside the literal had been counted as
+  `blank`. #778 recorded PHP as already correct; it was not, for the one
+  shape that release never measured. Nowdoc and backtick also lost
+  non-empty rows, each for its own reason: a nowdoc body is one
+  `nowdoc_string` per line, each starting at the end of the row before,
+  so its last body row was credited to nothing; a multi-row backtick
+  command is a single node, so every interior row was. The wrapper is
+  routed rather than the body, because a heredoc whose body is a single
+  empty row emits no body node at all. Tcl and iRules braced values
+  (`set x {a\n\nb}`) and C# interpolated strings still lose such rows.
+  **Metric drift:** `loc.ploc` rises and `loc.blank` falls for PHP files
+  containing these literals — by one for every nowdoc, empty rows or
+  not.
 
 - **Ruby `npm` no longer counts `initialize`, `initialize_copy`,
   `initialize_dup`, `initialize_clone` or `respond_to_missing?` as
@@ -228,8 +244,11 @@ for historical reference.
 
 - **`bca find --type string` and `bca count --type string` no longer
   report a Tcl or iRules script body as a string literal** (#1381) — a
-  `proc` or `if` body, or an iRules `when` handler. A braced *value*
-  such as `lappend x {a b}` is still reported. `Checker::is_string`
+  `proc` or `if` body, or an iRules `when` handler. A braced *value* is
+  still reported: `lappend x {a b}`, a braced `proc` name, the arguments
+  of a `namespace` subcommand other than `eval` / `inscope` / `code`, and
+  the pattern and variable list of an `on` / `trap` handler clause the
+  grammar leaves as a plain command. `Checker::is_string`
   could not tell the two apart because it received neither the source
   bytes nor the ancestor chain; it gains an `is_string_with_code`
   sibling that routes both dialects through the role predicate #1318
@@ -240,7 +259,11 @@ for historical reference.
   the alterator, so it is unaffected.) Recognition is a leading-word
   heuristic, so Tcl's subcommand-dispatched script takers — `dict for`,
   `interp eval`, `apply` — are still reported; iRules models its
-  handlers structurally and has no such gap.
+  handlers structurally and has no such gap. The reverse misses remain
+  too: a braced value that `after cancel` or the separate-argument form
+  of `switch` takes, or that sits in a multi-line `try … trap` clause
+  the Tcl grammar leaves inside an error node, is still treated as a
+  script.
 
 - **A `.mailmap` edit invalidates the persistent VCS history cache**
   (#1262). Author identities are canonicalised through the repository
@@ -262,15 +285,16 @@ for historical reference.
 - **`bca.to_sarif` emits findings in the same order as `bca check -O
   sarif`** (#1402), so the two documents can be compared positionally
   and not just as sets — which is what the binding's own parity claim
-  had been promising. Two divergences are fixed: the binding walked the
-  space tree with a LIFO stack it pushed in source order, so every
-  sibling set came out reversed at every level; and it iterated the
-  `thresholds` dict, so a space breaching several metrics reported them
-  in the caller's insertion order rather than the CLI's
-  alphabetical-by-metric order — which also made the output depend on
-  how the dict happened to be spelled. Order *between* files remains
-  the caller's: `to_sarif` follows the iterable it is handed, where
-  `bca check` follows its resolved walk list.
+  had been promising. The binding now sorts its findings as `bca check`
+  does after its walk — by path, then start line, then metric name —
+  with ties kept in depth-first source order. It used to emit them in
+  walk order, and its walk pushed each sibling set onto a LIFO stack in
+  source order, so every sibling set came out reversed; a space
+  breaching several metrics followed the caller's `thresholds` dict
+  order; and files followed the input iterable rather than the CLI's
+  path order. The comparison is against `bca check --no-suppress`:
+  `to_sarif` still applies no in-source suppression markers, baseline
+  or `[check] exclude` globs.
 
 - **`bca preproc` documents are byte-identical across runs** (#1304).
   `PreprocResults.files` and `PreprocFile`'s three `HashSet<String>`
@@ -295,7 +319,7 @@ for historical reference.
   Perl was listed as immune by the original survey and was not. C#
   initially kept counting a relational pattern's operator
   (`x is > 0`) on the grounds that it is a genuine comparison outside
-  `binary_expression`; #1383 below reverses that, because the switch
+  `binary_expression`; #1383 above reverses that, because the switch
   arm or `is` condition owning the pattern already pays for the
   decision.
   Elixir was swept the same way in the same release: an operator

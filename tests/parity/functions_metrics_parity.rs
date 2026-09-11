@@ -152,8 +152,8 @@ fn every_named_function_space_is_reported_by_functions_and_find() {
 
         // `bca find --type function` reaches a third copy of the
         // decision — the `"function"` arm of `parser::filters`, which
-        // applies the predicate with `Ancestors::unknown()` rather than
-        // the walk's known chain. Compared by start line rather than by
+        // `find` applies off its own ancestor chain rather than the
+        // metrics walk's. Compared by start line rather than by
         // name because `find` yields raw nodes: two functions sharing a
         // start line would be a grammar impossibility, and the sorted
         // multiset still catches a count mismatch.

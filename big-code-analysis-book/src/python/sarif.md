@@ -10,14 +10,16 @@ writer that backs `bca check --report-format sarif`, so the schema URL, tool
 driver name / version, and rule descriptions match the CLI
 byte-for-byte.
 
-Findings match in order as well as in content. Within a file, both
-surfaces walk the space tree depth-first in source order — a space, then
-its children left to right — and report a space's several breaches
-alphabetically by metric name. For the same file and thresholds the two
-`results` arrays therefore line up entry for entry, and a diff between
-them is a real divergence rather than a walk-order artifact. Order
-*between* files is the caller's: `to_sarif` follows the iterable you pass
-it, while `bca check` follows the paths it resolved.
+Findings match in order as well as in content. Both surfaces sort their
+findings by path, then start line, then metric name — the order
+`bca check` applies after its walk — and findings tying on all three
+keep the depth-first source order of the space tree. For the same files
+and thresholds the two `results` arrays therefore line up entry for
+entry against `bca check --no-suppress`. `to_sarif` compares raw metric
+values, so it applies none of the in-source
+[suppression markers](../commands/suppression.md) `bca check` honours by
+default (each marked space keeps its `suppressed` key, for a caller that
+wants to filter), no baseline, and no `[check] exclude` globs.
 
 Examples on this page import the package as `bca`
 (`import big_code_analysis as bca`). A bare `bca` in a shell command is

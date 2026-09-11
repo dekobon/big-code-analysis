@@ -328,6 +328,17 @@ pub struct BracedWordKinds {
     /// parameter (`proc p {a {b {x y}}}`) spells its default as a
     /// `braced_word`, and a default is never evaluated as code.
     pub argument: u16,
+    /// `procedure`, the modelled `proc` construct. Its `name` field is a
+    /// `braced_word` when the name holds a space (`proc {my proc} …`),
+    /// and a name is a literal although the construct's other braced
+    /// slot, the body, is a script
+    /// ([`Getter::is_braced_literal_slot`]).
+    pub procedure: u16,
+    /// `namespace`, the modelled construct — not the keyword token that
+    /// shares its name. Its `word_list` holds a subcommand followed by
+    /// that subcommand's arguments, and only three subcommands take a
+    /// script ([`Getter::is_braced_literal_slot`]).
+    pub namespace: u16,
     /// `{`, the brace opener — the *only* node
     /// [`Getter::braced_word_op_type`] may revise. A braced word's
     /// operator children are not the opener alone: `_terminator` is a
@@ -362,17 +373,20 @@ pub struct BracedWordKinds {
 /// | `after` | `after ms script` |
 /// | `eval` | `eval arg ?arg …?` |
 /// | `for` | `for start test next body` — all four are evaluated |
-/// | `on` | `on error {script}`, the iRules `try` clause |
+/// | `on` | `on code varList script`, a `try` handler clause |
 /// | `switch` | `switch ?options? string pattern body ?pattern body …?` |
 /// | `time` | `time script ?count?` |
-/// | `trap` | `trap {script}`, the iRules `try` clause |
+/// | `trap` | `trap pattern varList script`, a `try` handler clause |
 /// | `uplevel` | `uplevel ?level? arg ?arg …?` |
 ///
 /// `on` and `trap` are listed because the iRules grammar models
 /// `on_handler` / `trap_handler` only *under* `try` (pinned by
-/// `irules_try_handler_kinds_appear_only_under_try`); written at
-/// statement level they parse as generic commands, and neither word
-/// takes a value in either dialect.
+/// `irules_try_handler_kinds_appear_only_under_try`), and the Tcl
+/// grammar models neither a `trap` nor a second `on`; written outside
+/// that shape they parse as generic commands. Their last argument is
+/// the handler script. The pattern and variable list before it are
+/// values, which only [`Getter::is_braced_literal_slot`] tells apart —
+/// the `{}` operator this table decides still bills them as blocks.
 ///
 /// `lmap varname list body` is deliberately **not** listed even though
 /// its body is a script: the list is per-command, not per-argument, so
@@ -408,6 +422,19 @@ const SCRIPT_TAKING_COMMANDS: [&str; 8] = [
 /// grammar hangs them off a `command` named after the pattern
 /// ([`Getter::is_switch_arm`]). Spelling it twice would let one drift.
 const SWITCH_COMMAND: &str = "switch";
+
+/// The `namespace` subcommands with a script argument:
+/// `namespace eval ns arg ?arg …?`, `namespace inscope ns script ?arg …?`
+/// and `namespace code script`. Every other subcommand takes values —
+/// `export {pattern}`, `path {ns …}`, `ensemble create -map {dict}` —
+/// which is what [`Getter::is_braced_literal_slot`] keys on.
+const NAMESPACE_SCRIPT_SUBCOMMANDS: [&str; 3] = ["eval", "inscope", "code"];
+
+/// The `try` handler clauses a grammar leaves as generic commands:
+/// `on code varList script` and `trap pattern varList script`, whose
+/// every argument but the last is a value
+/// ([`Getter::is_braced_literal_slot`]).
+const TRY_HANDLER_COMMANDS: [&str; 2] = ["on", "trap"];
 
 /// Per-language accessors that *name* and *classify* what a node is:
 /// the function or space name, the [`SpaceKind`] a node opens, and the
@@ -744,21 +771,27 @@ pub trait Getter {
     ///
     /// The positive form of [`is_value_braced_word`], narrowed to the
     /// script kind so it answers `false` for every node of every other
-    /// kind and for the two literal spellings. That makes it the
-    /// question the *non-Halstead* classifiers ask:
+    /// kind and for the two literal spellings, and narrowed again by the
+    /// value slots [`is_braced_literal_slot`] recognises. That makes it
+    /// the question the *non-Halstead* classifiers ask:
     /// `Checker::is_string_with_code` must not call a `proc` body a
-    /// string literal, and `Alterator::alterate` must not flatten one
-    /// into a leaf, dropping the body from the AST dump. Both once
-    /// listed `braced_word` beside `quoted_word` and
+    /// string literal, and `Alterator::keeps_children` must stop the dump
+    /// flattening one into a leaf, which dropped the body from it. Both
+    /// once listed `braced_word` beside `quoted_word` and
     /// `braced_word_simple`, which is right for the literal role and
     /// wrong for the script role the same kind also serves.
     ///
     /// Stated here rather than in each of the four call sites so the
-    /// three classifiers cannot drift apart on the same bytes
-    /// (grammar-dispatch §7) — the drift `braced_word_op_type` opened
-    /// when it revised the operator half alone.
+    /// string and dump classifiers cannot drift apart on the same bytes
+    /// (grammar-dispatch §7). Halstead is the deliberate exception:
+    /// `braced_word_op_type` asks [`is_value_braced_word`] alone, so the
+    /// braces of the value slots `is_braced_literal_slot` adds still
+    /// bill a `{}` operator, as they have since #1318. Moving that rule
+    /// into the shared predicate changes `bca metrics` for Tcl, and is
+    /// its own measured change rather than a rider on this one.
     ///
     /// [`is_value_braced_word`]: Self::is_value_braced_word
+    /// [`is_braced_literal_slot`]: Self::is_braced_literal_slot
     #[must_use]
     fn is_braced_script_word<'a>(
         node: &Node<'a>,
@@ -766,7 +799,121 @@ pub trait Getter {
         ancestors: Ancestors<'a, '_>,
         kinds: &BracedWordKinds,
     ) -> bool {
-        node.kind_id() == kinds.script && !Self::is_value_braced_word(node, code, ancestors, kinds)
+        node.kind_id() == kinds.script
+            && !Self::is_value_braced_word(node, code, ancestors, kinds)
+            && !Self::is_braced_literal_slot(node, code, ancestors, kinds)
+    }
+
+    /// Whether `word`, a braced word [`is_value_braced_word`] calls a
+    /// script, fills a slot whose documented syntax takes a *value*. Three
+    /// constructs hold both roles in one argument list:
+    ///
+    /// | construct | value slots | script slot |
+    /// | --- | --- | --- |
+    /// | `proc name args body` | the `name` field | the body |
+    /// | `namespace sub ?arg …?` | any subcommand's but three | `eval`, `inscope`, `code` |
+    /// | `on code varList script`, `trap pattern varList script` | all but the last | the last |
+    ///
+    /// Each literal here was a string and a flat dump leaf before #1381,
+    /// and would otherwise have become a script under it: the dump
+    /// rendered `{my proc}` as a command named `my`, and
+    /// `namespace export {…}` and `namespace ensemble create -map {…}`
+    /// both occur in the Tcl 8.6 standard library.
+    ///
+    /// Two guards keep the construct-wide answer. A switch arm list parses
+    /// as commands, so an arm whose *pattern* is spelled `proc`,
+    /// `namespace`, `on` or `trap` builds one of these shapes around what
+    /// are really arm bodies — [`is_switch_arm`] recognises it first. And
+    /// an owner holding a parse error has no argument positions worth
+    /// trusting. The multi-line `try … trap` clause is out of reach
+    /// entirely: the Tcl grammar leaves it inside an `ERROR` node, where
+    /// no role signal survives.
+    ///
+    /// [`is_value_braced_word`]: Self::is_value_braced_word
+    /// [`is_switch_arm`]: Self::is_switch_arm
+    #[must_use]
+    fn is_braced_literal_slot<'a>(
+        word: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+        kinds: &BracedWordKinds,
+    ) -> bool {
+        let mut chain = ancestors.iter(word);
+        let Some((parent, above_parent)) = chain.next() else {
+            return false;
+        };
+        if parent.kind_id() == kinds.procedure {
+            let is_name =
+                matches!(parent.child_by_field_name("name"), Some(name) if name.id() == word.id());
+            return is_name && !Self::is_switch_arm(&parent, code, above_parent, kinds);
+        }
+        let Some((owner, above_owner)) = chain.next() else {
+            return false;
+        };
+        if parent.kind_id() != kinds.word_list
+            || owner.has_error()
+            || Self::is_switch_arm(&owner, code, above_owner, kinds)
+        {
+            return false;
+        }
+        if owner.kind_id() == kinds.namespace {
+            Self::namespace_subcommand_takes_values(&parent, code, kinds)
+        } else {
+            Self::is_try_handler_value(word, &owner, code, kinds)
+        }
+    }
+
+    /// Whether a `namespace` construct's `word_list` names a subcommand
+    /// whose arguments are values — anything but
+    /// `NAMESPACE_SCRIPT_SUBCOMMANDS`. A subcommand that is not a plain
+    /// word (`namespace $sub …`) is unresolvable and keeps the script
+    /// answer, as an unresolvable command name does.
+    #[must_use]
+    fn namespace_subcommand_takes_values(
+        word_list: &Node<'_>,
+        code: &[u8],
+        kinds: &BracedWordKinds,
+    ) -> bool {
+        let Some(subcommand) = word_list.child(0) else {
+            return false;
+        };
+        if subcommand.kind_id() != kinds.simple_word {
+            return false;
+        }
+        let Some(subcommand) = node_text(code, &subcommand) else {
+            return false;
+        };
+        !NAMESPACE_SCRIPT_SUBCOMMANDS.contains(&subcommand)
+    }
+
+    /// Whether `word` is an argument of a generic `on` / `trap` command
+    /// other than its last, the handler script. The index comes from an
+    /// `O(log n)` cursor lookup, as in [`is_switch_arm_body`], not a
+    /// sibling scan.
+    ///
+    /// [`is_switch_arm_body`]: Self::is_switch_arm_body
+    #[must_use]
+    fn is_try_handler_value(
+        word: &Node<'_>,
+        command: &Node<'_>,
+        code: &[u8],
+        kinds: &BracedWordKinds,
+    ) -> bool {
+        let is_handler = command.kind_id() == kinds.command
+            && matches!(
+                Self::command_leading_word(command, code, kinds),
+                Some(name) if TRY_HANDLER_COMMANDS.contains(&name)
+            );
+        if !is_handler {
+            return false;
+        }
+        let Some(arguments) = command.child_by_field_name("arguments") else {
+            return false;
+        };
+        let mut cursor = arguments.cursor();
+        let index = cursor.goto_first_child_for_byte(word.start_byte());
+        cursor.node().id() == word.id()
+            && matches!(index, Some(index) if index + 1 < arguments.child_count())
     }
 
     /// Whether `word`, an argument of a `switch` arm command
@@ -791,22 +938,30 @@ pub trait Getter {
     /// half. The parity holds across the words that can interpose — a
     /// `-` fall-through body and a `default` pattern are both
     /// `simple_word`s and take a slot each — so an even index is a body
-    /// and an odd one a pattern. This is the one place the rule counts
-    /// siblings rather than asking a parent kind; the scan is bounded by
-    /// the arms an author put on one line, and runs once per braced
-    /// argument of such a command.
+    /// and an odd one a pattern. This is the one place the rule needs a
+    /// sibling *index* rather than a parent kind, and it runs once per
+    /// braced argument of such a command.
+    ///
+    /// The index comes from [`Cursor::goto_first_child_for_byte`], which
+    /// is `O(log n)` in the argument count. A `children().position(..)`
+    /// scan answers identically in `O(n)`, and since every braced word
+    /// of a one-line arm list asks, that made the Halstead walk — and,
+    /// once #1381 routed them through this rule, `find` / `count
+    /// --type string` and the `Ast` dump — quadratic in the width of
+    /// one line: seconds per request at tens of KB (#1381 review). The
+    /// id check keeps the scan's answer for a word that is not one of
+    /// the command's arguments at all.
     ///
     /// [`is_switch_arm`]: Self::is_switch_arm
+    /// [`Cursor::goto_first_child_for_byte`]: crate::node::Cursor::goto_first_child_for_byte
     #[must_use]
     fn is_switch_arm_body(word: &Node<'_>, command: &Node<'_>) -> bool {
-        command
-            .child_by_field_name("arguments")
-            .and_then(|arguments| {
-                arguments
-                    .children()
-                    .position(|argument| argument.id() == word.id())
-            })
-            .is_some_and(|index| index.is_multiple_of(2))
+        let Some(arguments) = command.child_by_field_name("arguments") else {
+            return false;
+        };
+        let mut cursor = arguments.cursor();
+        let index = cursor.goto_first_child_for_byte(word.start_byte());
+        cursor.node().id() == word.id() && matches!(index, Some(index) if index.is_multiple_of(2))
     }
 
     /// A command's leading word, when it is a statically resolvable
@@ -904,15 +1059,14 @@ pub trait Getter {
     /// where only the command name would (`lappend`). Closing that
     /// needs a signal neither grammar gives — filed as #1382.
     ///
-    /// Keeping to the operator also keeps the whole thing `O(1)`: only
+    /// Keeping to the operator also keeps the whole thing cheap: only
     /// a braced word's own opener can change answer, so the test is one
     /// kind comparison and one parent lookup, the same scope #1354 and
     /// #1314 use — with the single exception of a `switch` arm
-    /// command, where [`is_switch_arm_body`] scans that command's
-    /// arguments, a run bounded by the arms an author wrote on one
-    /// line. An ancestor scan would have been `O(depth)` per node and
-    /// quadratic on a deeply nested `expr`, the shape #1122 warns
-    /// about.
+    /// command, where [`is_switch_arm_body`] needs the word's index
+    /// among that command's arguments, an `O(log n)` cursor lookup. An
+    /// ancestor scan would have been `O(depth)` per node and quadratic
+    /// on a deeply nested `expr`, the shape #1122 warns about.
     ///
     /// [`is_switch_arm_body`]: Self::is_switch_arm_body
     ///

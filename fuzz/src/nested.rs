@@ -36,13 +36,12 @@ use big_code_analysis::LANG;
 /// contribute two or three, so this clears both.
 ///
 /// It is also an upper bound on run time, which is why it is not simply
-/// set enormous. The `"function"` filter applies its predicate with an
-/// unknown ancestor chain, climbing by `Node::parent` at `O(depth^2)`
-/// per candidate node; with a candidate at every level that is cubic in
-/// this constant. At 512 the worst case stays comfortably inside the
-/// `-timeout=10` the fuzz runs use, so a timeout report means a real
-/// complexity regression rather than the generator outgrowing the
-/// budget.
+/// set enormous. The `"function"` and `"string"` filters consult the
+/// ancestor chain, and `find` / `count` now thread it (#1381) rather
+/// than climbing by `Node::parent`, so depth no longer multiplies their
+/// per-node cost. `docs/development/fuzzing.md` records what the deepest
+/// seed costs under `AddressSanitizer`, and why `FUZZ_TIMEOUT` is sized to
+/// that rather than used as a complexity gate.
 pub const MAX_NESTING_DEPTH: usize = 512;
 
 /// Languages the generator knows how to nest.

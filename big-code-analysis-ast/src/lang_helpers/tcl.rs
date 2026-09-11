@@ -9,17 +9,21 @@ use crate::node::Node;
 /// `Getter::braced_word_op_type` and `Getter::is_braced_script_word` are
 /// instantiated with (#1354, #1318): the literal *value* form the guard
 /// keys on, the *script* form it gates on holding a command, the comment
-/// kind that gate must not mistake for one, and the four kinds #1318's
-/// role recognition walks — the generic `command`, its `word_list`
-/// argument list, the `simple_word` a resolvable command name is spelled
-/// with, and the `argument` whose braced child is a parameter default
-/// rather than a script.
+/// kind that gate must not mistake for one, the four kinds #1318's role
+/// recognition walks — the generic `command`, its `word_list` argument
+/// list, the `simple_word` a resolvable command name is spelled with, and
+/// the `argument` whose braced child is a parameter default rather than a
+/// script — and the `procedure` and `namespace` constructs whose value
+/// slots the string and dump classifiers also recognise (#1381).
 ///
 /// It lives here rather than beside the `Getter` impl because three
 /// classifiers now read it — `Getter::get_op_type_with_code`,
-/// `Checker::is_string_with_code` and `Alterator::alterate` — and a
-/// second copy is exactly the drift `lang_helpers` exists to prevent
+/// `Checker::is_string_with_code` and `Alterator::keeps_children` — and
+/// a second copy is exactly the drift `lang_helpers` exists to prevent
 /// (#1381).
+///
+/// `Namespace`, not `Namespace2`: both are spelled `namespace`, and the
+/// suffixed variant is the keyword token inside the construct.
 pub(crate) const BRACED_WORD_KINDS: BracedWordKinds = BracedWordKinds {
     value: Tcl::BracedWordSimple as u16,
     script: Tcl::BracedWord as u16,
@@ -28,6 +32,8 @@ pub(crate) const BRACED_WORD_KINDS: BracedWordKinds = BracedWordKinds {
     word_list: Tcl::WordList as u16,
     simple_word: Tcl::SimpleWord as u16,
     argument: Tcl::Argument as u16,
+    procedure: Tcl::Procedure as u16,
+    namespace: Tcl::Namespace as u16,
     open_brace: Tcl::LBRACE as u16,
 };
 

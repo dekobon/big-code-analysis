@@ -203,7 +203,8 @@ same opt-in described under
 `vcs.rank` keeps a [persistent cache](../commands/vcs.md#caching) of each
 history walk, on by default. A cache hit is bit-identical to a fresh
 walk, and the time windows are recomputed against the current moment on
-every run, so a cached result is never stale.
+every run. The [caching section](../commands/vcs.md#caching) lists what
+invalidates an entry, and the one walk input that does not.
 
 ```python
 from big_code_analysis import vcs

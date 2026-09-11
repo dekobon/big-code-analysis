@@ -2520,6 +2520,56 @@ mod tests {
         );
     }
 
+    // Groovy's `Super` operator arm, pinned from both sides. The pinned
+    // grammar emits the `super` token only as a `wildcard` bound, where it
+    // is an operator exactly as in Java above; every super-*reference* is
+    // a plain `identifier`, and so an operand. The node census is the
+    // positive pin #1419 wants rather than an unreachability one — an
+    // unreachability pin fails on any wildcard — so a grammar bump that
+    // routes a reference to this kind fails here by name instead of
+    // silently billing it as an operator through the ungated arm.
+    #[test]
+    fn groovy_wildcard_super_bound_stays_an_operator() {
+        let bounds =
+            "class T {\n    void m(List<? super String> a, List<? extends String> b) { }\n}";
+        let ops = ops_of::<GroovyParser>(bounds, "foo.groovy");
+        assert!(
+            ops.operators.iter().any(|o| o == "super"),
+            "`? super String` must keep `super` an operator; operators were {:?}",
+            ops.operators
+        );
+        assert!(
+            !ops.operands.iter().any(|o| o == "super"),
+            "a wildcard bound must not bill `super` as an operand; operands were {:?}",
+            ops.operands
+        );
+        assert!(
+            ops.operators.iter().any(|o| o == "extends"),
+            "the fixture must still contain the `? extends String` bound this arm \
+             mirrors; operators were {:?}",
+            ops.operators
+        );
+
+        let mixed = "class T extends B {\n    void m(List<? super String> a) { super.h() }\n}";
+        let mut tokens = 0;
+        for_each_node_with_chain::<GroovyCode>(mixed.as_bytes(), |node, chain| {
+            if node.kind_id() == Groovy::Super as u16 {
+                tokens += 1;
+                assert_eq!(
+                    chain.last().map(Node::kind_id),
+                    Some(Groovy::Wildcard as u16),
+                    "groovy: a `super` token outside a wildcard bound reaches the \
+                     ungated operator arm (#1419)"
+                );
+            }
+        });
+        assert_eq!(
+            tokens, 1,
+            "the fixture's one wildcard bound must still spell `super`, and its \
+             `super.h()` reference must not"
+        );
+    }
+
     #[test]
     fn groovy_operators_and_operands() {
         check_metrics::<GroovyParser>(

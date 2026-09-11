@@ -34,10 +34,10 @@ impl Loc for PhpCode {
             // statement nodes". Half true, and it cost a phantom blank row
             // per spelling: tree-sitter-php emits a body child only for a row
             // that *has* text. Heredoc drops just the row empty inside the
-            // literal; nowdoc is worse, emitting one `nowdoc_string` for the
-            // first line and a single multi-row one for the rest, whose
-            // interior rows the catch-all's start-row insertion all lost
-            // whether or not any of them was empty.
+            // literal; nowdoc also drops its last body row, because each
+            // `nowdoc_string` after the first starts at the end of the row
+            // before it, so the catch-all's start-row insertion credits
+            // every body row to its predecessor and the last to nothing.
             //
             // The wrapper is routed rather than `HeredocBody` / `NowdocBody`
             // because a body of one empty row emits no body node at all —
@@ -46,9 +46,9 @@ impl Loc for PhpCode {
             // from `<<<` to the closing marker, so its interior is the body
             // rows plus that marker's row, which is code either way.
             //
-            // `ShellCommandExpression` (`` `…` ``) is the fifth form and had
-            // the nowdoc shape exactly: one multi-row `string_content` child,
-            // so every interior row was lost. It is routed here for the same
+            // `ShellCommandExpression` (`` `…` ``) is the fifth form, and the
+            // worst: its body is one multi-row `string_content` child, so
+            // every interior row was lost. It is routed here for the same
             // reason, which makes this arm agree with
             // `PhpCode::is_string` (`big-code-analysis-ast/src/checker/php.rs`)
             // on every kind that grammar can span rows with — section 7's

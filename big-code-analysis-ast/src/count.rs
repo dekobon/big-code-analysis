@@ -23,39 +23,21 @@ use num_format::{Locale, ToFormattedString};
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use crate::node::Ancestors;
-use crate::traits::ParserTrait;
+use crate::traits::{ParserTrait, Search};
 
 /// Counts the types of nodes specified in the input slice and the
 /// number of nodes in a code. Crate-internal walk core reached through
 /// the `big_code_analysis::Ast::count` seam.
 pub fn count<T: ParserTrait>(parser: &T, filters: &[String]) -> (usize, usize) {
     let filters = parser.filters(filters);
-    let node = parser.root();
-    let mut cursor = node.cursor();
-    let mut stack = Vec::new();
-    let mut good = 0;
-    let mut total = 0;
-    // See `find` for why the chain is threaded rather than climbed. The
-    // truncate/push discipline is order-independent — a node's ancestors
-    // are always the chain prefix at its own depth — so it holds for
-    // this walk's unordered child push too.
-    let mut chain = Vec::new();
-
-    stack.push((node, 0_usize));
-
-    while let Some((node, depth)) = stack.pop() {
+    let (mut good, mut total) = (0, 0);
+    // The same shared walk as `find`, for the ancestor chain its
+    // predicates read; this one only tallies, so the visit order it
+    // imposes is incidental.
+    parser.root().act_on_node(&mut |node, ancestors| {
         total += 1;
-        chain.truncate(depth);
-        if filters.any(&node, Ancestors::checked(&chain, &node)) {
-            good += 1;
-        }
-        chain.push(node);
-        // No reversal: this walk only tallies, so visit order is
-        // immaterial and imposing one would imply a guarantee no caller
-        // relies on. Matches the previous push-in-source-order form.
-        stack.extend(node.children_with(&mut cursor).map(|c| (c, depth + 1)));
-    }
+        good += usize::from(filters.any(node, ancestors));
+    });
     (good, total)
 }
 

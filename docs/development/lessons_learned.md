@@ -3516,10 +3516,13 @@ then each had admitted a role nobody listed — JSX tag delimiters, a
 `super_expression`, an `operator_declaration` — while JavaScript (and
 its Mozjs fork), Lua and Perl had no gate at all, and Perl was the row
 the issue had declared immune. The same fix is also the caveat on the
-polarity: C# needed a *second* allowlist entry, because `x is > 0` is
-a comparison that lives outside `binary_expression`, and a one-entry
-allowlist would have under-counted it silently — the closed form's
-failure, which lesson 19 describes and no snapshot shows. Neither
+polarity: C# at first kept a *second* allowlist entry, because
+`x is > 0` is a comparison outside `binary_expression`, and a one-entry
+allowlist would have dropped it silently — the closed form's failure,
+which lesson 19 describes and no snapshot shows. #1383 later removed the
+entry on measurement, because the arm or condition slot owning the
+pattern already scores the decision: the same zero, decided rather than
+missed. Neither
 polarity is free; the allowlist is preferred because its set is the
 smaller one to enumerate and its miss reads as a zero rather than a
 phantom.

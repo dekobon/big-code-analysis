@@ -92,6 +92,15 @@ flatten_cases! {
     // which is the opposite over-correction.
     tcl_flattens_braced_value: LANG::Tcl, "lappend x {a b}\n", "f.tcl", "{a b}";
     irules_flattens_braced_value: LANG::Irules, "lappend b {x y}\n", "f.irule", "{x y}";
+    // The value slots of a construct `is_value_braced_word` classifies
+    // whole as script-taking. Without `is_braced_literal_slot` the dump
+    // rendered `{my proc}` as a command named `my` and `{a b}` as a
+    // command named `a` — the literal's text survived only inside a
+    // subtree the source does not contain.
+    tcl_flattens_braced_proc_name: LANG::Tcl, "proc {my proc} {} {}\n", "f.tcl", "{my proc}";
+    tcl_flattens_namespace_argument: LANG::Tcl, "namespace export {a b}\n", "f.tcl", "{a b}";
+    irules_flattens_braced_proc_name: LANG::Irules, "proc {my proc} {} {}\n", "f.irule", "{my proc}";
+    irules_flattens_namespace_argument: LANG::Irules, "namespace export {a b}\n", "f.irule", "{a b}";
     ruby_flattens_string_literal: LANG::Ruby, "s = \"hi\"\n", "f.rb", "\"hi\"";
     elixir_flattens_string_literal: LANG::Elixir, "s = \"hi\"\n", "f.ex", "\"hi\"";
 }

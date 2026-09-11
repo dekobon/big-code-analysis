@@ -133,18 +133,20 @@ impl Getter for GroovyCode {
             // minus tokens that no longer exist in the dekobon grammar
             // — `This`, `VoidType`, `Throws2`).
             //
-            // `Super` is listed but never fires: the grammar spells a
-            // super-reference as a plain `identifier` in every position
-            // measured (`super(1)`, `super.h()`, `A.super.h()`,
-            // `super::h`), so Groovy already bills it as an operand and
-            // agrees with the decision #1380 settled for Java, C# and
-            // Kotlin — by grammar accident rather than by this arm. The
-            // arm is therefore a latent disagreement: a bump that starts
-            // emitting `Groovy::Super` would flip Groovy to operator with
-            // no test failing here. Tracked in #1419, which owes it
-            // either a §2 unreachability pin or a move to the operand
-            // arm. `tests/parity/self_reference_operand_parity.rs` is
-            // what currently catches the flip, one crate away.
+            // `Super` fires for exactly one production: the pinned grammar
+            // emits the `super` token only as the bound of a `wildcard`
+            // (`List<? super T>`), where billing it as an operator mirrors
+            // `? extends T`'s `extends` and is the answer #1380 gated
+            // Java to (`java_wildcard_super_bound_stays_an_operator`). A
+            // super-*reference* — `super(1)`, `super.h()`, `A.super.h()`,
+            // `super::h`, `super?.h()` — is a plain `identifier`, so it
+            // is already an operand, and Groovy agrees with Java on both
+            // halves. The reference half holds by grammar accident: this
+            // arm has no parent gate, so a bump that routes a reference to
+            // `Groovy::Super` would bill it as an operator.
+            // `tests/parity/self_reference_operand_parity.rs` catches that
+            // flip, one crate away; #1419 tracks giving the arm Java's
+            // `Wildcard` parent gate, which removes the accident.
             If | Else | Switch | Case | Try | Catch | Throw | Throws | For | While | Continue
             | Break | Do | Finally | New | Return | Default | Abstract | Assert | Instanceof
             | Extends | Final | Implements | Transient | Synchronized | Super | Def | In | As

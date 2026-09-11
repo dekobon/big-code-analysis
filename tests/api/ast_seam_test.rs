@@ -736,12 +736,6 @@ fn preprocess_harvest_feeds_the_macro_masking_pass() {
     assert_eq!(untouched.source(), source);
 }
 
-/// The texts `Ast::find` reports for `--type string`, in source order.
-///
-/// Returning the texts rather than a count is what lets the callers below
-/// assert *which* nodes were reported. A count alone cannot tell "the
-/// script body dropped out" from "the literal dropped out and something
-/// else appeared", and the two failures want opposite fixes.
 /// A `proc` body (the script) holding a quoted word, plus a braced word
 /// (the two literals). Shared by both tests below so the `find` list and
 /// the `count` total describe the same bytes.
@@ -760,6 +754,12 @@ const TCL_SCRIPT_AND_LITERALS: &str = "proc p {x} { puts \"q\" }\nlappend l {a b
 const IRULES_SCRIPT_AND_LITERALS: &str =
     "when HTTP_REQUEST { log local0. \"hi\" }\nlappend l {x y}\n";
 
+/// The texts `Ast::find` reports for `--type string`, in source order.
+///
+/// Returning the texts rather than a count is what lets the callers below
+/// assert *which* nodes were reported. A count alone cannot tell "the
+/// script body dropped out" from "the literal dropped out and something
+/// else appeared", and the two failures want opposite fixes.
 #[cfg(any(feature = "tcl", feature = "irules"))]
 fn strings_found(lang: LANG, code: &str) -> Vec<String> {
     let ast = Ast::parse(Source::new(lang, code.as_bytes())).expect("language feature enabled");

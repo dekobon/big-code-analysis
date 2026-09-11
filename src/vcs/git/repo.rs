@@ -83,12 +83,23 @@ pub(crate) fn open(root: &Path) -> Result<OpenRepo, Error> {
 ///
 /// # Residual window
 ///
-/// The walk re-opens the mailmap for itself, so an edit landing between
-/// this call and that one stamps the entry with the pre-edit fingerprint
-/// over post-edit events. The next run under the edited mailmap
-/// fingerprints differently and heals it; only reverting the mailmap
-/// before any such run leaves a wrong hit reachable. Closing the window
-/// means threading one snapshot through the walk — see issue #1409.
+/// The walk re-opens the mailmap for itself, and nothing makes the two
+/// reads agree. An edit can land between them, and so can a transient
+/// that changes nothing on disk: `open_mailmap` turns a failed or
+/// mid-rewrite read into an empty or partial snapshot rather than an
+/// error — a truncate- or rename-then-write save of unchanged content,
+/// or a swallowed I/O error. The entry is then stamped with this call's
+/// view over events resolved under the walk's.
+///
+/// Which read saw the content that lasts decides whether it heals. When
+/// the walk did, the next run at the same `HEAD` fingerprints
+/// differently and overwrites the entry. When this call did — every
+/// transient, and an edit later reverted — later runs reproduce the
+/// stamp: the pure hit serves the entry, and the incremental splice
+/// carries its events forward until they leave the long window, a
+/// mailmap or option change moves the fingerprint, or `--clear-cache`
+/// runs. Closing the window means threading one snapshot through the
+/// walk — see issue #1409.
 #[must_use]
 pub(crate) fn mailmap_digest(repo: &gix::Repository) -> u64 {
     let mut hasher = DefaultHasher::new();

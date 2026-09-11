@@ -67,8 +67,8 @@ pub trait ParserTrait {
     /// The bytes the tree was parsed from (after macro expansion, for
     /// the C family).
     fn code(&self) -> &[u8];
-    /// The returned [`Filter`] borrows `self` — the `"function"`
-    /// predicate reads the source bytes (#1162).
+    /// The returned [`Filter`] borrows `self` — the `"function"` and
+    /// `"string"` predicates read the source bytes (#1162, #1381).
     fn filters(&self, requested: &[String]) -> Filter<'_>;
 }
 

@@ -809,20 +809,21 @@ def test_to_sarif_emits_results_in_cli_walk_order(bca_binary: str, tmp_path: Pat
     """Emission order is part of the parity contract, not only the finding
     set (#1402).
 
-    Both front-ends walk the space tree depth-first in source order — a
-    space, then its children left to right — so the two ``results`` arrays
-    are comparable **positionally**. The binding walks with an explicit
-    LIFO stack and, before the fix, pushed each sibling set in source
-    order, so every sibling set popped reversed at every level: on this
-    fixture it emitted ``second``, ``first``, ``<anon@L3>``,
+    Both front-ends emit their findings sorted by path, start line and
+    metric, ties in depth-first source order, so the two ``results`` arrays
+    are comparable **positionally**. Before the fix the binding emitted in
+    walk order, and its LIFO stack took each sibling set in source order,
+    so every sibling set popped reversed at every level: on this fixture
+    it emitted ``second``, ``first``, ``<anon@L3>``,
     ``<anon@L3>::<anon@L5>``, ``<anon@L3>::<anon@L4>``, ``<anon@L2>``.
     The set was right and only the sequence was wrong, which is why
     ``_sarif_rows`` and ``_assert_sarif_results_match`` — both of which
     sort — could not see it.
 
-    The fixture nests three sibling sets of two so a single-level fix, or
-    a fix that reversed the whole result list instead of each sibling set,
-    still fails.
+    Every space here starts on its own line, so the line key alone now
+    decides this order across three nested sibling sets. The walk's own
+    reversal is what a tie exposes, and
+    ``test_to_sarif_same_line_findings_follow_the_cli_sort`` pins that.
     """
     src = tmp_path / "nested_closures.rs"
     src.write_text(
@@ -844,7 +845,7 @@ def test_to_sarif_emits_results_in_cli_walk_order(bca_binary: str, tmp_path: Pat
     analyzed = bca.analyze(src)
     assert analyzed is not None, "fixture must not be skipped"
     # Fixture adequacy: at least three sibling sets must hold two children
-    # each, or a reversal has nothing to reverse and this test cannot fail.
+    # each, or the nested ordering this pins has nothing left to order.
     multi = [n for n in _sibling_set_sizes(analyzed) if n >= 2]
     assert len(multi) >= 3, f"fixture must keep its nested sibling pairs; sizes {multi!r}"
 
@@ -873,8 +874,8 @@ def test_to_sarif_orders_one_spaces_metrics_alphabetically(bca_binary: str, tmp_
     """The second ordering axis (#1402): within a single space, several
     breaches come out alphabetically by metric name on both sides.
 
-    The CLI builds its threshold entries from a ``BTreeMap``, so it
-    reports ``cyclomatic`` before ``nargs``. The binding iterated the
+    The CLI sorts its findings by metric name after path and start line,
+    so it reports ``cyclomatic`` before ``nargs``. The binding iterated the
     ``thresholds`` dict, which yields Python insertion order — so
     ``{"nargs": 1, "cyclomatic": 1}`` came out ``nargs`` first and the
     same call spelled the other way round came out ``cyclomatic`` first.
@@ -945,6 +946,57 @@ def test_to_sarif_orders_one_spaces_metrics_alphabetically(bca_binary: str, tmp_
         assert reversed_spelling == expected, (
             f"output must not depend on thresholds dict order: {reversed_spelling!r}"
         )
+
+
+def test_to_sarif_same_line_findings_follow_the_cli_sort(bca_binary: str, tmp_path: Path) -> None:
+    """``bca check`` sorts its findings by path, start line and metric
+    *after* walking, so mirroring its walk alone does not reproduce its
+    order (#1402).
+
+    Two findings on one line are where the two rules part company. In the
+    first fixture the file unit (always line 1) breaches ``loc.sloc`` and a
+    function starting on line 1 breaches ``cyclomatic``: the walk visits
+    the unit first, the CLI's sort puts ``cyclomatic`` first. The first cut
+    of #1402 mirrored only the walk and emitted the two reversed.
+
+    The second fixture is the tie the sort cannot break — two functions on
+    one line breaching the same metric — so there only the walk decides.
+    It is the row that fails if the binding stops reversing each sibling
+    set it pushes, which no distinct-line fixture can see any more.
+    """
+    cases: tuple[tuple[str, dict[str, float], list[tuple[int, str, str]]], ...] = (
+        (
+            "fn outer(a: i32, b: i32) -> i32 {\n    if a > b { 1 } else { 2 }\n}\n",
+            {"loc.sloc": 1, "cyclomatic": 1},
+            [
+                (1, "outer", "cyclomatic 2 exceeds limit 1"),
+                (1, "<file>", "loc.sloc 3 exceeds limit 1"),
+            ],
+        ),
+        (
+            "fn a(x: bool) -> i32 { if x { 1 } else { 2 } } "
+            "fn b(y: bool) -> i32 { if y { 1 } else { 2 } }\n",
+            {"cyclomatic": 1},
+            [
+                (1, "a", "cyclomatic 2 exceeds limit 1"),
+                (1, "b", "cyclomatic 2 exceeds limit 1"),
+            ],
+        ),
+    )
+    for index, (source, limits, expected) in enumerate(cases):
+        src = tmp_path / f"same_line_{index}.rs"
+        src.write_text(source)
+        analyzed = bca.analyze(src)
+        assert analyzed is not None, "fixture must not be skipped"
+        specs = tuple(f"{name}={limit}" for name, limit in limits.items())
+        cli_rows = _sarif_rows_in_emission_order(
+            _cli_check_sarif(bca_binary, src, threshold=specs)["runs"][0]["results"]
+        )
+        py_rows = _sarif_rows_in_emission_order(
+            _parse(bca.to_sarif(analyzed, thresholds=limits))["runs"][0]["results"]
+        )
+        assert cli_rows == expected, f"CLI reference order moved: {cli_rows!r}"
+        assert py_rows == expected, f"binding must match the CLI's order: {py_rows!r}"
 
 
 def test_to_sarif_anonymous_space_collapses_to_anon_line() -> None:
@@ -1108,11 +1160,18 @@ def test_to_sarif_child_order_survives_skipped_and_childless_spaces() -> None:
     skipped entry must not leave a gap that scrambles the surviving
     siblings, and a childless space must not reverse its parent's tail a
     second time.
+
+    All three children start on the same line. The binding sorts its
+    findings by path, start line and metric as ``bca check`` does, so on
+    distinct lines the sort alone would restore source order and this test
+    could no longer see the walk; sharing the line and the metric leaves
+    the walk order as the only tiebreak, which is the job the reversal
+    still has.
     """
     childless: dict[str, Any] = {
         "name": "beta",
         "kind": "function",
-        "start_line": 20,
+        "start_line": 10,
         "end_line": 25,
         # No "spaces" key at all — the `get_item` miss branch.
         "metrics": {"cyclomatic": {"value": 5.0, "sum": 5.0}},
@@ -1127,7 +1186,7 @@ def test_to_sarif_child_order_survives_skipped_and_childless_spaces() -> None:
             "not a space",
             childless,
             42,
-            _fake_function_dict(name="gamma", start_line=30, end_line=35),
+            _fake_function_dict(name="gamma", start_line=10, end_line=35),
         ],
         "metrics": {"cyclomatic": {"value": 1.0, "sum": 11.0}},
     }
@@ -1145,8 +1204,8 @@ def test_to_sarif_child_order_survives_skipped_and_childless_spaces() -> None:
     message = "cyclomatic 5 exceeds limit 1"
     assert rows == [
         (10, "alpha", message),
-        (20, "beta", message),
-        (30, "gamma", message),
+        (10, "beta", message),
+        (10, "gamma", message),
     ], f"surviving children must stay in source order: {rows!r}"
 
 

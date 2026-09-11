@@ -3743,8 +3743,9 @@ mod tests {
     // comparison-operator overload scored a condition.
     //
     // The fixture carries the two overloads plus one `a < b` inside a
-    // `binary_expression` and one `x is > 0` inside a
-    // `relational_pattern`. Every mis-aim lands on its own number: 5
+    // `binary_expression` and one `x is > 0 ? 2 : 3`, which the grammar
+    // parses as a `relational_pattern` whose operand is the ternary (see
+    // the assertion). Every mis-aim lands on its own number: 5
     // with neither gate, 3 if `RelationalPattern` is readmitted to the
     // allowlist (#1383 dropped it), 1 if the gate swallows
     // `BinaryExpression` too (only the ternary `?` survives), 0 if the
@@ -3776,8 +3777,13 @@ mod tests {
                     );
                 }
                 // 2, not 3, since #1383: the `a < b` comparison and the
-                // ternary `?`. `m`'s `x is > 0` no longer adds a third
-                // — the ternary it sits in is the decision.
+                // ternary `?`. tree-sitter-c-sharp 0.23.5 parses
+                // `x is > 0 ? 2 : 3` as `x is > (0 ? 2 : 3)` — the ternary
+                // is the pattern's operand, so the pattern sits in no
+                // decision slot and its `>` scores nothing, while the
+                // ternary's condition is the literal `0`. C# itself binds
+                // it `(x is > 0) ? 2 : 3`; a grammar that agrees makes
+                // this 3, because that condition slot scores the `is` test.
                 assert_eq!(class.spaces[2].metrics.abc.conditions(), 2);
             },
         );
@@ -3937,10 +3943,20 @@ mod tests {
         });
     }
 
-    // The boundary of #1383: the pattern's operator stops counting, an
-    // operator in the arm's `when` guard keeps counting. Both sit under
-    // the same `switch_expression_arm`, so this is what stops a later
-    // "patterns don't count" pass from suppressing the guard too.
+    // The boundary of #1383: the pattern's operator stops counting, a
+    // *binary* operator in the arm's `when` guard keeps counting (`w`).
+    // Both sit under the same `switch_expression_arm`, so this is what
+    // stops a later "patterns don't count" pass from suppressing the
+    // guard too.
+    //
+    // A relational *pattern* in the guard (`g`) is the other side of that
+    // line: it scores nothing, though no slot pays for it, because the
+    // gate is on the operator's parent and a guard is a decision slot
+    // neither metric models. It is the outside-slot trade
+    // `csharp_relational_pattern_outside_a_decision_slot_scores_zero`
+    // records, and it leaves `when n is > 5` one below `when n > 5`;
+    // modelling the guard as a slot would score the `is` test once and
+    // close the gap (#1422).
     //
     // It is also where §8 does not hold, and the reason is worth
     // stating precisely, because the obvious reading is wrong. Neither
@@ -3969,6 +3985,7 @@ mod tests {
         check_func_space::<CsharpParser, _>(
             "class A {
                 int w(int x) => x switch { > 0 when x % 2 == 0 => 1, > 0 => 2, _ => 3 };
+                int g(int x) => x switch { int n when n is > 5 => 1, _ => 0 };
             }",
             "foo.cs",
             |space| {
@@ -3983,6 +4000,19 @@ mod tests {
                     "two arms plus the guard's `==`"
                 );
                 assert_eq!(m.metrics.cyclomatic.cyclomatic(), 3);
+
+                let g = &space.spaces[0].spaces[1];
+                assert_eq!(g.name.as_deref(), Some("g"));
+                // FIXME(#1422): the one non-discard arm alone. The guard's
+                // pattern `>` scores nothing where `when n > 5` would add
+                // one; a guard modelled as a condition slot would score the
+                // `is` test instead, taking this to 2.
+                assert_eq!(
+                    g.metrics.abc.conditions(),
+                    1,
+                    "one arm; the guard's relational pattern scores nothing"
+                );
+                assert_eq!(g.metrics.cyclomatic.cyclomatic(), 2);
             },
         );
     }

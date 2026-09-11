@@ -468,8 +468,9 @@ exact form is `Node::parent`'s `O(depth)` per node and made every
 debug-build walk quadratic (#1122). The approximation misses a chain
 that is short by exactly one, so run this around any change to a walk's
 truncate/push bookkeeping — `src/spaces/compute.rs`, `src/ops.rs`,
-`src/suppression.rs`, and in `big-code-analysis-ast`, `comment_rm.rs` and
-`Search::act_on_node`. It is
+`src/suppression.rs`, and in `big-code-analysis-ast`, `comment_rm.rs`,
+`Search::act_on_node` (which `find` and `count` walk through) and the
+dump walk's `build` in `ast.rs`. It is
 not part of `make pre-commit`; the `chain-audit` CI job runs it per PR.
 See [Benchmarking](docs/development/benchmarking.md#chain-audit).
 

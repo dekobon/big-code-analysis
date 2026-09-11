@@ -776,7 +776,11 @@ impl Stats {
     /// inserts a raw `start` row — and here that `start` *is* the
     /// phantom row. [`Node::end_line`] already encodes "a node whose
     /// end column is 0 does not occupy the row it ends on"; nothing
-    /// encoded the same rule for a node that *begins* past the span.
+    /// encoded the same rule for a node that *begins* past the span, nor
+    /// applied it to the raw end row `init` hands the comment arms — so a
+    /// comment ending at column 0 of the row past the last one (Perl POD
+    /// running to end-of-file without `=cut`) counted that row as a
+    /// comment. The clamp removes both.
     ///
     /// `ploc > sloc` is a contract violation rather than a rounding
     /// artifact: [`Stats::blank`] saturates at 0, so the clamp there
@@ -787,8 +791,10 @@ impl Stats {
     /// shape nobody sampled, so the rule lives once, here, keyed on the
     /// span every language already reports.
     ///
-    /// **Input the grammar parses is untouched — which is not the same
-    /// as input that looks fine.** Over the `pdf.js`, `DeepSpeech` and
+    /// **Input whose tree stays inside the file's rows is untouched, and
+    /// a clean parse does not guarantee that**: Perl POD at end of file
+    /// and Ruby's unterminated `<<~` heredoc both parse without an error
+    /// node and still move. Over the `pdf.js`, `DeepSpeech` and
     /// `serde` corpora exactly one of 1,876 files moves, and it is a
     /// real bug fixed rather than a real row lost:
     /// `DeepSpeech/parse_valgrind_suppressions.sh` leaves a MISSING `}`
@@ -851,24 +857,21 @@ impl Stats {
         // cause from the phantom row above, and asserting `sloc()` here
         // would fire on it. Tighten this to `sloc()` once #1417 lands.
         //
-        // Both values are bound first because `ploc()` and `cloc()`
-        // popcount their word arrays since #1109, and a `debug_assert!`
-        // evaluates its message arguments separately from its
-        // condition. O(words) per space, the same order as the
-        // `compute_minmax` that follows; per node it would be the
-        // quadratic shape #1122 removed.
-        #[cfg(debug_assertions)]
-        {
-            let (ploc, cloc) = (self.ploc(), self.cloc());
-            debug_assert!(
-                ploc <= span as u64,
-                "ploc {ploc} exceeds the {span} row span it was clamped to"
-            );
-            debug_assert!(
-                cloc <= span as u64,
-                "cloc {cloc} exceeds the {span} row span it was clamped to"
-            );
-        }
+        // `ploc()` and `cloc()` popcount their word arrays (#1109):
+        // O(words) per space, the same order as the `compute_minmax` that
+        // follows, where per node it would be the quadratic shape #1122
+        // removed. The message repeats the call, but an assertion's
+        // message arguments are evaluated only on the failing branch.
+        debug_assert!(
+            self.ploc() <= span as u64,
+            "ploc {} exceeds the {span} row span it was clamped to",
+            self.ploc()
+        );
+        debug_assert!(
+            self.cloc() <= span as u64,
+            "cloc {} exceeds the {span} row span it was clamped to",
+            self.cloc()
+        );
     }
 }
 
@@ -8515,10 +8518,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         });
     }
 
-    /// Analyses `source` byte-for-byte as PHP, for the two #1396 tests
-    /// `check_metrics` cannot carry: one ends at EOF, which that shim
-    /// normalises away, and the other loops over labelled cases, which
-    /// its bare `fn` callback cannot close over.
+    /// Analyses `source` byte-for-byte as PHP, for the #1396 tests
+    /// `check_metrics` cannot carry — one ends at EOF, which that shim
+    /// normalises away, and one loops over labelled cases, which its bare
+    /// `fn` callback cannot close over — and for the bounds test beside
+    /// them.
     #[cfg(feature = "php")]
     fn php_loc(source: &[u8]) -> Stats {
         metrics_verbatim(
@@ -8558,11 +8562,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
     /// The nowdoc half of #1396, which the issue did not measure and
     /// which was worse: it reported `ploc 4, blank 2` on this fixture
     /// against the heredoc's `ploc 5, blank 1`. The grammar shape
-    /// differs — a nowdoc body is *not* one `nowdoc_string` per row.
-    /// tree-sitter-php 0.24.2 emits one for the first line and a single
-    /// multi-row `nowdoc_string` for everything after it, so the
-    /// catch-all's start-row insertion lost every interior row of that
-    /// second node rather than just the empty one.
+    /// differs: tree-sitter-php 0.24.2 emits one `nowdoc_string` per body
+    /// line, but each after the first starts at the *end of the row
+    /// before it*, so the catch-all's start-row insertion credited every
+    /// body row to its predecessor and the last one (`b`) to nothing, on
+    /// top of the empty row.
     ///
     /// Same `sloc` fixture anchor as the heredoc test above.
     #[cfg(feature = "php")]
@@ -8611,7 +8615,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
     #[test]
     fn php_heredoc_spellings_credit_every_row_to_ploc() {
         // (label, source, expected sloc) — expected ploc is that same
-        // sloc and expected blank is 0 for all four, which is the
+        // sloc and expected blank is 0 for all five, which is the
         // property under test.
         let cases = [
             ("all-empty heredoc body", "<?php\n$s = <<<EOT\n\nEOT;\n", 4),

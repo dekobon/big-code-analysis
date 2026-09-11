@@ -598,8 +598,8 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     ///
     /// The invariant is "`chain.last()` **is** `node.parent()`", and
     /// asking that outright costs [`Node::parent`]'s `O(depth)` — the
-    /// very lookup #1084 exists to remove. Per node, on all five walks
-    /// that construct a checked chain, it made every debug-build walk
+    /// very lookup #1084 exists to remove. Per node, on every walk that
+    /// constructs a checked chain, it made every debug-build walk
     /// `O(nodes × depth)` while the shipped walk is `O(nodes)`: a tax on
     /// every `cargo test`, worst on the deep-nesting regression tests
     /// that exist to pin the shipped walk's linearity (#1122). It now
@@ -809,6 +809,20 @@ impl<'a> Cursor<'a> {
     #[inline]
     pub fn goto_first_child(&mut self) -> bool {
         self.0.goto_first_child()
+    }
+
+    /// Moves to the first child that ends after `byte` and returns its
+    /// index in [`Node::children`] order, or `None` when no child does.
+    ///
+    /// The index is what makes this worth having over a sibling scan:
+    /// tree-sitter stores a `repeat()` child list under balanced hidden
+    /// nodes and skips each by its cached visible-child count, so this
+    /// is `O(log n)` in the sibling count where `children().position(..)`
+    /// is `O(n)` — the difference between a linear and a quadratic walk
+    /// when every child of a wide list asks for its own index.
+    #[inline]
+    pub fn goto_first_child_for_byte(&mut self, byte: usize) -> Option<usize> {
+        self.0.goto_first_child_for_byte(byte)
     }
 
     /// The node the cursor currently sits on.
@@ -1738,9 +1752,10 @@ mod tests {
     ///
     /// The seed is what decides this. [`Ancestors`] reads an empty chain
     /// as "this node is the root", so seeding empty — which is correct
-    /// for the one caller that exists today, `bca function`, whose walk
-    /// starts at the root — would report no parent for the subtree root
-    /// and shift every answer beneath it. For the JS getters that means
+    /// for every caller today (`bca function`, `find` and `count`, whose
+    /// walks all start at the root) — would report no parent for the
+    /// subtree root and shift every answer beneath it. For the JS getters
+    /// that means
     /// losing the `variable_declarator` a `function_expression` takes
     /// its name from, so the space would silently be named
     /// `<anonymous>`.

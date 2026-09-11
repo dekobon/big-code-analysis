@@ -2728,4 +2728,94 @@ mod tests {
             "neither tcl nor irules is enabled; this test asserted nothing"
         );
     }
+
+    /// The value slots of the three constructs whose argument lists hold
+    /// both roles stay string literals, though `is_value_braced_word`
+    /// classifies each construct whole as script-taking
+    /// (`Getter::is_braced_literal_slot`).
+    ///
+    /// Every fixture line carries a literal *and* a script in the same
+    /// construct, so each rule is pinned from both sides: a rule that
+    /// withdrew the whole construct fails on the literal, and one that
+    /// rescued it whole fails on the script. The two switch lines are the
+    /// guards' own rows — an arm whose *pattern* is spelled `proc`, `on`
+    /// or `trap` parses as that construct around arm bodies, which must
+    /// stay scripts. They need a line each: `proc {…} on {…}` parses as
+    /// one `procedure`, so only the second line puts an `on` *command*
+    /// in front of the owner guard.
+    ///
+    /// The Tcl `trap` line stands alone because the walk helper refuses a
+    /// tree with a parse error, and `try {…} trap …` on one line reaches
+    /// the same generic `trap` command only through error recovery (a
+    /// missing terminator the grammar inserts after the `try` body).
+    #[test]
+    #[cfg(any(feature = "tcl", feature = "irules"))]
+    fn tcl_family_value_slots_of_script_takers_stay_strings() {
+        let mut ran = 0;
+        #[cfg(feature = "tcl")]
+        {
+            ran += 1;
+            let (kept, withdrawn, _) = braced_word_string_verdicts::<crate::langs::TclCode>(
+                "tcl",
+                b"proc {my proc} {x} { puts $x }\n\
+                  namespace export {a b}\n\
+                  namespace eval ns { puts hi }\n\
+                  namespace ensemble create -map {add ::a}\n\
+                  trap {POSIX ENOENT} {msg} { puts $msg }\n\
+                  switch $k { proc {puts p} on {puts o} }\n\
+                  switch $k { on {puts o} trap {puts t} }\n",
+                Tcl::BracedWord as u16,
+            );
+            assert_eq!(
+                kept,
+                ["{my proc}", "{a b}", "{add ::a}", "{POSIX ENOENT}", "{msg}"],
+                "tcl: a proc name, a non-`eval` namespace argument, and a \
+                 `trap` pattern and variable list are literals"
+            );
+            assert_eq!(
+                withdrawn,
+                [
+                    "{ puts $x }",
+                    "{ puts hi }",
+                    "{ puts $msg }",
+                    "{ proc {puts p} on {puts o} }",
+                    "{puts p}",
+                    "{puts o}",
+                    "{ on {puts o} trap {puts t} }",
+                    "{puts o}",
+                    "{puts t}",
+                ],
+                "tcl: the proc body, the `namespace eval` body, the `trap` \
+                 script, and the switch arm list and its bodies are scripts"
+            );
+        }
+        #[cfg(feature = "irules")]
+        {
+            ran += 1;
+            let (kept, withdrawn, other) = braced_word_string_verdicts::<crate::langs::IrulesCode>(
+                "irules",
+                b"proc {my proc} {x} { log local0. $x }\n\
+                  namespace export {a b}\n\
+                  when HTTP_REQUEST { log local0. \"hi\" }\n\
+                  on error {m2} {drop}\n",
+                Irules::BracedWord as u16,
+            );
+            assert_eq!(
+                kept,
+                ["{my proc}", "{a b}", "{m2}"],
+                "irules: a proc name, a `namespace` value and an `on` variable \
+                 list are literals"
+            );
+            assert_eq!(
+                withdrawn,
+                ["{ log local0. $x }", "{ log local0. \"hi\" }", "{drop}"],
+                "irules: the proc and `when` bodies and the `on` handler are scripts"
+            );
+            assert_eq!(other, 1, "irules: the quoted word stays a string");
+        }
+        assert!(
+            ran > 0,
+            "neither tcl nor irules is enabled; this test asserted nothing"
+        );
+    }
 }

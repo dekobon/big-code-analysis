@@ -24,6 +24,14 @@
 //! enters [`cache::fingerprint`] here, which covers all three cache paths
 //! at once — the pure hit, `load_compatible`'s ancestor selection for the
 //! incremental splice, and the entry [`persist`] writes back.
+//!
+//! The mailmap is not the last such input. The git diff configuration the
+//! walk's diff platform reads — `diff.algorithm` and the diff drivers —
+//! decides the churn recorded per commit, and nothing fingerprints it, so
+//! changing it is served stale (and spliced forward) until
+//! `--clear-cache`. Pinning the algorithm in the walk would also make
+//! churn host-independent; folding the config into the fingerprint would
+//! only invalidate.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

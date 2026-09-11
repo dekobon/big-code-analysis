@@ -48,6 +48,13 @@
 #   big-code-analysis-ast/src/getter/ruby.rs
 #                              3 -> 4, the `BQUOTE` subshell guard
 #                              (#1360) in `get_op_type`
+#   big-code-analysis-ast/src/getter/csharp.rs
+#                              5 -> 8, and
+#   big-code-analysis-ast/src/getter/java.rs
+#                              2 -> 5: the self- and super-reference arms
+#                              (#1380) in `get_op_type` — each a nested
+#                              two-arm `match` on the parent kind, so
+#                              three stuck arms apiece
 #   src/vcs/error.rs           `classify_error_variants!` (#1245): its
 #                              matcher, plus the 11 `$pat => $sample`
 #                              entries at the invocation, which are

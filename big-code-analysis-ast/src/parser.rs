@@ -52,8 +52,8 @@ pub struct Parser<T: LanguageInfo + Alterator + Checker + Getter> {
 /// ancestry of a different tree.
 type FilterFn<'a> = dyn for<'t, 'c> Fn(&Node<'t>, Ancestors<'t, 'c>) -> bool + 'a;
 
-/// Collection of node-matching predicates used by the AST-walking
-/// metric and dump routines to decide whether to visit a node.
+/// Collection of node-matching predicates the `find` and `count` walks
+/// apply to each node they visit.
 pub struct Filter<'a> {
     filters: Vec<Box<FilterFn<'a>>>,
 }
