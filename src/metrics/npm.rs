@@ -2958,11 +2958,17 @@ class C {
     // there. In the four whose expected answer is "the rule does not
     // apply" (`…wins`, `…singleton_initialize…`,
     // `…in_a_singleton_class_body…`, `…public_symbol_republishes…`) the
-    // name contributes to no axis once exempt, so a rename is silent and
-    // no anchor is available — measured, not assumed. That matters most
-    // for `ruby_public_keyword_wrapping_initialize_wins`, the sole guard
-    // on the `named_by_keyword ||` disjunct: rename its method and that
-    // branch goes uncovered with nothing going red.
+    // name contributes to no metric axis once exempt, so no *count* can
+    // anchor it.
+    //
+    // The space tree can, and does: the Ruby walk opens a named
+    // `Function` space per `def`, so `child_space(…, "initialize")`
+    // panics on a rename. `ruby_public_keyword_wrapping_initialize_wins`
+    // carries that anchor, because it is the sole guard on the
+    // `named_by_keyword ||` disjunct and a silent rename there would
+    // leave that branch uncovered with nothing going red. The other
+    // three remain deletion-anchored only; adding the same call to them
+    // is cheap and welcome if you are already in the file.
 
     #[test]
     fn ruby_initialize_is_not_a_public_method() {
@@ -3034,12 +3040,21 @@ class C {
         // no keyword governs.
         //
         // expected: nm = 2, npm = 2.
-        check_metrics::<RubyParser>(
+        //
+        // The `child_space` call is the fixture-decay anchor. Both counts
+        // above are name-blind once the keyword exempts the declaration,
+        // so renaming `initialize` to `setup` leaves them at 2 and 2 and
+        // this test — the sole guard on the `named_by_keyword ||`
+        // disjunct — would go green over an uncovered branch. Naming the
+        // method space makes that rename panic instead.
+        check_func_space::<RubyParser, _>(
             "class H\n  public def initialize(x)\n    @x = x\n  end\n  def value\n    @x\n  end\nend\n",
             "foo.rb",
-            |metric| {
+            |func_space| {
+                let metric = &func_space.metrics;
                 assert_eq!(metric.npm.class_nm_sum(), 2);
                 assert_eq!(metric.npm.class_npm_sum(), 2);
+                child_space(child_space(&func_space, "H"), "initialize");
                 insta::assert_json_snapshot!(metric.npm);
             },
         );

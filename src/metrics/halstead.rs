@@ -3284,15 +3284,15 @@ mod tests {
         // `[Both, Both, OperandOnly]`; inverting gives
         // `[Both, Both, OperatorOnly]`; dropping the gate gives three
         // `OperandOnly`; reverting #1380 gives three `OperatorOnly`.
-        assert!(
-            roles.contains(&Role::Both),
-            "some space must bill `this` as an operator *and* an operand, which only \
-             the declarator and the receiver disagreeing can produce; roles were {roles:?}",
-        );
-        assert!(
-            roles.contains(&Role::OperandOnly),
-            "the accessor space holds only the `this._a` receiver, so it must bill \
-             `this` as an operand and nothing else; roles were {roles:?}",
+        // Asserting the whole sequence rather than two `contains` calls:
+        // the comment above already derives it, and a `contains` pair
+        // leaves the length unasserted, so a space appearing or vanishing
+        // goes unnoticed and `[Both, X, OperandOnly]` passes for any `X`.
+        assert_eq!(
+            roles,
+            vec![Role::Both, Role::Both, Role::OperandOnly],
+            "the declarator and the receiver must disagree in the two outer spaces \
+             and the accessor must bill `this` as an operand alone",
         );
     }
 

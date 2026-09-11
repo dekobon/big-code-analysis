@@ -132,6 +132,19 @@ impl Getter for GroovyCode {
             // Control-flow + keyword operators (mirrors Java's set,
             // minus tokens that no longer exist in the dekobon grammar
             // — `This`, `VoidType`, `Throws2`).
+            //
+            // `Super` is listed but never fires: the grammar spells a
+            // super-reference as a plain `identifier` in every position
+            // measured (`super(1)`, `super.h()`, `A.super.h()`,
+            // `super::h`), so Groovy already bills it as an operand and
+            // agrees with the decision #1380 settled for Java, C# and
+            // Kotlin — by grammar accident rather than by this arm. The
+            // arm is therefore a latent disagreement: a bump that starts
+            // emitting `Groovy::Super` would flip Groovy to operator with
+            // no test failing here. Tracked in #1419, which owes it
+            // either a §2 unreachability pin or a move to the operand
+            // arm. `tests/parity/self_reference_operand_parity.rs` is
+            // what currently catches the flip, one crate away.
             If | Else | Switch | Case | Try | Catch | Throw | Throws | For | While | Continue
             | Break | Do | Finally | New | Return | Default | Abstract | Assert | Instanceof
             | Extends | Final | Implements | Transient | Synchronized | Super | Def | In | As

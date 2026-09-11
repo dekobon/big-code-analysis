@@ -89,16 +89,14 @@ fn fingerprint_changes_with_the_mailmap_digest() {
         "a mailmap change must change the fingerprint"
     );
     // Both operands differ from `0` and from each other, so the inequality
-    // above cannot hold for an incidental reason. The equality below is
-    // determinism *within one process* only — the cross-process stability
-    // a persisted entry actually depends on cannot be observed from here,
-    // and is guarded by `vcs_cache_dir_persists_and_replays_identically`
-    // in the CLI suite, which primes and reads in two separate processes.
-    assert_eq!(
-        base,
-        fingerprint(&options, SAMPLE_MAILMAP_DIGEST),
-        "identical inputs fingerprint identically"
-    );
+    // above cannot hold for an incidental reason.
+    //
+    // No same-process re-call is asserted here: `fingerprint` is pure over
+    // a fixed seed, so calling it twice with identical arguments compares a
+    // value to itself and cannot fail. The stability a persisted entry
+    // actually depends on is cross-*process*, which this test cannot
+    // observe; `vcs_cache_dir_persists_and_replays_identically` in the CLI
+    // suite covers it by priming and reading in two separate processes.
 }
 
 #[test]

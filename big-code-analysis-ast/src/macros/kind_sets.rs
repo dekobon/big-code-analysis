@@ -336,11 +336,25 @@ macro_rules! python_bool_terminal_kinds {
 // starts emitting it should count it, so there is nothing to guard
 // against by omission (grammar-dispatch §2).
 //
-// The statically-typed sets (C#, Java, Kotlin, Rust, Go, C, C++)
-// deliberately name no numeric kind: a bare number in a boolean slot is
-// a compile error there, so there is nothing to count. PHP and Groovy
-// are the two remaining truthy-valued languages that still omit one —
-// tracked in #1410, not deliberate.
+// The sets for C#, Java, Kotlin, Rust and Go deliberately name no
+// numeric kind: a bare number in a boolean slot is a compile error in
+// those five, so there is nothing to count.
+//
+// That rationale does **not** extend to the C family, which an earlier
+// revision of this comment wrongly grouped with them. C and C++ are
+// integer-truthy — `if (1)`, `while (1)`, `do { … } while (0)` and
+// `a && 1` are all legal and idiomatic — so they carry the same gap PHP
+// and Groovy do. `cpp_bool_terminal_kinds!` is name-keyed and shared by
+// C, C++, Mozcpp and Objective-C, so all four are affected, and the
+// omission is visible *within* one language: `if (true)` scores one
+// condition and `if (1)` scores none, because `"true"` is in the set
+// and `number_literal` is not.
+//
+// PHP, Groovy and the four C-family languages are all tracked in #1410.
+// They are deferred rather than deliberate, and for a scheduling reason
+// only: each has integration-corpus files (the DeepSpeech `native_client`
+// snapshots are C/C++), so fixing them moves snapshots and wants its own
+// measurement pass.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! perl_bool_terminal_kinds {

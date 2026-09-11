@@ -233,9 +233,14 @@ for historical reference.
   could not tell the two apart because it received neither the source
   bytes nor the ancestor chain; it gains an `is_string_with_code`
   sibling that routes both dialects through the role predicate #1318
-  built. The AST dump and the REST `/ast` endpoint likewise keep a
-  script body's children instead of flattening it to a single leaf,
-  which had been dropping entire `proc` and `when` bodies.
+  built. The `Ast::dump` API and the REST `/ast` endpoint likewise keep
+  a script body's children instead of flattening it to a single leaf,
+  which had been dropping entire `proc` and `when` bodies. (The `bca
+  dump` subcommand prints the raw tree-sitter tree and never consulted
+  the alterator, so it is unaffected.) Recognition is a leading-word
+  heuristic, so Tcl's subcommand-dispatched script takers — `dict for`,
+  `interp eval`, `apply` — are still reported; iRules models its
+  handlers structurally and has no such gap.
 
 - **A `.mailmap` edit invalidates the persistent VCS history cache**
   (#1262). Author identities are canonicalised through the repository
