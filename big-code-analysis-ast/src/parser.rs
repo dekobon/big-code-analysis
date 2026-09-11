@@ -308,4 +308,32 @@ mod tests {
         let src = "x = 1\n";
         assert_eq!(count_kind(src, "definitely_not_a_python_kind"), 0);
     }
+
+    #[test]
+    fn get_filters_empty_request_matches_every_node() {
+        // Requesting nothing means "match everything": `filters` falls
+        // back to a match-all predicate when no arm pushed one, because
+        // a `Filter` holding no predicates would make `Filter::any`
+        // return `false` for every node and `bca find` / `bca count`
+        // silently report zero on a bare invocation.
+        //
+        // Asserting against `"all"` rather than a hand-counted total is
+        // what makes this able to fail: the two paths push the identical
+        // closure, so dropping the fallback sends the empty request to 0
+        // while `"all"` stays put. A `> 0` assertion could not tell the
+        // two apart from a source that simply had nodes.
+        let src = "if x:\n    pass\nelse:\n    y = foo(1 + 2)\n";
+        let parser = parse_python(src);
+        let everything = count(&parser, &["all".to_string()]).0;
+        let unfiltered = count(&parser, &[]).0;
+
+        assert!(
+            everything > 1,
+            "fixture must hold several nodes or this asserts nothing; got {everything}"
+        );
+        assert_eq!(
+            unfiltered, everything,
+            "an empty filter request must match what `all` matches"
+        );
+    }
 }
