@@ -219,7 +219,7 @@ impl Getter for KotlinCode {
             | ReturnAT
             // Operator: other keywords
             | Class | Fun | Object | Val | Var | In | Is | As | AsQMARK | BANGis | BANGin
-            | This | Super | Constructor
+            | Constructor
             // Operator: brackets, separators, terminators
             | SEMI | COMMA | COLONCOLON | DOT | LBRACE | LBRACK | LPAREN
             // Operator: assignment and arithmetic
@@ -232,10 +232,24 @@ impl Getter for KotlinCode {
             | AMPAMP | PIPEPIPE | BANG | BANGBANG
             | QMARK | QMARKCOLON | QMARKDOT
             | DOTDOT | DOTDOTLT | DASHGT | COLON => TokenRole::Operator,
-            // Operands: identifiers and literals
-            Identifier | NumberLiteral | FloatLiteral | CharacterLiteral | Label => {
-                TokenRole::Operand
-            }
+            // Operands: identifiers and literals, plus the self- and
+            // super-reference leaves (#1380). Four leaf kinds, not two:
+            // the label-qualified spellings `this@Outer` / `super@Inner`
+            // are `this@` / `super@` tokens, distinct kind_ids that
+            // carry no `this` / `super` leaf of their own — the same
+            // shape as `return@`, already listed among the operators
+            // above.
+            //
+            // The leaves are the keepers, not the `this_expression` /
+            // `super_expression` wrappers (grammar-dispatch section 6):
+            // a `constructor_delegation_call` (`constructor() : this(0)`,
+            // `: super(x)`) emits a bare leaf with no wrapper at all, so
+            // billing the wrapper would score constructor delegation
+            // zero. Classifying both would double-count, and the
+            // wrapper's span swallows the label identifier that is
+            // already billed on its own (section 5).
+            Identifier | NumberLiteral | FloatLiteral | CharacterLiteral | Label | This
+            | Super | ThisAT | SuperAT => TokenRole::Operand,
             // Regression #191: a Kotlin string template wraps an
             // `Interpolation` child (the long `"${expr}"` form) whose
             // inner expressions are walked and counted separately, so

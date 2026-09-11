@@ -60,7 +60,7 @@ impl Getter for CsharpCode {
             | Volatile | Async | Required | File | New | Fixed | Implicit | Explicit
             // Expression-keyword operators
             | Await | Is | As | Typeof | Sizeof | Checked | Unchecked | Ref | Out | In
-            | Params | This | Base | Lock | Stackalloc | Where | With | When | Operator
+            | Params | Lock | Stackalloc | Where | With | When | Operator
             | Scoped | Not | And | Or
             // Property/event accessor keywords
             | Get | Set | Init | Add | Remove
@@ -95,6 +95,27 @@ impl Getter for CsharpCode {
                 Some(BooleanLiteral) => TokenRole::Unknown,
                 _ => TokenRole::Operand,
             },
+            // `this` is a self-reference everywhere (`this.x`,
+            // `this[i]`, `: this(1)`, `f(this)`) except directly under
+            // an `indexer_declaration`, where the keyword *names* the
+            // member being declared rather than denoting a value —
+            // `public int this[int i] { … }`. That position keeps its
+            // operator classification alongside the `operator` keyword
+            // of an overload declaration, which this match already
+            // bills as an operator (#1380). The extension-method
+            // receiver (`static void M(this Foo f)`) is a childless
+            // `modifier` node, kind 249, not this kind at all, so it is
+            // unreached here and stays unclassified as before.
+            //
+            // Java's receiver parameter (`void m(J J.this)`) is the
+            // other declarator use of the keyword in this workspace and
+            // `java.rs` calls it an operand — a parameter *name* is an
+            // operand in every language here, where a member named by a
+            // keyword belongs with `operator +`.
+            This => match ancestors.parent(node).map(|p| p.kind_id().into()) {
+                Some(IndexerDeclaration) => TokenRole::Operator,
+                _ => TokenRole::Operand,
+            },
             // Operands: identifiers and literals. `NullLiteral` is a
             // childless leaf, so it needs no such guard.
             //
@@ -108,7 +129,14 @@ impl Getter for CsharpCode {
             // (grammar-dispatch section 5). Probed with `bca ops`:
             // dropping them leaves `System`+`Text`+`.`,
             // `List`+`<`+`int`+`>`, and `global`+`::`+`Foo` intact.
-            Identifier
+            //
+            // `Base` joined this list in #1380 for the same structural
+            // reason `This` did: it is the receiver of `base.M()` /
+            // `base[i]` / `: base(x)`. The `base_list` container that
+            // spells inheritance (`class D : B`) holds the base type's
+            // identifier and no `base` keyword, so nothing bills this
+            // text twice.
+            Identifier | Base
             | IntegerLiteral | RealLiteral | BooleanLiteral | NullLiteral
             | CharacterLiteral | StringLiteral | VerbatimStringLiteral | RawStringLiteral
                 => TokenRole::Operand,

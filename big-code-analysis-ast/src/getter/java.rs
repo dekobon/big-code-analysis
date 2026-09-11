@@ -78,7 +78,7 @@ impl Getter for JavaCode {
         }
     }
 
-    fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> TokenRole {
+    fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Java::*;
         // Some guides that informed grammar choice for Halstead
         // keywords, operators, literals: https://docs.oracle.com/javase/specs/jls/se18/html/jls-3.html#jls-3.12
@@ -89,7 +89,7 @@ impl Getter for JavaCode {
             | While | Continue | Break | Do | Finally
             // Operator: keywords
             | New | Return | Default | Abstract | Assert | Instanceof | Extends | Final
-            | Implements | Transient | Synchronized | Super | This | VoidType
+            | Implements | Transient | Synchronized | VoidType
             // Operator: brackets and comma and terminators (separators)
             | SEMI | COMMA | COLONCOLON | DOT | DASHGT | LBRACE | LBRACK | LPAREN
             // Operator: operators
@@ -103,11 +103,32 @@ impl Getter for JavaCode {
             => {
                 TokenRole::Operator
             },
-            // Operands: variables, constants, literals
+            // `super` is the receiver of `super.f()` / `super(x)` /
+            // `super::f` everywhere except a wildcard type bound, where
+            // `? super String` denotes no value and is the mirror image
+            // of `? extends String` — whose `extends` this same match
+            // bills as an operator. Both keywords are direct children of
+            // the same `wildcard` node, so the parent alone separates
+            // the bound from the reference (#1380).
+            Super => match ancestors.parent(node).map(|p| p.kind_id().into()) {
+                Some(Wildcard) => TokenRole::Operator,
+                _ => TokenRole::Operand,
+            },
+            // Operands: variables, constants, literals. `This` joined
+            // them in #1380: a self-reference names the receiver a `.`
+            // or `::` acts on, so billing it as an operator made
+            // `this.x` a binary operator with one operand while `p.x`
+            // has one operator and two. The explicit receiver parameter
+            // (`void m(J J.this)`) reaches this arm too, and is an
+            // operand for the same reason a parameter name is — which is
+            // the opposite call from C#'s indexer declarator in
+            // `csharp.rs`, deliberately: a parameter name is an operand
+            // everywhere here, while a *member* named by a keyword sits
+            // with `operator +`.
             Identifier | NullLiteral | ClassLiteral | True | False | StringLiteral
             | CharacterLiteral | HexIntegerLiteral | OctalIntegerLiteral
             | BinaryIntegerLiteral | DecimalIntegerLiteral | HexFloatingPointLiteral
-            | DecimalFloatingPointLiteral => {
+            | DecimalFloatingPointLiteral | This => {
                 TokenRole::Operand
             },
             _ => {

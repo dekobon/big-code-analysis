@@ -502,6 +502,15 @@ mod tests {
         assert!(!matches!(via_alias, TokenRole::Operator));
     }
 
+    /// Runs the `--ops` walk over `source` and returns the root space's
+    /// merged vocabulary, with every nested space still reachable
+    /// through [`crate::ops::Ops::spaces`].
+    fn ops_of<T: crate::MetricSuite>(source: &str, file: &str) -> crate::ops::Ops {
+        let path = PathBuf::from(file);
+        let parser = T::new(source.as_bytes().to_vec(), &path, None);
+        crate::ops::ops_inner(&parser, None).expect("ops walk succeeds")
+    }
+
     // Pins the lesson-4 invariant `n2 == len(dedupe(ops.operands))` by
     // running `operands_and_operators` (the text-keyed `--ops` store)
     // on the same source and comparing its deduplicated operand count
@@ -520,9 +529,7 @@ mod tests {
         expected_n2: usize,
         mut expected_operands: Vec<&str>,
     ) {
-        let path = PathBuf::from(file);
-        let parser = T::new(source.as_bytes().to_vec(), &path, None);
-        let ops = crate::ops::ops_inner(&parser, None).expect("ops walk succeeds");
+        let ops = ops_of::<T>(source, file);
 
         let unique: HashSet<&str> = ops.operands.iter().map(String::as_str).collect();
         assert_eq!(
@@ -536,6 +543,155 @@ mod tests {
         got.sort_unstable();
         expected_operands.sort_unstable();
         assert_eq!(got, expected_operands, "operand vocabulary for {file}");
+    }
+
+    /// Asserts each keyword in `keywords` reaches the operand vocabulary
+    /// and reaches the operator vocabulary nowhere.
+    ///
+    /// Both halves are load-bearing for #1380. A keyword listed in two
+    /// arms is billed twice — once into `n1`/`N1` and once into
+    /// `n2`/`N2` — and an assertion that only looked for its arrival
+    /// among the operands would pass on that. The operator side is what
+    /// pins the removal.
+    #[track_caller]
+    fn assert_keywords_are_operands_only<T: crate::MetricSuite>(
+        source: &str,
+        file: &str,
+        keywords: &[&str],
+    ) {
+        let ops = ops_of::<T>(source, file);
+
+        for keyword in keywords {
+            assert!(
+                ops.operands.iter().any(|o| o == keyword),
+                "{file}: `{keyword}` must be an operand; operands were {:?}",
+                ops.operands
+            );
+            assert!(
+                !ops.operators.iter().any(|o| o == keyword),
+                "{file}: `{keyword}` must not be an operator; operators were {:?}",
+                ops.operators
+            );
+        }
+    }
+
+    /// How one space's vocabularies classify a single keyword.
+    #[derive(Debug, PartialEq, Eq)]
+    enum Role {
+        OperatorOnly,
+        OperandOnly,
+        Both,
+    }
+
+    /// Records `keyword`'s role in `ops` and in every space below it.
+    ///
+    /// A space that bills the keyword in neither vocabulary contributes
+    /// no row, so the result is the set of places the keyword actually
+    /// reaches — which is what distinguishes a parent gate from its own
+    /// inverse, and what the merged root vocabulary cannot show.
+    fn collect_keyword_roles(ops: &crate::ops::Ops, keyword: &str, out: &mut Vec<Role>) {
+        let operator = ops.operators.iter().any(|o| o == keyword);
+        let operand = ops.operands.iter().any(|o| o == keyword);
+        match (operator, operand) {
+            (true, true) => out.push(Role::Both),
+            (true, false) => out.push(Role::OperatorOnly),
+            (false, true) => out.push(Role::OperandOnly),
+            (false, false) => {}
+        }
+        for space in &ops.spaces {
+            collect_keyword_roles(space, keyword, out);
+        }
+    }
+
+    /// Pins the three grammar facts every #1380 operand arm rests on,
+    /// over a fixture that samples one self- or super-reference per
+    /// syntactic position the language allows.
+    ///
+    /// Each `keywords` row is `(spelling, kind_id, occurrences)`.
+    ///
+    /// * **Grammar-dispatch section 1.** Every node the grammar spells
+    ///   `this` / `super` / `base` / `this@` / `super@` carries the one
+    ///   `kind_id` its arm lists. An alias arises in a *different*
+    ///   syntactic position, which no fixture can enumerate, so this is
+    ///   the weaker half of the alias evidence — the strong half is that
+    ///   these generated enums carry numeric-suffix aliases in quantity
+    ///   and none spells a `This2`. What this loop catches is a grammar
+    ///   bump introducing one under an existing fixture.
+    /// * **Grammar-dispatch section 5.** Each is a childless leaf and no
+    ///   node *containing* it is classified, so the reference cannot be
+    ///   billed twice. Every ancestor is checked, not just the parent:
+    ///   Kotlin puts `this_expression` *and* `navigation_expression`
+    ///   between the leaf and the nearest classified node, and the claim
+    ///   the arms make is about containment, not parentage.
+    /// * **Grammar-dispatch section 11.** The arm is unconditional. A
+    ///   parent-scoped guard added later — the shape the two deliberate
+    ///   carve-outs use, and so the shape a reviewer might reasonably
+    ///   add — would satisfy the single-position count tests and still
+    ///   drop `this` in a method reference or a constructor delegation.
+    ///
+    /// The fixtures deliberately exclude the two gated positions (C#'s
+    /// indexer declarator, Java's wildcard bound); those are operators,
+    /// and their own tests pin them.
+    #[track_caller]
+    fn assert_self_reference_leaves<L: LanguageInfo + Getter>(
+        source: &str,
+        keywords: &[(&str, u16, usize)],
+        label: &str,
+    ) {
+        let code = source.as_bytes();
+        let mut seen = vec![0_usize; keywords.len()];
+
+        for_each_node_with_chain::<L>(code, |node, chain| {
+            let Some(index) = keywords.iter().position(|(kw, _, _)| *kw == node.kind()) else {
+                return;
+            };
+            let (keyword, kind_id, _) = keywords[index];
+            seen[index] += 1;
+
+            assert_eq!(
+                node.kind_id(),
+                kind_id,
+                "{label}: a `{keyword}` carries kind_id {} rather than the {kind_id} its arm \
+                 lists — an alias the arm cannot see",
+                node.kind_id()
+            );
+            assert_eq!(
+                node.child_count(),
+                0,
+                "{label}: `{keyword}` grew children, which the operand arm would now \
+                 double-count against"
+            );
+            for (depth, ancestor) in chain.iter().enumerate() {
+                assert!(
+                    matches!(
+                        L::get_op_type_with_code(ancestor, code, Ancestors::known(&chain[..depth])),
+                        TokenRole::Unknown
+                    ),
+                    "{label}: `{}` contains a `{keyword}` and is itself classified, so the \
+                     reference now counts twice",
+                    ancestor.kind()
+                );
+            }
+            // `_with_code` is the spelling `compute_halstead` calls. The
+            // default forwards to the byte-less form, so asking the wrong
+            // one reads as correct right up until a language grows an
+            // override (grammar-dispatch section 7).
+            assert!(
+                matches!(
+                    L::get_op_type_with_code(node, code, Ancestors::known(chain)),
+                    TokenRole::Operand
+                ),
+                "{label}: a `{keyword}` under `{}` is not an operand",
+                chain.last().map_or("<root>", Node::kind)
+            );
+        });
+
+        for ((keyword, _, expected), got) in keywords.iter().zip(&seen) {
+            assert_eq!(
+                got, expected,
+                "{label}: fixture holds {got} `{keyword}` rather than {expected}"
+            );
+        }
     }
 
     /// Asserts the root space's `[n1, N1, n2, N2]`, naming `label` when
@@ -2274,6 +2430,96 @@ mod tests {
         );
     }
 
+    // #1380: `this` and `super` were swept into the operator arm under a
+    // `// Operator: … keywords` heading — classification by lexical
+    // class rather than by Halstead role. A member access is
+    // `<receiver> <op> <field>`, so billing the receiver as an operator
+    // scored `this.x` as a binary operator with one operand while `p.x`
+    // is one operator and two operands. Both are operands now, matching
+    // the eleven other languages that classify a self-reference.
+    #[test]
+    fn java_self_and_super_references_are_operands() {
+        let source = "class T {\n    int f() { return this.x + super.y; }\n}";
+        // Operators (n1=7, N1=9): {} x2, int, (), return, . x2, +, ;
+        // Operands (n2=6, N2=6): T, f, this, x, super, y
+        // Before the fix this read (9, 11, 4, 4) — `this` and `super`
+        // billed into the operator side of both counts.
+        assert_halstead_counts::<JavaParser>(
+            source,
+            "foo.java",
+            [7, 9, 6, 6],
+            "java self/super references",
+        );
+        assert_keywords_are_operands_only::<JavaParser>(source, "foo.java", &["this", "super"]);
+    }
+
+    // The `super` of a wildcard type bound denotes no value, so it keeps
+    // the operator classification `? extends T`'s `extends` already has
+    // — the two keywords are siblings under the same `wildcard` node and
+    // nothing but the parent separates them from a real self-reference
+    // (#1380). The explicit receiver parameter in the same fixture is
+    // the independent path through the operand arm (grammar-dispatch
+    // section 11): only it can put `this` in the operand vocabulary
+    // here, and only the wildcard can put `super` in the operator one.
+    #[test]
+    fn java_wildcard_super_bound_stays_an_operator() {
+        let source = "import java.util.List;\n\
+                      class T {\n    \
+                      void m(T T.this, List<? super String> a, List<? extends String> b) { }\n\
+                      }";
+        let ops = ops_of::<JavaParser>(source, "foo.java");
+
+        assert!(
+            ops.operators.iter().any(|o| o == "super"),
+            "`? super String` must keep `super` an operator; operators were {:?}",
+            ops.operators
+        );
+        assert!(
+            !ops.operands.iter().any(|o| o == "super"),
+            "a wildcard bound must not bill `super` as an operand; operands were {:?}",
+            ops.operands
+        );
+        assert!(
+            ops.operators.iter().any(|o| o == "extends"),
+            "the fixture must still contain the `? extends String` \
+             bound this arm mirrors; operators were {:?}",
+            ops.operators
+        );
+        assert_keywords_are_operands_only::<JavaParser>(source, "foo.java", &["this"]);
+    }
+
+    /// One `this` and one `super` per container the pinned
+    /// `tree-sitter-java` can put them in: a delegating constructor
+    /// call, an explicit superclass constructor call, a field access, a
+    /// method-invocation receiver, a method reference, a call argument,
+    /// and the two qualified forms an inner class allows.
+    const JAVA_SELF_POSITIONS: &str = "class Pos extends P {
+        int x;
+        Pos() { this(1); }
+        Pos(int v) { super(v); this.x = v; }
+        int a() { return this.x; }
+        int b() { return super.h(); }
+        java.util.function.IntSupplier c() { return this::a; }
+        void d() { g(this); }
+        void g(Object o) { }
+        class In {
+            int e() { return Pos.this.x; }
+            int f() { return Pos.super.h(); }
+        }
+    }";
+
+    #[test]
+    fn java_self_and_super_leaves_are_unaliased_and_unconditional() {
+        assert_self_reference_leaves::<JavaCode>(
+            JAVA_SELF_POSITIONS,
+            &[
+                ("this", Java::This as u16, 6),
+                ("super", Java::Super as u16, 3),
+            ],
+            "java",
+        );
+    }
+
     #[test]
     fn groovy_operators_and_operands() {
         check_metrics::<GroovyParser>(
@@ -2976,6 +3222,106 @@ mod tests {
                 assert_eq!(metric.halstead.unique_operands(), 4);
                 assert_eq!(metric.halstead.total_operands(), 4);
             },
+        );
+    }
+
+    // C# half of #1380 — see `java_self_and_super_references_are_operands`
+    // for the structural argument. `base` moves with `this`: both are
+    // receivers of a member access.
+    #[test]
+    fn csharp_self_and_base_references_are_operands() {
+        let source = "class T {\n    int F() { return this.x + base.y; }\n}";
+        // Operators (n1=8, N1=10): class, {} x2, int, (), return, . x2, +, ;
+        // Operands (n2=6, N2=6): T, F, this, x, base, y
+        // Before the fix this read (10, 12, 4, 4).
+        assert_halstead_counts::<CsharpParser>(
+            source,
+            "foo.cs",
+            [8, 10, 6, 6],
+            "csharp self/base references",
+        );
+        assert_keywords_are_operands_only::<CsharpParser>(source, "foo.cs", &["this", "base"]);
+    }
+
+    // An `indexer_declaration` spells the member's *name* with the same
+    // `this` token kind the receiver uses (both are kind 91), so a
+    // blanket move would have billed a declarator keyword as a value.
+    // The declaration keeps the operator classification that the
+    // `operator` keyword of an overload declaration already has (#1380).
+    //
+    // The fixture carries both uses, which is what makes the gate
+    // observable: `this` has to reach *both* vocabularies from one file.
+    // Asserting only the operand side would pass with the gate deleted,
+    // and only the operator side would pass with the whole #1380 change
+    // reverted (grammar-dispatch section 11).
+    #[test]
+    fn csharp_indexer_declaration_keyword_is_not_a_self_reference() {
+        let source = "class C {\n    int[] _a;\n    \
+                      public int this[int i] { get { return this._a[i]; } }\n}";
+
+        // Asserted per space, not through the root. The root merges
+        // every space's vocabulary, and the fixture has one declarator
+        // `this` and one receiver `this`, so at the root `this` is a
+        // member of *both* vocabularies whether the gate is right or
+        // exactly backwards — and every Halstead count is bit-identical
+        // under the swap, one occurrence on each side either way. The
+        // space tree is where the two uses stay apart: the declarator
+        // sits in the class's own vocabulary and the receiver in the
+        // accessor's.
+        let mut roles = Vec::new();
+        collect_keyword_roles(
+            &ops_of::<CsharpParser>(source, "foo.cs"),
+            "this",
+            &mut roles,
+        );
+
+        // `Both` can only arise from two `this` nodes in one space that
+        // the getter classifies differently — it is the gate's whole
+        // effect, and it disappears the moment `this` gets one role.
+        // `OperandOnly` is the accessor, the innermost space and the one
+        // holding the receiver alone; it is what flips when the gate is
+        // inverted rather than dropped. Correct gives
+        // `[Both, Both, OperandOnly]`; inverting gives
+        // `[Both, Both, OperatorOnly]`; dropping the gate gives three
+        // `OperandOnly`; reverting #1380 gives three `OperatorOnly`.
+        assert!(
+            roles.contains(&Role::Both),
+            "some space must bill `this` as an operator *and* an operand, which only \
+             the declarator and the receiver disagreeing can produce; roles were {roles:?}",
+        );
+        assert!(
+            roles.contains(&Role::OperandOnly),
+            "the accessor space holds only the `this._a` receiver, so it must bill \
+             `this` as an operand and nothing else; roles were {roles:?}",
+        );
+    }
+
+    /// One `this` and one `base` per container the pinned
+    /// `tree-sitter-c-sharp` can put them in: a delegating constructor
+    /// initializer, a base-constructor initializer, a member access, an
+    /// element access, and a call argument. No `indexer_declaration` —
+    /// that position is the gated one and is an operator.
+    const CSHARP_SELF_POSITIONS: &str = "class Pos : B {
+        int[] _a;
+        public Pos() : this(1) { }
+        public Pos(int x) : base(x) { }
+        int A() { return this._a[0]; }
+        int C() { return base.H(); }
+        int E() { return base[0]; }
+        int F() { return this[0]; }
+        void G() { M(this); }
+        void M(object o) { }
+    }";
+
+    #[test]
+    fn csharp_self_and_base_leaves_are_unaliased_and_unconditional() {
+        assert_self_reference_leaves::<CsharpCode>(
+            CSHARP_SELF_POSITIONS,
+            &[
+                ("this", Csharp::This as u16, 4),
+                ("base", Csharp::Base as u16, 3),
+            ],
+            "csharp",
         );
     }
 
@@ -4123,6 +4469,119 @@ end",
                 assert_eq!(metric.halstead.unique_operands(), 3);
                 assert_eq!(metric.halstead.total_operands(), 3);
             },
+        );
+    }
+
+    // Kotlin half of #1380 — see
+    // `java_self_and_super_references_are_operands` for the structural
+    // argument.
+    #[test]
+    fn kotlin_self_and_super_references_are_operands() {
+        let source = "class T {\n    fun f() = this.x + super.y\n}";
+        // Operators (n1=7, N1=8): class, {}, fun, (), =, . x2, +
+        // Operands (n2=6, N2=6): T, f, this, x, super, y
+        // Before the fix this read (9, 10, 4, 4).
+        assert_halstead_counts::<KotlinParser>(
+            source,
+            "foo.kt",
+            [7, 8, 6, 6],
+            "kotlin self/super references",
+        );
+        assert_keywords_are_operands_only::<KotlinParser>(source, "foo.kt", &["this", "super"]);
+    }
+
+    // The label-qualified spellings are their own leaf kinds — `this@`
+    // (106) and `super@` (107) — carrying no `this` / `super` leaf, so
+    // listing only the two bare kinds would score every `this@Outer`
+    // reference zero (grammar-dispatch section 1). The labels `Outer`
+    // and `Inner` stay separate operands: the `this_expression` wrapper
+    // whose span would have swallowed them is deliberately unclassified
+    // (section 5).
+    #[test]
+    fn kotlin_labelled_self_and_super_references_are_operands() {
+        let source = "class Outer {\n    inner class Inner : A() {\n        \
+                      fun f() = this@Outer.x + super@Inner.y\n    }\n}";
+        assert_keywords_are_operands_only::<KotlinParser>(source, "foo.kt", &["this@", "super@"]);
+        assert_ops_operands::<KotlinParser>(
+            source,
+            "foo.kt",
+            8,
+            vec!["A", "Inner", "Outer", "f", "super@", "this@", "x", "y"],
+        );
+        // The metrics store is a second, independent walk — it keys
+        // operands by `get_operand_id` where `ops_inner` keys by text —
+        // so `assert_ops_operands` on its own pins the ops store against
+        // a literal rather than against the metric (lesson 4).
+        //
+        // `N2` is what makes the "the labels stay separate operands"
+        // claim above testable. Both labels duplicate an enclosing class
+        // name, so dropping their contribution entirely leaves `n2` at 8
+        // with the same eight strings; only `N2` falls, 10 to 8.
+        check_metrics::<KotlinParser>(source, "foo.kt", |metric| {
+            assert_eq!(metric.halstead.unique_operands(), 8);
+            assert_eq!(metric.halstead.total_operands(), 10);
+        });
+    }
+
+    // The keeper question of grammar-dispatch section 6: a
+    // `constructor_delegation_call` emits a bare `this` / `super` leaf
+    // with no `this_expression` / `super_expression` wrapper around it,
+    // so classifying the wrapper instead would score constructor
+    // delegation zero. This is the only spelling that can tell the two
+    // choices apart — every other `this` carries both nodes — so it is
+    // the independent path grammar-dispatch section 11 asks for.
+    #[test]
+    fn kotlin_constructor_delegation_self_reference_is_an_operand() {
+        let source = "class C(val n: Int) {\n    constructor() : this(0)\n}";
+        assert_keywords_are_operands_only::<KotlinParser>(source, "foo.kt", &["this"]);
+        assert_ops_operands::<KotlinParser>(
+            source,
+            "foo.kt",
+            5,
+            vec!["0", "C", "Int", "n", "this"],
+        );
+        check_metrics::<KotlinParser>(source, "foo.kt", |metric| {
+            assert_eq!(metric.halstead.unique_operands(), 5);
+            assert_eq!(metric.halstead.total_operands(), 5);
+        });
+    }
+
+    /// One `this` / `super` per container the pinned
+    /// `tree-sitter-kotlin-ng` can put them in: a bare expression, a
+    /// call argument, a navigation receiver, a type-argument-qualified
+    /// `super<P>`, both label-qualified forms, and the
+    /// `constructor_delegation_call` that carries no wrapper.
+    const KOTLIN_SELF_POSITIONS: &str = "class P {
+        fun h() = 1
+    }
+    class Outer : P() {
+        val x = 1
+        fun c() = super.h()
+        fun d() = this
+        fun e(o: Any): Any = e(this)
+        inner class Inner : P() {
+            fun a() = this@Outer.x
+            fun b() = this.hashCode()
+            fun f() = super@Inner.h()
+            fun g() = super<P>.h()
+        }
+    }
+    class Del(val n: Int) {
+        constructor() : this(0)
+    }
+";
+
+    #[test]
+    fn kotlin_self_and_super_leaves_are_unaliased_and_unconditional() {
+        assert_self_reference_leaves::<KotlinCode>(
+            KOTLIN_SELF_POSITIONS,
+            &[
+                ("this", Kotlin::This as u16, 4),
+                ("super", Kotlin::Super as u16, 2),
+                ("this@", Kotlin::ThisAT as u16, 1),
+                ("super@", Kotlin::SuperAT as u16, 1),
+            ],
+            "kotlin",
         );
     }
 
