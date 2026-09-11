@@ -121,6 +121,152 @@ for historical reference.
 
 ### Fixed
 
+- **A grammar span reaching past end-of-input no longer counts as a line
+  of code** (#1398), so `loc.ploc` and `loc.cloc` can no longer exceed a
+  space's own row span. A childless zero-width recovery token placed one
+  row past the last physical row was inserted into PLOC verbatim, making
+  the arithmetic identity `blank = sloc − ploc − cloc` read as satisfied
+  (`blank` saturates at 0) while `ploc / sloc` exceeded 1. A sweep of 322
+  truncated fixtures across 23 languages found the shape in **ten** —
+  Bash, C, C++, Mozcpp, Objective-C, Elixir, Groovy, Lua, Perl and Ruby
+  — over four unrelated recovery shapes (heredoc, unterminated string
+  delimiter, unclosed bracket, dangling line continuation), so each
+  space's line sets are now clamped to its own span at finalization
+  rather than per arm. A `cloc > sloc` case (Perl POD) of the same
+  mechanism is fixed with it. Note a clean parse is not evidence of an
+  in-span tree: Ruby's `x = <<~DOC` with an unterminated body parses
+  without an error node and still emits the phantom row. **Metric
+  drift:** `loc.ploc` / `loc.cloc` fall and `loc.blank` rises on files a
+  grammar cannot fully parse, including at least one ordinary shell
+  script in the DeepSpeech corpus.
+
+- **ABC counts a bare numeric literal operand in Ruby, Elixir and Perl**
+  (#1379). All three are truthy-valued, so a number used as a bare `&&`
+  / `||` operand is a Fitzpatrick Rule 9 unary condition — but their
+  terminal-operand sets named `integer` alone (Ruby, Elixir) or no
+  numeric kind at all (Perl). Ruby scored `a && 1.0`, `a && 1r`,
+  `a && 2i` and `a && 1ri` one condition against `a && 1`'s two; Perl
+  scored even `$a && 1` one against `$a && $b`'s two, and `if (1)` zero
+  against Python's one for `if 1:`. Each set now names every member of
+  its grammar's numeric family — five sibling rules for Perl
+  (`integer`, `floating_point`, `scientific_notation`, `hexadecimal`,
+  `octal`), and `char` for Elixir, since `?a` is the codepoint 97.
+  Ruby's `rational` / `complex` wrap the numeral and the walker cannot
+  descend into a wrapper, so the wrapper is classified and `integer`
+  stays listed alongside it for the bare `1`. Lua, Tcl, iRules and the
+  JS family were measured and have no gap. PHP and Groovy carry the same
+  defect and are tracked in #1410. **Metric drift:** `abc.conditions`
+  and `abc.magnitude` rise for any Ruby, Elixir or Perl file using a
+  numeric in a boolean-operand or condition slot.
+
+- **A relational pattern no longer double-counts its operator against
+  the arm that owns it** in C# ABC (#1383). `x switch { > 5 => …, < 0
+  => … }` scored one condition per arm *plus* each arm's `>` / `<`,
+  giving 4 where the equivalent constant-pattern switch gives 2 and
+  where `cyclomatic() - 1` is 2; `if (x is > 0)` gave 2 against 1. The
+  enclosing switch arm and `is` condition slot already pay for the
+  decision, so the pattern's own operator is now excluded — matching how
+  a constant pattern is treated. This covers `>=` and `<=` as well as
+  `>` and `<`: those are distinct token ids reaching a separate arm, so
+  the allowlist named in #1297 never saw them. **Metric drift:**
+  `abc.conditions` and `abc.magnitude` fall for every C# file using
+  relational patterns; `abc` is a gated threshold metric. Kotlin shares
+  the defect in `when { x > 5 -> }` and is tracked in #1421.
+
+- **Kotlin ABC counts a primary-constructor superclass call** (#1384).
+  `class Sub : Base(1, 2)` parses as a `constructor_invocation` under a
+  `delegation_specifier` — a third production, distinct from both
+  `call_expression` and the `constructor_delegation_call` #1279 added
+  for the secondary form — so the spelling most Kotlin actually uses
+  contributed nothing while `constructor(x) : super(x)` beside it scored
+  one. It is now one branch, as is an object expression's superclass
+  call (`object : Base(1) { }`). The arm is gated on its parent: the
+  grammar reuses `constructor_invocation` for an annotation's argument
+  list (`@Suppress("x")`, `@file:Suppress("x")`), which is not a
+  run-time call and stays at zero. A supertype with no argument list
+  (`class Sub : Marker`) is unaffected. **Metric drift:** Kotlin `abc`
+  rises by one per class or object expression passing arguments to its
+  supertype.
+
+- **A self-reference and a super-reference are Halstead operands in
+  Java, C# and Kotlin** (#1380), matching the eleven other languages
+  that classify one. A member access is `<receiver> <op> <field>`, so
+  billing the receiver as an operator scored `this.x` as a binary
+  operator with one operand where `p.x` is one operator with two. Two
+  declarator uses of the same token kinds stay operators behind a parent
+  gate: C#'s `indexer_declaration`, which names the member with `this`,
+  and Java's `? super T` wildcard bound, the mirror of `? extends T`.
+  Kotlin's label-qualified `this@` / `super@` were previously classified
+  as *nothing* and are now operands. PHP's `self::` / `parent::` are
+  unchanged — those are scope-resolution class references, not instance
+  references. **Metric drift:** `n1` / `N1` fall by one occurrence per
+  self/super reference and `n2` / `N2` rise by the same, carrying
+  `volume`, `difficulty`, `effort`, `time`, `bugs` and all three
+  maintainability-index variants with them.
+
+- **PHP heredoc, nowdoc and backtick rows that are empty inside the
+  literal are counted as `ploc` rather than `blank`** (#1396), matching
+  every other language with a multi-line literal. #778 recorded PHP as
+  already correct; it was not, for the one shape that release never
+  measured. The nowdoc case was worse than the heredoc case and
+  structurally different — its body is one node for the first line plus
+  a single multi-row node for the rest, so it lost every interior row
+  regardless of emptiness. The wrapper is routed rather than the body,
+  because a heredoc whose body is a single empty row emits no body node
+  at all. **Metric drift:** `loc.ploc` rises and `loc.blank` falls for
+  PHP files containing these literals.
+
+- **Ruby `npm` no longer counts `initialize`, `initialize_copy`,
+  `initialize_dup`, `initialize_clone` or `respond_to_missing?` as
+  public methods** (#1400). Ruby privatises all five at definition, so
+  any class with a constructor reported one public method too many.
+  `nm` is unchanged — they are still methods; only the public split
+  moves. An explicit `public :initialize` or `public def initialize`
+  still counts as public, and a `class << self` singleton `initialize`
+  stays public, because the rule is instance-only. **Metric drift:**
+  `npm` falls by one for most Ruby classes.
+
+- **`bca find --type string` and `bca count --type string` no longer
+  report a Tcl or iRules script body as a string literal** (#1381) — a
+  `proc` or `if` body, or an iRules `when` handler. A braced *value*
+  such as `lappend x {a b}` is still reported. `Checker::is_string`
+  could not tell the two apart because it received neither the source
+  bytes nor the ancestor chain; it gains an `is_string_with_code`
+  sibling that routes both dialects through the role predicate #1318
+  built. The AST dump and the REST `/ast` endpoint likewise keep a
+  script body's children instead of flattening it to a single leaf,
+  which had been dropping entire `proc` and `when` bodies.
+
+- **A `.mailmap` edit invalidates the persistent VCS history cache**
+  (#1262). Author identities are canonicalised through the repository
+  mailmap at walk time and stored in the cached event log as digests,
+  but neither the entry key (`head_sha`) nor the options fingerprint
+  observed the mailmap — so `bca vcs` served stale `authors_long`,
+  `ownership_top_share`, bus-factor and `risk_score` values after any
+  mailmap change. Worse, the incremental splice re-persisted the
+  pre-edit digests under each new head, so the divergence survived
+  `HEAD` moving and only `--clear-cache` cleared it. A digest of the
+  repository's effective mailmap now feeds `cache::fingerprint`,
+  covering the pure hit, the splice's ancestor selection and the
+  persisted entry at once. No `CACHE_SCHEMA_VERSION` bump is needed:
+  pre-fix entries simply fingerprint differently and cost one cold
+  walk. The digest hashes gix's *merged* mailmap snapshot rather than
+  re-deriving the four conditional sources `open_mailmap` consults, so
+  a source cannot be missed.
+
+- **`bca.to_sarif` emits findings in the same order as `bca check -O
+  sarif`** (#1402), so the two documents can be compared positionally
+  and not just as sets — which is what the binding's own parity claim
+  had been promising. Two divergences are fixed: the binding walked the
+  space tree with a LIFO stack it pushed in source order, so every
+  sibling set came out reversed at every level; and it iterated the
+  `thresholds` dict, so a space breaching several metrics reported them
+  in the caller's insertion order rather than the CLI's
+  alphabetical-by-metric order — which also made the output depend on
+  how the dict happened to be spelled. Order *between* files remains
+  the caller's: `to_sarif` follows the iterable it is handed, where
+  `bca check` follows its resolved walk list.
+
 - **`bca preproc` documents are byte-identical across runs** (#1304).
   `PreprocResults.files` and `PreprocFile`'s three `HashSet<String>`
   fields serialized straight off hash order, so an unchanged tree
@@ -142,8 +288,11 @@ for historical reference.
   declared name, a Kotlin qualified super call (`super<A>.g()`), and
   Perl's `<FH>` / `<$fh>` readlines each scored phantom conditions.
   Perl was listed as immune by the original survey and was not. C#
-  additionally keeps counting a relational pattern's operator
-  (`x is > 0`), a genuine comparison outside `binary_expression`.
+  initially kept counting a relational pattern's operator
+  (`x is > 0`) on the grounds that it is a genuine comparison outside
+  `binary_expression`; #1383 below reverses that, because the switch
+  arm or `is` condition owning the pattern already pays for the
+  decision.
   Elixir was swept the same way in the same release: an operator
   *named* rather than applied — the capture `&</2`, the qualified call
   `Kernel.<(a, b)` — puts a bare `<` under an `operator_identifier`,
