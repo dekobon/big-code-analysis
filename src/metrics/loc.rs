@@ -757,6 +757,119 @@ impl Stats {
         self.sloc.start = start;
         self.sloc.end_line = end_line;
     }
+
+    /// Drops every recorded PLOC / CLOC row that lies outside this
+    /// space's own `sloc` row span.
+    ///
+    /// That bounds `ploc` and `cloc` by the span, which is what the
+    /// `debug_assert!` below states. It is *not* the same as pinning
+    /// the public `ploc() <= sloc()`: `sloc()` subtracts
+    /// `exclude_tests`-pruned rows, and can still come out below `ploc`
+    /// — see the assertion's comment and #1417.
+    ///
+    /// A grammar's error recovery synthesises **zero-width tokens one
+    /// row past the last row the file has**: an unterminated Bash
+    /// heredoc gets a `heredoc_end` at `(3, 1)..(3, 1)` in a two-row
+    /// file, an unterminated Elixir / Lua / Groovy string gets its
+    /// closing quote the same way. Those tokens are childless, so they
+    /// reach the leaf branch of a language's catch-all arm, which
+    /// inserts a raw `start` row — and here that `start` *is* the
+    /// phantom row. [`Node::end_line`] already encodes "a node whose
+    /// end column is 0 does not occupy the row it ends on"; nothing
+    /// encoded the same rule for a node that *begins* past the span.
+    ///
+    /// `ploc > sloc` is a contract violation rather than a rounding
+    /// artifact: [`Stats::blank`] saturates at 0, so the clamp there
+    /// hides it while a consumer computing `ploc / sloc` gets a ratio
+    /// above 1. Ten of the twenty-odd languages reproduced it on
+    /// truncated input before #1398 — a per-arm skip would have been
+    /// ten edits that still could not cover a grammar whose recovery
+    /// shape nobody sampled, so the rule lives once, here, keyed on the
+    /// span every language already reports.
+    ///
+    /// **Input the grammar parses is untouched — which is not the same
+    /// as input that looks fine.** Over the `pdf.js`, `DeepSpeech` and
+    /// `serde` corpora exactly one of 1,876 files moves, and it is a
+    /// real bug fixed rather than a real row lost:
+    /// `DeepSpeech/parse_valgrind_suppressions.sh` leaves a MISSING `}`
+    /// at `(58, 1)` of a 57-row file, so its `ploc` drops 36 → 35 and
+    /// `blank` rises 6 → 7. No snapshot covers it — `snapshots/` holds
+    /// only the C-family files — so the integration suite is silent
+    /// about the one case that proves the fix reaches ordinary trees.
+    /// Do not read a green snapshot run as evidence of no effect.
+    ///
+    /// The clamp's one latent hazard is the mirror image: a unit whose
+    /// span is *shorter* than the file. That happens today for a file
+    /// ending in a blank row (`"package m\n\n"` reports `unit 1..1`),
+    /// and is harmless only because a trailing blank row reaches
+    /// neither line set. Nothing pins `unit.end_line >= line_count` —
+    /// `tests/parity/space_span_containment.rs` asserts
+    /// `unit == (1, line_count)`, but none of its fixtures ends in a
+    /// blank row — so a grammar that ever credited such a row to PLOC
+    /// would have it deleted here silently.
+    pub(crate) fn clamp_line_sets_to_span(&mut self) {
+        let start = self.sloc.start;
+        let span = span_rows(start, self.sloc.end_line);
+        // `end_line` is the 1-based inclusive last row of the span, so
+        // the last 0-based row it covers is `end_line - 1` — exact
+        // wherever the span is non-empty, which is what `span == 0`
+        // selects against. `(1, 0)` is the inverted range
+        // `LineSet::retain_range` reads as "keep nothing", and it is
+        // what the empty file's `0..0` needs: retaining `0..=0` there
+        // would keep a row the file does not have.
+        //
+        // That last branch is defensive rather than live. The three
+        // walks that reach `span == 0` (an empty file, and the two
+        // whitespace-only root contracts) all arrive with both line
+        // sets already empty, so `(0, 0)` here is byte-identical over
+        // every corpus input — measured. `a_zero_span_keeps_no_row`
+        // below is therefore a direct `Stats` test rather than a
+        // fixture, per `.claude/rules/testing.md`: it is the only shape
+        // that can tell the two spellings apart.
+        let (first, last) = if span == 0 {
+            (1, 0)
+        } else {
+            (start, self.sloc.end_line.saturating_sub(1))
+        };
+        self.ploc.lines.retain_range(first, last);
+        self.cloc.only_comment_line_starts.retain_range(first, last);
+        self.cloc.code_comment_line_starts.retain_range(first, last);
+
+        // The invariant the clamp establishes, asserted on the path
+        // every walk takes for every space rather than only on the
+        // fixtures the regression tests name — 821 of the workspace's
+        // tests reach it.
+        //
+        // Against the span and not against `sloc()`, which is weaker on
+        // purpose. `sloc()` subtracts the rows of `exclude_tests`-pruned
+        // subtrees, and `Sloc::exclude_span` counts each pruned span
+        // whole — including a row a retained sibling also occupies, a
+        // case its #722 comment excludes by assuming rustfmt's layout.
+        // Hand-written one-liners break that assumption, so
+        // `fn a() {} #[cfg(test)] mod t { … }` reports `sloc 0, ploc 1`
+        // under `--exclude-tests` today. That is #1417, a different
+        // cause from the phantom row above, and asserting `sloc()` here
+        // would fire on it. Tighten this to `sloc()` once #1417 lands.
+        //
+        // Both values are bound first because `ploc()` and `cloc()`
+        // popcount their word arrays since #1109, and a `debug_assert!`
+        // evaluates its message arguments separately from its
+        // condition. O(words) per space, the same order as the
+        // `compute_minmax` that follows; per node it would be the
+        // quadratic shape #1122 removed.
+        #[cfg(debug_assertions)]
+        {
+            let (ploc, cloc) = (self.ploc(), self.cloc());
+            debug_assert!(
+                ploc <= span as u64,
+                "ploc {ploc} exceeds the {span} row span it was clamped to"
+            );
+            debug_assert!(
+                cloc <= span as u64,
+                "cloc {cloc} exceeds the {span} row span it was clamped to"
+            );
+        }
+    }
 }
 
 #[doc(hidden)]
@@ -11337,6 +11450,253 @@ class A {
             .map(|child| child.metrics.loc.sloc())
             .collect();
         assert_eq!(subs, vec![3, 3], "both subs occupy three rows");
+    }
+
+    /// #1398, whose mechanism [`Stats::clamp_line_sets_to_span`]
+    /// documents: a recovery token starting one row past end-of-input
+    /// reached a catch-all's leaf branch and became a line of code, so
+    /// `ploc` came out one above `sloc`.
+    ///
+    /// The assertion is exact equality with the *unchanged* `sloc`, in
+    /// both directions. `ploc <= sloc` alone would also be satisfied by
+    /// a clamp wide enough to delete real code rows, and every fixture
+    /// here is all-code, so `ploc == sloc` is the only passing value.
+    ///
+    /// Each row additionally asserts the tree still holds a node past
+    /// the file's last row. Without that anchor every fixture decays
+    /// into an ordinary all-code file the moment someone edits the
+    /// source string, and `ploc == sloc` is then true of any
+    /// well-formed input — measured: replacing all fifteen fixtures
+    /// with well-formed sources of the same row count leaves this test
+    /// green. The phantom node *is* the subject, so it is the axis to
+    /// anchor on (`.claude/rules/testing.md`, "Perturb the fixture as
+    /// well as the production line").
+    ///
+    /// Writing that anchor as `has_error()` — the obvious choice — is
+    /// wrong, and finding out why is worth the paragraph: Ruby's
+    /// `x = <<~DOC\na\n` parses with **no error node at all**, and
+    /// still gets a zero-width `heredoc_end` at `(3, 1)` of a two-row
+    /// file. A grammar need not report failure to hand back a span it
+    /// cannot honour, which is half of why this defect survived.
+    ///
+    /// `metrics_verbatim`, not `check_metrics`, for a duller reason
+    /// than #1051's: a `LANG`-keyed table cannot dispatch the generic
+    /// `check_metrics::<T>` shim, and that shim's `fn` callback returns
+    /// nothing. Every fixture here is already a fixed point of the
+    /// trailing-newline normalisation, so — measured — a
+    /// `check_metrics` twin of any of these rows fails against unfixed
+    /// code too. This is *not* the EOF class both harnesses hide.
+    #[cfg(any(
+        feature = "bash",
+        feature = "c",
+        feature = "cpp",
+        feature = "elixir",
+        feature = "groovy",
+        feature = "lua",
+        feature = "mozcpp",
+        feature = "objc",
+        feature = "perl",
+        feature = "ruby",
+    ))]
+    #[test]
+    fn a_recovery_token_past_the_span_is_not_a_code_row() {
+        // Every fixture that reproduced the defect, one row per
+        // language, as `(language, source, rows the file has, ploc
+        // before #1398)`. That last column is what makes this a
+        // regression test rather than a restatement of the fixed
+        // behaviour: a reviewer can see which row the assertion is
+        // about, and it is one above `sloc` in every case.
+        //
+        // Four unrelated recovery shapes are represented, which is the
+        // argument for one clamp over ten per-arm skips: a heredoc
+        // whose terminator never arrives (Bash, Perl, Ruby), an
+        // unterminated string delimiter (Elixir, Lua, Groovy), an
+        // unclosed bracket (Ruby's `%w[`), and a dangling line
+        // continuation (the C family, where the `\` splices a row that
+        // is not there).
+        const FIXTURES: &[(crate::LANG, &[u8], u64, u64)] = &[
+            #[cfg(feature = "bash")]
+            (crate::LANG::Bash, b"cat <<DOC\na\n", 2, 3),
+            #[cfg(feature = "c")]
+            (crate::LANG::C, b"int x = \\\n", 1, 2),
+            #[cfg(feature = "cpp")]
+            (crate::LANG::Cpp, b"int x = \\\n", 1, 2),
+            #[cfg(feature = "mozcpp")]
+            (crate::LANG::Mozcpp, b"int x = \\\n", 1, 2),
+            #[cfg(feature = "objc")]
+            (crate::LANG::Objc, b"int x = \\\n", 1, 2),
+            // The issue's reproduction spells this `x = "abc\n\n\n`;
+            // the trailing blank rows never reach the parser, because
+            // `normalize_line_endings` collapses a run of trailing
+            // newlines to one before any file-based caller sees it.
+            #[cfg(feature = "elixir")]
+            (crate::LANG::Elixir, b"x = \"abc\n", 1, 2),
+            #[cfg(feature = "elixir")]
+            (crate::LANG::Elixir, b"x = \"\"\"\nabc\n", 2, 3),
+            #[cfg(feature = "elixir")]
+            (crate::LANG::Elixir, b"x = ~s(\n", 1, 2),
+            // Not a truncation, and the only row here reachable from a
+            // file nobody cut short: Elixir comments with `#`, so a
+            // C-style block comment is a whole-line parse failure. The
+            // shape reaches the same phantom row, which is the point —
+            // "malformed" is not a synonym for "truncated".
+            #[cfg(feature = "elixir")]
+            (crate::LANG::Elixir, b"/* block */\n", 1, 2),
+            #[cfg(feature = "groovy")]
+            (crate::LANG::Groovy, b"def x = \"\"\"abc\n", 1, 2),
+            #[cfg(feature = "lua")]
+            (crate::LANG::Lua, b"x = \"abc\n", 1, 2),
+            #[cfg(feature = "lua")]
+            (crate::LANG::Lua, b"x = 'abc\n", 1, 2),
+            #[cfg(feature = "perl")]
+            (crate::LANG::Perl, b"my $x = <<DOC;\na\n", 2, 3),
+            #[cfg(feature = "ruby")]
+            (crate::LANG::Ruby, b"x = <<~DOC\na\n", 2, 3),
+            #[cfg(feature = "ruby")]
+            (crate::LANG::Ruby, b"x = %w[\n", 1, 2),
+        ];
+
+        crate::test_support::assert_fixtures_present(FIXTURES);
+        for &(lang, source, rows, ploc_before_1398) in FIXTURES {
+            let text = String::from_utf8_lossy(source);
+            // The anchor: the tree still contains a node starting past
+            // the file's last row. That node *is* this test's subject,
+            // so an edit that repaired the fixture — or a grammar bump
+            // that stopped emitting the phantom — fails here rather
+            // than leaving the metric assertions true for an unrelated
+            // reason.
+            //
+            // Not `has_error()`, which would be the obvious anchor and
+            // is wrong: `x = <<~DOC\na\n` parses **cleanly** in Ruby,
+            // phantom `heredoc_end` at `(3, 1)` and all. A clean parse
+            // is not evidence of an in-span tree, which is half of why
+            // this defect went unnoticed.
+            let ast = crate::Ast::parse(crate::Source::new(lang, source))
+                .expect("an enabled language parses, error tree or not");
+            let mut stack = vec![ast.root_node()];
+            let mut phantom = None;
+            while let Some(node) = stack.pop() {
+                if node.start_row() as u64 >= rows {
+                    phantom = Some(node.start_row());
+                    break;
+                }
+                stack.extend(node.children());
+            }
+            assert!(
+                phantom.is_some(),
+                "{lang:?}: {text:?} no longer produces a node past row {rows}, \
+                 so it no longer exercises #1398"
+            );
+
+            let loc = metrics_verbatim(lang, source, MetricsOptions::default()).loc;
+            assert_eq!(loc.sloc(), rows, "{lang:?}: {text:?} occupies {rows} rows");
+            assert_eq!(
+                loc.ploc(),
+                rows,
+                "{lang:?}: every row of {text:?} is code and no row past it is \
+                 (was {ploc_before_1398} before #1398)"
+            );
+            // One-sided, unlike the two above: every fixture is all
+            // code, so this cannot catch a clamp that over-reaches into
+            // the comment sets — an over-reach can only leave 0 at 0.
+            // What it does pin is the other direction, a future change
+            // that files the phantom row as a *comment* instead. The
+            // CLOC half of the clamp is covered by
+            // `an_unterminated_pod_block_does_not_comment_a_row_past_eof`,
+            // which is its only guard.
+            assert_eq!((loc.cloc(), loc.blank()), (0, 0), "{lang:?}: {text:?}");
+        }
+    }
+
+    /// The `span == 0` arm of [`Stats::clamp_line_sets_to_span`], which
+    /// no parsed input can reach with a populated line set.
+    ///
+    /// Measured: spelling it `(0, 0)` instead of `(1, 0)` — retaining
+    /// row 0 of a span that covers no row — is byte-identical over
+    /// every corpus file and fails none of the lib suite, because the
+    /// three walks that arrive here (the empty file and the two
+    /// whitespace-only root contracts) all arrive with both line sets
+    /// already empty. A fixture therefore cannot cover this branch at
+    /// all; seeding `Stats` directly is the only shape that can
+    /// (`.claude/rules/testing.md`, "Pair any end-to-end test with a
+    /// direct unit test on the function whose contract is verified").
+    ///
+    /// The seed is row 0 specifically: it is the one row `(0, 0)` would
+    /// wrongly keep, so a test seeding any other row would pass under
+    /// both spellings.
+    #[test]
+    fn a_zero_span_keeps_no_row() {
+        let mut stats = Stats::default();
+        // The empty file's span: `0..0`, covering no row at all.
+        stats.init_unit_span(0, 0);
+        stats.ploc.lines.insert(0);
+        stats.cloc.only_comment_line_starts.insert(0);
+        stats.cloc.code_comment_line_starts.insert(0);
+        assert_eq!((stats.sloc(), stats.ploc(), stats.cloc()), (0, 1, 1));
+
+        stats.clamp_line_sets_to_span();
+
+        assert_eq!(
+            (stats.ploc(), stats.cloc()),
+            (0, 0),
+            "a span of no rows retains no row"
+        );
+    }
+
+    /// The phantom row lands on whichever space was open when the
+    /// recovery token was visited, so the contract has to hold per
+    /// space and not only on the file. Elixir's unterminated `do` block
+    /// is the case that separates the two: before #1398 the `defmodule`
+    /// space reported `ploc 2` against its own `sloc 1`, and so did the
+    /// unit, and a unit-only clamp would have left the nested space
+    /// wrong while the file read as fixed.
+    ///
+    /// `space_verbatim`, not `metrics_verbatim`: the claim is about the
+    /// nested space, whose numbers the root aggregate unions away.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn the_clamp_reaches_a_nested_space_not_only_the_unit() {
+        let space = space_verbatim(
+            crate::LANG::Elixir,
+            b"defmodule M do\n",
+            MetricsOptions::default(),
+        );
+        assert_eq!(
+            (space.metrics.loc.sloc(), space.metrics.loc.ploc()),
+            (1, 1),
+            "the unit is one row, all code"
+        );
+        let module = space
+            .spaces
+            .first()
+            .expect("the `defmodule` opens a space even unterminated");
+        assert_eq!(module.name.as_deref(), Some("M"));
+        assert_eq!(
+            (module.metrics.loc.sloc(), module.metrics.loc.ploc()),
+            (1, 1),
+            "the module's own space is one row too — `ploc` was 2 before #1398"
+        );
+    }
+
+    /// The same phantom row reaches CLOC, which has its own contract:
+    /// `cloc > sloc` pushes MI's comments percentage above 100%, the
+    /// defect #461 fixed for co-located comments and left open for a
+    /// comment node ending past end-of-input. An unterminated Perl POD
+    /// block is the reproduction the #1398 sweep turned up — two rows,
+    /// `cloc 3`.
+    ///
+    /// Pinned alongside the PLOC sweep because the clamp covers all
+    /// three line sets in one pass; without this row the CLOC half of
+    /// `Stats::clamp_line_sets_to_span` has no test.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn an_unterminated_pod_block_does_not_comment_a_row_past_eof() {
+        let loc =
+            metrics_verbatim(crate::LANG::Perl, b"=pod\nabc\n", MetricsOptions::default()).loc;
+        // expected: both rows are POD, so both are comment-only and
+        // neither is code or blank. `cloc` was 3 before #1398.
+        assert_eq!((loc.sloc(), loc.cloc()), (2, 2));
+        assert_eq!((loc.ploc(), loc.blank()), (0, 0));
     }
 
     /// #1135: Tcl and its iRules dialect are the only grammars here that

@@ -22,10 +22,19 @@
 //! afterwards. And containment is a property of the *callers*, not of
 //! this type — `Stats::with_cloc_sloc` already records rows past the
 //! span's end on purpose, and a bitset that assumed containment would
-//! silently drop an out-of-span row rather than fail. Measured over the
-//! `pdf.js`, `DeepSpeech` and `serde` corpora, no parsed space records a
-//! row outside its span today; a data-derived offset means that stays a
-//! fact about the walk rather than a correctness precondition here.
+//! silently drop an out-of-span row rather than fail.
+//!
+//! This header used to add that no parsed space records a row outside
+//! its span, measured over the `pdf.js`, `DeepSpeech` and `serde`
+//! corpora. That was wrong, and it was the *load-bearing* half of the
+//! argument. `DeepSpeech/parse_valgrind_suppressions.sh` does not parse
+//! — the grammar leaves a MISSING `}` at `(58, 1)` of a 57-row file —
+//! and the row it put in PLOC was one the file does not have (#1398).
+//! An anchored bitset would have dropped that row silently instead of
+//! letting `Stats::clamp_line_sets_to_span` decide; the data-derived
+//! offset is what kept the choice at the caller, which is the reason to
+//! prefer it. Out-of-span rows are the norm on malformed input, not an
+//! absent case.
 //!
 //! # Density
 //!
@@ -140,6 +149,53 @@ impl LineSet {
             self.words[first] |= from_start;
             self.words[first + 1..last].fill(u64::MAX);
             self.words[last] |= through_end;
+        }
+    }
+
+    /// Removes every row outside the inclusive range `first..=last`.
+    ///
+    /// An inverted range (`last < first`) empties the set, which is how
+    /// a caller spells "this span covers no row at all" — the empty
+    /// file's `0..0`.
+    ///
+    /// `clear()` there rather than zeroing the words in place, though
+    /// the two are indistinguishable through every method on this type:
+    /// `reserve` re-seeds `first_word` from an empty `words`, and reads
+    /// of an all-zero array answer the same as reads of an absent one.
+    /// Measured — swapping one for the other fails no test. It is the
+    /// cheaper of two equals, not a behaviour.
+    ///
+    /// One pass over the held words, the same order as
+    /// [`LineSet::len`], so a caller running it once per space adds a
+    /// constant factor to work `compute_minmax` already does. Per
+    /// *node* it would be quadratic in the span, as every method here
+    /// that is not `insert` would be.
+    pub(super) fn retain_range(&mut self, first: usize, last: usize) {
+        if last < first {
+            self.words.clear();
+            return;
+        }
+        let (first_word, last_word) = (word_of(first), word_of(last));
+        // Bits at or above `first`'s position within its word, and bits
+        // at or below `last`'s. Both shift amounts are in
+        // `0..BITS_PER_WORD`, mirroring `insert_range`.
+        let from_first = u64::MAX << (first % BITS_PER_WORD);
+        let through_last = u64::MAX >> (BITS_PER_WORD - 1 - last % BITS_PER_WORD);
+        // Copied out because the loop borrows `self.words` mutably.
+        let base = self.first_word;
+        for (index, word) in self.words.iter_mut().enumerate() {
+            let absolute = base + index;
+            if !(first_word..=last_word).contains(&absolute) {
+                *word = 0;
+                continue;
+            }
+            // Both masks apply when the range lies inside one word.
+            if absolute == first_word {
+                *word &= from_first;
+            }
+            if absolute == last_word {
+                *word &= through_last;
+            }
         }
     }
 
@@ -576,6 +632,105 @@ mod tests {
         assert!(unit.contains(0));
         assert!(unit.contains(ROWS));
         assert!(!unit.contains(ROWS + 1));
+    }
+
+    /// `retain_range` keeps exactly the rows inside the inclusive
+    /// bounds, at both ends of a word and across word boundaries.
+    ///
+    /// The rows are chosen so a mask built off-by-one at either end
+    /// changes the answer: `first` and `last` are themselves in the
+    /// set, and so is a row immediately outside each bound.
+    #[test]
+    fn retain_range_keeps_the_bounds_and_drops_everything_else() {
+        let mut set = set_of(&[
+            0,
+            2,
+            3,
+            BITS_PER_WORD - 1,
+            BITS_PER_WORD,
+            BITS_PER_WORD + 5,
+            2 * BITS_PER_WORD,
+            2 * BITS_PER_WORD + 1,
+        ]);
+        set.retain_range(3, 2 * BITS_PER_WORD);
+
+        assert_eq!(
+            rows_of(&set),
+            vec![
+                3,
+                BITS_PER_WORD - 1,
+                BITS_PER_WORD,
+                BITS_PER_WORD + 5,
+                2 * BITS_PER_WORD,
+            ]
+        );
+    }
+
+    /// A range narrower than one word masks from both ends of the same
+    /// word, the branch `insert_range` spells `first == last`.
+    #[test]
+    fn retain_range_within_one_word_masks_both_ends() {
+        let mut set = set_of(&[10, 11, 12, 13, 14]);
+        set.retain_range(11, 13);
+        assert_eq!(rows_of(&set), vec![11, 12, 13]);
+    }
+
+    /// An inverted range is how a caller spells "this span covers no
+    /// row" — the empty file's `0..0` in
+    /// `loc::Stats::clamp_line_sets_to_span`. It must empty the set
+    /// rather than retain row 0.
+    ///
+    /// Seeded from `[0, 1, 400]` rather than a default set, so the
+    /// emptiness is something the call produced. The trailing
+    /// `insert` is a usability check, not a guard: it holds whether
+    /// the inverted branch clears the array or zeroes it in place
+    /// (measured — swapping them fails nothing), because `reserve`
+    /// grows correctly from either state.
+    #[test]
+    fn retain_range_inverted_empties_the_set() {
+        let mut set = set_of(&[0, 1, 400]);
+        set.retain_range(1, 0);
+        assert_eq!(set.len(), 0);
+        assert!(!set.contains(0));
+        set.insert(9_000);
+        assert_eq!(rows_of(&set), vec![9_000]);
+    }
+
+    /// Retaining a range that already contains every row is a no-op,
+    /// which is what the clamp does on every well-formed file.
+    #[test]
+    fn retain_range_covering_the_whole_set_changes_nothing() {
+        let rows = &[0, 7, BITS_PER_WORD + 3, 1_000];
+        let mut set = set_of(rows);
+        set.retain_range(0, 1_000);
+        assert_eq!(rows_of(&set), rows.to_vec());
+    }
+
+    /// Whole words on either side of the range are cleared, not just
+    /// the rows sharing a word with a bound.
+    ///
+    /// The two masks and the two word indices are separate mistakes,
+    /// and only this shape separates them: every bound here sits at a
+    /// word boundary, so both masks are `u64::MAX` and cannot hide an
+    /// index that is off by one. Measured — `word_of(first) - 1` fails
+    /// nothing without this test, and the clamp reaches `first > 63`
+    /// on any nested space in a file longer than 64 rows.
+    #[test]
+    fn retain_range_drops_whole_words_on_either_side() {
+        const W: usize = BITS_PER_WORD;
+        let mut set = set_of(&[1, W + 1, 2 * W + 7, 3 * W, 3 * W + 4, 4 * W, 5 * W + 2]);
+        set.retain_range(3 * W, 4 * W - 1);
+        assert_eq!(rows_of(&set), vec![3 * W, 3 * W + 4]);
+    }
+
+    /// A range entirely outside the held words clears the set without
+    /// indexing past it — the shape that would panic if the loop used
+    /// absolute word indices as slot indices.
+    #[test]
+    fn retain_range_disjoint_from_the_set_clears_it() {
+        let mut set = set_of(&[5_000, 5_001]);
+        set.retain_range(0, 10);
+        assert_eq!(set.len(), 0);
     }
 
     /// `LineSet` is a bitset, so its derived-looking `Debug` is

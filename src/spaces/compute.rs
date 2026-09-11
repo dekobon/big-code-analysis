@@ -206,12 +206,38 @@ fn anchor_unit_sloc_span(state: &mut State, selected: MetricSet) {
     }
 }
 
-/// Runs the per-space finalization passes (unit-span anchoring, min/max,
-/// sum, Halstead, MI, WMC, averages) on a single [`State`]. Shared by both
-/// the single-element and pop arms of [`finalize`] so the call sequence
-/// stays identical in both, and reached exactly once per space — every
-/// state is finalized either when it is popped or, for the root, in the
-/// single-element arm.
+/// Discards PLOC / CLOC rows a grammar's error recovery placed outside
+/// the space's own row span, so `ploc <= sloc` holds for malformed input
+/// as it already does for well-formed input (#1398).
+///
+/// Runs per space rather than only on the unit, because the phantom row
+/// lands on whichever space was open when the recovery token was
+/// visited — an unterminated Elixir `do` block violated the contract on
+/// its own `defmodule` space as well as on the file. Child spaces are
+/// clamped before they merge upward and a parent's span contains each
+/// child's, so a parent's later clamp cannot take back a row a child
+/// legitimately contributed.
+///
+/// Ordered after [`anchor_unit_sloc_span`] so it clamps against the
+/// unit's *final* span. Before that pass the unit's recorded span still
+/// starts at the root node's first token, and while no row currently
+/// sits between that token and line 1 that either line set records —
+/// blank rows are in neither, and a leading comment is in the tree, so
+/// the root starts on it — depending on that is the coupling #1247
+/// removed rather than a property to lean on again.
+#[inline]
+fn clamp_loc_line_sets(state: &mut State, selected: MetricSet) {
+    if selected.contains(Metric::Loc) {
+        state.space.metrics.loc.clamp_line_sets_to_span();
+    }
+}
+
+/// Runs the per-space finalization passes (unit-span anchoring, line-set
+/// clamping, min/max, sum, Halstead, MI, WMC, averages) on a single
+/// [`State`]. Shared by both the single-element and pop arms of
+/// [`finalize`] so the call sequence stays identical in both, and
+/// reached exactly once per space — every state is finalized either
+/// when it is popped or, for the root, in the single-element arm.
 ///
 /// [`anchor_unit_sloc_span`] runs first because everything after it reads
 /// the span it fixes: `compute_minmax` folds `sloc` into the unit's
@@ -227,6 +253,7 @@ fn anchor_unit_sloc_span(state: &mut State, selected: MetricSet) {
 /// maps anyway (#1106).
 fn finalize_state<T: MetricSuite>(state: &mut State, selected: MetricSet) {
     anchor_unit_sloc_span(state, selected);
+    clamp_loc_line_sets(state, selected);
     compute_minmax(state, selected);
     compute_sum(state, selected);
     compute_halstead_and_mi::<T>(state, selected);
