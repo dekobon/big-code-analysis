@@ -425,10 +425,46 @@ pub trait Checker {
     }
     /// Whether `node` is a string literal, under every aliased kind the
     /// grammar emits for one.
+    ///
+    /// This is the *kind table* half of the answer. Where a grammar
+    /// spells a string literal and something else with one kind, the
+    /// table cannot separate them and the walk must ask
+    /// [`is_string_with_code`](Self::is_string_with_code) instead.
     #[inline]
     #[must_use]
     fn is_string(_: &Node) -> bool {
         false
+    }
+    /// Source-aware variant of [`is_string`](Self::is_string), and the
+    /// spelling every walk calls.
+    ///
+    /// The default forwards to the byte-less predicate, so a language
+    /// whose string literals are a closed set of kinds needs no
+    /// override. The Tcl family is the case that does: `braced_word` is
+    /// both the literal of `lappend x {a b}` and the *script* of a
+    /// `proc` body or an iRules `when` handler, and only the enclosing
+    /// command's leading word tells the two apart (#1318, #1381). So
+    /// `bca find --type string` reported every script body in the file
+    /// as a string literal.
+    ///
+    /// **A call site reaching for the byte-less spelling reads as
+    /// correct against every language without an override, and is wrong
+    /// only on the one that has one** —
+    /// `.claude/rules/grammar-dispatch.md` §7. There is one call site,
+    /// the `"string"` arm of [`ParserTrait::filters`], and it takes this
+    /// spelling; `tcl_script_body_is_a_string_only_to_the_byteless_spelling`
+    /// pins that the two really do disagree, so a future call site that
+    /// picks the wrong one is not silently right.
+    ///
+    /// [`ParserTrait::filters`]: crate::traits::ParserTrait::filters
+    #[inline]
+    #[must_use]
+    fn is_string_with_code<'a>(
+        node: &Node<'a>,
+        _code: &[u8],
+        _ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        Self::is_string(node)
     }
     /// Whether `node` is the `if` that continues an `else if` chain,
     /// rather than a freshly nested branch.
@@ -2553,6 +2589,143 @@ mod tests {
             "the stabby lambda, the `each` block and the `lambda` block \
              are three closures — the stabby lambda's own body block must \
              not add a fourth, which is the answer the parent lookup decides"
+        );
+    }
+
+    /// The verdicts the byte-less and the source-aware `is_string` give
+    /// the `braced_word`-kind nodes of `code`, as their source texts,
+    /// plus how many string-kind nodes of *any other* kind were seen.
+    ///
+    /// Returns `(kept_literal, withdrawn, other_strings)`. Texts rather
+    /// than counts because a count is polarity-blind: `(1, 1)` holds
+    /// just as well when the predicate calls the `proc` body a literal
+    /// and `{a b}` a script, which is the claim inverted. `other_strings`
+    /// anchors the control the third fixture line supplies — without it
+    /// the every-other-kind assertion below can be deleted from the
+    /// fixture and the kind-gate perturbation stops failing anything.
+    ///
+    /// Also asserts the two spellings agree off a known chain and off a
+    /// `Node::parent` climb: the walk now threads a chain, and the
+    /// answer must not depend on which it gets.
+    fn braced_word_string_verdicts<L: crate::traits::LanguageInfo + Checker>(
+        label: &str,
+        code: &[u8],
+        script_kind: u16,
+    ) -> (Vec<String>, Vec<String>, usize) {
+        let (mut kept, mut withdrawn, mut other) = (Vec::new(), Vec::new(), 0);
+        for_each_node_with_chain::<L>(code, |node, chain| {
+            let known = L::is_string_with_code(node, code, Ancestors::known(chain));
+            assert_eq!(
+                known,
+                L::is_string_with_code(node, code, Ancestors::unknown()),
+                "{label}: is_string_with_code disagrees between a known chain and a \
+                 parent climb on {} at row {}",
+                node.kind(),
+                node.start_row()
+            );
+            if node.kind_id() != script_kind {
+                // Every other kind must answer identically, or the
+                // override has widened past the one ambiguous kind.
+                assert_eq!(
+                    known,
+                    L::is_string(node),
+                    "{label}: the override moved a {} node at row {}",
+                    node.kind(),
+                    node.start_row()
+                );
+                other += usize::from(known);
+                return;
+            }
+            assert!(
+                L::is_string(node),
+                "{label}: the kind table must still list the script kind, or this \
+                 test is measuring its absence rather than the override"
+            );
+            let text = String::from_utf8_lossy(&code[node.start_byte()..node.end_byte()]);
+            if known {
+                kept.push(text.into_owned());
+            } else {
+                withdrawn.push(text.into_owned());
+            }
+        });
+        (kept, withdrawn, other)
+    }
+
+    /// A Tcl-family script body is a string literal to
+    /// [`Checker::is_string`] and not to
+    /// [`Checker::is_string_with_code`] (#1381).
+    ///
+    /// This is the test the end-to-end `bca find` ones cannot be: they
+    /// observe the *result*, which is equally consistent with the
+    /// override never firing and the byte-less default happening to be
+    /// right. Asserting the disagreement directly is what makes a future
+    /// call site that reaches for the byte-less spelling a wrong answer
+    /// rather than an indistinguishable one
+    /// (`.claude/rules/grammar-dispatch.md` §7).
+    ///
+    /// Each fixture holds a braced value, a script body reached through
+    /// a *modelled* construct, a script body reached through the
+    /// **command-name** list (`eval`), and a non-braced string literal —
+    /// four rows that no constant and no inverted polarity satisfies.
+    /// The two script routes are structurally independent
+    /// (grammar-dispatch §11): `is_value_braced_word` answers "script"
+    /// either because the word fills a modelled slot or because the
+    /// enclosing command is in `SCRIPT_TAKING_COMMANDS`, and a fixture
+    /// exercising only the first leaves the second dead.
+    #[test]
+    #[cfg(any(feature = "tcl", feature = "irules"))]
+    fn tcl_script_body_is_a_string_only_to_the_byteless_spelling() {
+        let mut ran = 0;
+        #[cfg(feature = "tcl")]
+        {
+            ran += 1;
+            // `{x}` is the parameter list, which the grammar spells
+            // `arguments` rather than a braced word, so it is neither.
+            // `set s "q"` is the control for the kind gate: a
+            // `quoted_word` under a *modelled* command is a node the
+            // role predicate answers "not a value" for, so an override
+            // that dropped its `kind_id` test would unstring it — which
+            // the `other` count below is what notices.
+            let (kept, withdrawn, other) = braced_word_string_verdicts::<crate::langs::TclCode>(
+                "tcl",
+                b"proc p {x} { puts $x }\nlappend l {a b}\neval {puts hi}\nset s \"q\"\n",
+                Tcl::BracedWord as u16,
+            );
+            assert_eq!(kept, ["{a b}"], "tcl: only the braced value is a literal");
+            assert_eq!(
+                withdrawn,
+                ["{ puts $x }", "{puts hi}"],
+                "tcl: the proc body (a modelled slot) and the `eval` argument \
+                 (a named script-taking command) are both scripts"
+            );
+            assert_eq!(other, 1, "tcl: the `set` quoted word stays a string");
+        }
+        #[cfg(feature = "irules")]
+        {
+            ran += 1;
+            // The `"hi"` inside the handler body is this dialect's
+            // `other` row, so the control sits inside the construct
+            // under test rather than beside it.
+            let (kept, withdrawn, other) = braced_word_string_verdicts::<crate::langs::IrulesCode>(
+                "irules",
+                b"when HTTP_REQUEST { log local0. \"hi\" }\nlappend l {x y}\neval {puts hi}\n",
+                Irules::BracedWord as u16,
+            );
+            assert_eq!(
+                kept,
+                ["{x y}"],
+                "irules: only the braced value is a literal"
+            );
+            assert_eq!(
+                withdrawn,
+                ["{ log local0. \"hi\" }", "{puts hi}"],
+                "irules: the `when` handler body and the `eval` argument are scripts"
+            );
+            assert_eq!(other, 1, "irules: the quoted word stays a string");
+        }
+        assert!(
+            ran > 0,
+            "neither tcl nor irules is enabled; this test asserted nothing"
         );
     }
 }

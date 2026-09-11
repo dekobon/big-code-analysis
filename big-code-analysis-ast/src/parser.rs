@@ -38,10 +38,19 @@ pub struct Parser<T: LanguageInfo + Alterator + Checker + Getter> {
 }
 
 /// A single node-matching predicate. The `'a` bound lets a predicate
-/// borrow the parser's source buffer, which the `"function"` filter
-/// needs to answer for a language whose function declarations are
-/// identified by their text rather than their kind (#1162).
-type FilterFn<'a> = dyn Fn(&Node) -> bool + 'a;
+/// borrow the parser's source buffer, which the `"function"` and
+/// `"string"` filters need to answer for a language whose functions or
+/// string literals are identified by their text rather than their kind
+/// (#1162, #1381).
+///
+/// The `Ancestors` argument is the chain the caller descended through.
+/// Both of those predicates ask about an enclosing construct, and
+/// resolving one from the node alone costs [`Node::parent`]'s
+/// `O(depth)` *per lookup* — which over a whole walk is the quadratic
+/// #1052 and #1122 warn about. The higher-ranked bound ties the chain's
+/// tree lifetime to the node's, so a predicate cannot be handed the
+/// ancestry of a different tree.
+type FilterFn<'a> = dyn for<'t, 'c> Fn(&Node<'t>, Ancestors<'t, 'c>) -> bool + 'a;
 
 /// Collection of node-matching predicates used by the AST-walking
 /// metric and dump routines to decide whether to visit a node.
@@ -50,11 +59,19 @@ pub struct Filter<'a> {
 }
 
 impl Filter<'_> {
-    /// Returns `true` if *any* of the configured predicates matches `node`.
+    /// Returns `true` if *any* of the configured predicates matches
+    /// `node`, reached through `ancestors`.
+    ///
+    /// A walker that maintains an ancestor chain should pass it. The
+    /// `"function"` and `"string"` predicates ask about an enclosing
+    /// construct, and off [`Ancestors::unknown`] each such lookup is
+    /// [`Node::parent`]'s `O(depth)` — which made `count --type string`
+    /// quadratic in nesting depth until `find` and `count` threaded a
+    /// real chain (#1381).
     #[must_use]
-    pub fn any(&self, node: &Node) -> bool {
+    pub fn any<'t>(&self, node: &Node<'t>, ancestors: Ancestors<'t, '_>) -> bool {
         for f in &self.filters {
-            if f(node) {
+            if f(node, ancestors) {
                 return true;
             }
         }
@@ -116,41 +133,52 @@ impl<T: 'static + LanguageInfo + Alterator + Checker + Getter> ParserTrait for P
     }
 
     fn filters(&self, requested: &[String]) -> Filter<'_> {
-        // Borrowed by the `"function"` arm below, which is why `Filter`
-        // carries a lifetime.
+        // Borrowed by the `"function"` and `"string"` arms below, which
+        // is why `Filter` carries a lifetime.
         let code = self.code();
         let mut res: Vec<Box<FilterFn<'_>>> = Vec::new();
         for f in requested {
             let f = f.as_str();
             match f {
-                "all" => res.push(Box::new(|_: &Node| -> bool { true })),
-                // `is_call` / `is_comment` / `is_error` / `is_string`
-                // take `&Node` and nothing else, so no language *can*
-                // make them text-dependent. The #1162 gap is confined by
-                // construction to the three `Checker` predicates that
-                // accept `code`, and `"function"` is the only filter
-                // that reaches one.
-                "call" => res.push(Box::new(T::is_call)),
-                "comment" => res.push(Box::new(T::is_comment)),
-                "error" => res.push(Box::new(T::is_error)),
-                "string" => res.push(Box::new(T::is_string)),
-                // `Ancestors::unknown()`: a `--filter` predicate is applied
-                // to nodes the dump walk reaches without a chain. The
-                // JS-family `is_func` and Elixir's `is_func_with_code`
-                // consult one, and both answer the same either way — only
-                // the cost differs (#1088, #1162).
+                "all" => res.push(Box::new(|_: &Node, _| -> bool { true })),
+                // `is_call` / `is_comment` / `is_error` take `&Node` and
+                // nothing else, so no language *can* make them
+                // text-dependent. The #1162 gap is confined by
+                // construction to the `Checker` predicates that accept
+                // `code`, and `"function"` and `"string"` are the two
+                // filters that reach one.
+                "call" => res.push(Box::new(|node: &Node, _| T::is_call(node))),
+                "comment" => res.push(Box::new(|node: &Node, _| T::is_comment(node))),
+                "error" => res.push(Box::new(|node: &Node, _| T::is_error(node))),
+                // `is_string_with_code`, not `is_string`: a Tcl-family
+                // `braced_word` is a string literal in a value position
+                // and a `proc` / `when` body everywhere else, and only
+                // the bytes of the enclosing command's leading word
+                // separate the two (#1381). This arm is the only caller
+                // of either spelling in the workspace, so the byte-less
+                // one now serves purely as the per-language kind table
+                // that each override narrows.
                 //
-                // That cost is `O(depth^2)` per *candidate* node, not
-                // `O(depth)`: an unknown chain climbs by `Node::parent`,
-                // which is itself `O(depth)` per step. It stays off the
-                // general walk because each predicate rejects on
-                // `kind_id` first — Elixir climbs only for a `Call`
-                // already spelling `def`/`defp`/`defmacro`. Giving
-                // `find`/`count` the `(node, depth)` stack `act_on_node`
-                // already carries would supply a known chain and drop
-                // this to `O(depth)`.
-                "function" => res.push(Box::new(move |node: &Node| {
-                    T::is_func_with_code(node, code, Ancestors::unknown())
+                // This is also the arm that makes the chain load-bearing
+                // rather than merely cheaper. `braced_word` is *every*
+                // Tcl block and list literal, so the candidate set is
+                // dense, and the Tcl override asks about the enclosing
+                // command — roughly ten ancestor lookups per candidate.
+                // Off an unknown chain each is `Node::parent`'s
+                // `O(depth)`, which took `bca find --type string` on 8 KB
+                // of nested braces from 5 ms to 823 ms before the chain
+                // was threaded here.
+                "string" => res.push(Box::new(move |node: &Node, ancestors| {
+                    T::is_string_with_code(node, code, ancestors)
+                })),
+                // The JS-family `is_func` and Elixir's `is_func_with_code`
+                // consult the chain to tell a named function from a
+                // closure and a `def` `Call` from any other (#1088,
+                // #1162). Both answer the same off an unknown chain —
+                // only the cost differs, and `find` / `count` now supply
+                // a real one.
+                "function" => res.push(Box::new(move |node: &Node, ancestors| {
+                    T::is_func_with_code(node, code, ancestors)
                 })),
                 _ => {
                     if let Ok(n) = f.parse::<u16>() {
@@ -165,7 +193,9 @@ impl<T: 'static + LanguageInfo + Alterator + Checker + Getter> ParserTrait for P
                         // the end/ERROR sentinel. Documented as unstable in
                         // big-code-analysis-book/src/commands/nodes.md; the
                         // string (`kind()`) path below is the supported one.
-                        res.push(Box::new(move |node: &Node| -> bool { node.kind_id() == n }));
+                        res.push(Box::new(move |node: &Node, _| -> bool {
+                            node.kind_id() == n
+                        }));
                     } else {
                         // Exact match on `node.kind()` — the CLI documents
                         // `find <NODE>` / `count <NODE_TYPE>` as searching
@@ -173,13 +203,13 @@ impl<T: 'static + LanguageInfo + Alterator + Checker + Getter> ParserTrait for P
                         // big-code-analysis-book/src/commands/nodes.md and
                         // issue #293).
                         let f = f.to_owned();
-                        res.push(Box::new(move |node: &Node| -> bool { node.kind() == f }));
+                        res.push(Box::new(move |node: &Node, _| -> bool { node.kind() == f }));
                     }
                 }
             }
         }
         if res.is_empty() {
-            res.push(Box::new(|_: &Node| -> bool { true }));
+            res.push(Box::new(|_: &Node, _| -> bool { true }));
         }
 
         Filter { filters: res }

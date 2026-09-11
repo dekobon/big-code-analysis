@@ -38,6 +38,8 @@ use big_code_analysis::SpaceKind;
     feature = "rust",
     feature = "python",
     feature = "cpp",
+    feature = "tcl",
+    feature = "irules",
     not(feature = "javascript")
 ))]
 use big_code_analysis::{LANG, Source};
@@ -732,4 +734,132 @@ fn preprocess_harvest_feeds_the_macro_masking_pass() {
     let untouched =
         Ast::parse(Source::from_bytes(LANG::Cpp, source.to_vec())).expect("cpp feature enabled");
     assert_eq!(untouched.source(), source);
+}
+
+/// The texts `Ast::find` reports for `--type string`, in source order.
+///
+/// Returning the texts rather than a count is what lets the callers below
+/// assert *which* nodes were reported. A count alone cannot tell "the
+/// script body dropped out" from "the literal dropped out and something
+/// else appeared", and the two failures want opposite fixes.
+/// A `proc` body (the script) holding a quoted word, plus a braced word
+/// (the two literals). Shared by both tests below so the `find` list and
+/// the `count` total describe the same bytes.
+///
+/// The quoted word sits **inside** the body deliberately. With it
+/// outside, deleting the whole `proc` line left the expected list
+/// unchanged and the fixture could lose its entire subject with no test
+/// failing (`.claude/rules/testing.md`, "Perturb the fixture as well as
+/// the production line"). Inside, the `proc` is load-bearing for the
+/// expected sequence.
+#[cfg(feature = "tcl")]
+const TCL_SCRIPT_AND_LITERALS: &str = "proc p {x} { puts \"q\" }\nlappend l {a b}\n";
+
+/// The iRules twin, which already had the quoted word inside the body.
+#[cfg(feature = "irules")]
+const IRULES_SCRIPT_AND_LITERALS: &str =
+    "when HTTP_REQUEST { log local0. \"hi\" }\nlappend l {x y}\n";
+
+#[cfg(any(feature = "tcl", feature = "irules"))]
+fn strings_found(lang: LANG, code: &str) -> Vec<String> {
+    let ast = Ast::parse(Source::new(lang, code.as_bytes())).expect("language feature enabled");
+    let source = ast.source();
+    ast.find(&["string".to_owned()])
+        .expect("find is infallible")
+        .iter()
+        .map(|node| {
+            std::str::from_utf8(&source[node.start_byte()..node.end_byte()])
+                .expect("fixture is ASCII")
+                .to_owned()
+        })
+        .collect()
+}
+
+/// `bca find --type string` must not report a Tcl-family script body,
+/// and must still report a braced literal (#1381).
+///
+/// `braced_word` is both, and `Checker::is_string`'s kind table cannot
+/// separate them, so before the fix every `proc` body and every iRules
+/// `when` handler came back as a string literal. The `"string"` filter
+/// now asks `is_string_with_code`, which resolves the role from the
+/// enclosing command's leading word.
+///
+/// Each fixture holds a script body *and* a literal, and the assertion is
+/// on the exact reported list rather than on the body's absence: an
+/// absence assertion also passes when the whole filter stops matching,
+/// which is the over-correction this rule invites
+/// (`.claude/rules/testing.md`).
+#[cfg(any(feature = "tcl", feature = "irules"))]
+#[test]
+fn find_string_reports_tcl_family_literals_and_not_script_bodies() {
+    let mut ran = 0;
+    #[cfg(feature = "tcl")]
+    {
+        ran += 1;
+        // `{ puts "q" }` is the proc body and must not appear; `"q"`
+        // (inside it) and `{a b}` are the literals. The quoted word
+        // anchors the list on a second kind, so a rule that suppressed
+        // *every* braced word would still fail here rather than quietly
+        // reduce the test to one assertion — and, sitting inside the
+        // body, it also proves dropping the body did not drop its
+        // contents.
+        assert_eq!(
+            strings_found(LANG::Tcl, TCL_SCRIPT_AND_LITERALS),
+            vec!["\"q\"", "{a b}"],
+        );
+    }
+    #[cfg(feature = "irules")]
+    {
+        ran += 1;
+        // The iRules twin: the `when` handler body is the script, the
+        // `"hi"` inside it and `{x y}` are the literals. The quoted word
+        // sits *inside* the body, so it also pins that dropping the body
+        // did not drop its contents with it.
+        assert_eq!(
+            strings_found(LANG::Irules, IRULES_SCRIPT_AND_LITERALS),
+            vec!["\"hi\"", "{x y}"],
+        );
+    }
+    assert!(
+        ran > 0,
+        "neither tcl nor irules is enabled; this test asserted nothing"
+    );
+}
+
+/// `bca count --type string` reads the same `Filter`, so it must report
+/// the number of nodes `find` returns (#1381).
+///
+/// The two walks are separate functions over one predicate list, and only
+/// one of them is exercised above.
+#[cfg(any(feature = "tcl", feature = "irules"))]
+#[test]
+fn count_string_agrees_with_find_on_tcl_family_bodies() {
+    let mut ran = 0;
+    for (lang, code) in [
+        #[cfg(feature = "tcl")]
+        (LANG::Tcl, TCL_SCRIPT_AND_LITERALS),
+        #[cfg(feature = "irules")]
+        (LANG::Irules, IRULES_SCRIPT_AND_LITERALS),
+    ] {
+        ran += 1;
+        let found = strings_found(lang, code).len();
+        assert_eq!(found, 2, "{lang:?}: fixture must report both literals");
+        let (matching, total) = Ast::parse(Source::new(lang, code.as_bytes()))
+            .expect("language feature enabled")
+            .count(&["string".to_owned()]);
+        assert_eq!(matching, found, "{lang:?}: count and find disagree");
+        // The script body is among the nodes `total` counts and
+        // `matching` does not, so this is the file-level shape of the
+        // same claim rather than the `total > matching` truism (which
+        // holds for any fixture with more than two nodes).
+        assert!(
+            total > 20,
+            "{lang:?}: {total} nodes is too few for the fixture to still \
+             contain a script body"
+        );
+    }
+    assert!(
+        ran > 0,
+        "neither tcl nor irules is enabled; this test asserted nothing"
+    );
 }

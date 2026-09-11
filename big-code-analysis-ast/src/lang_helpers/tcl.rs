@@ -1,7 +1,35 @@
-//! Tcl: the leading word of a `command` node.
+//! Tcl: the leading word of a `command` node, and the grammar's
+//! braced-word kind ids.
 
 use crate::Tcl;
+use crate::getter::BracedWordKinds;
 use crate::node::Node;
+
+/// The braced-word kinds `Getter::is_subsumed_braced_word`,
+/// `Getter::braced_word_op_type` and `Getter::is_braced_script_word` are
+/// instantiated with (#1354, #1318): the literal *value* form the guard
+/// keys on, the *script* form it gates on holding a command, the comment
+/// kind that gate must not mistake for one, and the four kinds #1318's
+/// role recognition walks — the generic `command`, its `word_list`
+/// argument list, the `simple_word` a resolvable command name is spelled
+/// with, and the `argument` whose braced child is a parameter default
+/// rather than a script.
+///
+/// It lives here rather than beside the `Getter` impl because three
+/// classifiers now read it — `Getter::get_op_type_with_code`,
+/// `Checker::is_string_with_code` and `Alterator::alterate` — and a
+/// second copy is exactly the drift `lang_helpers` exists to prevent
+/// (#1381).
+pub(crate) const BRACED_WORD_KINDS: BracedWordKinds = BracedWordKinds {
+    value: Tcl::BracedWordSimple as u16,
+    script: Tcl::BracedWord as u16,
+    comment: Tcl::Comment as u16,
+    command: Tcl::Command as u16,
+    word_list: Tcl::WordList as u16,
+    simple_word: Tcl::SimpleWord as u16,
+    argument: Tcl::Argument as u16,
+    open_brace: Tcl::LBRACE as u16,
+};
 
 /// Reads the leading word of a Tcl `command` node when it is a plain
 /// `simple_word` (`switch`, `for`, `puts`, …). Returns `None` for any other

@@ -23,6 +23,7 @@ use num_format::{Locale, ToFormattedString};
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
+use crate::node::Ancestors;
 use crate::traits::ParserTrait;
 
 /// Counts the types of nodes specified in the input slice and the
@@ -35,18 +36,25 @@ pub fn count<T: ParserTrait>(parser: &T, filters: &[String]) -> (usize, usize) {
     let mut stack = Vec::new();
     let mut good = 0;
     let mut total = 0;
+    // See `find` for why the chain is threaded rather than climbed. The
+    // truncate/push discipline is order-independent — a node's ancestors
+    // are always the chain prefix at its own depth — so it holds for
+    // this walk's unordered child push too.
+    let mut chain = Vec::new();
 
-    stack.push(node);
+    stack.push((node, 0_usize));
 
-    while let Some(node) = stack.pop() {
+    while let Some((node, depth)) = stack.pop() {
         total += 1;
-        if filters.any(&node) {
+        chain.truncate(depth);
+        if filters.any(&node, Ancestors::checked(&chain, &node)) {
             good += 1;
         }
+        chain.push(node);
         // No reversal: this walk only tallies, so visit order is
         // immaterial and imposing one would imply a guarantee no caller
         // relies on. Matches the previous push-in-source-order form.
-        stack.extend(node.children_with(&mut cursor));
+        stack.extend(node.children_with(&mut cursor).map(|c| (c, depth + 1)));
     }
     (good, total)
 }

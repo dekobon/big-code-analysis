@@ -14,5 +14,8 @@
 //! on the metric layer, the inversion #1376 exists to remove.
 
 pub mod elixir;
+// Crate-private: this dialect's only helper is a kind table the three
+// classifiers in this crate share, and nothing outside names it.
+pub(crate) mod irules;
 pub mod python;
 pub mod tcl;

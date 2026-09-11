@@ -73,10 +73,25 @@ flatten_cases! {
     lua_flattens_string_literal: LANG::Lua, "local s = \"hi\"", "f.lua", "\"hi\"";
     tcl_flattens_quoted_word: LANG::Tcl, "set s \"hi\"", "f.tcl", "\"hi\"";
     // In valid iRules a quoted word only appears inside an event handler's
-    // `{ … }` body, which `alterate` flattens as a single `braced_word` leaf
-    // (the same match arm that handles `quoted_word`), so the verbatim text
-    // to look for is the whole brace block.
-    irules_flattens_braced_word: LANG::Irules, "when HTTP_REQUEST { set s \"hi\" }", "f.irul", "{ set s \"hi\" }";
+    // `{ … }` body. Until #1381 `alterate` flattened that body as a single
+    // `braced_word` leaf, so the only verbatim text in the whole dump was
+    // the brace block and the `quoted_word` arm was unreachable from any
+    // valid input. The handler body is a script now, so the arm this file
+    // is about is finally what this row tests — the same claim its Tcl
+    // twin above makes.
+    irules_flattens_quoted_word: LANG::Irules, "when HTTP_REQUEST { set s \"hi\" }", "f.irule", "\"hi\"";
+    // The Tcl half of the same claim. `tcl_flattens_quoted_word` above
+    // reaches the literal at statement level, where the body guard has
+    // nothing to do — verified by perturbation: deleting the Tcl guard
+    // failed no test until this row existed, while the iRules twin failed
+    // on its own because iRules has no statement level to test from.
+    tcl_flattens_quoted_word_inside_a_proc_body: LANG::Tcl, "proc p {} { puts \"hi\" }", "f.tcl", "\"hi\"";
+    // The braced *value* half of the same rule: `lappend`'s argument is a
+    // literal, so it keeps the flattening a script body gives up. Without
+    // it the #1381 guard would read as "braced words are never flattened",
+    // which is the opposite over-correction.
+    tcl_flattens_braced_value: LANG::Tcl, "lappend x {a b}\n", "f.tcl", "{a b}";
+    irules_flattens_braced_value: LANG::Irules, "lappend b {x y}\n", "f.irule", "{x y}";
     ruby_flattens_string_literal: LANG::Ruby, "s = \"hi\"\n", "f.rb", "\"hi\"";
     elixir_flattens_string_literal: LANG::Elixir, "s = \"hi\"\n", "f.ex", "\"hi\"";
 }

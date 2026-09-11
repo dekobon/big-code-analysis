@@ -10,6 +10,8 @@
 //! language implements to reshape a node before it is rendered as an
 //! [`AstNode`].
 
+use crate::lang_helpers::irules::BRACED_WORD_KINDS as IRULES_BRACED_WORD_KINDS;
+use crate::lang_helpers::tcl::BRACED_WORD_KINDS as TCL_BRACED_WORD_KINDS;
 use crate::*;
 
 /// A trait to create a richer `AST` node for a programming language, mainly
@@ -83,24 +85,54 @@ where
         AstNode::with_field_name(node.kind(), text, span, field_name, children)
     }
 
+    /// Whether `node` must keep its children even though
+    /// [`Self::alterate`] would flatten it into a verbatim leaf.
+    ///
+    /// The flattening arms are keyed on node *kind*, which is the right
+    /// question for a language whose string literals have a kind of
+    /// their own. The Tcl family is the exception: `braced_word` is both
+    /// the literal of `lappend x {a b}` and the *script* of a `proc`
+    /// body or an iRules `when` handler, so flattening by kind dropped
+    /// every script body from the dump — the whole body collapsed into
+    /// one leaf holding its text (#1381).
+    ///
+    /// It is a veto rather than an extra `alterate` arm so that
+    /// `alterate` keeps its byte-and-kind signature: only this question
+    /// needs the ancestor chain, and threading it through all twenty-odd
+    /// `alterate` impls to serve two of them would make every language
+    /// pay for one grammar's ambiguity. `ancestors` is the chain the
+    /// dump walk descended through, for [`Node::parent`]'s `O(depth)`
+    /// reason (#1084) — off an unknown chain this question took
+    /// `Ast::dump` on 8 KB of nested Tcl braces from 7 ms to 391 ms.
+    ///
+    #[inline]
+    #[must_use]
+    fn keeps_children<'a>(_node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+        false
+    }
+
     /// Gets a new `AST` node if and only if the code is not a comment,
     /// otherwise [`None`] is returned.
     ///
     /// Parameter order mirrors [`Self::alterate`] and [`Self::get_default`]
     /// (the flags-before-data convention `span, comment, field_name,
     /// children`) so positional confusion between adjacent boolean
-    /// toggles is harder to introduce on the next edit.
+    /// toggles is harder to introduce on the next edit. `ancestors` is
+    /// last, matching every other chain-taking predicate in the crate.
     #[must_use]
-    fn get_ast_node(
-        node: &Node,
+    fn get_ast_node<'a>(
+        node: &Node<'a>,
         code: &[u8],
         span: bool,
         comment: bool,
         field_name: Option<&'static str>,
         children: Vec<AstNode>,
+        ancestors: Ancestors<'a, '_>,
     ) -> Option<AstNode> {
         if comment && Self::is_comment(node) {
             None
+        } else if Self::keeps_children(node, code, ancestors) {
+            Some(Self::get_default(node, code, span, field_name, children))
         } else {
             Some(Self::alterate(node, code, span, field_name, children))
         }
@@ -591,12 +623,23 @@ impl Alterator for TclCode {
     ) -> AstNode {
         match Tcl::from(node.kind_id()) {
             // Preserve string literals verbatim to avoid whitespace trimming.
+            // `BracedWord` is listed for the braced *value* of
+            // `lappend x {a b}` — Tcl evaluates nothing between its
+            // braces, so the value is its whole span. The same kind is
+            // also every script body, which must keep its children;
+            // `keeps_children` below vetoes this arm for those, because
+            // only the enclosing command separates the two roles and
+            // that question needs the ancestor chain (#1381).
             Tcl::QuotedWord | Tcl::BracedWord | Tcl::BracedWordSimple => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
                 AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
             _ => Self::get_default(node, code, span, field_name, children),
         }
+    }
+
+    fn keeps_children<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+        <Self as Getter>::is_braced_script_word(node, code, ancestors, &TCL_BRACED_WORD_KINDS)
     }
 }
 
@@ -610,12 +653,21 @@ impl Alterator for IrulesCode {
     ) -> AstNode {
         match Irules::from(node.kind_id()) {
             // Preserve string literals verbatim to avoid whitespace trimming.
+            // The twin of the Tcl arm above, `keeps_children` veto and
+            // all. It matters more here: a `when` handler's body is the
+            // whole of a typical iRules file, so flattening every one of
+            // them left the dump with a single leaf per handler and no
+            // structure at all (#1381).
             Irules::QuotedWord | Irules::BracedWord | Irules::BracedWordSimple => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
                 AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
             _ => Self::get_default(node, code, span, field_name, children),
         }
+    }
+
+    fn keeps_children<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+        <Self as Getter>::is_braced_script_word(node, code, ancestors, &IRULES_BRACED_WORD_KINDS)
     }
 }
 

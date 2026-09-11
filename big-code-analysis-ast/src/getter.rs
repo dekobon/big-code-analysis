@@ -738,6 +738,37 @@ pub trait Getter {
             && Self::is_switch_arm_body(word, &command))
     }
 
+    /// Whether `node` is a Tcl-family braced *script* — a `proc` or `if`
+    /// body, an iRules `when` handler — rather than a braced literal
+    /// (#1381).
+    ///
+    /// The positive form of [`is_value_braced_word`], narrowed to the
+    /// script kind so it answers `false` for every node of every other
+    /// kind and for the two literal spellings. That makes it the
+    /// question the *non-Halstead* classifiers ask:
+    /// `Checker::is_string_with_code` must not call a `proc` body a
+    /// string literal, and `Alterator::alterate` must not flatten one
+    /// into a leaf, dropping the body from the AST dump. Both once
+    /// listed `braced_word` beside `quoted_word` and
+    /// `braced_word_simple`, which is right for the literal role and
+    /// wrong for the script role the same kind also serves.
+    ///
+    /// Stated here rather than in each of the four call sites so the
+    /// three classifiers cannot drift apart on the same bytes
+    /// (grammar-dispatch §7) — the drift `braced_word_op_type` opened
+    /// when it revised the operator half alone.
+    ///
+    /// [`is_value_braced_word`]: Self::is_value_braced_word
+    #[must_use]
+    fn is_braced_script_word<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+        kinds: &BracedWordKinds,
+    ) -> bool {
+        node.kind_id() == kinds.script && !Self::is_value_braced_word(node, code, ancestors, kinds)
+    }
+
     /// Whether `word`, an argument of a `switch` arm command
     /// ([`is_switch_arm`]), sits in a *body* position rather than a
     /// *pattern* position.

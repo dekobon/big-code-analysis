@@ -3,20 +3,7 @@
 
 use super::*;
 
-/// The braced-word kinds `Getter::is_subsumed_braced_word` and
-/// `Getter::braced_word_op_type` are instantiated with (#1354, #1318) —
-/// the twin of the Tcl table, at this grammar's own id block. Every
-/// field means what the Tcl one documents; only the ids differ.
-const BRACED_WORD_KINDS: BracedWordKinds = BracedWordKinds {
-    value: Irules::BracedWordSimple as u16,
-    script: Irules::BracedWord as u16,
-    comment: Irules::Comment as u16,
-    command: Irules::Command as u16,
-    word_list: Irules::WordList as u16,
-    simple_word: Irules::SimpleWord as u16,
-    argument: Irules::Argument as u16,
-    open_brace: Irules::LBRACE as u16,
-};
+use crate::lang_helpers::irules::BRACED_WORD_KINDS;
 
 impl Getter for IrulesCode {
     fn get_space_kind(node: &Node) -> SpaceKind {

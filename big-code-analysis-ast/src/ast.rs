@@ -262,6 +262,22 @@ fn build<T: ParserTrait>(parser: &T, span: bool, comment: bool) -> Option<AstNod
         children: Vec::with_capacity(root.child_count()),
         next_child_index: 0,
     }];
+    // Mirrors `stack`'s nodes, so popping both leaves `chain` holding
+    // exactly the popped node's ancestry. `Alterator::keeps_children`
+    // is the only consumer, and it is the reason this exists rather
+    // than climbing with `Node::parent`: that lookup is `O(depth)` and
+    // asking it per node made `Ast::dump` quadratic in nesting depth —
+    // 10 ms against 418 ms on 8 KB of nested Tcl braces, measured by
+    // swapping this for `Ancestors::unknown()` (#1381, the shape of
+    // #1052 / #1122).
+    //
+    // That swap is invisible to the test suite: an unknown chain
+    // answers identically and only costs more, so nothing here pins the
+    // chain by asserting on output. What pins it is `Ancestors::checked`
+    // below — its `debug_assert!` catches a desynchronised truncate/push
+    // on every fixture the dump walk sees, and `make chain-audit`
+    // upgrades that to the exact `chain.last() == node.parent()` check.
+    let mut chain: Vec<crate::Node<'_>> = vec![root];
 
     loop {
         let frame = stack
@@ -288,10 +304,12 @@ fn build<T: ParserTrait>(parser: &T, span: bool, comment: bool) -> Option<AstNod
                 children: Vec::with_capacity(child.child_count()),
                 next_child_index: 0,
             });
+            chain.push(child);
         } else {
             let frame = stack
                 .pop()
                 .expect("stack invariant: just observed non-empty via last_mut()");
+            chain.pop();
             let node = T::Checker::get_ast_node(
                 &frame.node,
                 code,
@@ -299,6 +317,7 @@ fn build<T: ParserTrait>(parser: &T, span: bool, comment: bool) -> Option<AstNod
                 comment,
                 frame.field,
                 frame.children,
+                Ancestors::checked(&chain, &frame.node),
             );
             match (node, stack.last_mut()) {
                 (Some(ast), Some(parent)) => parent.children.push(ast),
