@@ -103,7 +103,9 @@ where
     /// pay for one grammar's ambiguity. `ancestors` is the chain the
     /// dump walk descended through, for [`Node::parent`]'s `O(depth)`
     /// reason (#1084) — off an unknown chain this question took
-    /// `Ast::dump` on 8 KB of nested Tcl braces from 7 ms to 391 ms.
+    /// `Ast::dump` on 8 KB of nested Tcl braces from 10 ms to 418 ms —
+    /// the run `ast.rs` records beside the chain this reads, not a
+    /// second measurement.
     ///
     #[inline]
     #[must_use]

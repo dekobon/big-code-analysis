@@ -210,6 +210,13 @@ macro_rules! go_bool_terminal_kinds {
     };
 }
 
+// FIXME(#1410): C and C++ are integer-truthy, so this set is missing the
+// numeric literal kinds — `if (1)` scores no condition where `if (true)`
+// scores one, within the same language. Name-keyed, so C, C++, Mozcpp and
+// Objective-C are all affected, which makes this the largest of the three
+// sets #1379 left behind (see `perl_bool_terminal_kinds!` below for the
+// measurement). Deferred out of #1379 because the DeepSpeech corpus is
+// C/C++ and the fix moves snapshots.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! cpp_bool_terminal_kinds {

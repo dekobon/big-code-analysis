@@ -131,9 +131,40 @@ impl<'a> Node<'a> {
 
     /// Checks if a node represents a syntax error or contains any syntax errors
     /// anywhere within it.
+    ///
+    /// Transitive, which is the trap: asking it of a construct to decide
+    /// whether that construct's *own* shape is readable also answers `true`
+    /// for an error arbitrarily deep inside one of its children. Where the
+    /// question is about a node's own slot sequence, ask [`is_error`] /
+    /// [`is_missing`] of each slot instead (#1381).
+    ///
+    /// [`is_error`]: Self::is_error
+    /// [`is_missing`]: Self::is_missing
     #[must_use]
     pub fn has_error(&self) -> bool {
         self.0.has_error()
+    }
+
+    /// Whether this node *is* the `ERROR` node, as opposed to
+    /// [`has_error`](Self::has_error)'s "is, or contains one".
+    #[must_use]
+    #[inline]
+    pub fn is_error(&self) -> bool {
+        self.0.is_error()
+    }
+
+    /// Whether the parser inserted this node during error recovery: a
+    /// zero-width token the source does not contain, standing in for one
+    /// the grammar required.
+    ///
+    /// A sibling of [`is_error`](Self::is_error) rather than a synonym —
+    /// a MISSING token is not an `ERROR` node, but it occupies a child
+    /// slot just the same, so a rule reading a child's *index* has to
+    /// account for both.
+    #[must_use]
+    #[inline]
+    pub fn is_missing(&self) -> bool {
+        self.0.is_missing()
     }
 
     /// An id unique to this node within its tree, stable for the tree's
@@ -813,6 +844,13 @@ impl<'a> Cursor<'a> {
 
     /// Moves to the first child that ends after `byte` and returns its
     /// index in [`Node::children`] order, or `None` when no child does.
+    ///
+    /// "Ends after" is strict, so a **zero-width** child at `byte` — a
+    /// MISSING token the parser inserted during error recovery — is
+    /// skipped and the cursor lands on its successor. That is the one way
+    /// this differs from `children().position(..)`, which finds such a
+    /// node; a caller resolving a node's own index must therefore check
+    /// [`Cursor::node`] against it, as both call sites here do.
     ///
     /// The index is what makes this worth having over a sibling scan:
     /// tree-sitter stores a `repeat()` child list under balanced hidden

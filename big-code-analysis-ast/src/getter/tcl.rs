@@ -113,7 +113,8 @@ impl Getter for TclCode {
             // operand here and not a string there; and the value slots
             // `is_braced_literal_slot` recognises (`proc {my proc}`,
             // `namespace export {…}`) are strings there while
-            // `get_op_type_with_code` still bills their `{` as a block.
+            // `get_op_type_with_code` still bills their `{` as a block —
+            // the third is #1382, whose measurement decides it.
             //
             // `Checker::is_call` needs no such follow-up. It calls
             // every `Command` a call, including the ones inside a value

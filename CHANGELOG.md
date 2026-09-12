@@ -226,8 +226,11 @@ for historical reference.
   so its last body row was credited to nothing; a multi-row backtick
   command is a single node, so every interior row was. The wrapper is
   routed rather than the body, because a heredoc whose body is a single
-  empty row emits no body node at all. Tcl and iRules braced values
-  (`set x {a\n\nb}`) and C# interpolated strings still lose such rows.
+  empty row emits no body node at all. The sweep stopped at PHP:
+  measured on this branch, Ruby's backtick subshell — the exact twin of
+  the PHP shape fixed here — and `%w[…]`, Tcl and iRules braced values
+  (`set x {a\n\nb}`), and C# interpolated strings all still lose such
+  rows, each reporting `ploc 2, blank 1` of `sloc 3`.
   **Metric drift:** `loc.ploc` rises and `loc.blank` falls for PHP files
   containing these literals — by one for every nowdoc, empty rows or
   not.
@@ -244,7 +247,13 @@ for historical reference.
 
 - **`bca find --type string` and `bca count --type string` no longer
   report a Tcl or iRules script body as a string literal** (#1381) — a
-  `proc` or `if` body, or an iRules `when` handler. A braced *value* is
+  `proc` or `if` body, or an iRules `when` handler. The withdrawal
+  covers every braced word the grammar hangs off a *modelled* construct
+  rather than off a generic command's argument list, so a braced
+  **condition** goes with it: `if {$x > 1}`, `while {$y}`,
+  `expr {$a + $b}` and `catch {…}` are no longer reported either. A
+  Tcl condition is an `expr` script, so that is the same call as the
+  body, but it is a wider change than "bodies". A braced *value* is
   still reported: `lappend x {a b}`, a braced `proc` name, the arguments
   of a `namespace` subcommand other than `eval` / `inscope` / `code`, and
   the pattern and variable list of an `on` / `trap` handler clause the

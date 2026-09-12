@@ -12,7 +12,8 @@
 use crate::token_role::TokenRole;
 
 use crate::lang_helpers::tcl_family::{
-    ArgumentRoles, Dialect, SWITCH_COMMAND, fills_script_slot, namespace_script_slots, script_slots,
+    ArgumentRoles, Dialect, SWITCH_COMMAND, argument_slots_are_readable, fills_script_slot,
+    namespace_script_slots, script_slots,
 };
 use crate::space_kind::SpaceKind;
 use crate::traits::Search;
@@ -707,7 +708,13 @@ pub trait Getter {
     /// braces of the value slots `is_braced_literal_slot` adds still
     /// bill a `{}` operator, as they have since #1318. Moving that rule
     /// into the shared predicate changes `bca metrics` for Tcl, and is
-    /// its own measured change rather than a rider on this one.
+    /// its own measured change rather than a rider on this one — **it is
+    /// tracked as #1382**, where the measurement belongs. Concretely,
+    /// until it lands `after {100} {puts hi}` bills `N1 2` against bare
+    /// `after 100 {puts hi}`'s `1`, which is the score-moves-with-the-
+    /// delimiter property [`is_value_braced_word`]'s own rationale says
+    /// #1318 removed. An exception carried knowingly is still a §7
+    /// disagreement, so it gets an issue rather than only a paragraph.
     ///
     /// [`is_value_braced_word`]: Self::is_value_braced_word
     /// [`is_braced_literal_slot`]: Self::is_braced_literal_slot
@@ -746,11 +753,18 @@ pub trait Getter {
     /// as commands, so an arm whose *pattern* is spelled `proc`,
     /// `namespace`, `after` or `switch` builds one of these shapes around
     /// what are really arm bodies — [`is_switch_arm`] recognises it first.
-    /// And an owner holding a parse error has no argument positions worth
-    /// trusting. The multi-line `try … trap` clause is out of reach
-    /// entirely: the Tcl grammar leaves it inside an `ERROR` node, where
-    /// no role signal survives.
+    /// And an argument list whose own slot sequence is unreadable has no
+    /// positions worth trusting. The multi-line `try … trap` clause is out
+    /// of reach entirely: the Tcl grammar leaves it inside an `ERROR`
+    /// node, where no role signal survives.
     ///
+    /// That second guard is `tcl_family::argument_slots_are_readable`,
+    /// which asks the *slots* rather than the owner — asking
+    /// [`Node::has_error`] of the command withdrew every value slot of a
+    /// command whose only error sat inside one of its script arguments.
+    /// Its doc carries the measurement.
+    ///
+    /// [`Node::has_error`]: crate::Node::has_error
     /// [`is_value_braced_word`]: Self::is_value_braced_word
     /// [`is_switch_arm`]: Self::is_switch_arm
     #[must_use]
@@ -780,7 +794,7 @@ pub trait Getter {
             return false;
         };
         if parent.kind_id() != kinds.word_list
-            || owner.has_error()
+            || !argument_slots_are_readable(&owner, &parent)
             || Self::is_switch_arm(&owner, code, above_owner, kinds)
         {
             return false;
@@ -1167,6 +1181,12 @@ mod ancestor_tests {
 #[cfg(any(feature = "tcl", feature = "irules"))]
 mod braced_slot_tests {
     use super::{BracedWordKinds, Getter};
+    // Gated with the rows that name it: `Tcl` is read only by the
+    // `feature = "tcl"` helpers below, so the module's wider
+    // `any(tcl, irules)` gate would leave this unused — and `ci.yml` sets
+    // `RUSTFLAGS: "-D warnings"`, which turns that into a hard failure on
+    // an `irules`-without-`tcl` build.
+    #[cfg(feature = "tcl")]
     use crate::Tcl;
     use crate::node::{Ancestors, Node};
     use crate::test_support::for_each_node_with_chain;
@@ -1235,6 +1255,85 @@ mod braced_slot_tests {
             "irules",
             b"{a b}\nproc {my proc} {} {}\nnamespace export {c d}\n",
             &crate::lang_helpers::irules::BRACED_WORD_KINDS,
+        );
+    }
+
+    /// Every braced word of `code` that fills a value slot, in source
+    /// order. Tcl only: `is_braced_literal_slot` is a provided method, so
+    /// both dialects run the identical body over their own kind table.
+    ///
+    /// Walks with [`Ancestors::unknown`] rather than through
+    /// `for_each_node_with_chain`, whose fixtures must parse cleanly so a
+    /// walk cannot cover error recovery by accident — which is exactly
+    /// what the callers below are about. The two spellings answer
+    /// identically here; `assert_no_shallow_value_slot` above asserts
+    /// that on every node it visits.
+    #[cfg(feature = "tcl")]
+    fn value_slot_texts(code: &[u8]) -> Vec<String> {
+        let tree = crate::node::Tree::new::<crate::langs::TclCode>(code);
+        tree.get_root()
+            .preorder()
+            .filter(|node| {
+                <crate::langs::TclCode as Getter>::is_braced_literal_slot(
+                    node,
+                    code,
+                    Ancestors::unknown(),
+                    &crate::lang_helpers::tcl::BRACED_WORD_KINDS,
+                )
+            })
+            .map(|node| node.utf8_text(code).unwrap_or_default().to_owned())
+            .collect()
+    }
+
+    /// A parse error nested inside one argument's *script* leaves its
+    /// sibling *value* slots alone (#1381 review).
+    ///
+    /// `Node::has_error` is transitive, so asking it of the command
+    /// withdrew the rescue from every argument: `trap {pat} {v} {puts ]}`
+    /// lost both value slots, and the dump then rendered each as a
+    /// fabricated `command` named after its own text. What decides
+    /// whether the positions are readable is the argument list's own slot
+    /// sequence, and an error *inside* an argument moves no sibling's
+    /// index. Verified by reverting the guard to `owner.has_error()`:
+    /// the error row then comes back empty and this fails.
+    ///
+    /// Asserted as the *same* list for both fixtures rather than as a
+    /// non-empty one for the error row. The well-formed row is what pins
+    /// that the fixture still spells two value slots at all, so trimming
+    /// one out fails here instead of quietly reducing the claim to
+    /// "nothing changed".
+    #[test]
+    #[cfg(feature = "tcl")]
+    fn an_error_inside_a_script_argument_keeps_the_sibling_value_slots() {
+        let well_formed = value_slot_texts(b"trap {pat} {v} {puts j}\n");
+        assert_eq!(
+            well_formed,
+            ["{pat}", "{v}"],
+            "the fixture must spell two value slots before an error is added"
+        );
+        assert_eq!(
+            value_slot_texts(b"trap {pat} {v} {puts ]}\n"),
+            well_formed,
+            "an error inside the script argument moves no sibling's index"
+        );
+    }
+
+    /// The other half of the same rule: an `ERROR` token occupying a slot
+    /// of the argument list *does* shift every argument after it, so the
+    /// construct-wide answer is the right one there.
+    ///
+    /// `on code varList script` reads its script from the last slot, and
+    /// the stray `]` takes a slot of its own — so `{v}` is no longer the
+    /// second of three and the layout cannot be trusted. Without this row
+    /// the guard could be deleted outright and the test above would still
+    /// pass.
+    #[test]
+    #[cfg(feature = "tcl")]
+    fn an_error_occupying_a_slot_withdraws_the_layout() {
+        assert!(
+            value_slot_texts(b"on {code} ] {v} {puts j}\n").is_empty(),
+            "an ERROR token in the argument list makes every position \
+             unreadable"
         );
     }
 

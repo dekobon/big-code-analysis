@@ -17,7 +17,7 @@
 //! [`Getter::is_braced_literal_slot`]: crate::getter::Getter::is_braced_literal_slot
 
 use crate::getter::{BracedWordKinds, node_text};
-use crate::node::Node;
+use crate::node::{Cursor, Node};
 
 /// The core Tcl-family commands that evaluate a braced argument as a
 /// *script* and that neither dialect's grammar models with a node of its
@@ -231,15 +231,40 @@ pub(crate) struct ArgumentRoles {
     pub(crate) first: usize,
 }
 
+/// Whether `arguments`' own slot sequence can be read positionally — the
+/// precondition every rule below rests on (#1381 review).
+///
+/// The obvious spelling, `owner.has_error()`, is wrong and was measured
+/// wrong: [`Node::has_error`] is transitive, so a stray `]` buried in one
+/// argument's *script* withdrew the layout from every sibling.
+/// `after {100} {puts ]}` lost `{100}`, and the dump then rendered it as
+/// a fabricated `command` named `100` — the defect the slot table exists
+/// to remove. An error *inside* an argument moves no sibling's index; an
+/// `ERROR` or MISSING token holding a slot of its own moves every index
+/// after it, and that is the only shape that makes a position
+/// meaningless.
+///
+/// `has_error` stays as the `O(1)` pre-filter, so a well-formed command —
+/// every command in a file that parses — never pays for the scan, and
+/// the scan is bounded by the argument count when it does.
+///
+/// [`Node::has_error`]: crate::Node::has_error
+pub(crate) fn argument_slots_are_readable(owner: &Node<'_>, arguments: &Node<'_>) -> bool {
+    !owner.has_error()
+        || !arguments
+            .children()
+            .any(|slot| slot.is_error() || slot.is_missing())
+}
+
 /// Whether the braced `word` fills a slot of `arguments` that `roles`
 /// names as evaluated.
 ///
 /// A word whose index cannot be resolved keeps the construct-wide
 /// script answer, which is what every caller had before the slot table
 /// existed.
-pub(crate) fn fills_script_slot(
-    word: &Node<'_>,
-    arguments: &Node<'_>,
+pub(crate) fn fills_script_slot<'t>(
+    word: &Node<'t>,
+    arguments: &Node<'t>,
     roles: ArgumentRoles,
     dialect: Dialect<'_>,
 ) -> bool {
@@ -273,14 +298,27 @@ pub(crate) fn fills_script_slot(
         ScriptSlots::NoneOfThem => false,
         ScriptSlots::EveryButFirst => position > 0,
         ScriptSlots::Only(evaluated) => position == evaluated,
-        ScriptSlots::Last => position + 1 == arguments.child_count() - roles.first,
+        // `checked_sub` for the same reason the one above it has one:
+        // `Last` is reachable only from a table row paired with
+        // `first == 0` today, and a `Last` row added to
+        // `NAMESPACE_SCRIPT_SUBCOMMANDS` would pair it with `1` and
+        // underflow — a debug panic, or a release wrap to `usize::MAX`
+        // that answers `false` for every argument. `None` keeps the
+        // construct-wide script answer, as every other unresolvable
+        // position here does.
+        ScriptSlots::Last => arguments
+            .child_count()
+            .checked_sub(roles.first)
+            .is_none_or(|count| position + 1 == count),
         ScriptSlots::EveryButLeadingLevel => {
             position > 0 || !reads_as_uplevel_level(word, dialect.code)
         }
         // `switch` is a generic command, so `roles.first` is 0 and the
         // absolute index is the position; the subject scan counts from
-        // the same origin, so it takes the index.
-        ScriptSlots::SwitchArms => switch_arm_slot(arguments, index, dialect),
+        // the same origin, so it takes the index. The cursor is handed on
+        // rather than rebuilt: `Cursor::new` heap-allocates its stack, and
+        // every braced argument of a one-line arm list reaches here.
+        ScriptSlots::SwitchArms => switch_arm_slot(arguments, index, dialect, &mut cursor),
     }
 }
 
@@ -312,8 +350,13 @@ fn reads_as_uplevel_level(word: &Node<'_>, code: &[u8]) -> bool {
 /// Whether the argument at `index` of a `switch` command is one of the
 /// arms it evaluates, rather than an option, an option's operand, the
 /// subject, or a pattern.
-fn switch_arm_slot(arguments: &Node<'_>, index: usize, dialect: Dialect<'_>) -> bool {
-    let Some(subject) = switch_subject_index(arguments, dialect) else {
+fn switch_arm_slot<'t>(
+    arguments: &Node<'t>,
+    index: usize,
+    dialect: Dialect<'_>,
+    cursor: &mut Cursor<'t>,
+) -> bool {
+    let Some(subject) = switch_subject_index(arguments, dialect, cursor) else {
         // No subject: every word was a leading option or an option's
         // operand, as in the truncated `switch -matchvar {m}`. Nothing
         // says which half of the list this word is in, so keep the
@@ -345,10 +388,30 @@ fn switch_arm_slot(arguments: &Node<'_>, index: usize, dialect: Dialect<'_>) -> 
 /// whichever braced word the caller is asking about — its length is the
 /// leading-option count, not the argument count. Every braced argument
 /// of a wide one-line arm list asks, so an unbounded scan here would be
-/// the quadratic `is_switch_arm_body` documents (#1381 review).
-fn switch_subject_index(arguments: &Node<'_>, dialect: Dialect<'_>) -> Option<usize> {
+/// the quadratic `is_switch_arm_body` documents (#1381 review). It runs
+/// over the caller's cursor for the same reason.
+///
+/// # The option list is resolved statically, and Tcl resolves it at run time
+///
+/// A word that is not a `simple_word` is taken to be the subject. That
+/// is right for the overwhelmingly common `switch $v {…}` and for a
+/// braced subject, and wrong for a legal but vanishingly rare computed
+/// *option*: Tcl substitutes each word before dispatching, so
+/// `switch "-exact" $v a {…}` and `switch $opt $v a {…}` really do pass
+/// an option there. Taken as the subject, every later index shifts by
+/// one and the pattern/body parity below inverts — the bodies read as
+/// literals and the patterns as scripts. The same static-resolution
+/// limit `command_leading_word` documents for a command *name*, and
+/// answered the same way: guessing keeps the common form right, where
+/// returning `None` would surrender `switch $v` to the construct-wide
+/// script answer.
+fn switch_subject_index<'t>(
+    arguments: &Node<'t>,
+    dialect: Dialect<'_>,
+    cursor: &mut Cursor<'t>,
+) -> Option<usize> {
     let mut skip_operand = false;
-    for (index, child) in arguments.children().enumerate() {
+    for (index, child) in arguments.children_with(cursor).enumerate() {
         if skip_operand {
             skip_operand = false;
             continue;
