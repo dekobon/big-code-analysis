@@ -7,12 +7,20 @@
 //!
 //! # Why the constructs are valid source
 //!
-//! Every open/close pair below nests around an *expression* and leaves
-//! the result parseable. That is not politeness — tree-sitter's error
-//! recovery flattens badly-formed input, so an invalid generator would
-//! produce a shallow tree with a large `ERROR` node and quietly stop
-//! testing depth at all. Malformed bytes are already covered by the
-//! per-language targets, which mutate freely.
+//! Every open/close pair below nests around an *expression* — except
+//! Tcl's, which nest around a *script*, because the language has no
+//! expression form that nests outside `expr` — and leaves the result
+//! parseable. That is not politeness — tree-sitter's error recovery
+//! flattens badly-formed input, so an invalid generator would produce a
+//! shallow tree with a large `ERROR` node and quietly stop testing depth
+//! at all. Malformed bytes are already covered by the per-language
+//! targets, which mutate freely.
+//!
+//! That failure is silent in both directions, which is why each language
+//! whose constructs differ in kind carries a shallow-nest assertion as
+//! well as a deep one: an `ERROR`-flattened tree serializes cleanly at
+//! every depth, so "the deep nest failed to serialize" says nothing on
+//! its own.
 //!
 //! # What depth is for
 //!
@@ -47,10 +55,11 @@ pub const MAX_NESTING_DEPTH: usize = 512;
 /// Languages the generator knows how to nest.
 ///
 /// A subset of the fuzzed set: each entry needs a hand-written table of
-/// constructs, and these four span the interesting variation — braces
-/// versus indentation, and three different lambda spellings.
+/// constructs, and these five span the interesting variation — braces
+/// versus indentation, three different lambda spellings, and one
+/// language whose nesting is scripts rather than expressions.
 // `Ord` so `seeds_cover_every_language` can compare the decoded set
-// against an expected one, rather than asserting membership four times.
+// against an expected one, rather than asserting membership five times.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum NestLang {
     /// Rust: block expressions nest, so it has the widest shape table.
@@ -63,6 +72,17 @@ pub enum NestLang {
     /// Python: expression nesting only, since indentation-based blocks
     /// would make the generated source quadratic in the depth.
     Python,
+    /// Tcl: the one entry whose constructs nest *scripts* rather than
+    /// expressions, and the reason it is here. Since #1381 a braced
+    /// script body keeps its children, so one brace costs three
+    /// `AstNode` levels (`braced_word` → `command` → `word_list`) where
+    /// the expression languages spend one or two — which puts
+    /// `MAX_AST_SERIALIZE_DEPTH` within reach of far shallower source
+    /// than the other four can produce. Appended last deliberately: the
+    /// committed seeds select a language with `byte % N`, and every one
+    /// of them uses a byte below 4, so extending the modulus leaves
+    /// their decoding unchanged.
+    Tcl,
 }
 
 /// One nesting construct, rendered per language by [`Nesting::pair`].
@@ -92,11 +112,12 @@ const MAX_SHAPES: usize = 16;
 impl NestLang {
     /// Decode a language selector byte. See [`Nesting`]'s byte layout.
     fn from_byte(byte: u8) -> Self {
-        match byte % 4 {
+        match byte % 5 {
             0 => Self::Rust,
             1 => Self::Cpp,
             2 => Self::Javascript,
-            _ => Self::Python,
+            3 => Self::Python,
+            _ => Self::Tcl,
         }
     }
 }
@@ -132,7 +153,7 @@ pub struct Nesting {
 ///
 /// | bytes | meaning |
 /// |---|---|
-/// | 0 | language selector, `% 4` |
+/// | 0 | language selector, `% 5` |
 /// | 1-2 | raw depth, little-endian `u16`, reduced in [`Nesting::render`] |
 /// | 3.. | one shape per byte, `% 5`, up to [`MAX_SHAPES`] |
 ///
@@ -171,6 +192,7 @@ impl Nesting {
             NestLang::Cpp => LANG::Cpp,
             NestLang::Javascript => LANG::Javascript,
             NestLang::Python => LANG::Python,
+            NestLang::Tcl => LANG::Tcl,
         }
     }
 
@@ -213,6 +235,10 @@ impl Nesting {
             NestLang::Cpp => (b"int main() { auto x = ", b"; }\n"),
             NestLang::Javascript => (b"let x = ", b";\n"),
             NestLang::Python => (b"x = ", b"\n"),
+            // The nest is already a complete script, so it needs no
+            // surrounding unit: every shape below is a command taking a
+            // braced script, and the leaf is a bare command word.
+            NestLang::Tcl => (b"", b"\n"),
         }
     }
 
@@ -263,13 +289,26 @@ impl Nesting {
             (NestLang::Python, Shape::Call) => (b"f(", b")"),
             (NestLang::Python, Shape::Bracket) => (b"[", b"][0]"),
             (NestLang::Python, Shape::Lambda) => (b"(lambda: ", b")()"),
+
+            // Every Tcl arm nests a *script*, not an expression: the
+            // language has no expression form that nests outside `expr`,
+            // and a braced script body is the shape whose depth cost
+            // this language was added to cover. `proc` is the `Lambda`
+            // spelling because it is the one that opens a function
+            // space, so it drives `MAX_SPACE_SERIALIZE_DEPTH` the way
+            // the other languages' closures do.
+            (NestLang::Tcl, Shape::Paren) => (b"uplevel 1 {", b"}"),
+            (NestLang::Tcl, Shape::Call) => (b"catch {", b"}"),
+            (NestLang::Tcl, Shape::Bracket) => (b"if {1} {", b"}"),
+            (NestLang::Tcl, Shape::Lambda) => (b"proc p {} {", b"}"),
+            (NestLang::Tcl, Shape::Block) => (b"eval {", b"}"),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use big_code_analysis::{Ast, AstCfg, LANG, MetricsOptions, Source};
+    use big_code_analysis::{Ast, AstCfg, MetricsOptions, Source};
 
     use arbitrary::{Arbitrary, Unstructured};
 
@@ -293,13 +332,21 @@ mod tests {
     /// make these tests pass for the wrong reason.
     const DEPTH_ERROR: &str = "nesting is deeper than the serialization limit";
 
-    /// Serialize an `AstNode` dump of `source`, returning the error text
+    /// Serialize an `AstNode` dump of `input`, returning the error text
     /// if it fails.
-    fn dump_error(source: Vec<u8>) -> Option<String> {
-        let ast = Ast::parse(Source::from_bytes(LANG::Rust, source)).expect("rust is enabled");
+    ///
+    /// Takes the `Nesting` rather than its rendered bytes so the language
+    /// parsed is always the language rendered. Passing the two separately
+    /// let a caller hand Tcl source to the Rust grammar, which parses to
+    /// a shallow `ERROR` tree and reports no depth failure — the exact
+    /// "looks like coverage" result this module's seeds already had once.
+    fn dump_error(input: &Nesting) -> Option<String> {
+        let lang = input.lang();
+        let ast =
+            Ast::parse(Source::from_bytes(lang, input.render())).expect("language is enabled");
         let dump = ast.dump(AstCfg {
             id: String::new(),
-            language: LANG::Rust.name().to_owned(),
+            language: lang.name().to_owned(),
             comment: false,
             span: true,
         });
@@ -318,7 +365,7 @@ mod tests {
         // `depth` is reduced modulo the cap, so `MAX_NESTING_DEPTH` maps
         // to 1. The value one below it is the deepest reachable nest.
         let deepest = u16::try_from(MAX_NESTING_DEPTH - 1).expect("cap fits in u16");
-        let error = dump_error(nesting(NestLang::Rust, deepest, &[Shape::Paren]).render())
+        let error = dump_error(&nesting(NestLang::Rust, deepest, &[Shape::Paren]))
             .expect("the deepest generated nest must reach MAX_AST_SERIALIZE_DEPTH");
         assert!(error.contains(DEPTH_ERROR), "unexpected failure: {error}");
 
@@ -326,7 +373,7 @@ mod tests {
         // holds for a generator that emits an unserializable tree at
         // *every* depth, which would say nothing about reaching a bound.
         assert_eq!(
-            dump_error(nesting(NestLang::Rust, 4, &[Shape::Paren]).render()),
+            dump_error(&nesting(NestLang::Rust, 4, &[Shape::Paren])),
             None,
             "a shallow nest must serialize cleanly"
         );
@@ -334,12 +381,43 @@ mod tests {
 
     /// Serialize the `FuncSpace` tree for `source`, returning the error
     /// text if it fails.
-    fn space_error(source: Vec<u8>) -> Option<String> {
-        let space = Ast::parse(Source::from_bytes(LANG::Rust, source))
-            .expect("rust is enabled")
+    fn space_error(input: &Nesting) -> Option<String> {
+        let space = Ast::parse(Source::from_bytes(input.lang(), input.render()))
+            .expect("language is enabled")
             .metrics(MetricsOptions::default())
             .expect("walker succeeds");
         serde_json::to_vec(&space).err().map(|e| e.to_string())
+    }
+
+    /// The same measurement for Tcl, which is why the language was added
+    /// to this generator: a braced script body keeps its children since
+    /// #1381, so one brace costs three `AstNode` levels and the bound is
+    /// reachable from far shallower source than the expression languages
+    /// need.
+    ///
+    /// The shallow half matters more here than it does for Rust. This
+    /// module's whole hazard is that invalid source flattens into a
+    /// large `ERROR` node and quietly stops testing depth — and every
+    /// Tcl arm is a *script* nest, a construct class none of the other
+    /// four exercise. A shallow nest that serializes cleanly is what
+    /// says the generated braces really parse.
+    #[test]
+    fn tcl_script_nesting_exceeds_the_ast_serialize_bound() {
+        // A third of the cap, so the claim is specifically that Tcl needs
+        // fewer braces than the other languages need constructs. At three
+        // levels per brace this still clears 512.
+        let braces = u16::try_from(MAX_NESTING_DEPTH / 3).expect("cap fits in u16");
+        let error = dump_error(&nesting(NestLang::Tcl, braces, &[Shape::Block]))
+            .expect("a third of the cap in braces must reach MAX_AST_SERIALIZE_DEPTH");
+        assert!(error.contains(DEPTH_ERROR), "unexpected failure: {error}");
+
+        assert_eq!(
+            dump_error(&nesting(NestLang::Tcl, 4, &[Shape::Block])),
+            None,
+            "a shallow brace nest must parse and serialize cleanly; an \
+             ERROR-flattened tree would serialize cleanly at every depth \
+             and make the assertion above meaningless"
+        );
     }
 
     /// The same measurement for the `FuncSpace` bound, which only the
@@ -349,7 +427,7 @@ mod tests {
     #[test]
     fn lambda_shapes_exceed_the_space_serialize_bound() {
         let deepest = u16::try_from(MAX_NESTING_DEPTH - 1).expect("cap fits in u16");
-        let error = space_error(nesting(NestLang::Rust, deepest, &[Shape::Lambda]).render())
+        let error = space_error(&nesting(NestLang::Rust, deepest, &[Shape::Lambda]))
             .expect("the deepest lambda nest must reach MAX_SPACE_SERIALIZE_DEPTH");
         assert!(error.contains(DEPTH_ERROR), "unexpected failure: {error}");
 
@@ -358,7 +436,7 @@ mod tests {
         // the assertion above a claim about `FuncSpace` depth rather
         // than about depth in general.
         assert_eq!(
-            space_error(nesting(NestLang::Rust, deepest, &[Shape::Paren]).render()),
+            space_error(&nesting(NestLang::Rust, deepest, &[Shape::Paren])),
             None,
             "a paren nest opens no function spaces and must serialize cleanly"
         );
@@ -399,7 +477,7 @@ mod tests {
         // Non-vacuity: an empty directory would satisfy every assertion
         // below by having nothing to contradict them.
         assert!(
-            seeds >= 4,
+            seeds >= 5,
             "expected at least one seed per language, found {seeds}"
         );
         assert_eq!(
@@ -408,7 +486,8 @@ mod tests {
                 NestLang::Rust,
                 NestLang::Cpp,
                 NestLang::Javascript,
-                NestLang::Python
+                NestLang::Python,
+                NestLang::Tcl
             ]),
             "the seed corpus does not reach every language"
         );

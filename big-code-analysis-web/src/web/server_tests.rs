@@ -186,6 +186,130 @@ async fn test_web_ast() {
     assert_eq!(res, expected);
 }
 
+/// Collects every `type` in a rendered `/ast` tree, depth-first.
+fn ast_node_types(node: &Value, out: &mut Vec<String>) {
+    if let Some(kind) = node["type"].as_str() {
+        out.push(kind.to_owned());
+    }
+    if let Some(children) = node["children"].as_array() {
+        for child in children {
+            ast_node_types(child, out);
+        }
+    }
+}
+
+/// The first Tcl coverage `/ast` has had, pinning the shape #1381
+/// changed: a `proc` body is a `braced_word` that keeps its children, so
+/// the commands inside it are nodes of their own rather than collapsing
+/// into one verbatim leaf.
+///
+/// Asserted structurally rather than as a whole-tree `json!` literal —
+/// the claim is that the body has a command subtree, and a full literal
+/// would pin every unrelated detail of the Tcl grammar with it.
+#[actix_rt::test]
+async fn test_web_ast_tcl_script_body_keeps_its_children() {
+    let app = test::init_service(
+        App::new().app_data(test_config()).service(
+            web::resource("/ast")
+                .guard(guard::Header("content-type", "application/json"))
+                .route(web::post().to(ast_parser)),
+        ),
+    )
+    .await;
+    let req = test::TestRequest::post()
+        .uri("/ast")
+        .set_json(AstPayload {
+            id: "tcl-1".to_string(),
+            file_name: "foo.tcl".to_string(),
+            code: "proc f {} {\n    puts hi\n}\n".to_string(),
+            comment: false,
+            span: true,
+        })
+        .to_request();
+
+    let res: Value = test::call_and_read_body_json(&app, req).await;
+    assert_eq!(res["language"], json!("tcl"));
+
+    let mut types = Vec::new();
+    ast_node_types(&res["root"], &mut types);
+    assert!(
+        types.iter().any(|kind| kind == "procedure"),
+        "the `proc` must render as its own construct: {types:?}"
+    );
+    // The load-bearing one: a flattened body would leave the
+    // `braced_word` childless, so the `puts` command would not appear at
+    // all. Its presence is what says the body kept its children.
+    assert!(
+        types.iter().any(|kind| kind == "command"),
+        "the body's `puts` must survive as a command node, not be \
+         flattened into the braced_word leaf: {types:?}"
+    );
+}
+
+/// Deeply-braced Tcl reaches `MAX_AST_SERIALIZE_DEPTH` where no other
+/// language in the corpus does, because a script body that keeps its
+/// children costs roughly four `AstNode` levels per brace (#1381).
+///
+/// What this pins is that the bound *holds*: the request fails with the
+/// uniform error body rather than overflowing serde's native stack,
+/// which aborts the process rather than raising a catchable panic
+/// (#1056). The depth message itself never reaches the client —
+/// `Format::encode` collapses the serializer error — so the observable
+/// contract is the 500 and its `serialize_failed` token.
+#[actix_rt::test]
+async fn test_web_ast_deeply_braced_tcl_errors_rather_than_aborting() {
+    let app = test::init_service(
+        App::new().app_data(test_config()).service(
+            web::resource("/ast")
+                .guard(guard::Header("content-type", "application/json"))
+                .route(web::post().to(ast_parser)),
+        ),
+    )
+    .await;
+
+    // `eval` takes a script in every argument, so each level keeps its
+    // children: `command` -> `word_list` -> `braced_word` -> `command`.
+    // 250 levels is comfortably past the 512-level bound at ~3 levels
+    // each, and still a ~1.5 KB payload.
+    let depth = 250;
+    let mut code = String::new();
+    for _ in 0..depth {
+        code.push_str("eval {");
+    }
+    code.push_str("puts hi");
+    for _ in 0..depth {
+        code.push('}');
+    }
+    code.push('\n');
+
+    let req = test::TestRequest::post()
+        .uri("/ast")
+        .set_json(AstPayload {
+            id: "tcl-deep".to_string(),
+            file_name: "deep.tcl".to_string(),
+            code,
+            comment: false,
+            span: true,
+        })
+        .to_request();
+
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "a tree past the serialize bound must fail the request, not the \
+         process",
+    );
+    let body = test::read_body(resp).await;
+    assert_uniform_error_body(&body, "tcl-deep");
+    let parsed: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        parsed["error_kind"],
+        json!("serialize_failed"),
+        "the depth breach must surface as the serialize_failed token",
+    );
+}
+
 #[actix_rt::test]
 async fn test_web_ast_string() {
     let app = test::init_service(

@@ -160,6 +160,21 @@ pub struct AstResponse {
 /// DeepSpeech, …) is 188 levels. It is also set well clear of the stack:
 /// the earliest measured overflow of any emitted format was 2 000 levels
 /// on a debug build's default 2 MiB thread.
+///
+/// Read that 188 as a corpus figure, not a conversion rate. The depth
+/// counted here is the **`AstNode` tree after [`Alterator::alterate`]**,
+/// and how many levels one level of *source* nesting costs is a
+/// per-language property of what that alterator flattens. The Tcl family
+/// is the outlier: since #1381 a script body keeps its children, so one
+/// brace level spans `braced_word` → `command` → `word_list` and costs
+/// three levels here — 196 levels over 64 nested `eval` braces, measured
+/// by `a_tcl_brace_level_costs_three_ast_levels` below — putting the
+/// ceiling near 170 nested braces rather than 512. Nothing in the corpus
+/// approaches either number — it holds no Tcl at all — but a caller
+/// re-deriving this bound from the 188 alone would be reasoning about
+/// the wrong quantity.
+///
+/// [`Alterator::alterate`]: crate::alterator::Alterator::alterate
 pub const MAX_AST_SERIALIZE_DEPTH: usize = 512;
 
 /// Serializes an [`AstNode`]'s children one level deeper, refusing to
@@ -599,6 +614,67 @@ mod tests {
                  {MAX_AST_SERIALIZE_DEPTH} levels"
             )),
             "the error must name the type and the limit, got: {err}"
+        );
+    }
+
+    /// The deepest `children` chain in a tree, measured iteratively so a
+    /// pathological input cannot overflow the measurement itself.
+    fn ast_depth(root: &AstNode) -> usize {
+        let mut deepest = 0;
+        let mut stack = vec![(root, 1usize)];
+        while let Some((node, depth)) = stack.pop() {
+            deepest = deepest.max(depth);
+            stack.extend(node.children.iter().map(|child| (child, depth + 1)));
+        }
+        deepest
+    }
+
+    /// What one level of Tcl brace nesting costs in `AstNode` levels, and
+    /// therefore how far [`MAX_AST_SERIALIZE_DEPTH`] actually reaches for
+    /// this language.
+    ///
+    /// The bound's doc quotes a corpus figure of 188 levels, which is a
+    /// count of `AstNode` levels and not a conversion rate from source
+    /// nesting. Since #1381 a Tcl script body keeps its children, so the
+    /// two quantities came apart here more than anywhere else: this test
+    /// is what keeps the number in that doc honest, and what would notice
+    /// if an alterator change moved it again.
+    #[cfg(feature = "tcl")]
+    #[test]
+    fn a_tcl_brace_level_costs_three_ast_levels() {
+        // `eval` evaluates every argument, so each level keeps its
+        // children rather than flattening to a verbatim leaf.
+        let levels = 64;
+        let mut code = String::new();
+        for _ in 0..levels {
+            code.push_str("eval {");
+        }
+        code.push_str("puts hi");
+        for _ in 0..levels {
+            code.push('}');
+        }
+
+        let root = build_ast::<crate::TclParser>(code.as_bytes(), "deep.tcl");
+        let depth = ast_depth(&root);
+        let per_level = depth / levels;
+
+        // Measured 196 over 64 at the pinned grammar: `braced_word` ->
+        // `command` -> `word_list` before the next `braced_word`. The
+        // range admits one level of drift either way so a grammar bump
+        // reports the change rather than simply going red.
+        assert!(
+            (3..=4).contains(&per_level),
+            "a braced script level should cost 3 AstNode levels \
+             (braced_word -> command -> word_list); measured {depth} \
+             levels over {levels} braces = {per_level}"
+        );
+        // The consequence worth stating in one place: the 512-level bound
+        // is a low-hundreds brace ceiling for Tcl, not a 512 one.
+        let ceiling = MAX_AST_SERIALIZE_DEPTH / per_level;
+        assert!(
+            (120..=180).contains(&ceiling),
+            "the effective Tcl brace ceiling should sit near 170, got \
+             {ceiling} from {per_level} levels per brace"
         );
     }
 
