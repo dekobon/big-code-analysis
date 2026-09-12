@@ -135,6 +135,29 @@ for historical reference.
 
 ### Fixed
 
+- **The five hand-listed cross-language parity suites now key their
+  fixtures on an exhaustive `match` over `LANG`**, so a new language
+  cannot be added without deciding whether it spells each construct
+  (#1281). The cyclomatic, cognitive, nargs and exit suites had
+  hand-maintained language lists that had fallen behind the roster:
+  Ruby, Lua, Perl, Go and Elixir were missing from families they can
+  express, `LANG::C` appeared in none of them (every row labelled `"c"`
+  actually parsed `LANG::Cpp`), and the omission had already masked a
+  real divergence — the Elixir catch-all CCN bug fixed in #1272. The
+  restructure adds 107 measured fixture rows across 11 families and
+  records a reason at every `None` arm, replacing `nargs`'s false "every
+  supported language …" prose list and `nexits`'s asserted "all 23
+  languages" claim with a compiler-enforced one. None of the new rows
+  moved a metric: all 107 were at parity when added.
+- **The same five suites no longer panic under a reduced feature set.**
+  Each measured its fixtures through `analyze(…).expect(…)` with no
+  `is_enabled()` filter, so any build short of the language a row named
+  died on `LanguageDisabled` rather than skipping the row — 13 of 19
+  parity tests failed under `--no-default-features --features go`, which
+  reads as a defect in whatever was being changed. The four table-driven
+  suites now skip disabled languages, and the two-grammar
+  `cpp_mozcpp_parity` is gated on `cpp` *and* `mozcpp` at compile time.
+  The `--all-features` test population is unchanged.
 - **The 24 `alterator_string_flattening` cases are now gated on their own
   grammar features**, so a build that enables only some of the eight
   languages they cover leaves the rest *absent* rather than failing

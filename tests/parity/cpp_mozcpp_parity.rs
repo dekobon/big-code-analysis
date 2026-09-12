@@ -20,9 +20,16 @@
 //! The fixture deliberately exercises the constructs that regression
 //! touched: `new` allocation, a compound assignment, the `<=>` spaceship,
 //! and a `try` / `catch` pair, plus ordinary branches and returns.
+//!
+//! Both grammars must be compiled in for any of this to mean
+//! anything, so every item below is gated on the pair. Without the
+//! gate a reduced-feature build did not skip these tests, it panicked
+//! inside `analyze`'s `LanguageDisabled` error (#1281).
 
+#[cfg(all(feature = "cpp", feature = "mozcpp"))]
 use big_code_analysis::{LANG, MetricsOptions, Source, analyze};
 
+#[cfg(all(feature = "cpp", feature = "mozcpp"))]
 /// Headline integer metric sums for one parse of `source` as `lang`.
 fn metric_sums(lang: LANG, source: &str, ext: &str) -> Vec<(&'static str, u64)> {
     let name = format!("parity.{ext}");
@@ -30,7 +37,7 @@ fn metric_sums(lang: LANG, source: &str, ext: &str) -> Vec<(&'static str, u64)> 
         Source::new(lang, source.as_bytes()).with_name(Some(name)),
         MetricsOptions::default(),
     )
-    .expect("parser produced a FuncSpace");
+    .unwrap_or_else(|e| panic!("{lang:?}: analyze failed: {e}"));
     let m = &space.metrics;
     vec![
         ("cyclomatic", m.cyclomatic.cyclomatic_sum()),
@@ -45,6 +52,7 @@ fn metric_sums(lang: LANG, source: &str, ext: &str) -> Vec<(&'static str, u64)> 
     ]
 }
 
+#[cfg(all(feature = "cpp", feature = "mozcpp"))]
 /// The value `metric_sums` recorded for `key`, panicking with the whole
 /// row set when the key is absent.
 ///
@@ -60,6 +68,7 @@ fn metric(sums: &[(&'static str, u64)], key: &str) -> u64 {
     )
 }
 
+#[cfg(all(feature = "cpp", feature = "mozcpp"))]
 #[test]
 fn cpp_and_mozcpp_agree_on_plain_cpp() {
     // Plain C++: `new` / compound-assign / `<=>` / `try`-`catch` are all
@@ -108,6 +117,7 @@ fn cpp_and_mozcpp_agree_on_plain_cpp() {
     );
 }
 
+#[cfg(all(feature = "cpp", feature = "mozcpp"))]
 #[test]
 fn cpp_and_mozcpp_agree_on_raw_string_delimiters() {
     // #1314 guards `LPAREN` under a `RawStringLiteral` parent in both
@@ -146,6 +156,7 @@ fn cpp_and_mozcpp_agree_on_raw_string_delimiters() {
     );
 }
 
+#[cfg(all(feature = "cpp", feature = "mozcpp"))]
 #[test]
 fn cpp_and_mozcpp_agree_on_this() {
     // #1361 added `This` to the operand arm of both `CppCode::get_op_type`
