@@ -19,3 +19,7 @@ pub mod elixir;
 pub(crate) mod irules;
 pub mod python;
 pub mod tcl;
+// Crate-private for the same reason as `irules` above: the braced-word
+// slot rule is read by this crate's three classifiers and by nothing
+// outside it.
+pub(crate) mod tcl_family;

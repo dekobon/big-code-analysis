@@ -101,6 +101,24 @@ flatten_cases! {
     tcl_flattens_namespace_argument: LANG::Tcl, "namespace export {a b}\n", "f.tcl", "{a b}";
     irules_flattens_braced_proc_name: LANG::Irules, "proc {my proc} {} {}\n", "f.irule", "{my proc}";
     irules_flattens_namespace_argument: LANG::Irules, "namespace export {a b}\n", "f.irule", "{a b}";
+    // The *value* argument of a command whose other arguments are
+    // scripts (#1381 review). Each of these was flattened before #1381
+    // and became a nested `command` under it, so the dump grew a
+    // subtree the source does not contain: `{100}` rendered as a
+    // command named `100`, `{5}` as one named `5`. The script argument
+    // beside each is the negative half, asserted through
+    // `Checker::is_string_with_code` in `checker.rs` — this file can
+    // only observe the positive, since a flattened leaf is what it
+    // looks for.
+    tcl_flattens_after_delay: LANG::Tcl, "after {100} {puts a}\n", "f.tcl", "{100}";
+    tcl_flattens_time_count: LANG::Tcl, "time {puts b} {5}\n", "f.tcl", "{5}";
+    tcl_flattens_uplevel_level: LANG::Tcl, "uplevel {1} {puts c}\n", "f.tcl", "{1}";
+    tcl_flattens_switch_subject: LANG::Tcl, "switch {foo} {p {puts d}}\n", "f.tcl", "{foo}";
+    tcl_flattens_namespace_eval_name: LANG::Tcl, "namespace eval {my ns} {puts e}\n", "f.tcl", "{my ns}";
+    irules_flattens_after_delay: LANG::Irules, "after {100} {log a}\n", "f.irule", "{100}";
+    irules_flattens_time_count: LANG::Irules, "time {log b} {5}\n", "f.irule", "{5}";
+    irules_flattens_uplevel_level: LANG::Irules, "uplevel {1} {log c}\n", "f.irule", "{1}";
+    irules_flattens_namespace_eval_name: LANG::Irules, "namespace eval {my ns} {log d}\n", "f.irule", "{my ns}";
     ruby_flattens_string_literal: LANG::Ruby, "s = \"hi\"\n", "f.rb", "\"hi\"";
     elixir_flattens_string_literal: LANG::Elixir, "s = \"hi\"\n", "f.ex", "\"hi\"";
 }

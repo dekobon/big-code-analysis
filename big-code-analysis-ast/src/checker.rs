@@ -2818,4 +2818,213 @@ mod tests {
             "neither tcl nor irules is enabled; this test asserted nothing"
         );
     }
+
+    /// A command whose signature mixes the two roles keeps its *value*
+    /// arguments string literals, one rule per row of
+    /// `lang_helpers::tcl_family::SCRIPT_TAKING_COMMANDS` (#1381 review).
+    ///
+    /// `is_value_braced_word` answers by command name alone, so before
+    /// the slot table every braced argument of a script-taking command
+    /// was a script: `time {set x 1} {5}` lost the count, `after {100}`
+    /// the delay, `switch {foo} {…}` the subject, and
+    /// `namespace eval {foo bar} {…}` the namespace name.
+    ///
+    /// Every line carries a value *and* a script, so each rule is pinned
+    /// from both sides: a rule that withdrew the whole construct fails on
+    /// the value, and one that rescued it whole fails on the script.
+    /// Flipping which index a rule calls the value moves a row from one
+    /// list to the other, so neither list can be satisfied by a constant
+    /// or by an inverted polarity.
+    ///
+    /// The two `uplevel` lines are the level gate's own pair, the last
+    /// Tcl line is the `is_switch_arm` guard's — an arm whose *pattern*
+    /// is spelled `after` builds an `after` command around what are
+    /// really arm bodies, whose first would otherwise become the delay —
+    /// and the `-matchvar` line pins the subject scan's option arity and
+    /// its `--` terminator. iRules has no `switch` rows because its
+    /// grammar models the construct and rejects a braced subject
+    /// outright (the word lands under an `ERROR`, where the walk helper
+    /// refuses to go).
+    #[test]
+    #[cfg(any(feature = "tcl", feature = "irules"))]
+    fn tcl_family_mixed_signature_value_arguments_stay_strings() {
+        let mut ran = 0;
+        #[cfg(feature = "tcl")]
+        {
+            ran += 1;
+            let (kept, withdrawn, _) = braced_word_string_verdicts::<crate::langs::TclCode>(
+                "tcl",
+                b"after {100} {puts a}\n\
+                  time {puts b} {5}\n\
+                  uplevel {1} {puts c}\n\
+                  uplevel {puts d}\n\
+                  switch {sub} {p {puts e}}\n\
+                  switch -exact -- {sub2} {q {puts f}}\n\
+                  switch -- {sub4} {t} {puts m}\n\
+                  switch -nocase -matchvar {mv} -regexp {sub3} {r {puts g}}\n\
+                  switch $v {^s} {puts h}\n\
+                  namespace eval {my ns} {puts i}\n\
+                  namespace inscope {my ns2} {puts j}\n\
+                  namespace code {puts k}\n\
+                  switch $w { after {puts x} time {puts y} }\n",
+                Tcl::BracedWord as u16,
+            );
+            assert_eq!(
+                kept,
+                [
+                    "{100}", "{5}", "{1}", "{sub}", "{sub2}", "{sub4}", "{t}", "{mv}", "{sub3}",
+                    "{^s}", "{my ns}", "{my ns2}",
+                ],
+                "tcl: an `after` delay, a `time` count, an `uplevel` level, a \
+                 `switch` subject reached past three option spellings, a \
+                 `-matchvar` operand, two flat-form patterns and the two \
+                 `namespace` names are literals"
+            );
+            assert_eq!(
+                withdrawn,
+                [
+                    "{puts a}",
+                    "{puts b}",
+                    "{puts c}",
+                    "{puts d}",
+                    "{p {puts e}}",
+                    "{puts e}",
+                    "{q {puts f}}",
+                    "{puts f}",
+                    "{puts m}",
+                    "{r {puts g}}",
+                    "{puts g}",
+                    "{puts h}",
+                    "{puts i}",
+                    "{puts j}",
+                    "{puts k}",
+                    "{ after {puts x} time {puts y} }",
+                    "{puts x}",
+                    "{puts y}",
+                ],
+                "tcl: every arm list, arm body and evaluated argument is a \
+                 script — including the sole argument of the second \
+                 `uplevel`, which does not read as a level, and the two \
+                 bodies of an arm whose pattern is spelled `after`"
+            );
+        }
+        #[cfg(feature = "irules")]
+        {
+            ran += 1;
+            let (kept, withdrawn, _) = braced_word_string_verdicts::<crate::langs::IrulesCode>(
+                "irules",
+                b"after {100} {log a}\n\
+                  time {log b} {5}\n\
+                  uplevel {1} {log c}\n\
+                  uplevel {log d}\n\
+                  namespace eval {my ns} {log e}\n\
+                  namespace inscope {my ns2} {log f}\n\
+                  namespace code {log g}\n",
+                Irules::BracedWord as u16,
+            );
+            assert_eq!(
+                kept,
+                ["{100}", "{5}", "{1}", "{my ns}", "{my ns2}"],
+                "irules: the same delay, count, level and namespace names are \
+                 literals — the two dialects share one predicate and must not \
+                 drift"
+            );
+            assert_eq!(
+                withdrawn,
+                [
+                    "{log a}", "{log b}", "{log c}", "{log d}", "{log e}", "{log f}", "{log g}",
+                ],
+                "irules: every evaluated argument is a script"
+            );
+        }
+        assert!(
+            ran > 0,
+            "neither tcl nor irules is enabled; this test asserted nothing"
+        );
+    }
+
+    /// A mixed-signature command whose *layout* cannot be resolved keeps
+    /// the construct-wide script answer, and a resolvable one beside it
+    /// still yields its value.
+    ///
+    /// Three shapes reach a fallback in
+    /// `lang_helpers::tcl_family` that no other fixture does:
+    ///
+    /// - `namespace $sub {…}` — the subcommand is a substitution, not a
+    ///   plain word, so no `ScriptSlots` row can be looked up at all.
+    /// - `switch -matchvar {m} -indexvar {i}` — both options consume the
+    ///   word after them, so the scan runs off the end without finding a
+    ///   subject. *Two* pairs, because one leaves the scan at a list of
+    ///   two whose second word an invented subject 0 would call the arm
+    ///   list — the same answer, so a single pair proves nothing.
+    /// - `switch bar {p} {puts c} {q} {puts d}` — the subject is a bare
+    ///   `simple_word`, the one spelling neither the braced nor the `$v`
+    ///   fixtures above exercise. *Two* arms, for the same reason: with
+    ///   one, the trailing argument is the braced arm list either way, so
+    ///   the subject's index does not change any answer.
+    ///
+    /// Pairing each with a resolvable line is what makes the claim
+    /// two-sided: the exact vectors below say `{my ns}`, `{p}` and `{q}`
+    /// are values *and* that `{puts b}`, `{m}` and `{i}` are not, so a
+    /// fallback answering "value" instead moves rows between the lists.
+    ///
+    /// The `switch` rows are Tcl-only by construction. The iRules grammar
+    /// models `switch`, so a well-formed one is never the generic
+    /// `command` this rule reads, and a malformed one lands under an
+    /// `ERROR` that `is_braced_literal_slot` rejects before the slot
+    /// table — the same asymmetry `SCRIPT_TAKING_COMMANDS` records for
+    /// its `for` and `switch` rows.
+    #[test]
+    #[cfg(any(feature = "tcl", feature = "irules"))]
+    fn tcl_family_unresolvable_slot_layouts_keep_the_script_answer() {
+        let mut ran = 0;
+        #[cfg(feature = "tcl")]
+        {
+            ran += 1;
+            let (kept, withdrawn, _) = braced_word_string_verdicts::<crate::langs::TclCode>(
+                "tcl",
+                b"namespace eval {my ns} {puts a}\n\
+                  namespace $sub {puts b}\n\
+                  switch -matchvar {m} -indexvar {i}\n\
+                  switch bar {p} {puts c} {q} {puts d}\n",
+                Tcl::BracedWord as u16,
+            );
+            assert_eq!(
+                kept,
+                ["{my ns}", "{p}", "{q}"],
+                "tcl: a resolvable `namespace eval` name and both flat-form \
+                 patterns behind a bare-word subject are literals"
+            );
+            assert_eq!(
+                withdrawn,
+                ["{puts a}", "{puts b}", "{m}", "{i}", "{puts c}", "{puts d}"],
+                "tcl: an unresolvable `namespace` subcommand and a `switch` \
+                 with no subject keep every braced argument a script"
+            );
+        }
+        #[cfg(feature = "irules")]
+        {
+            ran += 1;
+            let (kept, withdrawn, _) = braced_word_string_verdicts::<crate::langs::IrulesCode>(
+                "irules",
+                b"namespace eval {my ns} {log a}\n\
+                  namespace $sub {log b}\n",
+                Irules::BracedWord as u16,
+            );
+            assert_eq!(
+                kept,
+                ["{my ns}"],
+                "irules: the resolvable `namespace eval` name is a literal"
+            );
+            assert_eq!(
+                withdrawn,
+                ["{log a}", "{log b}"],
+                "irules: the unresolvable subcommand keeps its argument a script"
+            );
+        }
+        assert!(
+            ran > 0,
+            "neither tcl nor irules is enabled; this test asserted nothing"
+        );
+    }
 }

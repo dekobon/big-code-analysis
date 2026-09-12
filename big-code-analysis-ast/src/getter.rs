@@ -11,6 +11,9 @@
 
 use crate::token_role::TokenRole;
 
+use crate::lang_helpers::tcl_family::{
+    ArgumentRoles, Dialect, SWITCH_COMMAND, fills_script_slot, namespace_script_slots, script_slots,
+};
 use crate::space_kind::SpaceKind;
 use crate::traits::Search;
 
@@ -42,7 +45,7 @@ use crate::*;
 /// asymmetry is deliberate: guarding is free here because `Option` is
 /// already part of this signature's contract (#1059).
 #[inline]
-fn node_text<'a>(code: &'a [u8], node: &Node) -> Option<&'a str> {
+pub(crate) fn node_text<'a>(code: &'a [u8], node: &Node) -> Option<&'a str> {
     code.get(node.start_byte()..node.end_byte())
         .and_then(|bytes| std::str::from_utf8(bytes).ok())
 }
@@ -350,91 +353,6 @@ pub struct BracedWordKinds {
     /// `halstead.effort` — a gated threshold metric — to `0.0`.
     pub open_brace: u16,
 }
-
-/// The core Tcl-family commands that evaluate a braced argument as a
-/// *script* and that neither dialect's grammar models with a node of its
-/// own (#1318).
-///
-/// A command the grammar *does* model — `proc`, `if`, `while`,
-/// `foreach`, `catch`, `try`, `namespace`, iRules' `when`, `for`,
-/// `switch` and `dict for` / `dict update` / `dict with` — needs no
-/// entry: its body is a child of that construct's own node rather than
-/// of a generic `command`, which
-/// [`Getter::generic_argument_command`] already answers `None` for.
-/// `for` and `switch` appear here because the *Tcl* grammar models
-/// neither (#467, #1264); the iRules grammar models both, so those two
-/// rows are live for one dialect and inert for the other.
-///
-/// Each entry is a command whose documented syntax puts a script in a
-/// braced argument:
-///
-/// | command | syntax |
-/// | --- | --- |
-/// | `after` | `after ms script` |
-/// | `eval` | `eval arg ?arg …?` |
-/// | `for` | `for start test next body` — all four are evaluated |
-/// | `on` | `on code varList script`, a `try` handler clause |
-/// | `switch` | `switch ?options? string pattern body ?pattern body …?` |
-/// | `time` | `time script ?count?` |
-/// | `trap` | `trap pattern varList script`, a `try` handler clause |
-/// | `uplevel` | `uplevel ?level? arg ?arg …?` |
-///
-/// `on` and `trap` are listed because the iRules grammar models
-/// `on_handler` / `trap_handler` only *under* `try` (pinned by
-/// `irules_try_handler_kinds_appear_only_under_try`), and the Tcl
-/// grammar models neither a `trap` nor a second `on`; written outside
-/// that shape they parse as generic commands. Their last argument is
-/// the handler script. The pattern and variable list before it are
-/// values, which only [`Getter::is_braced_literal_slot`] tells apart —
-/// the `{}` operator this table decides still bills them as blocks.
-///
-/// `lmap varname list body` is deliberately **not** listed even though
-/// its body is a script: the list is per-command, not per-argument, so
-/// listing it would bill `lmap i {1 2 3} {…}`'s *list* as a block —
-/// the same spelling sensitivity this rule exists to remove, and worse
-/// than the one occurrence its body gives up. `for` and `switch` have
-/// no such argument (`for`'s four are all evaluated, `switch`'s braced
-/// argument is the arm list).
-///
-/// Subcommand-dispatched script takers (`dict for`, `interp eval`,
-/// `trace add … {script}`) are absent for a related reason: the
-/// leading word alone cannot tell `dict for` from `dict set`, and
-/// admitting it would misclassify the far commoner value-taking
-/// spellings. Tk callbacks (`bind`, `fileevent`, a `-command {…}`
-/// option) are absent for the same reason as any user proc.
-///
-/// This list is the whole of the heuristic, and it is knowingly
-/// incomplete — see [`Getter::is_value_braced_word`] for what an
-/// unlisted command defaults to and why.
-const SCRIPT_TAKING_COMMANDS: [&str; 8] = [
-    "after",
-    "eval",
-    "for",
-    "on",
-    SWITCH_COMMAND,
-    "time",
-    "trap",
-    "uplevel",
-];
-
-/// Named because two rules have to agree on it: `switch` takes a
-/// script, and its *arm bodies* are scripts too even though the Tcl
-/// grammar hangs them off a `command` named after the pattern
-/// ([`Getter::is_switch_arm`]). Spelling it twice would let one drift.
-const SWITCH_COMMAND: &str = "switch";
-
-/// The `namespace` subcommands with a script argument:
-/// `namespace eval ns arg ?arg …?`, `namespace inscope ns script ?arg …?`
-/// and `namespace code script`. Every other subcommand takes values —
-/// `export {pattern}`, `path {ns …}`, `ensemble create -map {dict}` —
-/// which is what [`Getter::is_braced_literal_slot`] keys on.
-const NAMESPACE_SCRIPT_SUBCOMMANDS: [&str; 3] = ["eval", "inscope", "code"];
-
-/// The `try` handler clauses a grammar leaves as generic commands:
-/// `on code varList script` and `trap pattern varList script`, whose
-/// every argument but the last is a value
-/// ([`Getter::is_braced_literal_slot`]).
-const TRY_HANDLER_COMMANDS: [&str; 2] = ["on", "trap"];
 
 /// Per-language accessors that *name* and *classify* what a node is:
 /// the function or space name, the [`SpaceKind`] a node opens, and the
@@ -757,7 +675,8 @@ pub trait Getter {
             return false;
         };
         if Self::command_leading_word(&command, code, kinds)
-            .is_some_and(|name| SCRIPT_TAKING_COMMANDS.contains(&name))
+            .and_then(script_slots)
+            .is_some()
         {
             return false;
         }
@@ -805,26 +724,29 @@ pub trait Getter {
     }
 
     /// Whether `word`, a braced word [`is_value_braced_word`] calls a
-    /// script, fills a slot whose documented syntax takes a *value*. Three
-    /// constructs hold both roles in one argument list:
+    /// script, fills a slot whose documented syntax takes a *value*.
     ///
-    /// | construct | value slots | script slot |
-    /// | --- | --- | --- |
-    /// | `proc name args body` | the `name` field | the body |
-    /// | `namespace sub ?arg …?` | any subcommand's but three | `eval`, `inscope`, `code` |
-    /// | `on code varList script`, `trap pattern varList script` | all but the last | the last |
+    /// [`is_value_braced_word`] answers by command name alone, which is
+    /// all Halstead's `{}` operator needs. Most of the names it recognises
+    /// have a mixed signature, though, so reusing that answer for the
+    /// string and dump classifiers made a *value* — a millisecond count, a
+    /// namespace name, a `switch` subject — a script (#1381 review). This
+    /// is the per-argument half: `proc` has one value slot the grammar
+    /// names as a field, and every other construct declares its layout in
+    /// one of the two tables in `lang_helpers::tcl_family`, which
+    /// `fills_script_slot` applies.
     ///
-    /// Each literal here was a string and a flat dump leaf before #1381,
-    /// and would otherwise have become a script under it: the dump
-    /// rendered `{my proc}` as a command named `my`, and
-    /// `namespace export {…}` and `namespace ensemble create -map {…}`
+    /// Each value here was a string and a flat dump leaf before #1381, and
+    /// would otherwise have become a script under it: the dump rendered
+    /// `{my proc}` as a command named `my` and `{100}` as one named `100`,
+    /// and `namespace export {…}` and `namespace ensemble create -map {…}`
     /// both occur in the Tcl 8.6 standard library.
     ///
     /// Two guards keep the construct-wide answer. A switch arm list parses
     /// as commands, so an arm whose *pattern* is spelled `proc`,
-    /// `namespace`, `on` or `trap` builds one of these shapes around what
-    /// are really arm bodies — [`is_switch_arm`] recognises it first. And
-    /// an owner holding a parse error has no argument positions worth
+    /// `namespace`, `after` or `switch` builds one of these shapes around
+    /// what are really arm bodies — [`is_switch_arm`] recognises it first.
+    /// And an owner holding a parse error has no argument positions worth
     /// trusting. The multi-line `try … trap` clause is out of reach
     /// entirely: the Tcl grammar leaves it inside an `ERROR` node, where
     /// no role signal survives.
@@ -839,6 +761,13 @@ pub trait Getter {
         kinds: &BracedWordKinds,
     ) -> bool {
         let mut chain = ancestors.iter(word);
+        // A value slot is an *argument*, so it sits at least two levels
+        // below the root; neither grammar puts a braced word at the root
+        // or directly under it (a statement-position braced word is
+        // wrapped in a `command`, so `{a b}` alone on a line is still two
+        // deep). Both exits are therefore unreachable from a walk and are
+        // here because this is a `pub` trait method any node may be
+        // handed — `braced_slot_tests` calls it at both depths.
         let Some((parent, above_parent)) = chain.next() else {
             return false;
         };
@@ -856,64 +785,25 @@ pub trait Getter {
         {
             return false;
         }
-        if owner.kind_id() == kinds.namespace {
-            Self::namespace_subcommand_takes_values(&parent, code, kinds)
+        let dialect = Dialect { code, kinds };
+        // At both pinned grammars a `word_list` has exactly two possible
+        // owners — `command`'s `arguments` field and `namespace`'s child
+        // — so the third arm is unreachable and stays as the answer a
+        // grammar that grew a third owner should get: no layout, hence
+        // the construct-wide script answer.
+        // `a_word_list_is_owned_only_by_a_command_or_a_namespace` fails
+        // when that stops being true, which is the event this arm exists
+        // for.
+        let roles = if owner.kind_id() == kinds.namespace {
+            namespace_script_slots(&parent, dialect).map(|slots| ArgumentRoles { slots, first: 1 })
+        } else if owner.kind_id() == kinds.command {
+            Self::command_leading_word(&owner, code, kinds)
+                .and_then(script_slots)
+                .map(|slots| ArgumentRoles { slots, first: 0 })
         } else {
-            Self::is_try_handler_value(word, &owner, code, kinds)
-        }
-    }
-
-    /// Whether a `namespace` construct's `word_list` names a subcommand
-    /// whose arguments are values — anything but
-    /// `NAMESPACE_SCRIPT_SUBCOMMANDS`. A subcommand that is not a plain
-    /// word (`namespace $sub …`) is unresolvable and keeps the script
-    /// answer, as an unresolvable command name does.
-    #[must_use]
-    fn namespace_subcommand_takes_values(
-        word_list: &Node<'_>,
-        code: &[u8],
-        kinds: &BracedWordKinds,
-    ) -> bool {
-        let Some(subcommand) = word_list.child(0) else {
-            return false;
+            None
         };
-        if subcommand.kind_id() != kinds.simple_word {
-            return false;
-        }
-        let Some(subcommand) = node_text(code, &subcommand) else {
-            return false;
-        };
-        !NAMESPACE_SCRIPT_SUBCOMMANDS.contains(&subcommand)
-    }
-
-    /// Whether `word` is an argument of a generic `on` / `trap` command
-    /// other than its last, the handler script. The index comes from an
-    /// `O(log n)` cursor lookup, as in [`is_switch_arm_body`], not a
-    /// sibling scan.
-    ///
-    /// [`is_switch_arm_body`]: Self::is_switch_arm_body
-    #[must_use]
-    fn is_try_handler_value(
-        word: &Node<'_>,
-        command: &Node<'_>,
-        code: &[u8],
-        kinds: &BracedWordKinds,
-    ) -> bool {
-        let is_handler = command.kind_id() == kinds.command
-            && matches!(
-                Self::command_leading_word(command, code, kinds),
-                Some(name) if TRY_HANDLER_COMMANDS.contains(&name)
-            );
-        if !is_handler {
-            return false;
-        }
-        let Some(arguments) = command.child_by_field_name("arguments") else {
-            return false;
-        };
-        let mut cursor = arguments.cursor();
-        let index = cursor.goto_first_child_for_byte(word.start_byte());
-        cursor.node().id() == word.id()
-            && matches!(index, Some(index) if index + 1 < arguments.child_count())
+        roles.is_some_and(|roles| !fills_script_slot(word, &parent, roles, dialect))
     }
 
     /// Whether `word`, an argument of a `switch` arm command
@@ -956,6 +846,12 @@ pub trait Getter {
     /// [`Cursor::goto_first_child_for_byte`]: crate::node::Cursor::goto_first_child_for_byte
     #[must_use]
     fn is_switch_arm_body(word: &Node<'_>, command: &Node<'_>) -> bool {
+        // `is_value_braced_word` asks only for a word it has already
+        // placed inside this command's `arguments`, so the field is
+        // always there on that path. It is not always there on the
+        // method's own contract — an argument-less `switch` is a
+        // `command` with a `name` and nothing else — and such a command
+        // has no body position at all.
         let Some(arguments) = command.child_by_field_name("arguments") else {
             return false;
         };
@@ -1261,6 +1157,199 @@ mod ancestor_tests {
             "elixir",
             b"defmodule Foo do\n  defmacro multi do\n    quote do\n      def a, do: 1\n    end\n  end\nend\n",
             &["Foo", "multi"],
+        );
+    }
+}
+
+/// The `is_braced_literal_slot` / `is_switch_arm_body` guards that no
+/// Tcl-family walk can reach, and the grammar shape each rests on.
+#[cfg(test)]
+#[cfg(any(feature = "tcl", feature = "irules"))]
+mod braced_slot_tests {
+    use super::{BracedWordKinds, Getter};
+    use crate::Tcl;
+    use crate::node::{Ancestors, Node};
+    use crate::test_support::for_each_node_with_chain;
+    use crate::traits::LanguageInfo;
+
+    /// No node shallower than an argument can fill a value slot.
+    ///
+    /// A value slot is an argument, and both grammars hang an argument at
+    /// least two levels below the root — under a `word_list` under a
+    /// `command`, or under a construct's own node. A statement-position
+    /// braced word is no exception: `{a b}` alone on a line is a `command`
+    /// wrapping the braced word, never the braced word itself. So the root
+    /// and its direct children are exactly the depths
+    /// `is_braced_literal_slot`'s two chain exits answer for, and no walk
+    /// reaches either.
+    ///
+    /// They are still the method's contract — it is `pub`, takes any node,
+    /// and must not read a slot into something with no argument list above
+    /// it. Flipping either exit to `true` makes this fail.
+    fn assert_no_shallow_value_slot<L: LanguageInfo + Getter>(
+        label: &str,
+        code: &[u8],
+        kinds: &BracedWordKinds,
+    ) {
+        let (mut roots, mut children) = (0, 0);
+        for_each_node_with_chain::<L>(code, |node: &Node<'_>, chain| {
+            if chain.len() > 1 {
+                return;
+            }
+            for ancestors in [Ancestors::known(chain), Ancestors::unknown()] {
+                assert!(
+                    !L::is_braced_literal_slot(node, code, ancestors, kinds),
+                    "{label}: a {} at depth {} filled a value slot",
+                    node.kind(),
+                    chain.len()
+                );
+            }
+            if chain.is_empty() {
+                roots += 1;
+            } else {
+                children += 1;
+            }
+        });
+        assert_eq!(roots, 1, "{label}: exactly one root");
+        assert!(
+            children > 1,
+            "{label}: the fixture must put several nodes directly under the \
+             root, or the depth-1 exit goes unexercised"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "tcl")]
+    fn tcl_no_node_above_an_argument_fills_a_value_slot() {
+        assert_no_shallow_value_slot::<crate::langs::TclCode>(
+            "tcl",
+            b"{a b}\nproc {my proc} {} {}\nnamespace export {c d}\n",
+            &crate::lang_helpers::tcl::BRACED_WORD_KINDS,
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "irules")]
+    fn irules_no_node_above_an_argument_fills_a_value_slot() {
+        assert_no_shallow_value_slot::<crate::langs::IrulesCode>(
+            "irules",
+            b"{a b}\nproc {my proc} {} {}\nnamespace export {c d}\n",
+            &crate::lang_helpers::irules::BRACED_WORD_KINDS,
+        );
+    }
+
+    /// A command with no argument list has no `switch`-arm body position.
+    ///
+    /// `is_value_braced_word` only ever asks about a word it has already
+    /// placed inside the command's `arguments`, so that field is always
+    /// present on the walk's path. It is absent for an argument-less
+    /// command — `switch` on a line by itself is a `command` carrying only
+    /// its `name` — and the method has to answer for one, because a
+    /// bodiless command has no even-indexed slot to be in.
+    ///
+    /// The second half is the same method's positive answer on a real arm
+    /// list, so the first cannot be satisfied by a constant.
+    #[test]
+    #[cfg(feature = "tcl")]
+    fn a_command_without_arguments_has_no_switch_arm_body() {
+        use crate::node::Tree;
+
+        let code = b"switch\nswitch $v { p {puts a} }\n";
+        let tree = Tree::new::<crate::langs::TclCode>(code);
+        let root = tree.get_root();
+        let bare = root.child(0).expect("the bare `switch` command");
+        let name = bare
+            .child_by_field_name("name")
+            .expect("even a bare command names itself");
+        assert!(
+            bare.child_by_field_name("arguments").is_none(),
+            "the fixture's first command must carry no argument list"
+        );
+        assert!(
+            !<crate::langs::TclCode as Getter>::is_switch_arm_body(&name, &bare),
+            "a command with no argument list has no body position"
+        );
+
+        let arm = find_arm_named_p(&root, code).expect("the arm command named `p`");
+        let body = arm
+            .child_by_field_name("arguments")
+            .and_then(|args| args.child(0))
+            .expect("the arm's body");
+        assert!(
+            <crate::langs::TclCode as Getter>::is_switch_arm_body(&body, &arm),
+            "the arm's sole argument is its body, or the assertion above is \
+             satisfied by a constant"
+        );
+    }
+
+    /// The `command` a Tcl `switch` arm list spells its first pattern as.
+    #[cfg(feature = "tcl")]
+    fn find_arm_named_p<'a>(node: &Node<'a>, code: &[u8]) -> Option<Node<'a>> {
+        let named_p = node.kind_id() == Tcl::Command as u16
+            && node
+                .child_by_field_name("name")
+                .is_some_and(|name| name.utf8_text(code) == Some("p"));
+        if named_p {
+            return Some(*node);
+        }
+        node.children()
+            .find_map(|child| find_arm_named_p(&child, code))
+    }
+
+    /// Only a `command` and a `namespace` own a `word_list`, which is what
+    /// makes `is_braced_literal_slot`'s third owner arm unreachable.
+    ///
+    /// Checked against both pinned grammars' `node-types.json` when that
+    /// arm was written; this is the executable half, so a grammar bump
+    /// handing a `word_list` to a third construct fails here rather than
+    /// silently routing it to the no-layout answer.
+    fn assert_word_list_owners<L: LanguageInfo>(label: &str, code: &[u8], kinds: &BracedWordKinds) {
+        let mut seen = 0;
+        for_each_node_with_chain::<L>(code, |node: &Node<'_>, chain| {
+            if node.kind_id() != kinds.word_list {
+                return;
+            }
+            let owner = chain.last().expect("a word_list is never the root");
+            assert!(
+                [kinds.command, kinds.namespace].contains(&owner.kind_id()),
+                "{label}: a word_list owned by {}",
+                owner.kind()
+            );
+            seen += 1;
+        });
+        assert!(seen > 2, "{label}: fixture reached only {seen} word_lists");
+    }
+
+    /// Both owners plus the modelled constructs either grammar spells, so
+    /// a new owner among them is what the assertion catches.
+    const WORD_LIST_OWNER_FIXTURE: &[u8] = b"proc p {x} { puts $x }\n\
+        namespace eval ns { puts hi }\n\
+        namespace export {a b}\n\
+        if {$x} { puts a } else { puts b }\n\
+        while {$x} { puts a }\n\
+        foreach i {1 2} { puts $i }\n\
+        catch { puts a } msg\n\
+        eval {puts hi}\n\
+        switch $v { p {puts a} }\n\
+        lappend l {c d}\n";
+
+    #[test]
+    #[cfg(feature = "tcl")]
+    fn tcl_a_word_list_is_owned_only_by_a_command_or_a_namespace() {
+        assert_word_list_owners::<crate::langs::TclCode>(
+            "tcl",
+            WORD_LIST_OWNER_FIXTURE,
+            &crate::lang_helpers::tcl::BRACED_WORD_KINDS,
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "irules")]
+    fn irules_a_word_list_is_owned_only_by_a_command_or_a_namespace() {
+        assert_word_list_owners::<crate::langs::IrulesCode>(
+            "irules",
+            WORD_LIST_OWNER_FIXTURE,
+            &crate::lang_helpers::irules::BRACED_WORD_KINDS,
         );
     }
 }
