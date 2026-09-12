@@ -581,6 +581,14 @@ the leaf at the old version: `make release-check` dry-runs them with
 `cargo publish --locked`, which refuses to touch the stale lockfile and
 fails the gate (the v2.2.0 cut hit exactly this).
 
+You no longer have to remember this step unprompted. `make
+check-versions` compares every path package recorded in those seven
+lockfiles against the version its manifest declares, so a bump that
+skips one fails in the release-prep commit — naming the lockfile, the
+package, and both versions — instead of surfacing later as a `--locked`
+error inside an unrelated commit's `enums-check`, `fuzz-check`, or
+`release-check` (#1234).
+
 Regenerate the committed man pages in the same release-prep commit:
 
 ```bash

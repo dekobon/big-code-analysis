@@ -74,6 +74,20 @@ for historical reference.
   aggregate diverges from the CLI accessor; nothing in the workspace
   reads the flag, so this is a correction to a published description
   rather than a behaviour change.
+- `make check-versions` now also gates the workspace-excluded crates'
+  lockfiles, failing when a `Cargo.lock` under `enums/`, `fuzz/`, or a
+  vendored `tree-sitter-*` leaf records a path package at a version its
+  manifest no longer declares (#1234). `cargo update --workspace` — the
+  refresh `RELEASING.md` calls mandatory during a bump — reaches only
+  the root lockfile, and every gate that consumes the others passes
+  `--locked`, so a bump that skipped them turned `make enums-check`,
+  `fuzz-check`, or `release-check` red on a later, unrelated commit. The
+  failure now names the lockfile, the package, both versions, and the
+  `cargo update --manifest-path` line that repairs it. The candidate
+  list is derived from the root manifest's `[workspace] exclude` array
+  rather than from the gate's existing lockstep-version tuple, which
+  omits `fuzz` (deliberately version `0.0.0`) and so would have missed
+  one of the two lockfiles that motivated the change.
 
 ### Performance
 

@@ -16,9 +16,23 @@ doc pins), and the `recipes/ci.md` install pins may additionally
 lag one release because they can only move once the release's
 `SHA256SUMS` exists.
 
-See `RELEASING.md` "Lockstep version policy" and "Version strings
-in documentation" for the policies this enforces. Wired into
-`make pre-commit` and the CI lint job.
+The lockfiles of the workspace-excluded crates are checked too.
+Each excluded crate roots its own workspace and so carries its own
+`Cargo.lock`, and `cargo update --workspace` — the refresh
+`RELEASING.md` calls **mandatory** during a bump — reaches none of
+them. Every gate that consumes one passes `--locked`, so a bump
+that misses them strands the recorded path-package versions and the
+next otherwise-correct commit fails with "cannot update the lock
+file … because --locked was passed" — inside `make enums-check`,
+`make fuzz-check`, or `make release-check`, none of which is
+plausibly related to whatever that commit touched. Checking the
+lockfiles here makes the staleness name itself at the bump, where
+the fix is one `cargo update --manifest-path` away (#1234).
+
+See `RELEASING.md` "Lockstep version policy", "Version strings
+in documentation", and "Refresh the workspace-excluded lockfiles
+too" for the policies this enforces. Wired into `make pre-commit`
+and the CI lint job.
 
 Exits 0 on lockstep, non-zero with a per-source listing on drift.
 """
@@ -28,6 +42,23 @@ from __future__ import annotations
 import pathlib
 import re
 import sys
+from typing import Any
+
+# tomllib landed in 3.11. On older Python, fall back to the external
+# `tomli` package (same API), matching check-excluded-manifests.py.
+try:
+    import tomllib
+except ImportError:
+    try:
+        import tomli as tomllib  # type: ignore[import-not-found,no-redef]
+    except ImportError:
+        sys.stderr.write(
+            "error: check-versions.py requires Python 3.11+\n"
+            "       (tomllib lives in the standard library starting at 3.11).\n"
+            "       On older Python, install `tomli` and retry:\n"
+            "           pip install tomli\n"
+        )
+        sys.exit(2)
 
 # `parents[1]`, not `parent`: these gates live in `utils/` but every
 # path they read or write is anchored at the repository root.
@@ -36,6 +67,14 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 # Owned crates that carry an own `[package].version` line (i.e. do
 # not inherit via `version.workspace = true`). Each must match the
 # canonical workspace version.
+#
+# Deliberately *not* the source of the lockfile-staleness check's
+# candidate list: `fuzz` is absent here because it is version `0.0.0`
+# by design and so cannot satisfy this tuple's "== canonical" rule,
+# yet `fuzz/Cargo.lock` is one of the two lockfiles that motivated
+# #1234. The lockfile check derives its own list from the root
+# manifest's `[workspace] exclude` array instead — see
+# `excluded_lockfiles`.
 EXCLUDED_LEAF_DIRS = (
     "enums",
     "tree-sitter-ccomment",
@@ -44,6 +83,16 @@ EXCLUDED_LEAF_DIRS = (
     "tree-sitter-preproc",
     "tree-sitter-tcl",
 )
+
+# `[workspace] exclude` entries that name a directory rather than a
+# crate: no manifest, nothing to resolve. Mirrors the same constant in
+# check-excluded-manifests.py.
+NON_CRATE_EXCLUDES = frozenset({".claude/worktrees"})
+
+# Stand-in for a lockfile entry whose `version` is absent or is not a
+# string. It is deliberately not a version any manifest can declare, so
+# such an entry is reported rather than skipped.
+NO_VERSION = "<no version>"
 
 # Lines of the form
 #     <key> = { ..., version = "=X.Y.Z", ... }
@@ -272,6 +321,188 @@ def check_external_grammar_lockstep(root: pathlib.Path) -> list[str]:
     return failures
 
 
+def parse_toml(path: pathlib.Path, label: str) -> dict[str, Any]:
+    """Parse a TOML file, exiting with a located error on bad syntax.
+
+    Manifests and lockfiles are parsed rather than regex-matched: a
+    literal string (`version = '2.2.1'`), a commented-out entry, and a
+    `[[package]]` header inside a multi-line string all read wrongly
+    under a pattern and correctly under a parser. Same reasoning as
+    check-excluded-manifests.py, which documents the drift each of
+    those produced.
+    """
+    try:
+        return tomllib.loads(read(path))
+    except tomllib.TOMLDecodeError as exc:
+        raise SystemExit(f"error: {label} is not valid TOML: {exc}") from exc
+
+
+def _workspace_array(root: pathlib.Path, key: str) -> list[str]:
+    """Return the root manifest's `[workspace] <key>` string array."""
+    data = parse_toml(root / "Cargo.toml", "Cargo.toml")
+    workspace = data.get("workspace")
+    entries = workspace.get(key) if isinstance(workspace, dict) else None
+    if not isinstance(entries, list) or not all(
+        isinstance(entry, str) for entry in entries
+    ):
+        raise SystemExit(
+            f"error: could not read a [workspace] {key} string array from Cargo.toml"
+        )
+    return entries
+
+
+def owned_crate_dirs(root: pathlib.Path) -> list[str]:
+    """Every directory in this repository holding an owned manifest.
+
+    The repository root, the workspace members, and the excluded
+    crates — in other words every crate a path dependency can resolve
+    to. Derived from the root manifest so the list cannot drift as
+    crates are added or removed.
+    """
+    dirs = ["."]
+    dirs += _workspace_array(root, "members")
+    dirs += [
+        entry
+        for entry in _workspace_array(root, "exclude")
+        if entry not in NON_CRATE_EXCLUDES
+    ]
+    for crate in dirs:
+        if not (root / crate / "Cargo.toml").is_file():
+            raise SystemExit(
+                f"error: {crate}/Cargo.toml is listed in the root manifest "
+                f"but does not exist (a glob in `members` / `exclude` is not "
+                f"supported here)"
+            )
+    return dirs
+
+
+def owned_package_versions(
+    root: pathlib.Path, canonical: str
+) -> dict[str, tuple[str, str]]:
+    """Map every owned package name to `(version, declaring manifest)`.
+
+    The package name is not the directory name — `tree-sitter-tcl/`
+    publishes as `bca-tree-sitter-tcl` — so the name is read from
+    `[package].name` rather than inferred. `version.workspace = true`
+    resolves to the canonical workspace version; a manifest with no
+    `[package]` table at all (a virtual workspace root) contributes
+    nothing and is not an error. The manifest path rides along so a
+    failure can point at the file that decides the expected value.
+    """
+    versions: dict[str, tuple[str, str]] = {}
+    for crate in owned_crate_dirs(root):
+        label = f"{crate}/Cargo.toml" if crate != "." else "Cargo.toml"
+        package = parse_toml(root / crate / "Cargo.toml", label).get("package")
+        if not isinstance(package, dict):
+            continue
+        name = package.get("name")
+        declared = package.get("version")
+        if isinstance(declared, dict) and declared.get("workspace") is True:
+            declared = canonical
+        if isinstance(name, str) and isinstance(declared, str):
+            versions[name] = (declared, label)
+    return versions
+
+
+def locked_path_packages(lockfile: pathlib.Path, label: str) -> list[tuple[str, str]]:
+    """Return `(name, version)` for each path package in a lockfile.
+
+    A `[[package]]` entry with no `source` key was resolved from a
+    path, not from a registry — i.e. it is one of this repository's own
+    crates, recorded at whatever version its manifest carried when the
+    lockfile was last written. Registry entries carry a `source` and
+    are legitimately at unrelated versions, so they are skipped.
+
+    A named entry whose `version` is missing or is not a string gets
+    the placeholder below rather than being dropped: it can equal no
+    manifest version, so the caller reports it instead of quietly
+    checking one entry fewer than the file holds.
+    """
+    packages = parse_toml(lockfile, label).get("package")
+    if not isinstance(packages, list):
+        return []
+    found = []
+    for entry in packages:
+        if not isinstance(entry, dict) or "source" in entry:
+            continue
+        name = entry.get("name")
+        version = entry.get("version")
+        if isinstance(name, str):
+            found.append((name, version if isinstance(version, str) else NO_VERSION))
+    return found
+
+
+def excluded_lockfiles(root: pathlib.Path) -> list[tuple[str, pathlib.Path]]:
+    """Return `(crate dir, lockfile)` for each excluded crate carrying one.
+
+    An excluded crate need not have a `Cargo.lock` — one only exists
+    once something has resolved that crate's manifest — so a missing
+    lockfile is skipped rather than reported. A crate with no manifest
+    at all is a different matter and is rejected by
+    `owned_crate_dirs`.
+    """
+    return [
+        (crate, root / crate / "Cargo.lock")
+        for crate in _workspace_array(root, "exclude")
+        if crate not in NON_CRATE_EXCLUDES and (root / crate / "Cargo.lock").is_file()
+    ]
+
+
+def check_excluded_lockfiles(root: pathlib.Path, canonical: str) -> list[str]:
+    """Report path-package versions stranded by a version bump.
+
+    In an excluded crate's `Cargo.lock`, every path package must sit
+    at the version its own manifest declares. `cargo update
+    --workspace` does not reach these files, so a bump leaves them
+    behind and the failure surfaces later, inside an unrelated commit's
+    `--locked` invocation (#1234).
+    """
+    versions = owned_package_versions(root, canonical)
+    failures: list[str] = []
+    lockfiles = excluded_lockfiles(root)
+    for crate, lockfile in lockfiles:
+        label = f"{crate}/Cargo.lock"
+        locked = locked_path_packages(lockfile, label)
+        if not locked:
+            # Every Cargo.lock records at least its own root package
+            # with no `source`. None at all means the file is empty or
+            # malformed, and checking it proved nothing.
+            failures.append(f"{label}: no path packages recorded (empty or malformed)")
+            continue
+        drifted = []
+        for name, found in locked:
+            declared = versions.get(name)
+            if declared is None:
+                # A path package this repository does not own — the
+                # version map cannot adjudicate it, and staying silent
+                # would mean a lockfile entry nothing checks.
+                drifted.append(f"{name} at {found!r} resolves to no manifest here")
+                continue
+            expected, manifest_label = declared
+            if found != expected:
+                drifted.append(
+                    f"{name} locked at {found!r}, "
+                    f"{manifest_label} declares {expected!r}"
+                )
+        if drifted:
+            failures.append(
+                f"{label}: stale against the manifests: "
+                + "; ".join(drifted)
+                + f" — refresh with `cargo update --manifest-path "
+                f"{crate}/Cargo.toml --workspace`"
+            )
+    if not lockfiles:
+        # A vacuity guard, not a real-world state: the seven excluded
+        # lockfiles are checked in. Reaching zero means the derivation
+        # above broke, and a gate that reports "versions OK" having
+        # examined nothing is the failure this check exists to prevent.
+        failures.append(
+            "no workspace-excluded lockfile was found to check — the "
+            "[workspace] exclude derivation in check-versions.py has broken"
+        )
+    return failures
+
+
 def main() -> int:
     root = REPO_ROOT
     canonical = workspace_version(root)
@@ -341,6 +572,7 @@ def main() -> int:
                 )
 
     failures.extend(check_external_grammar_lockstep(root))
+    failures.extend(check_excluded_lockfiles(root, canonical))
 
     if failures:
         print("lockstep-version check FAILED", file=sys.stderr)
@@ -348,9 +580,12 @@ def main() -> int:
         for f in failures:
             print(f"  {f}", file=sys.stderr)
         return 1
+    # The lockfile count is printed, not just tallied, so a derivation
+    # that silently narrows shows up in the passing output too.
     print(
         f"versions OK: every owned crate at {canonical}, "
-        f"doc pins at published release {latest_release}"
+        f"doc pins at published release {latest_release}, "
+        f"{len(excluded_lockfiles(root))} excluded lockfiles in step"
     )
     return 0
 
