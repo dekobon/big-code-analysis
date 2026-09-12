@@ -6403,6 +6403,49 @@ mod tests {
     }
 
     #[test]
+    fn tcl_qualified_for_resolves_to_the_builtin() {
+        // `::for` is `for` reached through the global namespace, so it
+        // scores exactly what `tcl_for_cognitive` asserts for the bare
+        // spelling. Until the leading word was normalised, the qualified
+        // form resolved to no builtin and the loop scored 0 while
+        // Halstead and the dump still read its body as a script
+        // (#1381 review).
+        check_metrics::<TclParser>(
+            "proc f {n} {
+    ::for {set i 0} {$i < $n} {incr i} {
+        puts $i
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_namespaced_for_is_not_the_builtin() {
+        // Control for the test above: only the *leading* qualifier names
+        // the global namespace. `ns::for` is a different command living
+        // in `ns`, so it scores nothing — the direction the `ns::eval`
+        // row of `BRACED_WORD_VALUE_CASES` pins for Halstead. The braced
+        // arguments are deliberately operator-free, as in
+        // `tcl_for_cyclomatic_name_gate`, so nothing inside them can
+        // supply the increment the leading word must.
+        check_metrics::<TclParser>(
+            "proc f {} {
+    ns::for {a} {b} {c} {d}
+}",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
+                assert_eq!(metric.cognitive.cognitive_max(), 0);
+            },
+        );
+    }
+
+    #[test]
     fn tcl_for_cognitive_nested() {
         // The `for` also nests its body: constructs inside it pay the
         // nesting penalty the missing loop previously swallowed (#1264).

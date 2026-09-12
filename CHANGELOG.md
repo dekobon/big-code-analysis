@@ -121,6 +121,29 @@ for historical reference.
 
 ### Fixed
 
+- **A `::`-qualified Tcl or iRules command now resolves to the core
+  command it names** in every metric, not just the ones reading the
+  braced-word slot table. `::switch` *is* `switch` — a leading `::` names
+  the global namespace, and inside a `namespace eval` body it is the
+  spelling that guarantees the core command over a shadowing proc — and
+  `Getter::command_leading_word` stripped it, so Halstead, `bca find
+  --type string` and the AST dump read the qualified form correctly. The
+  four metrics that resolve a leading word *without* that table did not:
+  `::switch` and `::for` contributed nothing to `cognitive` or
+  `cyclomatic`, `::incr` / `::append` / `::lappend` counted as an ABC
+  branch rather than an assignment, and `::return` / `::error` /
+  `::throw` / `::exit` were not counted as exits. The two halves
+  therefore disagreed on identical bytes. The strip now lives in one
+  shared helper both sides call. iRules resolves its exit and mutator
+  names in its own walkers rather than through Tcl's, so those were
+  swept in the same change. Only the *leading* qualifier is stripped:
+  `ns::eval` is a different command living in `ns` and is still not
+  promoted. **Metric drift:** on Tcl and iRules sources that spell a core
+  command with a leading `::`, `cognitive`, `cyclomatic` and `nexits`
+  rise, and ABC moves one count per mutator command from `branches` to
+  `assignments`. No integration snapshot moves — the corpora contain no
+  Tcl.
+
 - **A grammar span reaching past end-of-input no longer counts as a line
   of code** (#1398), so `loc.ploc` and `loc.cloc` can no longer exceed a
   space's own row span. A childless zero-width recovery token placed one

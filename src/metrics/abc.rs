@@ -10914,6 +10914,45 @@ function f(int $a, int $b): int {
     }
 
     #[test]
+    fn tcl_qualified_mutator_commands_count_assignment() {
+        // `::incr` is `incr` through the global namespace. Anchored on
+        // `branches_sum() == 0` as well as the assignment total: an
+        // unresolved name falls to the branch arm, so the two columns
+        // move in opposite directions and no single total can mask the
+        // regression (#1381 review).
+        check_metrics::<TclParser>(
+            "proc f {} {\n\
+                 ::incr x\n\
+                 ::append s \"hi\"\n\
+                 ::lappend lst 1\n\
+             }",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 3);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_namespaced_mutator_command_stays_a_branch() {
+        // Control: only the *leading* qualifier names the core command,
+        // so `ns::incr` is a user proc and keeps the branch column — the
+        // direction `BRACED_WORD_VALUE_CASES` pins for `ns::eval`.
+        check_metrics::<TclParser>(
+            "proc f {} {\n\
+                 ns::incr x\n\
+             }",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 0);
+                assert_eq!(metric.abc.branches_sum(), 1);
+            },
+        );
+    }
+
+    #[test]
     fn tcl_computed_command_name_is_not_an_assignment() {
         // A command whose leading word is computed (`$cmd args`) names no
         // builtin the parser can resolve, so it stays a branch. Pins the
@@ -11315,6 +11354,31 @@ function f(int $a, int $b): int {
                 assert_eq!(metric.abc.branches_sum(), 0);
             },
         );
+    }
+
+    /// `::incr` is `incr` through the global namespace. iRules resolves
+    /// the leading word in `irules_command_is_assignment` rather than
+    /// through `tcl_command_name`, so this pins the strip on that second
+    /// path (#1381 review).
+    #[test]
+    fn irules_abc_qualified_mutator_commands() {
+        check_metrics::<IrulesParser>(
+            "when X {\n    ::incr x\n    ::append s \"y\"\n    ::lappend l 1\n}\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 3);
+                assert_eq!(metric.abc.branches_sum(), 0);
+            },
+        );
+    }
+
+    /// Control: `ns::incr` is a proc in `ns`, so it stays a branch.
+    #[test]
+    fn irules_abc_namespaced_mutator_command_stays_a_branch() {
+        check_metrics::<IrulesParser>("when X {\n    ns::incr x\n}\n", "foo.irule", |metric| {
+            assert_eq!(metric.abc.assignments_sum(), 0);
+            assert_eq!(metric.abc.branches_sum(), 1);
+        });
     }
 
     /// Generic (non-mutator) commands count as branches.

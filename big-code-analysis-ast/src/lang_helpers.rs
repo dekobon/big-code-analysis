@@ -21,5 +21,12 @@ pub mod python;
 pub mod tcl;
 // Crate-private for the same reason as `irules` above: the braced-word
 // slot rule is read by this crate's three classifiers and by nothing
-// outside it.
+// outside it. The one exception is re-exported below rather than by
+// widening the module, which would publish the slot tables too.
 pub(crate) mod tcl_family;
+
+/// Re-exported because both dialects' metrics need it and the module
+/// holding it is crate-private: iRules' nexits and ABC walkers resolve a
+/// leading word themselves rather than through `tcl::tcl_command_name`,
+/// so they normalise the `::` qualifier at their own call sites.
+pub use tcl_family::strip_global_qualifier;

@@ -56,6 +56,14 @@ pub(crate) const BRACED_WORD_KINDS: BracedWordKinds = BracedWordKinds {
 /// Callers dispatch on the returned name so each `command` node resolves it
 /// exactly once per metric walk — the helpers below take the resolved
 /// identity as a precondition rather than re-deriving it.
+///
+/// The name is normalised through
+/// [`strip_global_qualifier`](crate::lang_helpers::strip_global_qualifier),
+/// so `::switch` resolves as `switch` — the same rule
+/// `Getter::command_leading_word` applies on the slot-table side. Without
+/// it the two disagreed on identical bytes: Halstead and the dump read a
+/// qualified `::switch` as a script while cognitive, cyclomatic, ABC and
+/// nexits read it as an ordinary call and scored it zero.
 #[inline]
 #[must_use]
 pub fn tcl_command_name<'a>(node: &'a Node<'a>, code: &'a [u8]) -> Option<&'a str> {
@@ -67,4 +75,5 @@ pub fn tcl_command_name<'a>(node: &'a Node<'a>, code: &'a [u8]) -> Option<&'a st
         return None;
     }
     name.utf8_text(code)
+        .map(crate::lang_helpers::strip_global_qualifier)
 }

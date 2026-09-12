@@ -895,17 +895,12 @@ pub trait Getter {
             return None;
         }
         let text = node_text(code, &name)?;
-        // `::eval` *is* `eval` — a leading `::` names the global
-        // namespace, and inside a `namespace eval` body it is the
-        // spelling that guarantees the core command rather than a local
-        // proc shadowing it. Without this the qualified form fell to
-        // the value default and lost its block, so the score moved with
-        // how the author spelled a command that resolves identically.
-        //
-        // Only the *leading* qualifier is stripped: `ns::eval` is a
-        // different command living in `ns`, and must not be mistaken
-        // for the core one.
-        Some(text.strip_prefix("::").unwrap_or(text))
+        // `::eval` *is* `eval`, and without the strip the qualified form
+        // fell to the value default and lost its block. The rule and the
+        // reason it stops at the *leading* qualifier live with the
+        // helper, which the four metrics that resolve a leading word
+        // without this table share (#1381 review).
+        Some(crate::lang_helpers::strip_global_qualifier(text))
     }
 
     /// Whether `command` is really one `pattern body` pair of a Tcl

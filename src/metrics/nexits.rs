@@ -395,9 +395,17 @@ impl Exit for IrulesCode {
         // proc. iRules flow commands (`event disable`, `TCP::close`,
         // `reject`, `drop`) remain deliberately uncounted as exits in
         // v1.
+        // Normalised for the same reason `tcl_command_name` is: `::return`
+        // is `return` through the global namespace. This walker resolves
+        // the name itself rather than through that helper, so the strip
+        // has to be repeated here (#1381 review).
         if node.kind_id() == Irules::Command
             && let Some(name) = node.child_by_field_name("name")
-            && matches!(name.utf8_text(code), Some("return" | "error"))
+            && matches!(
+                name.utf8_text(code)
+                    .map(crate::lang_helpers::strip_global_qualifier),
+                Some("return" | "error")
+            )
         {
             stats.exit += 1;
         }
@@ -2034,6 +2042,48 @@ end",
     /// position (`puts error`) or inside a string are not exits. The
     /// leading word of a nested braced command (`{ARITH DIVZERO}`) is
     /// likewise a different command name and contributes nothing.
+    /// Every abrupt-exit builtin reached through the global namespace.
+    /// `::return` *is* `return`, so all four must count; the leading word
+    /// is the only seam these have, and an unstripped qualifier made each
+    /// read as an ordinary call (#1381 review).
+    #[test]
+    fn tcl_qualified_exits_are_exits() {
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    if {$x < 0} {
+        ::error \"negative\"
+    }
+    if {$x == 0} {
+        ::throw {ARITH DIVZERO} \"div by zero\"
+    }
+    if {$x > 100} {
+        ::exit 1
+    }
+    ::return $x
+}",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(metric.nexits.nexits_sum(), 4);
+                assert_eq!(metric.nexits.nexits_max(), 4);
+            },
+        );
+    }
+
+    /// Control for the test above: only the *leading* qualifier resolves
+    /// to the core command, so a proc in `ns` is not an exit.
+    #[test]
+    fn tcl_namespaced_return_is_not_an_exit() {
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    ns::return $x
+}",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(metric.nexits.nexits_sum(), 0);
+            },
+        );
+    }
+
     #[test]
     fn tcl_error_in_argument_position_is_not_exit() {
         check_metrics::<TclParser>(
@@ -3101,6 +3151,42 @@ end",
     /// set — TMOS runs a Tcl 8.4-derived interpreter with no such
     /// builtin, so the word can only ever name a user proc — and
     /// `error` in argument position is not an exit either.
+    /// iRules resolves the exit name in its own walker rather than
+    /// through `tcl_command_name`, so the `::` strip needs pinning on
+    /// that second path too — the sibling sweep grammar-dispatch.md
+    /// requires (#1381 review).
+    #[test]
+    fn irules_qualified_exits_are_exits() {
+        check_metrics::<IrulesParser>(
+            "proc f { x } {
+    if { $x < 0 } {
+        ::error \"negative\"
+    }
+    ::return $x
+}
+",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.nexits.nexits_sum(), 2);
+            },
+        );
+    }
+
+    /// Control: `ns::return` is a proc in `ns`, not the core command.
+    #[test]
+    fn irules_namespaced_return_is_not_an_exit() {
+        check_metrics::<IrulesParser>(
+            "proc f { x } {
+    ns::return $x
+}
+",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.nexits.nexits_sum(), 0);
+            },
+        );
+    }
+
     #[test]
     fn irules_throw_and_argument_position_error_are_not_exits() {
         check_metrics::<IrulesParser>(

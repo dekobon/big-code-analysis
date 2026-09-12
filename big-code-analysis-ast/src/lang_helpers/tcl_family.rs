@@ -185,6 +185,28 @@ pub(crate) struct Dialect<'a> {
     pub(crate) kinds: &'a BracedWordKinds,
 }
 
+/// A leading word with its global-namespace qualifier removed.
+///
+/// `::switch` *is* `switch`: a leading `::` names the global namespace,
+/// and inside a `namespace eval` body it is the spelling that guarantees
+/// the core command rather than a local proc shadowing it. Any rule that
+/// resolves a leading word against a table of core command names has to
+/// normalise through here, or the score moves with how the author spelled
+/// a command that resolves identically. Four metrics read the leading
+/// word without the slot table — cognitive, cyclomatic, ABC and nexits —
+/// and each scored the qualified spelling as an ordinary call until this
+/// was shared (#1381 review).
+///
+/// Only the *leading* qualifier is stripped. `ns::eval` is a different
+/// command living in `ns` and must not be mistaken for the core one;
+/// `BRACED_WORD_VALUE_CASES` in `src/metrics/halstead.rs` pins that
+/// direction, and stripping every `::` segment would promote it.
+#[inline]
+#[must_use]
+pub fn strip_global_qualifier(name: &str) -> &str {
+    name.strip_prefix("::").unwrap_or(name)
+}
+
 /// The [`ScriptSlots`] of a generic command named `command`, or `None`
 /// when no core command of that name evaluates a braced argument.
 pub(crate) fn script_slots(command: &str) -> Option<ScriptSlots> {

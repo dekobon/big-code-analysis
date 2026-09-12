@@ -3977,6 +3977,45 @@ f() {
     }
 
     #[test]
+    fn tcl_qualified_for_resolves_to_the_builtin() {
+        // `::for` is `for` through the global namespace, so it scores
+        // exactly what `tcl_for_cyclomatic` asserts for the bare word.
+        check_metrics::<TclParser>(
+            "proc f {n} {
+    ::for {set i 0} {$i < $n} {incr i} {
+        puts $i
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                // unit(1) + proc(base 1 + for 1) = sum 3, max 2.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_namespaced_for_is_not_the_builtin() {
+        // Control: `ns::for` lives in `ns` and is not the core loop, so
+        // it adds no decision — the same expectation
+        // `tcl_for_cyclomatic_name_gate` holds for `format`, and the
+        // braced arguments are operator-free for the same reason.
+        check_metrics::<TclParser>(
+            "proc f {} {
+    ns::for {a} {b} {c} {d}
+}",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 1);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
     fn tcl_irules_for_parity() {
         // iRules models `for` as a dedicated kind counted by the kind
         // dispatch; Tcl detects it by leading word (issue #1264). The same

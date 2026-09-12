@@ -163,20 +163,23 @@ impl Abc for IrulesCode {
 
 // iRules mutator commands (same Tcl builtins; the dedicated `set`
 // production is handled separately in the impl, like Tcl).
-const IRULES_ASSIGNMENT_COMMANDS: &[&[u8]] = &[b"incr", b"append", b"lappend"];
+const IRULES_ASSIGNMENT_COMMANDS: &[&str] = &["incr", "append", "lappend"];
 
-// iRules counterpart of `tcl_command_is_assignment`.
+// iRules counterpart of `tcl_command_is_assignment`, and normalised the
+// same way: `::incr` is `incr` through the global namespace, and scored
+// as a branch rather than an assignment until the strip was shared
+// (#1381 review). The leading word is still addressed by index rather
+// than by the `name` field — a grammar-dispatch §3 smell this fix
+// deliberately leaves alone, since changing the child selection is a
+// behaviour change of its own.
 fn irules_command_is_assignment(node: &Node, code: &[u8]) -> bool {
     let Some(first) = node.child(0) else {
         return false;
     };
-    let start = first.start_byte();
-    let end = first.end_byte();
-    if end > code.len() || start >= end {
-        return false;
-    }
-    let word = &code[start..end];
-    IRULES_ASSIGNMENT_COMMANDS.contains(&word)
+    first
+        .utf8_text(code)
+        .map(crate::lang_helpers::strip_global_qualifier)
+        .is_some_and(|word| IRULES_ASSIGNMENT_COMMANDS.contains(&word))
 }
 
 // iRules counterpart of `tcl_inspect_container` (Fitzpatrick Rule 9): a
