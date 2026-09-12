@@ -832,7 +832,32 @@ impl Stats {
         // below is therefore a direct `Stats` test rather than a
         // fixture, per `.claude/rules/testing.md`: it is the only shape
         // that can tell the two spellings apart.
+        //
+        // The corpus measurement is the weaker half of that claim, and
+        // `line_set`'s module header retracts one of exactly this shape
+        // as having been wrong *and* load-bearing (#1398). The stronger
+        // half is structural: `span == 0` needs a space opened on a
+        // genuinely zero-width node at column 0, and every language's
+        // `is_func_space` matches compound productions — never a raw
+        // token, never `is_error` / `is_missing` — while a MISSING node
+        // is always a single terminal.
+        //
+        // Either way the absence is not what should hold the branch,
+        // because `retain_range(1, 0)` *clears* both line sets: whatever
+        // arrived is gone, and the parent never recovers it, since a
+        // child is clamped before `Ploc::merge` lifts it. That clear is
+        // also what makes the two assertions at the end of this function
+        // vacuous here — they compare against `span`, so both read
+        // `0 <= 0` no matter what was destroyed. Assert before the
+        // clear, where the question can still be answered.
         let (first, last) = if span == 0 {
+            debug_assert!(
+                self.ploc() == 0 && self.cloc() == 0,
+                "zero-span space reached the clamp holding {} ploc / {} cloc \
+                 row(s); clearing them here would lose them silently",
+                self.ploc(),
+                self.cloc()
+            );
             (1, 0)
         } else {
             (start, self.sloc.end_line.saturating_sub(1))
@@ -11612,37 +11637,52 @@ class A {
         }
     }
 
-    /// The `span == 0` arm of [`Stats::clamp_line_sets_to_span`], which
-    /// no parsed input can reach with a populated line set.
+    /// The `span == 0` arm of [`Stats::clamp_line_sets_to_span`] clears
+    /// both line sets, so its precondition — that no walk arrives here
+    /// holding a row — is the thing worth pinning. Nothing else can:
+    /// the two assertions at the end of that function compare against
+    /// `span`, which the clear forces to `0 <= 0` whatever it destroyed.
     ///
-    /// Measured: spelling it `(0, 0)` instead of `(1, 0)` — retaining
-    /// row 0 of a span that covers no row — is byte-identical over
-    /// every corpus file and fails none of the lib suite, because the
-    /// three walks that arrive here (the empty file and the two
-    /// whitespace-only root contracts) all arrive with both line sets
-    /// already empty. A fixture therefore cannot cover this branch at
-    /// all; seeding `Stats` directly is the only shape that can
-    /// (`.claude/rules/testing.md`, "Pair any end-to-end test with a
+    /// This test used to assert the clearing itself, seeding row 0
+    /// because it is the one row a `(0, 0)` spelling would wrongly keep.
+    /// That is now covered a layer down by
+    /// `line_set::tests::retain_range_inverted_empties_the_set`, which
+    /// seeds `[0, 1, 400]` and asserts row 0 specifically is gone — so
+    /// the seed here is free to become what it always described: the
+    /// state the guard exists to reject.
+    ///
+    /// A fixture cannot reach this branch with a populated set at all —
+    /// `span == 0` needs a space opened on a genuinely zero-width node
+    /// at column 0, and every `is_func_space` matches compound
+    /// productions — so seeding `Stats` directly is the only shape that
+    /// can (`.claude/rules/testing.md`, "Pair any end-to-end test with a
     /// direct unit test on the function whose contract is verified").
-    ///
-    /// The seed is row 0 specifically: it is the one row `(0, 0)` would
-    /// wrongly keep, so a test seeding any other row would pass under
-    /// both spellings.
     #[test]
-    fn a_zero_span_keeps_no_row() {
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "zero-span space reached the clamp holding")]
+    fn a_zero_span_holding_rows_trips_the_guard() {
         let mut stats = Stats::default();
         // The empty file's span: `0..0`, covering no row at all.
         stats.init_unit_span(0, 0);
         stats.ploc.lines.insert(0);
-        stats.cloc.only_comment_line_starts.insert(0);
-        stats.cloc.code_comment_line_starts.insert(0);
-        assert_eq!((stats.sloc(), stats.ploc(), stats.cloc()), (0, 1, 1));
+        assert_eq!((stats.sloc(), stats.ploc()), (0, 1));
+
+        stats.clamp_line_sets_to_span();
+    }
+
+    /// The companion to the guard above: an *empty* zero-span space is
+    /// the state every real walk arrives in, and it must pass through
+    /// the clamp untouched rather than trip the assertion.
+    #[test]
+    fn a_zero_span_without_rows_clamps_cleanly() {
+        let mut stats = Stats::default();
+        stats.init_unit_span(0, 0);
 
         stats.clamp_line_sets_to_span();
 
         assert_eq!(
-            (stats.ploc(), stats.cloc()),
-            (0, 0),
+            (stats.sloc(), stats.ploc(), stats.cloc()),
+            (0, 0, 0),
             "a span of no rows retains no row"
         );
     }
