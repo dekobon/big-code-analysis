@@ -34,7 +34,49 @@
 //! `groovy_wildcard_super_bound_stays_an_operator` in
 //! `src/metrics/halstead.rs`.
 
-use big_code_analysis::{Ast, LANG, Source};
+use big_code_analysis::{Ast, LANG, MetricsOptions, Source, analyze};
+
+/// The same fixture as [`fixture`], with the *receiver* occurrence of
+/// the keyword deleted and nothing else changed — or `None` for a row
+/// whose fixture already spells the keyword only as a receiver.
+///
+/// Two rows need this because their language spells the keyword in the
+/// *declaration* as well: Python's `def f(self)` and Rust's `&self`.
+/// The vocabulary in [`Ops::operands`] is deduplicated, so in those two
+/// the declaration alone satisfies "`self` is an operand" and the
+/// receiver assertion is vacuous — deleting `return self.x` leaves the
+/// row green. Measured: Python's `n2` is 4 either way, Rust's `self`
+/// survives in the vocabulary from `&self`.
+///
+/// `N2` is the axis that can see the difference, so the test asserts
+/// the receiver contributes exactly one operand *occurrence*. If a
+/// grammar bump gave the receiver a dedicated kind that no arm
+/// classifies, `N2` would not drop and the delta assertion fails —
+/// which is the drift these rows exist to catch.
+///
+/// [`Ops::operands`]: big_code_analysis::Ops::operands
+fn receiver_stripped(lang: LANG) -> Option<&'static str> {
+    match lang {
+        // `return self.x` -> `return x`. Parses clean; N2 5 -> 4.
+        LANG::Python => Some("class A:\n    def f(self):\n        return x\n"),
+        // `self.x` -> `x`. Parses clean (metrics never type-check);
+        // N2 7 -> 6.
+        LANG::Rust => Some("struct A { x: i32 }\nimpl A { fn f(&self) -> i32 { x } }\n"),
+        _ => None,
+    }
+}
+
+/// Total operand occurrences (`N2`) for `source` under `lang`.
+fn total_operands(lang: LANG, source: &str, name: &str) -> u64 {
+    analyze(
+        Source::new(lang, source.as_bytes()).with_name(Some(name.to_owned())),
+        MetricsOptions::default(),
+    )
+    .unwrap_or_else(|e| panic!("{lang:?}: analyze failed: {e}"))
+    .metrics
+    .halstead
+    .total_operands()
+}
 
 /// Returns `(source, extension, keywords)` for a language that spells a
 /// self- or super-reference, or `None` for one that does not.
@@ -189,7 +231,7 @@ fn every_language_bills_a_self_reference_as_an_operand() {
         checked += 1;
 
         let name = format!("parity.{ext}");
-        let ops = Ast::parse(Source::new(lang, source.as_bytes()).with_name(Some(name)))
+        let ops = Ast::parse(Source::new(lang, source.as_bytes()).with_name(Some(name.clone())))
             .unwrap_or_else(|e| panic!("{lang:?}: parse failed: {e}"))
             .ops()
             .unwrap_or_else(|e| panic!("{lang:?}: ops failed: {e}"));
@@ -207,6 +249,20 @@ fn every_language_bills_a_self_reference_as_an_operand() {
                 !ops.operators.iter().any(|o| o == keyword),
                 "{lang:?}: `{keyword}` must not be a Halstead operator; operators were {:?}",
                 ops.operators,
+            );
+        }
+
+        // Where the declaration spells the keyword too, the assertions
+        // above pass on the declaration alone and say nothing about the
+        // receiver. Pin the receiver by its occurrence count instead.
+        if let Some(stripped) = receiver_stripped(lang) {
+            let with = total_operands(lang, source, &name);
+            let without = total_operands(lang, stripped, &name);
+            assert_eq!(
+                with,
+                without + 1,
+                "{lang:?}: the receiver must contribute exactly one operand occurrence; \
+                 N2 was {with} with it and {without} without",
             );
         }
     }

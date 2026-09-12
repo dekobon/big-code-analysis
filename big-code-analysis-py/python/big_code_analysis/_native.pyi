@@ -1015,6 +1015,16 @@ def to_sarif(
     space keeps its ``suppressed`` key), no baseline and no
     ``[check] exclude`` globs.
 
+    That positional comparison also assumes a **unique file set**. The
+    CLI folds repeated path seeds together, so
+    ``bca check -p a.py -p a.py`` analyses ``a.py`` once and emits one
+    finding per breach, while ``analyze_batch`` returns one result per
+    input and ``to_sarif`` renders every result it is handed — so
+    ``to_sarif(analyze_batch([a, a]), ...)`` emits each finding twice.
+    Deduplicating here would be wrong, because two distinct results may
+    legitimately share a name (:func:`analyze_source` takes the caller's
+    name), so pass a unique file set when diffing the two documents.
+
     Raises
     ------
     TypeError

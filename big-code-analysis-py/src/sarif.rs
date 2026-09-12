@@ -101,6 +101,25 @@
 //! in-source suppression markers `bca check` honours by default (a marked
 //! space keeps its `suppressed` key for a caller that wants to filter),
 //! no baseline, and no `[check] exclude` globs.
+//!
+//! Positional parity also assumes a **unique file set**. The CLI folds
+//! repeated path seeds together in `SeedSet::seen`
+//! (`big-code-analysis-cli/src/walk.rs`), so
+//! `bca check -p a.py -p a.py` analyses `a.py` once and emits one
+//! finding per breach. This binding does not: `analyze_batch`
+//! deliberately returns one result per input, and
+//! [`collect_offenders_from_iter`] appends every result it is handed, so
+//! `to_sarif(analyze_batch([a, a]), …)` emits each finding twice.
+//!
+//! That asymmetry is deliberate rather than a gap to close here.
+//! Deduplicating by `name` would be wrong: two results may legitimately
+//! carry the same name — [`analyze_source`] takes the caller's name, and
+//! nothing stops two snippets sharing one — so the binding cannot tell a
+//! repeated path from two distinct analyses of the same name. Hand
+//! `to_sarif` a unique file set when comparing documents entry for
+//! entry.
+//!
+//! [`analyze_source`]: crate::analysis
 
 use std::path::{Path, PathBuf};
 

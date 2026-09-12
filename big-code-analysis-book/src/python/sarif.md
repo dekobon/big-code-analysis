@@ -21,6 +21,16 @@ values, so it applies none of the in-source
 default (each marked space keeps its `suppressed` key, for a caller that
 wants to filter), no baseline, and no `[check] exclude` globs.
 
+"The same files" means a **unique file set**. The CLI folds repeated path
+seeds together, so `bca check -p a.py -p a.py` analyses `a.py` once and
+emits one finding per breach. `analyze_batch` instead returns one result
+per input, and `to_sarif` renders every result it is handed, so
+`to_sarif(analyze_batch([a, a]), ...)` emits each finding twice.
+Deduplicating in the binding would be wrong — two distinct results may
+legitimately share a name, since `analyze_source` takes the caller's —
+so hand `to_sarif` a unique file set when comparing the two documents
+positionally.
+
 Examples on this page import the package as `bca`
 (`import big_code_analysis as bca`). A bare `bca` in a shell command is
 the CLI binary.
