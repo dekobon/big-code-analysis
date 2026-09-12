@@ -135,6 +135,27 @@ for historical reference.
 
 ### Fixed
 
+- **Twenty-five cross-language test sweeps no longer fail spuriously
+  under a reduced feature set** (#1286, #1411). Each carried a loud
+  non-vacuity guard (`checked > 0`, `assert_fixtures_present`) without
+  the `#[cfg(any(feature = …))]` union that makes the test *absent*
+  rather than failing when none of its fixture languages is compiled
+  in, so a contributor building a subset read the guard as a defect in
+  whatever they were changing: 12 such tests failed under
+  `--no-default-features --features go` and 9 under
+  `--features rust,typescript`, now 0 in both. Four sweeps had the
+  inverse problem — a filter and no guard, so they passed having
+  asserted nothing — and four more were not a plain union:
+  `nargs`'s comment-in-parameter-list sweep drove two **disjoint**
+  fixture populations from one conjunctive guard (no union satisfies
+  it; it is now two tests, one per population), its C-family
+  return-type sweep needed the *intersection* of three tables rather
+  than their union, `cognitive`'s function-depth sweep had neither the
+  filter nor the guard and handed disabled grammars to the parser, and
+  `abc`'s keyword-negation module holds a third, Lua-only test that a
+  module gate naming only the other two would have silently dropped
+  from a Lua build. The `--all-features` test population is unchanged
+  but for that deliberate one-into-two split.
 - **The five hand-listed cross-language parity suites now key their
   fixtures on an exhaustive `match` over `LANG`**, so a new language
   cannot be added without deciding whether it spells each construct

@@ -33,7 +33,31 @@ pub mod tokens;
 /// Weighted Methods per Class.
 pub mod wmc;
 
+// Gated on the union of the features its `FIXTURES` rows carry, so a
+// build enabling none of them drops the module rather than tripping
+// `assert_fixtures_present` — a failure that reads as a defect in
+// whatever was being changed (`.claude/rules/testing.md`, #1286). The
+// tests the module already gates individually all name a subset of this
+// list.
 #[cfg(test)]
+#[cfg(any(
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "typescript"
+))]
 #[path = "container_scope_tests.rs"]
 mod container_scope_tests;
 

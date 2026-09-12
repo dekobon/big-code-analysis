@@ -269,9 +269,11 @@ fn every_language_bills_a_self_reference_as_an_operand() {
 
     // Every language is feature-gated, so a build enabling only
     // languages with no self-reference leaves a zero-iteration loop and
-    // a test that reports green while asserting nothing. The `cfg` above
-    // keeps this from firing spuriously: it names exactly the features
-    // whose rows are `Some`.
+    // a test that reports green while asserting nothing. What keeps this
+    // from firing spuriously is the `#[cfg(any(…))]` on this file's
+    // `mod` declaration in `tests/parity/main.rs`, which names exactly
+    // the features whose rows below are `Some` — there is no `cfg` in
+    // this file to look up at.
     assert!(
         checked > 0,
         "at least one language feature with a self-reference must be \
