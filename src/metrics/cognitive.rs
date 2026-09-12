@@ -10736,7 +10736,25 @@ end",
     /// / `method_declaration` and the grammar allows neither inside a
     /// function body, so the surcharge is unreachable there — a nested
     /// Go function is a `func_literal`, which takes the `lambda` path.
+    // Gated on the union of the rows below. Unlike its siblings this
+    // test had *neither* half of the rule: the rows were swept without
+    // an `is_enabled` filter, so a disabled grammar reached
+    // `Ast::parse`, which cannot produce a tree for one — the gate alone
+    // would still leave it failing under `--features c`, a subset the
+    // gate admits. All three pieces landed together (#1286).
     #[test]
+    #[cfg(any(
+        feature = "bash",
+        feature = "c",
+        feature = "irules",
+        feature = "javascript",
+        feature = "lua",
+        feature = "mozcpp",
+        feature = "mozjs",
+        feature = "objc",
+        feature = "ruby",
+        feature = "typescript"
+    ))]
     fn function_depth_surcharge_holds_across_languages() {
         use crate::test_support::metrics_verbatim;
 
@@ -10787,7 +10805,11 @@ end",
         const TCL_NESTED: &str =
             "proc outer {x} {\nproc inner {y} {\nif {$y > 0} {\nputs positive\n}\n}\n}\n";
 
-        let rows = [
+        // Filtered rather than swept whole: `parses_cleanly` and
+        // `cognitive_of` both hand the row to the parser, and a grammar
+        // this build did not compile in has none, so an unfiltered
+        // sweep fails on every feature subset that omits one row.
+        let rows: Vec<(LANG, &str, &str)> = [
             (LANG::C, C_FLAT, C_NESTED),
             (LANG::Objc, OBJC_FLAT, OBJC_NESTED),
             (LANG::Mozcpp, CPP_FLAT, CPP_NESTED),
@@ -10799,7 +10821,17 @@ end",
             (LANG::Lua, LUA_FLAT, LUA_NESTED),
             (LANG::Bash, BASH_FLAT, BASH_NESTED),
             (LANG::Irules, TCL_FLAT, TCL_NESTED),
-        ];
+        ]
+        .into_iter()
+        .filter(|&(lang, ..)| lang.is_enabled())
+        .collect();
+        // The non-vacuity half: the `cfg` above makes the test absent
+        // when no row's feature is on, so reaching here with an empty
+        // sweep means `is_enabled` stopped agreeing with it.
+        assert!(
+            !rows.is_empty(),
+            "no language enabled; this test asserted nothing"
+        );
 
         // Whole vectors rather than a per-row `assert_eq!`: when this
         // shared walk breaks it breaks for every language at once, and
@@ -10930,7 +10962,11 @@ end",
 /// function boundaries) rather than a value that moves with any
 /// unrelated re-tuning. The absolute is pinned too, so a regression
 /// moving both equally still fails.
+// Gated on the union of the three languages `cases()` has a row for, so
+// a build enabling none of them drops the module rather than tripping
+// its `checked > 0` guard (`.claude/rules/testing.md`, #1286).
 #[cfg(test)]
+#[cfg(any(feature = "java", feature = "javascript", feature = "kotlin"))]
 mod nameless_construct_boundaries {
     use crate::test_support::space_verbatim;
     use crate::{FuncSpace, LANG, MetricsOptions};

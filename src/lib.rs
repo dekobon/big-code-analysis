@@ -149,9 +149,15 @@ mod macros;
 // module's metric budget on test-only code (#1066).
 #[cfg(test)]
 mod test_support;
-// Drift guard for the crate-level `## Supported Languages` list above.
+// Gated on the four grammars its tables name, so a build enabling none
+// of them drops the module rather than tripping its `checked > 0`
+// non-vacuity guard (`.claude/rules/testing.md`, #1286). The guard then
+// covers only the residual case where `is_enabled` stops agreeing with
+// the feature it compiled under.
 #[cfg(test)]
+#[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
 mod c_family_space_names_tests;
+// Drift guard for the crate-level `## Supported Languages` list above.
 #[cfg(test)]
 mod lib_docs_tests;
 #[cfg(test)]

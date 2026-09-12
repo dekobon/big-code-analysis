@@ -11594,7 +11594,26 @@ function f(int $a, int $b): int {
 /// operand is the only input that discriminates the first defect and
 /// the negated operand the only one that discriminates the second —
 /// existing ternary fixtures use neither.
+// Gated on the union of the features [`ternary_comment_invariance::cases`]
+// has a row for, so a build enabling none of them — `--no-default-features
+// --features go` — drops both tests rather than tripping their
+// `checked > 0` guards (`.claude/rules/testing.md`, #1286). Both tests
+// read the same table, so one gate on the module is exact for each.
 #[cfg(test)]
+#[cfg(any(
+    feature = "c",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "groovy",
+    feature = "java",
+    feature = "javascript",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "typescript"
+))]
 mod ternary_comment_invariance {
     use crate::test_support::metrics_verbatim;
     use crate::{LANG, MetricsOptions};
@@ -11723,7 +11742,19 @@ mod ternary_comment_invariance {
 /// They are exercised here so a future edit cannot regress them
 /// silently. Python counts `not` through its own dispatcher arm and has
 /// no `!` spelling to compare against.
+// Gated on the union of every row below — the three `pairs` languages
+// plus Lua, whose test is separate — so a build enabling none of them
+// drops the module instead of failing its guards
+// (`.claude/rules/testing.md`, #1286 / #1411). The three tests do *not*
+// share a row set, so each carries its own narrower gate: a Lua-only
+// build must not be asked to run the Ruby/Perl baselines.
 #[cfg(test)]
+#[cfg(any(
+    feature = "elixir",
+    feature = "lua",
+    feature = "perl",
+    feature = "ruby"
+))]
 mod keyword_negation_parity {
     use crate::test_support::metrics_verbatim;
     use crate::{LANG, MetricsOptions};
@@ -11735,6 +11766,7 @@ mod keyword_negation_parity {
     }
 
     /// `(bang_form, keyword_form)` pairs that must score identically.
+    #[cfg(any(feature = "elixir", feature = "perl", feature = "ruby"))]
     fn pairs(lang: LANG) -> Option<Vec<(String, String)>> {
         let build =
             |t: &str| -> (String, String) { (t.replace("{NOT}", "!"), t.replace("{NOT}", "not ")) };
@@ -11757,6 +11789,7 @@ mod keyword_negation_parity {
     }
 
     #[test]
+    #[cfg(any(feature = "elixir", feature = "perl", feature = "ruby"))]
     fn the_not_keyword_scores_like_bang() {
         let mut checked = 0;
         for lang in LANG::into_enum_iter() {
@@ -11786,6 +11819,7 @@ mod keyword_negation_parity {
     /// `a ? (!b) : (!c)` is four: the `?` marker, the condition `a` in
     /// boolean context, and one per negated branch operand.
     #[test]
+    #[cfg(any(feature = "perl", feature = "ruby"))]
     fn the_baseline_values_are_one_and_four() {
         let mut checked = 0;
         for (lang, guard, ternary) in [
@@ -11816,10 +11850,17 @@ mod keyword_negation_parity {
     /// Lua's only negation keyword is `not`, so it has no `!` twin to
     /// compare against — its guard is that the keyword counts at all.
     #[test]
+    #[cfg(feature = "lua")]
     fn lua_counts_its_only_negation_keyword() {
-        if !LANG::Lua.is_enabled() {
-            return;
-        }
+        // Was a silent `if !is_enabled() { return; }`, which made the
+        // whole test a no-op rather than absent whenever the runtime
+        // check and the feature disagreed. The `cfg` above is the
+        // absence half; this is the loud residual half (#1286).
+        assert!(
+            LANG::Lua.is_enabled(),
+            "compiled under `feature = \"lua\"` but `LANG::Lua` reports disabled; \
+             this test asserted nothing"
+        );
         assert_eq!(
             conditions(
                 LANG::Lua,

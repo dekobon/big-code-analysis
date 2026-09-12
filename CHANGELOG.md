@@ -74,6 +74,20 @@ for historical reference.
   aggregate diverges from the CLI accessor; nothing in the workspace
   reads the flag, so this is a correction to a published description
   rather than a behaviour change.
+- `make check-versions` now also gates the workspace-excluded crates'
+  lockfiles, failing when a `Cargo.lock` under `enums/`, `fuzz/`, or a
+  vendored `tree-sitter-*` leaf records a path package at a version its
+  manifest no longer declares (#1234). `cargo update --workspace` — the
+  refresh `RELEASING.md` calls mandatory during a bump — reaches only
+  the root lockfile, and every gate that consumes the others passes
+  `--locked`, so a bump that skipped them turned `make enums-check`,
+  `fuzz-check`, or `release-check` red on a later, unrelated commit. The
+  failure now names the lockfile, the package, both versions, and the
+  `cargo update --manifest-path` line that repairs it. The candidate
+  list is derived from the root manifest's `[workspace] exclude` array
+  rather than from the gate's existing lockstep-version tuple, which
+  omits `fuzz` (deliberately version `0.0.0`) and so would have missed
+  one of the two lockfiles that motivated the change.
 
 ### Performance
 
@@ -121,6 +135,79 @@ for historical reference.
 
 ### Fixed
 
+- **Twenty-five cross-language test sweeps no longer fail spuriously
+  under a reduced feature set** (#1286, #1411). Each carried a loud
+  non-vacuity guard (`checked > 0`, `assert_fixtures_present`) without
+  the `#[cfg(any(feature = …))]` union that makes the test *absent*
+  rather than failing when none of its fixture languages is compiled
+  in, so a contributor building a subset read the guard as a defect in
+  whatever they were changing: 12 such tests failed under
+  `--no-default-features --features go` and 9 under
+  `--features rust,typescript`, now 0 in both. Four sweeps had the
+  inverse problem — a filter and no guard, so they passed having
+  asserted nothing — and four more were not a plain union:
+  `nargs`'s comment-in-parameter-list sweep drove two **disjoint**
+  fixture populations from one conjunctive guard (no union satisfies
+  it; it is now two tests, one per population), its C-family
+  return-type sweep needed the *intersection* of three tables rather
+  than their union, `cognitive`'s function-depth sweep had neither the
+  filter nor the guard and handed disabled grammars to the parser, and
+  `abc`'s keyword-negation module holds a third, Lua-only test that a
+  module gate naming only the other two would have silently dropped
+  from a Lua build. The `--all-features` test population is unchanged
+  but for that deliberate one-into-two split.
+- **The five hand-listed cross-language parity suites now key their
+  fixtures on an exhaustive `match` over `LANG`**, so a new language
+  cannot be added without deciding whether it spells each construct
+  (#1281). The cyclomatic, cognitive, nargs and exit suites had
+  hand-maintained language lists that had fallen behind the roster:
+  Ruby, Lua, Perl, Go and Elixir were missing from families they can
+  express, and `LANG::C` appeared in none of the cyclomatic, cognitive
+  or nargs families — every row labelled `"c"` there actually parsed
+  `LANG::Cpp`, and only the exit suite carried a genuine `LANG::C` row.
+  The omission had already masked a real divergence: the Elixir
+  catch-all CCN bug fixed in #1272. The
+  restructure adds 107 measured fixture rows across 11 families and
+  records a reason at every `None` arm, replacing `nargs`'s false "every
+  supported language …" prose list and `nexits`'s asserted "all 23
+  languages" claim with a compiler-enforced one. None of the new rows
+  moved a metric: all 107 were at parity when added.
+- **The same five suites no longer panic under a reduced feature set.**
+  Each measured its fixtures through `analyze(…).expect(…)` with no
+  `is_enabled()` filter, so any build short of the language a row named
+  died on `LanguageDisabled` rather than skipping the row — 13 of 19
+  parity tests failed under `--no-default-features --features go`, which
+  reads as a defect in whatever was being changed. The four table-driven
+  suites now skip disabled languages, and the two-grammar
+  `cpp_mozcpp_parity` is gated on `cpp` *and* `mozcpp` at compile time.
+  The `--all-features` test population is unchanged.
+- **The 24 `alterator_string_flattening` cases are now gated on their own
+  grammar features**, so a build that enables only some of the eight
+  languages they cover leaves the rest *absent* rather than failing
+  (#1415). Each case parses through `Ast::parse(…).expect(…)`, which
+  panics when that row's grammar is compiled out, and the module is
+  declared ungated — so any feature set short of the full eight red-Xed
+  up to 24 tests that read as a defect in whatever was being changed.
+  The file-local `flatten_cases!` macro now takes a per-row feature
+  literal and emits `#[cfg(feature = …)]` on each generated test, which
+  is what a table spanning eight grammars needs: the whole-module gate
+  its single-grammar siblings use can name only one feature. The
+  `--all-features` test population is unchanged.
+
+- **`make fuzz-smoke` now runs every fuzz target and reports all of the
+  failing ones**, instead of aborting on the first crash (#1235). The
+  recipe runs under `.SHELLFLAGS := -eu`, so a crashing
+  `cargo fuzz run` ended the loop and the later targets never ran — and
+  `fuzz-smoke` is what the quarterly `fuzz.yml` cron invokes, the run
+  nobody is watching, so a quarter that produced three unrelated crashes
+  reported one and rediscovered the rest only after it was fixed. The
+  loop now collects per-target status, exits non-zero at the end naming
+  each failing target, and prints the `make fuzz-run` reproduction
+  command. `fuzz-replay`, the per-PR gate, deliberately keeps stopping
+  at the first failure. The fuzz workflow's advisory (non-required)
+  status is now recorded as a decision, with its rationale and the
+  measured cost of the alternative, in
+  [`docs/development/fuzzing.md`](docs/development/fuzzing.md).
 - **`Node::utf8_text` no longer panics on a span that falls outside the
   buffer it is handed.** Its signature returns `Option` and its doc
   offered `None` for invalid UTF-8, but it delegated to

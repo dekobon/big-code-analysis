@@ -9,9 +9,9 @@ name: Fuzz
 # reasoning the `coverage` job in ci.yml records for staying on stable.
 # Here the flag simply is not set, so a nightly lint is a warning.
 #
-# The consequence is worth stating plainly: this workflow is not in the
-# `ci` aggregator's `needs:`, so it is advisory until branch protection
-# names it.
+# This workflow is not in the `ci` aggregator's `needs:`, so it is
+# advisory — by decision, not by omission. The rationale and what would
+# reverse it are in docs/development/fuzzing.md, "Advisory, by decision".
 #
 # See docs/development/fuzzing.md.
 

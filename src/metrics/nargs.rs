@@ -4370,7 +4370,19 @@ when HTTP_REQUEST { log local0. \"hit\" }
 /// were checked and are correct — each overrides `compute` with its own
 /// closure-parameter shape — and the JS family reaches the right answer
 /// through the singular `parameter` field.
+// Gated on the union of the languages `cases()` has a row for, so a
+// build enabling none of them drops the module rather than tripping its
+// `checked > 0` guard (`.claude/rules/testing.md`, #1286). The
+// closure-channel test below reads a strict subset of that table and so
+// carries its own narrower gate.
 #[cfg(test)]
+#[cfg(any(
+    feature = "csharp",
+    feature = "java",
+    feature = "javascript",
+    feature = "mozjs",
+    feature = "typescript"
+))]
 mod lambda_parenthesisation_parity {
     use crate::test_support::metrics_verbatim;
     use crate::{LANG, MetricsOptions};
@@ -4460,11 +4472,14 @@ mod lambda_parenthesisation_parity {
     /// Asserting the channel per language rather than globally keeps
     /// this test from encoding that as a bug.
     #[test]
+    #[cfg(any(feature = "csharp", feature = "java"))]
     fn a_bare_lambda_stays_in_the_closure_channel() {
-        for lang in [LANG::Java, LANG::Csharp] {
-            if !lang.is_enabled() {
-                continue;
-            }
+        let mut checked = 0;
+        for lang in [LANG::Java, LANG::Csharp]
+            .into_iter()
+            .filter(LANG::is_enabled)
+        {
+            checked += 1;
             let [bare, ..] = cases(lang).expect("both languages have cases");
             assert_eq!(
                 args(lang, bare),
@@ -4472,6 +4487,13 @@ mod lambda_parenthesisation_parity {
                 "{lang:?}: the lambda's argument must be billed to closure_args"
             );
         }
+        // Two rows against the module's five-feature gate, so this test
+        // needs the narrower `cfg` above; the guard then covers the
+        // residual `is_enabled` disagreement (#1286).
+        assert!(
+            checked > 0,
+            "neither java nor csharp is enabled; this test asserted nothing"
+        );
     }
 }
 
@@ -4681,45 +4703,87 @@ mod comments_in_parameter_lists {
         })
     }
 
-    #[test]
-    fn a_comment_in_a_parameter_list_is_not_a_parameter() {
-        let (mut repaired, mut guards) = (0, 0);
+    /// Sweeps one fixture table, reporting every row that miscounted and
+    /// failing differently when the table ran empty.
+    ///
+    /// The two populations are swept by two tests rather than one
+    /// because they are **disjoint**, and a single test could not be
+    /// gated (#1286): its guard was the conjunction `repaired > 0 &&
+    /// guards > 0`, which no union of the two tables satisfies —
+    /// `--features rust` supplies a repaired row and no guard row,
+    /// `--features go` the reverse. Split, each test's `cfg` is exactly
+    /// its own table's languages and each guard stays loud. The shared
+    /// collect-then-report shape lives here so the split costs no
+    /// duplication.
+    fn sweep(table: impl Fn(LANG) -> Option<&'static [(&'static str, (u64, u64))]>, what: &str) {
+        let mut checked = 0;
         let mut failures = Vec::new();
         for lang in LANG::into_enum_iter().filter(LANG::is_enabled) {
-            for (table, counter) in [
-                (repaired_cases(lang), &mut repaired),
-                (already_correct_cases(lang), &mut guards),
-            ] {
-                for (source, expected) in table.unwrap_or_default() {
-                    *counter += 1;
-                    let got = args(lang, source);
-                    // Collected rather than asserted inline so a revert of
-                    // any one of the four loops shows every language it
-                    // broke, not just the alphabetically first. The branch
-                    // carries no formatting — a line that runs only on
-                    // failure can never be covered, so the report is built
-                    // once, below, from the raw tuples.
-                    if got != *expected {
-                        failures.push((lang, source, *expected, got));
-                    }
+            for (source, expected) in table(lang).unwrap_or_default() {
+                checked += 1;
+                let got = args(lang, source);
+                // Collected rather than asserted inline so a revert of
+                // any one of the four loops shows every language it
+                // broke, not just the alphabetically first. The branch
+                // carries no formatting — a line that runs only on
+                // failure can never be covered, so the report is built
+                // once, below, from the raw tuples.
+                if got != *expected {
+                    failures.push((lang, source, *expected, got));
                 }
             }
         }
         // Bound eagerly and interpolated by name: an `assert!` argument is
         // evaluated only when the assertion fires, so spelling these out
         // as arguments would leave two more never-executed lines behind.
-        let (failed, total) = (failures.len(), repaired + guards);
+        let failed = failures.len();
         assert!(
             failures.is_empty(),
-            "{failed}/{total} fixtures counted a comment as a parameter: {failures:#?}"
+            "{failed}/{checked} {what} fixtures counted a comment as a parameter: {failures:#?}"
         );
-        // Both tallies, so a table that stopped being reached — a renamed
+        // The tally, so a table that stopped being reached — a renamed
         // `LANG` variant, a feature that stopped being enabled — fails
         // here rather than passing vacuously.
         assert!(
-            repaired > 0 && guards > 0,
-            "no fixture ran (repaired={repaired}, guards={guards}); this test asserted nothing"
+            checked > 0,
+            "no {what} fixture ran; this test asserted nothing"
         );
+    }
+
+    #[test]
+    #[cfg(any(
+        feature = "c",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "elixir",
+        feature = "groovy",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "mozcpp",
+        feature = "mozjs",
+        feature = "objc",
+        feature = "php",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+        feature = "typescript"
+    ))]
+    fn a_comment_in_a_repaired_parameter_list_is_not_a_parameter() {
+        sweep(repaired_cases, "repaired");
+    }
+
+    #[test]
+    #[cfg(any(
+        feature = "go",
+        feature = "groovy",
+        feature = "kotlin",
+        feature = "lua",
+        feature = "objc",
+        feature = "perl"
+    ))]
+    fn a_positive_parameter_filter_still_ignores_a_comment() {
+        sweep(already_correct_cases, "already-correct");
     }
 
     /// Tcl — and iRules, which shares the shape — reports **4** for a
@@ -4800,7 +4864,9 @@ mod comments_in_parameter_lists {
     /// what would break if a grammar bump moved the comment inside the
     /// field.
     #[test]
+    #[cfg(any(feature = "csharp", feature = "java"))]
     fn a_comment_on_a_bare_lambda_parameter_changes_nothing() {
+        let mut checked = 0;
         for (lang, commented, bare) in [
             (
                 LANG::Java,
@@ -4816,6 +4882,7 @@ mod comments_in_parameter_lists {
         .into_iter()
         .filter(|(lang, ..)| lang.is_enabled())
         {
+            checked += 1;
             let got = args(lang, commented);
             assert_eq!(
                 got,
@@ -4830,10 +4897,25 @@ mod comments_in_parameter_lists {
                 "{lang:?}: a bare lambda parameter is one closure argument"
             );
         }
+        // The non-vacuity half the `cfg` above does not cover: a
+        // zero-iteration loop here means `is_enabled` stopped agreeing
+        // with the feature this compiled under (#1286).
+        assert!(
+            checked > 0,
+            "neither java nor csharp is enabled; this test asserted nothing"
+        );
     }
 }
 
+// The guard below is a *conjunction* over three tables, so the gate is
+// their intersection rather than their union: `cpp_only_shapes` is the
+// narrowest at `Cpp | Mozcpp`, and both other tables include those two,
+// so `any(cpp, mozcpp)` is exactly the set of feature configurations in
+// which all three tallies can be non-zero (#1286). A plain union would
+// re-admit the spurious failure — `--features c` supplies shared and
+// attributed rows but no `cpp_only` one.
 #[cfg(test)]
+#[cfg(any(feature = "cpp", feature = "mozcpp"))]
 mod c_family_return_type_declarators {
     use crate::test_support::space_verbatim;
     use crate::{LANG, MetricsOptions};

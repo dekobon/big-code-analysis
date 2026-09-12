@@ -118,6 +118,12 @@ then **replays the committed seeds** — the regression question, answered
 in seconds. The quarterly cron does the **hunt**, at 200 000 runs per
 target.
 
+The two halves also differ in what they do after a crash. `fuzz-replay`
+stops at the first one, because a pull request is already blocked by it.
+`fuzz-smoke` runs every remaining target and fails at the end naming all
+of them: nobody is watching the cron, and a run that reports one of
+three crashes hides the other two until the quarter after the fix.
+
 That split is a correction, and the numbers are why. The job first ran
 11 targets x 10 000 mutations on every pull-request push: 156 s to build
 and 977 s to fuzz, nine times over one pull request, 96 minutes of runner
@@ -130,9 +136,39 @@ cargo-fuzz needs nightly and `ci.yml` sets `RUSTFLAGS: "-D warnings"`
 workflow-wide; pairing the two turns every new nightly lint into a red X
 on unrelated PRs.
 
-One consequence is worth stating: the fuzz workflow is **not** in the
-`ci` aggregator's `needs:`, so it is advisory until branch protection
-names it.
+### Advisory, by decision
+
+The fuzz job is **not** a required check, and that is a choice rather
+than an oversight. `main`'s `protect-main` ruleset requires signed
+commits and linear history, and forbids deletion and force-pushes, but
+it names no required status checks — so no CI result blocks a merge
+today, and the open question was whether the fuzz job should be the
+first to.
+
+Check that with `gh api repos/:owner/:repo/rules/branches/main`, not
+with `gh api repos/:owner/:repo/branches/main/protection`. The latter
+reads only the legacy branch-protection API and answers `404 Branch not
+protected` for a branch governed by a ruleset, which is exactly how this
+section came to claim in its first draft that `main` was unprotected.
+
+It should not be, yet. Requiring it puts 15m48s — the measured cost of
+one run — in front of every pull request touching `src/`, `fuzz/`, a
+manifest or a grammar, to gate a build-and-replay pass rather than a
+hunt. It also promotes a nightly-toolchain hiccup or a flaky
+`cargo-fuzz` install into a merge blocker, on the one workflow whose
+reason for living outside `ci.yml` is that nightly moves underneath it.
+And a red cron is not silent: the scheduled run files a GitHub issue
+linking the run and the uploaded `fuzz-artifacts` bundle (the `File
+issue on a scheduled-run crash` step in `.github/workflows/fuzz.yml`),
+so the hunt already reports itself without a required check. The issue
+body carries the `make fuzz-run` template rather than the failing
+target names; those are in the job log, which the summary line above
+now lists in full.
+
+What would change the answer is evidence that the job is boring — a few
+quarterly crons in a row going red only for real crashes, never for
+toolchain flakes. Revisit it then, by adding a `required_status_checks`
+rule to the existing ruleset.
 
 ## Running locally
 

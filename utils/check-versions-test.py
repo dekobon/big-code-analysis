@@ -9,6 +9,11 @@ Two kinds of test live here:
   internal pins (#878) and the `recipes/ci.md` release pins (#879) —
   against synthetic inputs, including the exact strings the *old*
   patterns silently skipped.
+* Tests for the excluded-crate lockfile check (#1234), which build a
+  miniature workspace in a temp directory. The failure direction the
+  issue reproduced — a bumped manifest against a lockfile
+  `cargo update --workspace` never reached — cannot be staged in the
+  checkout itself, because the gate must never mutate the tree.
 * A smoke test that runs the real script against the real repo and
   asserts a clean tree reports lockstep.
 
@@ -22,6 +27,7 @@ import importlib.util
 import pathlib
 import subprocess
 import sys
+import tempfile
 import unittest
 
 # The gate under test is a sibling in `utils/`; every path it reads
@@ -243,6 +249,254 @@ class ChangelogReleaseTest(unittest.TestCase):
         # The README's major-line form ("2") must satisfy the latest
         # published release via prefix normalization.
         self.assertEqual(cv.normalize("2", "2.1.0"), "2.1.0")
+
+
+class ExcludedLockfileTest(unittest.TestCase):
+    """#1234: an excluded crate's Cargo.lock must track its manifests.
+
+    Fixtures are built in a temp tree rather than by perturbing the
+    checkout: `check_excluded_lockfiles` takes its root as a parameter
+    precisely so the failure direction can be exercised without a gate
+    that mutates the working tree.
+    """
+
+    CANONICAL = "2.0.0"
+    REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
+
+    @staticmethod
+    def _lockfile(entries: list[tuple[str, str, str | None]]) -> str:
+        """Render a Cargo.lock from `(name, version, source)` triples."""
+        out = ["version = 4", ""]
+        for name, version, source in entries:
+            out += ["[[package]]", f'name = "{name}"', f'version = "{version}"']
+            if source is not None:
+                out.append(f'source = "{source}"')
+            out.append("")
+        return "\n".join(out)
+
+    def _build(
+        self,
+        root: pathlib.Path,
+        *,
+        canonical: str,
+        leaf_version: str,
+        locked: list[tuple[str, str, str | None]] | None,
+        lockless_leaf: bool = False,
+    ) -> None:
+        """Lay down a miniature workspace with one excluded leaf.
+
+        `canonical` is what `[workspace.package]` declares (so the root
+        package, which inherits it, moves with it); `leaf_version` is
+        the excluded crate's own `[package].version`; `locked` is what
+        its lockfile records, or None to omit the lockfile entirely.
+        """
+        excludes = ['"leaf"'] + (['"lockless"'] if lockless_leaf else [])
+        (root / "Cargo.toml").write_text(
+            "[workspace]\n"
+            'members = ["member"]\n'
+            f"exclude = [{', '.join(excludes)}, \".claude/worktrees\"]\n\n"
+            f'[workspace.package]\nversion = "{canonical}"\n\n'
+            '[package]\nname = "rootpkg"\nversion.workspace = true\n',
+            encoding="utf-8",
+        )
+        (root / "member").mkdir()
+        (root / "member" / "Cargo.toml").write_text(
+            '[package]\nname = "memberpkg"\nversion.workspace = true\n',
+            encoding="utf-8",
+        )
+        (root / "leaf").mkdir()
+        (root / "leaf" / "Cargo.toml").write_text(
+            # The package name deliberately differs from the directory
+            # name, as `tree-sitter-tcl/` -> `bca-tree-sitter-tcl` does.
+            f'[package]\nname = "leafpkg"\nversion = "{leaf_version}"\n',
+            encoding="utf-8",
+        )
+        if locked is not None:
+            (root / "leaf" / "Cargo.lock").write_text(
+                self._lockfile(locked), encoding="utf-8"
+            )
+        if lockless_leaf:
+            (root / "lockless").mkdir()
+            (root / "lockless" / "Cargo.toml").write_text(
+                '[package]\nname = "locklesspkg"\nversion = "1.0.0"\n',
+                encoding="utf-8",
+            )
+
+    def _failures(
+        self,
+        *,
+        leaf_version: str,
+        locked: list[tuple[str, str, str | None]] | None,
+        canonical: str = CANONICAL,
+        lockless_leaf: bool = False,
+    ) -> list[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            self._build(
+                root,
+                canonical=canonical,
+                leaf_version=leaf_version,
+                locked=locked,
+                lockless_leaf=lockless_leaf,
+            )
+            return cv.check_excluded_lockfiles(root, canonical)
+
+    def test_consistent_tree_passes(self) -> None:
+        self.assertEqual(
+            self._failures(
+                leaf_version="2.0.0",
+                locked=[
+                    ("leafpkg", "2.0.0", None),
+                    ("rootpkg", "2.0.0", None),
+                    ("serde", "1.0.219", self.REGISTRY),
+                ],
+            ),
+            [],
+        )
+
+    def test_bumped_manifest_with_stale_lockfile_fails(self) -> None:
+        # The reproducer from #1234: the bump moved both the workspace
+        # version and the leaf's own, and `cargo update --workspace`
+        # reached neither entry of the leaf's lockfile.
+        failures = self._failures(
+            canonical="2.1.0",
+            leaf_version="2.1.0",
+            locked=[("leafpkg", "2.0.0", None), ("rootpkg", "2.0.0", None)],
+        )
+        self.assertEqual(len(failures), 1, failures)
+        message = failures[0]
+        # The whole point is that the failure currently misattributes
+        # itself, so the message must name the file, the packages, and
+        # both versions.
+        self.assertIn("leaf/Cargo.lock", message)
+        self.assertIn("leafpkg locked at '2.0.0'", message)
+        self.assertIn("leaf/Cargo.toml declares '2.1.0'", message)
+        self.assertIn("rootpkg locked at '2.0.0'", message)
+        self.assertIn("Cargo.toml declares '2.1.0'", message)
+        self.assertIn("cargo update --manifest-path leaf/Cargo.toml", message)
+
+    def test_registry_entry_at_another_version_is_ignored(self) -> None:
+        # A `source`-carrying entry is a registry dependency; its
+        # version has nothing to do with this repository's.
+        self.assertEqual(
+            self._failures(
+                leaf_version="2.0.0",
+                locked=[
+                    ("leafpkg", "2.0.0", None),
+                    # Same name as an owned crate, but resolved from the
+                    # registry — the published copy of an older release.
+                    ("rootpkg", "1.0.0", self.REGISTRY),
+                ],
+            ),
+            [],
+        )
+
+    def test_excluded_crate_without_a_lockfile_is_skipped(self) -> None:
+        # An excluded crate only grows a Cargo.lock once something
+        # resolves it; absence is not staleness. A second, locked leaf
+        # keeps the vacuity guard from firing for an unrelated reason.
+        self.assertEqual(
+            self._failures(
+                leaf_version="2.0.0",
+                locked=[("leafpkg", "2.0.0", None)],
+                lockless_leaf=True,
+            ),
+            [],
+        )
+
+    def test_unowned_path_package_is_reported(self) -> None:
+        # A source-less entry naming no manifest here cannot be
+        # adjudicated. Staying quiet would leave a lockfile entry that
+        # nothing checks, which is the shape of the original gap.
+        failures = self._failures(
+            leaf_version="2.0.0",
+            locked=[("leafpkg", "2.0.0", None), ("stranger", "0.1.0", None)],
+        )
+        self.assertEqual(len(failures), 1, failures)
+        self.assertIn("stranger at '0.1.0' resolves to no manifest here", failures[0])
+
+    def test_versionless_entry_is_reported_not_dropped(self) -> None:
+        # A half-written entry for an owned package cannot be compared,
+        # and dropping it would silently check one entry fewer than the
+        # lockfile holds.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            self._build(
+                root,
+                canonical=self.CANONICAL,
+                leaf_version="2.0.0",
+                locked=[("leafpkg", "2.0.0", None)],
+            )
+            (root / "leaf" / "Cargo.lock").write_text(
+                'version = 4\n\n[[package]]\nname = "leafpkg"\nversion = "2.0.0"\n\n'
+                '[[package]]\nname = "rootpkg"\n',
+                encoding="utf-8",
+            )
+            failures = cv.check_excluded_lockfiles(root, self.CANONICAL)
+        self.assertEqual(len(failures), 1, failures)
+        self.assertIn(f"rootpkg locked at {cv.NO_VERSION!r}", failures[0])
+
+    def test_empty_lockfile_is_reported(self) -> None:
+        # Every real Cargo.lock records at least its own root package.
+        failures = self._failures(leaf_version="2.0.0", locked=[])
+        self.assertEqual(len(failures), 1, failures)
+        self.assertIn("no path packages recorded", failures[0])
+
+    def test_no_candidates_is_not_a_pass(self) -> None:
+        # The vacuity guard. If the `[workspace] exclude` derivation
+        # ever returns nothing, the gate must say so rather than report
+        # lockstep having examined no lockfile at all.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "Cargo.toml").write_text(
+                "[workspace]\nmembers = []\n"
+                'exclude = [".claude/worktrees"]\n\n'
+                '[workspace.package]\nversion = "2.0.0"\n',
+                encoding="utf-8",
+            )
+            failures = cv.check_excluded_lockfiles(root, "2.0.0")
+        self.assertEqual(len(failures), 1, failures)
+        self.assertIn("derivation in check-versions.py has broken", failures[0])
+
+    def test_fuzz_lockfile_is_in_scope(self) -> None:
+        # The correction to #1234's own resolution plan: deriving the
+        # candidate list from EXCLUDED_LEAF_DIRS would have skipped
+        # `fuzz`, which is deliberately version 0.0.0 and therefore
+        # absent from that tuple — yet `fuzz/Cargo.lock` is one of the
+        # two lockfiles the issue exists for. The `[workspace] exclude`
+        # derivation covers it.
+        self.assertNotIn("fuzz", cv.EXCLUDED_LEAF_DIRS)
+        crates = [crate for crate, _ in cv.excluded_lockfiles(REPO_ROOT)]
+        self.assertIn("fuzz", crates)
+        self.assertIn("enums", crates)
+
+    def test_real_lockfiles_are_in_step(self) -> None:
+        canonical = cv.workspace_version(REPO_ROOT)
+        self.assertEqual(cv.check_excluded_lockfiles(REPO_ROOT, canonical), [])
+
+    def test_real_lockfiles_would_flag_on_a_bump(self) -> None:
+        # Proof the real files are actually in scope, not merely
+        # parsed: at a hypothetical canonical version every lockfile
+        # recording a workspace-inheriting crate goes stale. `fuzz`
+        # must be among them — it records `big-code-analysis`.
+        failures = cv.check_excluded_lockfiles(REPO_ROOT, "9.9.9")
+        self.assertTrue(failures)
+        self.assertTrue(
+            any(f.startswith("fuzz/Cargo.lock:") for f in failures), failures
+        )
+
+    def test_package_name_is_read_from_the_manifest(self) -> None:
+        # `tree-sitter-tcl/` publishes as `bca-tree-sitter-tcl`, so the
+        # version map cannot key on the directory name.
+        versions = cv.owned_package_versions(REPO_ROOT, "2.0.0")
+        self.assertIn("bca-tree-sitter-tcl", versions)
+        self.assertNotIn("tree-sitter-tcl", versions)
+        # `fuzz` is 0.0.0 by design, and must be compared against its
+        # own manifest rather than the canonical workspace version.
+        self.assertEqual(versions["big-code-analysis-fuzz"][0], "0.0.0")
+        # A member inheriting `version.workspace = true` resolves to the
+        # canonical version passed in.
+        self.assertEqual(versions["big-code-analysis-cli"][0], "2.0.0")
 
 
 class SmokeTest(unittest.TestCase):

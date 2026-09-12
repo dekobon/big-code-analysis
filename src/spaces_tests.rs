@@ -2533,7 +2533,36 @@ fn walk_frees_every_cognitive_nesting_slot() {
     }
 }
 
+// The sweep below covers every `LANG` variant, so its row set is every
+// language feature there is and its non-vacuity guard is only reachable
+// in a build that compiled none of them. Gated so that build drops the
+// test rather than failing it (`.claude/rules/testing.md`, #1286).
 #[cfg(test)]
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript"
+))]
 mod empty_root_contract {
     use crate::{LANG, MetricsOptions, Source, SpaceKind, analyze};
 
@@ -2554,11 +2583,13 @@ mod empty_root_contract {
         // supported language families.
         let inputs: &[&[u8]] = &[b"", b"   \n\t\n", b"// just a comment\n", b"/* block */\n"];
 
+        let mut checked = 0;
         for lang in LANG::into_enum_iter() {
             if !lang.is_enabled() {
                 continue;
             }
             for src in inputs {
+                checked += 1;
                 let space = analyze(Source::new(lang, src), MetricsOptions::default())
                     .unwrap_or_else(|err| {
                         panic!(
@@ -2577,5 +2608,16 @@ mod empty_root_contract {
                 );
             }
         }
+        // Counts language/input *pairs* rather than languages, so an
+        // emptied `inputs` fails here too — the outer loop would
+        // otherwise still run once per language while asserting
+        // nothing. The `cfg` above makes the no-language build drop this
+        // test; the two states it cannot see are that emptied table and
+        // an `is_enabled` that stopped agreeing with the features this
+        // compiled under (#1286).
+        assert!(
+            checked > 0,
+            "no language/input pair ran; this test asserted nothing"
+        );
     }
 }

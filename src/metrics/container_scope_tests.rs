@@ -473,7 +473,31 @@ end
 ///
 /// The positive half of the contract, and the guard against "fixing"
 /// #1197 by disabling the metric everywhere.
+// The four `FIXTURES` sweeps carry the narrower union of that table's
+// own rows, rather than inheriting the module's wider one: a build
+// enabling only `bash`, `lua` or `c` reaches the module for the
+// no-member-construct test below, and `FIXTURES` is empty there, so an
+// ungated sweep would trip `assert_fixtures_present` on a configuration
+// it has nothing to say about.
 #[test]
+#[cfg(any(
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "typescript"
+))]
 fn containers_emit_npm_and_npa() {
     assert_fixtures_present(FIXTURES);
     for fixture in FIXTURES {
@@ -521,6 +545,24 @@ fn containers_emit_npm_and_npa() {
 /// function spaces here and are covered by the same sweep, as are C#'s
 /// expression-bodied property and indexer.
 #[test]
+#[cfg(any(
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "typescript"
+))]
 fn function_spaces_emit_neither() {
     assert_fixtures_present(FIXTURES);
     for fixture in FIXTURES {
@@ -559,6 +601,24 @@ fn function_spaces_emit_neither() {
 /// it would have left `npm` / `npa` disagreeing with `wmc` about a root
 /// the three metrics share a [`MetricScope`](crate::metric_catalog::MetricScope).
 #[test]
+#[cfg(any(
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "typescript"
+))]
 fn the_file_root_keeps_its_rollup() {
     assert_fixtures_present(FIXTURES);
     for fixture in FIXTURES {
@@ -623,6 +683,24 @@ fn the_file_root_keeps_its_rollup() {
 /// there is no set for a space to fall out of. (`.claude/rules/testing.md`:
 /// "review the selector as carefully as the assertion".)
 #[test]
+#[cfg(any(
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "typescript"
+))]
 fn no_space_is_emitted_with_an_unknown_kind() {
     assert_fixtures_present(FIXTURES);
     for fixture in FIXTURES {

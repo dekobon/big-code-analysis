@@ -22,6 +22,13 @@
 //! side; this test ensures the cognitive side never quietly drifts
 //! along the same axis.
 //!
+//! The fixture table is an exhaustive `match` on [`LANG`], so adding a
+//! language variant fails to compile until someone decides whether its
+//! grammar models a switch-like construct; a language that does not says
+//! so with `None`, and the reason lives at the arm. Before #1281 the
+//! list was hand-maintained and had fallen behind the roster — Ruby and
+//! Elixir were absent, and the row labelled `c` parsed `LANG::Cpp`.
+//!
 //! The test uses `cognitive_max()` (space-stacking-independent) so
 //! Java's mandatory wrapping class does not skew the comparison —
 //! no per-language offset is required.
@@ -35,208 +42,179 @@ fn cognitive_max(lang: LANG, source: &str, ext: &str) -> f64 {
         Source::new(lang, source.as_bytes()).with_name(Some(name)),
         MetricsOptions::default(),
     )
-    .expect("parser produced no FuncSpace for parity fixture");
+    .unwrap_or_else(|e| panic!("{lang:?}: analyze failed: {e}"));
     space.metrics.cognitive.cognitive_max() as f64
 }
 
-// A 2-arm switch/match with one explicit arm plus a wildcard /
-// `default` arm contributes one decision point in cognitive
-// complexity (the switch itself); the explicit arm adds no extra
-// nesting and the fallback is silent. Expected `cognitive_max()` is
-// therefore `1` for every language whose grammar models the
-// construct as a `switch`/`match`.
+/// Returns `(source, extension)` for a language whose grammar models a
+/// switch-like construct with a wildcard / `default` arm, or `None` for
+/// one that does not.
+///
+/// Every `Some` row spells the same shape: a function whose whole body
+/// is a two-arm switch — one explicit arm plus a fallback.
+fn fixture(lang: LANG) -> Option<(&'static str, &'static str)> {
+    // Exhaustive per-language dispatch table: one arm per LANG variant
+    // is the point of this function, so a new language cannot be added
+    // without deciding whether it has a switch-like construct. The
+    // repo's own `.bcaignore` excludes `./tests/**`, so this marker is
+    // for the per-edit `bca check` hook rather than for the self-scan
+    // gate.
+    // bca: suppress(cyclomatic)
+    let row = match lang {
+        LANG::Rust => (
+            "fn f(x: u8) -> &'static str {\n    match x {\n        1 => \"one\",\n        \
+             _ => \"other\",\n    }\n}\n",
+            "rs",
+        ),
+        // One arm for the whole C family: the fixture is plain C, which
+        // all four grammars accept unchanged. Objective-C reaches it
+        // through a free C `function_definition`, valid in a `.m` file.
+        LANG::C | LANG::Cpp | LANG::Mozcpp | LANG::Objc => (
+            "void f(int x) {\n    switch (x) {\n        case 1: break;\n        \
+             default: break;\n    }\n}\n",
+            "c",
+        ),
+        LANG::Java => (
+            "class Parity {\n    static void f(int x) {\n        switch (x) {\n            \
+             case 1: break;\n            default: break;\n        }\n    }\n}\n",
+            "java",
+        ),
+        LANG::Csharp => (
+            "class Parity {\n    static void F(int x) {\n        switch (x) {\n            \
+             case 1: break;\n            default: break;\n        }\n    }\n}\n",
+            "cs",
+        ),
+        LANG::Javascript | LANG::Mozjs => (
+            "function f(x) {\n    switch (x) {\n        case 1: break;\n        \
+             default: break;\n    }\n}\n",
+            "js",
+        ),
+        LANG::Typescript => (
+            "function f(x: number) {\n    switch (x) {\n        case 1: break;\n        \
+             default: break;\n    }\n}\n",
+            "ts",
+        ),
+        LANG::Tsx => (
+            "function f(x: number) {\n    switch (x) {\n        case 1: break;\n        \
+             default: break;\n    }\n}\n",
+            "tsx",
+        ),
+        LANG::Php => (
+            "<?php\nfunction f($x) {\n    switch ($x) {\n        case 1: break;\n        \
+             default: break;\n    }\n}\n",
+            "php",
+        ),
+        LANG::Groovy => (
+            "def f(x) {\n    switch (x) {\n        case 1: break\n        default: break\n    }\n}\n",
+            "groovy",
+        ),
+        // Kotlin spells the same construct `when`.
+        LANG::Kotlin => (
+            "fun f(x: Int): String {\n    return when (x) {\n        1 -> \"one\"\n        \
+             else -> \"other\"\n    }\n}\n",
+            "kt",
+        ),
+        LANG::Go => (
+            "package p\nfunc f(x int) string {\n    switch x {\n    case 1:\n        \
+             return \"one\"\n    default:\n        return \"other\"\n    }\n}\n",
+            "go",
+        ),
+        // Python's structural-pattern `match`; `case _` is the wildcard.
+        LANG::Python => (
+            "def f(x):\n    match x:\n        case 1:\n            return 'one'\n        \
+             case _:\n            return 'other'\n",
+            "py",
+        ),
+        // Ruby spells the construct `case`/`when`, with `else` as the
+        // fallback arm.
+        LANG::Ruby => (
+            "def f(x)\n  case x\n  when 1 then \"one\"\n  else \"other\"\n  end\nend\n",
+            "rb",
+        ),
+        // Elixir's `case` with a bare `_ ->` catch-all (#1272). `def`
+        // must live inside a `defmodule`, but `cognitive_max()` reads
+        // the function space, so the module adds no offset.
+        LANG::Elixir => (
+            "defmodule Parity do\n  def f(x) do\n    case x do\n      1 -> :one\n      \
+             _ -> :other\n    end\n  end\nend\n",
+            "ex",
+        ),
+        LANG::Bash => (
+            "f() {\n  case \"$1\" in\n    one) echo one ;;\n    *) echo other ;;\n  esac\n}\n",
+            "sh",
+        ),
+        // Tcl spells the construct as a generic `switch` command and
+        // iRules as a dedicated node (#467); both contribute one
+        // decision point with the `default` arm free, so one fixture
+        // text serves both.
+        LANG::Tcl => (
+            "proc f {x} {\n    switch $x {\n        1 { return one }\n        \
+             default { return other }\n    }\n}\n",
+            "tcl",
+        ),
+        LANG::Irules => (
+            "proc f {x} {\n    switch $x {\n        1 { return one }\n        \
+             default { return other }\n    }\n}\n",
+            "irule",
+        ),
+        // No switch-like construct to score. Lua has none at all — the
+        // idiomatic form is an `if`/`elseif` chain. Perl's `given`/`when`
+        // was always experimental and was removed from the language in
+        // 5.42; the pinned grammar does not model it (verified: the
+        // construct parses to ERROR nodes), so a fixture using it would
+        // pin the parse failure rather than the metric. The two
+        // C-family helper grammars parse fragments and have no
+        // statements at all.
+        LANG::Lua | LANG::Perl | LANG::Ccomment | LANG::Preproc => return None,
+    };
+    Some(row)
+}
 
 #[test]
 fn two_arm_wildcard_switch_cognitive_parity() {
-    let rust = cognitive_max(
-        LANG::Rust,
-        r#"fn f(x: u8) -> &'static str {
-    match x {
-        1 => "one",
-        _ => "other",
-    }
-}
-"#,
-        "rs",
-    );
-    let c = cognitive_max(
-        LANG::Cpp,
-        r"void f(int x) {
-    switch (x) {
-        case 1: break;
-        default: break;
-    }
-}
-",
-        "c",
-    );
-    let java = cognitive_max(
-        LANG::Java,
-        r"class Parity {
-    static void f(int x) {
-        switch (x) {
-            case 1: break;
-            default: break;
-        }
-    }
-}
-",
-        "java",
-    );
-    let javascript = cognitive_max(
-        LANG::Javascript,
-        r"function f(x) {
-    switch (x) {
-        case 1: break;
-        default: break;
-    }
-}
-",
-        "js",
-    );
-    let typescript = cognitive_max(
-        LANG::Typescript,
-        r"function f(x: number) {
-    switch (x) {
-        case 1: break;
-        default: break;
-    }
-}
-",
-        "ts",
-    );
-    let php = cognitive_max(
-        LANG::Php,
-        r"<?php
-function f($x) {
-    switch ($x) {
-        case 1: break;
-        default: break;
-    }
-}
-",
-        "php",
-    );
-    let csharp = cognitive_max(
-        LANG::Csharp,
-        r"class Parity {
-    static void F(int x) {
-        switch (x) {
-            case 1: break;
-            default: break;
-        }
-    }
-}
-",
-        "cs",
-    );
-    // Kotlin spells the same construct `when`; Go's `switch` shares
-    // the same node category.
-    let kotlin = cognitive_max(
-        LANG::Kotlin,
-        r#"fun f(x: Int): String {
-    return when (x) {
-        1 -> "one"
-        else -> "other"
-    }
-}
-"#,
-        "kt",
-    );
-    let go = cognitive_max(
-        LANG::Go,
-        r#"package p
-func f(x int) string {
-    switch x {
-    case 1:
-        return "one"
-    default:
-        return "other"
-    }
-}
-"#,
-        "go",
-    );
-    let bash = cognitive_max(
-        LANG::Bash,
-        "f() {\n  case \"$1\" in\n    one) echo one ;;\n    *) echo other ;;\n  esac\n}\n",
-        "sh",
-    );
-    let python = cognitive_max(
-        LANG::Python,
-        "def f(x):\n    match x:\n        case 1:\n            return 'one'\n        case _:\n            return 'other'\n",
-        "py",
-    );
-    let groovy = cognitive_max(
-        LANG::Groovy,
-        r"def f(x) {
-    switch (x) {
-        case 1: break
-        default: break
-    }
-}
-",
-        "groovy",
-    );
-    // Tcl spells the construct as a generic `switch` command; the structure
-    // adds one cognitive decision point, the `default` arm is free (issue #467).
-    let tcl = cognitive_max(
-        LANG::Tcl,
-        r"proc f {x} {
-    switch $x {
-        1 { return one }
-        default { return other }
-    }
-}
-",
-        "tcl",
-    );
-    // iRules spells `switch` as a dedicated node, but the cognitive
-    // contribution is the same: one decision point, the `default` arm free.
-    let irules = cognitive_max(
-        LANG::Irules,
-        r"proc f {x} {
-    switch $x {
-        1 { return one }
-        default { return other }
-    }
-}
-",
-        "irule",
-    );
-    // Objective-C uses a free C `function_definition` (valid in a `.m`
-    // file); its `switch_statement` is the single decision point and the
-    // `default:` arm is free, matching the family.
-    let objc = cognitive_max(
-        LANG::Objc,
-        r"void f(int x) {
-    switch (x) {
-        case 1: break;
-        default: break;
-    }
-}
-",
-        "m",
-    );
-
-    // expected: one explicit arm + wildcard/default in a single
-    // switch/match contributes one cognitive decision point.
+    // expected: a two-arm switch/match with one explicit arm plus a
+    // wildcard/`default` contributes exactly one cognitive decision
+    // point — the switch itself. Hand-derived: the construct is +1 at
+    // nesting depth 0, the explicit arm adds no nesting of its own, and
+    // the fallback is silent.
     let expected = 1.0;
-    assert_eq!(rust, expected, "rust");
-    assert_eq!(c, expected, "c");
-    assert_eq!(java, expected, "java");
-    assert_eq!(javascript, expected, "javascript");
-    assert_eq!(typescript, expected, "typescript");
-    assert_eq!(php, expected, "php");
-    assert_eq!(csharp, expected, "csharp");
-    assert_eq!(kotlin, expected, "kotlin");
-    assert_eq!(go, expected, "go");
-    assert_eq!(bash, expected, "bash");
-    assert_eq!(python, expected, "python");
-    assert_eq!(groovy, expected, "groovy");
-    assert_eq!(tcl, expected, "tcl");
-    assert_eq!(irules, expected, "irules");
-    assert_eq!(objc, expected, "objc");
+
+    let mut checked = 0;
+    for lang in LANG::into_enum_iter() {
+        if !lang.is_enabled() {
+            continue;
+        }
+        let Some((source, ext)) = fixture(lang) else {
+            continue;
+        };
+        checked += 1;
+        let got = cognitive_max(lang, source, ext);
+        assert_eq!(
+            got, expected,
+            "{lang:?}: cognitive_max {got} != expected {expected}",
+        );
+    }
+
+    // A table that lost its rows is a real, feature-independent
+    // regression, so assert it directly. A build whose enabled
+    // languages have no switch-like construct legitimately checks
+    // nothing — the state a `#[cfg]`-gated-out module would be in — so
+    // `checked > 0` is deliberately not asserted: making it safe would
+    // need a hand-maintained feature union naming every `Some` arm,
+    // which is the drift this restructure removed (#1281).
+    assert!(
+        LANG::into_enum_iter().any(|lang| fixture(lang).is_some()),
+        "the fixture table has no rows at all, so this test cannot fail",
+    );
+    // Re-derive the count independently of the loop, so a `continue`
+    // added above cannot quietly drop rows.
+    let eligible = LANG::into_enum_iter()
+        .filter(|lang| lang.is_enabled() && fixture(*lang).is_some())
+        .count();
+    assert_eq!(
+        checked, eligible,
+        "the loop checked {checked} languages but {eligible} enabled languages have a fixture",
+    );
 }
 
 /// A function *declared inside a closure* must score the same as the
@@ -330,8 +308,15 @@ fn a_function_declared_inside_a_closure_scores_the_same_as_outside() {
             "{lang:?}: the baseline itself moved, so the equality above proves nothing",
         );
     }
-    assert!(
-        checked > 0,
-        "at least one language feature must be enabled for this test to mean anything"
+    // An empty `cases` table is a real, feature-independent regression;
+    // a build enabling only languages absent from it legitimately checks
+    // nothing. Asserting `checked > 0` conflated the two and failed
+    // spuriously under, for example, `--no-default-features --features
+    // go` (#1281).
+    assert!(!cases.is_empty(), "the case table has no rows at all");
+    let eligible = cases.iter().filter(|case| case.0.is_enabled()).count();
+    assert_eq!(
+        checked, eligible,
+        "the loop checked {checked} languages but {eligible} enabled languages have a case",
     );
 }
