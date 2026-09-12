@@ -15,7 +15,7 @@ headroom = 0.95
 path = "big-code-analysis-ast/src/alterator.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 545.0
+value = 561.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/alterator.rs"
@@ -27,7 +27,7 @@ value = 5.0
 path = "big-code-analysis-ast/src/alterator.rs"
 qualified = "Alterator::get_ast_node"
 metric = "nargs"
-value = 6.0
+value = 7.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/alterator.rs"
@@ -189,7 +189,7 @@ value = 6.0
 path = "big-code-analysis-ast/src/ast.rs"
 qualified = "build"
 metric = "halstead.effort"
-value = 72581.41181251501
+value = 87299.1671815905
 
 [[entry]]
 path = "big-code-analysis-ast/src/c_macro.rs"
@@ -273,7 +273,7 @@ value = 33.0
 path = "big-code-analysis-ast/src/parser.rs"
 qualified = "Parser<T>::filters"
 metric = "halstead.effort"
-value = 58860.61554860244
+value = 85508.52631578948
 
 [[entry]]
 path = "big-code-analysis-ast/src/preproc.rs"
@@ -915,7 +915,7 @@ value = 15.0
 path = "src/metrics/abc/kotlin.rs"
 qualified = "KotlinCode::compute"
 metric = "cyclomatic"
-value = 16.0
+value = 18.0
 
 [[entry]]
 path = "src/metrics/abc/objc.rs"
@@ -1257,7 +1257,7 @@ value = 6.0
 path = "src/vcs/git/cached.rs"
 qualified = "build_cached"
 metric = "halstead.effort"
-value = 73179.83359417088
+value = 74812.5424082547
 
 [[entry]]
 path = "src/vcs/git/cached.rs"
