@@ -139,9 +139,17 @@ on unrelated PRs.
 ### Advisory, by decision
 
 The fuzz job is **not** a required check, and that is a choice rather
-than an oversight. `main` carries no branch protection at all today, so
-nothing in this repository blocks a merge on a CI result; the open
-question was whether the fuzz job should be the first to.
+than an oversight. `main`'s `protect-main` ruleset requires signed
+commits and linear history, and forbids deletion and force-pushes, but
+it names no required status checks — so no CI result blocks a merge
+today, and the open question was whether the fuzz job should be the
+first to.
+
+Check that with `gh api repos/:owner/:repo/rules/branches/main`, not
+with `gh api repos/:owner/:repo/branches/main/protection`. The latter
+reads only the legacy branch-protection API and answers `404 Branch not
+protected` for a branch governed by a ruleset, which is exactly how this
+section came to claim in its first draft that `main` was unprotected.
 
 It should not be, yet. Requiring it puts 15m48s — the measured cost of
 one run — in front of every pull request touching `src/`, `fuzz/`, a
@@ -150,14 +158,17 @@ hunt. It also promotes a nightly-toolchain hiccup or a flaky
 `cargo-fuzz` install into a merge blocker, on the one workflow whose
 reason for living outside `ci.yml` is that nightly moves underneath it.
 And a red cron is not silent: the scheduled run files a GitHub issue
-naming the reproducers (the `File issue on a scheduled-run crash` step
-in `.github/workflows/fuzz.yml`), so the hunt already reports itself
-without branch protection.
+linking the run and the uploaded `fuzz-artifacts` bundle (the `File
+issue on a scheduled-run crash` step in `.github/workflows/fuzz.yml`),
+so the hunt already reports itself without a required check. The issue
+body carries the `make fuzz-run` template rather than the failing
+target names; those are in the job log, which the summary line above
+now lists in full.
 
 What would change the answer is evidence that the job is boring — a few
 quarterly crons in a row going red only for real crashes, never for
-toolchain flakes. Revisit it then, together with whatever else `main`
-gets protected with.
+toolchain flakes. Revisit it then, by adding a `required_status_checks`
+rule to the existing ruleset.
 
 ## Running locally
 

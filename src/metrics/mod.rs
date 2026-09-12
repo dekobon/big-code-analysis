@@ -33,14 +33,18 @@ pub mod tokens;
 /// Weighted Methods per Class.
 pub mod wmc;
 
-// Gated on the union of the features its `FIXTURES` rows carry, so a
-// build enabling none of them drops the module rather than tripping
-// `assert_fixtures_present` — a failure that reads as a defect in
-// whatever was being changed (`.claude/rules/testing.md`, #1286). The
-// tests the module already gates individually all name a subset of this
-// list.
+// Gated on the union of every feature any test in the module names —
+// the `FIXTURES` rows plus the `bash` / `lua` / `c` row set that
+// `a_language_with_no_member_construct_emits_neither_block` uses. The
+// narrower `FIXTURES` union belongs on the four tests that read
+// `FIXTURES`, not here: a module gate is an outer `cfg`, so naming only
+// the `FIXTURES` features would delete that Bash/Lua/C test from a build
+// enabling exactly the languages it exists to cover
+// (`.claude/rules/testing.md`, #1286).
 #[cfg(test)]
 #[cfg(any(
+    feature = "bash",
+    feature = "c",
     feature = "cpp",
     feature = "csharp",
     feature = "elixir",
@@ -49,6 +53,7 @@ pub mod wmc;
     feature = "java",
     feature = "javascript",
     feature = "kotlin",
+    feature = "lua",
     feature = "mozcpp",
     feature = "mozjs",
     feature = "objc",
