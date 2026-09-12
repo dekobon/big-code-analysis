@@ -106,7 +106,6 @@ where
     /// `Ast::dump` on 8 KB of nested Tcl braces from 10 ms to 418 ms —
     /// the run `ast.rs` records beside the chain this reads, not a
     /// second measurement.
-    ///
     #[inline]
     #[must_use]
     fn keeps_children<'a>(_node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {

@@ -121,6 +121,22 @@ for historical reference.
 
 ### Fixed
 
+- **`Node::utf8_text` no longer panics on a span that falls outside the
+  buffer it is handed.** Its signature returns `Option` and its doc
+  offered `None` for invalid UTF-8, but it delegated to
+  `tree_sitter::Node::utf8_text`, which is
+  `str::from_utf8(&source[start..end])` — the slice aborts before the
+  `Result` exists, so the `.ok()` could not catch it. It now indexes with
+  `data.get(..)`, the spelling
+  `.claude/rules/grammar-dispatch.md` §10 already prescribes for reading
+  a node's bytes. Every caller passes the buffer the tree was parsed
+  from, so no span could reach the branch and this was not a live crash;
+  it is fixed at the wrapper because the guarantee is one refactor from
+  false — this crate already runs passes that parse one buffer and read
+  another — and because `panic!` is banned in non-test code regardless of
+  reachability. One change covers all 45 call sites; the signature is
+  unchanged, so it is not an API break.
+
 - **A `::`-qualified Tcl or iRules command now resolves to the core
   command it names** in every metric, not just the ones reading the
   braced-word slot table. `::switch` *is* `switch` — a leading `::` names

@@ -198,12 +198,26 @@ impl<'a> Node<'a> {
         self.0.kind_id()
     }
 
-    /// The source text this node spans, or `None` when those bytes are
-    /// not valid UTF-8.
+    /// The source text this node spans, or `None` when the span falls
+    /// outside `data` or those bytes are not valid UTF-8.
+    ///
+    /// Indexed with `data.get(..)` rather than delegating to
+    /// [`tree_sitter::Node::utf8_text`], which is
+    /// `str::from_utf8(&source[start..end])` — the slice panics on a span
+    /// reaching past `source`, before the `Result` its signature offers
+    /// ever exists, so `.ok()` cannot catch it. Every caller today passes
+    /// the same buffer the tree was parsed from and so cannot produce
+    /// that span, but the guarantee is one refactor from false: this
+    /// crate already runs passes that parse one buffer and read another
+    /// (`preproc`, `comment_rm`), and `panic!` is banned in non-test code
+    /// whether or not the branch is currently reachable. `data.get(..)`
+    /// is also what `.claude/rules/grammar-dispatch.md` §10 prescribes
+    /// for reading a node's bytes.
     #[inline]
     #[must_use]
     pub fn utf8_text(&self, data: &'a [u8]) -> Option<&'a str> {
-        self.0.utf8_text(data).ok()
+        let bytes = data.get(self.0.start_byte()..self.0.end_byte())?;
+        std::str::from_utf8(bytes).ok()
     }
 
     /// The 0-based byte offset where this node starts.
@@ -1077,6 +1091,32 @@ mod tests {
             }
             false
         })
+    }
+
+    /// `utf8_text` answers `None` for a span outside the buffer instead
+    /// of aborting the process.
+    ///
+    /// The only way to reach that branch is to read against a buffer
+    /// other than the one the tree was parsed from, which no caller does
+    /// today — so this is the whole coverage the guard can have, and it
+    /// is a real one: against the delegating implementation
+    /// (`self.0.utf8_text(data).ok()`) this test panics at
+    /// `str::from_utf8(&source[start..end])` rather than failing, which
+    /// is precisely the behaviour the guard removes. Verified by revert.
+    #[test]
+    #[cfg(feature = "rust")]
+    fn utf8_text_is_none_for_a_span_past_the_buffer() {
+        let code = b"fn f() {}\n";
+        let tree = Tree::new::<crate::langs::RustCode>(code);
+        let root = tree.get_root();
+
+        // Sanity: the span is in range against its own buffer, so a
+        // `None` below means the bound fired and not that the node is
+        // empty or the text is not UTF-8.
+        assert_eq!(root.utf8_text(code), Some("fn f() {}\n"));
+
+        // The same node, read against a buffer that ends mid-span.
+        assert_eq!(root.utf8_text(&code[..4]), None);
     }
 
     #[test]
