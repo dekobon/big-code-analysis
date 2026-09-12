@@ -45,11 +45,14 @@
 //!
 //! A cached entry is honoured only when its [`CACHE_SCHEMA_VERSION`],
 //! [`VCS_SCHEMA_VERSION`], [`RISK_SCORE_VERSION`], the `fingerprint` of
-//! the walk-affecting options, and the shallow state under which it was
-//! walked all match the current run; otherwise it is ignored and the
-//! history recomputed. Window changes alter the fingerprint, so they
-//! force a fresh walk, as the issue specifies. A shallow clone that is
-//! later deepened (`git fetch --unshallow`) leaves `HEAD` unmoved, so the
+//! the walk-affecting options *and the repository mailmap*, and the
+//! shallow state under which it was walked all match the current run;
+//! otherwise it is ignored and the history recomputed. Window changes
+//! alter the fingerprint, so they force a fresh walk, as the issue
+//! specifies. A `.mailmap` edit does too: it changes the author identities
+//! resolved into the event log while leaving `HEAD` — and every option —
+//! untouched (issue #1262). A shallow clone that is later deepened
+//! (`git fetch --unshallow`) leaves `HEAD` unmoved, so the
 //! entry key is unchanged; the shallow-state match in
 //! `HistoryCache::is_compatible` is what forces a re-walk to replace the
 //! truncated counts (issue #810). A corrupt or unreadable entry is
@@ -189,7 +192,9 @@ pub(crate) struct HistoryCache {
     pub vcs_schema_version: u32,
     /// Composite-formula version the events were produced under.
     pub risk_score_version: u32,
-    /// [`fingerprint`] of the walk-affecting options.
+    /// [`fingerprint`] of the walk-affecting options and the repository
+    /// mailmap. The field name predates the mailmap term (#1262) and is
+    /// kept because renaming it would change the serialized shape.
     pub options_fingerprint: u64,
     /// The `HEAD` (or `--ref`) object id the walk reached, hex-encoded.
     pub head_sha: String,
@@ -228,10 +233,32 @@ impl HistoryCache {
     }
 }
 
-/// A stable 64-bit fingerprint of every option that changes *which
-/// commits the walk visits or how they are recorded* — the window
-/// lengths, traversal mode, merge/rename/bot toggles, the bot pattern,
-/// and the `--as-of` reference time.
+/// A stable 64-bit fingerprint of everything that changes *which commits
+/// the walk visits or how they are recorded* — the window lengths,
+/// traversal mode, merge/rename/bot toggles, the bot pattern, and the
+/// `--as-of` reference time from [`Options`], plus `mailmap_digest`.
+///
+/// # Walk input that lives outside `Options`
+///
+/// `mailmap_digest` (issue #1262) covers the repository `.mailmap`, which
+/// is walk input the way an option is: author identities are canonicalised
+/// through it *at walk time* and stored in the event log as digests, so a
+/// mailmap edit changes what a replay would produce while moving neither
+/// `HEAD` (the entry key) nor any field of `Options`. Left out, an edited
+/// mailmap served stale author counts indefinitely — the incremental
+/// splice re-persisted the pre-edit digests under each new head, so the
+/// divergence outlived `HEAD` moving. The backend's `repo::mailmap_digest`
+/// documents what the value covers and why it digests gix's merged
+/// snapshot rather than the raw source bytes.
+///
+/// Note what this term does *not* generalise to. An input is fingerprinted
+/// only when it is hashed here, and what is hashed is the option's
+/// *value*, never the behaviour it selects: `bot_pattern` is the pattern
+/// string, so a change to how [`BotFilter`](super::identity::BotFilter)
+/// *matches* that string leaves every fingerprint untouched. Such a change
+/// belongs to [`CACHE_SCHEMA_VERSION`], which versions the meaning of a
+/// recorded event — see its docs for the case-sensitivity bump (#1265)
+/// that set the precedent.
 ///
 /// Finalization-only knobs (`--risk-formula`, `--emit-author-details`,
 /// `--author-hash-key` (#956), `--include-deleted`, the bus-factor options)
@@ -255,8 +282,9 @@ impl HistoryCache {
 /// inputs, so the fingerprint need only be self-consistent within one
 /// format version.
 #[must_use]
-pub(crate) fn fingerprint(options: &Options) -> u64 {
+pub(crate) fn fingerprint(options: &Options, mailmap_digest: u64) -> u64 {
     let mut hasher = DefaultHasher::new();
+    mailmap_digest.hash(&mut hasher);
     options.long_window_secs.hash(&mut hasher);
     options.recent_window_secs.hash(&mut hasher);
     options.full_history.hash(&mut hasher);

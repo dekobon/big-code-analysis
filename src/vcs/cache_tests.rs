@@ -2,6 +2,13 @@ use super::*;
 use crate::vcs::options::{Options, RiskFormula};
 use std::path::PathBuf;
 
+/// A stand-in mailmap digest, deliberately not `0`, so an assertion here
+/// cannot pass because two default values coincide
+/// (`.claude/rules/testing.md`). No real digest is computed in this
+/// module — `repo::mailmap_digest` needs a repository, so it is covered by
+/// the `vcs_cache` integration tests.
+const SAMPLE_MAILMAP_DIGEST: u64 = 0xfeed_face_dead_beef;
+
 fn sample_event(oid: &str, time: i64) -> CommitEvent {
     CommitEvent {
         oid: oid.to_owned(),
@@ -59,8 +66,39 @@ fn fingerprint_ignores_finalization_only_knobs() {
         },
     ];
     for case in cases {
-        assert_eq!(fingerprint(&base), fingerprint(&case));
+        assert_eq!(
+            fingerprint(&base, SAMPLE_MAILMAP_DIGEST),
+            fingerprint(&case, SAMPLE_MAILMAP_DIGEST)
+        );
     }
+}
+
+#[test]
+fn fingerprint_changes_with_the_mailmap_digest() {
+    // The `.mailmap` is walk input that lives outside `Options`: author
+    // identities are canonicalised through it at walk time and recorded in
+    // the event log as digests, while an edit moves neither `HEAD` (the
+    // entry key) nor any option. Without this term a stale event log is
+    // replayed — and re-persisted by the incremental splice — under a
+    // mailmap it was not walked with (issue #1262).
+    let options = Options::default();
+    let base = fingerprint(&options, SAMPLE_MAILMAP_DIGEST);
+    assert_ne!(
+        base,
+        fingerprint(&options, SAMPLE_MAILMAP_DIGEST ^ 1),
+        "a mailmap change must change the fingerprint"
+    );
+    // Both operands differ from `0` and from each other, so the inequality
+    // above cannot hold for an incidental reason. The equality below is
+    // determinism *within one process* only — the cross-process stability
+    // a persisted entry actually depends on cannot be observed from here,
+    // and is guarded by `vcs_cache_dir_persists_and_replays_identically`
+    // in the CLI suite, which primes and reads in two separate processes.
+    assert_eq!(
+        base,
+        fingerprint(&options, SAMPLE_MAILMAP_DIGEST),
+        "identical inputs fingerprint identically"
+    );
 }
 
 #[test]
@@ -102,8 +140,8 @@ fn fingerprint_changes_with_walk_affecting_knobs() {
     ];
     for case in cases {
         assert_ne!(
-            fingerprint(&base),
-            fingerprint(&case),
+            fingerprint(&base, SAMPLE_MAILMAP_DIGEST),
+            fingerprint(&case, SAMPLE_MAILMAP_DIGEST),
             "a walk-affecting option must change the fingerprint"
         );
     }

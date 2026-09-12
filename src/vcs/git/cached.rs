@@ -15,6 +15,15 @@
 //! Every path ends in the same [`replay`](crate::vcs::replay), so a cache
 //! hit is bit-identical to a fresh walk, and re-windowing tracks the
 //! current `now` rather than freezing at cache-write time.
+//!
+//! That contract holds only while every input the walk *records* is
+//! covered by the entry key or the fingerprint. The repository `.mailmap`
+//! is such an input and is neither: author identities are canonicalised
+//! through it at walk time and stored as digests, while an edit to it
+//! moves no `HEAD` (issue #1262). [`repo::mailmap_digest`] therefore
+//! enters [`cache::fingerprint`] here, which covers all three cache paths
+//! at once — the pure hit, `load_compatible`'s ancestor selection for the
+//! incremental splice, and the entry [`persist`] writes back.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -101,7 +110,7 @@ pub(crate) fn build_cached(
         return Ok(assemble(seed, &events, options, now, workdir, shallow));
     };
 
-    let fingerprint = cache::fingerprint(options);
+    let fingerprint = cache::fingerprint(options, repo::mailmap_digest(&repo));
     let long_boundary = window_boundary(now, options.long_window_secs);
 
     // Pure hit: an exact, compatible entry that reaches back far enough.

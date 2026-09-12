@@ -133,6 +133,242 @@ fn build_repo() -> Repo {
     repo
 }
 
+/// A repo whose single file is edited by two distinct identities, so a
+/// `.mailmap` that folds one into the other is observable as
+/// `authors_long` 2 → 1 (and in `ownership_top_share`, the bus factor, and
+/// the distinct-author term of `risk_score`).
+fn build_two_author_repo() -> Repo {
+    let repo = Repo::init();
+    repo.write("a.rs", "fn a() {}\n");
+    repo.commit(
+        "Ada",
+        "ada@example.com",
+        FIXED_NOW - 30 * DAY,
+        "feat: add a",
+    );
+    repo.write("a.rs", "fn a() { work(); }\n");
+    repo.commit(
+        "Grace",
+        "grace@example.com",
+        FIXED_NOW - 10 * DAY,
+        "fix: a crash",
+    );
+    repo
+}
+
+/// The `.mailmap` line that folds Grace's identity into Ada's.
+const FOLD_GRACE_INTO_ADA: &str = "Ada <ada@example.com> Grace <grace@example.com>\n";
+
+/// One file's distinct-author count over the long window.
+fn authors_long(index: &vcs::HistoryIndex, path: &str) -> u32 {
+    index
+        .iter()
+        .find(|(candidate, _)| candidate.to_string_lossy() == path)
+        .map(|(_, stats)| stats.authors_long)
+        .expect("file is ranked")
+}
+
+#[test]
+fn a_working_tree_mailmap_edit_is_not_served_from_a_stale_entry() {
+    // Issue #1262, first repro: identities are canonicalised through the
+    // mailmap at *walk* time and stored as digests, so an edit changes what
+    // a replay should produce while moving neither `HEAD` (the entry key)
+    // nor any field of `Options`. gix reads the working-tree `.mailmap`
+    // uncommitted, so nothing about the commit graph changes at all.
+    let repo = build_two_author_repo();
+    let cache_dir = tempfile::tempdir().expect("tempdir");
+    let cfg = config(cache_dir.path(), true, false);
+
+    let primed = build_history_index_cached(repo.path(), &opts(), &cfg).expect("prime");
+    assert_eq!(
+        authors_long(&primed, "a.rs"),
+        2,
+        "the fixture must have two distinct identities before the mailmap, \
+         or folding them is not observable"
+    );
+
+    repo.mailmap(FOLD_GRACE_INTO_ADA);
+
+    let cached = build_history_index_cached(repo.path(), &opts(), &cfg).expect("cached");
+    let fresh = build_history_index(repo.path(), &opts()).expect("fresh");
+    assert_eq!(
+        authors_long(&fresh, "a.rs"),
+        1,
+        "the mailmap must fold the two identities, or a stale hit and a \
+         fresh walk agree for the wrong reason"
+    );
+    assert_eq!(
+        snapshot(&fresh),
+        snapshot(&cached),
+        "a mailmap edit must invalidate the entry rather than replay it"
+    );
+}
+
+#[test]
+fn a_mailmap_edit_is_not_baked_into_the_incremental_splice() {
+    // Issue #1262, second repro — the worse one. The splice adopts a cached
+    // tail's events wholesale and re-persists them under the new head, so a
+    // stale entry's pre-mailmap digests would survive `HEAD` moving and be
+    // reproduced by every later pure hit, indefinitely.
+    let repo = build_two_author_repo();
+    let cache_dir = tempfile::tempdir().expect("tempdir");
+    let cfg = config(cache_dir.path(), true, false);
+
+    let primed = build_history_index_cached(repo.path(), &opts(), &cfg).expect("prime");
+    assert_eq!(
+        authors_long(&primed, "a.rs"),
+        2,
+        "the primed entry records two distinct identities"
+    );
+
+    // Commit the mailmap and advance `HEAD`, so the run below takes the
+    // incremental path rather than the exact-entry hit. Committing is how
+    // `HEAD` moves, not a second mailmap *source* under test: the file
+    // stays in the work tree, and `open_mailmap` reads the work-tree copy
+    // for any non-bare repo. The variable here is the cache path. (The
+    // bare-repo `HEAD:.mailmap` source has no coverage; it is reachable
+    // only from a repo with no work tree, which no fixture here builds.)
+    repo.mailmap(FOLD_GRACE_INTO_ADA);
+    repo.commit(
+        "Ada",
+        "ada@example.com",
+        FIXED_NOW - 5 * DAY,
+        "chore: add mailmap",
+    );
+    repo.write("a.rs", "fn a() { work(); more(); }\n");
+    repo.commit(
+        "Grace",
+        "grace@example.com",
+        FIXED_NOW - DAY,
+        "fix: a crash again",
+    );
+
+    let spliced = build_history_index_cached(repo.path(), &opts(), &cfg).expect("incremental");
+    let fresh = build_history_index(repo.path(), &opts()).expect("fresh");
+    assert_eq!(
+        authors_long(&fresh, "a.rs"),
+        1,
+        "the mailmap must fold the two identities across all four commits"
+    );
+    assert_eq!(
+        snapshot(&fresh),
+        snapshot(&spliced),
+        "the splice must not adopt the cached tail's pre-mailmap digests"
+    );
+
+    // The entry the splice persisted must replay correctly too: staleness
+    // baked in here is what outlives `HEAD` moving.
+    let hit = build_history_index_cached(repo.path(), &opts(), &cfg).expect("pure hit");
+    assert_eq!(
+        snapshot(&fresh),
+        snapshot(&hit),
+        "the persisted entry replays the post-mailmap identities"
+    );
+
+    // …but that equality holds just as well if the run above *missed* and
+    // cold-walked, so on its own it is "a fresh walk equals a fresh walk".
+    // Emptying the entries and re-running separates the two: a served hit
+    // now replays zero commits, a miss reproduces `fresh`.
+    empty_entry_events(cache_dir.path());
+    let served = snapshot(
+        &build_history_index_cached(repo.path(), &opts(), &cfg).expect("emptied pure hit"),
+    );
+    assert!(!served.is_empty(), "the index seeds a.rs regardless of hit");
+    assert!(
+        served.values().all(|stats| stats.commits_long == 0),
+        "the persisted entry was not served, so the assertion above was \
+         comparing two cold walks"
+    );
+
+    // Cache-file hygiene rather than a #1262 claim: the pre-mailmap entry
+    // fingerprints differently, so it is neither a splice base nor
+    // superseded (a splice removes the ancestor it consumed) and lingers
+    // until `--clear-cache`. Update this if fingerprint-orphaned entries
+    // ever start being pruned — it pins current behaviour, not a contract.
+    assert_eq!(
+        count_entries(cache_dir.path()),
+        2,
+        "the pre-mailmap entry is bypassed, not spliced onto"
+    );
+}
+
+#[test]
+fn a_mailmap_file_config_edit_is_not_served_from_a_stale_entry() {
+    // The digest hashes gix's *merged* mailmap snapshot rather than
+    // re-deriving the source list, precisely so a source cannot be missed
+    // (issue #1262). `mailmap.file` exercises that delegation on a source
+    // the working-tree tests never reach: it is a path outside the
+    // repository, so nothing about the tree or the commit graph changes.
+    let repo = build_two_author_repo();
+    let cache_dir = tempfile::tempdir().expect("tempdir");
+    let cfg = config(cache_dir.path(), true, false);
+
+    // The mailmap lives outside the work tree, so writing it cannot be
+    // mistaken for the working-tree `.mailmap` source.
+    let mailmap_home = tempfile::tempdir().expect("tempdir");
+    let mailmap_path = mailmap_home.path().join("identities.mailmap");
+    let mailmap_arg = mailmap_path.to_str().expect("temp path is valid UTF-8");
+    repo.git(&["config", "mailmap.file", mailmap_arg]);
+
+    let primed = build_history_index_cached(repo.path(), &opts(), &cfg).expect("prime");
+    assert_eq!(
+        authors_long(&primed, "a.rs"),
+        2,
+        "`mailmap.file` points at a file that does not exist yet, so the \
+         two identities are still distinct"
+    );
+
+    std::fs::write(&mailmap_path, FOLD_GRACE_INTO_ADA).expect("write mailmap.file");
+
+    let cached = build_history_index_cached(repo.path(), &opts(), &cfg).expect("cached");
+    let fresh = build_history_index(repo.path(), &opts()).expect("fresh");
+    assert_eq!(
+        authors_long(&fresh, "a.rs"),
+        1,
+        "gix reads `mailmap.file`, or this test proves nothing about it"
+    );
+    assert_eq!(
+        snapshot(&fresh),
+        snapshot(&cached),
+        "a `mailmap.file` edit must invalidate the entry too"
+    );
+}
+
+#[test]
+fn a_semantically_empty_mailmap_edit_still_hits_the_cache() {
+    // The digest covers gix's *parsed* snapshot, not the source bytes, so
+    // an edit that changes no mapping must not cost a cold walk — the one
+    // behavioural difference between this and a byte digest, and the
+    // claim `repo::mailmap_digest` documents.
+    let repo = build_two_author_repo();
+    let cache_dir = tempfile::tempdir().expect("tempdir");
+    let cfg = config(cache_dir.path(), true, false);
+
+    repo.mailmap(FOLD_GRACE_INTO_ADA);
+    build_history_index_cached(repo.path(), &opts(), &cfg).expect("prime");
+    assert_eq!(count_entries(cache_dir.path()), 1, "one entry primed");
+
+    // Emptying the primed entry's events makes a *served* hit observably
+    // wrong (an empty index) while an invalidation recomputes the right
+    // answer — so this distinguishes "hit" from "miss", which comparing
+    // against a fresh walk alone cannot (#951's technique).
+    empty_entry_events(cache_dir.path());
+
+    // A comment and blank line: different bytes, identical mappings.
+    repo.mailmap(&format!("# canonical identities\n\n{FOLD_GRACE_INTO_ADA}"));
+
+    let cached = build_history_index_cached(repo.path(), &opts(), &cfg).expect("cached");
+    let served = snapshot(&cached);
+    // `all` over an empty map is vacuously true, and the seeded index is
+    // the only reason it is not empty — assert the row exists first.
+    assert!(!served.is_empty(), "the index seeds a.rs regardless of hit");
+    assert!(
+        served.values().all(|stats| stats.commits_long == 0),
+        "the emptied entry was still served, so the comment-only edit did \
+         not invalidate it"
+    );
+}
+
 #[test]
 fn cache_hit_is_bit_identical_to_a_fresh_walk() {
     let repo = build_repo();

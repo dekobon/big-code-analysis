@@ -210,6 +210,53 @@ fn vcs_cache_dir_persists_and_replays_identically() {
         first, second,
         "a cache hit is byte-identical to the first run"
     );
+
+    // Equality alone cannot tell a hit from a second cold walk — both
+    // produce the first run's bytes. Emptying the persisted event log
+    // separates them: a *served* entry now replays zero commits, while a
+    // walk would reproduce `first`. This is the only guard in the suite on
+    // the fingerprint being stable **across processes**, which every
+    // persisted entry depends on and which an in-process test cannot see
+    // (the mailmap digest #1262 folded in is hashed from gix-owned values,
+    // so it is a new way to break that old property).
+    empty_cache_entry_events(cache.path());
+    let third = run();
+    assert_ne!(
+        first, third,
+        "the emptied entry was not served, so the second process computed a \
+         different fingerprint and cold-walked instead of hitting"
+    );
+}
+
+/// Rewrite every persisted `*.json` cache entry under `root` with an empty
+/// `events` array, leaving it valid JSON so it still loads as a hit
+/// candidate. Mirrors the library suite's helper of the same shape.
+fn empty_cache_entry_events(root: &Path) {
+    let mut stack = vec![root.to_path_buf()];
+    let mut emptied = 0_usize;
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().is_some_and(|ext| ext == "json") {
+                let bytes = std::fs::read(&path).expect("read entry");
+                let mut value: serde_json::Value =
+                    serde_json::from_slice(&bytes).expect("entry is valid JSON");
+                value["events"] = serde_json::Value::Array(Vec::new());
+                std::fs::write(&path, serde_json::to_vec(&value).expect("reserialize"))
+                    .expect("rewrite entry");
+                emptied += 1;
+            }
+        }
+    }
+    assert!(
+        emptied > 0,
+        "no cache entry was emptied, so the run that follows proves nothing"
+    );
 }
 
 #[test]
