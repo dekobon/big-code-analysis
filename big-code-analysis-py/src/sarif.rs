@@ -62,6 +62,32 @@
 //! metric at the own-value field and the binding emits at every space —
 //! no leaf-only special-casing remains.
 //!
+//! # Emission order
+//!
+//! Order is part of the parity contract, not just the finding set: for
+//! one input file the two front-ends emit the same results in the same
+//! sequence, so a consumer may diff the documents positionally. Two
+//! axes decide that sequence, and #1402 fixed both:
+//!
+//! * **Across spaces** — both walk the space tree depth-first in source
+//!   order, a space then its children left to right, which for a LIFO
+//!   stack means pushing each sibling set reversed (see
+//!   [`push_child_spaces`]). This binding pushed them in source order
+//!   and so reported every sibling set backwards.
+//! * **Within one space** — the CLI's `ThresholdSet` iterates a
+//!   `BTreeMap`, so a space breaching several metrics reports them
+//!   alphabetically by canonical name; iterating the `thresholds`
+//!   `PyDict` yielded the caller's insertion order instead.
+//!   [`resolve_thresholds`] now sorts to match.
+//!
+//! Both bugs left the finding *set* correct and only the sequence
+//! wrong, which is why the sorted parity helpers in
+//! `tests/test_sarif.py` never saw either.
+//!
+//! Order *across files* is the caller's: [`collect_offenders_from_iter`]
+//! follows the iterable it is handed, where `bca check` follows its own
+//! resolved walk list.
+//!
 //! `nargs` is the fifth and arrived by the opposite route: its serialized
 //! shape did not change, its *gate* did. #1196 moved the CLI extractor
 //! from `total()` to the callable's own parameter list, leaving this
@@ -337,6 +363,16 @@ fn resolve_thresholds(thresholds: Option<&Bound<'_, PyDict>>) -> PyResult<Vec<Th
             scope,
         });
     }
+    // The CLI builds its `entries` by iterating a `BTreeMap<String, f64>`
+    // (`ThresholdSet::build_tiered`), so a space breaching several metrics
+    // reports them alphabetically by canonical name. Iterating a `PyDict`
+    // yields the caller's insertion order instead, which made a two-metric
+    // `to_sarif` disagree with `bca check` on the order of one space's
+    // findings — and made the binding's own output depend on how the
+    // caller happened to spell the dict. Sorting here reproduces the
+    // CLI's order and drops that dependency (#1402). Names are unique,
+    // so the sort needs no tiebreak.
+    out.sort_unstable_by_key(|t| t.name);
     Ok(out)
 }
 
@@ -555,12 +591,23 @@ fn record_threshold_breaches(
 /// `child_prefix` as the parent qualified prefix. Non-dict children are
 /// skipped (mirroring the original inline tolerance). Factored out of
 /// [`collect_offenders`].
+///
+/// Children land on the stack in **reverse** source order so the caller's
+/// `pop()` visits them in source order, matching the CLI's
+/// `evaluate_with_policy` (which pushes `spaces.iter().rev()` for the same
+/// reason) — emission order is part of the SARIF parity contract (#1402).
+/// Reversing the tail this call appended, rather than the input, keeps the
+/// walk working for any Python iterable — `spaces` need not be a sequence —
+/// and allocates nothing extra.
 fn push_child_spaces<'py>(
     space: &Bound<'py, PyDict>,
     child_prefix: &str,
     stack: &mut Vec<(Bound<'py, PyDict>, String)>,
 ) -> PyResult<()> {
     let py = space.py();
+    // Captured before any push and nothing pops here, so the tail slice
+    // below is always in range.
+    let children_start = stack.len();
     if let Some(spaces) = space.get_item(intern!(py, "spaces"))?
         && let Ok(seq) = spaces.try_iter()
     {
@@ -571,6 +618,7 @@ fn push_child_spaces<'py>(
             }
         }
     }
+    stack[children_start..].reverse();
     Ok(())
 }
 

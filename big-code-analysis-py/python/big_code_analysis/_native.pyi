@@ -1005,6 +1005,14 @@ def to_sarif(
     emits) and the ``None``-name parse-failure case both collapse to
     ``<anon@L{start_line}>``, matching the CLI's ``space_segment``.
 
+    Findings are emitted in the CLI's order as well as its shape
+    (#1402): depth-first through the space tree in source order, a
+    space before its children and siblings left to right, and within
+    one space, alphabetically by metric name — so ``results`` for a
+    given file is comparable positionally, not just as a set. Order
+    *between* files is whatever the iterable passed as ``result``
+    yields, where ``bca check`` follows its own resolved walk list.
+
     Raises
     ------
     TypeError

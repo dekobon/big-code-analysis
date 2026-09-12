@@ -10,6 +10,15 @@ writer that backs `bca check --report-format sarif`, so the schema URL, tool
 driver name / version, and rule descriptions match the CLI
 byte-for-byte.
 
+Findings match in order as well as in content. Within a file, both
+surfaces walk the space tree depth-first in source order — a space, then
+its children left to right — and report a space's several breaches
+alphabetically by metric name. For the same file and thresholds the two
+`results` arrays therefore line up entry for entry, and a diff between
+them is a real divergence rather than a walk-order artifact. Order
+*between* files is the caller's: `to_sarif` follows the iterable you pass
+it, while `bca check` follows the paths it resolved.
+
 Examples on this page import the package as `bca`
 (`import big_code_analysis as bca`). A bare `bca` in a shell command is
 the CLI binary.

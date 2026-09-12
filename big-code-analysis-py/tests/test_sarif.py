@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -41,8 +42,14 @@ TOOL_NAME = "big-code-analysis"
 # the actual deduplication the conftest hoist was meant to deliver.
 
 
-def _cli_check_sarif(bca_path: str, path: Path, *, threshold: str) -> dict[str, Any]:
-    """Run ``bca check --threshold X -O sarif --paths <path>``.
+def _cli_check_sarif(
+    bca_path: str, path: Path, *, threshold: str | Sequence[str]
+) -> dict[str, Any]:
+    """Run ``bca check --threshold X … -O sarif --paths <path>``.
+
+    ``threshold`` takes one ``"metric=limit"`` string or a sequence of
+    them; each becomes its own ``--threshold`` flag, the way the CLI
+    accepts several limits in one run.
 
     The CLI writes a one-line offender summary to stderr and the
     SARIF document to stdout; we want the JSON, so parse stdout.
@@ -51,6 +58,7 @@ def _cli_check_sarif(bca_path: str, path: Path, *, threshold: str) -> dict[str, 
     regression" from "tool crashed") — `check=False` keeps
     subprocess from raising on it.
     """
+    specs = [threshold] if isinstance(threshold, str) else list(threshold)
     argv = [
         bca_path,
         "check",
@@ -61,8 +69,7 @@ def _cli_check_sarif(bca_path: str, path: Path, *, threshold: str) -> dict[str, 
         # tests assert exact finding sets, so a future manifest edit
         # would surface as a binding divergence that is not one.
         "--no-config",
-        "--threshold",
-        threshold,
+        *(arg for spec in specs for arg in ("--threshold", spec)),
         "-O",
         "sarif",
         "--paths",
@@ -683,29 +690,34 @@ def test_to_sarif_qualified_symbol_matches_cli_for_nested_method(
     )
 
 
-def _sarif_rows(results: list[dict[str, Any]]) -> list[tuple[int, str, str]]:
+def _sarif_rows_in_emission_order(results: list[dict[str, Any]]) -> list[tuple[int, str, str]]:
     """Reduce SARIF results to ``(startLine, fullyQualifiedName, message)``
-    triples in a deterministic order, so a test can compare them against a
-    hand-written sequence instead of two structurally-equal containers.
-
-    The sort is a normalisation of the *observed* value, which is normally
-    the wrong side to normalise — but emission order genuinely differs
-    between the two front-ends and is not what these tests are about. The
-    binding walks the space tree with an explicit LIFO stack, so it emits
-    sibling spaces in reverse relative to ``bca check``: on the fixture
-    below it reports ``outer``, ``<anon@L3>``, ``<anon@L2>`` where the CLI
-    reports ``outer``, ``<anon@L2>``, ``<anon@L3>``. ``_assert_sarif_results_match``
-    sorts for the same reason. Ordering therefore has to be pinned
-    somewhere else if it is ever made part of the parity contract.
+    triples **without reordering them**, so a test can assert what the
+    document emitted and in which sequence.
 
     The first two fields come from ``_sarif_sort_key`` rather than being
     read out again here, so the SARIF location traversal has one spelling
     in this file and a shape change cannot leave the row extractor
     raising ``KeyError`` while the sort key still resolves.
     """
-    return [
-        (*_sarif_sort_key(r), r["message"]["text"]) for r in sorted(results, key=_sarif_sort_key)
-    ]
+    return [(*_sarif_sort_key(r), r["message"]["text"]) for r in results]
+
+
+def _sarif_rows(results: list[dict[str, Any]]) -> list[tuple[int, str, str]]:
+    """``_sarif_rows_in_emission_order`` over results sorted by
+    ``_sarif_sort_key``, so a test whose subject is *which* spaces breach
+    can compare against a hand-written sequence without also restating the
+    walk order.
+
+    The sort is a normalisation of the *observed* value, which is normally
+    the wrong side to normalise. It is kept deliberately for the callers
+    whose claim is set membership: it keeps a future walk-order change
+    from failing every parity test at once, the way a metric change would.
+    Emission order is a real part of the contract (#1402) and is pinned by
+    ``test_to_sarif_emits_results_in_cli_walk_order``, which compares
+    positionally through ``_sarif_rows_in_emission_order``.
+    """
+    return _sarif_rows_in_emission_order(sorted(results, key=_sarif_sort_key))
 
 
 def test_to_sarif_matches_cli_check_for_nargs_own_parameter_list(
@@ -782,6 +794,157 @@ def test_to_sarif_matches_cli_check_for_nargs_own_parameter_list(
         )
         assert py_rows == want, f"binding at nargs={limit}: {py_rows!r}"
         assert cli_rows == want, f"CLI at nargs={limit}: {cli_rows!r}"
+
+
+def _sibling_set_sizes(space: FuncSpaceDict) -> list[int]:
+    """Every sibling-set size in ``space``'s subtree, its own child list
+    first. Lets an ordering test state the shape it needs, so a trimmed
+    fixture fails on the missing sibling pairs rather than on a row
+    mismatch the reader has to diagnose."""
+    children = space["spaces"]
+    return [len(children), *(n for child in children for n in _sibling_set_sizes(child))]
+
+
+def test_to_sarif_emits_results_in_cli_walk_order(bca_binary: str, tmp_path: Path) -> None:
+    """Emission order is part of the parity contract, not only the finding
+    set (#1402).
+
+    Both front-ends walk the space tree depth-first in source order — a
+    space, then its children left to right — so the two ``results`` arrays
+    are comparable **positionally**. The binding walks with an explicit
+    LIFO stack and, before the fix, pushed each sibling set in source
+    order, so every sibling set popped reversed at every level: on this
+    fixture it emitted ``second``, ``first``, ``<anon@L3>``,
+    ``<anon@L3>::<anon@L5>``, ``<anon@L3>::<anon@L4>``, ``<anon@L2>``.
+    The set was right and only the sequence was wrong, which is why
+    ``_sarif_rows`` and ``_assert_sarif_results_match`` — both of which
+    sort — could not see it.
+
+    The fixture nests three sibling sets of two so a single-level fix, or
+    a fix that reversed the whole result list instead of each sibling set,
+    still fails.
+    """
+    src = tmp_path / "nested_closures.rs"
+    src.write_text(
+        "fn first(a: i32, b: i32) -> i32 {\n"
+        "    let inner_one = |x: i32, y: i32| x + y;\n"
+        "    let inner_two = |p: i32, q: i32| {\n"
+        "        let deep_a = |m: i32, n: i32| m * n;\n"
+        "        let deep_b = |s: i32, t: i32| s - t;\n"
+        "        deep_a(p, q) + deep_b(p, q)\n"
+        "    };\n"
+        "    inner_one(a, b) + inner_two(a, b)\n"
+        "}\n"
+        "\n"
+        "fn second(c: i32, d: i32) -> i32 {\n"
+        "    c * d\n"
+        "}\n"
+    )
+
+    analyzed = bca.analyze(src)
+    assert analyzed is not None, "fixture must not be skipped"
+    # Fixture adequacy: at least three sibling sets must hold two children
+    # each, or a reversal has nothing to reverse and this test cannot fail.
+    multi = [n for n in _sibling_set_sizes(analyzed) if n >= 2]
+    assert len(multi) >= 3, f"fixture must keep its nested sibling pairs; sizes {multi!r}"
+
+    py_results = _parse(bca.to_sarif(analyzed, thresholds={"nargs": 1}))["runs"][0]["results"]
+    cli_results = _cli_check_sarif(bca_binary, src, threshold="nargs=1")["runs"][0]["results"]
+
+    message = "nargs 2 exceeds limit 1"
+    expected = [
+        (1, "first", message),
+        (2, "first::<anon@L2>", message),
+        (3, "first::<anon@L3>", message),
+        (4, "first::<anon@L3>::<anon@L4>", message),
+        (5, "first::<anon@L3>::<anon@L5>", message),
+        (11, "second", message),
+    ]
+    py_rows = _sarif_rows_in_emission_order(py_results)
+    cli_rows = _sarif_rows_in_emission_order(cli_results)
+    # Pin the CLI first: it is the reference this contract is defined
+    # against, so a walk-order change there is a finding of its own rather
+    # than something the binding should silently follow.
+    assert cli_rows == expected, f"CLI reference walk order moved: {cli_rows!r}"
+    assert py_rows == expected, f"binding must emit in the CLI's order: {py_rows!r}"
+
+
+def test_to_sarif_orders_one_spaces_metrics_alphabetically(bca_binary: str, tmp_path: Path) -> None:
+    """The second ordering axis (#1402): within a single space, several
+    breaches come out alphabetically by metric name on both sides.
+
+    The CLI builds its threshold entries from a ``BTreeMap``, so it
+    reports ``cyclomatic`` before ``nargs``. The binding iterated the
+    ``thresholds`` dict, which yields Python insertion order — so
+    ``{"nargs": 1, "cyclomatic": 1}`` came out ``nargs`` first and the
+    same call spelled the other way round came out ``cyclomatic`` first.
+    The finding set was identical either way, so only a positional
+    comparison sees it.
+
+    The fixture is one function breaching both metrics, so the space walk
+    fixed above cannot supply the ordering: every row here shares a line
+    and a symbol, and only the metric name separates them.
+
+    Two properties of the limits dict carry this test, and both are
+    asserted rather than left to the reader:
+
+    * Each dict is spelled **reverse-alphabetically**; spelled the other
+      way round it would pass against the unsorted code, so the loop
+      pins the spelling and derives the opposite one instead of writing
+      it out.
+    * ``abc``/``cognitive`` separates "sorted by name" — the CLI's
+      ``BTreeMap`` order — from "emitted in ``METRIC_FIELDS`` declaration
+      order", which lists ``cognitive`` first. ``cyclomatic``/``nargs``
+      sits the same way round under both rules and so cannot: a binding
+      that iterated ``METRIC_FIELDS`` instead of sorting passed the
+      single-pair version of this test.
+    """
+    src = tmp_path / "two_metrics.rs"
+    src.write_text("fn outer(a: i32, b: i32) -> i32 {\n    if a > b { 1 } else { 2 }\n}\n")
+
+    analyzed = bca.analyze(src)
+    assert analyzed is not None, "fixture must not be skipped"
+
+    cases: tuple[tuple[dict[str, float], list[tuple[int, str, str]]], ...] = (
+        (
+            {"nargs": 1, "cyclomatic": 1},
+            [
+                (1, "outer", "cyclomatic 2 exceeds limit 1"),
+                (1, "outer", "nargs 2 exceeds limit 1"),
+            ],
+        ),
+        (
+            {"cognitive": 0, "abc": 0},
+            [
+                (1, "outer", "abc 2 exceeds limit 0"),
+                (1, "outer", "cognitive 2 exceeds limit 0"),
+            ],
+        ),
+    )
+    for limits, expected in cases:
+        assert list(limits) != sorted(limits), (
+            f"{limits!r} must be spelled non-alphabetically, or an unsorted binding passes"
+        )
+        specs = tuple(f"{name}={limit}" for name, limit in limits.items())
+        py_rows = _sarif_rows_in_emission_order(
+            _parse(bca.to_sarif(analyzed, thresholds=limits))["runs"][0]["results"]
+        )
+        cli_rows = _sarif_rows_in_emission_order(
+            _cli_check_sarif(bca_binary, src, threshold=specs)["runs"][0]["results"]
+        )
+        assert cli_rows == expected, f"CLI reference metric order moved: {cli_rows!r}"
+        assert py_rows == expected, f"binding must match the CLI's metric order: {py_rows!r}"
+
+        # Spelling the same limits the other way round must not change the
+        # document — the pre-fix binding's output tracked the caller's dict.
+        reversed_spelling = _sarif_rows_in_emission_order(
+            _parse(bca.to_sarif(analyzed, thresholds=dict(reversed(limits.items()))))["runs"][0][
+                "results"
+            ]
+        )
+        assert reversed_spelling == expected, (
+            f"output must not depend on thresholds dict order: {reversed_spelling!r}"
+        )
 
 
 def test_to_sarif_anonymous_space_collapses_to_anon_line() -> None:
@@ -932,6 +1095,59 @@ def test_to_sarif_treats_unit_kind_case_insensitively() -> None:
     assert fq_names == ["<file>"], (
         f"Unit (capital) must normalise to unit and carry the <file> symbol, got {fq_names!r}"
     )
+
+
+def test_to_sarif_child_order_survives_skipped_and_childless_spaces() -> None:
+    """The source-order emission contract (#1402) holds across the shapes
+    the child walk tolerates rather than rejects.
+
+    ``analyze`` never produces these, so they are only reachable from a
+    hand-built dict: children the walk skips (a non-dict entry), a child
+    carrying no ``spaces`` key at all, and a child whose ``spaces`` is
+    empty. The fix reverses the stack tail the child loop appended, so a
+    skipped entry must not leave a gap that scrambles the surviving
+    siblings, and a childless space must not reverse its parent's tail a
+    second time.
+    """
+    childless: dict[str, Any] = {
+        "name": "beta",
+        "kind": "function",
+        "start_line": 20,
+        "end_line": 25,
+        # No "spaces" key at all — the `get_item` miss branch.
+        "metrics": {"cyclomatic": {"value": 5.0, "sum": 5.0}},
+    }
+    root: dict[str, Any] = {
+        "name": "synthetic.py",
+        "kind": "unit",
+        "start_line": 1,
+        "end_line": 40,
+        "spaces": [
+            _fake_function_dict(name="alpha", start_line=10, end_line=15),
+            "not a space",
+            childless,
+            42,
+            _fake_function_dict(name="gamma", start_line=30, end_line=35),
+        ],
+        "metrics": {"cyclomatic": {"value": 1.0, "sum": 11.0}},
+    }
+
+    # Fixture adequacy: both tolerated shapes must still be present. Neither
+    # is visible in the rows below — trimming the non-dict entries, or giving
+    # ``beta`` an empty ``spaces`` list, leaves this test green with nothing
+    # left to skip and no ``get_item`` miss to take.
+    assert "spaces" not in childless, "childless space must take the get_item miss branch"
+    skipped = [child for child in root["spaces"] if not isinstance(child, dict)]
+    assert len(skipped) == 2, f"fixture must keep its skipped non-dict children; got {skipped!r}"
+
+    parsed = _parse(bca.to_sarif(cast("FuncSpaceDict", root), thresholds={"cyclomatic": 1}))
+    rows = _sarif_rows_in_emission_order(parsed["runs"][0]["results"])
+    message = "cyclomatic 5 exceeds limit 1"
+    assert rows == [
+        (10, "alpha", message),
+        (20, "beta", message),
+        (30, "gamma", message),
+    ], f"surviving children must stay in source order: {rows!r}"
 
 
 def test_to_sarif_rejects_mappingproxytype_with_clear_error() -> None:
