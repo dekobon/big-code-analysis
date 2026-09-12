@@ -118,6 +118,12 @@ then **replays the committed seeds** — the regression question, answered
 in seconds. The quarterly cron does the **hunt**, at 200 000 runs per
 target.
 
+The two halves also differ in what they do after a crash. `fuzz-replay`
+stops at the first one, because a pull request is already blocked by it.
+`fuzz-smoke` runs every remaining target and fails at the end naming all
+of them: nobody is watching the cron, and a run that reports one of
+three crashes hides the other two until the quarter after the fix.
+
 That split is a correction, and the numbers are why. The job first ran
 11 targets x 10 000 mutations on every pull-request push: 156 s to build
 and 977 s to fuzz, nine times over one pull request, 96 minutes of runner
@@ -130,9 +136,28 @@ cargo-fuzz needs nightly and `ci.yml` sets `RUSTFLAGS: "-D warnings"`
 workflow-wide; pairing the two turns every new nightly lint into a red X
 on unrelated PRs.
 
-One consequence is worth stating: the fuzz workflow is **not** in the
-`ci` aggregator's `needs:`, so it is advisory until branch protection
-names it.
+### Advisory, by decision
+
+The fuzz job is **not** a required check, and that is a choice rather
+than an oversight. `main` carries no branch protection at all today, so
+nothing in this repository blocks a merge on a CI result; the open
+question was whether the fuzz job should be the first to.
+
+It should not be, yet. Requiring it puts 15m48s — the measured cost of
+one run — in front of every pull request touching `src/`, `fuzz/`, a
+manifest or a grammar, to gate a build-and-replay pass rather than a
+hunt. It also promotes a nightly-toolchain hiccup or a flaky
+`cargo-fuzz` install into a merge blocker, on the one workflow whose
+reason for living outside `ci.yml` is that nightly moves underneath it.
+And a red cron is not silent: the scheduled run files a GitHub issue
+naming the reproducers (the `File issue on a scheduled-run crash` step
+in `.github/workflows/fuzz.yml`), so the hunt already reports itself
+without branch protection.
+
+What would change the answer is evidence that the job is boring — a few
+quarterly crons in a row going red only for real crashes, never for
+toolchain flakes. Revisit it then, together with whatever else `main`
+gets protected with.
 
 ## Running locally
 

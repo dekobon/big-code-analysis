@@ -1228,17 +1228,36 @@ fuzz-check:
 	  echo "nightly toolchain or cargo-fuzz not found; skipping fuzz-check"; \
 	fi
 
+# The loop collects failures instead of stopping at the first, because
+# this is what the quarterly cron runs and nobody is watching it. A hunt
+# that trips over three unrelated crashes should report three; stopping
+# at the first hides the other two until the quarter after the fix, and
+# the artifact upload in fuzz.yml already globs every target's
+# reproducer. `.SHELLFLAGS` carries `-e`, but a command on the left of
+# `||` is not a fatal failure under it, so the run survives a crashing
+# target and still exits non-zero at the end.
+#
+# `fuzz-replay` below keeps the opposite shape deliberately: it is the
+# per-PR gate, where one broken seed is already enough to stop the
+# merge, and the seconds saved by not replaying the rest are the point.
 fuzz-smoke:
 	@if rustup toolchain list 2>/dev/null | grep -q '^nightly' && \
 	    command -v cargo-fuzz >/dev/null 2>&1; then \
 	  $(FUZZ_REQUIRE_SYMBOLIZER); \
+	  failed=""; \
 	  for t in $$(cargo +nightly fuzz list); do \
 	    echo "Fuzzing $$t for $(FUZZ_RUNS) runs..."; \
 	    mkdir -p $(FUZZ_WORK)/"$$t"; \
 	    $(FUZZ_CC_ENV) $(FUZZ_RUN_ENV) cargo +nightly fuzz run --target $(FUZZ_HOST_TRIPLE) "$$t" \
 	      $(FUZZ_WORK)/"$$t" $(BASE_DIR)fuzz/corpus/"$$t" \
-	      -- -runs=$(FUZZ_RUNS) -timeout=$(FUZZ_TIMEOUT); \
+	      -- -runs=$(FUZZ_RUNS) -timeout=$(FUZZ_TIMEOUT) \
+	      || failed="$$failed $$t"; \
 	  done; \
+	  if [ -n "$$failed" ]; then \
+	    echo "fuzz-smoke: failing targets:$$failed"; \
+	    echo "reproduce with: make fuzz-run FUZZ_TARGET=<target> FUZZ_INPUT=fuzz/artifacts/<target>/<file>"; \
+	    exit 1; \
+	  fi; \
 	else \
 	  echo "nightly toolchain or cargo-fuzz not found; skipping fuzz-smoke"; \
 	fi

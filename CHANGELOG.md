@@ -135,6 +135,21 @@ for historical reference.
 
 ### Fixed
 
+- **`make fuzz-smoke` now runs every fuzz target and reports all of the
+  failing ones**, instead of aborting on the first crash (#1235). The
+  recipe runs under `.SHELLFLAGS := -eu`, so a crashing
+  `cargo fuzz run` ended the loop and the later targets never ran — and
+  `fuzz-smoke` is what the quarterly `fuzz.yml` cron invokes, the run
+  nobody is watching, so a quarter that produced three unrelated crashes
+  reported one and rediscovered the rest only after it was fixed. The
+  loop now collects per-target status, exits non-zero at the end naming
+  each failing target, and prints the `make fuzz-run` reproduction
+  command. `fuzz-replay`, the per-PR gate, deliberately keeps stopping
+  at the first failure. The fuzz workflow's advisory (non-required)
+  status is now recorded as a decision, with its rationale and the
+  measured cost of the alternative, in
+  [`docs/development/fuzzing.md`](docs/development/fuzzing.md).
+
 - **A `::`-qualified Tcl or iRules command now resolves to the core
   command it names** in every metric, not just the ones reading the
   braced-word slot table. `::switch` *is* `switch` — a leading `::` names
