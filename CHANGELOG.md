@@ -135,6 +135,19 @@ for historical reference.
 
 ### Fixed
 
+- **The 24 `alterator_string_flattening` cases are now gated on their own
+  grammar features**, so a build that enables only some of the eight
+  languages they cover leaves the rest *absent* rather than failing
+  (#1415). Each case parses through `Ast::parse(…).expect(…)`, which
+  panics when that row's grammar is compiled out, and the module is
+  declared ungated — so any feature set short of the full eight red-Xed
+  up to 24 tests that read as a defect in whatever was being changed.
+  The file-local `flatten_cases!` macro now takes a per-row feature
+  literal and emits `#[cfg(feature = …)]` on each generated test, which
+  is what a table spanning eight grammars needs: the whole-module gate
+  its single-grammar siblings use can name only one feature. The
+  `--all-features` test population is unchanged.
+
 - **`make fuzz-smoke` now runs every fuzz target and reports all of the
   failing ones**, instead of aborting on the first crash (#1235). The
   recipe runs under `.SHELLFLAGS := -eu`, so a crashing
