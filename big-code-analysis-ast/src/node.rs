@@ -346,6 +346,25 @@ impl<'a> Node<'a> {
         self.0.prev_sibling().map(Node)
     }
 
+    /// The sibling immediately after this node.
+    ///
+    /// **`O(depth)`, not `O(1)`**, for [`previous_sibling`]'s reason:
+    /// `ts_node_next_sibling` opens with `ts_node_parent`. There is no
+    /// [`Ancestors`] counterpart because the only caller wants exactly
+    /// this cost — the `exclude_tests` attribute lookahead reads forward
+    /// over the parent's children whenever the parent is narrow enough,
+    /// and falls back here precisely for the wide-and-shallow parent a
+    /// cursor pass would make `O(width)` per node (#1431). Anything on a
+    /// walk that does not budget the two against each other should be
+    /// reading the child list instead.
+    ///
+    /// [`previous_sibling`]: Self::previous_sibling
+    #[inline]
+    pub(crate) fn next_sibling(&self) -> Option<Node<'a>> {
+        node_resolved_sibling_lookups::record();
+        self.0.next_sibling().map(Node)
+    }
+
     /// Returns `true` if any direct child has the given grammar
     /// `kind_id`. See #217 for the motivating perf finding from the
     /// JS/TS template-literal hot path.

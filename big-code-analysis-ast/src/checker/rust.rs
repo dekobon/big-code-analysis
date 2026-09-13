@@ -102,22 +102,26 @@ impl Checker for RustCode {
     /// Skip the subtree when `node` is a `mod`, `fn`, `impl`,
     /// `trait`, `const`, or `static` item marked test-only by an
     /// outer or inner attribute (`#[test]`, `#[cfg(test)]`,
-    /// `#[tokio::test]`, `#![cfg(test)]`, …). The runtime guard
+    /// `#[tokio::test]`, `#![cfg(test)]`, …), or is one of the
+    /// `#[…]` siblings that mark it. The runtime guard
     /// in `spaces::metrics_with_options` only consults this hook
     /// when the caller opts in via `MetricsOptions::exclude_tests`,
     /// so the default `metrics()` entry point is unaffected.
     fn should_skip_subtree<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-        if !matches!(
-            node.kind_id().into(),
-            Rust::ModItem
-                | Rust::FunctionItem
-                | Rust::ImplItem
-                | Rust::TraitItem
-                | Rust::ConstItem
-                | Rust::StaticItem
-        ) {
-            return false;
+        if rust_prunable_item(node) {
+            return rust_item_is_test_only(node, code, ancestors);
         }
-        rust_item_is_test_only(node, code, ancestors)
+        // An outer attribute is a *sibling* of the item it marks, not a
+        // child, so pruning the item never reached it and Rust's `Loc`
+        // catch-all credited its start row to PLOC — one phantom row per
+        // pruned item, and a file that is nothing but a `#[cfg(test)]
+        // mod` still reading `ploc 1` (#1431). Answering here, before the
+        // row is ever recorded, is what makes the shared-row case behave:
+        // a row the attribute happens to share with retained code is
+        // still inserted by that code, and `Stats::settle_excluded_rows`
+        // keeps it (#1417). Retracting the row afterwards could not tell
+        // the two apart.
+        node.kind_id() == Rust::AttributeItem
+            && rust_attribute_run_marks_test_item(node, code, ancestors)
     }
 }

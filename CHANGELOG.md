@@ -135,6 +135,25 @@ for historical reference.
 
 ### Fixed
 
+- **`--exclude-tests` now prunes the `#[cfg(test)]` / `#[test]`
+  attribute along with the item it marks** (#1431). An outer attribute
+  is an `AttributeItem` *sibling* of its item, not a child, so pruning
+  the item never reached it and Rust's `Loc` catch-all credited its
+  start row to PLOC. A file that was nothing but test code reported
+  `sloc 1, ploc 1` — one row of code in a file with no production code
+  — and every `#[cfg(test)] mod tests` at the foot of a production file
+  inflated that file by one row, a stacked attribute run by one row per
+  attribute. `Checker::should_skip_subtree` now also answers for an
+  attribute, looking ahead over its run to the item it decorates and
+  pruning only when that item is one the prune removes anyway; the
+  attribute on a `use`, a `struct`, or any other kind `--exclude-tests`
+  keeps is untouched. **Metric drift:** `loc.ploc`, `loc.sloc` and the
+  MI values derived from them fall for `--exclude-tests` runs over Rust
+  containing test items, by one row per attribute row that is not
+  shared with retained code; `--exclude-tests` off — the default — is
+  byte-identical. A wholly test-only file now measures `sloc 0`, which
+  scores MI `0.0` on all three formulas through the existing
+  empty-input guard.
 - **`--exclude-tests` no longer drops rows a pruned item shares with
   retained code**, which made `sloc` fall below `ploc` (#1417).
   `Sloc` accumulated each pruned subtree's whole row span as a

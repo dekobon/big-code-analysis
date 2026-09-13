@@ -12052,15 +12052,14 @@ class A {
             MetricsOptions::default().with_exclude_tests(true),
         )
         .loc;
-        // The pruned node is the `fn t` item, rows 7-9; its `#[test]`
-        // attribute is a sibling and stays, which is #722's shape and not
-        // something the anchor changes. What the anchor decides is the
-        // other end: `blank` is 4 rather than 1, because rows 1-3 are now
-        // inside the span the pruning subtracts from.
+        // The prune takes the `fn t` item's rows 7-9 and, since #1431,
+        // the `#[test]` sibling on row 6 that marks it. What the anchor
+        // decides is the other end: `blank` is 4 rather than 1, because
+        // rows 1-3 are now inside the span the pruning subtracts from.
         assert_eq!(
             (kept.sloc(), kept.ploc(), kept.cloc(), kept.blank()),
-            (6, 2, 0, 4),
-            "the three pruned rows leave; the three leading blanks stay"
+            (5, 1, 0, 4),
+            "the four pruned rows leave; the three leading blanks stay"
         );
 
         let unpruned = rust_loc(source);
@@ -12096,13 +12095,15 @@ class A {
     /// half test code reads as under-subtraction and is not — nothing
     /// on that row can be removed without removing `fn a()` with it.
     ///
-    /// `ploc 1` has a second, separate cause worth not confusing with
-    /// this one: `should_skip_subtree` matches the *item*, and a
-    /// `#[cfg(test)]` / `#[test]` attribute is an `AttributeItem`
-    /// sibling of it, so the attribute is walked normally and Rust's
-    /// catch-all credits its start row to PLOC. A file that is 100%
-    /// test code therefore still reports `ploc 1`. That is a different
-    /// defect, tracked as #1431.
+    /// A second, separate cause used to add a row here and is worth not
+    /// confusing with this one: `should_skip_subtree` matched only the
+    /// *item*, and a `#[cfg(test)]` / `#[test]` attribute is an
+    /// `AttributeItem` sibling of it, so the attribute was walked
+    /// normally and Rust's catch-all credited its start row to PLOC — a
+    /// file that was 100% test code still reported `ploc 1` (#1431, now
+    /// fixed). These fixtures put the attribute on the shared row, so
+    /// that fix changes neither reading: what holds row 0 here is
+    /// `fn a()`, not the attribute.
     #[test]
     fn a_pruned_item_sharing_a_row_with_retained_code_keeps_the_row() {
         for source in [
@@ -12138,11 +12139,11 @@ class A {
     /// reasoned about. Without this fixture the fix is indistinguishable
     /// from that alternative.
     ///
-    /// `own_rows` is the control, in the same test because the headline
-    /// numbers must match: it reaches `(3, 2, 0, 1)` by genuinely
-    /// excluding one row where `shared_row` excludes none, so a fix
-    /// cannot buy the invariant by under-subtracting in the ordinary
-    /// rustfmt layout.
+    /// `own_rows` is the control, in the same test because the two must
+    /// not be confusable: it genuinely excludes rows — both of the
+    /// pruned item's own, since #1431 took the attribute with it — where
+    /// `shared_row` excludes none, so a fix cannot buy the invariant by
+    /// under-subtracting in the ordinary rustfmt layout.
     ///
     /// **`shared_row` has no fixture-decay anchor, and none exists.**
     /// The rule in `.claude/rules/testing.md` asks for a second axis
@@ -12161,7 +12162,7 @@ class A {
     /// among the failures for dropping the `ploc` subtraction, for
     /// widening `exclude_span`'s bound by one, and for both `subtract`
     /// mutations. `own_rows` is anchored in the ordinary way — trim its
-    /// pruned `mod` and `sloc 3` fails.
+    /// pruned `mod` and `sloc 2` fails.
     #[test]
     fn a_blank_row_does_not_absorb_a_phantom_exclusion() {
         // Row 0 `fn a` and the pruned `mod t`, row 1 blank, row 2 `fn b`.
@@ -12178,7 +12179,8 @@ class A {
         );
 
         // Row 0 `fn a`, row 1 blank, row 2 `#[cfg(test)]`, row 3 the
-        // pruned `mod t` — the only row the prune can take.
+        // pruned `mod t` — rows 2 and 3 are both the prune's to take,
+        // the attribute along with the item it marks (#1431).
         let own_rows = rust_loc_pruned(b"fn a() {}\n\n#[cfg(test)]\nmod t { #[test] fn x() {} }\n");
         assert_eq!(
             (
@@ -12187,8 +12189,8 @@ class A {
                 own_rows.cloc(),
                 own_rows.blank()
             ),
-            (3, 2, 0, 1),
-            "one of four rows excluded; the attribute row stays"
+            (2, 1, 0, 1),
+            "two of four rows excluded; only `fn a` and the blank stay"
         );
     }
 
@@ -12204,11 +12206,15 @@ class A {
     #[test]
     fn a_comment_sharing_a_pruned_items_row_keeps_that_row() {
         // Row 0 `#[cfg(test)]`, row 1 the pruned `mod t` and a trailing
-        // comment. Row 1 holds no code once the mod is pruned, but the
-        // comment is still there, so the row is not the prune's to take.
+        // comment. Both rows are pruned — the attribute since #1431 —
+        // but row 1 holds retained text, so only row 0 is the prune's to
+        // take. `sloc 1` against `sloc 0` is exactly the comment
+        // subtraction: without it both rows go and a file with a
+        // surviving comment reports no lines at all.
         let loc = rust_loc_pruned(b"#[cfg(test)]\nmod t {} // note\n");
-        assert_eq!(loc.sloc(), 2, "the comment row survives the prune");
+        assert_eq!(loc.sloc(), 1, "the comment row survives the prune");
         assert_eq!(loc.cloc(), 1, "the trailing comment is still counted");
+        assert_eq!(loc.ploc(), 0, "no production code is left on either row");
         assert!(
             loc.ploc() <= loc.sloc(),
             "ploc {} must not exceed sloc {}",

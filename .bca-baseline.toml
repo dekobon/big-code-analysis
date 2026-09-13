@@ -15,7 +15,7 @@ headroom = 0.95
 path = "big-code-analysis-ast/src/alterator.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 561.0
+value = 550.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/alterator.rs"
@@ -267,7 +267,7 @@ value = 120805.48245794396
 path = "big-code-analysis-ast/src/node.rs"
 qualified = "Node<'a>"
 metric = "nom"
-value = 35.0
+value = 36.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/parser.rs"
@@ -561,7 +561,7 @@ value = 59351.805921378844
 path = "big-code-analysis-cli/src/markdown_report.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 588.0
+value = 575.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report.rs"
@@ -591,7 +591,7 @@ value = 6.0
 path = "big-code-analysis-cli/src/markdown_report/hotspot.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 696.0
+value = 694.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report/hotspot.rs"
@@ -627,7 +627,7 @@ value = 66737.04848699087
 path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 562.0
+value = 549.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"
@@ -639,7 +639,7 @@ value = 5.0
 path = "big-code-analysis-cli/src/vcs_command.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 532.0
+value = 531.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_command.rs"
@@ -819,7 +819,7 @@ value = 6.0
 path = "big-code-analysis-py/src/types_codegen.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 748.0
+value = 747.0
 
 [[entry]]
 path = "big-code-analysis-py/src/vcs.rs"

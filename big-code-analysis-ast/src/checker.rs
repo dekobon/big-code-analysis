@@ -728,6 +728,99 @@ fn rust_item_is_test_only<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors
     rust_outer_attr_marks_test(node, code, ancestors) || rust_inner_attr_marks_test(node, code)
 }
 
+/// The item kinds the `exclude_tests` prune removes, given a test-only
+/// verdict.
+///
+/// `RustCode::should_skip_subtree` and
+/// [`rust_attribute_run_marks_test_item`] both consult this, so an
+/// attribute run and the item it decorates can never disagree about
+/// whether that item is prunable: `#[cfg(test)] use foo;` keeps both
+/// rows, because a `use_declaration` is not on this list (#1431).
+fn rust_prunable_item(node: &Node) -> bool {
+    matches!(
+        node.kind_id().into(),
+        Rust::ModItem
+            | Rust::FunctionItem
+            | Rust::ImplItem
+            | Rust::TraitItem
+            | Rust::ConstItem
+            | Rust::StaticItem
+    )
+}
+
+/// Whether the outer-attribute run `node` belongs to decorates an item
+/// the prune removes — which makes `node`'s own row test code too.
+///
+/// The whole run is asked about the *item*, not about itself, so every
+/// row of a stacked `#[cfg(test)]\n#[allow(dead_code)]\nmod t` goes:
+/// the second attribute says nothing about tests, and
+/// [`rust_item_is_test_only`] reads the run from the item end either
+/// way (#1431).
+fn rust_attribute_run_marks_test_item<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    rust_attributed_item(node, ancestors).is_some_and(|item| {
+        // `item` is `node`'s sibling, so the chain that describes one
+        // describes the other — parent and depth alike.
+        rust_prunable_item(&item) && rust_item_is_test_only(&item, code, ancestors)
+    })
+}
+
+/// The item an outer-attribute run decorates: the first sibling after
+/// `node` that is not itself an `AttributeItem`.
+///
+/// Dispatched on [`forward_attribute_scan_budget`] for the reason the
+/// backward reading of the same run is (#1100), with the directions
+/// swapped: a cursor pass over a narrow parent's children is `O(width)`
+/// and depth-free, while [`Node::next_sibling`] descends from the root
+/// per step. Reading forward unconditionally would be `O(width)` *per
+/// attribute*, which is quadratic on the flat `#[derive]`-per-item file
+/// `bindgen` emits — the exact shape `nom/wide-attributed-fn` prices.
+///
+/// A `parent` that is not `node`'s parent leaves the first pass with
+/// nothing to skip to and answers `None`, i.e. "nothing is pruned" —
+/// the same conservative reading `rust_attribute_run_under` takes, and
+/// a caller error either way (`Ancestors::checked`, #1122).
+///
+/// # What this costs
+///
+/// An attribute now pays a lookahead plus the run reading the item
+/// pays, so a file of nothing but attributed items resolves about 2.5x
+/// the siblings it did. Measured in release: a generated 20 000-item
+/// `#[inline] fn f() {}` file went 245 ms to 305 ms and a 3 000-deep
+/// nest 33 ms to 35 ms, while this repository's own 90 kloc of Rust did
+/// not move off 59 ms — real code is a few percent attributed, not all
+/// of it. Every scaling probe kept its exponent (`nom/wide-attributed-
+/// fn` 1.02 to 1.04, `nom/nested-attributed-fn` 1.00 to 1.02), which is
+/// the property that matters: the constant is the price of asking, and
+/// the class is what #1100 was about.
+///
+/// Reusing [`rust_item_is_test_only`] rather than fusing the two walks
+/// into one pass is deliberate at that price. A fused scan would save
+/// one of the three sibling resolutions and would be a third reading of
+/// the same run, free to drift from the other two — the failure mode
+/// `.claude/rules/grammar-dispatch.md` §7 is about.
+fn rust_attributed_item<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> Option<Node<'a>> {
+    match ancestors.parent(node) {
+        Some(parent) if parent.child_count() <= forward_attribute_scan_budget(ancestors) => parent
+            .children()
+            .skip_while(|child| child.id() != node.id())
+            .find(|child| child.kind_id() != Rust::AttributeItem),
+        _ => {
+            let mut sibling = node.next_sibling();
+            while let Some(candidate) = sibling {
+                if candidate.kind_id() != Rust::AttributeItem {
+                    return Some(candidate);
+                }
+                sibling = candidate.next_sibling();
+            }
+            None
+        }
+    }
+}
+
 /// Children a parent may have before reading its child list costs more
 /// than resolving the sibling from `node` itself.
 ///
@@ -1413,24 +1506,32 @@ mod tests {
     /// The same equivalence one level up, on the hook the walker calls.
     ///
     /// `rust_item_is_test_only` folds the inner-attribute scan in, and
-    /// `should_skip_subtree` adds the item-kind filter, so pinning it
-    /// here is what carries the predicate-level agreement above through
-    /// to the set of subtrees `exclude_tests` actually prunes.
+    /// `should_skip_subtree` adds the item-kind filter and the #1431
+    /// attribute arm, so pinning it here is what carries the
+    /// predicate-level agreement above through to the set of subtrees
+    /// `exclude_tests` actually prunes.
+    ///
+    /// The oracle reads every run backward and every lookahead forward
+    /// with the raw sibling accessors — no depth-against-width budget —
+    /// so it disagrees with production the moment either dispatch arm
+    /// answers differently from the other. The fixture spans both:
+    /// `source_file` is wide enough at depth 1 to take the sibling
+    /// arm, and `mod narrow`'s body is not.
     #[test]
     fn rust_should_skip_subtree_matches_the_backward_reading() {
         let source = "#[cfg(test)]\nmod tests {\nfn a() {}\n}\n\
                       #[allow(dead_code)]\nstatic S: i32 = 1;\n\
                       mod inner {\n#![cfg(test)]\nconst C: i32 = 1;\n}\n\
-                      #[rstest]\nfn b() {}\nfn c() {}\n";
+                      #[rstest]\nfn b() {}\nfn c() {}\n\
+                      #[cfg(test)]\nuse std::fmt;\n\
+                      #[cfg(test)]\n#[allow(dead_code)]\nfn d() {}\n\
+                      mod narrow {\n#[cfg(test)]\nfn e() {}\n}\n";
         let code = source.as_bytes();
-        let mut pruned = 0_usize;
-        let visited = for_each_node_with_chain::<RustCode>(code, |node, chain| {
-            let reference =
-                rust_attribute_run_before(node, code) || rust_inner_attr_marks_test(node, code);
-            // Spelled out rather than reused from the production hook:
-            // the point is to pin which kinds the prune considers, so
-            // borrowing the production `matches!` would assert nothing.
-            let is_item = matches!(
+        // Spelled out rather than reused from the production predicate:
+        // the point is to pin which kinds the prune considers, so
+        // borrowing `rust_prunable_item` would assert nothing.
+        let is_item = |node: &Node| {
+            matches!(
                 node.kind_id().into(),
                 Rust::ModItem
                     | Rust::FunctionItem
@@ -1438,11 +1539,28 @@ mod tests {
                     | Rust::TraitItem
                     | Rust::ConstItem
                     | Rust::StaticItem
-            );
+            )
+        };
+        let is_test_only = |node: &Node| {
+            rust_attribute_run_before(node, code) || rust_inner_attr_marks_test(node, code)
+        };
+        let mut pruned = 0_usize;
+        let visited = for_each_node_with_chain::<RustCode>(code, |node, chain| {
+            let reference = if node.kind_id() == Rust::AttributeItem {
+                // Walk to the item this run decorates with the raw
+                // forward accessor, independent of the budget dispatch.
+                let mut following = node.next_sibling();
+                while following.is_some_and(|s| s.kind_id() == Rust::AttributeItem) {
+                    following = following.and_then(|s| s.next_sibling());
+                }
+                following.is_some_and(|item| is_item(&item) && is_test_only(&item))
+            } else {
+                is_item(node) && is_test_only(node)
+            };
             let skipped = RustCode::should_skip_subtree(node, code, Ancestors::known(chain));
             assert_eq!(
                 skipped,
-                is_item && reference,
+                reference,
                 "prune decision moved on {} at row {}",
                 node.kind(),
                 node.start_row(),
@@ -1450,11 +1568,18 @@ mod tests {
             pruned += usize::from(skipped);
         });
         assert!(visited > 0, "fixture must have nodes to compare");
-        // `mod tests`, `mod inner`, and `fn b` — the three test-only
-        // items, and no more: a hook that pruned everything would
-        // satisfy the equality above only if the oracle agreed, but
-        // this pins the count the fixture was written for.
-        assert_eq!(pruned, 3, "expected exactly the three test-only items");
+        // Five test-only items — `mod tests`, `mod inner`, `fn b`,
+        // `fn d`, `fn e` — plus the five `#[…]` rows that mark four of
+        // them (`fn d` carries two, `mod inner` an inner attribute that
+        // its own subtree covers). Neither `#[allow(dead_code)]` on the
+        // production `static`, nor `#[cfg(test)]` on the `use`, is the
+        // prune's to take. A hook that pruned everything would satisfy
+        // the equality above only if the oracle agreed; this pins the
+        // count the fixture was written for.
+        assert_eq!(
+            pruned, 10,
+            "expected the five items and their five attributes"
+        );
     }
 
     #[test]

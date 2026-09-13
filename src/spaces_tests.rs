@@ -902,13 +902,13 @@ mod tests {
     // step with the pruned test module.
     //
     // Layout (0-based rows): prod body rows 0..=3, blank row 4,
-    // the `#[cfg(test)]` attribute (a sibling of `mod_item`, NOT
-    // pruned) row 5, and the pruned `mod tests { … }` rows 6..=11.
-    // Baseline `sloc` is the full 12-row span; pruned drops the six
-    // module rows to 6, which equals the retained `ploc 5` (prod's
-    // four lines + the surviving attribute line) plus the single
-    // real `blank` line. Pre-fix, pruned `sloc` stayed 12 and
-    // `blank` reported 7 — six phantom blanks from the elided module.
+    // the `#[cfg(test)]` attribute row 5, and the `mod tests { … }`
+    // it marks rows 6..=11 — both pruned since #1431.
+    // Baseline `sloc` is the full 12-row span; pruned drops those
+    // seven rows to 5, which equals the retained `ploc 4` (prod's
+    // four lines) plus the single real `blank` line. Pre-#722,
+    // pruned `sloc` stayed 12 and `blank` reported 7 — six phantom
+    // blanks from the elided module.
     #[test]
     fn sloc_drops_with_pruned_cfg_test_mod() {
         let source = "\
@@ -932,8 +932,8 @@ mod tests {
         assert_eq!(baseline.metrics.loc.ploc(), 11);
 
         // The headline fix: `sloc` falls in step with `ploc`.
-        assert_eq!(pruned.metrics.loc.sloc(), 6);
-        assert_eq!(pruned.metrics.loc.ploc(), 5);
+        assert_eq!(pruned.metrics.loc.sloc(), 5);
+        assert_eq!(pruned.metrics.loc.ploc(), 4);
         // Internal consistency restored: one real blank line, not the
         // pre-fix seven.
         assert_eq!(pruned.metrics.loc.blank(), 1);
@@ -943,9 +943,9 @@ mod tests {
     // blocks. Their spans are disjoint, so the excluded line counts
     // simply add (no interval merge). Rows (0-based): prod row 0,
     // attr row 1, `mod a` rows 2..=5, attr row 6, `mod b` rows
-    // 7..=10 — a 11-row span. Pruning removes both four-row modules,
-    // leaving rows 0/1/6 (prod + the two surviving sibling
-    // attributes) → `sloc 3`, matching `ploc 3` with zero blanks.
+    // 7..=10 — a 11-row span. Pruning removes both four-row modules
+    // and the attribute row marking each (#1431), leaving row 0 →
+    // `sloc 1`, matching `ploc 1` with zero blanks.
     #[test]
     fn sloc_drops_for_adjacent_test_modules() {
         let source = "\
@@ -965,8 +965,8 @@ mod b {
         let pruned = analyse(source, true);
 
         assert_eq!(baseline.metrics.loc.sloc(), 11);
-        assert_eq!(pruned.metrics.loc.sloc(), 3);
-        assert_eq!(pruned.metrics.loc.ploc(), 3);
+        assert_eq!(pruned.metrics.loc.sloc(), 1);
+        assert_eq!(pruned.metrics.loc.ploc(), 1);
         assert_eq!(pruned.metrics.loc.blank(), 0);
     }
 
@@ -975,7 +975,8 @@ mod b {
     // never descends, so `inner`'s span is folded into `outer`'s and
     // never double-counted. Rows (0-based): prod row 0, attr row 1,
     // `mod outer` rows 2..=7 (an 8-row span). Pruning removes the
-    // six outer rows, leaving rows 0/1 → `sloc 2`, matching `ploc 2`.
+    // six outer rows plus the attribute row that marks them (#1431),
+    // leaving row 0 → `sloc 1`, matching `ploc 1`.
     #[test]
     fn sloc_drops_for_nested_test_modules() {
         let source = "\
@@ -992,8 +993,8 @@ mod outer {
         let pruned = analyse(source, true);
 
         assert_eq!(baseline.metrics.loc.sloc(), 8);
-        assert_eq!(pruned.metrics.loc.sloc(), 2);
-        assert_eq!(pruned.metrics.loc.ploc(), 2);
+        assert_eq!(pruned.metrics.loc.sloc(), 1);
+        assert_eq!(pruned.metrics.loc.ploc(), 1);
         assert_eq!(pruned.metrics.loc.blank(), 0);
     }
 
@@ -1004,11 +1005,10 @@ mod outer {
     // `Sloc::merge` folds the pruned line count upward so the unit's
     // span-based `sloc` drops in step — mirroring how `Ploc` unions its
     // line-set upward (issue #741, a #722 follow-up). Rows (0-based):
-    // `impl Foo {` row 0, `fn prod` row 1, the `#[test]` attribute (a
-    // sibling, retained) row 2, the pruned single-line `fn t() {}` row
-    // 3, `}` row 4 — a five-row impl span inside a six-row unit span.
-    // Pruning removes the one test-fn row, so both the impl-level and
-    // the unit-level `sloc` drop by exactly one.
+    // `impl Foo {` row 0, `fn prod` row 1, the `#[test]` attribute row
+    // 2, the single-line `fn t() {}` it marks row 3, `}` row 4 — a
+    // five-row impl span. Pruning removes rows 2 and 3 (#1431), so both
+    // the impl-level and the unit-level `sloc` drop by exactly two.
     #[test]
     fn sloc_drops_for_test_fn_nested_in_impl() {
         let source = "\
@@ -1032,23 +1032,24 @@ impl Foo {
         let baseline_impl = &baseline.spaces[0];
         let pruned_impl = &pruned.spaces[0];
         assert_eq!(baseline_impl.metrics.loc.sloc(), 5);
-        assert_eq!(pruned_impl.metrics.loc.sloc(), 4);
+        assert_eq!(pruned_impl.metrics.loc.sloc(), 3);
 
         // Unit-root propagation (the #741 fix): the pruned rows fold
         // upward through `Sloc::merge`, so the unit's `sloc` drops by
-        // the same one row. Before the fix this stayed at the baseline
+        // the same two rows. Before the fix this stayed at the baseline
         // value because only the impl's `excluded_rows` grew.
         assert_eq!(baseline.metrics.loc.sloc(), 5);
-        assert_eq!(pruned.metrics.loc.sloc(), 4);
+        assert_eq!(pruned.metrics.loc.sloc(), 3);
     }
 
     // A `#[test] fn` directly inside a production `impl` (no separate
     // `#[cfg(test)] mod`): the unit's span-based `sloc` must still drop
     // by the pruned test-fn rows. Rows (0-based): `impl Calc {` row 0,
     // `fn add` rows 1..=3 (a retained production method), `#[test]` row
-    // 4, `fn t` rows 5..=7 (pruned), `}` row 8 — a nine-row unit span.
-    // Pruning removes the three test-fn rows (5..=7), so the unit `sloc`
-    // drops from 9 to 6, matching `ploc`.
+    // 4, `fn t` rows 5..=7, `}` row 8 — a nine-row unit span.
+    // Pruning removes the three test-fn rows (5..=7) and the attribute
+    // row 4 that marks them (#1431), so the unit `sloc` drops from 9 to
+    // 5, matching `ploc`.
     #[test]
     fn sloc_drops_for_test_fn_in_production_impl() {
         let source = "\
@@ -1066,7 +1067,7 @@ impl Calc {
         let pruned = analyse(source, true);
 
         assert_eq!(baseline.metrics.loc.sloc(), 9);
-        assert_eq!(pruned.metrics.loc.sloc(), 6);
+        assert_eq!(pruned.metrics.loc.sloc(), 5);
         assert_eq!(pruned.metrics.loc.ploc(), pruned.metrics.loc.sloc());
     }
 
@@ -1075,9 +1076,9 @@ impl Calc {
     // prune hook records the span on the closure, not the unit. The fix
     // must still propagate the count up to the unit. Rows (0-based):
     // `fn make() {` row 0, `let f = || {` row 1, `#[test]` row 2,
-    // `fn t() {}` row 3 (pruned), `};` row 4, `}` row 5 — a six-row unit
-    // span. Pruning removes the one test-fn row, so the unit `sloc`
-    // drops from 6 to 5.
+    // `fn t() {}` row 3, `};` row 4, `}` row 5 — a six-row unit
+    // span. Pruning removes the test fn and its attribute (#1431), so
+    // the unit `sloc` drops from 6 to 4.
     #[test]
     fn sloc_drops_for_test_fn_nested_in_closure() {
         let source = "\
@@ -1092,7 +1093,7 @@ fn make() {
         let pruned = analyse(source, true);
 
         assert_eq!(baseline.metrics.loc.sloc(), 6);
-        assert_eq!(pruned.metrics.loc.sloc(), 5);
+        assert_eq!(pruned.metrics.loc.sloc(), 4);
     }
 
     // A non-test `impl` with no test items must be unaffected by the
@@ -1150,6 +1151,124 @@ impl Foo {
             );
         }
         assert_eq!(baseline.metrics.loc.sloc(), pruned.metrics.loc.sloc());
+    }
+
+    // #1431. An outer attribute is an `AttributeItem` *sibling* of the
+    // item it marks, so pruning the item never reached it and Rust's
+    // `Loc` catch-all credited its start row to PLOC. A file that is
+    // nothing but test code read `sloc 1, ploc 1` — one row of code in a
+    // file with no production code — and every `#[cfg(test)] mod tests`
+    // at the foot of a production file cost that file one phantom row.
+    //
+    // `mi` is asserted to 0.0 on all three formulas because `sloc 0` is
+    // where `Mi::inputs_are_empty` takes over, and the issue raised that
+    // as a hazard: it is not one — a file with nothing in it scores
+    // zero, deliberately and for every formula.
+    #[test]
+    fn an_all_test_file_measures_zero_rows() {
+        for source in [
+            // The issue's reproducer: attribute, item, and a nested
+            // `#[test] fn` for good measure.
+            "#[cfg(test)]\nmod t {\n    #[test] fn x() {}\n}\n",
+            // A stacked run — *every* row of it goes, not just the one
+            // adjacent to the item. `#[allow(dead_code)]` says nothing
+            // about tests on its own, so a rule that read each attribute
+            // rather than the item it marks would leave row 1 behind.
+            "#[cfg(test)]\n#[allow(dead_code)]\nmod t {\n    fn x() {}\n}\n",
+            // Attribute and item on one row.
+            "#[test] fn x() {}\n",
+            // Seven children at depth 1, past the six-child budget, so
+            // the lookahead resolves siblings from the node instead of
+            // reading the parent's child list. The two arms answer the
+            // same thing by construction and nothing else here reaches
+            // the second one (#1100's dispatch, #1431's use of it). The
+            // leading run is stacked so the arm has to walk *over* an
+            // attribute to find the item, not just take the next node.
+            "#[cfg(test)]\n#[allow(dead_code)]\nfn a() {}\n\
+             #[test]\nfn b() {}\n#[test]\nfn c() {}\n",
+        ] {
+            let pruned = analyse(source, true);
+            let loc = &pruned.metrics.loc;
+            assert_eq!(
+                (loc.sloc(), loc.ploc(), loc.cloc(), loc.blank()),
+                (0, 0, 0, 0),
+                "{source:?}"
+            );
+            assert!(
+                analyse(source, false).metrics.loc.ploc() > 0,
+                "{source:?}: the unpruned reading must be non-zero, or the \
+                 fixture proves nothing"
+            );
+
+            let mi = &pruned.metrics.mi;
+            assert_eq!(
+                (mi.original(), mi.sei(), mi.visual_studio()),
+                (0.0, 0.0, 0.0),
+                "{source:?}: `sloc 0` must reach the empty-input guard"
+            );
+        }
+    }
+
+    // The other half of #1431: an attribute run is pruned for the item
+    // it marks, never for itself. Each row here is an attribute the
+    // prune must leave alone, and `ploc` is asserted equal to the
+    // unpruned reading so a rule that pruned every `#[…]` — or every
+    // one whose text mentions `test` — fails on it.
+    #[test]
+    fn a_non_test_attribute_run_survives_pruning() {
+        for source in [
+            // Nothing test-related at all.
+            "#[inline]\nfn a() {}\n",
+            // A stacked non-test run on a prunable item kind.
+            "#[inline]\n#[allow(dead_code)]\nfn a() {}\n",
+            // A test attribute on an item kind the prune does not
+            // remove: `use_declaration` is not in `rust_prunable_item`,
+            // so pruning its attribute would leave the file reporting
+            // fewer rows than it has retained code on.
+            "#[cfg(test)] use foo;\n",
+            "#[cfg(test)]\nstruct S;\n",
+            // `#[cfg(not(test))]` marks production code, and the
+            // attribute lookahead must inherit that reading from
+            // `rust_item_is_test_only` rather than re-deriving it.
+            "#[cfg(not(test))]\nfn a() {}\n",
+            // The same, past the six-child budget: the sibling-resolving
+            // arm of the lookahead must be as conservative as the
+            // child-list one.
+            "#[inline]\nfn a() {}\n#[inline]\nfn b() {}\n\
+             #[inline]\nfn c() {}\n#[inline]\nfn d() {}\n",
+        ] {
+            let baseline = analyse(source, false);
+            let pruned = analyse(source, true);
+            assert_eq!(
+                (
+                    pruned.metrics.loc.sloc(),
+                    pruned.metrics.loc.ploc(),
+                    pruned.metrics.loc.cloc()
+                ),
+                (
+                    baseline.metrics.loc.sloc(),
+                    baseline.metrics.loc.ploc(),
+                    baseline.metrics.loc.cloc()
+                ),
+                "{source:?}: nothing here is the prune's to take"
+            );
+            assert!(pruned.metrics.loc.ploc() > 0, "{source:?}");
+        }
+    }
+
+    // An *inner* attribute (`mod tests { #![cfg(test)] … }`) already
+    // sits inside the subtree the item's prune removes, so there is no
+    // outer run to reach and #1431 changes nothing about it. Pinned
+    // because the attribute arm now fires on `AttributeItem` generally,
+    // and an arm that also matched `InnerAttributeItem` would be
+    // pruning a node its enclosing item already covers.
+    #[test]
+    fn an_inner_cfg_test_attribute_still_elides_its_module() {
+        let source = "fn prod() {}\nmod tests {\n    #![cfg(test)]\n    fn a() {}\n}\n";
+        let pruned = analyse(source, true);
+        assert_eq!(analyse(source, false).metrics.loc.sloc(), 5);
+        assert_eq!(pruned.metrics.loc.sloc(), 1);
+        assert_eq!(pruned.metrics.loc.ploc(), 1);
     }
 }
 

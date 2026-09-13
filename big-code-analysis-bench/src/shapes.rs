@@ -294,21 +294,23 @@ pub fn wide_attributed_fns(width: usize) -> String {
     format!("{}\n", "#[inline] fn f() {} ".repeat(width))
 }
 
-/// Rust: `#[cfg(test)]\nmod m {}\n` repeated at file scope.
+/// Rust: `fn p() {}\n#[cfg(test)]\nmod m {}\n` repeated at file scope.
 ///
 /// The shape [`nested_attributed_fns`] and [`wide_attributed_fns`]
 /// cannot be: both use `#[inline]` precisely so the walk does *not*
 /// prune, which leaves the number of pruned nodes at zero on every
 /// existing probe and the prune's own bookkeeping unpriced (#1417).
-/// Here every item is pruned, so the count grows with the size
+/// Here two nodes per item are pruned — the `mod` and, since #1431, the
+/// `#[cfg(test)]` sibling marking it — so the count grows with the size
 /// parameter.
 ///
-/// Two rows per item, with the attribute on its own row, is what makes
-/// the reading move: the attribute is an `AttributeItem` *sibling* of
-/// the item, so it is walked normally and its row survives, while the
-/// `mod` row does not. `sloc` is therefore `width` against a `2 *
-/// width` file, and a prune that stopped recording rows would read as
-/// `2 * width`.
+/// The retained `fn p()` is what keeps the reading non-zero and moving
+/// with the size: `sloc` is `width` against a `3 * width` file, so a
+/// prune that stopped recording rows would read `3 * width` and one
+/// that took the production row with them would read `0`. Before #1431
+/// the surviving attribute row played that part, and the shape was two
+/// rows per item with no production code at all — which now measures
+/// zero and prices nothing.
 ///
 /// The cost this prices is `Sloc::excluded_rows`: one `insert_range`
 /// per pruned node during the walk, and one `retain_range` plus three
@@ -319,7 +321,7 @@ pub fn wide_attributed_fns(width: usize) -> String {
 /// visits them ascending; this probe is what keeps that measured.
 #[must_use]
 pub fn wide_cfg_test_mods(width: usize) -> String {
-    "#[cfg(test)]\nmod m {}\n".repeat(width)
+    "fn p() {}\n#[cfg(test)]\nmod m {}\n".repeat(width)
 }
 
 /// Rust: `fn f000000() { let v000000 = 000000; } fn f000001() { … }`,
