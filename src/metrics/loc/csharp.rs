@@ -87,13 +87,14 @@ impl Loc for CsharpCode {
                 // number reported for source that does not compile, where a
                 // line count has no correct answer to be right about.
                 //
-                // This is the opposite call to #1443, which fixed an
-                // equally unreachable Bash shape. The difference is what
-                // the arm would buy: there, the range was wrong in a way
-                // that also made the *meaning* wrong ("the literal's rows"
-                // included rows outside the literal), and correcting it was
-                // free on valid input. Here the meaning is already right
-                // and only invalid input can tell the two behaviours apart.
+                // This is the opposite call to #1443, which fixed a Bash
+                // shape that was also unreachable — a blank prefix row in a
+                // heredoc. The difference is what the arm would buy: there,
+                // the range was wrong in a way that made the *meaning* wrong
+                // ("the literal's rows" included command-prefix rows), and
+                // the valid multi-row prefixes were unaffected. Here the
+                // meaning is already right, and only source that does not
+                // compile can tell the two behaviours apart.
                 //
                 // If `tree-sitter-c-sharp` ever tightens to match the
                 // specification, this note and #1430 both become moot. If

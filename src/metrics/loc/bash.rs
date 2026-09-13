@@ -128,18 +128,33 @@ impl Loc for BashCode {
             // ordinary single-row prefix, so this is the same arithmetic
             // everywhere except the shape it exists for.
             //
-            // **Upstream divergence, deliberately not worked around.**
-            // Every input reaching the multi-row form is a bash syntax
-            // error: bash begins the body on the line after the one
-            // carrying `<<`, so `cat <<EOT |` + newline + `grep x` makes
-            // `grep x` the body's first line and the terminator is then
-            // never found. Verified with `bash -n` on five spellings
-            // (bare, backslash-continued, comment row, `&&` list, blank
-            // row) — all rejected, while tree-sitter parses each as a
-            // pipeline inside the wrapper. So this is unreachable in
-            // runnable Bash and the bound is right for the malformed
-            // trees `bca` is still asked to measure (#1398's argument).
-            // Do not "fix" the divergence here; it belongs upstream.
+            // **What is and is not reachable here — measured, because
+            // the first reading of it was wrong.** A multi-row prefix
+            // *is* valid Bash whenever the continuation carries content:
+            // `cat <<EOT | \` + `  grep x`, and the `&&` form, both pass
+            // `bash -n`. What is unreachable is a **blank or
+            // comment-only** prefix row, which is the shape this bound
+            // exists for: bash begins the body on the line after the one
+            // carrying `<<`, so a bare `cat <<EOT |` + newline makes the
+            // next line the body and the terminator is never found, and
+            // a `\` continuation splices the rows rather than leaving a
+            // blank one. All four spellings — bare and `\`-continued,
+            // blank row and comment row — are rejected by `bash -n`,
+            // while tree-sitter parses each as a pipeline inside the
+            // wrapper.
+            //
+            // So the bound changes nothing for the valid multi-row
+            // prefixes above (their continuation rows carry leaves the
+            // catch-all credits) and corrects the malformed trees `bca`
+            // is still asked to measure (#1398's argument).
+            //
+            // One valid shape *does* move, and it is not this arm's bug
+            // to own: a continuation row holding only `\` has no leaf,
+            // so nothing credits it and it now reads blank. That is a
+            // general Bash gap, not a heredoc one — `echo a | \` + `\` +
+            // `  grep b` reports it outside any heredoc too — which the
+            // old blanket range happened to mask in this one position.
+            // Tracked as #1445; do not paper over it here.
             HeredocRedirect => {
                 check_comment_ends_on_code_line(stats, start);
                 stats.ploc.lines.insert(start);
@@ -214,7 +229,7 @@ impl Loc for BashCode {
 /// already credited, and it is **inert today**: every `heredoc_redirect`
 /// the grammar emits carries the `<<` token, which starts on `start` at
 /// a column above 0 and so ends at `start + 1` or later. Deleting the
-/// floor fails no test — measured, 0 of 3,397 — which is why the
+/// floor fails no test — measured, 0 of 3,394 — which is why the
 /// `debug_assert!` is here rather than a comment claiming the shape
 /// cannot arise. It checks the premise on every heredoc of every walk,
 /// so a grammar that ever emits a body-only wrapper reports that

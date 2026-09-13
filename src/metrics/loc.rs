@@ -7418,12 +7418,16 @@ EOF
     /// A single fixture asserting `ploc` alone would keep passing if the
     /// prefix row were trimmed out of it.
     ///
-    /// Note both inputs are bash *syntax errors* — bash starts the body
-    /// on the line after the `<<`, so it never finds the terminator, and
-    /// `bash -n` rejects every spelling of this shape. They are here
-    /// because `bca` measures malformed trees too, which is the same
-    /// argument #1398 rests on, and because the arm's range should mean
-    /// "the literal's rows" rather than being incidentally right.
+    /// Note both inputs are bash *syntax errors*: bash starts the body
+    /// on the line after the `<<`, so a blank or comment-only prefix row
+    /// is unreachable in runnable Bash — `bash -n` rejects all four
+    /// spellings, bare and `\`-continued. A prefix that crosses rows
+    /// *with content* is valid (`cat <<EOT | \` + `  grep x`) and is
+    /// unaffected, since its continuation rows carry leaves the
+    /// catch-all credits. These fixtures are here because `bca` measures
+    /// malformed trees too, the argument #1398 rests on, and because the
+    /// arm's range should mean "the literal's rows" rather than being
+    /// incidentally right.
     #[cfg(feature = "bash")]
     #[test]
     fn bash_heredoc_wrapper_credits_no_row_of_its_command_prefix() {

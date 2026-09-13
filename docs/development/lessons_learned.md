@@ -137,6 +137,7 @@ number and the higher number stays as a redirect.
 | [91](#91-a-gate-can-filter-out-its-own-subject-before-the-check-runs) | A gate can filter out its own subject before the check runs |
 | [92](#92-an-optimizations-rationale-can-encode-the-waste-it-optimizes-for) | An optimization's rationale can encode the waste it optimizes for |
 | [93](#93-a-gate-that-reads-a-typed-accessor-is-invisible-to-the-front-ends-that-read-the-wire) | A gate that reads a typed accessor is invisible to the front-ends that read the wire |
+| [94](#94-a-sweep-that-finds-nothing-only-rules-out-what-its-predicate-can-express) | A sweep that finds nothing only rules out what its predicate can express |
 
 ---
 
@@ -3185,7 +3186,9 @@ when written and rot silently. When a claim is expensive to verify or
 cannot be pinned, write what was measured and under which conditions
 rather than the generalisation it suggests. Be most suspicious of all of
 a comment saying a fix is *already in place*: it ends the search that
-would have found the gap.
+would have found the gap — as does a comment that **declines** to make a
+claim ("probably X, but nothing enforces it"), which reads as candour and
+so is never measured.
 
 No gate checks any of it. `cargo test` does not read prose, clippy does
 not evaluate it, and a reviewer's eye slides over a plausible sentence —
@@ -3235,6 +3238,14 @@ Anyone auditing the C-family operand set read the comment as
 confirmation and moved on. The fix pinned the half that *was* true
 (`c_family_char_literal_is_not_a_string`, two-sided per language) so it
 fails loudly if it stops being true, and made the other half true.
+
+**A hedge is the same failure worn as honesty** (#1417). One of the three
+sets `Stats::settle_excluded_rows` subtracts was documented as "very
+probably a subset of `ploc.lines` … but nothing enforces that". Deleting
+that subtraction failed **0 of 3,390** lib tests, where dropping either
+sibling fails 3 and 1. It survived two fresh-context reviews *because* it
+admitted the uncertainty: a hedge reads as a gap someone has already
+logged, not as a claim to test. The remedy was a `debug_assert_eq!` on the walk, not a fixture.
 
 ---
 
@@ -3711,5 +3722,45 @@ space whose own value breached. #958 added those four `*.value` fields;
 value. When #1196 moved it, the extractor table noted that the JSON
 field now disagreed — and stopped there; the binding that reads that
 field is the consumer the note needed to name.
+
+---
+
+## 94. A sweep that finds nothing only rules out what its predicate can express
+
+**Lesson:** When a measurement reports no violations, state the
+*predicate* it evaluated, not the conclusion it suggests. "No file
+breaches `ploc <= sloc`" is not "no file is miscounted", and the gap
+between them is invisible because the sweep's own output looks
+exhaustive — a big denominator reads as thoroughness regardless of what
+was asked. Before trusting a negative result to size a fix, write down
+the defect's expected signature and check the predicate can represent
+it: a defect that moves two quantities by the same amount in opposite
+directions cannot violate an inequality between them, and one confined
+to a language the corpus does not cover cannot appear at any denominator
+at all. Where the predicate cannot express the signature, say what was
+measured and what it therefore does not cover.
+
+A negative result is load-bearing in a way a positive one is not. It
+sets the test bar, the snapshot expectation, the changelog wording and
+whether the change is scheduled at all, and each of those decisions
+inherits the unstated scope. Nothing rechecks it later: the sweep is
+usually run once, during triage, and the number is quoted from the issue
+body from then on.
+
+**234,791 spaces, and the wrong question** (#1423). The C-family
+`PreprocArg` arm credited a macro body's rows by the raw end row rather
+than by `Node::end_line`, over-crediting one row whenever the body ends
+at column 0. The issue was filed "not currently observable", on a sweep
+finding 0 of 234,791 spaces across 14,450 files violating `ploc <= sloc`
+or `cloc <= sloc`. Both inequalities are blind to this defect by
+construction: it moves one row from `blank` into `ploc`, so their sum is
+unchanged and neither bound can be violated. The first run of the fix moved
+a DeepSpeech snapshot — `left_test.cc`, `ploc 344 → 343` — which the
+"latent, not live" framing had said to expect none of.
+
+The second way a sweep's scope goes unstated is a corpus that cannot
+contain the subject: the sibling fix predicted snapshot churn "for any
+Bash corpus file with a heredoc", and not one of the submodule's 1,610
+snapshots is shell-derived (#1412, and lesson 74 for the mechanism).
 
 ---

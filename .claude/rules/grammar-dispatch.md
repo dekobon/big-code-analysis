@@ -165,6 +165,45 @@ says which; billing the leaf files all four under `1` (#1359). Bash's
 `string` child is the node present in argument position, where the
 grammar emits no wrapper (#1358).
 
+**`node-types.json` cannot answer "every spelling" — it describes the
+well-formed grammar only.** It says nothing about error recovery, where
+a child routinely appears with its documented parent absent, so a keeper
+argued from it is argued from half the evidence. #1412 routed Bash's
+`heredoc_redirect` and **deleted** the two `heredoc_body` arms on the
+grounds that `node-types.json` lists `heredoc_body` as a child of
+`heredoc_redirect` and of nothing else. A single-line compound carrying
+a heredoc — `f() { cat <<EOT; }`, and the `if` / `for` spellings, all
+valid executable Bash — parses to an `{ERROR}` root whose *direct* child
+is the body, no wrapper anywhere; the leaf-gated catch-all then credited
+only its start row and the terminator fell to `blank`, reintroducing the
+defect the fix had just repaired. Dump at least one malformed or
+recovery input before deleting the other arm, and prefer keeping both:
+where the wrapper's span contains the leaf's, listing both is a no-op,
+because `LineSet::insert` / `insert_range` and
+`check_comment_ends_on_code_line` are all idempotent.
+
+**Decide a grammar-reachable but language-invalid shape on what the
+change buys for *valid* input.** Grammars are routinely more permissive
+than their languages, so "the parser can produce this" does not settle
+whether to handle it. Fix it when the current behaviour is wrong in
+*meaning* and valid input is unaffected: Bash's `heredoc_redirect`
+credited its whole interior, so "the literal's rows" included
+command-prefix rows. A *blank or comment-only* prefix row is a bash
+syntax error, and the valid multi-row prefixes carry leaves the
+catch-all credits, so the range now means what it says at no cost to
+runnable input (#1443). Scope that claim to what you measured: the first
+reading of #1443 said every multi-row prefix was invalid, which is false
+— a `\`-continued one is valid — and the over-broad version hid a valid
+shape the fix does move (#1445). Document the gap instead when
+only invalid input can tell the two behaviours apart: C# has no
+`PreprocArg` arm, and since the C# specification ends a `pp-directive`
+at the new-line, a valid `preproc_arg` is always single-row and the arm
+would no-op on it (#1430). In the second case add **no test** — pinning
+the numbers for an invalid fixture makes the grammar's present
+over-permissiveness the contract and inverts into a bug-lock when it
+tightens. Check the language specification, and `bash -n` or the
+compiler, rather than inferring reachability from the grammar.
+
 ## 7. Walk the sibling predicates for parity
 
 `Checker::is_string`, `Getter::get_op_type`, `Checker::is_call`,

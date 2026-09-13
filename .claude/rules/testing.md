@@ -68,6 +68,16 @@ longer the file being edited. Before believing any perturbation result,
 confirm the subject still contains the change: `rg -c <new symbol>` on
 the file, or a `git diff --stat` that shows what you expect.
 
+**For a compiled subject the rebuild must be inside the measurement
+step.** `rg` on the source proves the *source* changed; a sweep that
+shells out to `target/release/bca` is measuring the last binary someone
+built. During #1412 a corpus sweep reported "0 of 438 files changed" —
+a perfectly plausible result — because the restore ran without a
+rebuild, so the before and after runs used the same stale binary. Put
+`cargo build` in the same step as the run, and assert a known fixture
+whose answer differs between the two states immediately after each
+build; that guard is what caught it on the rewrite.
+
 **The result *parser* is the other half of the subject.** During #1238 a
 sweep drove three perturbations of one match arm and reported zero Rust
 failures for all three, while the Python leg of the same sweep reported
@@ -211,6 +221,29 @@ Where the construct contributes to no axis once excluded — a Lua
 `<const>` attribute, a TypeScript type argument — there is nothing to
 anchor on, and the revert test is the only coverage available. Say so in
 a comment, so the missing anchor is not read as an oversight.
+
+### Never let the measured value *be* the defect's output
+
+A fixture whose discriminating quantity is *produced by the bug* stops
+measuring anything the moment the bug is fixed. It is the inverse of the
+decay above, it bites benchmark probes hardest, and it fails as "the
+workload scored zero on its own shape" — which reads like a broken
+fixture rather than like the fix working.
+
+`loc/wide-cfg-test-mod` (`big-code-analysis-bench/src/shapes.rs`) read
+`sloc` under `exclude_tests` on a file of nothing but `#[cfg(test)]
+mod m {}` repeated. Its only non-zero row was the phantom attribute row
+#1431 then removed, so the probe scored zero and tripped
+`probe_workload_is_exercised`. Left unnoticed it would have timed the
+walk's fixed overhead and reported an excellent exponent forever. The
+repair was to render a retained `fn p() {}` per item, so the reading
+survives the fix.
+
+When a change alters what a shape measures, re-check every probe or
+fixture reading *that* metric on *that* shape before comparing a
+before/after result. Build the measured quantity out of something the
+fix does not touch — for a metric fix, usually retained content
+alongside the construct under test.
 
 ## Coverage measures execution, not discrimination
 

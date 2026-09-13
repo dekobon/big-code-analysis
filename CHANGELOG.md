@@ -142,14 +142,17 @@ for historical reference.
   interior read a blank prefix row as code, and reclassified a
   comment-only one as code-and-comment. The credited range now starts at
   the first body row, derived from the last row any non-body child
-  occupies; that collapses to the previous arithmetic for the single-row
-  prefix every runnable heredoc has, so no valid input changes. The
-  multi-row form is in fact a bash *syntax error* — bash begins the body
-  on the line after the `<<`, so the terminator is never found, and
-  `bash -n` rejects all five spellings tried — which makes this a
-  `tree-sitter-bash` divergence rather than a miscount on runnable
-  input. Fixed rather than worked around because `bca` is still asked to
-  measure malformed trees, the argument #1398 rests on.
+  occupies. A *blank or comment-only* prefix row — the shape this fixes
+  — is unreachable in runnable Bash, since bash begins the body on the
+  line after the `<<` and a `\` continuation splices the rows rather
+  than leaving one empty; `bash -n` rejects all four spellings. A prefix
+  that crosses rows with content is valid and unaffected, its
+  continuation rows carrying leaves the catch-all credits. Fixed rather
+  than left as a `tree-sitter-bash` divergence because `bca` is still
+  asked to measure malformed trees, the argument #1398 rests on. One
+  valid shape does move: a continuation row holding only `\` has no leaf
+  to credit it and now reads blank, a general Bash gap this arm's old
+  blanket range happened to mask in one position (#1445).
 - **`--exclude-tests` now prunes the `#[cfg(test)]` / `#[test]`
   attribute along with the item it marks** (#1431). An outer attribute
   is an `AttributeItem` *sibling* of its item, not a child, so pruning
