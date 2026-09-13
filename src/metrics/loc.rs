@@ -953,12 +953,22 @@ impl Stats {
     /// of the enclosing space are still arriving; this pass runs once
     /// per space at finalization, when they are all in.
     ///
-    /// All three retained sets are subtracted.
-    /// `code_comment_line_starts` is very probably a subset of
-    /// `ploc.lines` — a row with both code and a comment is a code row
-    /// — but nothing enforces that, and the cost of not relying on it
-    /// is one word-wise `&= !` over an array that is empty for every
-    /// space that pruned nothing.
+    /// All three retained sets are subtracted, but only two of them can
+    /// move the answer, and that is worth stating rather than hedging:
+    /// `code_comment_line_starts` is a subset of `ploc.lines` by
+    /// construction. Its only writers are the two `add_cloc_lines` arms,
+    /// both gated on `ploc.lines.contains(start)` already being true,
+    /// and `check_comment_ends_on_code_line`, whose per-language call
+    /// sites every one insert that same row into `ploc.lines` on the
+    /// next statement. `Stats::merge` unions both sets and
+    /// [`Stats::clamp_line_sets_to_span`] retains both over one range,
+    /// so no later pass can separate them. Deleting the third
+    /// subtraction therefore fails no test and *cannot* — measured at 0
+    /// of 3,390 lib tests, where dropping either of the other two fails
+    /// 3 and 1. It stays as defence against a future call site that
+    /// forgets the PLOC insert, and the `debug_assert_eq!` opening the
+    /// body is what keeps that defence honest: without it the line is
+    /// unreachable weight whose loss nothing would ever notice.
     ///
     /// Ordered after [`Stats::clamp_line_sets_to_span`], which
     /// establishes the premise: with `P`, `O`, `C` and the pruned set
@@ -973,6 +983,18 @@ impl Stats {
     /// overlap on a code-and-comment row, so no lower bound on
     /// `sloc - ploc - |O|` follows from the above.
     pub(crate) fn settle_excluded_rows(&mut self) {
+        // The premise that makes the third subtraction below redundant,
+        // pinned on every space of every walk because it is a property
+        // of all the `check_comment_ends_on_code_line` call sites at
+        // once and no single fixture can reach them.
+        debug_assert_eq!(
+            self.ploc
+                .lines
+                .union_len(&self.cloc.code_comment_line_starts),
+            self.ploc.lines.len(),
+            "a row carrying both code and a comment must also be a code row"
+        );
+
         // Disjoint field paths, so the shorthand borrows cleanly.
         let excluded = &mut self.sloc.excluded_rows;
         excluded.subtract(&self.ploc.lines);
@@ -12121,6 +12143,25 @@ class A {
     /// excluding one row where `shared_row` excludes none, so a fix
     /// cannot buy the invariant by under-subtracting in the ordinary
     /// rustfmt layout.
+    ///
+    /// **`shared_row` has no fixture-decay anchor, and none exists.**
+    /// The rule in `.claude/rules/testing.md` asks for a second axis
+    /// only the excluded construct contributes to, so that trimming it
+    /// out of the fixture fails this test rather than quietly hollowing
+    /// it. Deleting `#[cfg(test)] mod t {}` from row 0 leaves all four
+    /// numbers at `(3, 2, 0, 1)` — measured, 0 of 3,390 lib tests fail
+    /// — and that is not an oversight but the claim restated: a pruned
+    /// item whose only row a retained sibling also occupies is *by
+    /// definition* metrically indistinguishable from not being there.
+    /// Every candidate axis collapses the same way. The unpruned
+    /// reading is also `(3, 2, 0, 1)`, because `mod t {}` adds no row
+    /// of its own; the space tree matches too, because the prune
+    /// removes the space the construct would have opened. The coverage
+    /// here is the production perturbation, which was run: this test is
+    /// among the failures for dropping the `ploc` subtraction, for
+    /// widening `exclude_span`'s bound by one, and for both `subtract`
+    /// mutations. `own_rows` is anchored in the ordinary way — trim its
+    /// pruned `mod` and `sloc 3` fails.
     #[test]
     fn a_blank_row_does_not_absorb_a_phantom_exclusion() {
         // Row 0 `fn a` and the pruned `mod t`, row 1 blank, row 2 `fn b`.
