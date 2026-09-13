@@ -135,6 +135,27 @@ for historical reference.
 
 ### Fixed
 
+- **`--exclude-tests` no longer drops rows a pruned item shares with
+  retained code**, which made `sloc` fall below `ploc` (#1417).
+  `Sloc` accumulated each pruned subtree's whole row span as a
+  *count*, on the assumption — written into its `exclude_span` doc
+  comment — that rustfmt gives every Rust item its own rows. Anything
+  hand-written, generated, minified, or concatenated breaks it:
+  `fn a() {} #[cfg(test)] mod t { … }` reported `sloc 0, ploc 1`, one
+  row of code in a zero-row file, and MI's `ln(sloc)` term saw the
+  same zero. The count is now a row *set*, from which the space's
+  retained code and comment rows are subtracted at finalization, so
+  only rows the prune genuinely removed are subtracted; two pruned
+  siblings on one row also now cost that row once instead of twice.
+  `sloc` rises for affected spaces and `blank` rises with it; ordinary
+  rustfmt-shaped input is byte-identical, and the shipped
+  `--exclude-tests`-off default is untouched. `Loc`'s per-space
+  invariant `ploc <= sloc` (and `cloc <= sloc`) is now asserted in
+  debug builds on every space of every walk. Two observable
+  side effects on the `Sloc` sub-struct: its `Debug` rendering prints
+  the excluded rows (`excluded_rows: {6, 7, 8}`) where it printed a
+  count, and its `PartialEq` strengthens — two `Sloc`s that exclude
+  the same *number* of different rows no longer compare equal.
 - **A C-family macro body ending on a dangling backslash no longer
   credits the blank row below it as code** (#1423). The
   `PreprocArg` arm in the C, C++, `mozcpp` and Objective-C `Loc` impls

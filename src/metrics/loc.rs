@@ -97,15 +97,22 @@ pub struct Sloc {
     // Storing the resolved line rather than the raw end row plus its
     // column keeps the "does the final row count" rule in one place.
     end_line: usize,
-    // Physical lines removed from this space's span by `exclude_tests`
+    // Physical rows removed from this space's span by `exclude_tests`
     // pruning. `sloc` is the lone loc sub-metric computed by span
     // subtraction rather than node-by-node accumulation, so a pruned
     // subtree (which a `continue` in the walk suppresses for every
-    // accumulated metric) leaves the span untouched. We accumulate the
-    // inclusive row count of each pruned subtree here and subtract it
-    // in `sloc()` so SLOC drops in step with `ploc`/`cloc`/`lloc`
+    // accumulated metric) leaves the span untouched. We record each
+    // pruned subtree's rows here and subtract the cardinality in
+    // `sloc()` so SLOC drops in step with `ploc`/`cloc`/`lloc`
     // (issue #722).
-    excluded_lines: usize,
+    //
+    // A set rather than the counter this was until #1417, because rows
+    // shared with retained code have to be identifiable and removed
+    // before the subtraction — see `Stats::settle_excluded_rows`. It is
+    // the single source of truth; there is no cached count to fall out
+    // of step with it, matching what `ploc`/`cloc` already gave up
+    // when they became bitsets (#1109).
+    excluded_rows: LineSet,
     sloc_min: usize,
     sloc_max: usize,
 }
@@ -115,7 +122,7 @@ impl Default for Sloc {
         Self {
             start: 0,
             end_line: 0,
-            excluded_lines: 0,
+            excluded_rows: LineSet::default(),
             sloc_min: usize::MAX,
             sloc_max: 0,
         }
@@ -130,32 +137,53 @@ impl Sloc {
         // This metric counts the number of physical lines this space
         // occupies, including blanks and comments.
         let span = span_rows(self.start, self.end_line);
-        // Subtract the lines belonging to `exclude_tests`-pruned subtrees
-        // (issue #722). `saturating_sub` is defensive: `excluded_lines`
-        // can never exceed the span (each pruned subtree is contained in
-        // it), but a future caller that double-records a span must not
+        // Subtract the rows belonging to `exclude_tests`-pruned subtrees
+        // (issue #722). `saturating_sub` is defensive: the set is
+        // clamped to the span and its rows are a subset of it, but a
+        // future caller that records a row outside the span must not
         // wrap to `u64::MAX`.
-        span.saturating_sub(self.excluded_lines) as u64
+        span.saturating_sub(self.excluded_rows.len()) as u64
     }
 
-    /// Records a pruned (`exclude_tests`) subtree's row span so that
+    /// Records the rows of a pruned (`exclude_tests`) subtree so that
     /// `sloc()` drops in step with the node-accumulated loc sub-metrics.
     /// The arguments are the pruned node's own start row and
-    /// `Node::end_line`; its row count follows the same rule the
-    /// enclosing span was measured with, so the subtraction cannot
-    /// overshoot.
+    /// `Node::end_line`, so the rows recorded follow the same rule the
+    /// enclosing span was measured with.
     ///
-    /// Pruned subtrees are whole Rust items (`mod`/`fn`/`impl`/…) that
-    /// rustfmt places on dedicated rows, so they share no physical line
-    /// with a retained sibling and their spans are pairwise disjoint (the
-    /// walk `continue`s on a pruned node, never descending, so a nested
-    /// pruned item is never recorded twice). The counts therefore add
-    /// without an interval merge (issue #722).
+    /// A *set* rather than the running count this kept until #1417. A
+    /// pruned item can share its first or last physical row with a
+    /// retained sibling — `fn a() {} #[cfg(test)] mod t { … }` is one
+    /// row, of which nothing is removed — and a count cannot tell that
+    /// row from one the prune really took, so `sloc()` fell below
+    /// `ploc()`. The set also makes two pruned siblings on one row
+    /// subtract that row once instead of twice.
+    ///
+    /// The rows recorded here are the pruned node's *whole* span;
+    /// [`Stats::settle_excluded_rows`] is what takes the shared ones
+    /// back out, once the retained sets for this space are complete.
     #[inline]
     pub(crate) fn exclude_span(&mut self, start_row: usize, end_line: usize) {
-        self.excluded_lines = self
-            .excluded_lines
-            .saturating_add(span_rows(start_row, end_line));
+        // `end_line` is the 1-based inclusive last row, so the last
+        // 0-based row is `end_line - 1`. Guarding here rather than
+        // leaning on `insert_range`'s inverted-span return, which would
+        // need `end_line - 1` computed first: at `end_line == 0` that
+        // saturates to row 0 and records a row the node does not
+        // occupy, and an empty span is not an inverted one.
+        if end_line <= start_row {
+            debug_assert!(
+                end_line == start_row,
+                "exclude_span: end_line {end_line} < start_row {start_row}"
+            );
+            return;
+        }
+        // Exact under the guard — `end_line > start_row >= 0` gives
+        // `end_line >= 1` — and saturating for the module's
+        // `arithmetic_side_effects` warning, which cannot see that.
+        // The row count inserted is `span_rows(start_row, end_line)`,
+        // byte-identical to the count this used to add.
+        self.excluded_rows
+            .insert_range(start_row, end_line.saturating_sub(1));
     }
 
     /// The `Sloc` metric minimum value. See `min_or_zero` for the
@@ -174,7 +202,7 @@ impl Sloc {
     }
 
     /// Folds `other` into `self`, updating the min/max accumulators and
-    /// accumulating the child's `exclude_tests`-pruned line count.
+    /// unioning the child's `exclude_tests`-pruned rows.
     #[inline]
     pub fn merge(&mut self, other: &Sloc) {
         // Fold the child's own min/max (not its aggregate `sloc()`), so the
@@ -184,8 +212,8 @@ impl Sloc {
         self.sloc_min = self.sloc_min.min(other.sloc_min);
         self.sloc_max = self.sloc_max.max(other.sloc_max);
 
-        // Propagate the child's pruned line count upward so an ancestor's
-        // span-based `sloc()` drops by the same lines, mirroring how `Ploc`
+        // Propagate the child's pruned rows upward so an ancestor's
+        // span-based `sloc()` drops by the same rows, mirroring how `Ploc`
         // unions its line-set upward (`Ploc::merge`). The prune hook records
         // each pruned subtree's span only on its innermost enclosing
         // func-space; without this fold a `#[test] fn` inside a retained
@@ -193,11 +221,20 @@ impl Sloc {
         // leaving every enclosing space (including the unit, which feeds
         // MI's SLOC term) inflated (issue #741, #722 follow-up). Each
         // ancestor's span already includes the pruned rows exactly once, so
-        // subtracting the accumulated count once per level cannot
-        // double-count: pruned subtrees never descend, so a nested pruned
-        // item is recorded on a single space and folded up one altitude at
-        // a time.
-        self.excluded_lines = self.excluded_lines.saturating_add(other.excluded_lines);
+        // subtracting them once per level cannot double-count: pruned
+        // subtrees never descend, so a nested pruned item is recorded on a
+        // single space and folded up one altitude at a time.
+        //
+        // Union rather than the `saturating_add` this was until #1417.
+        // Addition double-counted two pruned siblings sharing one
+        // physical row, and — the reason the fold is safe to leave
+        // exactly as it is — the child arrives here already settled
+        // against its own retained rows, which the parent's later
+        // `settle_excluded_rows` can only narrow further:
+        // `child_retained ⊆ parent_retained`, so
+        // `(X \ child_retained) \ parent_retained == X \ parent_retained`.
+        // The order the two settle in therefore does not matter.
+        self.excluded_rows.union_with(&other.excluded_rows);
     }
 
     #[inline]
@@ -865,22 +902,28 @@ impl Stats {
         self.ploc.lines.retain_range(first, last);
         self.cloc.only_comment_line_starts.retain_range(first, last);
         self.cloc.code_comment_line_starts.retain_range(first, last);
+        // The fourth set is the `exclude_tests`-pruned rows, and it is
+        // clamped for the same reason as the other three rather than
+        // because anything is known to put a row outside the span
+        // there: a pruned node lies inside the space that recorded it,
+        // so this is expected to be a no-op. What it buys is the
+        // premise `X ⊆ span` that makes `settle_excluded_rows`'s
+        // `ploc() <= sloc()` a theorem rather than an observation —
+        // without it a stray row would turn `sloc()` negative-by-
+        // saturation and fire an assertion in the wrong pass (#1417).
+        self.sloc.excluded_rows.retain_range(first, last);
 
         // The invariant the clamp establishes, asserted on the path
         // every walk takes for every space rather than only on the
         // fixtures the regression tests name — 821 of the workspace's
         // tests reach it.
         //
-        // Against the span and not against `sloc()`, which is weaker on
-        // purpose. `sloc()` subtracts the rows of `exclude_tests`-pruned
-        // subtrees, and `Sloc::exclude_span` counts each pruned span
-        // whole — including a row a retained sibling also occupies, a
-        // case its #722 comment excludes by assuming rustfmt's layout.
-        // Hand-written one-liners break that assumption, so
-        // `fn a() {} #[cfg(test)] mod t { … }` reports `sloc 0, ploc 1`
-        // under `--exclude-tests` today. That is #1417, a different
-        // cause from the phantom row above, and asserting `sloc()` here
-        // would fire on it. Tighten this to `sloc()` once #1417 lands.
+        // Against the span, deliberately, and kept that way now that
+        // [`Stats::settle_excluded_rows`] asserts the stronger
+        // `ploc() <= sloc()` form (#1417). The two say different
+        // things: this pair localises a failure to the clamp itself,
+        // where `sloc()`'s subtrahend is not yet settled and could not
+        // be blamed.
         //
         // `ploc()` and `cloc()` popcount their word arrays (#1109):
         // O(words) per space, the same order as the `compute_minmax` that
@@ -896,6 +939,57 @@ impl Stats {
             self.cloc() <= span as u64,
             "cloc {} exceeds the {span} row span it was clamped to",
             self.cloc()
+        );
+    }
+
+    /// Removes from the `exclude_tests`-pruned row set every row that
+    /// retained code or comments also occupy, so `sloc()` subtracts only
+    /// the rows the prune genuinely took (#1417).
+    ///
+    /// `Sloc::exclude_span` records a pruned subtree's whole span, and
+    /// its first or last physical row can carry a retained sibling —
+    /// `fn a() {} #[cfg(test)] mod t { … }` is one row that stays. The
+    /// walk cannot know that when it prunes, because the retained rows
+    /// of the enclosing space are still arriving; this pass runs once
+    /// per space at finalization, when they are all in.
+    ///
+    /// All three retained sets are subtracted.
+    /// `code_comment_line_starts` is very probably a subset of
+    /// `ploc.lines` — a row with both code and a comment is a code row
+    /// — but nothing enforces that, and the cost of not relying on it
+    /// is one word-wise `&= !` over an array that is empty for every
+    /// space that pruned nothing.
+    ///
+    /// Ordered after [`Stats::clamp_line_sets_to_span`], which
+    /// establishes the premise: with `P`, `O`, `C` and the pruned set
+    /// `X` all inside the span `S`, the residual `X' = X \ (P ∪ O ∪ C)`
+    /// is disjoint from `P ∪ O ∪ C`, so `|X'| + |P ∪ O ∪ C| <= |S|` and
+    /// `sloc() = |S| - |X'| >= max(ploc(), cloc())`. That is what the
+    /// assertions below pin — on every space of every walk, so they are
+    /// the real evidence the fix holds across all twenty languages
+    /// rather than only on the fixtures the regression tests name.
+    ///
+    /// [`Stats::blank`] keeps its `saturating_sub`: `P` and `O ∪ C` may
+    /// overlap on a code-and-comment row, so no lower bound on
+    /// `sloc - ploc - |O|` follows from the above.
+    pub(crate) fn settle_excluded_rows(&mut self) {
+        // Disjoint field paths, so the shorthand borrows cleanly.
+        let excluded = &mut self.sloc.excluded_rows;
+        excluded.subtract(&self.ploc.lines);
+        excluded.subtract(&self.cloc.only_comment_line_starts);
+        excluded.subtract(&self.cloc.code_comment_line_starts);
+
+        debug_assert!(
+            self.ploc() <= self.sloc(),
+            "ploc {} exceeds sloc {} after settling",
+            self.ploc(),
+            self.sloc()
+        );
+        debug_assert!(
+            self.cloc() <= self.sloc(),
+            "cloc {} exceeds sloc {} after settling",
+            self.cloc(),
+            self.sloc()
         );
     }
 }
@@ -11909,6 +12003,108 @@ class A {
             (unpruned.sloc(), unpruned.ploc(), unpruned.blank()),
             (9, 5, 4),
             "the same file unpruned — the anchor is what makes both blank counts 4"
+        );
+    }
+
+    /// Analyses `source` as Rust with `exclude_tests` on, byte-for-byte.
+    /// `check_metrics` cannot express this: it trims and re-appends the
+    /// trailing newline (destroying the row structure these fixtures are
+    /// about) and its macro hard-binds `MetricsOptions`.
+    fn rust_loc_pruned(source: &[u8]) -> Stats {
+        metrics_verbatim(
+            crate::LANG::Rust,
+            source,
+            crate::MetricsOptions::default().with_exclude_tests(true),
+        )
+        .loc
+    }
+
+    /// #1417: `Sloc::exclude_span` recorded each pruned subtree's whole
+    /// span as a *count*, so a row a retained sibling also occupies was
+    /// subtracted anyway and `sloc` fell below `ploc`. Both one-liner
+    /// spellings from the issue reported `sloc 0, ploc 1` — one row of
+    /// code in a zero-row file.
+    ///
+    /// The pruned and unpruned readings are identical here, and that is
+    /// the clearest statement of why: the whole row survives the prune,
+    /// because `fn a()` is on it. `sloc 1` for a file that is more than
+    /// half test code reads as under-subtraction and is not — nothing
+    /// on that row can be removed without removing `fn a()` with it.
+    ///
+    /// `ploc 1` has a second, separate cause worth not confusing with
+    /// this one: `should_skip_subtree` matches the *item*, and a
+    /// `#[cfg(test)]` / `#[test]` attribute is an `AttributeItem`
+    /// sibling of it, so the attribute is walked normally and Rust's
+    /// catch-all credits its start row to PLOC. A file that is 100%
+    /// test code therefore still reports `ploc 1`. That is a different
+    /// defect, tracked as #1431.
+    #[test]
+    fn a_pruned_item_sharing_a_row_with_retained_code_keeps_the_row() {
+        for source in [
+            &b"fn a() {} #[cfg(test)] mod t { #[test] fn x() {} }\n"[..],
+            &b"#[cfg(test)] mod t { #[test] fn x() {} } fn a() {}\n"[..],
+        ] {
+            let text = String::from_utf8_lossy(source);
+            let pruned = rust_loc_pruned(source);
+            assert_eq!(
+                (pruned.sloc(), pruned.ploc(), pruned.cloc(), pruned.blank()),
+                (1, 1, 0, 0),
+                "pruned {text:?}"
+            );
+
+            let kept = rust_loc(source);
+            assert_eq!(
+                (kept.sloc(), kept.ploc(), kept.cloc(), kept.blank()),
+                (1, 1, 0, 0),
+                "unpruned {text:?} — the prune can remove no row here"
+            );
+        }
+    }
+
+    /// The discriminator against the alternative fix #1417 rejected:
+    /// clamping the excluded *count* to `span - |retained rows|`.
+    ///
+    /// On `shared_row` the truth is `sloc 3, ploc 2, blank 1`; before
+    /// the fix it read `sloc 2, blank 0`; and the clamp reads
+    /// `min(1, 3 - 2) = 1`, so `sloc 2, blank 0` — no improvement at
+    /// all. It buys `ploc <= sloc` by moving the error into `blank`,
+    /// which is the outcome #1398's rationale warns against. Measured
+    /// against the built binary before the set-based fix landed, not
+    /// reasoned about. Without this fixture the fix is indistinguishable
+    /// from that alternative.
+    ///
+    /// `own_rows` is the control, in the same test because the headline
+    /// numbers must match: it reaches `(3, 2, 0, 1)` by genuinely
+    /// excluding one row where `shared_row` excludes none, so a fix
+    /// cannot buy the invariant by under-subtracting in the ordinary
+    /// rustfmt layout.
+    #[test]
+    fn a_blank_row_does_not_absorb_a_phantom_exclusion() {
+        // Row 0 `fn a` and the pruned `mod t`, row 1 blank, row 2 `fn b`.
+        let shared_row = rust_loc_pruned(b"fn a() {} #[cfg(test)] mod t {}\n\nfn b() {}\n");
+        assert_eq!(
+            (
+                shared_row.sloc(),
+                shared_row.ploc(),
+                shared_row.cloc(),
+                shared_row.blank()
+            ),
+            (3, 2, 0, 1),
+            "nothing is excluded: row 0 carries `fn a`"
+        );
+
+        // Row 0 `fn a`, row 1 blank, row 2 `#[cfg(test)]`, row 3 the
+        // pruned `mod t` — the only row the prune can take.
+        let own_rows = rust_loc_pruned(b"fn a() {}\n\n#[cfg(test)]\nmod t { #[test] fn x() {} }\n");
+        assert_eq!(
+            (
+                own_rows.sloc(),
+                own_rows.ploc(),
+                own_rows.cloc(),
+                own_rows.blank()
+            ),
+            (3, 2, 0, 1),
+            "one of four rows excluded; the attribute row stays"
         );
     }
 

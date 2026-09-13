@@ -65,7 +65,11 @@
 // use rather than by a property of the input — `reserve` runs before
 // each subtraction in `insert`/`insert_range`/`union_with`, `slot` and
 // `word` already use `checked_sub`, and `insert_range` returns early on
-// an inverted span.
+// an inverted span. `subtract` and `intersection_len` are the two sites
+// with no `reserve` to lean on: both clip to the overlap of the two
+// arrays first, so `start..end` is empty rather than inverted when the
+// sets are disjoint, and every index inside it is in bounds for both
+// operands by that construction.
 //
 // Making these saturating would be actively worse than leaving them
 // checked. `self.words[word - self.first_word]` saturating to index 0
@@ -248,6 +252,30 @@ impl LineSet {
         let base = other.first_word - self.first_word;
         for (dst, src) in self.words[base..].iter_mut().zip(&other.words) {
             *dst |= src;
+        }
+    }
+
+    /// Removes every row of `other` from `self`.
+    ///
+    /// The destructive counterpart of [`LineSet::intersection_len`], and
+    /// the reason it is destructive rather than a `difference_len`
+    /// counter: `Sloc` folds its residual upward through
+    /// [`LineSet::union_with`], so the *identity* of the surviving rows
+    /// has to outlive the call (#1417).
+    ///
+    /// Never allocates. Clearing a bit can only touch a word `self`
+    /// already holds, so — unlike `union_with` — there is no `reserve`
+    /// here and rows of `other` outside `self`'s covered interval are
+    /// simply not there to clear. `words.len()` and its capacity are
+    /// unchanged on every path.
+    pub(super) fn subtract(&mut self, other: &Self) {
+        let start = self.first_word.max(other.first_word);
+        let end = (self.first_word + self.words.len()).min(other.first_word + other.words.len());
+        // Empty rather than inverted when the two intervals are
+        // disjoint, exactly as in `intersection_len`; inside it both
+        // indices are in bounds for their own array by construction.
+        for word in start..end {
+            self.words[word - self.first_word] &= !other.words[word - other.first_word];
         }
     }
 
@@ -572,6 +600,61 @@ mod tests {
         // Disjoint word spans exercise the empty-intersection path.
         assert_eq!(set_of(&[1]).union_len(&set_of(&[1_000])), 2);
         assert_eq!(only_comments.union_len(&LineSet::default()), 3);
+    }
+
+    /// The live shape in `Stats::settle_excluded_rows`: the pruned rows
+    /// a retained sibling also occupies go, and the rows it solely
+    /// occupies stay. Overlap on both a shared word and a word only one
+    /// side holds.
+    #[test]
+    fn subtract_removes_only_the_shared_rows() {
+        let mut excluded = set_of(&[3, 64, 65, 300]);
+        excluded.subtract(&set_of(&[3, 65, 4_000]));
+        assert_eq!(rows_of(&excluded), vec![64, 300]);
+    }
+
+    /// Disjoint in either direction is a no-op, which is the case every
+    /// space that pruned nothing takes.
+    #[test]
+    fn subtract_disjoint_sets_changes_nothing() {
+        let mut low = set_of(&[1, 2]);
+        low.subtract(&set_of(&[1_000, 1_001]));
+        assert_eq!(rows_of(&low), vec![1, 2]);
+
+        let mut high = set_of(&[1_000, 1_001]);
+        high.subtract(&set_of(&[1, 2]));
+        assert_eq!(rows_of(&high), vec![1_000, 1_001]);
+
+        let mut untouched = set_of(&[7]);
+        untouched.subtract(&LineSet::default());
+        assert_eq!(rows_of(&untouched), vec![7]);
+    }
+
+    /// Subtracting *from* a never-written set must not seed one. This is
+    /// the path every space with `exclude_tests` off takes, three times
+    /// per finalization.
+    #[test]
+    fn subtract_from_an_unallocated_set_allocates_nothing() {
+        let mut empty = LineSet::default();
+        empty.subtract(&set_of(&[0, 5_000]));
+        assert_eq!(empty.len(), 0);
+        assert_eq!(empty.words.capacity(), 0, "an unused set must not allocate");
+    }
+
+    /// The load-bearing performance claim, and what distinguishes
+    /// `subtract` from `union_with`: clearing bits can never need a word
+    /// `self` does not already hold, so neither the length nor the
+    /// capacity of `words` may move for rows outside its interval.
+    #[test]
+    fn subtract_never_grows_the_word_array() {
+        let mut set = set_of(&[BITS_PER_WORD, BITS_PER_WORD + 1]);
+        let (len, capacity) = (set.words.len(), set.words.capacity());
+
+        set.subtract(&set_of(&[0, BITS_PER_WORD + 1, 10_000]));
+
+        assert_eq!(rows_of(&set), vec![BITS_PER_WORD]);
+        assert_eq!(set.words.len(), len, "subtract must not resize");
+        assert_eq!(set.words.capacity(), capacity, "subtract must not allocate");
     }
 
     /// Equality is over rows, so two sets that reached the same rows

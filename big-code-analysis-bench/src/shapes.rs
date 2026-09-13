@@ -294,6 +294,34 @@ pub fn wide_attributed_fns(width: usize) -> String {
     format!("{}\n", "#[inline] fn f() {} ".repeat(width))
 }
 
+/// Rust: `#[cfg(test)]\nmod m {}\n` repeated at file scope.
+///
+/// The shape [`nested_attributed_fns`] and [`wide_attributed_fns`]
+/// cannot be: both use `#[inline]` precisely so the walk does *not*
+/// prune, which leaves the number of pruned nodes at zero on every
+/// existing probe and the prune's own bookkeeping unpriced (#1417).
+/// Here every item is pruned, so the count grows with the size
+/// parameter.
+///
+/// Two rows per item, with the attribute on its own row, is what makes
+/// the reading move: the attribute is an `AttributeItem` *sibling* of
+/// the item, so it is walked normally and its row survives, while the
+/// `mod` row does not. `sloc` is therefore `width` against a `2 *
+/// width` file, and a prune that stopped recording rows would read as
+/// `2 * width`.
+///
+/// The cost this prices is `Sloc::excluded_rows`: one `insert_range`
+/// per pruned node during the walk, and one `retain_range` plus three
+/// `subtract`s over the accumulated bitset at finalization. All four
+/// are word-wise passes, so the shape is linear — but the bitset grows
+/// downward with a `Vec::splice` (`LineSet::reserve`), which would be
+/// quadratic in words if rows ever arrived descending. A flat file
+/// visits them ascending; this probe is what keeps that measured.
+#[must_use]
+pub fn wide_cfg_test_mods(width: usize) -> String {
+    "#[cfg(test)]\nmod m {}\n".repeat(width)
+}
+
 /// Rust: `fn f000000() { let v000000 = 000000; } fn f000001() { … }`,
 /// all at file scope.
 ///
@@ -1072,6 +1100,34 @@ pub const PROBES: &[Probe] = &[
                     The scan now budgets the parent's child count \
                     against the node's depth, and this probe is what \
                     keeps the shallow-wide half of that trade measured.",
+    },
+    Probe {
+        name: "loc/wide-cfg-test-mod",
+        lang: LANG::Rust,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: true,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.sloc(),
+        },
+        render: wide_cfg_test_mods,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1417: the only probe on which the number of *pruned* \
+                    nodes grows with the size parameter. The two \
+                    `nom/*-attributed-fn` probes deliberately use \
+                    `#[inline]`, because a test attribute prunes the \
+                    outermost item and stops the walk — so before this \
+                    one, `exclude_tests` was exercised only through its \
+                    attribute scan and never through the row bookkeeping \
+                    the prune arm itself does. #1417 replaced that \
+                    bookkeeping's running count with a `LineSet`, adding \
+                    an `insert_range` per pruned node and a \
+                    `retain_range` plus three `subtract`s per space. All \
+                    are word-wise, but `LineSet::reserve` grows downward \
+                    with an `O(len)` splice, so a caller that fed rows \
+                    descending would be quadratic in words. This is what \
+                    prices that.",
     },
     Probe {
         name: "nom/nested-cfg-predicate",

@@ -232,6 +232,28 @@ fn clamp_loc_line_sets(state: &mut State, selected: MetricSet) {
     }
 }
 
+/// Drops from the `exclude_tests`-pruned row set the rows that retained
+/// code or comments also occupy, so `sloc()` subtracts only what the
+/// prune took (#1417).
+///
+/// Ordered after [`clamp_loc_line_sets`], which supplies the premise its
+/// `ploc <= sloc` assertion rests on, and before `compute_minmax` and
+/// `compute_halstead_and_mi`, both of which read the settled `sloc()` —
+/// the former into `sloc_min`/`sloc_max`, the latter into MI's `ln(sloc)`
+/// term.
+///
+/// Runs per space and unconditionally, like the clamp: a space that
+/// pruned nothing holds an empty, unallocated set, so the three
+/// subtractions visit no words. The gate is the same
+/// `selected.contains(Metric::Loc)`, so deselecting loc keeps the walk's
+/// work identical.
+#[inline]
+fn settle_loc_excluded_rows(state: &mut State, selected: MetricSet) {
+    if selected.contains(Metric::Loc) {
+        state.space.metrics.loc.settle_excluded_rows();
+    }
+}
+
 /// Runs the per-space finalization passes (unit-span anchoring, line-set
 /// clamping, min/max, sum, Halstead, MI, WMC, averages) on a single
 /// [`State`]. Shared by both the single-element and pop arms of
@@ -242,7 +264,10 @@ fn clamp_loc_line_sets(state: &mut State, selected: MetricSet) {
 /// [`anchor_unit_sloc_span`] runs first because everything after it reads
 /// the span it fixes: `compute_minmax` folds `sloc` into the unit's
 /// `sloc_min`/`sloc_max`, and `compute_halstead_and_mi` feeds it into MI's
-/// `ln(sloc)` term.
+/// `ln(sloc)` term. [`settle_loc_excluded_rows`] sits between
+/// [`clamp_loc_line_sets`] and `compute_minmax` for both halves of that
+/// same reason: it needs the clamped line sets as its input, and it moves
+/// `sloc()`, which those two later passes consume (#1417).
 ///
 /// [`finalize`]'s pop arm additionally calls [`compute_wmc`] on the
 /// *parent* before each child merges into it, because `wmc::Stats::merge`
@@ -254,6 +279,7 @@ fn clamp_loc_line_sets(state: &mut State, selected: MetricSet) {
 fn finalize_state<T: MetricSuite>(state: &mut State, selected: MetricSet) {
     anchor_unit_sloc_span(state, selected);
     clamp_loc_line_sets(state, selected);
+    settle_loc_excluded_rows(state, selected);
     compute_minmax(state, selected);
     compute_sum(state, selected);
     compute_halstead_and_mi::<T>(state, selected);
@@ -778,13 +804,19 @@ pub(crate) fn metrics_inner<T: MetricSuite>(
         if options.exclude_tests && T::Checker::should_skip_subtree(&node, code, ancestors) {
             // `sloc` is span-based, not node-accumulated, so unlike every
             // other loc sub-metric it does not shrink just because we
-            // skip the subtree. Record the pruned node's row span on the
+            // skip the subtree. Record the pruned node's rows on the
             // innermost enclosing func-space so its `sloc` drops in step
-            // (#722); `Sloc::merge` then folds that count upward so every
+            // (#722); `Sloc::merge` then unions those rows upward so every
             // enclosing space — including the unit, which feeds MI's SLOC
             // term — drops too, even when the test item is nested in a
             // retained `impl`/`trait`/closure (#741). Gated on the `Loc`
             // selection so deselecting loc keeps the walk's work identical.
+            //
+            // The whole span goes in, shared rows included; the retained
+            // rows of this space are still arriving, so nothing here can
+            // tell a row the prune took from one it only touched.
+            // `Stats::settle_excluded_rows` subtracts the shared ones at
+            // finalization, when the retained sets are complete (#1417).
             if selected.contains(Metric::Loc)
                 && let Some(state) = state_stack.last_mut()
             {

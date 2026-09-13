@@ -1034,10 +1034,10 @@ impl Foo {
         assert_eq!(baseline_impl.metrics.loc.sloc(), 5);
         assert_eq!(pruned_impl.metrics.loc.sloc(), 4);
 
-        // Unit-root propagation (the #741 fix): the pruned line count
-        // folds upward through `Sloc::merge`, so the unit's `sloc` drops
-        // by the same one row. Before the fix this stayed at the
-        // baseline value because only the impl's `excluded_lines` grew.
+        // Unit-root propagation (the #741 fix): the pruned rows fold
+        // upward through `Sloc::merge`, so the unit's `sloc` drops by
+        // the same one row. Before the fix this stayed at the baseline
+        // value because only the impl's `excluded_rows` grew.
         assert_eq!(baseline.metrics.loc.sloc(), 5);
         assert_eq!(pruned.metrics.loc.sloc(), 4);
     }
@@ -1096,8 +1096,8 @@ fn make() {
     }
 
     // A non-test `impl` with no test items must be unaffected by the
-    // upward-propagation fold: with nothing pruned, `excluded_lines`
-    // stays zero at every level, so pruned and baseline `sloc` agree.
+    // upward-propagation fold: with nothing pruned, `excluded_rows`
+    // stays empty at every level, so pruned and baseline `sloc` agree.
     #[test]
     fn non_test_impl_sloc_unaffected_by_pruning() {
         let source = "\
@@ -1116,6 +1116,40 @@ impl Calc {
             baseline.spaces[0].metrics.loc.sloc(),
             pruned.spaces[0].metrics.loc.sloc()
         );
+    }
+
+    // #1417's aggregation pin. The pruned `#[test] fn t()` shares row 2
+    // with the retained `fn prod`, so the prune removes no row at all
+    // and `sloc` must stay at the impl's three rows. Before the fix the
+    // impl reported `sloc 2` against its own `ploc 3`, and `Sloc::merge`
+    // carried that straight up: the unit read `sloc 2, ploc 3` too. Both
+    // altitudes are asserted because the child is where the row is
+    // recorded and the parent is where the fold could still lose it.
+    #[test]
+    fn a_pruned_method_sharing_a_row_shrinks_no_space() {
+        let source = "\
+impl Foo {
+    fn prod(&self) {} #[test] fn t() {}
+}
+";
+        let baseline = analyse(source, false);
+        let pruned = analyse(source, true);
+
+        // The `t` function space is gone; only the `impl` remains under
+        // the unit, and only `prod` under the impl.
+        assert_eq!(pruned.spaces.len(), 1);
+        assert_eq!(pruned.spaces[0].spaces.len(), 1);
+        assert_eq!(baseline.spaces[0].spaces.len(), 2);
+
+        for space in [&pruned, &pruned.spaces[0]] {
+            assert_eq!(
+                (space.metrics.loc.sloc(), space.metrics.loc.ploc()),
+                (3, 3),
+                "{:?}: three rows, all code, none removable",
+                space.kind
+            );
+        }
+        assert_eq!(baseline.metrics.loc.sloc(), pruned.metrics.loc.sloc());
     }
 }
 
