@@ -135,6 +135,19 @@ for historical reference.
 
 ### Fixed
 
+- **A C-family macro body ending on a dangling backslash no longer
+  credits the blank row below it as code** (#1423). The
+  `PreprocArg` arm in the C, C++, `mozcpp` and Objective-C `Loc` impls
+  bounded its row range with tree-sitter's raw end row, which over-reads
+  by one whenever a node ends at column 0 — the shape a trailing `\`
+  with nothing after it produces. All four arms now go through
+  `add_string_interior_ploc`, the helper every other multi-row PLOC path
+  already used, which derives the last row from `Node::end_line`.
+  `ploc` falls by one and `blank` rises by one for each such macro;
+  DeepSpeech's `left_test.cc` is one real instance. Python's `String`
+  arm, the last remaining open-coded copy of the same pattern, is folded
+  onto `add_multiline_string_ploc` — a no-op there, since a Python
+  `string` node always closes on a quote and so never ends at column 0.
 - **A Bash heredoc whose body is empty at the top, or empty
   throughout, no longer reports those rows as blank** (#1412).
   `heredoc_body`'s span begins at the first body row that *has* text

@@ -51,17 +51,21 @@ impl Loc for MozcppCode {
                     stats.lloc.count_logical_line();
                 }
             }
-            _ => {
+            kind => {
                 check_comment_ends_on_code_line(stats, start);
                 stats.ploc.lines.insert(start);
 
                 // As reported here: https://github.com/tree-sitter/tree-sitter-cpp/issues/276
-                // `tree-sitter-cpp` doesn't expand macros, providing a single `PreprocArg` node for the entire macro argument.
-                // Therefore, all lines from `start_row` to `end_row` must be added to PLOC to account for the unexpanded macro content
-                if let PreprocArg = node.kind_id().into() {
-                    (node.start_row().saturating_add(1)..=node.end_row()).for_each(|line| {
-                        stats.ploc.lines.insert(line);
-                    });
+                // `tree-sitter-cpp` doesn't expand macros, providing a single
+                // `PreprocArg` node for the entire macro argument, so every row
+                // that node spans is PLOC rather than blank.
+                //
+                // Bounded by `add_string_interior_ploc`, and therefore by
+                // `Node::end_line` rather than the raw end row: a body whose
+                // last continuation is a dangling backslash ends at column 0 of
+                // the row below, which the node does not occupy (#1423).
+                if let PreprocArg = kind {
+                    add_string_interior_ploc(node, stats, start);
                 }
             }
         }

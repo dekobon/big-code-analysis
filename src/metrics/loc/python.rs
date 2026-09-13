@@ -50,13 +50,19 @@ impl Loc for PythonCode {
                     // blank lines (#415). The opening row is inserted only when
                     // the parent statement begins on an earlier row, otherwise
                     // that row is already attributed to the enclosing statement.
-                    if parent.start_row() != start {
-                        check_comment_ends_on_code_line(stats, start);
-                        stats.ploc.lines.insert(start);
-                    }
-                    (start.saturating_add(1)..=end).for_each(|line| {
-                        stats.ploc.lines.insert(line);
-                    });
+                    //
+                    // This arm is the rule `add_multiline_string_ploc` was
+                    // extracted from (#778), and stayed open-coded until #1423
+                    // swept the last copies of the pattern onto the helper. The
+                    // parent gate is unchanged — `parent` is `Some` here, so
+                    // the helper's `is_none_or` reduces to the same test — and
+                    // the interior bound moves from the raw end row to
+                    // `Node::end_line`. That is a no-op in Python today: a
+                    // `string` node always closes on a `string_end` quote, so
+                    // its end column is never 0, and an unterminated literal
+                    // parses to a bare `string_start` under an `ERROR` rather
+                    // than to a `string` node at all.
+                    add_multiline_string_ploc(node, ancestors, stats, start);
                 }
             }
             Statement

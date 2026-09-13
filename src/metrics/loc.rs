@@ -11499,6 +11499,12 @@ class A {
     /// being the macro's last continuation line. `sloc` is 5 (three
     /// macro rows, one blank, one `main`) and `lloc` is 1 — the single
     /// `return` statement — since a `#define` declares no statement.
+    ///
+    /// This fixture pins how *many* rows the arm credits, not where it
+    /// stops: its body closes on `(b))`, so the node's end column is
+    /// above 0 and the raw end row and `Node::end_line() - 1` name the
+    /// same last row. The bound is pinned separately by
+    /// [`a_dangling_macro_continuation_does_not_credit_the_row_below`].
     #[test]
     fn a_continued_macro_body_counts_every_row_it_spans() {
         // Rows: 0-2 are the macro, 3 is blank, 4 is `main`.
@@ -11521,6 +11527,66 @@ class A {
             assert_eq!(loc.lloc(), 1, "{lang:?} lloc");
             assert_eq!(loc.cloc(), 0, "{lang:?} cloc");
             assert_eq!(loc.blank(), 1, "{lang:?} blank");
+        }
+    }
+
+    /// Where the `PreprocArg` arm stops: a macro body whose last
+    /// continuation is a *dangling* backslash produces a node ending at
+    /// column 0 of the row below, and that row is not part of the span.
+    ///
+    /// `Node::end_line` is what encodes the rule, so the arm derives its
+    /// last row from `add_string_interior_ploc` rather than from the raw
+    /// `end_row()`, which over-reads by one on exactly this shape
+    /// (#1423). Every other multi-row PLOC path already went through the
+    /// helper; these four arms were the last open-coded copies.
+    ///
+    /// Measured with `bca dump`, not read off the source text: the
+    /// `preproc_arg` runs from row 0 column 10 to row 2 column 0. Rows
+    /// are 0 `#define`, 1 the continuation, 2 the blank row the trailing
+    /// backslash runs into, 3 `int x;`. So `ploc` is {0, 1, 3} = 3 and
+    /// `blank` is 1. The raw end row credited row 2 as well, reporting
+    /// `ploc 4, blank 0`.
+    ///
+    /// Two parts of the fixture are load-bearing rather than scenery:
+    ///
+    /// - **`int x;` after the macro.** `clamp_line_sets_to_span` already
+    ///   drops a PLOC row past the space's own last row, so a fixture
+    ///   ending on the macro reports the corrected numbers under either
+    ///   spelling and discriminates nothing.
+    /// - **The `    2 \` continuation row.** Nothing but the arm's
+    ///   interior insert credits row 1 — `preproc_def` contributes only
+    ///   its own start row — so `ploc == 3` fails if that row is ever
+    ///   trimmed out of the fixture, per the fixture-decay rule in
+    ///   `.claude/rules/testing.md`. The `blank == 1` half has no such
+    ///   anchor available: deleting the dangling backslash also stops
+    ///   row 2 being credited, so a revert of the bound is the only
+    ///   evidence that half discriminates, and it was run.
+    #[test]
+    fn a_dangling_macro_continuation_does_not_credit_the_row_below() {
+        // Rows: 0-1 are the macro, 2 is the blank row its trailing
+        // backslash runs into, 3 is `int x;`.
+        const DANGLING_CONTINUATION: &[u8] = b"#define A 1 \\\n    2 \\\n\nint x;\n";
+
+        for lang in [
+            crate::LANG::C,
+            crate::LANG::Cpp,
+            crate::LANG::Mozcpp,
+            crate::LANG::Objc,
+        ] {
+            let loc = metrics_verbatim(lang, DANGLING_CONTINUATION, MetricsOptions::default()).loc;
+            assert_eq!(
+                loc.ploc(),
+                3,
+                "{lang:?}: the row a dangling continuation ends *at* is not code"
+            );
+            assert_eq!(
+                loc.blank(),
+                1,
+                "{lang:?}: that row is blank, not part of the macro body"
+            );
+            assert_eq!(loc.sloc(), 4, "{lang:?} sloc");
+            assert_eq!(loc.lloc(), 1, "{lang:?} lloc");
+            assert_eq!(loc.cloc(), 0, "{lang:?} cloc");
         }
     }
 

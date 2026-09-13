@@ -53,6 +53,16 @@ impl Loc for CsharpCode {
             _ => {
                 check_comment_ends_on_code_line(stats, start);
                 stats.ploc.lines.insert(start);
+
+                // FIXME(#1430): C# has a `PreprocArg` (185) and no arm for
+                // it, unlike its four C-family siblings, so a multi-row
+                // `preproc_arg` credits only its first row and the rest
+                // fall through to `blank`. `tree-sitter-c-sharp` accepts a
+                // backslash continuation in a directive (`#region Big \`),
+                // but the C# specification terminates a directive at the
+                // newline, so the shape is grammar-reachable and
+                // language-invalid. Deliberately left alone by #1423 rather
+                // than guessed at.
             }
         }
     }

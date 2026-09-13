@@ -229,6 +229,12 @@ pub(crate) fn add_multiline_string_ploc(
 // `insert_range` rather than a row-at-a-time loop: the range is one
 // bitmap span, and Bash's heredoc bodies push thousands of rows through
 // here where the loop paid a reserve and a bounds check per row.
+//
+// The name records where the rule came from, not the only node it
+// applies to: #1423 routed the four C-family `PreprocArg` arms here
+// too, since an unexpanded macro body is the same question — which rows
+// does this multi-row node cover — and had the same off-by-one bound
+// open-coded.
 #[inline]
 pub(crate) fn add_string_interior_ploc(node: &Node, stats: &mut Stats, start: usize) {
     // Inclusive, and `insert_range` no-ops on an inverted span, so a

@@ -76,17 +76,20 @@ impl Loc for ObjcCode {
                     stats.lloc.count_logical_line();
                 }
             }
-            _ => {
+            kind => {
                 check_comment_ends_on_code_line(stats, start);
                 stats.ploc.lines.insert(start);
 
                 // tree-sitter-objc inherits tree-sitter-cpp's unexpanded
                 // macro handling: a single `PreprocArg` node spans the
                 // whole macro argument, so every line it covers is PLOC.
-                if let PreprocArg = node.kind_id().into() {
-                    (node.start_row().saturating_add(1)..=node.end_row()).for_each(|line| {
-                        stats.ploc.lines.insert(line);
-                    });
+                //
+                // Bounded by `add_string_interior_ploc`, and therefore by
+                // `Node::end_line` rather than the raw end row: a body whose
+                // last continuation is a dangling backslash ends at column 0 of
+                // the row below, which the node does not occupy (#1423).
+                if let PreprocArg = kind {
+                    add_string_interior_ploc(node, stats, start);
                 }
             }
         }
