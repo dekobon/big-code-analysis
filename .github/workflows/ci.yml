@@ -159,7 +159,7 @@ jobs:
       # the build on warnings regardless of this step.
       - name: Upload SARIF to code scanning
         if: always() && hashFiles('rust-clippy-results.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           sarif_file: rust-clippy-results.sarif
           category: clippy
@@ -240,7 +240,7 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - uses: taiki-e/install-action@e67fa11c4b9316fa714ddf0abed07a0c3143b95b # v2.87.4
+      - uses: taiki-e/install-action@fa23953489c080190314742a9b907f8e97c6767c # v2.87.10
         with:
           tool: cargo-nextest
       # nextest runs the lib / bins / integration tests and writes the JUnit
@@ -332,7 +332,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: coverage
-      - uses: taiki-e/install-action@e67fa11c4b9316fa714ddf0abed07a0c3143b95b # v2.87.4
+      - uses: taiki-e/install-action@fa23953489c080190314742a9b907f8e97c6767c # v2.87.10
         with:
           tool: cargo-nextest,cargo-llvm-cov
       # nextest is the same runner the `test` job uses, so instrumenting it
@@ -477,7 +477,7 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - uses: taiki-e/install-action@e67fa11c4b9316fa714ddf0abed07a0c3143b95b # v2.87.4
+      - uses: taiki-e/install-action@fa23953489c080190314742a9b907f8e97c6767c # v2.87.10
         with:
           tool: cargo-about@0.8.4
       # Fails if any dep in either binary crate's transitive closure
@@ -544,7 +544,7 @@ jobs:
           tar -xzf /tmp/rumdl.tgz -C /tmp rumdl
           install -m 0755 /tmp/rumdl /usr/local/bin/rumdl
           rumdl --version
-      - uses: taiki-e/install-action@e67fa11c4b9316fa714ddf0abed07a0c3143b95b # v2.87.4
+      - uses: taiki-e/install-action@fa23953489c080190314742a9b907f8e97c6767c # v2.87.10
         with:
           tool: taplo-cli@0.10.0,shellcheck@0.10.0,shfmt@3.12.0
       # actionlint 1.7.12's prebuilt binary is not yet in
