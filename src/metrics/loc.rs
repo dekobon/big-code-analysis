@@ -4755,6 +4755,27 @@ line3\";",
         );
     }
 
+    // The union of the fixture languages below, so a feature subset that
+    // enables none of them makes this test *absent* rather than failing
+    // in a way that reads as a defect in whatever is being changed
+    // (`.claude/rules/testing.md`). Every call site carries its own
+    // narrower gate, so if the test exists at least one row runs and it
+    // cannot go vacuous.
+    #[cfg(any(
+        feature = "bash",
+        feature = "c",
+        feature = "elixir",
+        feature = "go",
+        feature = "irules",
+        feature = "kotlin",
+        feature = "mozcpp",
+        feature = "mozjs",
+        feature = "perl",
+        feature = "php",
+        feature = "python",
+        feature = "ruby",
+        feature = "tcl",
+    ))]
     #[test]
     fn multiline_string_ploc_consistent_across_languages() {
         // Cross-language parity for issue #778: the SAME 3-line string
@@ -4764,6 +4785,33 @@ line3\";",
         // `check_metrics` takes a plain `fn(CodeMetrics)`, so the shared
         // assertion is a named function rather than a capturing closure and
         // must take its argument by value to match that pointer type.
+        //
+        // The middle row is **empty**, and that is the point (#1412).
+        // Until then every fixture here read `line1\nline2\nline3`, which
+        // a language passes whether or not it credits an interior row
+        // with no text — so the table could not see either #1396 (PHP) or
+        // #1412 (Bash), the two defects it is the cross-language home
+        // for. C is the one language that cannot express the shape: its
+        // multi-row literal is a backslash-newline continuation, and an
+        // unescaped empty row ends the string, so its row keeps `line2`.
+        //
+        // Gated on its own callers rather than on the test's union: Go is
+        // in the union and is the one row with different expectations, so
+        // an ungated helper is dead code in a Go-only build.
+        #[cfg(any(
+            feature = "bash",
+            feature = "c",
+            feature = "elixir",
+            feature = "irules",
+            feature = "kotlin",
+            feature = "mozcpp",
+            feature = "mozjs",
+            feature = "perl",
+            feature = "php",
+            feature = "python",
+            feature = "ruby",
+            feature = "tcl",
+        ))]
         #[allow(clippy::needless_pass_by_value)]
         fn assert_three_code_rows(metric: crate::CodeMetrics) {
             assert_eq!(metric.loc.sloc(), 3);
@@ -4771,29 +4819,39 @@ line3\";",
             assert_eq!(metric.loc.cloc(), 0);
             assert_eq!(metric.loc.blank(), 0);
         }
+        // The heredoc forms carry their opener and terminator on rows of
+        // their own, so they are four rows rather than three.
+        #[cfg(any(feature = "bash", feature = "php"))]
+        #[allow(clippy::needless_pass_by_value)]
+        fn assert_four_code_rows(metric: crate::CodeMetrics) {
+            assert_eq!(metric.loc.sloc(), 4);
+            assert_eq!(metric.loc.ploc(), 4);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
+        }
+        #[cfg(feature = "python")]
         check_metrics::<PythonParser>(
-            "s = \"\"\"line1\nline2\nline3\"\"\"",
+            "s = \"\"\"line1\n\nline3\"\"\"",
             "foo.py",
             assert_three_code_rows,
         );
+        #[cfg(feature = "perl")]
         check_metrics::<PerlParser>(
-            "my $s = \"line1\nline2\nline3\";",
+            "my $s = \"line1\n\nline3\";",
             "foo.pl",
             assert_three_code_rows,
         );
-        check_metrics::<RubyParser>(
-            "s = \"line1\nline2\nline3\"",
-            "foo.rb",
-            assert_three_code_rows,
-        );
+        #[cfg(feature = "ruby")]
+        check_metrics::<RubyParser>("s = \"line1\n\nline3\"", "foo.rb", assert_three_code_rows);
         // Go, Kotlin, and Mozilla-C++ reach the same shared
         // `add_multiline_string_ploc` helper through their own
         // raw-string kinds (`raw_string_literal`,
         // `multiline_string_literal`, `raw_string_literal`), and were
         // the three call sites of it that no test exercised. Each needs
         // its own syntax, so they cannot reuse the quoted form above.
+        #[cfg(feature = "go")]
         check_metrics::<GoParser>(
-            "package p\n\nvar s = `line1\nline2\nline3`",
+            "package p\n\nvar s = `line1\n\nline3`",
             "foo.go",
             |metric| {
                 // Two extra code rows for `package p` and the blank
@@ -4804,28 +4862,34 @@ line3\";",
                 assert_eq!(metric.loc.blank(), 1);
             },
         );
+        #[cfg(feature = "kotlin")]
         check_metrics::<KotlinParser>(
-            "val s = \"\"\"line1\nline2\nline3\"\"\"",
+            "val s = \"\"\"line1\n\nline3\"\"\"",
             "foo.kt",
             assert_three_code_rows,
         );
+        #[cfg(feature = "mozcpp")]
         check_metrics::<MozcppParser>(
-            "const char* s = R\"(line1\nline2\nline3)\";",
+            "const char* s = R\"(line1\n\nline3)\";",
             "foo.cpp",
             assert_three_code_rows,
         );
         // C has no raw string; tree-sitter-c folds a backslash-newline
-        // continuation into one `string_literal` spanning every row.
+        // continuation into one `string_literal` spanning every row, and
+        // that continuation is why the C row below is the one that keeps
+        // a non-empty middle line.
         // Mozjs carries the same `template_string` arm as its upstream
         // JS siblings, but only `.jsm` routes to it, so the JavaScript
         // and TypeScript template tests never reach this copy.
+        #[cfg(feature = "c")]
         check_metrics::<CParser>(
             "const char* s = \"line1\\\nline2\\\nline3\";",
             "foo.c",
             assert_three_code_rows,
         );
+        #[cfg(feature = "mozjs")]
         check_metrics::<MozjsParser>(
-            "const s = `line1\nline2\nline3`;",
+            "const s = `line1\n\nline3`;",
             "foo.jsm",
             assert_three_code_rows,
         );
@@ -4833,24 +4897,53 @@ line3\";",
         // the single-quoted `raw_string`; Tcl and its iRules dialect spell
         // the literal `quoted_word`; Elixir routes the `quoted_content`
         // every one of its string forms wraps.
-        check_metrics::<BashParser>("s='line1\nline2\nline3'", "foo.sh", assert_three_code_rows);
+        #[cfg(feature = "bash")]
+        check_metrics::<BashParser>("s='line1\n\nline3'", "foo.sh", assert_three_code_rows);
+        #[cfg(feature = "tcl")]
         check_metrics::<TclParser>(
-            "set s \"line1\nline2\nline3\"",
+            "set s \"line1\n\nline3\"",
             "foo.tcl",
             assert_three_code_rows,
         );
+        #[cfg(feature = "irules")]
         check_metrics::<IrulesParser>(
-            "set s \"line1\nline2\nline3\"",
+            "set s \"line1\n\nline3\"",
             "foo.irule",
             assert_three_code_rows,
         );
-        check_metrics::<ElixirParser>(
-            "s = \"line1\nline2\nline3\"",
-            "foo.ex",
+        #[cfg(feature = "elixir")]
+        check_metrics::<ElixirParser>("s = \"line1\n\nline3\"", "foo.ex", assert_three_code_rows);
+        // PHP was absent from this table entirely — including for the
+        // quoted forms #778 routed — which is half of why #1396 survived
+        // #778.
+        #[cfg(feature = "php")]
+        check_metrics::<PhpParser>(
+            "<?php $s = \"line1\n\nline3\";",
+            "foo.php",
             assert_three_code_rows,
         );
+        // The two heredocs. Neither language's quoted form above can
+        // reach the defect its heredoc had: PHP's `heredoc` wrapper
+        // (#1396) and Bash's `heredoc_redirect` (#1412) are separate
+        // grammar nodes from the quoted literal, and each dropped a body
+        // row that had no text.
+        #[cfg(feature = "php")]
+        check_metrics::<PhpParser>(
+            "<?php $s = <<<EOT\n\nline3\nEOT;",
+            "foo.php",
+            assert_four_code_rows,
+        );
+        #[cfg(feature = "bash")]
+        check_metrics::<BashParser>("cat <<EOT\n\nline3\nEOT", "foo.sh", assert_four_code_rows);
     }
 
+    #[cfg(any(
+        feature = "bash",
+        feature = "elixir",
+        feature = "irules",
+        feature = "php",
+        feature = "tcl",
+    ))]
     #[test]
     fn multiline_literal_ending_at_eof_credits_every_row() {
         // The #1260 fix lives in exactly the class both metric harnesses
@@ -4862,19 +4955,44 @@ line3\";",
         // byte-for-byte through `metrics_verbatim`, with the closing
         // delimiter as the last byte of the file.
         //
-        // expected, in all four languages: three physical rows, all code,
-        // none blank.
-        for (lang, source) in [
-            (crate::LANG::Bash, &b"s='line1\nline2\nline3'"[..]),
-            (crate::LANG::Tcl, &b"set s \"line1\nline2\nline3\""[..]),
-            (crate::LANG::Irules, &b"set s \"line1\nline2\nline3\""[..]),
-            (crate::LANG::Elixir, &b"s = \"line1\nline2\nline3\""[..]),
-        ] {
+        // The interior row is empty in every fixture, for the reason the
+        // sibling table above records: `line1\nline2\nline3` passes
+        // whether or not a textless interior row is credited, so the
+        // table could not see #1396 or #1412.
+        //
+        // `(language, source, rows the file has)`. Every row is fully
+        // code and none blank.
+        const FIXTURES: &[(crate::LANG, &[u8], u64)] = &[
+            #[cfg(feature = "bash")]
+            (crate::LANG::Bash, b"s='line1\n\nline3'", 3),
+            #[cfg(feature = "tcl")]
+            (crate::LANG::Tcl, b"set s \"line1\n\nline3\"", 3),
+            #[cfg(feature = "irules")]
+            (crate::LANG::Irules, b"set s \"line1\n\nline3\"", 3),
+            #[cfg(feature = "elixir")]
+            (crate::LANG::Elixir, b"s = \"line1\n\nline3\"", 3),
+            #[cfg(feature = "php")]
+            (crate::LANG::Php, b"<?php $s = \"line1\n\nline3\";", 3),
+            // The heredocs, whose terminator is the file's last row —
+            // the one shape a heredoc can end at EOF in.
+            #[cfg(feature = "php")]
+            (crate::LANG::Php, b"<?php $s = <<<EOT\n\nline3\nEOT;", 4),
+            #[cfg(feature = "bash")]
+            (crate::LANG::Bash, b"cat <<EOT\n\nline3\nEOT", 4),
+            // Empty throughout, which is the shape whose body node
+            // collapses to zero width (#1412).
+            #[cfg(feature = "bash")]
+            (crate::LANG::Bash, b"cat <<EOT\n\nEOT", 3),
+        ];
+
+        crate::test_support::assert_fixtures_present(FIXTURES);
+        for &(lang, source, rows) in FIXTURES {
+            let text = String::from_utf8_lossy(source);
             let loc = metrics_verbatim(lang, source, MetricsOptions::default()).loc;
-            assert_eq!(loc.sloc(), 3, "{lang:?} sloc");
-            assert_eq!(loc.ploc(), 3, "{lang:?} ploc");
-            assert_eq!(loc.cloc(), 0, "{lang:?} cloc");
-            assert_eq!(loc.blank(), 0, "{lang:?} blank");
+            assert_eq!(loc.sloc(), rows, "{lang:?} sloc for {text:?}");
+            assert_eq!(loc.ploc(), rows, "{lang:?} ploc for {text:?}");
+            assert_eq!(loc.cloc(), 0, "{lang:?} cloc for {text:?}");
+            assert_eq!(loc.blank(), 0, "{lang:?} blank for {text:?}");
         }
     }
 
@@ -7076,6 +7194,97 @@ EOF
             assert_eq!(metric.loc.cloc(), 0);
             assert_eq!(metric.loc.blank(), 0);
         });
+    }
+
+    /// Analyses `source` byte-for-byte as Bash, for the #1412 fixtures
+    /// `check_metrics` cannot carry: that shim trims trailing newlines,
+    /// and a heredoc whose terminator is the last row is exactly the
+    /// shape it normalises away (`.claude/rules/testing.md`).
+    #[cfg(feature = "bash")]
+    fn bash_loc_verbatim(source: &[u8]) -> Stats {
+        metrics_verbatim(
+            crate::LANG::Bash,
+            source,
+            crate::MetricsOptions::default().with_only(&[crate::Metric::Loc]),
+        )
+        .loc
+    }
+
+    /// #1412: a heredoc body that is empty at the top, or empty
+    /// throughout, read as blank. `heredoc_body`'s span begins at the
+    /// first body row that *has* text and collapses to zero width when
+    /// there is none, so the leading empty rows sat inside no node at
+    /// all and `blank = sloc - ploc - cloc` claimed them.
+    ///
+    /// #1260 routed the body, which fixed only the interior of a body
+    /// that has text — the shape all of its fixtures had. The arm now
+    /// routes the `heredoc_redirect` wrapper, the node present for every
+    /// spelling (`.claude/rules/grammar-dispatch.md` section 6), which
+    /// is what #1396 did for PHP.
+    #[cfg(feature = "bash")]
+    #[test]
+    fn bash_heredoc_bodies_that_open_or_stay_empty_are_not_blank() {
+        // `(source, rows the file has, blank reported before #1412)`.
+        // The last column is what makes each row a regression test
+        // rather than a restatement of the fixed behaviour.
+        //
+        // `sloc` is the second axis the fixtures are anchored on
+        // (`.claude/rules/testing.md`): trimming the heredoc out of any
+        // of them leaves a bare `cat` — or, in the last row, a bare
+        // function — which fails the `sloc` assertion before the `blank`
+        // one can go vacuous.
+        const FIXTURES: &[(&[u8], u64, u64)] = &[
+            // The issue's four reproductions. The fourth is the control:
+            // it is the shape #1260's own fixtures had and was already
+            // correct, so a "fix" that simply stopped counting body rows
+            // moves it off `ploc == rows`.
+            (b"cat <<EOT\n\nEOT\n", 3, 1),
+            (b"cat <<EOT\n\n\nEOT\n", 4, 2),
+            (b"cat <<EOT\n\na\nEOT\n", 4, 1),
+            (b"cat <<EOT\na\n\nEOT\n", 4, 0),
+            // The spellings and positions those four do not reach, each
+            // a different grammar path to the same wrapper: a body empty
+            // *and* terminated at EOF (`heredoc_end` is the last byte,
+            // which `check_metrics` cannot express), the tab-stripping
+            // `<<-` opener, the quoted `<<'EOT'` opener that suppresses
+            // interpolation, and a heredoc nested in a function body.
+            (b"cat <<EOT\n\nEOT", 3, 1),
+            (b"cat <<-EOT\n\n\tx\n\tEOT\n", 4, 1),
+            (b"cat <<'EOT'\n\nx\nEOT\n", 4, 1),
+            (b"f() {\n  cat <<EOT\n\n  x\nEOT\n}\n", 6, 1),
+        ];
+
+        for &(source, rows, blank_before) in FIXTURES {
+            let text = String::from_utf8_lossy(source);
+            let loc = bash_loc_verbatim(source);
+            assert_eq!(loc.sloc(), rows, "sloc for {text:?}");
+            assert_eq!(loc.ploc(), rows, "ploc for {text:?}");
+            assert_eq!(loc.cloc(), 0, "cloc for {text:?}");
+            assert_eq!(
+                loc.blank(),
+                0,
+                "blank for {text:?}, which reported {blank_before} before #1412"
+            );
+        }
+    }
+
+    /// The wrapper's span must not reach past the heredoc: rows after
+    /// the terminator are the caller's own, blank ones included. Routing
+    /// a *container* rather than the body is exactly the change that
+    /// could over-credit, so this is the upper bound for #1412 the way
+    /// `a_multiline_literal_credits_no_row_past_its_own_span` is for
+    /// #1260.
+    #[cfg(feature = "bash")]
+    #[test]
+    fn bash_heredoc_wrapper_credits_no_row_past_its_terminator() {
+        // rows: 0 `cat <<EOT`, 1 (empty body), 2 `EOT`, 3 (blank),
+        // 4 `# note`, 5 `echo after`. The blank row and the comment row
+        // are outside the literal and must stay that way.
+        let loc = bash_loc_verbatim(b"cat <<EOT\n\nEOT\n\n# note\necho after\n");
+        assert_eq!(loc.sloc(), 6);
+        assert_eq!(loc.ploc(), 4);
+        assert_eq!(loc.cloc(), 1);
+        assert_eq!(loc.blank(), 1);
     }
 
     #[test]

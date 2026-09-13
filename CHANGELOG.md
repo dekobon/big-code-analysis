@@ -135,6 +135,24 @@ for historical reference.
 
 ### Fixed
 
+- **A Bash heredoc whose body is empty at the top, or empty
+  throughout, no longer reports those rows as blank** (#1412).
+  `heredoc_body`'s span begins at the first body row that *has* text
+  and collapses to zero width when there is none, so a leading empty
+  row sat inside no node at all and `blank = sloc - ploc - cloc`
+  claimed it: `cat <<EOT\n\nEOT` reported `blank 1`. The `Loc` arm now
+  routes the `heredoc_redirect` **wrapper**, the node present for every
+  spelling, exactly as #1396 did for PHP; both `heredoc_body` symbols
+  are dropped, the wrapper being a strict superset of them in every
+  spelling the grammar admits. This also credits the interior rows of a
+  multi-row `heredoc_content`, which the leaf-gated catch-all reached
+  only the first row of. `ploc` rises and `blank` falls for Bash files
+  carrying either shape. The two
+  cross-language sweeps that are the home for this property now use an
+  **empty** interior row — with `line1\nline2\nline3` they passed
+  whether or not a textless interior row was credited, which is why
+  they saw neither #1396 nor #1412 — and gained the PHP rows they had
+  never had, quoted and heredoc alike.
 - **Twenty-five cross-language test sweeps no longer fail spuriously
   under a reduced feature set** (#1286, #1411). Each carried a loud
   non-vacuity guard (`checked > 0`, `assert_fixtures_present`) without
