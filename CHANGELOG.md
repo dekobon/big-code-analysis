@@ -135,6 +135,38 @@ for historical reference.
 
 ### Fixed
 
+- **Single-language feature subsets build their tests again, and CI
+  gates them** (#1426). Five of the twenty-two single-language subsets
+  of `-p big-code-analysis --all-targets` failed, all in
+  `tests/api/ast_seam_test.rs` and all from a hand-maintained `cfg`
+  union that had drifted from the items it gates: `PathBuf` /
+  `MetricsOptions` were gated too *narrowly* to cover a `c`-gated test
+  that uses them (`--features c`, E0433), as were `LANG` / `Source`,
+  whose union reached that same test only through its
+  `not(feature = "javascript")` arm (`--features c,javascript`); an
+  `Ops` helper was gated too *widely* for its one `rust`-gated caller,
+  so it built unused (`--features cpp`, `--features python`,
+  `dead_code`); and a two-row Tcl-family fixture table collapsed to one
+  row when only one of the pair was enabled (`--features tcl`,
+  `--features irules`, `clippy::single_element_loop`). The table is now
+  two `#[cfg]` blocks calling a shared helper, matching its sibling test
+  and correct at one row or two. The library itself always built, so no
+  released configuration was affected — this was a contributor-facing
+  break, and a costly one, because `--features go` is the subset
+  `.claude/rules/testing.md` tells contributors to run and the compile
+  error landed in a file unrelated to their change. The `feature-matrix`
+  CI job now runs `cargo clippy --all-targets -- -D warnings` instead of
+  `cargo check` — `check` cannot see the `clippy::single_element_loop`
+  class at all — and adds single-language legs (`c`, `go`, `python`,
+  `tcl` for the library, `go` for the parse layer). For those legs to
+  discriminate, the `LANG` / `Source` union also had to drop its
+  trailing `not(feature = "javascript")` arm — true in every
+  single-language build, so it satisfied the union by itself and left
+  the language arms unexercised, which is how `c` went missing from
+  them. The two `LanguageDisabled` tests that needed the names with no
+  language enabled now import them directly. Tests that *compile*
+  under a partial feature set and panic at run time remain out of scope
+  and tracked in #1285 / #1413.
 - **A Bash heredoc no longer bills its command-line prefix as part of
   the literal** (#1443). `heredoc_redirect` spans the prefix as well as
   the heredoc, and the grammar lets that prefix cross rows — a

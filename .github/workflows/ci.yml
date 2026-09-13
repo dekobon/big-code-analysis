@@ -437,6 +437,43 @@ jobs:
             flags: -p big-code-analysis-web
           - name: no-default-features (web)
             flags: --no-default-features -p big-code-analysis-web
+          # Single-language legs (issue #1426). `minimal-langs` above is
+          # the only subset CI used to build, and `rust` is in it, so a
+          # test item gated on a union of languages was measured against
+          # a configuration that satisfied nearly every union by
+          # accident. Three of these four failed on `main` when the leg
+          # was written, each for a different reason, and each reason is
+          # invisible to every other leg in this matrix:
+          #
+          #   c      a union too *narrow* — `PathBuf` / `MetricsOptions`
+          #          were gated on `rust`/`python`/`cpp` while a `c`-gated
+          #          test used them, so the imports vanished (E0433).
+          #   python a union too *wide* — a helper gated on three
+          #          languages had one `rust`-gated caller, so it built
+          #          unused here (`dead_code`).
+          #   tcl    a two-row fixture table whose rows are cfg-gated
+          #          collapses to one row (`clippy::single_element_loop`).
+          #
+          # `go` is the fourth because `.claude/rules/testing.md` names
+          # `--features go` as the subset contributors run to verify a
+          # feature-gated fixture table: it is the nearest thing to a
+          # language outside every union, enabling none of the five
+          # (`rust`, `python`, `c`, `cpp`, `tcl`/`irules`) that
+          # `tests/api/ast_seam_test.rs` gates its shared items on.
+          - name: lang-c (lib)
+            flags: --no-default-features --features c -p big-code-analysis
+          - name: lang-go (lib)
+            flags: --no-default-features --features go -p big-code-analysis
+          - name: lang-python (lib)
+            flags: --no-default-features --features python -p big-code-analysis
+          - name: lang-tcl (lib)
+            flags: --no-default-features --features tcl -p big-code-analysis
+          # The ast twin, mirroring the lib legs above. The parse layer
+          # is clean on all 22 single-language subsets today; this keeps
+          # it that way, in the crate where the per-language wiring is
+          # densest.
+          - name: lang-go (ast)
+            flags: --no-default-features --features go -p big-code-analysis-ast
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -445,11 +482,22 @@ jobs:
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable tip
         with:
           toolchain: stable
+          components: clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      # `cargo check --all-targets` exercises bins, tests, and examples,
-      # so a cfg-gated test file that only compiles under default features
-      # does not slip through the no-default-features matrix leg.
-      - run: cargo check --all-targets ${{ matrix.flags }} --locked
+      # `--all-targets` exercises bins, tests, and examples, so a
+      # cfg-gated test file that only compiles under default features does
+      # not slip through a partial leg.
+      #
+      # `clippy … -- -D warnings` rather than `cargo check` (#1426): of
+      # the three ways a partial feature set broke the test crate, the
+      # third is out of `check`'s reach entirely. E0433 is a hard error
+      # either way and `dead_code` is a rustc lint this workflow's
+      # top-level `RUSTFLAGS: -D warnings` already promotes, but
+      # `single_element_loop` is a clippy lint `check` never runs at all.
+      # The `-- -D warnings` is belt-and-braces against that env var
+      # being narrowed later. All ten pre-existing legs were verified
+      # against the stricter command before it landed.
+      - run: cargo clippy --all-targets ${{ matrix.flags }} --locked -- -D warnings
 
   deny:
     name: cargo-deny
