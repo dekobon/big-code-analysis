@@ -54,15 +54,51 @@ impl Loc for CsharpCode {
                 check_comment_ends_on_code_line(stats, start);
                 stats.ploc.lines.insert(start);
 
-                // FIXME(#1430): C# has a `PreprocArg` (185) and no arm for
-                // it, unlike its four C-family siblings, so a multi-row
-                // `preproc_arg` credits only its first row and the rest
-                // fall through to `blank`. `tree-sitter-c-sharp` accepts a
-                // backslash continuation in a directive (`#region Big \`),
-                // but the C# specification terminates a directive at the
-                // newline, so the shape is grammar-reachable and
-                // language-invalid. Deliberately left alone by #1423 rather
-                // than guessed at.
+                // **No `PreprocArg` arm here, unlike the four C-family
+                // siblings — a decided gap, not an oversight (#1430).**
+                //
+                // C# has a `preproc_arg` (`Csharp::PreprocArg`, 185, no
+                // numeric-suffix aliases) and `c.rs` / `cpp.rs` /
+                // `mozcpp.rs` / `objc.rs` all route theirs through
+                // `add_string_interior_ploc` so a multi-row macro body
+                // reaches PLOC. Without the arm a multi-row `preproc_arg`
+                // credits only its start row and the rest fall to
+                // `blank = sloc - ploc - cloc`. Measured:
+                //
+                //     #region Big \
+                //       section
+                //     #endregion
+                //     class C {}
+                //
+                // parses `{preproc_arg:185} from (1, 9) to (2, 10)` and
+                // reports `sloc 4, ploc 3, blank 1` — row 1 is text scored
+                // as blank.
+                //
+                // The arm is absent because **no valid C# can reach the
+                // shape**. The C# specification terminates a `pp-directive`
+                // at the new-line and defines no line continuation, so
+                // `#region Big \` ends at the newline and `  section` below
+                // it is a syntax error, not an argument row.
+                // `tree-sitter-c-sharp` is over-permissive relative to the
+                // language here, accepting a backslash continuation the way
+                // the C grammar legitimately does. A `preproc_arg` in
+                // runnable C# is always single-row, and on a single row the
+                // arm would no-op — so adding it could only change the
+                // number reported for source that does not compile, where a
+                // line count has no correct answer to be right about.
+                //
+                // This is the opposite call to #1443, which fixed an
+                // equally unreachable Bash shape. The difference is what
+                // the arm would buy: there, the range was wrong in a way
+                // that also made the *meaning* wrong ("the literal's rows"
+                // included rows outside the literal), and correcting it was
+                // free on valid input. Here the meaning is already right
+                // and only invalid input can tell the two behaviours apart.
+                //
+                // If `tree-sitter-c-sharp` ever tightens to match the
+                // specification, this note and #1430 both become moot. If
+                // C# ever *gains* a continuation, add the arm — it is two
+                // lines, and its four siblings are the template.
             }
         }
     }
