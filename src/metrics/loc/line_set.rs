@@ -66,10 +66,10 @@
 // each subtraction in `insert`/`insert_range`/`union_with`, `slot` and
 // `word` already use `checked_sub`, and `insert_range` returns early on
 // an inverted span. `subtract` and `intersection_len` are the two sites
-// with no `reserve` to lean on: both clip to the overlap of the two
-// arrays first, so `start..end` is empty rather than inverted when the
-// sets are disjoint, and every index inside it is in bounds for both
-// operands by that construction.
+// with no `reserve` to lean on: both clip to `overlapping_words` first,
+// which is empty rather than inverted when the sets are disjoint and
+// whose every index is in bounds for both operands by that
+// construction.
 //
 // Making these saturating would be actively worse than leaving them
 // checked. `self.words[word - self.first_word]` saturating to index 0
@@ -269,12 +269,7 @@ impl LineSet {
     /// simply not there to clear. `words.len()` and its capacity are
     /// unchanged on every path.
     pub(super) fn subtract(&mut self, other: &Self) {
-        let start = self.first_word.max(other.first_word);
-        let end = (self.first_word + self.words.len()).min(other.first_word + other.words.len());
-        // Empty rather than inverted when the two intervals are
-        // disjoint, exactly as in `intersection_len`; inside it both
-        // indices are in bounds for their own array by construction.
-        for word in start..end {
+        for word in self.overlapping_words(other) {
             self.words[word - self.first_word] &= !other.words[word - other.first_word];
         }
     }
@@ -316,15 +311,26 @@ impl LineSet {
             .unwrap_or(0)
     }
 
-    /// Number of rows in `self ∩ other`.
-    fn intersection_len(&self, other: &Self) -> usize {
+    /// Absolute word indices both arrays cover, ascending.
+    ///
+    /// The bounds premise [`LineSet::intersection_len`] and
+    /// [`LineSet::subtract`] lean on in place of a `reserve`, in one
+    /// place because both need it stated the same way: the range is
+    /// empty rather than inverted when the two intervals are disjoint
+    /// (`start > end` yields no iterations rather than panicking), and
+    /// every index inside it is in bounds for `self` *and* for `other`
+    /// by construction — so an offset that drifted panics on the index
+    /// rather than silently reading the wrong row's word.
+    #[inline]
+    fn overlapping_words(&self, other: &Self) -> std::ops::Range<usize> {
         let start = self.first_word.max(other.first_word);
         let end = (self.first_word + self.words.len()).min(other.first_word + other.words.len());
-        // Empty when the two spans are disjoint: `start > end` yields an
-        // empty range rather than panicking. Inside it both indices are
-        // in bounds by construction, so a bound that drifted would panic
-        // here rather than silently miscount.
-        (start..end)
+        start..end
+    }
+
+    /// Number of rows in `self ∩ other`.
+    fn intersection_len(&self, other: &Self) -> usize {
+        self.overlapping_words(other)
             .map(|word| {
                 (self.words[word - self.first_word] & other.words[word - other.first_word])
                     .count_ones() as usize
