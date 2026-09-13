@@ -8715,6 +8715,185 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         assert_eq!(loc.blank(), 0);
     }
 
+    /// The #1414 fixture for [`add_multiline_string_ploc`]'s parent gate:
+    /// two multi-row Rust literals, the first opening on row 1 under an
+    /// `array_expression` that started on row 0, the second opening on
+    /// row 4 alongside the `const_item` that owns it.
+    ///
+    /// Returned as a [`crate::Ast`] rather than as a pair of [`Node`]s
+    /// because the nodes borrow the held tree.
+    #[cfg(feature = "rust")]
+    fn multiline_string_gate_fixture() -> crate::Ast {
+        crate::test_support::parse_named(
+            LANG::Rust,
+            "lib.rs",
+            "const A: [&str; 1] = [\n    \"a\nb\",\n];\nconst B: &str = \"c\nd\";\n",
+        )
+    }
+
+    /// Returns the `index`-th `string_literal` of
+    /// [`multiline_string_gate_fixture`], asserting the fixture still
+    /// holds both and that this one still spans `rows`.
+    ///
+    /// The span check is the fixture's own guard: a grammar bump that
+    /// re-shaped the literal would otherwise turn the row assertions
+    /// below into claims about some other node.
+    #[cfg(feature = "rust")]
+    fn multiline_string_gate_literal<'a>(
+        root: &Node<'a>,
+        index: usize,
+        rows: (usize, usize),
+    ) -> Node<'a> {
+        let literals = root.descendants_by_kind(&["string_literal"]);
+        assert_eq!(
+            literals.len(),
+            2,
+            "fixture drift: expected exactly two string literals"
+        );
+        let literal = literals[index];
+        assert_eq!(
+            (literal.start_row(), literal.end_row()),
+            rows,
+            "fixture drift: literal {index} no longer spans the expected rows"
+        );
+        literal
+    }
+
+    /// [`add_multiline_string_ploc`] credits the opening row when the
+    /// parent started earlier — the branch #1414 measured as unguarded.
+    ///
+    /// End-to-end neither half of that gate is observable, which is why
+    /// this test is at the helper's level rather than through a
+    /// fixture. Every language routing a literal through this helper
+    /// ends its match with an unconditional catch-all that has already
+    /// inserted the literal's start row, and both `LineSet::insert` and
+    /// `check_comment_ends_on_code_line` are idempotent — so crediting
+    /// the row twice reads the same as crediting it once, and skipping
+    /// it drops nothing the catch-all does not put back. Before these
+    /// tests, removing the gate and inverting it each failed zero of
+    /// the ~3,330 lib tests. Only a call that reaches the helper with
+    /// the row still absent separates them.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn multiline_string_credits_an_opening_row_its_parent_did_not_start() {
+        let ast = multiline_string_gate_fixture();
+        let root = ast.root_node();
+        let literal = multiline_string_gate_literal(&root, 0, (1, 2));
+
+        let mut stats = Stats::default();
+        // Seed the row a real caller's catch-all would already hold, so
+        // nothing below can pass against a default-empty set.
+        stats.ploc.lines.insert(0);
+
+        add_multiline_string_ploc(
+            &literal,
+            Ancestors::unknown(),
+            &mut stats,
+            literal.start_row(),
+        );
+
+        assert!(stats.ploc.lines.contains(0), "the seeded row must survive");
+        assert!(
+            stats.ploc.lines.contains(1),
+            "the `array_expression` parent starts on row 0, so nothing but \
+             this helper covers the literal's opening row"
+        );
+        assert!(
+            stats.ploc.lines.contains(2),
+            "the literal's closing row is interior to it"
+        );
+        assert!(
+            !stats.ploc.lines.contains(3),
+            "row 3 is `];`, past the literal"
+        );
+    }
+
+    /// The gate's other side: [`add_multiline_string_ploc`] leaves the
+    /// opening row alone when the parent started on it, and still runs
+    /// the interior insertion. See the sibling above for why this is
+    /// invisible end-to-end.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn multiline_string_leaves_an_opening_row_its_parent_started() {
+        let ast = multiline_string_gate_fixture();
+        let root = ast.root_node();
+        let literal = multiline_string_gate_literal(&root, 1, (4, 5));
+
+        let mut stats = Stats::default();
+        stats.ploc.lines.insert(0);
+
+        add_multiline_string_ploc(
+            &literal,
+            Ancestors::unknown(),
+            &mut stats,
+            literal.start_row(),
+        );
+
+        assert!(stats.ploc.lines.contains(0), "the seeded row must survive");
+        assert!(
+            !stats.ploc.lines.contains(4),
+            "the `const_item` parent starts on row 4 and already covers it, \
+             so the gate must skip it"
+        );
+        assert!(
+            stats.ploc.lines.contains(5),
+            "the interior insertion runs whichever way the gate goes"
+        );
+    }
+
+    /// [`add_string_interior_ploc`] stops at the last row the literal
+    /// *occupies*, not at its raw end row — the third #1414 branch, and
+    /// the one that helper's own doc comment argues for.
+    ///
+    /// The two spellings differ only for a node whose end column is 0,
+    /// and the one string literal known to have that shape here is a
+    /// Bash `heredoc_body`: it absorbs the newline after its last
+    /// content row and so ends at column 0 of the terminator's row.
+    /// Everywhere else a literal stops just past its closing delimiter,
+    /// where `end_line() - 1` and `end_row()` agree.
+    ///
+    /// The call is direct rather than through `bca metrics`
+    /// deliberately — which node `bash.rs` routes is a separate
+    /// question (#1412), and an end-to-end fixture would stop
+    /// discriminating the moment that answer changed.
+    #[cfg(feature = "bash")]
+    #[test]
+    fn string_interior_stops_at_the_last_row_the_literal_occupies() {
+        // rows: 0 `cat <<EOF`, 1 `a`, 2 `b`, 3 `EOF`.
+        let ast = crate::test_support::parse_named(LANG::Bash, "f.sh", "cat <<EOF\na\nb\nEOF\n");
+        let root = ast.root_node();
+        let bodies = root.descendants_by_kind(&["heredoc_body"]);
+        let body = bodies.first().expect("the fixture holds one heredoc body");
+        assert_eq!(
+            (body.start_position(), body.end_position()),
+            ((1, 0), (3, 0)),
+            "fixture drift: the end column must be 0 for this test to mean anything"
+        );
+
+        let mut stats = Stats::default();
+        // Row 0 is the `cat <<EOF` line, which Bash's arm credits
+        // through a different node; seeding it keeps every assertion
+        // below distinguishable from the default-empty set.
+        stats.ploc.lines.insert(0);
+
+        add_string_interior_ploc(body, &mut stats, body.start_row());
+
+        assert!(stats.ploc.lines.contains(0), "the seeded row must survive");
+        assert!(
+            !stats.ploc.lines.contains(1),
+            "this helper leaves its `start` row to the caller"
+        );
+        assert!(
+            stats.ploc.lines.contains(2),
+            "row 2 is the body's last content row"
+        );
+        assert!(
+            !stats.ploc.lines.contains(3),
+            "row 3 holds the `EOF` terminator: the body ends at its column 0 \
+             and so does not occupy it"
+        );
+    }
+
     #[test]
     fn elixir_blank() {
         // Two blank lines separate three top-level expressions.
