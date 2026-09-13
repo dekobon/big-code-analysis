@@ -55,22 +55,33 @@ impl Loc for BashCode {
             //       {heredoc_end:156}    from (3, 1) to (3, 4)
             //
             // The body node is on the *terminator's* row and empty; row 2 is
-            // covered only by the wrapper. `HeredocBody` / `HeredocBody2`
-            // are dropped rather than kept alongside it, because the wrapper
-            // is a strict superset in every spelling: tree-sitter-bash
-            // 0.25.1's `node-types.json` lists `heredoc_body` as a child of
-            // `heredoc_redirect` and of nothing else, and the wrapper runs
-            // from `<<` on the command row to the end of `heredoc_end`, so
-            // its interior range already covers every body row and the
-            // terminator. Dumped and confirmed for `<<`, `<<-`, quoted
-            // (`<<'EOT'`), empty, unterminated, and heredocs inside a
-            // function, subshell, pipeline, command substitution and
-            // `&&` list.
+            // covered only by the wrapper.
             //
-            // Routing the wrapper also fixes a body that *has* text:
-            // `heredoc_content` is itself multi-row (`(64, 1)` to
-            // `(65, 24)` in the corpus's `generate-pc.sh`), so the
-            // leaf-gated catch-all credited only its first row.
+            // `HeredocBody` / `HeredocBody2` stay listed **alongside** the
+            // wrapper rather than being replaced by it — section 6's "narrow
+            // with a gate, never by deletion". `node-types.json` does list
+            // `heredoc_body` only as a child of `heredoc_redirect`, but that
+            // describes the well-formed grammar and says nothing about error
+            // recovery, where tree-sitter-bash emits an **orphan** body with
+            // no wrapper anywhere. A single-line compound carrying a heredoc
+            // is the shape, and all three spellings are valid, executable
+            // Bash:
+            //
+            //     f() { cat <<EOT; }        if true; then cat <<EOT; fi
+            //     body                      x
+            //     EOT                       EOT
+            //
+            // `bca dump` on the first gives an `{ERROR}` root whose direct
+            // child is `{heredoc_body:218} from (2, 1) to (4, 1)`. Dropping
+            // the body kinds left that node to the leaf-gated catch-all,
+            // which credits only its start row, so the terminator row fell
+            // to `blank` — #1412's own symptom, reintroduced. Keeping both
+            // costs nothing where the wrapper does exist: the body's row
+            // range is contained in the wrapper's, and `insert`,
+            // `insert_range` and `check_comment_ends_on_code_line` are all
+            // idempotent. #1398 was an unterminated-heredoc ERROR shape in
+            // this same arm, so recovery trees were already known to reach
+            // it.
             //
             // A knowing divergence from section 7's parity cross-walk:
             // `BashCode::is_string` (`big-code-analysis-ast/src/checker/bash.rs`)
@@ -97,7 +108,7 @@ impl Loc for BashCode {
             // token is a leaf on that row and the catch-all picks it up.
             // Depending on that is a second rule for no gain, so the
             // wrapper takes the unconditional form its siblings do.
-            String | RawString | AnsiCString | HeredocRedirect => {
+            String | RawString | AnsiCString | HeredocRedirect | HeredocBody | HeredocBody2 => {
                 check_comment_ends_on_code_line(stats, start);
                 stats.ploc.lines.insert(start);
                 add_string_interior_ploc(node, stats, start);

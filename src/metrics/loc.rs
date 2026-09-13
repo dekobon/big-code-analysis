@@ -7381,6 +7381,45 @@ EOF
         assert_eq!(loc.blank(), 1);
     }
 
+    /// The orphan `heredoc_body` — the shape that makes routing the
+    /// wrapper an *addition* rather than a replacement.
+    ///
+    /// `node-types.json` lists `heredoc_body` only as a child of
+    /// `heredoc_redirect`, which describes the well-formed grammar and
+    /// says nothing about error recovery. A single-line compound
+    /// carrying a heredoc parses to an `{ERROR}` root whose direct child
+    /// is the body, with no wrapper anywhere — so an arm keyed on the
+    /// wrapper alone leaves that node to the leaf-gated catch-all, which
+    /// credits only its start row, and the terminator row falls to
+    /// `blank`. That is #1412's own symptom.
+    ///
+    /// Every input here is valid, executable Bash. Measured: each
+    /// reported `blank 1` while the body kinds were dropped from the arm
+    /// and `blank 0` both before and after.
+    #[cfg(feature = "bash")]
+    #[test]
+    fn bash_heredoc_body_without_a_wrapper_still_credits_every_row() {
+        // Three rows each: the compound, the body, the terminator. All
+        // code, none blank — the same answer the well-formed spellings
+        // give above.
+        for source in [
+            &b"f() { cat <<EOT; }\nbody\nEOT\n"[..],
+            &b"if true; then cat <<EOT; fi\nx\nEOT\n"[..],
+            &b"for i in 1; do cat <<EOT; done\nx\nEOT\n"[..],
+        ] {
+            let loc = bash_loc_verbatim(source);
+            let text = String::from_utf8_lossy(source);
+            assert_eq!(loc.sloc(), 3, "sloc for {text:?}");
+            assert_eq!(loc.ploc(), 3, "ploc for {text:?}");
+            assert_eq!(loc.cloc(), 0, "cloc for {text:?}");
+            assert_eq!(
+                loc.blank(),
+                0,
+                "the terminator row of a wrapper-less heredoc body is code, not blank, for {text:?}"
+            );
+        }
+    }
+
     #[test]
     fn bash_literal_that_owns_its_opening_row_still_credits_it() {
         // The other branch of `add_multiline_string_ploc`'s parent gate,
@@ -9149,11 +9188,15 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
     /// the one that helper's own doc comment argues for.
     ///
     /// The two spellings differ only for a node whose end column is 0,
-    /// and the one string literal known to have that shape here is a
+    /// and the one *string literal* known to have that shape here is a
     /// Bash `heredoc_body`: it absorbs the newline after its last
     /// content row and so ends at column 0 of the terminator's row.
     /// Everywhere else a literal stops just past its closing delimiter,
-    /// where `end_line() - 1` and `end_row()` agree.
+    /// where `end_line() - 1` and `end_row()` agree. Since #1423 the
+    /// C-family `preproc_arg` is a second caller of this helper that
+    /// reaches column 0 — a macro body ending on a dangling backslash —
+    /// and `a_dangling_macro_continuation_does_not_credit_the_row_below`
+    /// covers that one end-to-end.
     ///
     /// The call is direct rather than through `bca metrics`
     /// deliberately — which node `bash.rs` routes is a separate
@@ -11970,13 +12013,13 @@ class A {
         assert_eq!(nested.metrics.loc.blank(), 0, "the function has no blanks");
     }
 
-    /// `Sloc::exclude_span` subtracts each pruned subtree's row count from
-    /// the enclosing span, so widening that span at the top could in
-    /// principle desynchronise the two. It cannot: the rows the anchor
-    /// adds are above the first token, and no pruned subtree can overlap
-    /// them. Pinned rather than argued, since the failure mode is a
-    /// silent `saturating_sub` clamp to 0 rather than a panic (#722,
-    /// #1247).
+    /// `Sloc::exclude_span` records each pruned subtree's rows and
+    /// `sloc()` subtracts their cardinality from the enclosing span, so
+    /// widening that span at the top could in principle desynchronise
+    /// the two. It cannot: the rows the anchor adds are above the first
+    /// token, and no pruned subtree can overlap them. Pinned rather than
+    /// argued, since the failure mode is a silent `saturating_sub` clamp
+    /// to 0 rather than a panic (#722, #1247, #1417).
     #[test]
     fn exclude_tests_pruning_composes_with_the_unit_anchor() {
         // Rows 1-3 blank, 4 `fn a`, 5 blank, 6 `#[test]`, 7-9 `fn t`.
@@ -12105,6 +12148,31 @@ class A {
             ),
             (3, 2, 0, 1),
             "one of four rows excluded; the attribute row stays"
+        );
+    }
+
+    /// The *comment* half of the settle, which the fixtures above cannot
+    /// reach because every one of them has `cloc 0`.
+    ///
+    /// `Stats::settle_excluded_rows` subtracts three sets from the
+    /// pruned rows — `ploc.lines` and both `Cloc` sets — and only the
+    /// first was covered: deleting **both** comment subtractions failed
+    /// 0 of 3,388 lib tests, while deleting the `ploc` one failed 3. A
+    /// comment sharing a row with a pruned item is retained text on that
+    /// row exactly as code would be, so the row must survive the prune.
+    #[test]
+    fn a_comment_sharing_a_pruned_items_row_keeps_that_row() {
+        // Row 0 `#[cfg(test)]`, row 1 the pruned `mod t` and a trailing
+        // comment. Row 1 holds no code once the mod is pruned, but the
+        // comment is still there, so the row is not the prune's to take.
+        let loc = rust_loc_pruned(b"#[cfg(test)]\nmod t {} // note\n");
+        assert_eq!(loc.sloc(), 2, "the comment row survives the prune");
+        assert_eq!(loc.cloc(), 1, "the trailing comment is still counted");
+        assert!(
+            loc.ploc() <= loc.sloc(),
+            "ploc {} must not exceed sloc {}",
+            loc.ploc(),
+            loc.sloc()
         );
     }
 

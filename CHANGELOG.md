@@ -175,13 +175,14 @@ for historical reference.
   and collapses to zero width when there is none, so a leading empty
   row sat inside no node at all and `blank = sloc - ploc - cloc`
   claimed it: `cat <<EOT\n\nEOT` reported `blank 1`. The `Loc` arm now
-  routes the `heredoc_redirect` **wrapper**, the node present for every
-  spelling, exactly as #1396 did for PHP; both `heredoc_body` symbols
-  are dropped, the wrapper being a strict superset of them in every
-  spelling the grammar admits. This also credits the interior rows of a
-  multi-row `heredoc_content`, which the leaf-gated catch-all reached
-  only the first row of. `ploc` rises and `blank` falls for Bash files
-  carrying either shape. The two
+  also routes the `heredoc_redirect` **wrapper**, the node present
+  whenever the heredoc parses cleanly, as #1396 did for PHP. The
+  `heredoc_body` symbols stay listed alongside it rather than being
+  replaced by it: under error recovery — a single-line compound such as
+  `f() { cat <<EOT; }` — tree-sitter-bash emits a body with no wrapper
+  at all, and an arm keyed on the wrapper alone reintroduces the very
+  defect on that shape. `ploc` rises and `blank` falls for Bash files
+  whose heredoc body opens with, or consists of, empty rows. The two
   cross-language sweeps that are the home for this property now use an
   **empty** interior row — with `line1\nline2\nline3` they passed
   whether or not a textless interior row was credited, which is why

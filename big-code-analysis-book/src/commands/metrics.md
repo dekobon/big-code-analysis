@@ -186,11 +186,15 @@ To opt a whole project in without repeating the flag, set
 manifest](../recipes/local-gates.md#zero-config-the-bcatoml-manifest).
 Because `--exclude-tests` is presence-only (no `=false` form), the
 manifest key can only turn pruning **on**; a CLI `--exclude-tests`
-still wins, but the manifest cannot turn it back off. Note that
-pruning lowers the node-counted metrics (cyclomatic, cognitive,
-Halstead, `nom`, `nargs`, …) but leaves unit-level `loc.sloc` at the
-full file extent, since unit SLOC is the file root span rather than a
-traversal accumulation.
+still wins, but the manifest cannot turn it back off. Pruning lowers
+the node-counted metrics (cyclomatic, cognitive, Halstead, `nom`,
+`nargs`, …) and `loc.sloc` drops with them. That needs saying because
+`sloc` is the one loc sub-metric derived from a span rather than
+accumulated node by node, so it does not fall out of the traversal for
+free: each pruned subtree's rows are recorded and subtracted from the
+enclosing span, at every level up to the unit. Rows a pruned item
+*shares* with retained code or comments are kept, so `sloc` never
+falls below the `ploc` and `cloc` that survive the prune.
 
 ## Aggregated report
 
