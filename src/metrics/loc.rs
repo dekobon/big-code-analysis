@@ -7403,6 +7403,52 @@ EOF
         assert_eq!(loc.blank(), 1);
     }
 
+    /// The bound on the *other* side of the wrapper (#1443).
+    ///
+    /// The test above pins the rows after the terminator; nothing pinned
+    /// the rows before the body, and `heredoc_redirect` spans the
+    /// command-line prefix as well as the literal. The grammar lets that
+    /// prefix cross rows — a `pipeline` is one of its children — so
+    /// crediting the wrapper's whole interior billed a blank or
+    /// comment-only prefix row as code.
+    ///
+    /// Two fixtures because the defect shows on two different axes, and
+    /// each is the only thing its own axis can come from: the blank row
+    /// is the file's only `blank`, and the comment row its only `cloc`.
+    /// A single fixture asserting `ploc` alone would keep passing if the
+    /// prefix row were trimmed out of it.
+    ///
+    /// Note both inputs are bash *syntax errors* — bash starts the body
+    /// on the line after the `<<`, so it never finds the terminator, and
+    /// `bash -n` rejects every spelling of this shape. They are here
+    /// because `bca` measures malformed trees too, which is the same
+    /// argument #1398 rests on, and because the arm's range should mean
+    /// "the literal's rows" rather than being incidentally right.
+    #[cfg(feature = "bash")]
+    #[test]
+    fn bash_heredoc_wrapper_credits_no_row_of_its_command_prefix() {
+        // rows: 0 `cat <<EOT |`, 1 blank, 2 `  grep x`, 3 `body`,
+        // 4 `EOT`. Row 1 belongs to the pipeline, not to the literal.
+        let blank_prefix = bash_loc_verbatim(b"cat <<EOT |\n\n  grep x\nbody\nEOT\n");
+        assert_eq!(blank_prefix.sloc(), 5);
+        assert_eq!(blank_prefix.ploc(), 4, "the blank prefix row is not code");
+        assert_eq!(blank_prefix.cloc(), 0);
+        assert_eq!(blank_prefix.blank(), 1);
+
+        // The same shape with a comment row in place of the blank one:
+        // it must stay comment-only rather than being reclassified as
+        // code-and-comment by the wrapper's insert.
+        let comment_prefix = bash_loc_verbatim(b"cat <<EOT |\n  # note\n  grep x\nbody\nEOT\n");
+        assert_eq!(comment_prefix.sloc(), 5);
+        assert_eq!(comment_prefix.ploc(), 4);
+        assert_eq!(
+            comment_prefix.cloc(),
+            1,
+            "the prefix comment row is not code"
+        );
+        assert_eq!(comment_prefix.blank(), 0);
+    }
+
     /// The orphan `heredoc_body` — the shape that makes routing the
     /// wrapper an *addition* rather than a replacement.
     ///

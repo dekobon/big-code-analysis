@@ -108,10 +108,45 @@ impl Loc for BashCode {
             // token is a leaf on that row and the catch-all picks it up.
             // Depending on that is a second rule for no gain, so the
             // wrapper takes the unconditional form its siblings do.
-            String | RawString | AnsiCString | HeredocRedirect | HeredocBody | HeredocBody2 => {
+            String | RawString | AnsiCString | HeredocBody | HeredocBody2 => {
                 check_comment_ends_on_code_line(stats, start);
                 stats.ploc.lines.insert(start);
                 add_string_interior_ploc(node, stats, start);
+            }
+            // The wrapper, whose interior starts where the *body* does and
+            // not one row below the `<<` (#1443).
+            //
+            // `heredoc_redirect` spans the command-line prefix as well as
+            // the literal, and the grammar lets that prefix cross rows: a
+            // `pipeline` is one of its children. Crediting from
+            // `start + 1`, as the arm above does for a literal that *is*
+            // its own span, then bills every prefix row as code —
+            // including a blank or comment-only one.
+            //
+            // The first body row is one past the last row any non-body
+            // child occupies, which collapses to `start + 1` for the
+            // ordinary single-row prefix, so this is the same arithmetic
+            // everywhere except the shape it exists for.
+            //
+            // **Upstream divergence, deliberately not worked around.**
+            // Every input reaching the multi-row form is a bash syntax
+            // error: bash begins the body on the line after the one
+            // carrying `<<`, so `cat <<EOT |` + newline + `grep x` makes
+            // `grep x` the body's first line and the terminator is then
+            // never found. Verified with `bash -n` on five spellings
+            // (bare, backslash-continued, comment row, `&&` list, blank
+            // row) — all rejected, while tree-sitter parses each as a
+            // pipeline inside the wrapper. So this is unreachable in
+            // runnable Bash and the bound is right for the malformed
+            // trees `bca` is still asked to measure (#1398's argument).
+            // Do not "fix" the divergence here; it belongs upstream.
+            HeredocRedirect => {
+                check_comment_ends_on_code_line(stats, start);
+                stats.ploc.lines.insert(start);
+                stats.ploc.lines.insert_range(
+                    heredoc_body_first_row(node, start),
+                    node.end_line().saturating_sub(1),
+                );
             }
             // An assignment standing as a statement of its own is one
             // logical line — but only then.
@@ -158,4 +193,48 @@ impl Loc for BashCode {
             }
         }
     }
+}
+
+/// The first row of `redirect`'s heredoc body: one past the last row any
+/// of its non-body children occupies.
+///
+/// `heredoc_redirect` covers the command-line prefix (`<<`, the marker,
+/// and whatever the grammar hangs off the rest of the line) as well as
+/// the literal, so the literal's own rows start below all of them. The
+/// prefix is single-row in every runnable spelling, where this returns
+/// `start + 1` and the caller behaves exactly as the sibling arm does.
+///
+/// Reading the *body* node's start row instead would be wrong for the
+/// shape #1412 is about: `heredoc_body`'s span begins at the first body
+/// row that has text and collapses to zero width when the body is empty
+/// throughout, so it cannot say where the body *begins*. The prefix can,
+/// because it is bounded by the row the marker sits on.
+///
+/// The floor keeps the range clear of the opening row the caller has
+/// already credited, and it is **inert today**: every `heredoc_redirect`
+/// the grammar emits carries the `<<` token, which starts on `start` at
+/// a column above 0 and so ends at `start + 1` or later. Deleting the
+/// floor fails no test — measured, 0 of 3,397 — which is why the
+/// `debug_assert!` is here rather than a comment claiming the shape
+/// cannot arise. It checks the premise on every heredoc of every walk,
+/// so a grammar that ever emits a body-only wrapper reports that
+/// directly instead of silently crediting rows above the literal.
+fn heredoc_body_first_row(redirect: &Node, start: usize) -> usize {
+    let after_prefix = redirect
+        .children()
+        .filter(|child| {
+            !matches!(
+                child.kind_id().into(),
+                Bash::HeredocBody | Bash::HeredocBody2 | Bash::HeredocContent | Bash::HeredocEnd
+            )
+        })
+        .map(|child| child.end_line())
+        .max();
+
+    debug_assert!(
+        after_prefix.is_some_and(|row| row > start),
+        "a heredoc_redirect at row {start} has no non-body child below its opening row"
+    );
+
+    after_prefix.unwrap_or(0).max(start.saturating_add(1))
 }
