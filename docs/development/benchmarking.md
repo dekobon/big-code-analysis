@@ -149,6 +149,7 @@ Read it as follows.
 | `loc/nested-quote` | Elixir | depth | `loc`'s Elixir catch-all arm (#1096) | linear |
 | `nom/nested-attributed-fn` | Rust | depth | the `exclude_tests` outer-attribute scan (#1100) | linear |
 | `nom/wide-attributed-fn` | Rust | width | the same scan on the width axis (#1100) | linear |
+| `nom/deep-attribute-run` | Rust | depth | the same scan on the diagonal: depth and one attribute run together (#1446) | linear |
 | `nom/nested-cfg-predicate` | Rust | depth | the `cfg(...)` predicate classifier (#1105) | linear |
 | `halstead/wide-distinct-fn` | Rust | width | per-child work at the space-merge boundary (#1106) | linear |
 
@@ -260,6 +261,38 @@ the 94x #1100 measured — while every depth probe stayed inside its
 1.5 bound, `nom/nested-attributed-fn` (the same scan, nesting instead
 of widening) among them at 1.06. That is the evidence that the probe
 covers what it claims and that the depth probes do not.
+
+**Two axes are not a plane** (#1446). Both probes above pin one axis
+with the other held still, and the scan's cost is a product of the two,
+so a shape that grows them *together* is outside the region either
+covers. [#1431][attribute-row] made the prune answer for every `#[…]`
+row rather than only for the item, and each answer re-derived the whole
+run — which is `O(run)` done `run` times. It is invisible to
+`nom/nested-attributed-fn`, where every run is one attribute long, and
+to `nom/wide-attributed-fn`, where depth 1 keeps the budget at six
+children and the reading on the sibling walk.
+
+`nom/deep-attribute-run` renders the diagonal: `depth` nested `fn f`,
+then one run of `3 * depth` `#[cfg(test)]` rows on a single innermost
+item. The `3 *` is the point rather than a round number — it is exactly
+`forward_attribute_scan_budget`, so the parent is guaranteed to stay
+inside the budget and take the forward `O(children)` reading. The
+budget that exists to bound that scan selects *into* it on this shape.
+Measured at 319 / 1 288 / 5 172 ms across the ladder, fitting **2.01**,
+against 0.05 s for the deepest cell with `exclude_tests` off. The run's
+verdict is now taken once and reused across its members
+(`SubtreeSkip`, `big-code-analysis-ast/src/checker.rs`), which reads
+1.5 / 3.1 / 6.4 ms and fits 1.06. The budget itself did not move: on
+this diagonal the forward pass is still the cheaper of the two
+readings, and what was quadratic was asking once per attribute.
+
+Its ladder is `ATTRIBUTE_RUN_DEPTHS` — half `LINEAR_DEPTHS` at every
+rung — because the shape renders four rows per unit of depth. A
+4 000-deep cell is a 200 KB tree under an 8 000-entry ancestor chain,
+and its per-byte cost drifts 1.7x up the ladder against the ~1.25x
+`LINEAR_BOUND` is set from: enough to fit 1.37 with the walk linear,
+which is 0.13 of headroom on a shared runner. The shorter ladder still
+reaches a 6 000-attribute run, well past where the quadratic shows.
 
 The unit suite still pins the *dispatch* separately:
 `the_exclude_tests_prune_reads_forward_up_to_its_depth_scaled_budget`
@@ -401,6 +434,7 @@ a walk's chain bookkeeping, not just around a change to its cost. The
 [halstead-climbs]: https://github.com/dekobon/big-code-analysis/issues/1096
 [attribute-scan]: https://github.com/dekobon/big-code-analysis/issues/1100
 [cfg-predicate]: https://github.com/dekobon/big-code-analysis/issues/1105
+[attribute-row]: https://github.com/dekobon/big-code-analysis/issues/1431
 [space-merge]: https://github.com/dekobon/big-code-analysis/issues/1106
 
 The ten control probes are what make the other readings mean

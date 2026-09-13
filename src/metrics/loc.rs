@@ -7403,54 +7403,50 @@ EOF
         assert_eq!(loc.blank(), 1);
     }
 
-    /// The bound on the *other* side of the wrapper (#1443).
+    /// A `\`-continuation row inside a heredoc's command prefix is code
+    /// (#1443, #1445).
     ///
-    /// The test above pins the rows after the terminator; nothing pinned
-    /// the rows before the body, and `heredoc_redirect` spans the
-    /// command-line prefix as well as the literal. The grammar lets that
-    /// prefix cross rows — a `pipeline` is one of its children — so
-    /// crediting the wrapper's whole interior billed a blank or
-    /// comment-only prefix row as code.
+    /// `heredoc_redirect` spans the command-line prefix as well as the
+    /// literal, so crediting its whole interior over-credits a blank or
+    /// comment-only prefix row. #1443 narrowed the range to the literal's
+    /// own rows to fix that, and the narrowing was reverted: the shape it
+    /// fixed needs `bash -n` to reject the file, while the shape it broke
+    /// — this one — runs.
     ///
-    /// Two fixtures because the defect shows on two different axes, and
-    /// each is the only thing its own axis can come from: the blank row
-    /// is the file's only `blank`, and the comment row its only `cloc`.
-    /// A single fixture asserting `ploc` alone would keep passing if the
-    /// prefix row were trimmed out of it.
-    ///
-    /// Note both inputs are bash *syntax errors*: bash starts the body
-    /// on the line after the `<<`, so a blank or comment-only prefix row
-    /// is unreachable in runnable Bash — `bash -n` rejects all four
-    /// spellings, bare and `\`-continued. A prefix that crosses rows
-    /// *with content* is valid (`cat <<EOT | \` + `  grep x`) and is
-    /// unaffected, since its continuation rows carry leaves the
-    /// catch-all credits. These fixtures are here because `bca` measures
-    /// malformed trees too, the argument #1398 rests on, and because the
-    /// arm's range should mean "the literal's rows" rather than being
-    /// incidentally right.
+    /// A continuation row holding only `\` carries no leaf for the
+    /// leaf-gated catch-all to credit, so the wrapper's blanket range is
+    /// the only thing covering it. Narrowing took it from `ploc 5` to
+    /// `ploc 4`. The general gap is #1445 (`echo a | \` + `\` +
+    /// `  grep b` loses the row with no heredoc involved); until that
+    /// lands, this pins the row the blanket range saves, so a second
+    /// attempt at the narrowing fails here rather than shipping.
     #[cfg(feature = "bash")]
     #[test]
-    fn bash_heredoc_wrapper_credits_no_row_of_its_command_prefix() {
-        // rows: 0 `cat <<EOT |`, 1 blank, 2 `  grep x`, 3 `body`,
-        // 4 `EOT`. Row 1 belongs to the pipeline, not to the literal.
-        let blank_prefix = bash_loc_verbatim(b"cat <<EOT |\n\n  grep x\nbody\nEOT\n");
-        assert_eq!(blank_prefix.sloc(), 5);
-        assert_eq!(blank_prefix.ploc(), 4, "the blank prefix row is not code");
-        assert_eq!(blank_prefix.cloc(), 0);
-        assert_eq!(blank_prefix.blank(), 1);
-
-        // The same shape with a comment row in place of the blank one:
-        // it must stay comment-only rather than being reclassified as
-        // code-and-comment by the wrapper's insert.
-        let comment_prefix = bash_loc_verbatim(b"cat <<EOT |\n  # note\n  grep x\nbody\nEOT\n");
-        assert_eq!(comment_prefix.sloc(), 5);
-        assert_eq!(comment_prefix.ploc(), 4);
+    fn bash_heredoc_continuation_row_is_code() {
+        // rows: 0 `cat <<EOT | \`, 1 `\`, 2 `  grep x`, 3 `body`, 4 `EOT`.
+        // Valid Bash — `bash -n` accepts it — and every row is code.
+        let continuation = bash_loc_verbatim(b"cat <<EOT | \\\n\\\n  grep x\nbody\nEOT\n");
+        assert_eq!(continuation.sloc(), 5);
         assert_eq!(
-            comment_prefix.cloc(),
-            1,
-            "the prefix comment row is not code"
+            continuation.ploc(),
+            5,
+            "the `\\`-only continuation row is part of the command"
         );
-        assert_eq!(comment_prefix.blank(), 0);
+        assert_eq!(continuation.cloc(), 0);
+        assert_eq!(continuation.blank(), 0);
+
+        // The same command with content on the continuation row, which
+        // the catch-all credits through its own leaves. Unaffected by the
+        // range either way, and here so the pair brackets the shape.
+        let with_content = bash_loc_verbatim(b"cat <<EOT | \\\n  grep x\nbody\nEOT\n");
+        assert_eq!(
+            (
+                with_content.sloc(),
+                with_content.ploc(),
+                with_content.blank()
+            ),
+            (4, 4, 0)
+        );
     }
 
     /// The orphan `heredoc_body` — the shape that makes routing the
@@ -11714,18 +11710,31 @@ class A {
     /// above 0 and the raw end row and `Node::end_line() - 1` name the
     /// same last row. The bound is pinned separately by
     /// [`a_dangling_macro_continuation_does_not_credit_the_row_below`].
+    #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
     #[test]
     fn a_continued_macro_body_counts_every_row_it_spans() {
         // Rows: 0-2 are the macro, 3 is blank, 4 is `main`.
         const CONTINUED_MACRO: &[u8] =
             b"#define SUM(a, b) \\\n    ((a) + \\\n     (b))\n\nint main(void) { return SUM(1, 2); }\n";
 
-        for lang in [
+        // One row per language, each gated on its own feature: an
+        // ungated table constructs a parser for a language the build
+        // disabled and panics `LanguageDisabled`, which reads as a
+        // defect in whatever was being changed rather than as a
+        // configuration that cannot run this test (#1446).
+        const LANGS: &[crate::LANG] = &[
+            #[cfg(feature = "c")]
             crate::LANG::C,
+            #[cfg(feature = "cpp")]
             crate::LANG::Cpp,
+            #[cfg(feature = "mozcpp")]
             crate::LANG::Mozcpp,
+            #[cfg(feature = "objc")]
             crate::LANG::Objc,
-        ] {
+        ];
+        crate::test_support::assert_fixtures_present(LANGS);
+
+        for &lang in LANGS {
             let loc = metrics_verbatim(lang, CONTINUED_MACRO, MetricsOptions::default()).loc;
             assert_eq!(
                 loc.ploc(),
@@ -11770,18 +11779,28 @@ class A {
     ///   anchor available: deleting the dangling backslash also stops
     ///   row 2 being credited, so a revert of the bound is the only
     ///   evidence that half discriminates, and it was run.
+    #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
     #[test]
     fn a_dangling_macro_continuation_does_not_credit_the_row_below() {
         // Rows: 0-1 are the macro, 2 is the blank row its trailing
         // backslash runs into, 3 is `int x;`.
         const DANGLING_CONTINUATION: &[u8] = b"#define A 1 \\\n    2 \\\n\nint x;\n";
 
-        for lang in [
+        // Gated per row for the reason
+        // `a_continued_macro_body_counts_every_row_it_spans` gives.
+        const LANGS: &[crate::LANG] = &[
+            #[cfg(feature = "c")]
             crate::LANG::C,
+            #[cfg(feature = "cpp")]
             crate::LANG::Cpp,
+            #[cfg(feature = "mozcpp")]
             crate::LANG::Mozcpp,
+            #[cfg(feature = "objc")]
             crate::LANG::Objc,
-        ] {
+        ];
+        crate::test_support::assert_fixtures_present(LANGS);
+
+        for &lang in LANGS {
             let loc = metrics_verbatim(lang, DANGLING_CONTINUATION, MetricsOptions::default()).loc;
             assert_eq!(
                 loc.ploc(),
@@ -12124,6 +12143,10 @@ class A {
     /// `check_metrics` cannot express this: it trims and re-appends the
     /// trailing newline (destroying the row structure these fixtures are
     /// about) and its macro hard-binds `MetricsOptions`.
+    ///
+    /// Gated to match its three callers below, so a build without the
+    /// Rust grammar has neither the tests nor an unused helper (#1446).
+    #[cfg(feature = "rust")]
     fn rust_loc_pruned(source: &[u8]) -> Stats {
         metrics_verbatim(
             crate::LANG::Rust,
@@ -12154,6 +12177,7 @@ class A {
     /// fixed). These fixtures put the attribute on the shared row, so
     /// that fix changes neither reading: what holds row 0 here is
     /// `fn a()`, not the attribute.
+    #[cfg(feature = "rust")]
     #[test]
     fn a_pruned_item_sharing_a_row_with_retained_code_keeps_the_row() {
         for source in [
@@ -12213,6 +12237,7 @@ class A {
     /// widening `exclude_span`'s bound by one, and for both `subtract`
     /// mutations. `own_rows` is anchored in the ordinary way — trim its
     /// pruned `mod` and `sloc 2` fails.
+    #[cfg(feature = "rust")]
     #[test]
     fn a_blank_row_does_not_absorb_a_phantom_exclusion() {
         // Row 0 `fn a` and the pruned `mod t`, row 1 blank, row 2 `fn b`.
@@ -12253,6 +12278,7 @@ class A {
     /// 0 of 3,388 lib tests, while deleting the `ploc` one failed 3. A
     /// comment sharing a row with a pruned item is retained text on that
     /// row exactly as code would be, so the row must survive the prune.
+    #[cfg(feature = "rust")]
     #[test]
     fn a_comment_sharing_a_pruned_items_row_keeps_that_row() {
         // Row 0 `#[cfg(test)]`, row 1 the pruned `mod t` and a trailing

@@ -294,6 +294,43 @@ pub fn wide_attributed_fns(width: usize) -> String {
     format!("{}\n", "#[inline] fn f() {} ".repeat(width))
 }
 
+/// Rust: `depth` nested `fn f`, then one run of `3 * depth`
+/// `#[cfg(test)]` rows on a single innermost `fn t`.
+///
+/// The diagonal the two probes above cannot reach, and the shape #1446
+/// was quadratic on. Each grows one axis with the other pinned:
+/// [`nested_attributed_fns`] carries one attribute per level, and
+/// [`wide_attributed_fns`] carries thousands of one-attribute items at
+/// depth 1. Neither produces a *long run*, and the prune's cost is per
+/// run, not per attribute.
+///
+/// The `3 *` is what makes the shape adversarial rather than merely
+/// large. `forward_attribute_scan_budget` allows a parent
+/// `3 * depth` children wide before the reading flips to the
+/// depth-priced sibling walk, so a run sized to that budget is
+/// guaranteed to take the forward, `O(children)` branch — the budget
+/// selects *into* the expensive reading exactly here. Asking once per
+/// attribute then read the run `run` times: 0.08 / 0.34 / 1.21 / 5.18 s
+/// at depths 250 / 500 / 1 000 / 2 000, against 0.05 s for the deepest
+/// with `exclude_tests` off.
+///
+/// The reading is `nom.total()`, which counts the `depth` retained
+/// wrappers and not the pruned `fn t`. That is deliberate: a reading
+/// taken from the *pruned* item would be this probe's own defect
+/// output, and a future change to what the prune removes would zero it
+/// and hand the gate a flattering exponent forever. The wrappers are
+/// ordinary production code, so the reading is `depth` whether or not
+/// the prune fires at all.
+#[must_use]
+pub fn nested_fns_with_attribute_run(depth: usize) -> String {
+    format!(
+        "{}{}fn t() {{}}\nlet x = 1;\n{}",
+        "fn f() {\n".repeat(depth),
+        "#[cfg(test)]\n".repeat(3 * depth),
+        "}\n".repeat(depth),
+    )
+}
+
 /// Rust: `fn p() {}\n#[cfg(test)]\nmod m {}\n` repeated at file scope.
 ///
 /// The shape [`nested_attributed_fns`] and [`wide_attributed_fns`]
@@ -598,6 +635,25 @@ const LINEAR_WIDTHS: [usize; 3] = [500, 1_000, 2_000];
 /// `scaling::MAX_CELL_WALK`, so the gate reports the exponent rather
 /// than abandoning the probe as over budget.
 const SPACE_MERGE_WIDTHS: [usize; 3] = [4_000, 8_000, 16_000];
+
+/// Depths for `nom/deep-attribute-run`, whose shape grows *two* axes
+/// with one parameter.
+///
+/// Half [`LINEAR_DEPTHS`] at every rung, and reasoned rather than
+/// harmonised. The shape renders `4 * depth` rows to a depth probe's
+/// `depth`, so depth 2 000 here is already a 100 KB file with a
+/// 6 000-attribute run — comfortably past where #1446's quadratic
+/// showed (3.9x per doubling, ~2.0 fitted, 5.2 s at the top rung),
+/// which is all the ladder has to reach.
+///
+/// Going one rung higher costs accuracy rather than buying coverage.
+/// A 4 000-deep cell walks a 200 KB tree under an 8 000-entry ancestor
+/// chain, and its per-byte cost runs 1.7x the shallowest cell's against
+/// the ~1.25x [`LINEAR_BOUND`] is set from — enough cache drift on its
+/// own to fit 1.37 with the walk linear. That is a bound with 0.13 of
+/// headroom on a shared runner, and the ladder below fits 1.0-1.1
+/// instead.
+const ATTRIBUTE_RUN_DEPTHS: [usize; 3] = [500, 1_000, 2_000];
 
 /// Bound for a probe expected to be linear in its size parameter.
 ///
@@ -1102,6 +1158,35 @@ pub const PROBES: &[Probe] = &[
                     The scan now budgets the parent's child count \
                     against the node's depth, and this probe is what \
                     keeps the shallow-wide half of that trade measured.",
+    },
+    Probe {
+        name: "nom/deep-attribute-run",
+        lang: LANG::Rust,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: true,
+            selection: &[Metric::Nom],
+            reading: |m| m.nom.total(),
+        },
+        render: nested_fns_with_attribute_run,
+        sizes: ATTRIBUTE_RUN_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1446: the diagonal neither `nom/nested-attributed-fn` \
+                    (one attribute per level) nor `nom/wide-attributed-fn` \
+                    (thousands of one-attribute items at depth 1) can \
+                    reach — depth and one attribute *run* growing \
+                    together. #1431 made the prune answer for every \
+                    `#[…]` row and not only the item, and each answer \
+                    re-derived the whole run, so the run was read `run` \
+                    times: 5.18 s at depth 2 000 against 0.05 s with \
+                    `exclude_tests` off, fitting ~2.0. The run's verdict \
+                    is now taken once and reused across its members \
+                    (`SubtreeSkip`), which is what this probe holds in \
+                    place. Note the sizing: the run is `3 * depth` \
+                    because that is exactly `forward_attribute_scan_ \
+                    budget`, so the shape is guaranteed to take the \
+                    forward `O(children)` reading rather than sampling \
+                    whichever branch a round number happened to select.",
     },
     Probe {
         name: "loc/wide-cfg-test-mod",

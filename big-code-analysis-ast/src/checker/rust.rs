@@ -107,9 +107,13 @@ impl Checker for RustCode {
     /// in `spaces::metrics_with_options` only consults this hook
     /// when the caller opts in via `MetricsOptions::exclude_tests`,
     /// so the default `metrics()` entry point is unaffected.
-    fn should_skip_subtree<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    fn should_skip_subtree<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> SubtreeSkip {
         if rust_prunable_item(node) {
-            return rust_item_is_test_only(node, code, ancestors);
+            return SubtreeSkip::of(rust_item_is_test_only(node, code, ancestors));
         }
         // An outer attribute is a *sibling* of the item it marks, not a
         // child, so pruning the item never reached it and Rust's `Loc`
@@ -121,7 +125,15 @@ impl Checker for RustCode {
         // still inserted by that code, and `Stats::settle_excluded_rows`
         // keeps it (#1417). Retracting the row afterwards could not tell
         // the two apart.
-        node.kind_id() == Rust::AttributeItem
-            && rust_attribute_run_marks_test_item(node, code, ancestors)
+        //
+        // The verdict is the whole run's, not this row's, so it is
+        // reported as reaching the rest of the run: the walker then
+        // asks once per run instead of once per row, which is what
+        // keeps a deep file carrying one long run out of `O(run^2)`
+        // (#1446).
+        if node.kind_id() == Rust::AttributeItem {
+            return rust_attribute_run_verdict(node, code, ancestors);
+        }
+        SubtreeSkip::RETAIN
     }
 }

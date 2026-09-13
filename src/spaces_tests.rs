@@ -656,6 +656,13 @@ fn file_suppression_empty_stack_is_silent_noop() {
 // `cognitive_sum`, `n_operators`) rather than float magnitudes,
 // because Halstead floats are bit-brittle (lessons_learned.md).
 
+// Every fixture below is Rust, and `RustParser::new` on a build
+// without the language raises `LanguageDisabled(Rust)` — so without
+// this the whole module fails, loudly and for a reason that has
+// nothing to do with the change under test, on any feature subset that
+// omits `rust` (`--features go` is the reproducer). Gating the module
+// makes the tests *absent* there instead (#1446).
+#[cfg(feature = "rust")]
 mod exclude_tests_rust {
     use crate::spaces::metrics_inner;
     use crate::{MetricsOptions, ParserTrait, RustParser};
@@ -1269,6 +1276,41 @@ impl Foo {
         assert_eq!(analyse(source, false).metrics.loc.sloc(), 5);
         assert_eq!(pruned.metrics.loc.sloc(), 1);
         assert_eq!(pruned.metrics.loc.ploc(), 1);
+    }
+
+    // #1446's shape, small enough to assert on: nesting deep enough
+    // that the attribute lookahead reads the parent's child list
+    // forward, and one attribute run long enough that re-deriving it
+    // per row was quadratic. The prune's answer is now taken once for
+    // the run and reused, so this pins that the *reused* answer is the
+    // same one every row used to compute for itself.
+    //
+    // Only the innermost `fn t` is test code, so a reach that ran past
+    // the item it stops at would take `let keep = 3;` — the row that
+    // makes `ploc` differ from the depth — with it.
+    #[test]
+    fn a_long_attribute_run_inside_nesting_prunes_exactly_its_own_rows() {
+        let attributes = "#[cfg(test)]\n#[allow(dead_code)]\n#[allow(unused)]\n\
+                          #[allow(clippy::all)]\n#[must_use]\n";
+        let source = format!(
+            "fn a() {{\nfn b() {{\nfn c() {{\n{attributes}fn t() -> i32 {{ 1 }}\nlet keep = 3;\n}}\n}}\n}}\n"
+        );
+        // Seven production rows — three `fn` headers, `let keep`, and
+        // three closing braces — against a thirteen-row file: the five
+        // attributes and `fn t` are the six the prune takes.
+        assert_eq!(analyse(&source, false).metrics.loc.ploc(), 13);
+        let pruned = analyse(&source, true);
+        assert_eq!(
+            (pruned.metrics.loc.ploc(), pruned.metrics.loc.sloc()),
+            (7, 7),
+            "the five attribute rows and the item they mark are the \
+             prune's, and nothing else is"
+        );
+        assert_eq!(
+            pruned.metrics.nom.functions_sum() as usize,
+            3,
+            "`fn t` goes; `fn a` / `fn b` / `fn c` stay"
+        );
     }
 }
 

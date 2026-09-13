@@ -113,55 +113,38 @@ impl Loc for BashCode {
                 stats.ploc.lines.insert(start);
                 add_string_interior_ploc(node, stats, start);
             }
-            // The wrapper, whose interior starts where the *body* does and
-            // not one row below the `<<` (#1443).
+            // The wrapper spans the command-line *prefix* as well as the
+            // literal, and the grammar lets that prefix cross rows — a
+            // `pipeline` is one of its children — so this range can
+            // over-credit. #1443 narrowed it to the literal's own rows and
+            // that was **reverted**; the narrowing is restored only when
+            // #1445 lands. The reasoning is worth keeping, because the
+            // narrowing looks obviously right:
             //
-            // `heredoc_redirect` spans the command-line prefix as well as
-            // the literal, and the grammar lets that prefix cross rows: a
-            // `pipeline` is one of its children. Crediting from
-            // `start + 1`, as the arm above does for a literal that *is*
-            // its own span, then bills every prefix row as code —
-            // including a blank or comment-only one.
+            // - What it fixed is unreachable. A *blank or comment-only*
+            //   prefix row needs `bash -n` to reject the file: bash begins
+            //   the body on the line after the one carrying `<<`, and a `\`
+            //   continuation splices the rows rather than leaving one
+            //   empty. All four spellings — bare and `\`-continued, blank
+            //   row and comment row — are syntax errors.
+            // - What it broke is not. A continuation row holding only `\`
+            //   is valid Bash and is code, and it carries no leaf for the
+            //   leaf-gated catch-all below to credit, so narrowing the
+            //   range dropped it: `cat <<EOT | \` + `\` + `  grep x` went
+            //   from `ploc 5, blank 0` to `ploc 4, blank 1`.
             //
-            // The first body row is one past the last row any non-body
-            // child occupies, which collapses to `start + 1` for the
-            // ordinary single-row prefix, so this is the same arithmetic
-            // everywhere except the shape it exists for.
-            //
-            // **What is and is not reachable here — measured, because
-            // the first reading of it was wrong.** A multi-row prefix
-            // *is* valid Bash whenever the continuation carries content:
-            // `cat <<EOT | \` + `  grep x`, and the `&&` form, both pass
-            // `bash -n`. What is unreachable is a **blank or
-            // comment-only** prefix row, which is the shape this bound
-            // exists for: bash begins the body on the line after the one
-            // carrying `<<`, so a bare `cat <<EOT |` + newline makes the
-            // next line the body and the terminator is never found, and
-            // a `\` continuation splices the rows rather than leaving a
-            // blank one. All four spellings — bare and `\`-continued,
-            // blank row and comment row — are rejected by `bash -n`,
-            // while tree-sitter parses each as a pipeline inside the
-            // wrapper.
-            //
-            // So the bound changes nothing for the valid multi-row
-            // prefixes above (their continuation rows carry leaves the
-            // catch-all credits) and corrects the malformed trees `bca`
-            // is still asked to measure (#1398's argument).
-            //
-            // One valid shape *does* move, and it is not this arm's bug
-            // to own: a continuation row holding only `\` has no leaf,
-            // so nothing credits it and it now reads blank. That is a
-            // general Bash gap, not a heredoc one — `echo a | \` + `\` +
-            // `  grep b` reports it outside any heredoc too — which the
-            // old blanket range happened to mask in this one position.
-            // Tracked as #1445; do not paper over it here.
+            // That is #1445, a general Bash gap — `echo a | \` + `\` +
+            // `  grep b` shows it with no heredoc in sight — which this
+            // blanket range happens to mask here. Masking it is the better
+            // trade until #1445 closes it: the rows it over-credits belong
+            // to files that do not run, and the row it saves belongs to
+            // files that do. Distinguishing a `\`-only row from an empty
+            // one needs the source bytes, which `Loc::compute` is not
+            // given.
             HeredocRedirect => {
                 check_comment_ends_on_code_line(stats, start);
                 stats.ploc.lines.insert(start);
-                stats.ploc.lines.insert_range(
-                    heredoc_body_first_row(node, start),
-                    node.end_line().saturating_sub(1),
-                );
+                add_string_interior_ploc(node, stats, start);
             }
             // An assignment standing as a statement of its own is one
             // logical line — but only then.
@@ -208,48 +191,4 @@ impl Loc for BashCode {
             }
         }
     }
-}
-
-/// The first row of `redirect`'s heredoc body: one past the last row any
-/// of its non-body children occupies.
-///
-/// `heredoc_redirect` covers the command-line prefix (`<<`, the marker,
-/// and whatever the grammar hangs off the rest of the line) as well as
-/// the literal, so the literal's own rows start below all of them. The
-/// prefix is single-row in every runnable spelling, where this returns
-/// `start + 1` and the caller behaves exactly as the sibling arm does.
-///
-/// Reading the *body* node's start row instead would be wrong for the
-/// shape #1412 is about: `heredoc_body`'s span begins at the first body
-/// row that has text and collapses to zero width when the body is empty
-/// throughout, so it cannot say where the body *begins*. The prefix can,
-/// because it is bounded by the row the marker sits on.
-///
-/// The floor keeps the range clear of the opening row the caller has
-/// already credited, and it is **inert today**: every `heredoc_redirect`
-/// the grammar emits carries the `<<` token, which starts on `start` at
-/// a column above 0 and so ends at `start + 1` or later. Deleting the
-/// floor fails no test — measured, 0 of 3,394 — which is why the
-/// `debug_assert!` is here rather than a comment claiming the shape
-/// cannot arise. It checks the premise on every heredoc of every walk,
-/// so a grammar that ever emits a body-only wrapper reports that
-/// directly instead of silently crediting rows above the literal.
-fn heredoc_body_first_row(redirect: &Node, start: usize) -> usize {
-    let after_prefix = redirect
-        .children()
-        .filter(|child| {
-            !matches!(
-                child.kind_id().into(),
-                Bash::HeredocBody | Bash::HeredocBody2 | Bash::HeredocContent | Bash::HeredocEnd
-            )
-        })
-        .map(|child| child.end_line())
-        .max();
-
-    debug_assert!(
-        after_prefix.is_some_and(|row| row > start),
-        "a heredoc_redirect at row {start} has no non-body child below its opening row"
-    );
-
-    after_prefix.unwrap_or(0).max(start.saturating_add(1))
 }

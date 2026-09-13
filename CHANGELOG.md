@@ -165,13 +165,30 @@ for historical reference.
   attribute, looking ahead over its run to the item it decorates and
   pruning only when that item is one the prune removes anyway; the
   attribute on a `use`, a `struct`, or any other kind `--exclude-tests`
-  keeps is untouched. **Metric drift:** `loc.ploc`, `loc.sloc` and the
-  MI values derived from them fall for `--exclude-tests` runs over Rust
-  containing test items, by one row per attribute row that is not
-  shared with retained code; `--exclude-tests` off — the default — is
-  byte-identical. A wholly test-only file now measures `sloc 0`, which
-  scores MI `0.0` on all three formulas through the existing
-  empty-input guard.
+  keeps is untouched. **Metric drift, and it is not only LOC:** the
+  prune arm `continue`s before the per-node computes, so the attribute
+  subtree leaves *every* selected metric, not just the row counts.
+  `loc.ploc` and `loc.sloc` fall by one per attribute row not shared
+  with retained code; `tokens` and the whole `halstead` block fall too,
+  because Rust attribute tokens are Halstead operators and operands; and
+  `mi` moves through both of its inputs, `ln(sloc)` and Halstead volume,
+  not through SLOC alone. Measured over 463 Rust files, `tokens` and
+  `halstead.length` change in 206 of them under `--exclude-tests`.
+  `--exclude-tests` off — the default — is byte-identical. A wholly
+  test-only file now measures `sloc 0`, which scores MI `0.0` on all
+  three formulas through the existing empty-input guard.
+  The lookahead answers **once per attribute run**, not once per row
+  (#1446). Every `#[…]` in a run decorates the same item and so gets the
+  same verdict, and re-deriving it per row read the run `run` times: a
+  Rust file `D` levels deep carrying one run of `3 * D` attributes — the
+  width `forward_attribute_scan_budget` permits at that depth, so the
+  shape is guaranteed onto the forward `O(children)` reading — took
+  5.2 s to analyse at `D = 2000` against 0.05 s with `--exclude-tests`
+  off. `Checker::should_skip_subtree` now reports how far its verdict
+  reaches (`SubtreeSkip`), the walk reuses it across the run's members,
+  and the same file takes 0.02 s. Metric values are unchanged; the
+  `nom/deep-attribute-run` scaling probe holds the class, reading 2.01
+  against the per-row lookahead and 1.06 against this one.
 - **`--exclude-tests` no longer drops rows a pruned item shares with
   retained code**, which made `sloc` fall below `ploc` (#1417).
   `Sloc` accumulated each pruned subtree's whole row span as a

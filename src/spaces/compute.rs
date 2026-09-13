@@ -8,6 +8,7 @@
 
 use super::*;
 use crate::MetricSuite;
+use crate::SubtreeSkip;
 use crate::diag::warn;
 
 // Walks that ended with a cognitive nesting slot still live. Freeing
@@ -565,7 +566,11 @@ fn apply_comment_suppression(
 /// Propagating the flag down the traversal computes the same predicate in
 /// `O(1)` per node: a node is inside a comment iff its parent was, or the
 /// node itself is a comment.
-#[derive(Clone, Copy)]
+/// `Default` is the root's tag, and the only place one is built from
+/// nothing: level 0, depth 0, and outside any comment are what "no
+/// ancestors yet" means for all three fields at once. Every other tag
+/// is derived from a parent's.
+#[derive(Clone, Copy, Default)]
 struct Walk {
     /// Nesting level, used to close func-spaces on the way back up.
     level: usize,
@@ -693,6 +698,35 @@ pub(crate) fn push_children<'a, 's, Tag: Copy>(
     &stack[first..]
 }
 
+/// Whether `exclude_tests` elides `node` and its descendants, reusing
+/// `run_verdict` when the classifier's last answer already reached this
+/// far.
+///
+/// The reach exists because some verdicts are about a *run* of
+/// siblings rather than one node: Rust's `#[…]` rows all decorate the
+/// same item, so a classifier that read the run to answer for the first
+/// row has answered for the rest of them too. Asking per row instead
+/// re-derived the run per row, which is `O(run^2)` on a file deep
+/// enough to keep the run inside the forward-scan budget — 5.2 s at
+/// depth 2 000 (#1446).
+///
+/// Pre-order visits `start_byte` non-decreasing, so a reach the walk
+/// has passed can never be re-entered and the stale-answer case does
+/// not arise. `SubtreeSkip::RETAIN` reaches nothing, which is what the
+/// walk starts from and what every classifier that answers per node
+/// keeps returning.
+fn prunes_subtree<'a, T: MetricSuite>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    run_verdict: &mut SubtreeSkip,
+) -> bool {
+    if !run_verdict.answers_for(node.start_byte()) {
+        *run_verdict = T::Checker::should_skip_subtree(node, code, ancestors);
+    }
+    run_verdict.is_skipped()
+}
+
 pub(crate) fn metrics_inner<T: MetricSuite>(
     parser: &T,
     name: Option<String>,
@@ -752,16 +786,14 @@ pub(crate) fn metrics_inner<T: MetricSuite>(
     // #289). The root `Unit` state — always at index 0 once the walk
     // has visited the AST root — owns file-scoped markers.
 
+    // A classifier verdict that answered for a whole run of siblings,
+    // carried past the member it was asked about. See `prunes_subtree`
+    // (#1446).
+    let mut run_verdict = SubtreeSkip::RETAIN;
+
     push_synthetic_unit_root::<T>(&mut state_stack, &node, code, selected);
 
-    stack.push((
-        node,
-        Walk {
-            level: 0,
-            depth: 0,
-            in_comment: false,
-        },
-    ));
+    stack.push((node, Walk::default()));
 
     while let Some((
         node,
@@ -801,7 +833,7 @@ pub(crate) fn metrics_inner<T: MetricSuite>(
         // The hook is gated on `exclude_tests` so the default
         // `metrics()` entry point keeps emitting the pre-#182
         // numbers byte-for-byte.
-        if options.exclude_tests && T::Checker::should_skip_subtree(&node, code, ancestors) {
+        if options.exclude_tests && prunes_subtree::<T>(&node, code, ancestors, &mut run_verdict) {
             // `sloc` is span-based, not node-accumulated, so unlike every
             // other loc sub-metric it does not shrink just because we
             // skip the subtree. Record the pruned node's rows on the
