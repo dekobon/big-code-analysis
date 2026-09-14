@@ -1924,6 +1924,15 @@ mod tests {
     /// bare wildcard — the `when` guard adds a non-trivial decision —
     /// so the arm still contributes one standard decision, mirroring
     /// Rust's `_ if g` rule.
+    ///
+    /// Since #1422 the guard contributes a second decision of its own
+    /// (`WhenClause`), so the arm is worth 2: the pattern can match and
+    /// the guard still fail, which is a distinct way to fall through to
+    /// the next arm. The two counts have different owners —
+    /// `csharp_switch_expression_arm_is_bare_discard` keeps the arm out
+    /// of the `default:` exclusion, the `WhenClause` arm scores the
+    /// guard — so this test would still fail if #282's exclusion were
+    /// reintroduced, at sum 5 / max 3 against the asserted 6 / 4.
     #[test]
     fn csharp_switch_expression_guarded_discard_still_counts() {
         check_metrics::<CsharpParser>(
@@ -1938,10 +1947,10 @@ mod tests {
             "foo.cs",
             |metric| {
                 // expected: unit(1) + class(1) + fn(base 1 + 1 explicit +
-                //           1 guarded discard; bare `_ =>` skipped) = 5,
-                //           max 3.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
+                //           1 guarded discard + 1 `when` guard (#1422);
+                //           bare `_ =>` skipped) = 6, max 4.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
             },
         );
     }
@@ -1979,6 +1988,11 @@ mod tests {
     /// so the arm still contributes one standard decision. Exercises
     /// the `DeclarationPattern` arm of `classify_pattern` combined
     /// with the post-pattern `WhenClause` sweep.
+    ///
+    /// As with `csharp_switch_expression_guarded_discard_still_counts`,
+    /// the guard has scored a decision of its own since #1422, so the
+    /// arm is worth 2. Reintroducing #303's exclusion would read sum 5 /
+    /// max 3 against the asserted 6 / 4.
     #[test]
     fn csharp_switch_expression_guarded_var_underscore_still_counts() {
         check_metrics::<CsharpParser>(
@@ -1993,10 +2007,10 @@ mod tests {
             "foo.cs",
             |metric| {
                 // expected: unit(1) + class(1) + fn(base 1 + 1 explicit `1` +
-                //           1 guarded `var _`; bare `_ =>` skipped) = 5,
-                //           max 3.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
+                //           1 guarded `var _` + 1 `when` guard (#1422);
+                //           bare `_ =>` skipped) = 6, max 4.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
             },
         );
     }

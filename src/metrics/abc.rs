@@ -530,6 +530,40 @@ mod tests {
         }
     }
 
+    // The second sibling, for a fixture whose point is that a construct
+    // moves a member *off* the value its unguarded control scores.
+    // `assert_every_member_scores` cannot serve those: it takes one
+    // expected value for the whole container, and every #1422 guard
+    // fixture deliberately pairs guarded members with an unguarded
+    // control one lower — which is the comparison the test exists to
+    // make. Both tiers per member, because a guard is a decision in each
+    // and a fix that moved only one of them would satisfy neither claim
+    // on its own.
+    fn assert_csharp_members_score(container: &crate::FuncSpace, expected: &[(&str, u64, u64)]) {
+        assert_eq!(
+            container.spaces.len(),
+            expected.len(),
+            "member count changed — the fixture moved, not the metric"
+        );
+        for (name, conditions, cyclomatic) in expected {
+            let member = container
+                .spaces
+                .iter()
+                .find(|s| s.name.as_deref() == Some(*name))
+                .unwrap_or_else(|| panic!("fixture lost `{name}`"));
+            assert_eq!(
+                member.metrics.abc.conditions(),
+                *conditions,
+                "{name}: abc.conditions"
+            );
+            assert_eq!(
+                member.metrics.cyclomatic.cyclomatic(),
+                *cyclomatic,
+                "{name}: cyclomatic"
+            );
+        }
+    }
+
     // #1383's fix makes a relational pattern's operator score *zero*, so
     // its tests have no second axis to anchor on: trimming `> 5` down to
     // `5` leaves every assertion satisfied and the construct under test
@@ -4252,71 +4286,346 @@ mod tests {
     // guard too.
     //
     // A relational *pattern* in the guard (`g`) is the other side of that
-    // line: it scores nothing, though no slot pays for it, because the
-    // gate is on the operator's parent and a guard is a decision slot
-    // neither metric models. It is the outside-slot trade
-    // `csharp_relational_pattern_outside_a_decision_slot_scores_zero`
-    // records, and it leaves `when n is > 5` one below `when n > 5`;
-    // modelling the guard as a slot would score the `is` test once and
-    // close the gap (#1422).
+    // line: the operator itself still scores nothing, because the gate is
+    // on the operator's parent — but since #1422 the guard is a condition
+    // slot, and an `is` test is one of `csharp_bool_terminal_kinds!()`, so
+    // the slot pays for it. That is what closed the gap this test used to
+    // carry a `FIXME(#1422)` for: `when n is > 5` now reads level with
+    // `when n > 5` instead of one below it.
     //
-    // It is also where §8 does not hold, and the reason is worth
-    // stating precisely, because the obvious reading is wrong. Neither
-    // metric models the guard as a branch — C# cyclomatic has no
-    // `when_clause` arm, and ABC has no guard rule either. ABC's extra
-    // count is simply the `==` *token*, which happens to sit inside the
-    // guard. Measured:
+    // §8 holds throughout, which it did not before #1422. The old table
+    // here recorded the defect: neither metric modelled the guard, so
+    // ABC's count was whatever operator token happened to sit inside it
+    // and cyclomatic's was nothing at all. Both tiers measured, before
+    // and after:
     //
     // | guard | `conditions()` | `cyclomatic() - 1` |
     // |---|---|---|
-    // | `when x % 2 == 0` (this fixture) | 3 | 2 |
-    // | `when x > 2`                     | 3 | 2 |
-    // | `when IsEven(x)`                 | 2 | 2 |
-    //
-    // So the gap is not "ABC models guards better"; it is that a
-    // call-shaped guard restores parity while an operator-shaped one
-    // does not. That inconsistency is real, predates #1383, and is
-    // filed rather than changed here — see #1422.
+    // | `when x % 2 == 0` (this fixture) | 3 → 3 | 2 → 3 |
+    // | `when x > 2`                     | 3 → 3 | 2 → 3 |
+    // | `when IsEven(x)`                 | 2 → 3 | 2 → 3 |
     //
     // The `==` is the guard's own operator and the only `==` in the
-    // file, so trimming the `when` clause out of the fixture drops the
-    // count to 2 rather than leaving the assertion satisfied by
-    // something else.
+    // file, so trimming the `when` clause out of `w` drops its count to
+    // 2 rather than leaving the assertion satisfied by something else;
+    // `assert_csharp_fixture_spells` pins both guards by kind against
+    // the same decay.
     #[test]
     fn csharp_switch_arm_guard_operator_still_counts() {
-        check_func_space::<CsharpParser, _>(
-            "class A {
+        let src = "class A {
                 int w(int x) => x switch { > 0 when x % 2 == 0 => 1, > 0 => 2, _ => 3 };
                 int g(int x) => x switch { int n when n is > 5 => 1, _ => 0 };
-            }",
-            "foo.cs",
-            |space| {
-                let m = &space.spaces[0].spaces[0];
-                assert_eq!(m.name.as_deref(), Some("w"));
-                // 4 if the `when_clause` itself started counting, 2 if
-                // the guard's `==` were suppressed along with the
-                // pattern operators — both are live regressions.
-                assert_eq!(
-                    m.metrics.abc.conditions(),
-                    3,
-                    "two arms plus the guard's `==`"
-                );
-                assert_eq!(m.metrics.cyclomatic.cyclomatic(), 3);
-
-                let g = &space.spaces[0].spaces[1];
-                assert_eq!(g.name.as_deref(), Some("g"));
-                // FIXME(#1422): the one non-discard arm alone. The guard's
-                // pattern `>` scores nothing where `when n > 5` would add
-                // one; a guard modelled as a condition slot would score the
-                // `is` test instead, taking this to 2.
-                assert_eq!(
-                    g.metrics.abc.conditions(),
-                    1,
-                    "one arm; the guard's relational pattern scores nothing"
-                );
-                assert_eq!(g.metrics.cyclomatic.cyclomatic(), 2);
-            },
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (Csharp::WhenClause as u16, 2, "`when` guards"),
+                (Csharp::EQEQ as u16, 1, "the guard's `==`"),
+                (Csharp::RelationalPattern as u16, 3, "relational patterns"),
+            ],
         );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            let m = &space.spaces[0].spaces[0];
+            assert_eq!(m.name.as_deref(), Some("w"));
+            // 4 if the guard slot started counting a `binary_expression`
+            // on top of its `==`, 2 if the `==` were suppressed along
+            // with the pattern operators — both are live regressions.
+            assert_eq!(
+                m.metrics.abc.conditions(),
+                3,
+                "two arms plus the guard's `==`"
+            );
+            assert_eq!(m.metrics.cyclomatic.cyclomatic(), 4);
+
+            let g = &space.spaces[0].spaces[1];
+            assert_eq!(g.name.as_deref(), Some("g"));
+            assert_eq!(
+                g.metrics.abc.conditions(),
+                2,
+                "one arm plus the guard slot, which scores the `is` test"
+            );
+            assert_eq!(g.metrics.cyclomatic.cyclomatic(), 3);
+        });
+    }
+
+    // #1422's headline: four spellings of one guard, previously worth
+    // two different ABC numbers because nothing modelled the guard and
+    // ABC counted whatever operator token happened to sit inside it —
+    // `when x % 2 == 0` and `when x > 2` scored 1 through the
+    // comparison-token arm, `when IsEven(x)` scored 0. Modelled as a
+    // condition slot each contributes exactly 1, and the cyclomatic
+    // `WhenClause` arm lifts the decision count to match.
+    //
+    // `none` is the unguarded control and the anchor: a two-arm switch
+    // over the same relational patterns carrying no guard at all, so
+    // every member here is exactly one guard away from it. Without that
+    // row a fix that scored the *arms* differently would satisfy the
+    // four guarded rows alike. Its arms run `> 2` before `> 0` because
+    // the reverse order is a C# compile error (CS8510, the later arm
+    // subsumed) — the guarded members escape that only because a guard
+    // can fail, which is what makes their repeated `> 0` legal.
+    //
+    // `paren` is not a fourth spelling for its own sake — it is the only
+    // member reaching the `WhenClause` seed added to
+    // `csharp_inspect_container`, since `when_clause` wraps a
+    // parenthesised guard in a real `parenthesized_expression` rather
+    // than the anonymous parens `catch_filter_clause` uses.
+    #[test]
+    fn csharp_switch_arm_guard_scores_one_condition_however_spelled() {
+        let src = "class A {
+                static bool IsEven(int x) { return true; }
+                int tok(int x) => x switch { > 0 when x % 2 == 0 => 1, > 0 => 2, _ => 3 };
+                int cmp(int x) => x switch { > 0 when x > 2 => 1, > 0 => 2, _ => 3 };
+                int call(int x) => x switch { > 0 when IsEven(x) => 1, > 0 => 2, _ => 3 };
+                int paren(int x) => x switch { > 0 when (IsEven(x)) => 1, > 0 => 2, _ => 3 };
+                int none(int x) => x switch { > 2 => 1, > 0 => 2, _ => 3 };
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (Csharp::WhenClause as u16, 4, "`when` guards"),
+                (Csharp::EQEQ as u16, 1, "`tok`'s `==`"),
+                (
+                    Csharp::ParenthesizedExpression as u16,
+                    1,
+                    "`paren`'s parenthesised guard",
+                ),
+                // By the call's *argument list*, which carries no
+                // numeric-suffix alias, rather than by
+                // `invocation_expression`, which has three
+                // (`InvocationExpression` / `2` / `3`) and would pin this
+                // anchor to whichever one the pinned grammar happens to
+                // emit. `call` and `paren` hold the only two argument
+                // lists in the fixture — `IsEven(int x)` is a
+                // `parameter_list`.
+                (Csharp::ArgumentList as u16, 2, "the `IsEven` calls"),
+            ],
+        );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            assert_csharp_members_score(
+                &space.spaces[0],
+                &[
+                    ("IsEven", 0, 1),
+                    ("tok", 3, 4),
+                    ("cmp", 3, 4),
+                    ("call", 3, 4),
+                    ("paren", 3, 4),
+                    ("none", 2, 3),
+                ],
+            );
+        });
+    }
+
+    // The statement `switch` reaches the same `when_clause` kind through
+    // a different parent — `switch_section` rather than
+    // `switch_expression_arm` — which makes it an independent path in
+    // the sense of `.claude/rules/grammar-dispatch.md` §11: the arms
+    // themselves are counted by two different owners (a `Case` token
+    // here, the `SwitchExpressionArm` node there), so a guard rule
+    // written against one shape could be dead for the other and every
+    // expression-form fixture would still read correct.
+    #[test]
+    fn csharp_statement_switch_section_guard_counts() {
+        let src = "class A {
+                static bool IsEven(int x) { return true; }
+                int guarded(int x) {
+                    switch (x) {
+                        case > 0 when IsEven(x): return 1;
+                        case > 0: return 2;
+                        default: return 3;
+                    }
+                }
+                int plain(int x) {
+                    switch (x) {
+                        case > 2: return 1;
+                        case > 0: return 2;
+                        default: return 3;
+                    }
+                }
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (Csharp::WhenClause as u16, 1, "the `case … when` guard"),
+                (Csharp::SwitchSection as u16, 6, "switch sections"),
+                (
+                    Csharp::SwitchExpressionArm as u16,
+                    0,
+                    "expression arms (this fixture is the statement form)",
+                ),
+            ],
+        );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            assert_csharp_members_score(
+                &space.spaces[0],
+                &[("IsEven", 0, 1), ("guarded", 3, 4), ("plain", 2, 3)],
+            );
+        });
+    }
+
+    // The sibling #1422's issue body does not mention, measured to have
+    // the identical defect: `catch (E e) when (…)` is a second guard
+    // spelling on its own `catch_filter_clause` kind, and it scored
+    // conditions 3 / 2 / 2 for the comparison / call spellings and the
+    // unfiltered control while `cyclomatic()` sat at 2 for all three.
+    //
+    // ABC runs one above `cyclomatic() - 1` on every row, guarded and
+    // unguarded alike, and that offset is not this fix's: C# ABC counts
+    // the `Try` token as a condition (Fitzpatrick Rule 5, the same
+    // family as `else`) where cyclomatic counts only the `catch`. The
+    // guard moves both tiers by exactly one, which is what `none`
+    // anchors — the offset is a constant here, not something a guard
+    // introduces.
+    //
+    // `paren` carries the *double* parenthesis on purpose. The grammar
+    // spells `catch_filter_clause`'s own parentheses as anonymous tokens
+    // the way `if_statement` does, so `when (IsEven(x))` hands the slot a
+    // bare `invocation_expression` and never reaches the
+    // `CatchFilterClause` seed in `csharp_inspect_container`; only a
+    // second pair of parentheses produces a `parenthesized_expression`
+    // there.
+    #[test]
+    fn csharp_catch_filter_guard_scores_one_condition_however_spelled() {
+        let src = "class A {
+                static bool IsEven(int x) { return true; }
+                int tok(int x) { try { return 1; } catch (System.Exception e) when (x % 2 == 0) { return 2; } }
+                int cmp(int x) { try { return 1; } catch (System.Exception e) when (x > 0) { return 2; } }
+                int call(int x) { try { return 1; } catch (System.Exception e) when (IsEven(x)) { return 2; } }
+                int paren(int x) { try { return 1; } catch (System.Exception e) when ((IsEven(x))) { return 2; } }
+                int none(int x) { try { return 1; } catch (System.Exception e) { return 2; } }
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (
+                    Csharp::CatchFilterClause as u16,
+                    4,
+                    "`catch … when` filters",
+                ),
+                (Csharp::CatchClause as u16, 5, "catch clauses"),
+                (Csharp::WhenClause as u16, 0, "switch guards (none here)"),
+                (
+                    Csharp::ParenthesizedExpression as u16,
+                    1,
+                    "`paren`'s inner parentheses",
+                ),
+            ],
+        );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            assert_csharp_members_score(
+                &space.spaces[0],
+                &[
+                    ("IsEven", 0, 1),
+                    ("tok", 3, 3),
+                    ("cmp", 3, 3),
+                    ("call", 3, 3),
+                    ("paren", 3, 3),
+                    ("none", 2, 2),
+                ],
+            );
+        });
+    }
+
+    // A guarded discard is where the two rules meet. `_ when g =>` is
+    // already exempt from the `default:` exclusion —
+    // `csharp_switch_expression_arm_is_bare_discard` looks for a
+    // `when_clause` for exactly this reason — so after #1422 it scores
+    // twice: once as an arm that is no longer unconditional, once for
+    // the guard that makes it conditional. `bare` is the control that
+    // keeps the exclusion itself pinned: drop the guard and the arm goes
+    // back to costing nothing.
+    #[test]
+    fn csharp_guarded_discard_arm_scores_arm_and_guard() {
+        let src = "class A {
+                static bool IsEven(int x) { return true; }
+                int guarded(int x) => x switch { > 0 => 1, _ when IsEven(x) => 2, _ => 3 };
+                int bare(int x) => x switch { > 0 => 1, _ => 3 };
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (Csharp::WhenClause as u16, 1, "the guarded discard"),
+                (Csharp::Discard as u16, 3, "discard patterns"),
+            ],
+        );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            assert_csharp_members_score(
+                &space.spaces[0],
+                &[("IsEven", 0, 1), ("guarded", 3, 4), ("bare", 1, 2)],
+            );
+        });
+    }
+
+    // A comment inside the guard must not cost it its condition.
+    // tree-sitter `extra`s are *named* nodes, so `comment` can be the
+    // first named child of either guard clause — and a slot that read
+    // only the first named child scored `when /*c*/ IsEven(x)` as 1
+    // where `when IsEven(x)` scores 2, silently reinstating the very
+    // spelling-dependence #1422 removes and breaking the §8 parity the
+    // fix establishes. Found in review of #1422 before it shipped.
+    //
+    // This is the C# instance of the class #1181 fixed for the ternary,
+    // where a comment between a token and its operand shifted every
+    // positional read. The two commented members are asserted equal to
+    // their uncommented twins rather than to a literal, so the pair
+    // cannot drift apart silently; the literals are pinned by
+    // `csharp_switch_arm_guard_scores_one_condition_however_spelled` and
+    // its catch-filter sibling.
+    #[test]
+    fn csharp_guard_keeps_its_condition_across_a_comment() {
+        let src = "class A {
+                static bool IsEven(int x) => true;
+                int plain(int x) => x switch { > 0 when IsEven(x) => 1, _ => 0 };
+                int cmt(int x) => x switch { > 0 when /*c*/ IsEven(x) => 1, _ => 0 };
+                int cplain(int x) { try { return 1; } catch (System.Exception e) when (IsEven(x)) { return 2; } }
+                int ccmt(int x) { try { return 1; } catch (System.Exception e) when (/*c*/ IsEven(x)) { return 2; } }
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (Csharp::Comment as u16, 2, "the in-guard comments"),
+                (Csharp::WhenClause as u16, 2, "switch guards"),
+                (Csharp::CatchFilterClause as u16, 2, "catch filters"),
+            ],
+        );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            assert_csharp_members_score(
+                &space.spaces[0],
+                &[
+                    ("IsEven", 0, 1),
+                    ("plain", 2, 3),
+                    ("cmt", 2, 3),
+                    ("cplain", 3, 3),
+                    ("ccmt", 3, 3),
+                ],
+            );
+        });
+    }
+
+    // Why the guard is a condition *slot* and not a flat +1: a compound
+    // guard keeps its sub-structure. `when a > 1 && b < 2` scores the
+    // two comparisons through the token arm and nothing extra from the
+    // slot, because a `binary_expression` is not one of
+    // `csharp_bool_terminal_kinds!()` — so it reads one above `single`'s
+    // lone comparison rather than collapsing to the same number, and
+    // cyclomatic agrees because it counts the `&&`.
+    #[test]
+    fn csharp_compound_guard_keeps_its_sub_structure() {
+        let src = "class A {
+                int compound(int a, int b) => a switch { > 0 when a > 1 && b < 2 => 1, _ => 0 };
+                int single(int a, int b) => a switch { > 0 when a > 1 => 1, _ => 0 };
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (Csharp::WhenClause as u16, 2, "`when` guards"),
+                (Csharp::AMPAMP as u16, 1, "`compound`'s `&&`"),
+                (Csharp::LT as u16, 1, "`compound`'s `<`"),
+            ],
+        );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            assert_csharp_members_score(&space.spaces[0], &[("compound", 3, 4), ("single", 2, 3)]);
+        });
     }
 
     // #1275: tree-sitter-c-sharp spells `int?`, `where T : class?`, the

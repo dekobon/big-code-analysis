@@ -39,12 +39,39 @@ impl Cyclomatic for CsharpCode {
                 stats.cyclomatic_modified += 1.;
             }
             // Both standard and modified.
+            //
+            // `WhenClause` and `CatchFilterClause` are C#'s two guard
+            // spellings, and each is a decision the enclosing construct
+            // does not already pay for (#1422): a guarded arm fails two
+            // ways — the pattern does not match, or it matches and the
+            // guard is false — while contributing one decision, and
+            // `catch (E e) when (c)` tests the filter after the type.
+            // Rust already counts a match guard — `rust.rs`'s `If` arm
+            // catches the guard's own `if` token — so C# was the
+            // outlier, not the convention.
+            //
+            // The clause *nodes*, not the `when` keyword they share:
+            // `When` (119) is also a `_reserved_identifier` at this pin,
+            // so `int when = 1;` emits it under an `identifier` and the
+            // token would score a decision per mention of the variable
+            // (`bca dump`, not inferred). One `when_clause` serves both
+            // the `switch_expression_arm` and `switch_section` guards;
+            // neither kind carries a numeric-suffix alias.
+            //
+            // A guarded discard (`_ when g => …`) therefore scores two,
+            // and that is the intended reading: the guard is already why
+            // `csharp_switch_expression_arm_is_bare_discard` keeps the
+            // arm out of the `default:` exclusion, so the arm is no
+            // longer an unconditional fallthrough and the guard that
+            // makes it conditional is its own decision.
             IfStatement
             | ForStatement
             | ForeachStatement
             | WhileStatement
             | DoStatement
             | CatchClause
+            | WhenClause
+            | CatchFilterClause
             | ConditionalExpression
             | ConditionalAccessExpression
             | AMPAMP

@@ -22,10 +22,14 @@ fn csharp_inspect_container(container_node: &Node, parent: &Node, conditions: &m
     let mut node_kind = node.kind_id().into();
 
     // Seed the boolean-context flag from the parent: known-boolean
-    // contexts (loop / if / binary expression) imply the contained
-    // expression evaluates as a condition.
+    // contexts (loop / if / guard / binary expression) imply the
+    // contained expression evaluates as a condition. The two guard
+    // clauses joined this list with #1422 — a `when` guard is a boolean
+    // slot exactly as an `if` condition is, so `when (b)` and
+    // `catch (E e) when ((b))` count their parenthesised operand.
     let mut has_boolean_content = match parent.kind_id().into() {
-        BinaryExpression | IfStatement | WhileStatement | DoStatement | ForStatement => true,
+        BinaryExpression | IfStatement | WhileStatement | DoStatement | ForStatement
+        | WhenClause | CatchFilterClause => true,
         ConditionalExpression => parent
             .child_by_field_name("condition")
             .is_some_and(|condition| condition.id() == node.id()),
@@ -484,6 +488,52 @@ fn csharp_walk_for_conditions<'a>(
         DoStatement => {
             if let Some(condition) = node.child(4) {
                 csharp_count_condition(&condition, node, conds);
+            }
+        }
+        // C#'s two guard spellings, each modelled as a condition slot
+        // exactly like the `if` / `while` / `do` slots above (#1422).
+        // Before this, a guard scored whatever operator happened to sit
+        // inside it: `when x % 2 == 0` and `when x > 2` counted one via
+        // the comparison-token arm while `when IsEven(x)` counted zero,
+        // so three semantically identical guards produced two different
+        // numbers. As a slot every spelling contributes exactly one —
+        // a call / `is` test / bare identifier through
+        // `csharp_bool_terminal_kinds!()`, a comparison through the
+        // token arm that already owned it — and a compound guard
+        // (`when a > 1 && b < 2`) keeps its sub-structure rather than
+        // collapsing to one.
+        //
+        // Suppressing the guard's operator instead would have reached
+        // the same internal agreement one count *below* C#'s own
+        // cyclomatic decision count, which #1422 fixes upward in
+        // `src/metrics/cyclomatic/csharp.rs`.
+        //
+        // By role, not index (`.claude/rules/grammar-dispatch.md` §3):
+        // the two clauses carry their guard as the only *expression*
+        // child but disagree on where it sits, because
+        // `catch_filter_clause` spells its parentheses as anonymous
+        // tokens (`when`, `(`, expr, `)`) the way `if_statement` does,
+        // while `when_clause` has none (`when`, expr). Neither exposes
+        // a field for the slot.
+        //
+        // Every named child, not the first: tree-sitter `extra`s are
+        // named nodes and may precede the expression, so `when /*c*/ g`
+        // hands a `comment` to a first-child read and silently restores
+        // the spelling-dependence this fix removes. C#'s extras at this
+        // pin are `comment` plus ten `preproc_*` kinds — none of them a
+        // `csharp_bool_terminal_kinds!()` member, and none a paren or
+        // `!`-prefix wrapper — so passing them through the slot adds
+        // nothing and the loop cannot double count a clause that holds
+        // one expression by construction.
+        //
+        // The sibling `if` / `while` / `do` slots read a fixed child
+        // index and so still lose their condition to a leading comment
+        // (`if (/*c*/ g)` scores 0). That is the same class of bug and
+        // predates this arm; it is left to its own change rather than
+        // widened into here.
+        WhenClause | CatchFilterClause => {
+            for guard in node.children().filter(Node::is_named) {
+                csharp_count_condition(&guard, node, conds);
             }
         }
         // `return value;` — child(1) is the value expression.
