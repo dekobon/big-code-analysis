@@ -538,8 +538,11 @@ mod tests {
     // control one lower — which is the comparison the test exists to
     // make. Both tiers per member, because a guard is a decision in each
     // and a fix that moved only one of them would satisfy neither claim
-    // on its own.
-    fn assert_csharp_members_score(container: &crate::FuncSpace, expected: &[(&str, u64, u64)]) {
+    // on its own, and because a member may legitimately sit *above* its
+    // decision count — an `else` arm, or a comparison nested inside
+    // another comparison, is an ABC condition with no cyclomatic
+    // decision behind it (#1421).
+    fn assert_members_score(container: &crate::FuncSpace, expected: &[(&str, u64, u64)]) {
         assert_eq!(
             container.spaces.len(),
             expected.len(),
@@ -579,12 +582,8 @@ mod tests {
     // of the control. Measured — with presence-only anchoring, rewriting
     // `if (x is > 0)` to `if (x > 0)` in one method of five failed
     // nothing.
-    fn assert_csharp_fixture_spells(src: &str, kinds: &[(u16, usize, &str)]) {
-        let parser = CsharpParser::new(
-            src.as_bytes().to_vec(),
-            std::path::Path::new("foo.cs"),
-            None,
-        );
+    fn assert_fixture_spells<P: ParserTrait>(src: &str, path: &str, kinds: &[(u16, usize, &str)]) {
+        let parser = P::new(src.as_bytes().to_vec(), std::path::Path::new(path), None);
         for (kind, want, spelling) in kinds {
             let found = parser
                 .root()
@@ -596,6 +595,13 @@ mod tests {
                 "fixture has {found} of {spelling}, expected {want} — the construct under test was edited"
             );
         }
+    }
+
+    // The C# binding of the anchor above. Sixteen callers pass a `foo.cs`
+    // fixture, so the parser and path are fixed here rather than repeated
+    // at each one.
+    fn assert_csharp_fixture_spells(src: &str, kinds: &[(u16, usize, &str)]) {
+        assert_fixture_spells::<CsharpParser>(src, "foo.cs", kinds);
     }
 
     /// Regression for #227: a `Stats::default()` that never sees an
@@ -4402,7 +4408,7 @@ mod tests {
             ],
         );
         check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
-            assert_csharp_members_score(
+            assert_members_score(
                 &space.spaces[0],
                 &[
                     ("IsEven", 0, 1),
@@ -4456,7 +4462,7 @@ mod tests {
             ],
         );
         check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
-            assert_csharp_members_score(
+            assert_members_score(
                 &space.spaces[0],
                 &[("IsEven", 0, 1), ("guarded", 3, 4), ("plain", 2, 3)],
             );
@@ -4512,7 +4518,7 @@ mod tests {
             ],
         );
         check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
-            assert_csharp_members_score(
+            assert_members_score(
                 &space.spaces[0],
                 &[
                     ("IsEven", 0, 1),
@@ -4549,7 +4555,7 @@ mod tests {
             ],
         );
         check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
-            assert_csharp_members_score(
+            assert_members_score(
                 &space.spaces[0],
                 &[("IsEven", 0, 1), ("guarded", 3, 4), ("bare", 1, 2)],
             );
@@ -4589,7 +4595,7 @@ mod tests {
             ],
         );
         check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
-            assert_csharp_members_score(
+            assert_members_score(
                 &space.spaces[0],
                 &[
                     ("IsEven", 0, 1),
@@ -4624,7 +4630,7 @@ mod tests {
             ],
         );
         check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
-            assert_csharp_members_score(&space.spaces[0], &[("compound", 3, 4), ("single", 2, 3)]);
+            assert_members_score(&space.spaces[0], &[("compound", 3, 4), ("single", 2, 3)]);
         });
     }
 
@@ -5445,6 +5451,303 @@ function f(int $a, int $b): int {
                 // case `1 ->` (+1) + case `2 ->` (+1) + `else ->` (+0) = 2.
                 assert_eq!(metric.abc.conditions_sum(), 2);
             },
+        );
+    }
+
+    // The Kotlin binding of the two assertions every #1421 fixture needs,
+    // coupled on purpose. A per-member score table is worth only as much
+    // as the anchor proving the fixture still spells what it claims to
+    // (`.claude/rules/testing.md`, "Perturb the fixture as well as the
+    // production line"), and the `when_subject` count is the anchor no
+    // score can stand in for: a `when` that grew a subject scores its
+    // entries the pre-#1421 way with every other row still satisfied.
+    // Each fixture is one class, so the members are `spaces[0]`'s.
+    fn assert_kotlin_class_members(
+        src: &str,
+        kinds: &[(u16, usize, &str)],
+        expected: &[(&str, u64, u64)],
+    ) {
+        assert_fixture_spells::<KotlinParser>(src, "foo.kt", kinds);
+        check_func_space::<KotlinParser, _>(src, "foo.kt", |space| {
+            assert_members_score(&space.spaces[0], expected);
+        });
+    }
+
+    // #1421's headline. A subject-less `when` arm's condition is an
+    // ordinary boolean expression, so its comparison operator is already
+    // an ABC condition through the token arms; the `WhenEntry` arm added
+    // a second one on top, and `two` reported 4 against a decision count
+    // of 2.
+    //
+    // `bare` is the control that isolates the defect rather than merely
+    // observing it: same arm count, same entry shape, no comparison
+    // operator anywhere — so it scored the right 2 before the fix and
+    // after it. A fix that changed both members alike would be attacking
+    // the entry count, which was never wrong.
+    //
+    // `ge` and `eq` exist because the issue named `<` and `>` only. All
+    // six comparison spellings share the defect: `>=` and `==` reach
+    // `stats.conditions` through the `LTEQ | GTEQ | EQEQ | …` arm rather
+    // than the parent-gated `LT | GT` arm, and both scored 2 against a
+    // decision count of 1.
+    //
+    // `iff` is the member that legitimately sits *above* its decision
+    // count, and it is here so the table cannot be read as "§8 parity
+    // everywhere". ABC counts the `else` (Fitzpatrick Rule 5) and
+    // cyclomatic does not, so 2 conditions against 1 decision is correct
+    // and unchanged by this fix.
+    //
+    // The `when_subject` anchor is the load-bearing one: the whole test
+    // turns on these `when`s having no subject, and nothing in the
+    // measured numbers would notice a fixture that grew one — a
+    // subject-ful `when (x) { … }` scores its entries the old way and
+    // `two` would read 4 again with every other row still satisfied.
+    #[test]
+    fn kotlin_subjectless_when_arm_counts_its_condition_once() {
+        let src = "class K {
+                fun f(): Boolean = true
+                fun two(x: Int): Int = when { x > 5 -> 1; x < 0 -> 2; else -> 0 }
+                fun bare(x: Boolean, y: Boolean): Int = when { x -> 1; y -> 2; else -> 0 }
+                fun ge(x: Int): Int = when { x >= 5 -> 1; else -> 0 }
+                fun eq(x: Int): Int = when { x == 5 -> 1; else -> 0 }
+                fun andd(a: Int, b: Int): Int = when { a > 1 && b < 2 -> 1; else -> 0 }
+                fun call(): Int = when { f() -> 1; else -> 0 }
+                fun iff(x: Int): Int = if (x > 5) 1 else 0
+            }";
+        assert_kotlin_class_members(
+            src,
+            &[
+                (Kotlin::WhenSubject as u16, 0, "`when` subjects"),
+                (Kotlin::WhenEntry as u16, 14, "`when` entries"),
+                (
+                    Kotlin::BinaryExpression as u16,
+                    8,
+                    "comparison / chain expressions",
+                ),
+                (Kotlin::AMPAMP as u16, 1, "`andd`'s `&&`"),
+            ],
+            &[
+                // (member, abc.conditions, cyclomatic)
+                ("f", 0, 1),
+                // Was 4: two entries, two comparisons, counted twice.
+                ("two", 2, 3),
+                // The no-comparison control — 2 before and after.
+                ("bare", 2, 3),
+                // Was 2 each: the `GTEQ` / `EQEQ` spellings.
+                ("ge", 1, 2),
+                ("eq", 1, 2),
+                // Was 3. A compound condition keeps both of its
+                // comparisons — suppressing the operators instead
+                // would have collapsed this one to 1.
+                ("andd", 2, 3),
+                // The condition slot scores a call directly, so a
+                // spelling with no operator in it still reads 1.
+                ("call", 1, 2),
+                // Above its decision count on purpose: ABC counts
+                // the `else`, cyclomatic does not.
+                ("iff", 2, 2),
+            ],
+        );
+    }
+
+    // The other half of #1421: a subject-ful entry must not move. Its
+    // condition is a *pattern* matched against the subject, not an
+    // independent boolean expression, so the implicit `subject ==
+    // pattern` is the decision and the entry itself pays for it —
+    // `range_test`, `type_test` and a bare constant carry no token the
+    // comparison arms would count.
+    //
+    // `cmp` is the interesting row and the reason `nested` sits beside
+    // it. `when (x) { y > 5 -> … }` is legal when `x` is `Boolean`, and
+    // it reads 2 conditions against 1 decision — the entry's implicit
+    // equality plus the `>` inside the operand. That is not the #1421
+    // double-count reappearing: `nested` spells the same thing as an
+    // `if` (`x == (y > 5)`) and ABC has always scored it 2 against the
+    // same 1 decision. A comparison nested inside a comparison is two
+    // comparisons; only one of them is a branch.
+    #[test]
+    fn kotlin_subjectful_when_arms_keep_the_per_entry_count() {
+        let src = "class K {
+                fun inn(a: Int): Int = when (a) { in 1..2 -> 1; else -> 0 }
+                fun notin(a: Int): Int = when (a) { !in 1..2 -> 1; else -> 0 }
+                fun iss(a: Any): Int = when (a) { is String -> 1; else -> 0 }
+                fun konst(a: Int): Int = when (a) { 1 -> 10; 2 -> 20; else -> 0 }
+                fun cmp(x: Boolean, y: Int): Int = when (x) { y > 5 -> 1; else -> 0 }
+                fun nested(x: Boolean, y: Int): Int { if (x == (y > 5)) { return 1 }; return 0 }
+            }";
+        assert_kotlin_class_members(
+            src,
+            &[
+                (Kotlin::WhenSubject as u16, 5, "`when` subjects"),
+                (Kotlin::WhenEntry as u16, 11, "`when` entries"),
+                (Kotlin::RangeTest as u16, 2, "`in` / `!in` patterns"),
+                (Kotlin::TypeTest as u16, 1, "the `is` pattern"),
+                (
+                    Kotlin::BinaryExpression as u16,
+                    3,
+                    "`cmp`'s and `nested`'s comparisons",
+                ),
+            ],
+            &[
+                ("inn", 1, 2),
+                ("notin", 1, 2),
+                ("iss", 1, 2),
+                ("konst", 2, 3),
+                // Above its decision count, like `nested` below it
+                // and for the same reason.
+                ("cmp", 2, 2),
+                ("nested", 2, 2),
+            ],
+        );
+    }
+
+    // A subject-less condition reaches the slot through the same
+    // `kotlin_inspect_container` unwrapping an `if` predicate does, which
+    // is what separates this design from suppressing the entry's
+    // operator. `notted` and `paren` unwrap to a bare terminal and score
+    // through the slot; `notCmp` and `parenCmp` unwrap to a
+    // `binary_expression`, score nothing from the slot, and take their
+    // one condition from the `>` the token arm already owned. Both pairs
+    // land on 1, which no blanket `+1` can produce for the second pair —
+    // they read 2 before the fix.
+    //
+    // `paren` is the member that reaches the `WhenEntry` seed added to
+    // `kotlin_inspect_container`'s boolean-context set; without it the
+    // parenthesised operand is not in a slot the walker calls boolean and
+    // `paren` drops to 0. `notted` cannot stand in for it — a `!`
+    // operator proves boolean content on its own.
+    #[test]
+    fn kotlin_subjectless_when_condition_wrappers_count_once() {
+        let src = "class K {
+                fun notted(a: Boolean): Int = when { !a -> 1; else -> 0 }
+                fun paren(a: Boolean): Int = when { (a) -> 1; else -> 0 }
+                fun notCmp(a: Int): Int = when { !(a > 1) -> 1; else -> 0 }
+                fun parenCmp(a: Int): Int = when { (a > 1) -> 1; else -> 0 }
+                fun nest(x: Int, y: Int): Int =
+                    when { x > 1 -> when { y > 2 -> 1; else -> 2 }; else -> 0 }
+                fun blockBody(x: Int): Int { when { x > 5 -> { return 1 } }; return 0 }
+            }";
+        assert_kotlin_class_members(
+            src,
+            &[
+                // Paired, not bare: "no subjects" alone is satisfied by a
+                // fixture that lost its `when`s altogether.
+                (Kotlin::WhenSubject as u16, 0, "`when` subjects"),
+                (Kotlin::WhenEntry as u16, 13, "`when` entries"),
+                (Kotlin::UnaryExpression as u16, 2, "the two `!` operands"),
+                (
+                    Kotlin::ParenthesizedExpression as u16,
+                    3,
+                    "the three parenthesised operands",
+                ),
+                (Kotlin::BinaryExpression as u16, 5, "comparisons"),
+            ],
+            &[
+                ("notted", 1, 2),
+                ("paren", 1, 2),
+                // Both were 2: the entry's blanket count plus the `>`.
+                ("notCmp", 1, 2),
+                ("parenCmp", 1, 2),
+                // Was 4 — one entry and one comparison per `when`,
+                // each counted twice.
+                ("nest", 2, 3),
+                // The `when`-as-statement shape: a `block` body and no
+                // `else` arm at all. Reading the condition from the
+                // `condition` field rather than by position is what keeps
+                // the block out of the slot; it was 2 before the fix.
+                ("blockBody", 1, 2),
+            ],
+        );
+    }
+
+    // The one place this design deliberately does not reach parity, put
+    // under test so the choice cannot drift unremarked. A `when` entry
+    // may list alternatives (`when { a, b -> … }`, an implicit `or`), and
+    // the `condition` field is `multiple` — but cyclomatic scores the
+    // whole entry as one decision, so `bareAlts` is at parity only
+    // because the slot reads the *first* alternative and stops. Routing
+    // every alternative through the slot would push it to 2.
+    //
+    // `alts` is the row that cannot be brought to parity from the ABC
+    // side at all: the comparison-token arms count `>` and `<` wherever
+    // they appear, so it reads 2 against 1 decision no matter what the
+    // entry slot does. It was 3 before #1421 and the remaining gap is
+    // cyclomatic's single count per multi-alternative entry, not a
+    // double-count here.
+    //
+    // `subjAlts` is the subject-ful control, unchanged and at parity: its
+    // alternatives are constants carrying no token to count.
+    #[test]
+    fn kotlin_subjectless_when_multi_alternative_entry() {
+        let src = "class K {
+                fun alts(x: Int, y: Int): Int = when { x > 5, y < 0 -> 1; else -> 0 }
+                fun bareAlts(x: Boolean, y: Boolean): Int = when { x, y -> 1; else -> 0 }
+                fun subjAlts(a: Int): Int = when (a) { 1, 2 -> 10; else -> 0 }
+            }";
+        assert_kotlin_class_members(
+            src,
+            &[
+                (Kotlin::WhenSubject as u16, 1, "`subjAlts`'s subject"),
+                (Kotlin::WhenEntry as u16, 6, "`when` entries"),
+                (
+                    Kotlin::BinaryExpression as u16,
+                    2,
+                    "`alts`'s two comparisons",
+                ),
+            ],
+            &[
+                // Above its decision count: cyclomatic scores the entry
+                // once, the token arms score both comparisons. Was 3.
+                ("alts", 2, 2),
+                ("bareAlts", 1, 2),
+                ("subjAlts", 1, 2),
+            ],
+        );
+    }
+
+    // `is_expression` and `in_expression` are the two relational forms
+    // tree-sitter-kotlin-ng spells as their own production rather than as
+    // a `binary_expression`, so no comparison-token arm sees them and
+    // nothing counted them: `if (a is String)` scored 0 against a
+    // decision count of 1, and the same test in a subject-less `when`
+    // scored 1 only because the entry's blanket `+1` happened to cover
+    // it. Removing that blanket without listing these two in
+    // `kotlin_bool_terminal_kinds!()` would have regressed `whenIs` and
+    // `whenIn` to 0, and `isAnd` — where the `is` test is one operand of
+    // a `&&` chain and so reaches the walker rather than the slot — from
+    // 2 to 1.
+    //
+    // The `if` members are here because the fix is in the shared
+    // terminal-kind set, not in the `when` arm: they are the call sites
+    // that prove it reaches the `if` / `while` predicate slot too.
+    #[test]
+    fn kotlin_is_and_in_expressions_are_unary_conditions() {
+        let src = "class K {
+                fun ifIs(a: Any): Int { if (a is String) { return 1 }; return 0 }
+                fun ifIn(a: Int): Int { if (a in 1..2) { return 1 }; return 0 }
+                fun whenIs(a: Any): Int = when { a is String -> 1; else -> 0 }
+                fun whenIn(a: Int): Int = when { a in 1..2 -> 1; else -> 0 }
+                fun isAnd(a: Any, b: Boolean): Int = when { a is String && b -> 1; else -> 0 }
+            }";
+        assert_kotlin_class_members(
+            src,
+            &[
+                // Paired, not bare — see the wrappers test above.
+                (Kotlin::WhenSubject as u16, 0, "`when` subjects"),
+                (Kotlin::WhenEntry as u16, 6, "`when` entries"),
+                (Kotlin::IsExpression as u16, 3, "`is` tests"),
+                (Kotlin::InExpression as u16, 2, "`in` tests"),
+                (Kotlin::AMPAMP as u16, 1, "`isAnd`'s `&&`"),
+            ],
+            &[
+                // Both were 0 — the predicate slot saw a kind it did
+                // not classify and the token arms saw no operator.
+                ("ifIs", 1, 2),
+                ("ifIn", 1, 2),
+                ("whenIs", 1, 2),
+                ("whenIn", 1, 2),
+                ("isAnd", 2, 3),
+            ],
         );
     }
 

@@ -574,6 +574,17 @@ macro_rules! tsx_bool_terminal_kinds {
 // (`arr[0]`), and `this_expression`. Comparison operands (`x > 0`) are
 // themselves `binary_expression` nodes, so they are absent from this set
 // and contribute nothing — matching the paper's "only unary conditions".
+//
+// `is_expression` (`a is String`, `a !is String`) and `in_expression`
+// (`a in 1..2`, `a !in 1..2`) are the two relational forms the grammar
+// spells as their own production rather than as a `binary_expression`,
+// so the comparison-token arms never see them and nothing else in the
+// Kotlin impl counts them. They are terminal for every consumer of this
+// set — neither carries a nested chain link, and neither's own operator
+// token (`is` / `!is` / `in` / `!in`) is counted anywhere — so listing
+// them here scores each exactly once, as Fitzpatrick Rule 5 scores any
+// other relational operator. Before #1421 `if (a is String)` scored
+// zero conditions against a cyclomatic decision of one.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! kotlin_bool_terminal_kinds {
@@ -583,6 +594,8 @@ macro_rules! kotlin_bool_terminal_kinds {
             | $crate::Kotlin::NavigationExpression
             | $crate::Kotlin::IndexExpression
             | $crate::Kotlin::ThisExpression
+            | $crate::Kotlin::IsExpression
+            | $crate::Kotlin::InExpression
     };
 }
 

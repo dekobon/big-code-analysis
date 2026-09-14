@@ -62,10 +62,18 @@ fn kotlin_inspect_container(container_node: &Node, parent: &Node, conditions: &m
     // A parenthesised / negated operand only contributes when it sits in
     // a boolean-evaluating slot. The chain wrapper (`binary_expression`)
     // and the control-flow headers all qualify; a `!`-operator anywhere
-    // also proves the operand is boolean (`if (!x)`).
+    // also proves the operand is boolean (`if (!x)`). `WhenEntry` joined
+    // the list with #1421: a subject-less `when` arm's condition is an
+    // ordinary boolean expression, so `when { (a) -> … }` is the same
+    // slot as `if ((a))`.
     let mut has_boolean_content = matches!(
         parent.kind_id().into(),
-        BinaryExpression | IfExpression | WhileStatement | DoWhileStatement | ForStatement
+        BinaryExpression
+            | IfExpression
+            | WhileStatement
+            | DoWhileStatement
+            | ForStatement
+            | WhenEntry
     );
 
     loop {
@@ -96,12 +104,14 @@ fn kotlin_inspect_container(container_node: &Node, parent: &Node, conditions: &m
     }
 }
 
-// Counts each non-comparison operand of a Kotlin `&&` / `||` chain once.
-// Mirrors `java_count_unary_conditions`: comparison operands are nested
-// `binary_expression` nodes (absent from `kotlin_bool_terminal_kinds!()`)
-// and so contribute nothing, while bare identifiers / calls / member
-// accesses each add one. Inner chain links and `!` / paren wrappers are
-// routed through `kotlin_inspect_container`.
+// Counts each operand of a Kotlin `&&` / `||` chain that no token arm
+// already owns. Mirrors `java_count_unary_conditions`: a comparison
+// operand is a nested `binary_expression`, absent from
+// `kotlin_bool_terminal_kinds!()`, and contributes nothing here because
+// its operator token was counted directly; bare identifiers / calls /
+// member accesses, and the `is` / `in` tests no token arm sees, each add
+// one. Inner chain links and `!` / paren wrappers are routed through
+// `kotlin_inspect_container`.
 fn kotlin_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     use Kotlin::*;
 
@@ -133,10 +143,13 @@ fn kotlin_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 // mirroring `ruby_count_condition` / `rust_count_condition`.
 // tree-sitter-kotlin-ng exposes the predicate via the `condition` field on
 // `if_expression`, `while_statement`, and `do_while_statement`, so the
-// field lookup is position-independent across all three forms. A bare
-// terminal (`if (flag)`) counts directly; a comparison or boolean chain
-// (`if (a == b)`, `if (a && b)`) is a nested `binary_expression` already
-// counted by the comparison-token and `&&`/`||` walker arms, so it adds
+// field lookup is position-independent across all three forms. Since
+// #1421 it also scores a subject-less `when` entry's condition, which is
+// an `if` predicate in all but spelling. A bare terminal (`if (flag)`)
+// counts directly, as does an `is` / `in` test that no token arm sees; a
+// comparison or boolean chain (`if (a == b)`, `if (a && b)`) is a nested
+// `binary_expression` already counted by the comparison-token and
+// `&&`/`||` walker arms, so it adds
 // nothing here. A parenthesised or negated predicate (`if ((flag))`,
 // `if (!flag)`) is unwrapped by `kotlin_inspect_container`. Without this
 // arm, idiomatic Kotlin bare predicates reported 0 ABC conditions while
@@ -149,6 +162,68 @@ fn kotlin_count_condition(condition: &Node, parent: &Node, conditions: &mut f64)
         *conditions += 1.;
     } else if matches!(kind, ParenthesizedExpression | UnaryExpression) {
         kotlin_inspect_container(condition, parent, conditions);
+    }
+}
+
+// Returns true when the `when_expression` enclosing `entry` carries a
+// subject — `when (x) { … }` rather than `when { … }`. The distinction
+// decides how the entry's condition is scored (#1421): a subject-ful
+// entry lists a *pattern* compared against the subject, a subject-less
+// one lists an ordinary boolean expression.
+//
+// A `when_entry`'s parent IS the `when_expression`, and the grammar
+// exposes no field for the subject (`when_expression` has an empty
+// `fields` map in node-types.json), so the membership test is a scan of
+// the parent's children rather than a `child_by_field_name`. Scanning
+// rather than reading a fixed index also keeps a leading `extra` — a
+// comment between `when` and `(x)` — from displacing the answer.
+fn kotlin_enclosing_when_has_subject<'a>(entry: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors.parent(entry).is_some_and(|when_expression| {
+        when_expression
+            .children()
+            .any(|child| child.kind_id() == Kotlin::WhenSubject)
+    })
+}
+
+// Scores one non-`else` `when` entry. Both `when` shapes contribute the
+// same single decision that cyclomatic counts, but they pay for it in
+// different places, and #1421 is the case where ABC charged for it twice.
+//
+// A subject-ful entry (`when (x) { in 1..2 -> … }`) lists a *pattern*,
+// not an independent boolean expression: the decision is the implicit
+// `x == pattern`, which nothing in the source spells, so the entry
+// itself contributes the condition. A `range_test`, `type_test` or bare
+// constant carries no token the comparison arms would count, and #1383's
+// logic applies unchanged.
+//
+// A subject-less entry (`when { x > 5 -> … }`) lists an ordinary boolean
+// expression — textually identical to an `if` predicate, and compiled as
+// one — so it goes through the same slot `IfExpression` uses. Before
+// this the entry added a blanket 1 *on top of* the comparison operator
+// its condition already scored through the token arms, so
+// `when { x > 5 -> 1; x < 0 -> 2; else -> 0 }` reported 4 conditions
+// against a cyclomatic decision count of 2. The slot scores a bare
+// terminal (`when { x -> … }`, `when { a is String -> … }`) directly and
+// leaves a comparison or `&&` / `||` chain to the arms that already own
+// it. Suppressing the operator instead would have been the wrong half to
+// give way: a compound condition `when { a > 1 && b < 2 -> … }` needs
+// both its comparisons, and suppression collapses it to one.
+//
+// The `condition` field is `multiple` — `when { a, b -> … }` lists
+// alternatives — and only the first reaches the slot. That is
+// deliberate: cyclomatic scores a multi-alternative entry as one
+// decision, so routing every alternative through the slot would move
+// `when { x, y -> … }` off that count rather than onto it. Alternatives
+// after the first are still seen by the token arms.
+fn kotlin_count_when_entry<'a>(
+    entry: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+    conditions: &mut f64,
+) {
+    if kotlin_enclosing_when_has_subject(entry, ancestors) {
+        *conditions += 1.;
+    } else if let Some(condition) = entry.child_by_field_name("condition") {
+        kotlin_count_condition(&condition, entry, conditions);
     }
 }
 
@@ -252,9 +327,13 @@ impl Abc for KotlinCode {
             // fallback arm, which is the analogue of C-family `default:`
             // and Rust's wildcard `_ =>`. Cyclomatic already excludes it
             // (`WhenEntry if !kotlin_when_entry_is_else`); ABC must track
-            // the same decision count (issue #456, lesson 11).
+            // the same decision count (issue #456, lesson 11). Sharing
+            // that predicate is what keeps the two metrics from drifting.
+            // `kotlin_count_when_entry` decides where the decision is
+            // paid for — the entry, or the operators of its condition
+            // (#1421).
             WhenEntry if !crate::metrics::cyclomatic::kotlin_when_entry_is_else(node) => {
-                stats.conditions += 1.;
+                kotlin_count_when_entry(node, ancestors, &mut stats.conditions);
             }
             // `else` is a keyword token used in both `if_expression`'s
             // else-clause and `when`'s `else ->` entry. Only count it
