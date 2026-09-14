@@ -22,7 +22,7 @@
 
 #![allow(clippy::float_cmp)]
 
-#[cfg(any(feature = "rust", feature = "cpp"))]
+#[cfg(any(feature = "rust", feature = "c", feature = "cpp"))]
 use std::path::PathBuf;
 
 use big_code_analysis::Ast;
@@ -30,17 +30,26 @@ use big_code_analysis::Ast;
 use big_code_analysis::Metric;
 #[cfg(not(feature = "javascript"))]
 use big_code_analysis::MetricsError;
-#[cfg(any(feature = "rust", feature = "python", feature = "cpp"))]
+#[cfg(any(feature = "rust", feature = "python", feature = "c", feature = "cpp"))]
 use big_code_analysis::MetricsOptions;
 #[cfg(feature = "rust")]
 use big_code_analysis::SpaceKind;
+// Deliberately the bare language list, with no `not(feature =
+// "javascript")` arm (#1426). The two `LanguageDisabled` tests below also
+// need these names, and with no language enabled at all, so the union used
+// to carry that arm too — but it is true in every *single*-language build,
+// which satisfied the union on its own and left the language arms below
+// never load-bearing. `feature = "c"` had silently gone missing from them
+// for exactly that reason. Those two tests now import the names
+// themselves, so a dropped arm here is a hard error on that language's own
+// feature-matrix leg.
 #[cfg(any(
     feature = "rust",
     feature = "python",
+    feature = "c",
     feature = "cpp",
     feature = "tcl",
-    feature = "irules",
-    not(feature = "javascript")
+    feature = "irules"
 ))]
 use big_code_analysis::{LANG, Source};
 
@@ -335,6 +344,11 @@ fn as_tree_sitter_walks_held_source() {
 #[cfg(not(feature = "javascript"))]
 #[test]
 fn ast_parse_returns_language_disabled_for_off_feature() {
+    // Imported here rather than taken from the shared `use` above: this
+    // test runs with no language feature enabled at all, which that
+    // import's union deliberately no longer covers.
+    use big_code_analysis::{LANG, Source};
+
     let err = Ast::parse(Source::new(LANG::Javascript, b"")).unwrap_err();
     assert!(matches!(
         err,
@@ -345,6 +359,8 @@ fn ast_parse_returns_language_disabled_for_off_feature() {
 #[cfg(all(feature = "rust", not(feature = "javascript")))]
 #[test]
 fn ast_from_tree_sitter_returns_language_disabled_for_off_feature() {
+    use big_code_analysis::LANG;
+
     // The dispatch arm rejects the disabled language *before* touching
     // the tree, so it is fine to hand it a tree built from an enabled
     // grammar (Rust here). This exercises the `Err(LanguageDisabled)`
@@ -443,7 +459,7 @@ fn language_and_name_accessors_match_constructors() {
 // Does `op` appear as an operator anywhere in the `Ops` tree? Operators
 // live on whichever space owns them, so a fixture's operator may sit in a
 // nested function space rather than the file-level `Ops`.
-#[cfg(any(feature = "rust", feature = "python", feature = "cpp"))]
+#[cfg(feature = "rust")]
 fn ops_tree_contains_operator(ops: &big_code_analysis::Ops, op: &str) -> bool {
     ops.operators.iter().any(|o| o == op)
         || ops.spaces.iter().any(|s| ops_tree_contains_operator(s, op))
@@ -831,17 +847,17 @@ fn find_string_reports_tcl_family_literals_and_not_script_bodies() {
 ///
 /// The two walks are separate functions over one predicate list, and only
 /// one of them is exercised above.
+///
+/// The per-language calls are `#[cfg]` blocks rather than rows of a table
+/// the test loops over, matching the sibling above. A cfg-gated row list
+/// reduces to a single element whenever exactly one of the two features
+/// is enabled, which `clippy::single_element_loop` denies under the
+/// workspace's `-D warnings` — so the loop shape compiled only in builds
+/// that happened to enable both (#1426).
 #[cfg(any(feature = "tcl", feature = "irules"))]
 #[test]
 fn count_string_agrees_with_find_on_tcl_family_bodies() {
-    let mut ran = 0;
-    for (lang, code) in [
-        #[cfg(feature = "tcl")]
-        (LANG::Tcl, TCL_SCRIPT_AND_LITERALS),
-        #[cfg(feature = "irules")]
-        (LANG::Irules, IRULES_SCRIPT_AND_LITERALS),
-    ] {
-        ran += 1;
+    fn check(lang: LANG, code: &str) {
         let found = strings_found(lang, code).len();
         assert_eq!(found, 2, "{lang:?}: fixture must report both literals");
         let (matching, total) = Ast::parse(Source::new(lang, code.as_bytes()))
@@ -857,6 +873,18 @@ fn count_string_agrees_with_find_on_tcl_family_bodies() {
             "{lang:?}: {total} nodes is too few for the fixture to still \
              contain a script body"
         );
+    }
+
+    let mut ran = 0;
+    #[cfg(feature = "tcl")]
+    {
+        ran += 1;
+        check(LANG::Tcl, TCL_SCRIPT_AND_LITERALS);
+    }
+    #[cfg(feature = "irules")]
+    {
+        ran += 1;
+        check(LANG::Irules, IRULES_SCRIPT_AND_LITERALS);
     }
     assert!(
         ran > 0,
