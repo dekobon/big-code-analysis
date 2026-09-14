@@ -28,7 +28,7 @@ use std::fmt::Write as _;
 use serde::Serialize;
 
 use crate::baseline::{BaselineIdentity, DiffEntry, cmp_identity};
-use crate::format_util::{MetricScalar, strip_path_prefix};
+use crate::format_util::{ID_SEP, MetricScalar, identity, strip_path_prefix};
 
 /// An entry present in exactly one of the two baselines (`added` /
 /// `removed`).
@@ -348,16 +348,6 @@ struct Summary {
     removed: usize,
     worsened: usize,
     improved: usize,
-}
-
-/// Separator between a row's path and its qualified symbol in the
-/// rendered identity column.
-const ID_SEP: &str = "::";
-
-/// Display identity for a row: `path::qualified` (file-level metrics
-/// carry the `<file>` sentinel in `qualified`, e.g. `src/x.rs::<file>`).
-fn identity(path: &str, qualified: &str) -> String {
-    format!("{path}{ID_SEP}{qualified}")
 }
 
 /// Rendered width of [`identity`] without allocating the string — used

@@ -89,6 +89,18 @@ for historical reference.
   omits `fuzz` (deliberately version `0.0.0`) and so would have missed
   one of the two lockfiles that motivated the change.
 
+- `bca check --baseline` now warns on stderr when a covered offender has
+  measured *past* its recorded value — below it, or above it for the
+  lower-is-worse `mi.*` family (#1465). Such an entry describes a tree
+  that no longer exists, and the filter keeps suppressing the offender
+  all the way up to the stale value, which is gate headroom nobody
+  chose. One aggregated line per run names the count and the worst entry
+  by relative drift; an entry sitting exactly on its record stays
+  silent, and the gate's exit code is unchanged. This covers only
+  offenders still above their limits: one whose metric stopped breaching
+  altogether produces no violation at all, so its entry remains
+  undetectable here and only a full regeneration finds it.
+
 ### Performance
 
 - The metric walk's cognitive nesting map no longer grows to one entry

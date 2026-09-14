@@ -33,6 +33,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::format_util::{MetricScalar, counted, identity};
 use crate::thresholds::{Violation, breaches_limit};
 
 mod body_hash;
@@ -711,6 +712,101 @@ pub(crate) enum Coverage {
     /// (within tolerance) or, when fuzzy matching is on, by body hash —
     /// the violation is new since the baseline was written.
     New,
+}
+
+/// Running tally of baseline entries the code has *improved past*
+/// (issue #1465).
+///
+/// [`Baseline::classify`] answers `Covered` across the whole
+/// non-breaching side of a recorded value, so a measurement that has
+/// fallen below its record — risen above it, for the lower-is-worse
+/// `mi.*` family — is indistinguishable from one sitting exactly on it.
+/// The entry then keeps suppressing violations up to a value the tree no
+/// longer produces, and nothing reddens the gate until someone
+/// regenerates the file for an unrelated reason.
+///
+/// The tally keeps a count and the single worst entry by relative drift
+/// rather than every stale one: this repository's own baseline carries
+/// over two hundred entries, and the response to any number of them is
+/// the same wholesale refresh.
+///
+/// **It cannot see the other half of the class.** An entry whose metric
+/// stopped breaching its limit altogether produces no [`Violation`], so
+/// it never reaches `classify` and never reaches this tally.
+/// [`Self::warning`] says so in the emitted text; closing that half
+/// needs a scheduled regeneration, not a per-run check.
+#[derive(Debug, Default)]
+pub(crate) struct StaleTally {
+    count: usize,
+    /// Relative drift and rendered identity of the worst entry so far.
+    /// Formatting only on a new maximum keeps the common all-covered run
+    /// allocation-free rather than building a string per violation.
+    worst: Option<(f64, String)>,
+}
+
+impl StaleTally {
+    /// Fold in one [`Coverage::Covered`] classification. A violation
+    /// still at — or worse-ward of — its recorded value is not stale and
+    /// is ignored.
+    pub(crate) fn observe(&mut self, v: &Violation, recorded: f64) {
+        // "Improved past the record" is the recorded value breaching the
+        // live one as a limit: below for a higher-is-worse metric, above
+        // for the lower-is-worse `mi.*` family. Calling `breaches_limit`
+        // with the arguments swapped keeps this and the ratchet in
+        // `classify` on one direction rule rather than two that can
+        // drift apart. Equality breaches in neither direction, so an
+        // entry sitting exactly on its record stays silent; NaN compares
+        // false both ways and is likewise ignored, though `classify`
+        // routes it to `Regressed` before it can arrive here at all.
+        if !breaches_limit(recorded, v.value, v.lower_is_worse) {
+            return;
+        }
+        self.count += 1;
+        let drift = relative_drift(recorded, v.value);
+        if self.worst.as_ref().is_none_or(|(seen, _)| drift > *seen) {
+            let id = identity(v.path.display(), &v.function);
+            self.worst = Some((
+                drift,
+                format!(
+                    "{id} {} {} \u{2192} {}",
+                    v.metric,
+                    MetricScalar(recorded),
+                    MetricScalar(v.value),
+                ),
+            ));
+        }
+    }
+
+    /// The one-line stderr diagnostic, or `None` when nothing drifted.
+    /// Split from the emission site so a test can pin the exact wording
+    /// and the silent cases without a baseline file on disk.
+    pub(crate) fn warning(&self) -> Option<String> {
+        let (_, worst) = self.worst.as_ref()?;
+        Some(format!(
+            "{} improved past the recorded value (worst: {worst}); that gap \
+             is gate headroom nobody chose, so refresh with \
+             `--write-baseline`. An entry whose metric stopped breaching its \
+             limit produces no violation at all and cannot be counted here — \
+             regenerating the baseline is what finds those.",
+            counted(self.count, "baseline entry", "baseline entries"),
+        ))
+    }
+}
+
+/// How far an entry has drifted, as a fraction of the larger of the two
+/// values, for picking the worst one to name. Relative rather than
+/// absolute so a `halstead.effort` entry that moved by 2,000 does not
+/// automatically outrank a `cyclomatic` one that halved.
+///
+/// Dividing by the larger magnitude rather than by `recorded` keeps the
+/// result in `[0, 1]`, so the key stays comparable across metrics of
+/// wildly different scale and needs no special case for a zero record —
+/// `mi.original` does bottom out there, and a record of zero gives away
+/// all the headroom there is, which this ranks at `1.0`. Callers reach
+/// this only once `breaches_limit` has confirmed the two values differ,
+/// so the denominator is never zero.
+fn relative_drift(recorded: f64, value: f64) -> f64 {
+    (recorded - value).abs() / recorded.abs().max(value.abs())
 }
 
 pub(crate) fn from_violations(

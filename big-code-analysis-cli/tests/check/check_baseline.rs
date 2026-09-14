@@ -276,7 +276,57 @@ fn improved_function_still_passes() {
         // mask a parse that produced no violation at all (#894).
         .stderr(predicate::str::contains(
             "filtered 1 violations via baseline",
-        ));
+        ))
+        // ...and, since #1465, says so: the entry now records a 7 the
+        // tree no longer produces, which is two points of suppression
+        // nobody chose. Warning only — the gate stays green.
+        .stderr(predicate::str::contains(
+            "1 baseline entry improved past the recorded value",
+        ))
+        .stderr(predicate::str::contains("cyclomatic 7 \u{2192} 5"));
+}
+
+#[test]
+fn unchanged_function_at_its_recorded_value_warns_nothing() {
+    // The silence half of #1465, and the boundary the warning must not
+    // cross: re-running against a baseline written from the same tree
+    // finds every entry exactly on its record, so a freshly written
+    // baseline must not warn about itself.
+    let dir = TempDir::new().unwrap();
+    let src_path = write_file(&dir, "branchy.rs", WORSER_RUST);
+    let baseline = dir.path().join("baseline.toml");
+
+    cli(dir.path())
+        .args([
+            "check",
+            "--paths",
+            src_path.to_str().unwrap(),
+            "--threshold",
+            "cyclomatic=1",
+            "--write-baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    cli(dir.path())
+        .args([
+            "check",
+            "--paths",
+            src_path.to_str().unwrap(),
+            "--threshold",
+            "cyclomatic=1",
+            "--baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        // The offender is still covered and filtered — so the run did
+        // reach the tally rather than producing no violation at all.
+        .stderr(predicate::str::contains(
+            "filtered 1 violations via baseline",
+        ))
+        .stderr(predicate::str::contains("improved past the recorded value").not());
 }
 
 // -- Identity & line drift ------------------------------------------------
