@@ -144,8 +144,11 @@ for historical reference.
   than applying it. All six now share one arm gated on a
   `binary_expression` parent, which also subsumes #1383's
   `relational_pattern` denial and fails closed on a grammar bump.
-  **Metric drift:** `abc.conditions` falls by one per comparison-operator
-  overload declaration in C#.
+  **Metric drift:** C# `abc.conditions` falls by one for each
+  `operator <=` / `>=` / `==` / `!=` declaration. `operator <` and
+  `operator >` already scored zero under #1297's allowlist, so a type
+  overloading all six — which C# requires to be declared in pairs —
+  falls by four, not six.
 
 - **C# ABC counts a primary-constructor base call** (#1406). C# 12 lets a
   class, struct or record declare its constructor in the header and pass
@@ -171,10 +174,19 @@ for historical reference.
   operator happened to sit inside the guard, so `when x > 2` scored one
   condition while the equivalent `when IsEven(x)` scored none. The guard
   is now a condition slot like an `if` condition, so every spelling
-  scores exactly one and a compound guard keeps its sub-structure.
+  scores exactly one and a compound guard keeps its sub-structure. The
+  same change adds the bare type test `x is int` to C#'s terminal-bool
+  operand set: it is `is_expression`, a distinct kind from the
+  `is_pattern_expression` of `x is int y`, and only the latter was
+  listed — so the two spellings of one test disagreed, `if (x is int)`
+  scoring zero conditions against a cyclomatic decision of one.
   **Metric drift:** C# `cyclomatic` (standard and modified) gains one per
-  guard, and `abc.conditions` gains one for any guard not already
-  operator-shaped.
+  guard; `abc.conditions` gains one for any guard not already
+  operator-shaped, and one for every bare `is` type test in a boolean
+  slot. `wmc` and `mi` are derived from cyclomatic and move with it — the
+  C# corpus snapshot records `class_wmc_sum` 27 → 29 and a matching fall
+  in all three `mi` variants — so a `wmc` or `mi` threshold can newly
+  fire on an unedited C# file carrying guarded arms.
 
 - **Kotlin no longer double-counts a subject-less `when` arm's comparison
   operator** (#1421). `when { x > 5 -> 1; x < 0 -> 2; else -> 0 }`
@@ -188,9 +200,12 @@ for historical reference.
   source spells. As part of the same fix, Kotlin's `is` and `in` tests
   count as conditions wherever a boolean is evaluated: `if (a is String)`
   and `if (a in 1..2)` previously scored zero against a decision count of
-  one. **Metric drift:** Kotlin `abc.conditions` falls for subject-less
+  one, as did `a and b` — Kotlin spells boolean `and` / `or` / `xor` as
+  infix *functions*, so they parse as `infix_expression` rather than as
+  a binary expression and no token arm ever saw them either.
+  **Metric drift:** Kotlin `abc.conditions` falls for subject-less
   `when` arms carrying a comparison, and rises for any `is` / `in` test
-  in a boolean slot.
+  and any infix boolean call in a boolean slot.
 
 - **An enum constant carrying constructor arguments is counted as a
   branch** (#1407). `A(1)` in `enum E { A(1), B, C(2); }` invokes the

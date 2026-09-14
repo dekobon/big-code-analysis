@@ -21,6 +21,13 @@ impl Cyclomatic for CsharpCode {
             // Standard-only: individual switch statement arms. The `case`
             // keyword token is what is matched here; `default:` uses a
             // distinct `Default` token and is correctly excluded.
+            //
+            // FIXME(#1450): `goto case 2;` spells the same token, so it
+            // scores a decision without being an arm. The ABC half of
+            // this is the matching arm in `src/metrics/abc/csharp.rs`;
+            // the two have to move together or the §8 parity
+            // `conditions == cyclomatic() - 1` breaks, which is why
+            // neither has been gated on its own.
             Case => {
                 stats.cyclomatic += 1.;
             }

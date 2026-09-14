@@ -520,17 +520,17 @@ fn csharp_walk_for_conditions<'a>(
         // named nodes and may precede the expression, so `when /*c*/ g`
         // hands a `comment` to a first-child read and silently restores
         // the spelling-dependence this fix removes. C#'s extras at this
-        // pin are `comment` plus ten `preproc_*` kinds — none of them a
+        // pin are `comment` plus nine `preproc_*` kinds — none of them a
         // `csharp_bool_terminal_kinds!()` member, and none a paren or
         // `!`-prefix wrapper — so passing them through the slot adds
         // nothing and the loop cannot double count a clause that holds
         // one expression by construction.
         //
-        // The sibling `if` / `while` / `do` slots read a fixed child
-        // index and so still lose their condition to a leading comment
-        // (`if (/*c*/ g)` scores 0). That is the same class of bug and
-        // predates this arm; it is left to its own change rather than
-        // widened into here.
+        // FIXME(#1455): the sibling `if` / `while` / `do` slots read a
+        // fixed child index and so still lose their condition to a
+        // leading comment (`if (/*c*/ g)` scores 0). That is the same
+        // class of bug and predates this arm; it is left to its own
+        // change rather than widened into here.
         WhenClause | CatchFilterClause => {
             for guard in node.children().filter(Node::is_named) {
                 csharp_count_condition(&guard, node, conds);

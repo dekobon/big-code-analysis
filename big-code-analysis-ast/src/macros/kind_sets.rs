@@ -53,7 +53,7 @@ macro_rules! csharp_prefix_unary_expr_kinds {
 // the C# grammar. Anything in this set, when it appears in a known-
 // boolean context (if / while / do / for / ternary / binary), counts
 // as one condition. The set bundles `csharp_invocation_expr_kinds!()`
-// with the bare `Identifier` / `BooleanLiteral` leaves *and* the five
+// with the bare `Identifier` / `BooleanLiteral` leaves *and* the six
 // expression kinds whose evaluated value is implicitly boolean in any
 // idiomatic codebase:
 //
@@ -61,11 +61,25 @@ macro_rules! csharp_prefix_unary_expr_kinds {
 // - `AwaitExpression`        — `await CheckAsync()`
 // - `CastExpression`         — `(bool)v`, `(IDisposable)x is not null`
 // - `IsPatternExpression`    — `x is null`, `x is not Foo f`
+// - `IsExpression`           — `x is int`, the bare type test
 // - `ElementAccessExpression` — `flags[0]`, `dict["key"]`
 //
 // Before #372 only the first three (invocation / identifier /
 // boolean) were recognised, so all five kinds above silently scored
 // zero conditions in `if` / `while` / `do` / ternary contexts.
+//
+// `IsExpression` (391) and `IsPatternExpression` (392) are distinct
+// kinds, not aliases: the grammar emits the first for a bare type test
+// (`x is int`) and the second only once a pattern is involved
+// (`x is int y`, `x is null`, `x is not Foo`). Listing only the second
+// scored `if (x is int)` zero conditions against a cyclomatic decision
+// of one, while `if (x is int y)` scored one — an asymmetry between two
+// spellings of the same test, and the C# half of the gap #1421 closed
+// for Kotlin by adding `IsExpression | InExpression` there. It also
+// left #1422's guard slot spelling-dependent in the one case that fix
+// claims to have fixed: `when x is int` scored 1 where
+// `when IsEven(x)` scored 2. No arm counts the `is` token itself, so
+// there is nothing to double-count (§5).
 #[macro_export]
 #[doc(hidden)]
 macro_rules! csharp_bool_terminal_kinds {
@@ -79,6 +93,7 @@ macro_rules! csharp_bool_terminal_kinds {
             | $crate::Csharp::AwaitExpression
             | $crate::Csharp::CastExpression
             | $crate::Csharp::IsPatternExpression
+            | $crate::Csharp::IsExpression
             | $crate::Csharp::ElementAccessExpression
     };
 }
@@ -622,6 +637,17 @@ macro_rules! tsx_bool_terminal_kinds {
 // themselves `binary_expression` nodes, so they are absent from this set
 // and contribute nothing — matching the paper's "only unary conditions".
 //
+// `infix_expression` is a call to an infix function, and Kotlin spells
+// boolean `and` / `or` / `xor` that way — `a and b` is `a.and(b)`. It
+// belongs here for the same reason `call_expression` does, and its
+// absence was a regression of #1421 rather than a pre-existing gap: the
+// blanket per-entry count that fix removed had been covering it, so
+// `when { a and b -> … }` fell from one condition to zero while the
+// `if (a and b)` it is supposed to agree with still scored one. The set
+// does not discriminate on return type — `f()` counts in a boolean slot
+// whatever it returns — so a non-boolean infix call in a boolean slot is
+// out of scope here for the same reason.
+//
 // `is_expression` (`a is String`, `a !is String`) and `in_expression`
 // (`a in 1..2`, `a !in 1..2`) are the two relational forms the grammar
 // spells as their own production rather than as a `binary_expression`,
@@ -643,6 +669,7 @@ macro_rules! kotlin_bool_terminal_kinds {
             | $crate::Kotlin::ThisExpression
             | $crate::Kotlin::IsExpression
             | $crate::Kotlin::InExpression
+            | $crate::Kotlin::InfixExpression
     };
 }
 

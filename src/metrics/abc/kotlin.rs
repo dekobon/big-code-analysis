@@ -177,10 +177,23 @@ fn kotlin_count_condition(condition: &Node, parent: &Node, conditions: &mut f64)
 // the parent's children rather than a `child_by_field_name`. Scanning
 // rather than reading a fixed index also keeps a leading `extra` — a
 // comment between `when` and `(x)` — from displacing the answer.
+//
+// The scan stops at the opening brace, which is what keeps it `O(1)`.
+// The subject can only sit in the header, between `when` and `{`, so
+// everything past the brace is arms — and an unbounded `any()` over a
+// *subject-less* `when` never short-circuits, so it walks every arm
+// once per arm. That is quadratic in the arm count, and measurable:
+// before the bound, a generated 8,000-arm subject-less `when` took
+// 2.5 s against 0.03 s for the same-size subject-ful control. The
+// bound preserves the `extra` tolerance above — `when /*c*/ (x) {`
+// still finds the subject, `when /*c*/ {` still stops at the brace —
+// and degrades to the old whole-child scan only when error recovery
+// leaves the brace out entirely, where the answer is unchanged.
 fn kotlin_enclosing_when_has_subject<'a>(entry: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     ancestors.parent(entry).is_some_and(|when_expression| {
         when_expression
             .children()
+            .take_while(|child| child.kind_id() != Kotlin::LBRACE)
             .any(|child| child.kind_id() == Kotlin::WhenSubject)
     })
 }

@@ -542,6 +542,7 @@ mod tests {
     // decision count — an `else` arm, or a comparison nested inside
     // another comparison, is an ABC condition with no cyclomatic
     // decision behind it (#1421).
+    #[track_caller]
     fn assert_members_score(container: &crate::FuncSpace, expected: &[(&str, u64, u64)]) {
         assert_eq!(
             container.spaces.len(),
@@ -549,11 +550,7 @@ mod tests {
             "member count changed — the fixture moved, not the metric"
         );
         for (name, conditions, cyclomatic) in expected {
-            let member = container
-                .spaces
-                .iter()
-                .find(|s| s.name.as_deref() == Some(*name))
-                .unwrap_or_else(|| panic!("fixture lost `{name}`"));
+            let member = child_space(container, name);
             assert_eq!(
                 member.metrics.abc.conditions(),
                 *conditions,
@@ -582,6 +579,7 @@ mod tests {
     // of the control. Measured — with presence-only anchoring, rewriting
     // `if (x is > 0)` to `if (x > 0)` in one method of five failed
     // nothing.
+    #[track_caller]
     fn assert_fixture_spells<P: ParserTrait>(src: &str, path: &str, kinds: &[(u16, usize, &str)]) {
         let parser = P::new(src.as_bytes().to_vec(), std::path::Path::new(path), None);
         for (kind, want, spelling) in kinds {
@@ -597,9 +595,10 @@ mod tests {
         }
     }
 
-    // The C# binding of the anchor above. Sixteen callers pass a `foo.cs`
+    // The C# binding of the anchor above. Fourteen callers pass a `foo.cs`
     // fixture, so the parser and path are fixed here rather than repeated
     // at each one.
+    #[track_caller]
     fn assert_csharp_fixture_spells(src: &str, kinds: &[(u16, usize, &str)]) {
         assert_fixture_spells::<CsharpParser>(src, "foo.cs", kinds);
     }
@@ -4199,8 +4198,7 @@ mod tests {
             // silently re-point it at an overload. 0 here would mean the
             // gate swallowed the applying form along with the declaring
             // one.
-            let control = &class.spaces[4];
-            assert_eq!(control.name.as_deref(), Some("n"));
+            let control = child_space(class, "n");
             assert_eq!(
                 control.metrics.abc.conditions(),
                 4,
@@ -4549,6 +4547,68 @@ mod tests {
         });
     }
 
+    // The bare type test `x is int` is `is_expression` (391); only once
+    // a pattern is involved (`x is int y`, `x is null`) does the grammar
+    // emit `is_pattern_expression` (392). They are distinct kinds, and
+    // `csharp_bool_terminal_kinds!()` listed only the second, so the two
+    // spellings of one test disagreed: `if (x is int)` scored zero
+    // conditions against a cyclomatic decision of one while
+    // `if (x is int y)` scored one.
+    //
+    // Found by the whole-branch review of this batch, and it falsified
+    // #1422's own claim in the arm above that a guard "scores one
+    // however it is spelled" — `when x is int` read 1 where
+    // `when IsEven(x)` read 2, which is the spelling-dependence that
+    // fix exists to remove. It is the C# half of the gap #1421 closed
+    // for Kotlin by adding `IsExpression | InExpression` there.
+    //
+    // The plain `if` members are the control that keeps this honest: a
+    // guard-only fixture could be satisfied by a guard-specific rule,
+    // and the defect was never guard-specific. `q` and `iq` are the
+    // already-correct `is_pattern_expression` twins, so a regression
+    // that reintroduced the asymmetry fails on the pair rather than on
+    // an absolute number.
+    #[test]
+    fn csharp_bare_is_type_test_scores_one_condition() {
+        let src = "class A {
+                static bool IsEven(int x) { return true; }
+                int g(object x) => x switch { object o when x is int => 1, _ => 0 };
+                int gq(object x) => x switch { object o when x is int y => 1, _ => 0 };
+                int gc(object x) => x switch { object o when IsEven(1) => 1, _ => 0 };
+                int p(object x) { if (x is int) { return 1; } return 0; }
+                int q(object x) { if (x is int y) { return 1; } return 0; }
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (Csharp::IsExpression as u16, 2, "the bare `is` type tests"),
+                (
+                    Csharp::IsPatternExpression as u16,
+                    2,
+                    "the designation-pattern twins",
+                ),
+                (Csharp::WhenClause as u16, 3, "`when` guards"),
+            ],
+        );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            assert_members_score(
+                &space.spaces[0],
+                &[
+                    ("IsEven", 0, 1),
+                    // Level with `gq` and `gc`: every guard spelling
+                    // scores one, which is what #1422 claims.
+                    ("g", 2, 3),
+                    ("gq", 2, 3),
+                    ("gc", 2, 3),
+                    // Level with `q`: the two spellings of one type
+                    // test agree outside a guard too.
+                    ("p", 1, 2),
+                    ("q", 1, 2),
+                ],
+            );
+        });
+    }
+
     // The statement `switch` reaches the same `when_clause` kind through
     // a different parent — `switch_section` rather than
     // `switch_expression_arm` — which makes it an independent path in
@@ -4699,9 +4759,10 @@ mod tests {
     //
     // This is the C# instance of the class #1181 fixed for the ternary,
     // where a comment between a token and its operand shifted every
-    // positional read. The two commented members are asserted equal to
-    // their uncommented twins rather than to a literal, so the pair
-    // cannot drift apart silently; the literals are pinned by
+    // positional read. Each commented member is asserted against the
+    // same literal pair as its uncommented twin in the same table, so a
+    // regression that moved only the commented spelling fails here; the
+    // literals themselves are pinned by
     // `csharp_switch_arm_guard_scores_one_condition_however_spelled` and
     // its catch-filter sibling.
     #[test]
@@ -5589,6 +5650,7 @@ function f(int $a, int $b): int {
     // score can stand in for: a `when` that grew a subject scores its
     // entries the pre-#1421 way with every other row still satisfied.
     // Each fixture is one class, so the members are `spaces[0]`'s.
+    #[track_caller]
     fn assert_kotlin_class_members(
         src: &str,
         kinds: &[(u16, usize, &str)],
@@ -5725,6 +5787,38 @@ function f(int $a, int $b): int {
                 ("cmp", 2, 2),
                 ("nested", 2, 2),
             ],
+        );
+    }
+
+    // `kotlin_enclosing_when_has_subject` stops scanning at the `{`, so
+    // that a subject-less `when` does not walk all N arms once per arm.
+    // The bound has to clear the header first, and the header can carry
+    // an `extra`: tree-sitter hangs `when /*c*/ (x)`'s comment off the
+    // `when_expression` between the keyword and the subject, so a bound
+    // one child tighter — `child(1)`, or a stop at the first *named*
+    // child — reads `cmtSubject` as subject-less. It would then score
+    // its `1` arm through the slot, where a `number_literal` is not a
+    // Kotlin terminal, and report 0 conditions instead of 1. That is
+    // what discriminates here; `cmtNone` is the other direction, where
+    // the brace is all the bound has to stop on.
+    //
+    // The `block_comment` census is the fixture anchor: delete either
+    // comment and the members still read 1, because a plain `when (x)`
+    // and a plain `when {` both do. The count fails by name instead.
+    #[test]
+    fn kotlin_when_subject_scan_clears_a_comment_before_the_brace() {
+        let src = "class K {
+                fun cmtSubject(x: Int): Int = when /*c*/ (x) { 1 -> 1; else -> 0 }
+                fun cmtNone(a: Boolean): Int = when /*c*/ { a -> 1; else -> 0 }
+            }";
+        assert_kotlin_class_members(
+            src,
+            &[
+                (Kotlin::BlockComment as u16, 2, "the two header comments"),
+                (Kotlin::WhenSubject as u16, 1, "`cmtSubject`'s subject"),
+                (Kotlin::WhenEntry as u16, 4, "`when` entries"),
+            ],
+            &[("cmtSubject", 1, 2), ("cmtNone", 1, 2)],
         );
     }
 
@@ -5874,6 +5968,58 @@ function f(int $a, int $b): int {
                 ("whenIs", 1, 2),
                 ("whenIn", 1, 2),
                 ("isAnd", 2, 3),
+            ],
+        );
+    }
+
+    // Kotlin spells boolean `and` / `or` / `xor` as infix *functions*, so
+    // `a and b` parses as `infix_expression` — not `binary_expression`,
+    // and not any token arm. It belongs in
+    // `kotlin_bool_terminal_kinds!()` for the same reason
+    // `call_expression` does: `a and b` is `a.and(b)`.
+    //
+    // This was a regression of #1421, not a pre-existing gap, and it is
+    // the third shape the blanket per-entry count turned out to be
+    // propping up — after `is` / `in` and bare parens, which that fix
+    // caught. Found by the whole-branch review. Measured on both sides:
+    // `when { a and b -> … }` scored 1 before and 0 after, while the
+    // `if (a and b)` it is supposed to agree with still scored 1.
+    //
+    // The `if` members are the anchor rather than a second `when`: the
+    // whole premise of #1421 is that a subject-less arm scores like an
+    // `if` predicate, so a fixture where the two disagree is the
+    // statement of the bug. `andAmp` holds the pair level against the
+    // `&&` spelling, which never regressed and would otherwise be the
+    // only form under test.
+    #[test]
+    fn kotlin_infix_boolean_functions_are_unary_conditions() {
+        let src = "class K {
+                fun whenAnd(a: Boolean, b: Boolean): Int = when { a and b -> 1; else -> 0 }
+                fun whenOr(a: Boolean, b: Boolean): Int = when { a or b -> 1; else -> 0 }
+                fun whenXor(a: Boolean, b: Boolean): Int = when { a xor b -> 1; else -> 0 }
+                fun whenAmp(a: Boolean, b: Boolean): Int = when { a && b -> 1; else -> 0 }
+                fun ifAnd(a: Boolean, b: Boolean): Int { if (a and b) { return 1 }; return 0 }
+            }";
+        assert_kotlin_class_members(
+            src,
+            &[
+                (Kotlin::WhenSubject as u16, 0, "`when` subjects"),
+                (Kotlin::InfixExpression as u16, 4, "the infix calls"),
+                (Kotlin::AMPAMP as u16, 1, "`whenAmp`'s `&&`"),
+            ],
+            &[
+                // 0 before this fix: the predicate slot saw a kind it
+                // did not classify and no token arm matched.
+                ("whenAnd", 1, 2),
+                ("whenOr", 1, 2),
+                ("whenXor", 1, 2),
+                // Never regressed — `&&` is a `binary_expression` whose
+                // operator the token arm owns. Holds the others level.
+                ("whenAmp", 2, 3),
+                // The agreement #1421 exists to establish: a
+                // subject-less arm scores what the equivalent `if`
+                // predicate scores.
+                ("ifAnd", 1, 2),
             ],
         );
     }
