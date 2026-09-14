@@ -455,8 +455,8 @@ implement_metric_trait!(Abc, PreprocCode, CcommentCode);
 )]
 mod tests {
     use crate::test_support::{
-        ast_has_kind_id, check_func_space_only_shim, check_metrics_only_shim, child_space,
-        metrics_verbatim,
+        assert_csharp_fixture_spells, assert_fixture_spells, ast_has_kind_id,
+        check_func_space_only_shim, check_metrics_only_shim, child_space, metrics_verbatim,
     };
     use crate::traits::ParserTrait;
 
@@ -562,48 +562,6 @@ mod tests {
                 "{name}: cyclomatic"
             );
         }
-    }
-
-    // #1383's fix makes a relational pattern's operator score *zero*, so
-    // its tests have no second axis to anchor on: trimming `> 5` down to
-    // `5` leaves every assertion satisfied and the construct under test
-    // gone (`.claude/rules/testing.md`, "Perturb the fixture as well as
-    // the production line"). Asserting the kind ids are still present in
-    // the parsed fixture is the anchor that replaces it — editing a
-    // spelling out of the source now fails here by name instead of
-    // silently turning the method into a copy of the control.
-    // Counts rather than presence, because these fixtures carry several
-    // methods spelling the same construct: a bare `ast_has_kind_id` is
-    // still satisfied after one method loses its pattern, which is
-    // exactly the decay that turns that method into a silent duplicate
-    // of the control. Measured — with presence-only anchoring, rewriting
-    // `if (x is > 0)` to `if (x > 0)` in one method of five failed
-    // nothing.
-    #[track_caller]
-    fn assert_fixture_spells<P: ParserTrait>(src: &str, path: &str, kinds: &[(u16, usize, &str)]) {
-        // An empty list would make every following assertion vacuous,
-        // which is the anchor's own failure mode rather than a caller's.
-        assert!(!kinds.is_empty(), "anchor asserted nothing");
-        let parser = P::new(src.as_bytes().to_vec(), std::path::Path::new(path), None);
-        for (kind, want, spelling) in kinds {
-            let found = parser
-                .root()
-                .preorder()
-                .filter(|n| n.kind_id() == *kind)
-                .count();
-            assert_eq!(
-                found, *want,
-                "fixture has {found} of {spelling}, expected {want} — the construct under test was edited"
-            );
-        }
-    }
-
-    // The C# binding of the anchor above. Fourteen callers pass a `foo.cs`
-    // fixture, so the parser and path are fixed here rather than repeated
-    // at each one.
-    #[track_caller]
-    fn assert_csharp_fixture_spells(src: &str, kinds: &[(u16, usize, &str)]) {
-        assert_fixture_spells::<CsharpParser>(src, "foo.cs", kinds);
     }
 
     /// Regression for #227: a `Stats::default()` that never sees an
@@ -3225,6 +3183,64 @@ mod tests {
             "foo.cs",
             |metric| assert_eq!(metric.abc.conditions_sum(), 2),
         );
+    }
+
+    /// Regression #1450 / #1451: `goto case 2;` spells the same `case`
+    /// keyword token (id 114) as a real arm, from a second production
+    /// (`goto_statement`), and scored an ABC condition it does not earn —
+    /// an unconditional jump to an arm is not a decision.
+    ///
+    /// `jmp` differs from `ctl` by exactly one statement, so the
+    /// `goto case` is the only thing that can separate their scores
+    /// (`.claude/rules/grammar-dispatch.md` §11 — an arm and a
+    /// `goto case` are independent paths into the same counter, and a
+    /// fixture carrying only arms cannot show the gate works). `dfl` is
+    /// the control that was already correct, by accident rather than
+    /// design: `goto default;` spells `Default`, which neither metric
+    /// counts because it is the switch's unconditional fallthrough
+    /// (#456, #469).
+    ///
+    /// [`assert_every_member_scores`] covers cyclomatic as well as ABC,
+    /// through its per-member §8 parity assertion, and would catch the
+    /// gate being removed from *either* side alone: dropping ABC's puts
+    /// `jmp` at conditions 3 against the asserted 2, and dropping
+    /// cyclomatic's leaves conditions 2 against a decision count of 3.
+    /// Removing both restores the parity at `3 == 4 - 1` and is caught by
+    /// the conditions value, which is why 2 is named rather than derived.
+    ///
+    /// The `Case` anchor is the second axis. Every member scores 2 from
+    /// its two arms alone, so deleting `goto case 2;` leaves every
+    /// assertion below satisfied and the construct under test gone; the
+    /// anchor's count of 7 — six arms plus the one jump — fails by name
+    /// instead.
+    #[test]
+    fn csharp_goto_case_is_not_a_condition() {
+        let src = "class A {
+                int ctl(int x) { switch (x) { case 1: return 1; case 2: return 2; default: return 0; } }
+                int jmp(int x) { switch (x) { case 1: goto case 2; case 2: return 2; default: return 0; } }
+                int dfl(int x) { switch (x) { case 1: goto default; case 2: return 2; default: return 0; } }
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (Csharp::Case as u16, 7, "`case` tokens (6 arms + 1 jump)"),
+                (Csharp::SwitchSection as u16, 9, "switch arms"),
+                (Csharp::GotoStatement as u16, 2, "`goto` statements"),
+                (
+                    Csharp::Default as u16,
+                    4,
+                    "`default` tokens (3 arms + 1 jump)",
+                ),
+            ],
+        );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            assert_every_member_scores(
+                &space.spaces[0],
+                3,
+                2,
+                "one condition per `case` arm, none for a `goto` into one",
+            );
+        });
     }
 
     #[test]

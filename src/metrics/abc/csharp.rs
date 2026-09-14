@@ -337,20 +337,11 @@ fn csharp_count_token_condition<'a>(
         // is excluded, mirroring cyclomatic's `Case`-only count and the
         // expression-arm discard rule below (issues #456, #469).
         //
-        // These four stay ungated; `EQEQ` / `BANGEQ` shared the arm until
-        // #1420 and moved to the gated one below. `Else`, `Try` and
-        // `Catch` come from one production each (`if_statement`,
-        // `try_statement`, `catch_clause`), so there is nothing to gate on.
-        // `Case` comes from two — `switch_section` and `goto_statement` —
-        // and the second is over-counted: FIXME(#1450), `goto case 2;`
-        // scores a condition without being an arm. Left alone rather than
-        // missed: C# cyclomatic counts the same token
-        // (`src/metrics/cyclomatic/csharp.rs`), so gating it here alone
-        // would break the §8 parity `conditions == cyclomatic() - 1` that
-        // a two-arm-plus-`goto case` method currently satisfies at
-        // 3 == 4 - 1. Both arms have to move together. `goto default;`
-        // costs nothing already, because `Default` is excluded as the
-        // switch's unconditional fallthrough.
+        // These three stay ungated; `EQEQ` / `BANGEQ` shared the arm until
+        // #1420 and moved to the gated one below, and `Case` moved to its
+        // own gated arm in #1450 / #1451. `Else`, `Try` and `Catch` come
+        // from one production each (`if_statement`, `try_statement`,
+        // `catch_clause`), so there is nothing to gate on.
         //
         // `QMARKQMARK` joined them in #1459 and is ungated for the same
         // reason: `??` comes from `binary_expression` alone. It is a
@@ -374,7 +365,33 @@ fn csharp_count_token_condition<'a>(
         // bare `QMARK` below and from the `??=` compound assignment
         // (`QMARKQMARKEQ`, counted as an assignment), and every
         // condition slot declines a `binary_expression` outright.
-        Else | Case | Try | Catch | QMARKQMARK => {
+        Else | Try | Catch | QMARKQMARK => {
+            stats.conditions += 1.;
+        }
+        // `case` comes from two productions — `switch_section`, a real
+        // arm, and `goto_statement`, where `goto case 2;` is an
+        // unconditional jump to one. Both spell the same token, so the
+        // jump scored a condition it does not earn: a method whose only
+        // difference from a control was a `goto case` read one condition
+        // *and* one cyclomatic decision higher (#1450 / #1451). The gate
+        // is shared with `src/metrics/cyclomatic/csharp.rs` and carries
+        // the grammar sweep and the allowlist rationale in its doc
+        // comment.
+        //
+        // The two arms moved in one change because they measure the same
+        // token, not because any global law binds them: `conditions ==
+        // cyclomatic() - 1` is an opt-in fixture property asserted by two
+        // of `src/metrics/abc.rs`'s three helpers, and the third
+        // documents it as knowingly false in general. Gating one side
+        // alone broke no test in the suite — no fixture spelled `goto
+        // case` outside the cognitive tests — which is the reason to
+        // write the pair as one commit rather than trust the gate to
+        // notice.
+        //
+        // A gated-out `Case` falls through to
+        // `csharp_walk_for_conditions`, which has no `Case` arm, so the
+        // fall-through is a no-op.
+        Case if crate::metrics::cyclomatic::csharp_case_token_is_switch_arm(node, ancestors) => {
             stats.conditions += 1.;
         }
         // All six C# comparison tokens, counted only where they *apply*

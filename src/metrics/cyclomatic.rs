@@ -489,6 +489,45 @@ pub(crate) fn csharp_switch_expression_arm_is_bare_discard(node: &Node) -> bool 
     !named.any(|c| c.kind_id() == WhenClause)
 }
 
+/// Distinguishes the C# `case` keyword of a real `switch` arm from the
+/// one inside `goto case 2;`, which spells the same token (id 114) from
+/// a second production and is an unconditional jump, not a decision.
+///
+/// A `grammar.json` sweep of tree-sitter-c-sharp 0.23.5 finds the
+/// `"case"` string in exactly two rules — `switch_section` and
+/// `goto_statement` — and only the first is an arm. `Csharp::Case` and
+/// `Csharp::SwitchSection` each carry no numeric-suffix alias at this
+/// pin (`.claude/rules/grammar-dispatch.md` §1), and `switch_section`
+/// is not a hidden `_`-prefixed rule (§2), so the one-variant allowlist
+/// is the whole answer.
+///
+/// Allowlist polarity, matching the comparison-token gate in
+/// `src/metrics/abc/csharp.rs`: naming the one decision parent means a
+/// grammar bump that grows a third `case`-bearing production fails
+/// *closed* — the new spelling stops counting rather than silently
+/// counting as an arm. It also covers error recovery, where a token the
+/// parser reparents under `{ERROR}` stops counting; nothing pins that,
+/// because a fixture the language rejects would make the grammar's
+/// present recovery the contract (§6).
+///
+/// Both C# metrics that count the bare token gate on this — ABC's
+/// `conditions` and cyclomatic's decision count — so `goto case` moves
+/// them together. Cognitive models the construct on a different node
+/// entirely (`GotoStatement`, +1 as an unstructured jump per
+/// SonarSource §B2, `src/metrics/cognitive/csharp.rs`) and is
+/// unaffected: a `goto case` remains a jump there, it merely stops
+/// also being an arm here.
+///
+/// `goto default;` needed no equivalent gate: `Default` is a distinct
+/// token that neither metric counts, since it is the switch's
+/// unconditional fallthrough (#456, #469).
+pub(crate) fn csharp_case_token_is_switch_arm<'a>(
+    node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    ancestors.parent_has_kind(node, Csharp::SwitchSection as u16)
+}
+
 /// Detects Kotlin `when_entry` nodes that are `else -> …` arms — the
 /// analogue of the C-family `default:` arm. tree-sitter-kotlin-ng
 /// attaches a `condition` field to every case-style entry; the `else`
@@ -571,7 +610,10 @@ mod typescript;
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::test_support::{ast_has_kind_id, check_metrics_only_shim};
+    use crate::test_support::{
+        assert_csharp_fixture_spells, ast_has_kind_id, check_func_space_only,
+        check_metrics_only_shim, child_space,
+    };
 
     use super::*;
 
@@ -2013,6 +2055,66 @@ mod tests {
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
             },
         );
+    }
+
+    /// Regression #1450 / #1451: `goto case 2;` spells the same `case`
+    /// keyword token (id 114) as a real arm, from a second production
+    /// (`goto_statement`), and scored a decision it does not earn — an
+    /// unconditional jump to an arm is not a branch point.
+    ///
+    /// Per member, never through `cyclomatic_sum()`: the sum cannot tell
+    /// the shipped `{3, 3, 3}` from the pre-fix `{3, 4, 3}` without also
+    /// pinning the member count, and the whole claim is that `jmp` reads
+    /// the same as `ctl`. The three methods are identical but for one
+    /// statement each, so `jmp`'s `goto case` is the only thing that can
+    /// separate them (`.claude/rules/grammar-dispatch.md` §11 — an arm
+    /// and a `goto case` are independent paths into the same counter, and
+    /// a fixture carrying only arms cannot show the gate works).
+    ///
+    /// `dfl` is the control that was already correct, by accident rather
+    /// than design: `goto default;` spells `Default`, which neither
+    /// metric counts because it is the switch's unconditional
+    /// fallthrough (#456, #469).
+    ///
+    /// The `Case` anchor is the second axis. Every member scores 3 from
+    /// its two arms alone, so deleting `goto case 2;` from the fixture
+    /// leaves every assertion below satisfied and the construct under
+    /// test gone; the anchor's count of 7 — six arms plus the one jump —
+    /// fails by name instead.
+    #[test]
+    fn csharp_goto_case_is_not_a_switch_arm() {
+        let src = "class A {
+                int ctl(int x) { switch (x) { case 1: return 1; case 2: return 2; default: return 0; } }
+                int jmp(int x) { switch (x) { case 1: goto case 2; case 2: return 2; default: return 0; } }
+                int dfl(int x) { switch (x) { case 1: goto default; case 2: return 2; default: return 0; } }
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (Csharp::Case as u16, 7, "`case` tokens (6 arms + 1 jump)"),
+                (Csharp::SwitchSection as u16, 9, "switch arms"),
+                (Csharp::GotoStatement as u16, 2, "`goto` statements"),
+                (
+                    Csharp::Default as u16,
+                    4,
+                    "`default` tokens (3 arms + 1 jump)",
+                ),
+            ],
+        );
+        check_func_space_only::<CsharpParser, _>(src, "foo.cs", &[Metric::Cyclomatic], |space| {
+            let class = child_space(&space, "A");
+            assert_eq!(class.spaces.len(), 3, "fixture moved, not the metric");
+            for name in ["ctl", "jmp", "dfl"] {
+                let member = child_space(class, name);
+                // base 1 + one decision per `case` arm; the `default:`
+                // arm and both `goto` forms contribute nothing.
+                assert_eq!(
+                    member.metrics.cyclomatic.cyclomatic(),
+                    3,
+                    "{name}: two arms over a base of 1"
+                );
+            }
+        });
     }
 
     /// Modified CCN: C# switch statement with 2 cases counts as 1.

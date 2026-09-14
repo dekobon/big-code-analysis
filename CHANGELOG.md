@@ -147,6 +147,25 @@ for historical reference.
 
 ### Fixed
 
+- **C# `goto case` counted as a decision** (#1450, #1451). `goto case 2;`
+  spells the same `case` keyword token as a real `switch` arm — the
+  grammar emits it from a second production, `goto_statement` — so both
+  C# ABC and C# cyclomatic scored the jump as an arm. A method whose
+  only difference from a control was a `goto case` read one higher on
+  both metrics while having exactly the same arms. Neither metric counts
+  the `default` token, so `goto default;` was already free, by accident
+  rather than design: it is the switch's unconditional fallthrough
+  (#456, #469). Both arms are now gated on a `switch_section` parent
+  through one shared predicate, in allowlist polarity, so a grammar
+  bump that grows a third `case`-bearing production fails closed.
+  Cognitive is unaffected and unchanged: it models the construct on the
+  `goto_statement` node, +1 as an unstructured jump per SonarSource §B2,
+  so a `goto case` remains a jump there and merely stops also being an
+  arm. **Metric drift:** C# `abc.conditions`, `abc.magnitude` and
+  `cyclomatic` each fall by one per `goto case`; all three are gated
+  threshold metrics. No integration snapshot moves — the C# corpus
+  contains no `goto case`.
+
 - **C# ABC counts a null-forgiving predicate** (#1463). `if (b!)` scored
   zero conditions where `if (b)` scores one, and likewise `if ((b!))`,
   `if (!b!)`, `if (b!!)` and every `&&` / `||` operand spelled with the
