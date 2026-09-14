@@ -717,6 +717,20 @@ for historical reference.
   was reported at 7 — a finding the CLI never emits — and
   closure-heavy code drew spurious SARIF findings.
 
+### Security
+
+- Cleared RUSTSEC-2026-0285 by moving `rustls` `0.23.43` → `0.23.45` in
+  the workspace lockfile. Rustls accepted TLS 1.3 handshake messages
+  sent at the wrong encryption level when they followed a key-changing
+  message in the same record — for example a plaintext
+  `EncryptedExtensions` packed into the `ServerHello` record — where
+  RFC 8446 §5.1 requires the connection be terminated with an
+  `unexpected_message` alert. The handshake transcript stays
+  authenticated, so a network-position attacker cannot alter or
+  complete a handshake. `rustls` is a dev-only transitive dependency
+  here (`jsonschema` → `reqwest`), reached by no shipped code path;
+  the bump keeps the `cargo-deny` advisories gate green.
+
 ## [2.2.0] - 2026-08-29
 
 One entry below is marked **(breaking)**: the Python bindings'
