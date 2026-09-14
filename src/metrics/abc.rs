@@ -2097,6 +2097,133 @@ mod tests {
         );
     }
 
+    // The three tests below are one fix seen from three grammars (#1407):
+    // an enum constant carrying constructor arguments is an object
+    // construction and scored zero in every JVM-family language, which
+    // #1279 and #1384 left behind because both looked at superclass
+    // delegation only.
+    //
+    // Each fixture pairs an argument-carrying constant with a bare one in
+    // the *same* enum, because that is the only shape that shows the gate
+    // working: a fixture of only `A(1)` scores the same whether the arm is
+    // gated on the argument list or matches every constant
+    // (`.claude/rules/grammar-dispatch.md` §6). Each also carries a
+    // constant whose argument is itself a call, which must score 2 rather
+    // than 1 (§5).
+    //
+    // `branches_sum()` alone cannot notice the bare constant being trimmed
+    // out — it contributes to no axis — so every fixture is anchored on a
+    // node census that fails by name when a spelling is edited away
+    // (`.claude/rules/testing.md`, "Perturb the fixture as well as the
+    // production line"). The two are coupled in one helper for the same
+    // reason `assert_kotlin_class_members` couples its pair: a branch
+    // total added without the census reads as coverage and is not.
+
+    fn assert_enum_branches<P: MetricSuite>(
+        src: &str,
+        path: &str,
+        kinds: &[(u16, usize, &str)],
+        branches: u64,
+    ) {
+        assert_fixture_spells::<P>(src, path, kinds);
+        check_func_space::<P, _>(src, path, |space| {
+            assert_eq!(space.metrics.abc.branches_sum(), branches);
+        });
+    }
+
+    #[test]
+    fn java_enum_constant_with_arguments_is_a_branch() {
+        // `@SuppressWarnings("x") B` is the discriminating case for the
+        // gate's *kind*, not just its presence: the annotation carries an
+        // argument list of its own, so an arm gated on "has some argument
+        // list anywhere below" would score it. It cannot satisfy this one
+        // twice over — `annotation_argument_list` is a distinct kind id
+        // from `argument_list`, and it hangs off the constant's `modifiers`
+        // child rather than the constant itself. Both verified with `bca
+        // dump`.
+        //
+        // expected: 4 branches — `A(1)`, `K(2)`, `D(…)`, and the `f()`
+        // inside `D`'s argument list. `B` scores 0.
+        let src = "class Outer {
+                static int f() { return 1; }
+                enum E {
+                    A(1),
+                    @SuppressWarnings(\"x\") B,
+                    K(2),
+                    D(f());
+                    E(int v) {}
+                }
+            }";
+        assert_enum_branches::<JavaParser>(
+            src,
+            "foo.java",
+            &[
+                (Java::EnumConstant as u16, 4, "enum constants"),
+                (Java::ArgumentList as u16, 4, "argument lists"),
+                (
+                    Java::AnnotationArgumentList as u16,
+                    1,
+                    "`@SuppressWarnings`'s argument list",
+                ),
+                (Java::MethodInvocation as u16, 1, "`D`'s nested `f()` call"),
+            ],
+            4,
+        );
+    }
+
+    #[test]
+    fn kotlin_enum_entry_with_arguments_is_a_branch() {
+        // Kotlin needs a defaulted primary-constructor parameter to spell
+        // both cases in one enum: `enum class E(val v: Int)` obliges every
+        // entry to pass an argument, so `= 0` is what lets the bare `B`
+        // sit beside `A(1)`. `enum class P` covers the other shape the gate
+        // has to leave alone — an enum with no constructor at all, whose
+        // entries can never carry an argument list.
+        //
+        // expected: 3 branches — `A(1)`, `C(…)`, and the `g()` inside `C`'s
+        // argument list. `B`, `X` and `Y` score 0.
+        let src = "fun g(): Int = 1
+             enum class E(val v: Int = 0) { A(1), B, C(g()) }
+             enum class P { X, Y }";
+        assert_enum_branches::<KotlinParser>(
+            src,
+            "foo.kt",
+            &[
+                (Kotlin::EnumEntry as u16, 5, "enum entries"),
+                (Kotlin::ValueArguments as u16, 3, "argument lists"),
+                (Kotlin::CallExpression as u16, 1, "`C`'s nested `g()` call"),
+            ],
+            3,
+        );
+    }
+
+    #[test]
+    fn groovy_enum_constant_with_arguments_is_a_branch() {
+        // Groovy's enum has no annotated-constant case to cover: the
+        // dekobon grammar cannot parse `@Deprecated A(1)` inside an enum
+        // body and recovers into `ERROR` nodes, emitting no `enum_constant`
+        // at all. The remaining two cases are the ones that matter.
+        //
+        // expected: 3 branches — `A(1)`, `D(…)`, and the `Outer.f()` inside
+        // `D`'s argument list. `B` scores 0.
+        let src = "class Outer { static int f() { 1 } }
+             enum E { A(1), B, D(Outer.f()) }";
+        assert_enum_branches::<GroovyParser>(
+            src,
+            "foo.groovy",
+            &[
+                (Groovy::EnumConstant as u16, 3, "enum constants"),
+                (Groovy::ArgumentList as u16, 3, "argument lists"),
+                (
+                    Groovy::MethodInvocation as u16,
+                    1,
+                    "`D`'s nested `Outer.f()` call",
+                ),
+            ],
+            3,
+        );
+    }
+
     #[test]
     fn groovy_no_abc() {
         // Comment-only file has no executable code → all-zero ABC.

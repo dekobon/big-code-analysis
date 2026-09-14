@@ -293,6 +293,35 @@ impl Abc for KotlinCode {
             {
                 stats.branches += 1.;
             }
+            // An enum entry carrying constructor arguments — `A(1)` in
+            // `enum class E(val v: Int) { A(1), B(2) }` — invokes the enum's
+            // constructor, so it is an object construction under
+            // Fitzpatrick's "function invocation or object construction"
+            // rule. It scored zero until #1407, which is the inconsistent
+            // position once #1279 and #1384 decided the two sibling
+            // delegation forms (`: this(…)` and `class Sub : Base(1, 2)`):
+            // all three are a constructor call the source spells out.
+            //
+            // The counter-argument is that an enum entry is a declaration,
+            // not a call site a reader navigates to. It loses because the
+            // same is true of `class Sub : Base(1, 2)` — also a declaration
+            // — and because the arguments still have to be understood as a
+            // constructor's, which is the effort ABC is measuring.
+            //
+            // The child gate is what makes this a §6 narrowing rather than
+            // a new node: a bare `B` is `enum_entry > identifier` with no
+            // `value_arguments` child and must stay at zero, as must every
+            // entry of an enum with no constructor at all (`enum class E {
+            // A, B }`). Verified with `bca dump`. `value_arguments` is the
+            // only argument-list production the entry can carry, and a
+            // Kotlin `annotation` is a `constructor_invocation` above, not
+            // an entry, so nothing else satisfies the gate. An argument
+            // that is itself a call (`A(f())`) scores 2: `value_arguments`
+            // is not a branch node, so the inner `call_expression` is the
+            // only other node counted (no double count, §5).
+            EnumEntry if node.is_child(ValueArguments as u16) => {
+                stats.branches += 1.;
+            }
             // Conditions: comparison operators, identity equality,
             // ternary-elvis (`?:`), `as?` safe-cast, and the arms of
             // control-flow constructs (`else`, `catch`, `when` entries).

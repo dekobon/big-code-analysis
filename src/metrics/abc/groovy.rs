@@ -162,11 +162,42 @@ fn groovy_count_token_assignment<'a>(
 
 fn groovy_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
     use Groovy::*;
-    if matches!(node.kind_id().into(), MethodInvocation | CommandChain | New) {
+    let is_branch = match node.kind_id().into() {
+        MethodInvocation | CommandChain | New => true,
+        // An enum constant carrying constructor arguments — `A(1)` in
+        // `enum E { A(1), B, C(2) }` — invokes the enum's constructor, so
+        // it is an object construction under Fitzpatrick's "function
+        // invocation or object construction" rule. It scored zero until
+        // #1407, which is the inconsistent position once #1279 decided
+        // Java's `super(…)` / `this(…)` — already counted here through
+        // `MethodInvocation` — and #1384 decided Kotlin's `class Sub :
+        // Base(1, 2)`: all three are a constructor call the source spells
+        // out.
+        //
+        // The counter-argument is that an enum constant is a declaration,
+        // not a call site a reader navigates to. It loses because the same
+        // is true of a superclass delegation, and because the arguments
+        // still have to be understood as a constructor's, which is the
+        // effort ABC is measuring.
+        //
+        // The child gate is what makes this a §6 narrowing rather than a
+        // new node: a bare `B` is `enum_constant > identifier` with no
+        // `argument_list` child and must stay at zero. Verified with `bca
+        // dump`: the dekobon Groovy grammar gives the constant an
+        // `identifier` plus an optional `argument_list`. Java's annotated
+        // spelling has no analogue to guard against here — this grammar
+        // cannot parse `@Deprecated A(1)` inside an enum body at all and
+        // recovers into `ERROR` nodes, so no `enum_constant` is produced.
+        // An argument that is itself a call (`A(f())`) scores 2:
+        // `argument_list` is not a branch node, so the inner
+        // `method_invocation` is the only other node counted (§5).
+        EnumConstant => node.is_child(ArgumentList as u16),
+        _ => false,
+    };
+    if is_branch {
         stats.branches += 1.;
-        return true;
     }
-    false
+    is_branch
 }
 
 // The `default` arm of a `switch` is excluded (issue #469): it is the

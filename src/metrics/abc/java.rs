@@ -196,14 +196,41 @@ fn java_count_token_assignment<'a>(
 // are separate nodes and still count on their own.
 fn java_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
     use Java::*;
-    if matches!(
-        node.kind_id().into(),
-        MethodInvocation | New | ExplicitConstructorInvocation
-    ) {
+    let is_branch = match node.kind_id().into() {
+        MethodInvocation | New | ExplicitConstructorInvocation => true,
+        // An enum constant carrying constructor arguments — `A(1)` in
+        // `enum E { A(1), B, C(2); }` — invokes the enum's constructor, so
+        // it is an object construction under Fitzpatrick's "function
+        // invocation or object construction" rule. It scored zero until
+        // #1407, which is the inconsistent position once #1279 decided
+        // `super(…)` / `this(…)` above: both are a constructor call the
+        // source spells out, and Kotlin's `class Sub : Base(1, 2)` was
+        // settled the same way in #1384.
+        //
+        // The counter-argument is that an enum constant is a declaration,
+        // not a call site a reader navigates to. It loses because the same
+        // is true of the delegation forms already counted, and because the
+        // arguments still have to be understood as a constructor's, which
+        // is the effort ABC is measuring.
+        //
+        // The child gate is what makes this a §6 narrowing rather than a
+        // new node: a bare `B` is `enum_constant > identifier` with no
+        // `argument_list` child and must stay at zero. The gate is
+        // specifically on `argument_list`, so an annotated constant
+        // (`@Deprecated A` / `@Foo(1) A`) cannot satisfy it — an
+        // annotation's arguments are a distinct `annotation_argument_list`
+        // production, and they hang off the constant's `modifiers` child
+        // rather than off the constant directly. Both verified with `bca
+        // dump`. An argument that is itself a call (`A(f())`) scores 2:
+        // `argument_list` is not a branch node, so the inner
+        // `method_invocation` is the only other node counted (§5).
+        EnumConstant => node.is_child(ArgumentList as u16),
+        _ => false,
+    };
+    if is_branch {
         stats.branches += 1.;
-        return true;
     }
-    false
+    is_branch
 }
 
 // Counts condition tokens: comparison operators, control-flow keywords,

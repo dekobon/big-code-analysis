@@ -915,7 +915,7 @@ value = 15.0
 path = "src/metrics/abc/kotlin.rs"
 qualified = "KotlinCode::compute"
 metric = "cyclomatic"
-value = 18.0
+value = 20.0
 
 [[entry]]
 path = "src/metrics/abc/objc.rs"
