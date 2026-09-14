@@ -135,6 +135,98 @@ for historical reference.
 
 ### Fixed
 
+- **C# comparison-operator overloads no longer score a spurious
+  condition** (#1420). C# overloads six comparison operators and #1297
+  gated only `<` and `>`; the other four are distinct tokens that
+  reached a different arm, so `operator <=`, `operator >=`,
+  `operator ==` and `operator !=` each scored one ABC condition on their
+  *declaration*, where the token names the operator being defined rather
+  than applying it. All six now share one arm gated on a
+  `binary_expression` parent, which also subsumes #1383's
+  `relational_pattern` denial and fails closed on a grammar bump.
+  **Metric drift:** `abc.conditions` falls by one per comparison-operator
+  overload declaration in C#.
+
+- **C# ABC counts a primary-constructor base call** (#1406). C# 12 lets a
+  class, struct or record declare its constructor in the header and pass
+  arguments to its base there — `class Sub(int x) : Base(x)` — which
+  invokes the base constructor exactly as the `: base(x)` initializer
+  added in #1279 does, but scored nothing. It is now one branch, in both
+  spellings tree-sitter-c-sharp uses: the record form nests the arguments
+  under a `primary_constructor_base_type`, the class form hangs them
+  straight off the `base_list`, so one node would have covered only half
+  the declarations. The arm is gated on that `base_list` parent, since an
+  `argument_list` is otherwise the argument list of every call in the
+  file. A base type passing no arguments (`struct S(int x) : IBase`) is
+  unchanged at zero. This is the C# sibling of Kotlin's #1384.
+  **Metric drift:** C# `abc.branches` rises by one per type passing
+  arguments to its base from a primary constructor.
+
+- **A C# `when` guard now counts as a decision in both cyclomatic
+  complexity and ABC** (#1422). Cyclomatic had no arm for either guard
+  spelling — `when_clause` on a switch arm or `case` section, and
+  `catch_filter_clause` on `catch (E e) when (…)` — so a guarded arm
+  scored one decision where it has two ways to fail: the pattern does not
+  match, or it matches and the guard is false. ABC counted whatever
+  operator happened to sit inside the guard, so `when x > 2` scored one
+  condition while the equivalent `when IsEven(x)` scored none. The guard
+  is now a condition slot like an `if` condition, so every spelling
+  scores exactly one and a compound guard keeps its sub-structure.
+  **Metric drift:** C# `cyclomatic` (standard and modified) gains one per
+  guard, and `abc.conditions` gains one for any guard not already
+  operator-shaped.
+
+- **Kotlin no longer double-counts a subject-less `when` arm's comparison
+  operator** (#1421). `when { x > 5 -> 1; x < 0 -> 2; else -> 0 }`
+  reported 4 conditions against a cyclomatic decision count of 2, because
+  the arm added a blanket one on top of the comparison the token arms
+  already scored; all six comparison spellings were affected, not only
+  `<` and `>`. A subject-less arm now scores its condition through the
+  same slot an `if` predicate uses, while a subject-ful arm keeps its
+  per-entry count — its pattern is not an independent boolean expression,
+  so the implicit `subject == pattern` is a decision nothing in the
+  source spells. As part of the same fix, Kotlin's `is` and `in` tests
+  count as conditions wherever a boolean is evaluated: `if (a is String)`
+  and `if (a in 1..2)` previously scored zero against a decision count of
+  one. **Metric drift:** Kotlin `abc.conditions` falls for subject-less
+  `when` arms carrying a comparison, and rises for any `is` / `in` test
+  in a boolean slot.
+
+- **An enum constant carrying constructor arguments is counted as a
+  branch** (#1407). `A(1)` in `enum E { A(1), B, C(2); }` invokes the
+  enum's constructor, so it is an object construction under
+  Fitzpatrick's rule — the same as the `super(…)` / `this(…)` and
+  `class Sub : Base(1, 2)` forms counted since #1279 and #1384 — and
+  scored zero in Kotlin, Java and Groovy alike. Each arm is gated on the
+  entry's argument-list child, so a constant with no arguments (`B`), and
+  every constant of an enum with no constructor, stays at zero; Java's
+  gate names `argument_list` specifically, so an annotated constant
+  cannot satisfy it through the distinct `annotation_argument_list`
+  production. **Metric drift:** `abc.branches` rises by one per
+  argument-carrying enum constant in Kotlin, Java and Groovy.
+
+- **A truthy numeric literal in a boolean operand slot now scores a unary
+  condition in PHP, Groovy and the C family** (#1410). `abc.conditions`
+  keys on a per-language terminal-bool kind set, and six of them named no
+  numeric kind — the last deferrals from #1379. `$a && 1` scored one
+  condition against `$a && $b`'s two; `def f(a) { a && 1 }` the same in
+  Groovy; and in C, C++, Mozcpp and Objective-C the omission showed
+  *within* one language, `if (true)` scoring one condition and `if (1)`
+  none, because `"true"` was in the set and `number_literal` was not.
+  Each set now names every numeric kind its grammar emits — `integer` /
+  `float` for PHP, one consolidated `number_literal` for Groovy and for
+  each C-family grammar — verified by `bca dump` per language rather than
+  by an alias sweep, which is the check #1379's first cut skipped. The
+  C-family set also gains `char_literal`: `'c'` has integral type and is
+  truthy exactly as a number is. PHP's `float` *type* keyword, C++'s
+  `user_defined_literal` and Objective-C's `version_number` are
+  deliberately excluded — none is a truthy value literal. **Metric
+  drift:** `abc.conditions` and `abc.magnitude` rise for PHP, Groovy, C,
+  C++, Mozcpp and Objective-C code using a numeric (or, in the C family,
+  character) literal as a bare `&&` / `||` operand, an `if` / `while` /
+  `do`-`while` / `for` condition, or a ternary condition — `while (1)`
+  and `do { … } while (0)` being the common idioms.
+
 - **Single-language feature subsets build their tests again, and CI
   gates them** (#1426). Five of the twenty-two single-language subsets
   of `-p big-code-analysis --all-targets` failed, all in
