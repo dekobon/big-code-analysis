@@ -172,6 +172,21 @@ for historical reference.
   rises by one per occurrence of these constructs in a boolean slot, and
   by one per `===` / `!==` / `=~` / `==~` anywhere in Groovy.
 
+- **Objective-C ABC counts an `@available` check** (#1457). The runtime
+  OS-version test `@available(iOS 13.0, *)` (and its `__builtin_available`
+  synonym) parses to a dedicated `available_expression` node that no
+  comparison-token arm sees, so `if (@available(iOS 13.0, *))` scored zero
+  conditions where `if (a)` scores one — and likewise as a `&&` operand, a
+  `while` or `for` condition, a ternary condition, and under a `!`. The
+  node joins the name-keyed terminal set the C-family ABC walkers share.
+  The wrapper is the entry rather than any child, because one grammar rule
+  covers both spellings and makes the version child optional, so it is the
+  only node present for every form. No C, C++ or Mozcpp grammar emits a
+  node by that name, so the addition is inert for the other three
+  languages that share the set — now pinned by a test. **Metric drift:**
+  Objective-C `abc.conditions` rises by one per `@available` /
+  `__builtin_available` check in a boolean slot.
+
 - **Kotlin ABC counts a null-asserted or cast condition, and C# ABC
   counts `??`** (#1459). Both languages model a condition slot that
   delegates to a per-language helper, and both helpers contributed

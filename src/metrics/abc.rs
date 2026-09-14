@@ -13629,6 +13629,14 @@ mod numeric_bool_operands {
 /// - **Ruby** `a in Integer` (`test_pattern`), the one-line pattern
 ///   test. Decided against `match_pattern` (`expr => pat`), which
 ///   raises rather than yielding a boolean.
+/// - **Objective-C** `@available(iOS 13.0, *)` and its
+///   `__builtin_available` synonym (`available_expression`), the runtime
+///   OS-version check. Not relational, but boolean by definition and
+///   invisible to every comparison-token arm, so it measured short in
+///   exactly the same way (#1457). Its entry lands in the *name*-keyed
+///   `cpp_bool_terminal_kinds!()` that C, C++ and Mozcpp share, which is
+///   why `the_c_family_grammars_do_not_emit_available_expression` below
+///   pins the inertness the other three rely on.
 ///
 /// Rust's `matches!(…)` measures short in the same way, and is
 /// deliberately **not** here: its fix is `macro_invocation`, which also
@@ -13670,7 +13678,12 @@ mod numeric_bool_operands {
 // enabling none of them drops the module instead of failing its
 // guards (`.claude/rules/testing.md`, #1286 / #1411).
 #[cfg(test)]
-#[cfg(any(feature = "groovy", feature = "perl", feature = "ruby"))]
+#[cfg(any(
+    feature = "groovy",
+    feature = "perl",
+    feature = "ruby",
+    feature = "objc"
+))]
 mod own_production_bool_constructs {
     use crate::test_support::metrics_verbatim;
     use crate::{LANG, MetricsOptions};
@@ -13751,6 +13764,27 @@ mod own_production_bool_constructs {
                 "a",
                 &["a in Integer", "!(a in Integer)"],
                 2,
+            ),
+            // Objective-C's `@available` is not relational like the three
+            // above, but it reaches the terminal set by the same route: a
+            // dedicated `available_expression` production whose value is a
+            // boolean, seen by no comparison-token arm (#1457). Both
+            // spellings are listed because they are alternatives of one
+            // rule's leading token rather than two rules — so unlike
+            // Perl's `m{}` above they cannot drift apart, and the second
+            // row is here to keep that claim measured rather than assumed.
+            LANG::Objc => (
+                [
+                    ("int f(int a) {\n  return {} && b;\n}\n", 2, 3),
+                    ("int f() {\n  if ({}) { return 1; }\n}\n", 1, 3),
+                ],
+                "a",
+                &[
+                    "@available(iOS 13.0, *)",
+                    "__builtin_available(macOS 10.15, *)",
+                    "!@available(iOS 13.0, *)",
+                ],
+                3,
             ),
             _ => return None,
         })
@@ -13881,6 +13915,77 @@ mod own_production_bool_constructs {
                 !ast_has_kind_id(&parser, absent_id),
                 "`{src}` now also emits `{absent_name}`; the two spellings have \
                  collapsed and one `perl_bool_terminal_kinds!()` entry is dead"
+            );
+        }
+    }
+
+    /// `"available_expression"` must stay an Objective-C-only kind.
+    ///
+    /// Alone among the terminal sets, `cpp_bool_terminal_kinds!()` keys
+    /// on node-kind *names* so that C, C++, Mozcpp and Objective-C can
+    /// share one list despite assigning different ids to the same kinds
+    /// (#720 / #732). The price is that every entry is live in all four:
+    /// the Objective-C rows above say nothing about what the addition
+    /// did to the other three, and a grammar bump that gave any of them
+    /// an `available_expression` node would start counting it with no
+    /// test anywhere noticing.
+    ///
+    /// The Objective-C half is not decoration. Without it a fixture that
+    /// stopped parsing — or a typo'd kind name — would leave the
+    /// negative assertions passing for the wrong reason. Both halves
+    /// were verified by perturbing the probed kind name: to a typo,
+    /// which fails the positive, and to `if_statement`, which fails the
+    /// negatives.
+    #[test]
+    #[cfg(all(
+        feature = "objc",
+        any(feature = "c", feature = "cpp", feature = "mozcpp")
+    ))]
+    fn the_c_family_grammars_do_not_emit_available_expression() {
+        use crate::ParserTrait;
+
+        const SOURCE: &str = "int f(int a) {\n  if (@available(iOS 13.0, *)) { return 1; }\n}\n";
+
+        fn emits<P: ParserTrait>(path: &str) -> bool {
+            let parser = P::new(
+                SOURCE.as_bytes().to_vec(),
+                &std::path::PathBuf::from(path),
+                None,
+            );
+            parser
+                .root()
+                .preorder()
+                .any(|node| node.kind() == "available_expression")
+        }
+
+        assert!(
+            emits::<crate::ObjcParser>("f.m"),
+            "the fixture no longer parses to an `available_expression`; every \
+             Objective-C row above is now measuring some other node"
+        );
+
+        // The siblings are `#[cfg]`-gated array *elements* rather than
+        // conditional pushes, so the `any(…)` half of this test's gate
+        // makes the list non-empty by construction: a build reaching
+        // this line always has at least one row. That is the same
+        // non-vacuity guarantee the `checked > 0` counters elsewhere in
+        // this module buy at runtime, moved to compile time because here
+        // the row set is fixed rather than iterated over `LANG`.
+        let c_family = [
+            #[cfg(feature = "c")]
+            ("C", emits::<crate::CParser>("f.c")),
+            #[cfg(feature = "cpp")]
+            ("C++", emits::<crate::CppParser>("f.cpp")),
+            #[cfg(feature = "mozcpp")]
+            ("Mozcpp", emits::<crate::MozcppParser>("f.cpp")),
+        ];
+
+        for (language, emitted) in c_family {
+            assert!(
+                !emitted,
+                "{language} now emits `available_expression`, so the shared \
+                 `cpp_bool_terminal_kinds!()` entry is no longer inert there \
+                 and its ABC conditions have moved"
             );
         }
     }

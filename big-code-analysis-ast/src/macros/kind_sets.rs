@@ -332,6 +332,24 @@ macro_rules! cpp_bool_terminal_kinds {
     // grammar has a node by that name, so the arm is inert there.
     // Without it every `if ([a ok])` / `for (; [a ok]; )` scored zero
     // conditions where `if (ok())` scored one.
+    // `available_expression` is Objective-C's runtime OS-version check
+    // (`@available(iOS 13.0, *)`), in the same inert-elsewhere position
+    // as `message_expression`: no C / C++ / Mozcpp grammar has a node by
+    // that name. It is the one entry here that *is* a boolean rather
+    // than something contextually converted to one, which is why it
+    // belongs in a set otherwise justified by integer truthiness.
+    // Without it `if (@available(iOS 13.0, *))` scored zero conditions
+    // where `if (a)` scored one (#1457).
+    //
+    // The wrapper is the keeper, not any child (grammar-dispatch §6):
+    // tree-sitter-objc's one `available_expression` rule spans both
+    // spellings of the construct (`@available` and `__builtin_available`
+    // are alternatives of its leading token) and makes the `version`
+    // child optional, so `@available(iOS, *)` carries no numeric node at
+    // all. Only the wrapper is present for every spelling, and it is
+    // the node that occupies the operand slot. That is also why the
+    // neighbouring exclusion above stands: `version_number` is a
+    // fragment of this node's interior, never an operand itself.
     () => {
         "identifier"
             | "true"
@@ -340,6 +358,7 @@ macro_rules! cpp_bool_terminal_kinds {
             | "char_literal"
             | "call_expression"
             | "message_expression"
+            | "available_expression"
             | "field_expression"
             | "subscript_expression"
             | "cast_expression"
