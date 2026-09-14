@@ -13,11 +13,57 @@ use super::{Abc, Stats};
 use crate::macros::groovy_bool_terminal_kinds;
 use crate::*;
 
+// One peel step for a Groovy boolean operand: given a wrapper node,
+// returns the operand inside it plus whether the wrapper itself *proves*
+// the operand sits in a boolean slot. `None` means the node is not a
+// wrapper this walker unwraps, and `groovy_count_condition` asks exactly
+// that rather than restating the kind list — the divergence #1459 fixed
+// in Kotlin, where `unary_expression` was routed to the peel while the
+// peel handled only its `!` spelling, so the slot read as covering a
+// shape the peel dropped on the floor (`.claude/rules/grammar-dispatch.md`
+// §7).
+//
+// The operand is read by grammar field (§3): `unary_expression` names
+// `operator` and `operand`, so one read serves all four spellings and
+// survives both a grammar re-order and an interposed `extra`
+// (`if (! /*c*/ a)` scores, where the positional `child(1)` read scored
+// the comment). `parenthesized_expression` names nothing — its only
+// child in node-types.json is the unlabelled inner `_expression` — so it
+// keeps the positional read, and with it the same comment bug Kotlin
+// records: `if ( /*c*/ a)` still scores zero. Measured, not assumed.
+//
+// Kotlin, C# and Groovy now share this peel's *shape* and nothing else,
+// deliberately. A common helper would have to be parameterised by the
+// wrapper kind set, a per-wrapper operand accessor, a per-wrapper
+// proves-boolean flag and the parent seed — every line of the body —
+// to save a five-line `while let`, so the reuse worth having is the
+// `Option<(Node, bool)>` signature, not a generic function. C#'s
+// positional read over its aliased wrapper kinds is #1455's, not this
+// change's.
+fn groovy_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
+    use Groovy::*;
+
+    match node.kind_id().into() {
+        // `(expr)` — the inner expression follows the `(` token.
+        ParenthesizedExpression => Some((node.child(1)?, false)),
+        UnaryExpression => {
+            let operand = node.child_by_field_name("operand")?;
+            match node.child_by_field_name("operator")?.kind_id().into() {
+                BANG => Some((operand, true)),
+                // `~a`, `+a`, `-a`: bitwise / arithmetic, never a
+                // boolean slot's operand, so the peel declines rather
+                // than reaching a bare `identifier` and counting it.
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 fn groovy_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
     use Groovy::*;
 
     let mut node = *container_node;
-    let mut node_kind = node.kind_id().into();
 
     let mut has_boolean_content = match parent.kind_id().into() {
         BinaryExpression | IfStatement | WhileStatement | DoWhileStatement | ForStatement => true,
@@ -27,32 +73,11 @@ fn groovy_inspect_container(container_node: &Node, parent: &Node, conditions: &m
         _ => false,
     };
 
-    loop {
-        let is_parenthesised_exp = matches!(node_kind, ParenthesizedExpression);
-        let is_not_operator = matches!(node_kind, UnaryExpression)
-            && node
-                .child(0)
-                .is_some_and(|c| matches!(c.kind_id().into(), BANG));
+    while let Some((operand, proves_boolean)) = groovy_wrapper_operand(&node) {
+        has_boolean_content |= proves_boolean;
+        node = operand;
 
-        if !is_parenthesised_exp && !is_not_operator {
-            break;
-        }
-
-        if !has_boolean_content && is_not_operator {
-            has_boolean_content = true;
-        }
-
-        let Some(child) = node.child(1) else { break };
-        node = child;
-        node_kind = node.kind_id().into();
-
-        // `BooleanLiteral` is the dekobon tree-sitter-groovy
-        // grammar's named wrapper for `true` / `false` — see the
-        // doc comment on `groovy_count_condition`. The remaining
-        // bool-evaluating terminals (`FieldAccess`, `CastExpression`,
-        // `ParenthesizedTypeCast`, `InstanceofExpression`) mirror
-        // the C# fix in #372 (lesson #19).
-        if matches!(node_kind, groovy_bool_terminal_kinds!()) {
+        if matches!(node.kind_id().into(), groovy_bool_terminal_kinds!()) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -72,10 +97,14 @@ fn groovy_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             let node = cursor.node();
             let node_kind = node.kind_id().into();
 
-            // Terminal set mirrors `groovy_inspect_container` —
-            // bool-evaluating kinds (`FieldAccess`, `CastExpression`,
-            // `ParenthesizedTypeCast`, `InstanceofExpression`) added
-            // per issue #372 (lesson #19).
+            // `groovy_bool_terminal_kinds!()` is the same set
+            // `groovy_inspect_container` and `groovy_count_condition`
+            // consume; its member list and the rationale for each
+            // member live on the macro. This is the `&&` / `||` chain
+            // path — the other of the two structurally independent
+            // walkers that sum into `conditions`, so every terminal
+            // kind needs a fixture here as well as in the `if`
+            // predicate slot (grammar-dispatch §11).
             if matches!(node_kind, groovy_bool_terminal_kinds!())
                 && matches!(list_kind, BinaryExpression)
             {
@@ -386,24 +415,24 @@ impl Abc for GroovyCode {
     }
 }
 
+// Counts a Groovy `if` / `while` / `do-while` bare predicate as one
+// condition — Fitzpatrick's "unary conditional expression". The member
+// list of `groovy_bool_terminal_kinds!()` and the reason each kind is in
+// or out live on the macro, beside the set itself, so there is one place
+// to read rather than three to keep in step.
+//
+// A predicate wrapped in parentheses or a `!` negation is unwrapped by
+// `groovy_inspect_container`. Which kinds those are is asked of
+// `groovy_wrapper_operand` rather than restated here: the two spelled
+// the list separately until #1466, and that is how `UnaryExpression`
+// came to be routed to a peel that handled only its `!` spelling — the
+// arm claimed `~a` / `-a` / `+a` while the peel dropped them
+// (grammar-dispatch §7). This is the identical divergence #1459 fixed
+// in Kotlin.
 fn groovy_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
-    use Groovy::*;
-    // Terminal set mirrors the C# fix in #372 (lesson #19):
-    // `FieldAccess` (`obj.flag`), `CastExpression` (`v as Boolean` — the
-    // Groovy-idiomatic form), `ParenthesizedTypeCast` (`(boolean) v` —
-    // the Java-style form, which the dekobon Groovy grammar represents
-    // as its own kind rather than nesting `cast_expression` inside
-    // `parenthesized_expression`), and `InstanceofExpression`
-    // (`x instanceof Foo`) all evaluate to a boolean. The dekobon
-    // Groovy grammar has no `await` or `array_access` analogues, so
-    // those collapse out of the five-kind C# set.
-    match condition.kind_id().into() {
-        groovy_bool_terminal_kinds!() => {
-            *conditions += 1.;
-        }
-        ParenthesizedExpression | UnaryExpression => {
-            groovy_inspect_container(condition, parent, conditions);
-        }
-        _ => {}
+    if matches!(condition.kind_id().into(), groovy_bool_terminal_kinds!()) {
+        *conditions += 1.;
+    } else if groovy_wrapper_operand(condition).is_some() {
+        groovy_inspect_container(condition, parent, conditions);
     }
 }

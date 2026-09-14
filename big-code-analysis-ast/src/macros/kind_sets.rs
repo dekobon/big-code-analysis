@@ -161,15 +161,39 @@ macro_rules! java_bool_terminal_kinds {
 // it — `subscript_expression`, `safe_subscript_expression`,
 // `safe_navigation_expression`, `safe_chain_dot_expression` and
 // `direct_field_access_expression`, all alternatives of `_expression`
-// and all legal in a boolean slot. None is listed, so `if (l[0])`,
-// `if (a?.b)` and `if (a.@b)` score zero where `if (a)` scores one,
-// while C# scores `l[0]` through `ElementAccessExpression` and Kotlin
-// scores both through `IndexExpression` / `NavigationExpression`.
-// `a?.b` is the worst of them: Groovy cyclomatic counts `?.` as a
-// decision, so ABC sits two below its own decision count on an
-// idiomatic predicate. Tracked separately — an earlier revision of
-// this comment claimed the analogue did not exist, which is the sort
-// of claim that stops the next reader looking.
+// and all legal in a boolean slot. All five join the set in #1466:
+// until then `if (l[0])`, `if (a?.b)` and `if (a.@b)` scored zero
+// where `if (a)` scored one, while C# scored `l[0]` through
+// `ElementAccessExpression` and Kotlin scored both through
+// `IndexExpression` / `NavigationExpression` — a per-language
+// asymmetry rather than a policy difference. `a?.b` was the worst of
+// them: Groovy cyclomatic counts `?.` as a decision, so ABC sat *two*
+// below its own decision count on an idiomatic predicate. An earlier
+// revision of this comment claimed the analogue did not exist, which
+// is the sort of claim that stops the next reader looking.
+//
+// None of the five double-counts a token (§5). ABC's condition-token
+// arm (`groovy_count_token_condition`) lists no navigation operator:
+// `?.` (`QMARKDOT`), `??.` (`QMARKQMARKDOT`) and `?[`
+// (`QMARKLBRACK` — its own token, verified with `bca dump`, not a
+// bare `QMARK` that the ternary-gated arm could see) are cyclomatic
+// decisions only. So listing the wrapper is the sole place each is
+// scored.
+//
+// The remaining `_expression` alternatives are absent on purpose. The
+// relational trio (`identity_expression`, `regex_find_expression`,
+// `regex_match_expression`) comes through the token arm, see below;
+// `binary_expression`, `ternary_expression`, `elvis_expression` and
+// `switch_expression` are scored by their own operator token or
+// nested condition; and the rest — `list_literal`, `map_literal`,
+// `closure`, `object_creation_expression`, `range_expression`,
+// `power_expression`, `update_expression`, `method_pointer_expression`,
+// `method_reference_expression`, `spread_dot_expression`,
+// `string_literal`, `null_literal` — are shapes whose Groovy-truth
+// value is either constant or degenerate in a predicate slot, and
+// none has a sibling-language precedent. `spread_dot_expression`
+// (`a*.b`) is the closest call of those; it is recorded in #1466
+// rather than added blind.
 //
 // Groovy truth makes every non-zero number truthy, so `NumberLiteral`
 // is a unary condition here for the same reason Python's `Integer` /
@@ -233,6 +257,11 @@ macro_rules! groovy_bool_terminal_kinds {
             | $crate::Groovy::ParenthesizedTypeCast
             | $crate::Groovy::InstanceofExpression
             | $crate::Groovy::MembershipExpression
+            | $crate::Groovy::SubscriptExpression
+            | $crate::Groovy::SafeSubscriptExpression
+            | $crate::Groovy::SafeNavigationExpression
+            | $crate::Groovy::SafeChainDotExpression
+            | $crate::Groovy::DirectFieldAccessExpression
     };
 }
 

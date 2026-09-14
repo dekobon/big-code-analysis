@@ -147,6 +147,29 @@ for historical reference.
 
 ### Fixed
 
+- **Groovy ABC counts an indexing or navigation predicate** (#1466).
+  `if (l[0])`, `if (l?[0])`, `if (a?.b)`, `if (a??.b)` and `if (a.@b)`
+  each scored zero conditions where `if (a)` scores one, and likewise as
+  a `&&` / `||` operand — five alternatives of the grammar's
+  `_expression` rule that no comparison-token arm sees. C# already
+  counted its `element_access_expression` and Kotlin its
+  `index_expression` / `navigation_expression`, so this was a
+  per-language asymmetry rather than a policy difference. `a?.b` was the
+  worst of the five: Groovy cyclomatic counts `?.` as a decision, so ABC
+  sat *two* below its own decision count on an idiomatic predicate.
+  Counting the wrapper node double-counts nothing, because ABC's
+  condition-token arm lists no navigation operator. The condition slot
+  now also asks the operand peel which wrappers it unwraps instead of
+  restating the list — it had claimed every `unary_expression` while the
+  peel handled only the `!` spelling — and the peel reads that operand by
+  grammar field, so `if (! /*c*/ a)` scores like `if (!a)` instead of
+  reading the comment. **Metric drift:** Groovy `abc.conditions` and
+  `abc.magnitude` rise by one per indexing, safe-indexing,
+  safe-navigation, safe-chain-dot or direct-field-access expression
+  standing as a predicate or a `&&` / `||` operand, and per `!`-negated
+  predicate whose operand is preceded by a comment. No integration
+  snapshot moves: no corpus carries a Groovy file.
+
 - **Groovy's Halstead `super` arm is gated on its `wildcard` parent, as
   Java's is** (#1419). `super` is an operator only as a wildcard type
   bound (`List<? super T>`), where it denotes no value and mirrors

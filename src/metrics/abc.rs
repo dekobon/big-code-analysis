@@ -13744,8 +13744,20 @@ mod own_production_bool_constructs {
                     "s =~ /p/",
                     "s ==~ /p/",
                     "!(a in l)",
+                    // The indexing / navigation kinds added by #1466.
+                    // These three are the cyclomatic-neutral ones, so
+                    // they belong in this module's same-as-the-control
+                    // shape. The two *safe-navigation* spellings
+                    // (`a?.b`, `a??.b`) each add a cyclomatic decision
+                    // and so cannot sit in a row whose contract is "the
+                    // control's cyclomatic"; they get their own test,
+                    // `groovy_safe_navigation_closes_the_two_below_gap`,
+                    // which anchors them on that axis explicitly.
+                    "l[0]",
+                    "l?[0]",
+                    "a.@b",
                 ],
-                7,
+                10,
             ),
             LANG::Perl => (
                 [
@@ -13859,6 +13871,112 @@ mod own_production_bool_constructs {
                 }
             }
         });
+    }
+
+    /// Groovy's two safe-navigation spellings, on the cyclomatic axis.
+    ///
+    /// They cannot ride the rows above, whose contract is "scores the
+    /// control's `conditions` *and* the control's `cyclomatic`":
+    /// `groovy_bool_terminal_kinds!()` does not move cyclomatic, but
+    /// `?.` (`QMARKDOT`) and `??.` (`QMARKQMARKDOT`) are already
+    /// cyclomatic decisions in their own right
+    /// (`src/metrics/cyclomatic/groovy.rs`), so each spelling scores the
+    /// control's conditions against the control's cyclomatic **plus
+    /// one**. That is the whole reason this pair was the worst case in
+    /// #1466: before the fix ABC sat *two* below its own decision count
+    /// on `if (a?.b)`, against one below for every other spelling.
+    ///
+    /// Asserting the offset rather than the bare conditions is what
+    /// makes this a §5 double-count guard as well. If a later change
+    /// added `QMARKDOT` to `groovy_count_token_condition`'s arm while
+    /// the wrapper stayed in the terminal set, `conditions` would go to
+    /// `control + 1` and this test — not a snapshot — would say so.
+    #[test]
+    #[cfg(feature = "groovy")]
+    fn groovy_safe_navigation_closes_the_two_below_gap() {
+        for (template, control_conditions, control_cyclomatic) in [
+            ("def f(a, b) {\n  return {} && b\n}\n", 2, 3),
+            ("def f(a, b) {\n  if ({}) { return 1 }\n}\n", 1, 3),
+        ] {
+            let control = template.replace("{}", "b");
+            assert_eq!(conditions(LANG::Groovy, &control), control_conditions);
+            assert_eq!(cyclomatic_sum(LANG::Groovy, &control), control_cyclomatic);
+
+            for spelling in ["a?.b", "a??.b"] {
+                let source = template.replace("{}", spelling);
+                assert_eq!(
+                    conditions(LANG::Groovy, &source),
+                    control_conditions,
+                    "`{spelling}` conditions\n  source: {source}"
+                );
+                assert_eq!(
+                    cyclomatic_sum(LANG::Groovy, &source),
+                    control_cyclomatic + 1,
+                    "`{spelling}` cyclomatic_sum: the navigation operator's own \
+                     decision has moved\n  source: {source}"
+                );
+            }
+        }
+    }
+
+    /// The `!` operand is read by field, so an `extra` cannot hide it.
+    ///
+    /// `groovy_wrapper_operand` took `child(1)` until #1466, which is
+    /// the `!` operand only when nothing sits between the two. A comment
+    /// is an `extra` and occupies that slot, so `if (! /*c*/ a)` scored
+    /// zero conditions where `if (!a)` scored one — the positional-read
+    /// class grammar-dispatch §3 is about, and the observable half of
+    /// the peel rewrite.
+    ///
+    /// `parenthesized_expression` names nothing in node-types.json, so
+    /// it keeps the positional read and keeps the bug; that half is
+    /// pinned here as a *measured* gap rather than left to be discovered
+    /// as a surprise. Kotlin records the identical pair
+    /// (`kotlin_wrapper_operand`).
+    #[test]
+    #[cfg(feature = "groovy")]
+    fn groovy_negation_operand_survives_an_interposed_comment() {
+        let template = "def f(a) {\n  if ({}) { return 1 }\n}\n";
+
+        assert_eq!(conditions(LANG::Groovy, &template.replace("{}", "!a")), 1);
+        assert_eq!(
+            conditions(LANG::Groovy, &template.replace("{}", "! /*c*/ a")),
+            1,
+            "the `!` operand is being read positionally again; a comment displaces it"
+        );
+
+        assert_eq!(conditions(LANG::Groovy, &template.replace("{}", "(a)")), 1);
+        assert_eq!(
+            conditions(LANG::Groovy, &template.replace("{}", "( /*c*/ a)")),
+            0,
+            "`parenthesized_expression` now survives an interposed comment — if the \
+             grammar gained a field for its inner expression, read it and delete this"
+        );
+    }
+
+    /// The arithmetic unary operators stay out of the boolean slot.
+    ///
+    /// `groovy_count_condition` routed every `unary_expression` to the
+    /// peel while the peel handled only the `!` spelling, so the arm
+    /// claimed `~a` / `-a` / `+a` and dropped them
+    /// (grammar-dispatch §7). #1466 made the arm ask the peel, which
+    /// removes the divergence without moving a number — so this test
+    /// cannot be verified by reverting the production change, and is
+    /// here to pin the *answer* those three spellings give against a
+    /// future peel that starts accepting them by accident.
+    #[test]
+    #[cfg(feature = "groovy")]
+    fn groovy_arithmetic_unary_is_not_a_condition() {
+        let template = "def f(a) {\n  if ({}) { return 1 }\n}\n";
+
+        assert_eq!(conditions(LANG::Groovy, &template.replace("{}", "a")), 1);
+        for spelling in ["~a", "-a", "+a"] {
+            assert_eq!(
+                conditions(LANG::Groovy, &template.replace("{}", spelling)),
+                0,
+                "`{spelling}` is arithmetic, not a boolean operand"
+            );
+        }
     }
 
     /// The two Perl spellings must remain two distinct grammar kinds.
