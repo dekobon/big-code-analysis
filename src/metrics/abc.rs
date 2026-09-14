@@ -3789,6 +3789,131 @@ mod tests {
         );
     }
 
+    // #1420, the other four spellings of the test above. C# overloads six
+    // comparison operators and #1297 gated two: `<=` `>=` `==` `!=` are
+    // distinct tokens that reach a different arm of
+    // `csharp_count_token_condition` and each still scored one spurious
+    // condition on its declaration — measured 1 apiece against `<` / `>`'s
+    // 0, on a class where `cyclomatic()` is 1 for all six.
+    //
+    // Each token gets its own member so a partial fix names the spelling
+    // it missed: gating `EQEQ | BANGEQ` and forgetting `GTEQ | LTEQ` fails
+    // here by operator, where the file total cannot tell the two apart —
+    // it reads 4 before the fix and 0 after, so any two-of-four fix halves
+    // it and still looks like movement.
+    //
+    // `n` is the deliberate control (§11): the same four tokens *applied*,
+    // inside `binary_expression` parents, which must keep scoring one
+    // condition each. Without it the gate could be satisfied by refusing
+    // to count these tokens at all.
+    #[test]
+    fn csharp_comparison_operator_overloads_are_not_conditions() {
+        let src = "class V {
+                public static bool operator <=(V a, V b) { return true; }
+                public static bool operator >=(V a, V b) { return true; }
+                public static bool operator ==(V a, V b) { return true; }
+                public static bool operator !=(V a, V b) { return true; }
+                int n(int a, int b) {
+                    if (a <= b) { return 1; }
+                    if (a >= b) { return 2; }
+                    if (a == b) { return 3; }
+                    if (a != b) { return 4; }
+                    return 0;
+                }
+            }";
+        // Two of each token: one declaring, one applying. Trimming either
+        // half out collapses this test into the other half's control and
+        // is what this anchor exists to catch.
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (
+                    Csharp::OperatorDeclaration as u16,
+                    4,
+                    "operator declarations",
+                ),
+                (Csharp::LTEQ as u16, 2, "`<=`"),
+                (Csharp::GTEQ as u16, 2, "`>=`"),
+                (Csharp::EQEQ as u16, 2, "`==`"),
+                (Csharp::BANGEQ as u16, 2, "`!=`"),
+            ],
+        );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            let class = &space.spaces[0];
+            assert_eq!(class.spaces.len(), 5, "four overloads plus `n`");
+            for (member, spelling) in class.spaces.iter().zip(["<=", ">=", "==", "!="]) {
+                assert_eq!(
+                    member.metrics.abc.conditions(),
+                    0,
+                    "`operator {spelling}` declares an operator, it does not apply one"
+                );
+                assert_eq!(
+                    member.metrics.abc.conditions(),
+                    member.metrics.cyclomatic.cyclomatic() - 1,
+                    "`operator {spelling}`: §8 parity with the cyclomatic decision count"
+                );
+            }
+            // The control, found by name so a reordered fixture cannot
+            // silently re-point it at an overload. 0 here would mean the
+            // gate swallowed the applying form along with the declaring
+            // one.
+            let control = &class.spaces[4];
+            assert_eq!(control.name.as_deref(), Some("n"));
+            assert_eq!(
+                control.metrics.abc.conditions(),
+                4,
+                "`n` applies all four tokens: one condition each"
+            );
+        });
+    }
+
+    // The allowlist #1420 installed is the only thing keeping `#if A == B`
+    // a condition, and it keeps it for a reason no arm states: the grammar
+    // aliases `preproc_binary_expression` onto `binary_expression`, so the
+    // preprocessor's `==` arrives with kind id `BinaryExpression` (369)
+    // and not with one of its own. Before #1420 the token was ungated and
+    // no fact about its parent mattered; now a grammar bump that gave the
+    // alias a distinct id would stop counting every `#if` equality with
+    // nothing red. This is that pin.
+    //
+    // `BinaryExpression2` (469) is the pre-alias symbol the arm also
+    // lists, defensively, per `.claude/rules/grammar-dispatch.md` §1. §2
+    // asks that such an entry be kept *and* have its unreachability
+    // asserted, so that a pin promoting the symbol changes behaviour
+    // loudly rather than invisibly.
+    #[test]
+    fn csharp_preproc_equality_counts_through_the_binary_expression_alias() {
+        let src = "class P {
+            #if A == B
+                int x;
+            #endif
+            #if C != D
+                int y;
+            #endif
+            }";
+        let parser = CsharpParser::new(
+            src.as_bytes().to_vec(),
+            std::path::Path::new("foo.cs"),
+            None,
+        );
+        assert!(
+            ast_has_kind_id(&parser, Csharp::BinaryExpression as u16),
+            "the `#if` expressions must parse as `binary_expression` — \
+             the alias is what the arm's allowlist matches"
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Csharp::BinaryExpression2 as u16),
+            "`BinaryExpression2` is the pre-alias symbol and must stay \
+             unreachable; if the grammar starts emitting it, re-derive the \
+             allowlist rather than trusting this arm"
+        );
+        // 2, one per `#if` expression. The two directives carry no
+        // declarations the walk would score, so nothing else contributes.
+        check_metrics::<CsharpParser>(src, "foo.cs", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 2);
+        });
+    }
+
     // #1383: a `relational_pattern`'s operator is not a condition of
     // its own — the `switch_expression_arm` that owns it already scores
     // the decision, exactly as it does for the constant arm `5 => 1`.
@@ -3802,21 +3927,23 @@ mod tests {
     // `>=` / `<=` in the file, so a readmitted `RelationalPattern`
     // parent is the only thing that can lift the count.
     //
-    // Both spellings are covered because they reach two different arms:
-    // `n`'s `>` / `<` are gated by the `GT | LT` parent allowlist,
-    // `g`'s `>=` / `<=` by their own `RelationalPattern` denial. Fixing
-    // one arm and not the other leaves the *other method* at 4, which
-    // is why this asserts per member and not through a total:
+    // Both spellings are covered, and asserted per member rather than
+    // through a total, because they reached two different arms when this
+    // was written: `n`'s `>` / `<` were gated by a `GT | LT` parent
+    // allowlist and `g`'s `>=` / `<=` by a separate `RelationalPattern`
+    // denial, so fixing one and not the other left the *other method* at
+    // 4. #1420 merged all six comparison tokens onto the one allowlist,
+    // which removes that particular way to get it half right — but the
+    // per-member shape still earns its keep, since a total of 6 is what
+    // both `{2, 2, 2}` and a regressed `{4, 2, 0}` report:
     //
     // | state | `n` | `g` | `c` |
     // |---|---|---|---|
-    // | both halves gated (shipped) | 2 | 2 | 2 |
-    // | only `GT \| LT` gated       | 2 | 4 | 2 |
-    // | only `GTEQ \| LTEQ` gated   | 4 | 2 | 2 |
-    // | neither                     | 4 | 4 | 2 |
+    // | `relational_pattern` excluded (shipped) | 2 | 2 | 2 |
+    // | readmitted to the allowlist             | 4 | 4 | 2 |
     //
-    // `c` is the constant-pattern control and reads 2 in every column:
-    // it is what the relational methods are supposed to agree with.
+    // `c` is the constant-pattern control and reads 2 in both rows: it is
+    // what the relational methods are supposed to agree with.
     #[test]
     fn csharp_relational_pattern_does_not_double_count_its_arm() {
         let src = "class A {
