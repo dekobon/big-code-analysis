@@ -189,27 +189,84 @@ fn csharp_count_token_assignment<'a>(
 }
 
 // Counts branch tokens: every invocation, `new` allocation, and
-// constructor delegation.
+// constructor delegation in either of its two spellings.
 // `ConstructorInitializer` is the `: base(…)` / `: this(…)` delegation on a
 // constructor — a call by Fitzpatrick's rule, and the C# spelling of the
 // shape Java and Groovy count (#1279). Unlike the invocation kinds it
 // carries no numeric-suffix aliases, and it does not wrap an
 // `InvocationExpression` for the delegation itself, so no double count
 // arises; calls in its argument list are separate nodes counted on their own.
-fn csharp_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
+fn csharp_count_token_branch<'a>(
+    node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+    stats: &mut Stats,
+) -> bool {
     use Csharp::*;
-    if matches!(
-        node.kind_id().into(),
+    let is_branch = match node.kind_id().into() {
+        // Spelled out rather than reaching for `csharp_invocation_expr_kinds!()`
+        // (`big-code-analysis-ast/src/macros/kind_sets.rs`), which carries
+        // exactly these three: the macro *is* an or-pattern, so combining it
+        // with further alternatives here trips `clippy::unnested_or_patterns`
+        // at `-D warnings`. `Checker::is_csharp_call` can use it because the
+        // set is that predicate's whole answer. The §1 obligation is met by
+        // listing all three aliases, not by the macro.
         crate::Csharp::InvocationExpression
-            | crate::Csharp::InvocationExpression2
-            | crate::Csharp::InvocationExpression3
-            | ObjectCreationExpression
-            | ConstructorInitializer
-    ) {
+        | crate::Csharp::InvocationExpression2
+        | crate::Csharp::InvocationExpression3
+        | ObjectCreationExpression
+        | ConstructorInitializer => true,
+        // The C# 12 primary-constructor superclass call — `class
+        // Sub(int x) : Base(x)` — invokes the base constructor exactly as
+        // `: base(x)` does, and scored zero until #1406. Kotlin's
+        // equivalent was fixed in #1384; this is the C# sibling.
+        //
+        // tree-sitter-c-sharp 0.23.5 spells the two declaration families
+        // differently, so there is no single node to match (verified with
+        // `bca dump`, not inferred):
+        //
+        //   `record R(int x) : Base(x);`  base_list > primary_constructor_
+        //                                 base_type > argument_list
+        //   `class C(int x) : Base(x) {}` base_list > argument_list (flat)
+        //
+        // Matching both kinds under a `base_list` parent therefore covers
+        // both families. This is §5's container-plus-containable shape —
+        // a `primary_constructor_base_type` *holds* an `argument_list` —
+        // and the parent gate is what makes it safe rather than a double
+        // count: in the record spelling the inner `argument_list`'s parent
+        // is the `primary_constructor_base_type`, not the `base_list`, so
+        // only the outer node fires. The two are never siblings, so
+        // neither spelling ever presents both. `record R(int x) : Base;`
+        // and `struct S(int x) : IBase {}` emit no `argument_list` and no
+        // `primary_constructor_base_type` at all, so an argument-less base
+        // type still costs nothing, and `enum E : byte` / `interface I :
+        // IBase` cost nothing for the same reason.
+        //
+        // Three grammar-reachable shapes are not valid C# and score 1
+        // here: `interface I : IBase(x)`, `enum E : Base(x)`, and a
+        // `class NoCtor : Base(x)` with no primary constructor. Each
+        // parses cleanly — the grammar is more permissive than the
+        // language — and no valid program can tell the behaviours apart,
+        // so per §6 the gap is documented and left untested rather than
+        // pinned, which would make the grammar's present permissiveness
+        // the contract.
+        //
+        // The parent gate is load-bearing on `ArgumentList`, which is
+        // otherwise the argument list of every call in the file. It is
+        // also what keeps the sibling `attribute_argument_list` /
+        // `bracketed_argument_list` / `type_argument_list` kinds out —
+        // they are distinct kind ids, and none of them occurs under a
+        // `base_list`. `BaseList` and `BaseList2` both render to
+        // `"base_list"` and only the second is observed here; both are
+        // listed per `.claude/rules/grammar-dispatch.md` §1.
+        PrimaryConstructorBaseType | ArgumentList => ancestors
+            .parent(node)
+            .is_some_and(|parent| matches!(parent.kind_id().into(), BaseList | BaseList2)),
+        _ => false,
+    };
+    if is_branch {
         stats.branches += 1.;
-        return true;
     }
-    false
+    is_branch
 }
 
 fn csharp_count_token_condition<'a>(
@@ -398,6 +455,14 @@ fn csharp_walk_for_conditions<'a>(
                 csharp_count_unary_conditions(&parent, conds);
             }
         }
+        // `compute` returns as soon as `csharp_count_token_branch` fires,
+        // so since #1406 an `argument_list` under a `base_list` no longer
+        // reaches this arm. Measured harmless: the arm is dead for *every*
+        // argument list, because an `argument_list`'s children are
+        // `argument` wrappers that `csharp_inspect_container` rejects on
+        // the first iteration — `Helper(!b)` and `Helper((b))` both score
+        // zero conditions today. Repairing it means revisiting that
+        // exclusion, not just this arm.
         ArgumentList => csharp_count_unary_conditions(node, conds),
         // tree-sitter-c-sharp `if_statement` / `while_statement` shape:
         // [`if`/`while`, `(`, condition, `)`, body, …]. The parens are
@@ -484,7 +549,7 @@ impl Abc for CsharpCode {
         if csharp_count_token_assignment(node, ancestors, stats) {
             return;
         }
-        if csharp_count_token_branch(node, stats) {
+        if csharp_count_token_branch(node, ancestors, stats) {
             return;
         }
         if csharp_count_token_condition(node, ancestors, stats) {

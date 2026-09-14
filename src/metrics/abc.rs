@@ -455,7 +455,8 @@ implement_metric_trait!(Abc, PreprocCode, CcommentCode);
 )]
 mod tests {
     use crate::test_support::{
-        ast_has_kind_id, check_func_space_only_shim, check_metrics_only_shim, metrics_verbatim,
+        ast_has_kind_id, check_func_space_only_shim, check_metrics_only_shim, child_space,
+        metrics_verbatim,
     };
     use crate::traits::ParserTrait;
 
@@ -1763,6 +1764,180 @@ mod tests {
                 assert_eq!(metric.abc.branches_sum(), 2);
             },
         );
+    }
+
+    #[test]
+    fn csharp_primary_constructor_base_call_is_a_branch() {
+        // The C# 12 primary-constructor superclass call invokes the base
+        // constructor exactly as the `: base(…)` above it does, and scored
+        // zero until #1406 — the C# sibling of Kotlin's #1384.
+        //
+        // tree-sitter-c-sharp 0.23.5 spells the `record` and `class`
+        // families differently, so per `.claude/rules/grammar-dispatch.md`
+        // §11 they are two independent paths and each needs its own
+        // fixture: the record form nests the arguments under a
+        // `primary_constructor_base_type`, the class form hangs them
+        // straight off the `base_list`. A record-only fixture says nothing
+        // about the class arm, and vice versa.
+        //
+        // `S` and `R3` are the negatives: a base type with no argument
+        // list is not a call, and neither spelling emits an
+        // `argument_list` for it.
+        let src = "class Sub(int x) : Base(x) { }
+                   record R1(int x) : Base(x);
+                   record class R2(int x) : Base(x);
+                   class G<T>(int x) : GBase<T>(x) where T : class { }
+                   class Multi(int x) : Base(x), IBase { }
+                   struct S(int x) : IBase { }
+                   record R3(int x) : Base;";
+        // Anchors every spelling against a fixture edit: with presence
+        // checks only, deleting `(x)` from the class form leaves the
+        // record form satisfying the arm and this test green. The last
+        // two counts anchor the declarations that would otherwise decay
+        // into duplicates of `Sub` — `Multi` owns the fixture's only
+        // comma (`Base(x), IBase`) and `G` its only type argument list
+        // (`GBase<T>`), so trimming either back fails here by name.
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (
+                    Csharp::PrimaryConstructorBaseType as u16,
+                    2,
+                    "`record` base calls",
+                ),
+                (Csharp::ArgumentList as u16, 5, "base-call argument lists"),
+                (Csharp::BaseList2 as u16, 7, "base lists"),
+                // The §2 drift marker for the arm's other half. Both ids
+                // render to `"base_list"`; at this pin every declaration
+                // family above emits 252 and none emits 246, so
+                // `BaseList` is defensive and this zero says so. A
+                // grammar bump that starts emitting it fails here rather
+                // than silently changing which arm does the work.
+                (Csharp::BaseList as u16, 0, "unaliased `base_list` nodes"),
+                (Csharp::COMMA as u16, 1, "`Multi`'s trailing interface"),
+                (Csharp::TypeArgumentList as u16, 1, "`G`'s generic base"),
+            ],
+        );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            for name in ["Sub", "R1", "R2", "G", "Multi"] {
+                assert_eq!(
+                    child_space(&space, name).metrics.abc.branches(),
+                    1,
+                    "{name}: the primary-constructor base call is one branch"
+                );
+            }
+            for name in ["S", "R3"] {
+                assert_eq!(
+                    child_space(&space, name).metrics.abc.branches(),
+                    0,
+                    "{name}: a base type with no argument list is not a call"
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn csharp_base_list_gate_excludes_other_argument_lists() {
+        // The `base_list` parent gate on the `ArgumentList` arm is
+        // load-bearing, not decoration: ungated it bills a branch for the
+        // argument list of every call and allocation in the file, on top
+        // of the `InvocationExpression` / `ObjectCreationExpression` the
+        // arm already counts — doubling both (#1406).
+        //
+        // The fixture pairs one real base call with the four other
+        // argument-carrying productions C# spells nearby: an attribute
+        // (`attribute_argument_list`), an invocation, an object creation,
+        // and an indexer (`bracketed_argument_list`) alongside a generic
+        // (`type_argument_list`). Those last three are distinct kind ids
+        // rather than `argument_list`, so they pin the §1 neighbour set
+        // as much as the gate.
+        let src = "[System.Obsolete(\"why\")]
+                   class A(int x) : Base(x) {
+                       void M(int y) { Helper(y); }
+                       object N() { return new Foo(1); }
+                       int P(System.Collections.Generic.List<int> l, int i) { return l[i]; }
+                   }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (
+                    Csharp::AttributeArgumentList as u16,
+                    1,
+                    "attribute argument lists",
+                ),
+                (
+                    Csharp::BracketedArgumentList as u16,
+                    1,
+                    "bracketed argument lists",
+                ),
+                (Csharp::TypeArgumentList as u16, 1, "type argument lists"),
+                (Csharp::ArgumentList as u16, 3, "argument lists"),
+            ],
+        );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            let class = child_space(&space, "A");
+            assert_eq!(
+                class.metrics.abc.branches(),
+                1,
+                "`: Base(x)` alone — the attribute's arguments are not a call"
+            );
+            // The controls. 2 apiece would mean the gate let the
+            // argument list through beside the call that owns it.
+            assert_eq!(
+                child_space(class, "M").metrics.abc.branches(),
+                1,
+                "`Helper(y)` is one branch, not one per argument list"
+            );
+            assert_eq!(
+                child_space(class, "N").metrics.abc.branches(),
+                1,
+                "`new Foo(1)` is one branch, not one per argument list"
+            );
+            // `P` carries the indexer and the generic deliberately, but
+            // gets no assertion: `bracketed_argument_list` and
+            // `type_argument_list` are distinct kind ids, so `P` reads 0
+            // with the gate, without it, and without this change
+            // altogether. The census above is what actually pins them —
+            // an assertion here would read as coverage it cannot provide.
+        });
+    }
+
+    #[test]
+    fn csharp_base_call_and_constructor_initializer_do_not_double_count() {
+        // A class can spell *both* delegations at once: the primary
+        // constructor's `: Base(x)` and a secondary constructor's
+        // `: this(a)`. They are separate nodes in separate spaces, so the
+        // file scores 2 — one each. 3 would mean the #1406 arm also fired
+        // on something `ConstructorInitializer` already owned; 1 would
+        // mean one of the two stopped counting.
+        //
+        // Java has the equivalent guard
+        // (`java_constructor_delegation_does_not_double_count_arguments`);
+        // C# now has two delegation spellings and this is the pairing
+        // test for them.
+        let src = "class Both(int x) : Base(x) {
+                       public Both(int a, int b) : this(a) { }
+                   }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (Csharp::ConstructorInitializer as u16, 1, "`: this(a)`"),
+                (Csharp::BaseList2 as u16, 1, "the primary-constructor base"),
+            ],
+        );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            let class = child_space(&space, "Both");
+            assert_eq!(
+                class.metrics.abc.branches(),
+                1,
+                "the class space owns `: Base(x)` and nothing else"
+            );
+            assert_eq!(
+                child_space(class, "Both").metrics.abc.branches(),
+                1,
+                "the secondary constructor owns `: this(a)` and nothing else"
+            );
+        });
     }
 
     #[test]
