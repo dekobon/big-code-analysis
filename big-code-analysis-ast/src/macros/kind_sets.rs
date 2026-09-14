@@ -174,6 +174,37 @@ macro_rules! java_bool_terminal_kinds {
 // `.groovy` file at all, and DeepSpeech's 16 `.gradle` files are
 // outside every test glob (`tests/corpus/deepspeech_test.rs` globs
 // `*.cc` / `*.cpp` / `*.h` / `*.hh`), so this fix moves no snapshot.
+//
+// `membership_expression` (`a in l`, `a !in l`) is the Groovy spelling
+// of Kotlin's `in_expression`, and joins the set for the same reason
+// #1421 added that one: the grammar gives membership its own
+// production rather than a `binary_expression`, so no comparison-token
+// arm ever sees it and `if (a in l)` scored zero conditions against a
+// cyclomatic decision of one.
+//
+// It is the one Groovy relational form that has to come through the
+// terminal set rather than through `groovy_count_token_condition`'s
+// token arm, and a `grammar.json` sweep of dekobon-tree-sitter-groovy
+// 0.2.2 says why on both halves: the `in` token is shared with
+// `for_in_statement`, so an ungated token arm would score every
+// `for (x in list)` header, and the `!in` spelling emits **no operator
+// token at all** — `bca dump` shows `membership_expression` with two
+// `identifier` children and nothing between them — so a token arm
+// could not reach the negated form however it were gated. Listing the
+// wrapper covers both spellings at once and double-counts neither,
+// since neither token is counted anywhere (§5).
+//
+// The sibling relational productions `identity_expression` (`===`,
+// `!==`) and `regex_find_expression` / `regex_match_expression` (`=~`,
+// `==~`) are deliberately **absent** here: each emits an operator
+// token that the same sweep finds in that one production and nowhere
+// else, so they are counted as plain comparison tokens beside `==` /
+// `!=` in `groovy_count_token_condition` — the spelling every other
+// language in the workspace uses for those operators (Kotlin, JS,
+// PHP, Elixir for `===`; Perl, Ruby, Bash for `=~`), and the one that
+// also scores them outside a boolean slot, where `def r = (a == b)`
+// already scores and `def r = (a === b)` did not. Listing them in
+// both places would score each twice (§5).
 #[macro_export]
 #[doc(hidden)]
 macro_rules! groovy_bool_terminal_kinds {
@@ -187,6 +218,7 @@ macro_rules! groovy_bool_terminal_kinds {
             | $crate::Groovy::CastExpression
             | $crate::Groovy::ParenthesizedTypeCast
             | $crate::Groovy::InstanceofExpression
+            | $crate::Groovy::MembershipExpression
     };
 }
 
@@ -207,6 +239,7 @@ macro_rules! rust_bool_terminal_kinds {
     // the C# fix in #372 (lesson 19), which closed the same gap
     // for `CastExpression`, `MemberAccessExpression`, and
     // `AwaitExpression` on the C# side.
+    //
     () => {
         $crate::Rust::Identifier
             | $crate::Rust::BooleanLiteral
@@ -424,6 +457,31 @@ macro_rules! python_bool_terminal_kinds {
 // DeepSpeech `native_client` tree, seven snapshots): PHP's corpus files
 // carry no truthy numeric operand, and no corpus carries a `.groovy`
 // file at all.
+//
+// `pattern_matcher` (`/^#/`) and `pattern_matcher_m` (`m{^#}`) are the
+// two spellings of a match against the implicit `$_`. They are
+// **sibling rules, not aliases** — ids 337 and 336, the distinction
+// this file's own numeric-literal note warns is invisible to an alias
+// sweep — so both have to be listed or the `m{}` half stays at zero.
+// A bound match (`$x =~ /^#/`) is a `binary_expression` whose `=~`
+// token the dispatcher already counts; the bare form carries no
+// operator token at all, which is why `if (/^#/)` scored zero
+// conditions against `if ($x)`'s one.
+//
+// Listing them double-counts nothing (§5). In `$x =~ /^#/` the
+// pattern is a child of the `binary_expression`, and every walker that
+// consumes this set either breaks on that `binary_expression`
+// (`perl_inspect_container`, `perl_count_condition`) or requires the
+// list node itself to be the `&&`-chain parent
+// (`perl_count_unary_conditions`), so the pattern node is never
+// reached alongside its own `=~`.
+//
+// Three further rules in the same grammar family are deliberately
+// absent because whether they are boolean *tests* is a judgement call,
+// not a dispatch gap: `substitution_pattern_s` (`s///`) and
+// `transliteration_tr_or_y` (`tr///`) each evaluate to a count rather
+// than a bool, and `regex_pattern_qr` (`qr//`) to a compiled-pattern
+// object that is always true. All three measure zero conditions today.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! perl_bool_terminal_kinds {
@@ -450,6 +508,8 @@ macro_rules! perl_bool_terminal_kinds {
             | $crate::Perl::CallExpressionRecursive
             | $crate::Perl::CallExpressionWithBareword
             | $crate::Perl::MethodInvocation
+            | $crate::Perl::PatternMatcher
+            | $crate::Perl::PatternMatcherM
     };
 }
 
@@ -709,6 +769,19 @@ macro_rules! kotlin_bool_terminal_kinds {
 // None of the four kinds has a numeric-suffix alias in tree-sitter-ruby
 // 0.23.1; `_int_or_float` (`Ruby::IntOrFloat`) is a hidden supertype the
 // parser never emits (grammar-dispatch §2).
+//
+// `test_pattern` is Ruby 3.0's one-line pattern test (`a in Integer`),
+// which evaluates to a boolean. The grammar gives it its own
+// production, so the comparison-token arm in `metrics/abc/ruby.rs`
+// never sees it — that arm is gated on a `binary` parent and lists no
+// `in` token — and `if a in Integer` scored zero conditions against a
+// cyclomatic decision of one. Nothing counts the `in` token itself, so
+// listing the wrapper scores it exactly once (§5).
+//
+// Its neighbour `match_pattern` (`expr => pat`, id 252) is **not**
+// here and must not be added: that spelling raises `NoMatchingPattern`
+// on failure rather than yielding a boolean, so it is a destructuring
+// assignment, not a condition.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! ruby_bool_terminal_kinds {
@@ -730,6 +803,7 @@ macro_rules! ruby_bool_terminal_kinds {
             | $crate::Ruby::Float
             | $crate::Ruby::Rational
             | $crate::Ruby::Complex
+            | $crate::Ruby::TestPattern
     };
 }
 

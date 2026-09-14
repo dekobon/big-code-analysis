@@ -220,7 +220,37 @@ fn groovy_count_token_condition<'a>(
         // C / PHP short-ternary reading that also walks the left operand
         // as a unary condition — it keeps `abc.conditions` equal to
         // `cyclomatic() - 1` on the chain (grammar-dispatch §8).
-        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Try | Catch | QMARKCOLON => {
+        // `EQEQEQ` / `BANGEQEQ` (`===`, `!==`) and `EQTILDE` /
+        // `EQEQTILDE` (`=~`, `==~`) are Groovy's identity and regex
+        // comparisons. They sit in this ungated arm beside `==` / `!=`
+        // for the reason those do, and a `grammar.json` sweep of
+        // dekobon-tree-sitter-groovy 0.2.2 is what makes ungating
+        // safe: each of the four tokens is emitted by exactly one
+        // production — `identity_expression` for the first pair,
+        // `regex_find_expression` / `regex_match_expression` for the
+        // second — so unlike `GT` / `LT` there is no type-argument or
+        // loop-header spelling to exclude.
+        //
+        // Their own expression kinds are therefore **not** in
+        // `groovy_bool_terminal_kinds!()`; counting both would score
+        // each twice (§5). The token is the better half of that choice
+        // because it scores outside a boolean slot as well, where
+        // `def r = (a == b)` already scored 1 and `def r = (a === b)`
+        // scored 0 — a within-language asymmetry between two
+        // equality operators. It is also how every other language here
+        // spells these: `EQEQEQ | BANGEQEQ` are token arms in Kotlin,
+        // the JS family, PHP and Elixir, and `EQTILDE` in Perl, Ruby
+        // and Bash. `getter/groovy.rs` already classifies all four as
+        // Halstead operators.
+        //
+        // Groovy's membership (`in` / `!in`) is the one relational
+        // form that cannot come through here — see
+        // `groovy_bool_terminal_kinds!()` for why. The spaceship `<=>`
+        // is deliberately still absent: it yields -1 / 0 / 1 rather
+        // than a boolean, so whether it is a condition at all is the
+        // open question in FIXME(#1461) item 4, not an oversight here.
+        GTEQ | LTEQ | EQEQ | BANGEQ | EQEQEQ | BANGEQEQ | EQTILDE | EQEQTILDE | Else | Case
+        | Try | Catch | QMARKCOLON => {
             stats.conditions += 1.;
         }
         // As in Java: a bare `?` is either a ternary head or the head of

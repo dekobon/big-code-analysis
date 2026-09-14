@@ -13378,3 +13378,314 @@ mod numeric_bool_operands {
         });
     }
 }
+
+/// A relational construct with its own grammar production must score
+/// like an identifier in the same boolean slot (#1449, #1461).
+///
+/// Every language here spells at least one boolean test as a dedicated
+/// node rather than as a `binary_expression`, so no comparison-token
+/// arm ever sees it. A kind missing from `<lang>_bool_terminal_kinds!()`
+/// scores **zero**, silently, and zero is indistinguishable from a
+/// construct that legitimately scores zero — which is why the headline
+/// claim of each case is a *comparison* against an identifier control
+/// in the identical slot rather than an absolute number.
+///
+/// The constructs, and the route each fix took:
+///
+/// - **Groovy** `a in l` / `a !in l` (`membership_expression`) joins
+///   the terminal set. The other four — `a === b` / `a !== b`
+///   (`identity_expression`) and `s =~ /p/` / `s ==~ /p/`
+///   (`regex_find_expression`, `regex_match_expression`) — are counted
+///   as operator tokens in `groovy_count_token_condition` instead, so
+///   they also score outside a boolean slot as `==` already did. Both
+///   macro and arm carry the reasoning; the rule that matters here is
+///   that a construct takes exactly one of the two routes, never both
+///   (`.claude/rules/grammar-dispatch.md` §5).
+/// - **Perl** `/^#/` (`pattern_matcher`) and `m{^#}`
+///   (`pattern_matcher_m`), the two spellings of a match against the
+///   implicit `$_`. They are sibling rules, not aliases, so both are
+///   listed — a fixture carrying only the first would have left the
+///   `m{}` half at zero and read as covered.
+/// - **Ruby** `a in Integer` (`test_pattern`), the one-line pattern
+///   test. Decided against `match_pattern` (`expr => pat`), which
+///   raises rather than yielding a boolean.
+///
+/// Rust's `matches!(…)` measures short in the same way, and is
+/// deliberately **not** here: its fix is `macro_invocation`, which also
+/// catches `cfg!` / `dbg!` / `todo!`, and the one corpus snapshot it
+/// moves is a `cfg!` rather than a `matches!`. That breadth is what
+/// #1461 item 2 exists to decide, so it is left to that issue rather
+/// than settled by inclusion here.
+///
+/// Two slots per language, because the sets feed two independent walker
+/// paths (§11) and every construct above measured short in **both**: the
+/// operands of a `&&` chain, and the predicate of an `if`. A fixture of
+/// only one leaves the other untested.
+///
+/// Each row also carries the construct's negated spelling. That is not
+/// redundancy: `<lang>_inspect_container` is a *third* consumer of every
+/// terminal set, reached only after a `(…)` or `!…` wrapper is peeled,
+/// and it is the consumer that decides whether the peeled operand sits
+/// in boolean context at all. Without a negated row, Groovy's and
+/// Rust's `inspect_container` arms were the site no fixture here
+/// exercised.
+///
+/// Even with it, no language exercises all three consumers through
+/// these two slots, and which one is missed differs by language —
+/// Perl's `perl_count_condition` (reached only from a ternary or a
+/// C-style `for` header) and Ruby's `ruby_count_unary_conditions`
+/// (unreachable here because `in` binds looser than `&&`, so the chain
+/// slot must parenthesise and routes through `inspect_container`
+/// instead). Both are covered elsewhere in this file; the gap is
+/// recorded rather than papered over, because a reader comparing the
+/// slot count to the consumer count will otherwise assume it is three.
+///
+/// The `cyclomatic` half of `every_construct_scores_its_recorded_values`
+/// is what rules out a regression that moved both metrics together:
+/// cyclomatic must not move when only the operand spelling does, which
+/// is what makes a `conditions` move unambiguously ABC's. The recorded
+/// figures differ per slot (Rust's chain slot carries the extra `&&`
+/// decision), so each slot pins its own pair rather than sharing one.
+// Gated on the union of the four languages with rows, so a build
+// enabling none of them drops the module instead of failing its
+// guards (`.claude/rules/testing.md`, #1286 / #1411).
+#[cfg(test)]
+#[cfg(any(feature = "groovy", feature = "perl", feature = "ruby"))]
+mod own_production_bool_constructs {
+    use crate::test_support::metrics_verbatim;
+    use crate::{LANG, MetricsOptions};
+
+    /// One fixture shape: a source template with a `{}` slot for the
+    /// whole boolean expression, and the `abc.conditions_sum` /
+    /// `cyclomatic_sum` every spelling in that slot must produce.
+    type Slot = (&'static str, u64, u64);
+
+    /// A language's two slots, its identifier control, the constructs
+    /// that must score the same, and how many of those there should be.
+    ///
+    /// The count is not bookkeeping. `for_each_case` counts *languages*,
+    /// so trimming Groovy's list back to a single construct — or
+    /// dropping Perl's `m{}` half, which is a separate grammar rule from
+    /// its `//` half — leaves the module green with that coverage
+    /// deleted. Pinning the length makes such a trim a deliberate
+    /// two-line edit instead of a silent one.
+    type Case = ([Slot; 2], &'static str, &'static [&'static str], usize);
+
+    fn conditions(lang: LANG, source: &str) -> u64 {
+        metrics_verbatim(lang, source.as_bytes(), MetricsOptions::default())
+            .abc
+            .conditions_sum()
+    }
+
+    fn cyclomatic_sum(lang: LANG, source: &str) -> u64 {
+        metrics_verbatim(lang, source.as_bytes(), MetricsOptions::default())
+            .cyclomatic
+            .cyclomatic_sum()
+    }
+
+    /// `([chain_slot, predicate_slot], identifier, constructs)` per
+    /// language.
+    ///
+    /// `{}` is the left-hand operand of a two-operand short-circuit
+    /// chain in the first slot and the whole `if` predicate in the
+    /// second, so every fixture differs from its own control in exactly
+    /// the construct under test.
+    ///
+    /// Ruby's chain slot parenthesises the slot because `in` binds
+    /// looser than `&&` there; the control is parenthesised identically,
+    /// so the parens cancel out of the comparison and
+    /// `ruby_inspect_container` unwraps them for both sides alike.
+    fn cases(lang: LANG) -> Option<Case> {
+        Some(match lang {
+            LANG::Groovy => (
+                [
+                    ("def f(a, b, l, s) {\n  return {} && b\n}\n", 2, 3),
+                    ("def f(a, b, l, s) {\n  if ({}) { return 1 }\n}\n", 1, 3),
+                ],
+                "b",
+                &[
+                    "a in l",
+                    "a !in l",
+                    "a === b",
+                    "a !== b",
+                    "s =~ /p/",
+                    "s ==~ /p/",
+                    "!(a in l)",
+                ],
+                7,
+            ),
+            LANG::Perl => (
+                [
+                    ("sub f {\n  my $x = {} && $b;\n}\n", 2, 3),
+                    ("sub f {\n  if ({}) { 1; }\n}\n", 1, 3),
+                ],
+                "$a",
+                &["/^#/", "m{^#}", "!/^#/"],
+                3,
+            ),
+            LANG::Ruby => (
+                [
+                    ("def f(a)\n  ({}) && b\nend\n", 2, 3),
+                    ("def f(a)\n  if {}\n    1\n  end\nend\n", 1, 3),
+                ],
+                "a",
+                &["a in Integer", "!(a in Integer)"],
+                2,
+            ),
+            _ => return None,
+        })
+    }
+
+    /// Runs `check` once per enabled language that has a case, having
+    /// first established that the case can still assert something.
+    ///
+    /// The three guards mirror `numeric_bool_operands::for_each_case`,
+    /// where each was added only after a measured perturbation of it
+    /// left that module green: `checked > 0` for the runtime half of
+    /// the feature gate, the recorded construct count so a trimmed row
+    /// cannot vanish silently, and the `{}` slot so `str::replace` does
+    /// not degenerate into comparing a string with itself.
+    fn for_each_case(check: impl Fn(LANG, Case)) {
+        let mut checked = 0;
+        for lang in LANG::into_enum_iter() {
+            if !lang.is_enabled() {
+                continue;
+            }
+            let Some(case @ (slots, _, constructs, expected_constructs)) = cases(lang) else {
+                continue;
+            };
+            // Both halves are needed, and the second does not imply the
+            // first. The length check alone only asserts that the list
+            // and its recorded count *agree*, so emptying a row and
+            // setting its count to 0 — the shape a careless "the test
+            // failed, fix the number" edit takes — deleted that
+            // language's coverage with both tests still green when
+            // measured. `numeric_bool_operands` above has the same
+            // weakness and is left alone here, being out of this
+            // change's scope.
+            assert!(
+                !constructs.is_empty(),
+                "{lang:?}: the construct list is empty; this language asserted nothing"
+            );
+            assert_eq!(
+                constructs.len(),
+                expected_constructs,
+                "{lang:?}: the construct list no longer covers every own-production \
+                 boolean spelling this language was fixed for"
+            );
+            for (template, _, _) in slots {
+                assert!(
+                    template.contains("{}"),
+                    "{lang:?}: template lost its `{{}}` slot: {template}"
+                );
+            }
+            check(lang, case);
+            checked += 1;
+        }
+        assert!(
+            checked > 0,
+            "no language with an own-production boolean construct enabled; \
+             this test asserted nothing"
+        );
+    }
+
+    #[test]
+    fn an_own_production_construct_scores_like_an_identifier() {
+        for_each_case(|lang, (slots, identifier, constructs, _)| {
+            for (template, _, _) in slots {
+                let baseline = conditions(lang, &template.replace("{}", identifier));
+                for construct in constructs {
+                    let source = template.replace("{}", construct);
+                    let scored = conditions(lang, &source);
+                    assert_eq!(
+                        scored, baseline,
+                        "{lang:?}: `{construct}` scored {scored} conditions against \
+                         `{identifier}`'s {baseline}\n  source: {source}"
+                    );
+                }
+            }
+        });
+    }
+
+    /// The two Perl spellings must remain two distinct grammar kinds.
+    ///
+    /// `perl_bool_terminal_kinds!()` lists `PatternMatcher` **and**
+    /// `PatternMatcherM` on the stated grounds that `/^#/` and `m{^#}`
+    /// are sibling rules rather than aliases of one. Nothing above pins
+    /// that: if a grammar bump collapsed `m{}` onto `pattern_matcher`,
+    /// both fixtures would keep scoring through the surviving entry,
+    /// the `PatternMatcherM` arm would become dead code, and every test
+    /// in this module would stay green — the silent-drift shape lesson
+    /// 34 and grammar-dispatch §2 exist to catch.
+    ///
+    /// Asserting the ids differ is not enough on its own, since two
+    /// distinct enum variants prove nothing about what the parser
+    /// emits. So each spelling is parsed and required to produce its
+    /// own kind and not the other's.
+    #[test]
+    #[cfg(feature = "perl")]
+    fn the_two_perl_match_spellings_are_distinct_kinds() {
+        use crate::{ParserTrait, Perl, PerlParser};
+        use big_code_analysis_ast::test_support::ast_has_kind_id;
+
+        assert_ne!(
+            Perl::PatternMatcher as u16,
+            Perl::PatternMatcherM as u16,
+            "the two spellings share one kind id; one terminal-set entry is dead"
+        );
+
+        for (src, present, absent) in [
+            (
+                "sub f { if (/^#/) { 1; } }",
+                ("pattern_matcher", Perl::PatternMatcher as u16),
+                ("pattern_matcher_m", Perl::PatternMatcherM as u16),
+            ),
+            (
+                "sub f { if (m{^#}) { 1; } }",
+                ("pattern_matcher_m", Perl::PatternMatcherM as u16),
+                ("pattern_matcher", Perl::PatternMatcher as u16),
+            ),
+        ] {
+            let parser = PerlParser::new(
+                src.as_bytes().to_vec(),
+                &std::path::PathBuf::from("f.pl"),
+                None,
+            );
+            let (present_name, present_id) = present;
+            let (absent_name, absent_id) = absent;
+            assert!(
+                ast_has_kind_id(&parser, present_id),
+                "`{src}` no longer emits `{present_name}`"
+            );
+            assert!(
+                !ast_has_kind_id(&parser, absent_id),
+                "`{src}` now also emits `{absent_name}`; the two spellings have \
+                 collapsed and one `perl_bool_terminal_kinds!()` entry is dead"
+            );
+        }
+    }
+
+    /// The absolute anchor under the comparison above: every spelling
+    /// must produce the slot's recorded `conditions`, and must leave
+    /// `cyclomatic` alone.
+    #[test]
+    fn every_construct_scores_its_recorded_values() {
+        for_each_case(|lang, (slots, identifier, constructs, _)| {
+            for (template, expected_conditions, expected_cyclomatic) in slots {
+                for spelling in std::iter::once(identifier).chain(constructs.iter().copied()) {
+                    let source = template.replace("{}", spelling);
+                    assert_eq!(
+                        conditions(lang, &source),
+                        expected_conditions,
+                        "{lang:?}: `{spelling}` conditions\n  source: {source}"
+                    );
+                    assert_eq!(
+                        cyclomatic_sum(lang, &source),
+                        expected_cyclomatic,
+                        "{lang:?}: `{spelling}` cyclomatic_sum\n  source: {source}"
+                    );
+                }
+            }
+        });
+    }
+}
