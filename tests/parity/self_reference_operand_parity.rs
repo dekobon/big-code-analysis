@@ -134,16 +134,19 @@ fn fixture(lang: LANG) -> Option<(&'static str, &'static str, &'static [&'static
             "cs",
             &["this", "base"],
         ),
-        // Grammar accident, and the interesting one: `getter/groovy.rs`
-        // lists `Super` among its operators with no parent gate, but the
-        // pinned grammar emits `Groovy::Super` only as a `wildcard` bound
-        // (`? super T`, a declarator use kept an operator as in Java and
-        // left out of this fixture). In receiver position `this` and
-        // `super` are a plain `identifier` — verified by dump for
-        // `super(1)`, `super.h()`, `A.super.h()` and `super::h` — so the
-        // arm never sees a reference, and Groovy is an operand language
-        // in fact. This row is what notices if a bump ever routes a
-        // reference to that kind (#1419).
+        // Grammar accident, and the interesting one: the pinned grammar
+        // emits `Groovy::Super` only as a `wildcard` bound (`? super T`,
+        // a declarator use kept an operator as in Java and left out of
+        // this fixture). In receiver position `this` and `super` are a
+        // plain `identifier` — verified by dump for `super(1)`,
+        // `super.h()`, `A.super.h()`, `super::h` and `super?.h()` — so
+        // `getter/groovy.rs`'s `Super` arm never sees a reference, and
+        // Groovy is an operand language in fact. Since #1419 that arm
+        // carries Java's `Wildcard` parent gate, so a bump routing a
+        // reference to `Groovy::Super` would classify it correctly
+        // rather than billing it as an operator; this row is what
+        // notices if the grammar reclassifies the keyword some other
+        // way.
         LANG::Groovy => (
             "class A extends B {\n  def f() { return this.x }\n  \
              def g() { return super.h() }\n}\n",

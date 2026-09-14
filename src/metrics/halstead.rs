@@ -2520,14 +2520,19 @@ mod tests {
         );
     }
 
-    // Groovy's `Super` operator arm, pinned from both sides. The pinned
+    // Groovy's `Super` arm, pinned from all three sides. The pinned
     // grammar emits the `super` token only as a `wildcard` bound, where it
     // is an operator exactly as in Java above; every super-*reference* is
-    // a plain `identifier`, and so an operand. The node census is the
-    // positive pin #1419 wants rather than an unreachability one — an
-    // unreachability pin fails on any wildcard — so a grammar bump that
-    // routes a reference to this kind fails here by name instead of
-    // silently billing it as an operator through the ungated arm.
+    // a plain `identifier`, and so an operand.
+    //
+    // Since #1419 the arm carries Java's `Wildcard` parent gate, so the
+    // bound half below exercises the gate's operator branch — inverting
+    // the gate fails it. The gate's operand branch is unreachable under
+    // the pin (only error recovery on invalid Groovy, `List<? super>`,
+    // detaches a `super` token from its `wildcard`), so it is
+    // deliberately untested rather than pinned against an invalid
+    // fixture. The node census is the drift marker for it: a grammar bump
+    // that routes a reference to `Groovy::Super` fails here by name.
     #[test]
     fn groovy_wildcard_super_bound_stays_an_operator() {
         let bounds =
@@ -2558,8 +2563,9 @@ mod tests {
                 assert_eq!(
                     chain.last().map(Node::kind_id),
                     Some(Groovy::Wildcard as u16),
-                    "groovy: a `super` token outside a wildcard bound reaches the \
-                     ungated operator arm (#1419)"
+                    "groovy: a `super` token outside a wildcard bound now reaches \
+                     the gate's operand branch, which the pinned grammar made \
+                     unreachable — re-check the arm against the new grammar (#1419)"
                 );
             }
         });
@@ -2568,6 +2574,19 @@ mod tests {
             "the fixture's one wildcard bound must still spell `super`, and its \
              `super.h()` reference must not"
         );
+
+        // The reference direction, on valid input the gate must leave
+        // alone: every super-reference form the grammar accepts stays an
+        // operand, so splitting `Super` out of the operator alternation
+        // cannot have moved one. `this` rides along for the same reason
+        // Java's test carries it.
+        let refs = "class A extends B {\n    A() { super(1) }\n    \
+                    def g() { return super.h() }\n    \
+                    def i() { return A.super.h() }\n    \
+                    def j() { return super::h }\n    \
+                    def k() { return super?.h() }\n    \
+                    def l() { return this.x }\n}";
+        assert_keywords_are_operands_only::<GroovyParser>(refs, "foo.groovy", &["super", "this"]);
     }
 
     #[test]

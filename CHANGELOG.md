@@ -135,6 +135,17 @@ for historical reference.
 
 ### Fixed
 
+- **Groovy's Halstead `super` arm is gated on its `wildcard` parent, as
+  Java's is** (#1419). `super` is an operator only as a wildcard type
+  bound (`List<? super T>`), where it denotes no value and mirrors
+  `? extends T`; in receiver position it names a value and is an
+  operand. No metric moves: the pinned dekobon grammar spells `super` in
+  the `wildcard` production alone, so every super-reference already
+  parsed as a plain `identifier` and was already an operand. The gate
+  removes the grammar accident, so a future grammar bump that routes a
+  reference to the `super` token classifies it correctly instead of
+  billing it as an operator.
+
 - **ABC now counts a boolean test that the grammar gives its own
   production** (#1449). A construct spelled as a dedicated node rather
   than a `binary_expression` reaches no comparison-token arm, so Groovy's
