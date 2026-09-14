@@ -142,10 +142,23 @@ macro_rules! java_bool_terminal_kinds {
 // the dekobon Groovy grammar has no `await` or `array_access`
 // analogues, so those collapse out of the C# set.
 //
-// FIXME(#1410): Groovy truth makes every non-zero number truthy, so this
-// set is missing the numeric literal kinds — `a && 1` scores one
-// condition where `a && b` scores two. Deferred out of #1379 because the
-// integration corpora carry Groovy files and the fix moves snapshots.
+// Groovy truth makes every non-zero number truthy, so `NumberLiteral`
+// is a unary condition here for the same reason Python's `Integer` /
+// `Float` are. Without it `a && 1` scored one condition against
+// `a && b`'s two (#1410).
+//
+// One kind covers every spelling: the dekobon grammar consolidated the
+// per-radix rules the prior one split (`getter/groovy.rs`), so `0x1f`,
+// `0b101`, `017`, `1_000`, `1e3` and every type suffix (`1L`, `1.5f`,
+// `1G`, `1I`, `1.5d`, `1.2g`) all lex as `number_literal` — verified by
+// `bca dump`, not read off the grammar, because #1379's misses were
+// sibling rules under a hidden choice rather than aliases of one rule.
+//
+// #1379 deferred this on the stated grounds that "the integration
+// corpora carry Groovy files"; they do not. No corpus carries a
+// `.groovy` file at all, and DeepSpeech's 16 `.gradle` files are
+// outside every test glob (`tests/corpus/deepspeech_test.rs` globs
+// `*.cc` / `*.cpp` / `*.h` / `*.hh`), so this fix moves no snapshot.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! groovy_bool_terminal_kinds {
@@ -154,6 +167,7 @@ macro_rules! groovy_bool_terminal_kinds {
             | $crate::Groovy::CommandChain
             | $crate::Groovy::Identifier
             | $crate::Groovy::BooleanLiteral
+            | $crate::Groovy::NumberLiteral
             | $crate::Groovy::FieldAccess
             | $crate::Groovy::CastExpression
             | $crate::Groovy::ParenthesizedTypeCast
@@ -210,13 +224,33 @@ macro_rules! go_bool_terminal_kinds {
     };
 }
 
-// FIXME(#1410): C and C++ are integer-truthy, so this set is missing the
-// numeric literal kinds — `if (1)` scores no condition where `if (true)`
-// scores one, within the same language. Name-keyed, so C, C++, Mozcpp and
-// Objective-C are all affected, which makes this the largest of the three
-// sets #1379 left behind (see `perl_bool_terminal_kinds!` below for the
-// measurement). Deferred out of #1379 because the DeepSpeech corpus is
-// C/C++ and the fix moves snapshots.
+// The C family is integer-truthy — `if (1)`, `while (1)`,
+// `do { … } while (0)` and `a && 1` are all legal and idiomatic — so
+// `number_literal` and `char_literal` belong here for the same reason
+// `"true"` does. Omitting them made the gap visible *within* one
+// language: `if (true)` scored one condition and `if (1)` none (#1410).
+//
+// One `number_literal` arm covers every spelling in all four grammars.
+// `0x1f`, `017`, `0b101`, `1u`, `1L`, `1ULL`, `1.5f`, `1e3` and C++'s
+// `1'000` digit separator all lex to it, verified by `bca dump` per
+// language rather than read off the grammar — #1379's misses were
+// sibling rules under a hidden choice, which an alias sweep cannot see.
+//
+// `char_literal` is here because a character literal has integral type
+// (`int` in C, `char` in C++) and is contextually convertible to bool
+// exactly as a number is; leaving it out would reproduce the same
+// within-language asymmetry one kind narrower. It is also the correct
+// half of the wrapper/leaf pair (grammar-dispatch §5): an operand slot
+// always holds the `char_literal`, never its inner `character` /
+// `escape_sequence` child, so the wrapper is the only node reachable
+// here and there is nothing to double-count.
+//
+// Two neighbouring kinds are deliberately absent. C++'s
+// `user_defined_literal` (`1.0_km`) wraps a `number_literal` but
+// evaluates to whatever `operator""` returns, which need not be
+// numeric or contextually boolean. Objective-C's `version_number` is
+// the `@available(iOS 13.0, *)` token, not a literal, and never
+// occupies an operand slot.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! cpp_bool_terminal_kinds {
@@ -240,6 +274,8 @@ macro_rules! cpp_bool_terminal_kinds {
         "identifier"
             | "true"
             | "false"
+            | "number_literal"
+            | "char_literal"
             | "call_expression"
             | "message_expression"
             | "field_expression"
@@ -249,10 +285,23 @@ macro_rules! cpp_bool_terminal_kinds {
     };
 }
 
-// FIXME(#1410): PHP treats every non-zero number as truthy, so this set
-// is missing the numeric literal kinds — `$a && 1` scores one condition
-// where `$a && $b` scores two. Deferred out of #1379 because the
-// integration corpora carry PHP files and the fix moves snapshots.
+// PHP treats every non-zero number as truthy, so `Integer` and `Float`
+// are unary conditions here for the same reason Python's `Integer` /
+// `Float` are. Naming neither scored `$a && 1` one condition against
+// `$a && $b`'s two, and `if ($a && 1.0)` one against two (#1410).
+//
+// The unit to check is the supertype, not the alias list (#1379), and
+// PHP has neither to miss: every radix prefix, `_` separator and
+// exponent folds into one of those two kinds — `0x1f`, `0b101`, `017`,
+// `0o17` and `1_000` all lex as `integer`, and `1e3`, `1.5e10`, `.5`
+// and `1.` as `float` (verified by `bca dump`).
+//
+// `Float2` (52) is **not** a third numeric kind despite rendering to
+// the same `"float"` string: it is the `float` *type* keyword of a
+// parameter type or a `(float)` cast, which `Getter::get_op_type`
+// groups with `Int` / `Bool` / `String2` rather than with the `Integer`
+// / `Float` value operands (`getter/php.rs`). Listing it would be the
+// `Number2` mistake `typescript_bool_terminal_kinds!` records below.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! php_bool_terminal_kinds {
@@ -271,6 +320,8 @@ macro_rules! php_bool_terminal_kinds {
             | $crate::Php::Name2
             | $crate::Php::VariableName
             | $crate::Php::Boolean
+            | $crate::Php::Integer
+            | $crate::Php::Float
             | $crate::Php::FunctionCallExpression
             | $crate::Php::MemberCallExpression
             | $crate::Php::ScopedCallExpression
@@ -348,20 +399,16 @@ macro_rules! python_bool_terminal_kinds {
 // those five, so there is nothing to count.
 //
 // That rationale does **not** extend to the C family, which an earlier
-// revision of this comment wrongly grouped with them. C and C++ are
-// integer-truthy — `if (1)`, `while (1)`, `do { … } while (0)` and
-// `a && 1` are all legal and idiomatic — so they carry the same gap PHP
-// and Groovy do. `cpp_bool_terminal_kinds!` is name-keyed and shared by
-// C, C++, Mozcpp and Objective-C, so all four are affected, and the
-// omission is visible *within* one language: `if (true)` scores one
-// condition and `if (1)` scores none, because `"true"` is in the set
-// and `number_literal` is not.
+// revision of this comment wrongly grouped with them: C and C++ are
+// integer-truthy, so they carried the same gap PHP and Groovy did.
+// #1410 closed all six — PHP, Groovy and the name-keyed C, C++, Mozcpp
+// and Objective-C set — and each carries its own rationale above.
 //
-// PHP, Groovy and the four C-family languages are all tracked in #1410.
-// They are deferred rather than deliberate, and for a scheduling reason
-// only: each has integration-corpus files (the DeepSpeech `native_client`
-// snapshots are C/C++), so fixing them moves snapshots and wants its own
-// measurement pass.
+// #1379 deferred those six on the grounds that all three sets had
+// integration-corpus files. That held only for the C family (the
+// DeepSpeech `native_client` tree, seven snapshots): PHP's corpus files
+// carry no truthy numeric operand, and no corpus carries a `.groovy`
+// file at all.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! perl_bool_terminal_kinds {

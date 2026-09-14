@@ -12922,6 +12922,12 @@ mod keyword_negation_parity {
 /// scored one. Python had both kinds since #772 and is the control the
 /// other three were brought level with.
 ///
+/// #1410 closed the six sets #1379 deferred: PHP, Groovy, and the
+/// name-keyed C / C++ / Mozcpp / Objective-C set, where the omission
+/// was visible *within* one language — `if (true)` scored one condition
+/// and `if (1)` none, because `"true"` was in the set and
+/// `number_literal` was not.
+///
 /// The headline claim of each case is a *comparison*: a numeric operand
 /// must score exactly what an identifier operand scores in the same slot.
 /// That is what discriminates the defect — with the kind missing from the
@@ -12958,7 +12964,13 @@ mod keyword_negation_parity {
     feature = "perl",
     feature = "python",
     feature = "lua",
-    feature = "javascript"
+    feature = "javascript",
+    feature = "php",
+    feature = "groovy",
+    feature = "c",
+    feature = "cpp",
+    feature = "mozcpp",
+    feature = "objc"
 ))]
 mod numeric_bool_operands {
     use crate::test_support::metrics_verbatim;
@@ -12970,8 +12982,10 @@ mod numeric_bool_operands {
     type Slot = (&'static str, u64, u64);
 
     /// A language's two slots, its identifier baseline operand, the
-    /// numeric operands that must score the same, and how many of those
-    /// there should be.
+    /// truthy literal operands that must score the same, and how many of
+    /// those there should be. Every row but the C family's lists numeric
+    /// literals only; that one adds `char_literal`, which is a second
+    /// integral-literal kind rather than a second numeric spelling.
     ///
     /// The count is not bookkeeping. `for_each_case` counts *languages*,
     /// so trimming a row's operand list back to `&["1"]` — which is
@@ -13015,6 +13029,20 @@ mod numeric_bool_operands {
     ///   lexes as `integer`, and the `octal` kind is unreachable.
     /// - Elixir: `integer` / `float` / `char`. `?a` is the codepoint 97,
     ///   a numeric literal wearing a sigil.
+    /// - PHP: `integer` / `float`. Every radix prefix, `_` separator and
+    ///   exponent folds into those two, and the `float` *type* keyword
+    ///   `Float2` is a third id rendering to the same name that must
+    ///   stay out of the set (#1410).
+    /// - Groovy: one consolidated `number_literal`, type suffixes
+    ///   (`1L`, `1.5f`, `1G`) included.
+    /// - C, C++, Mozcpp and Objective-C: one consolidated
+    ///   `number_literal`, plus `char_literal` — not a numeric spelling
+    ///   but a second integral-literal *kind*, since `'c'` has type
+    ///   `int` in C and `char` in C++ and is truthy for the same reason.
+    ///   All four share one name-keyed set and so run the same fixture,
+    ///   which is the only coverage `Mozcpp` can have: it owns no file
+    ///   extension, and `metrics_verbatim` is the one entry point that
+    ///   reaches a `LANG` without going through one.
     ///
     /// Python, Lua and JavaScript were already correct and ride along as
     /// controls — they are what the first three were measured against,
@@ -13076,6 +13104,33 @@ mod numeric_bool_operands {
                 "b",
                 &["1", "1.0", "0xff"],
                 3,
+            ),
+            LANG::Php => (
+                [
+                    ("<?php\nfunction f($a) {\n  return $a && {};\n}\n", 2, 3),
+                    ("<?php\nfunction f() {\n  if ({}) { return 1; }\n}\n", 1, 3),
+                ],
+                "$b",
+                &["1", "1.0"],
+                2,
+            ),
+            LANG::Groovy => (
+                [
+                    ("def f(a) {\n  return a && {}\n}\n", 2, 3),
+                    ("def f() {\n  if ({}) { return 1 }\n}\n", 1, 3),
+                ],
+                "b",
+                &["1"],
+                1,
+            ),
+            LANG::C | LANG::Cpp | LANG::Mozcpp | LANG::Objc => (
+                [
+                    ("int f(int a) {\n  return a && {};\n}\n", 2, 3),
+                    ("int f() {\n  if ({}) { return 1; }\n}\n", 1, 3),
+                ],
+                "b",
+                &["1", "'c'"],
+                2,
             ),
             _ => return None,
         })
