@@ -147,6 +147,26 @@ for historical reference.
 
 ### Fixed
 
+- **C# ABC counts a null-forgiving predicate** (#1463). `if (b!)` scored
+  zero conditions where `if (b)` scores one, and likewise `if ((b!))`,
+  `if (!b!)`, `if (b!!)` and every `&&` / `||` operand spelled with the
+  suffix. `postfix_unary_expression` was in neither the terminal-operand
+  set nor the wrapper peel, so the slot recognised the shape and scored
+  nothing for it — the fifth instance of that class after Kotlin's
+  `is` / `in`, bare parentheses, Kotlin's infix `and` and its postfix
+  `!!` / `as`. With nullable reference types enabled the suffix is
+  ordinary notation, so ABC sat one below C#'s own cyclomatic decision
+  count on idiomatic predicates. The suffix is type-preserving, so it
+  scores exactly what its operand scores and the wrappers chain; `b++`
+  and `b--`, which share the grammar production, stay excluded as
+  arithmetic, and no token arm counts the `!` itself. The condition slot
+  now also asks the operand peel which wrappers it unwraps instead of
+  restating the list, the divergence #1459 and #1466 fixed in Kotlin and
+  Groovy. **Metric drift:** C# `abc.conditions` and `abc.magnitude` rise
+  by one per null-forgiving expression standing as a predicate or a
+  `&&` / `||` operand. No integration snapshot moves: every
+  `postfix_unary_expression` in the corpus is an `i++` or an `n--`.
+
 - **Groovy ABC counts an indexing or navigation predicate** (#1466).
   `if (l[0])`, `if (l?[0])`, `if (a?.b)`, `if (a??.b)` and `if (a.@b)`
   each scored zero conditions where `if (a)` scores one, and likewise as

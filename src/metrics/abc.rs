@@ -4635,6 +4635,145 @@ mod tests {
         });
     }
 
+    // The null-forgiving `b!` is transparent: it scores whatever the
+    // operand it wraps scores (#1463).
+    //
+    // `postfix_unary_expression` was in neither
+    // `csharp_bool_terminal_kinds!()` nor the wrapper peel, so every
+    // spelling below scored **zero** conditions against a cyclomatic
+    // decision of one, while the bare `b` control scored one. In a
+    // codebase with nullable reference types enabled the suffix is
+    // everywhere, so the gap is not an exotic corner.
+    //
+    // Both walker paths, per `.claude/rules/grammar-dispatch.md` §11:
+    // `p*` go through the `if` predicate slot
+    // (`csharp_count_condition`) and `c*` through the `&&` chain slot
+    // (`csharp_count_unary_conditions`), which reach
+    // `csharp_inspect_container` independently. A fixture of only one
+    // reads correct with the other path dead.
+    //
+    // The controls are load-bearing in both directions. `p` / `c` pin
+    // what the wrapper must score, so a regression fails on the pair
+    // rather than on an absolute number; and the cyclomatic column pins
+    // that only `conditions` moved — the suffix is not a decision in any
+    // language, so a fix that moved both together would be a different
+    // bug.
+    #[test]
+    fn csharp_null_forgiving_operand_scores_like_its_operand() {
+        let src = "class A {
+                int p(bool b) { if (b) { return 1; } return 0; }
+                int pn(bool b) { if (b!) { return 1; } return 0; }
+                int pp(bool b) { if ((b!)) { return 1; } return 0; }
+                int pd(bool b) { if (b!!) { return 1; } return 0; }
+                int pb(bool b) { if (!b!) { return 1; } return 0; }
+                int c(bool b) { if (b && b) { return 1; } return 0; }
+                int cn(bool b) { if (b! && b) { return 1; } return 0; }
+                int cp(bool b) { if ((b!) && b) { return 1; } return 0; }
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                // Seven, not five: `b!!` is two nested nodes, and each
+                // chain member carries one. Trimming a `!` out of any
+                // member fails here by name instead of turning that
+                // member into a silent copy of its control.
+                (
+                    Csharp::PostfixUnaryExpression as u16,
+                    7,
+                    "the null-forgiving suffixes",
+                ),
+                // The `if (…)` parens are anonymous tokens rather than
+                // nodes in this grammar, so these two are `pp`'s and
+                // `cp`'s explicit ones — the wrappers that make the peel
+                // chain rather than peel once.
+                (
+                    Csharp::ParenthesizedExpression as u16,
+                    2,
+                    "the explicit parenthesised spellings",
+                ),
+                (Csharp::PrefixUnaryExpression as u16, 1, "`pb`'s `!`"),
+            ],
+        );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            assert_members_score(
+                &space.spaces[0],
+                &[
+                    ("p", 1, 2),
+                    ("pn", 1, 2),
+                    ("pp", 1, 2),
+                    ("pd", 1, 2),
+                    ("pb", 1, 2),
+                    ("c", 2, 3),
+                    ("cn", 2, 3),
+                    ("cp", 2, 3),
+                ],
+            );
+        });
+    }
+
+    // The null-forgiving operand is read by position, but from the end
+    // the grammar cannot move: a `postfix_unary_expression` *starts* at
+    // its operand, so `child(0)` is the operand whatever `extra` sits
+    // between it and the operator. The operator is identified by
+    // membership rather than by index for the same reason.
+    //
+    // The other two wrappers have no such luck and are pinned here as a
+    // *measured* gap rather than left to be discovered: the C# grammar
+    // gives `parenthesized_expression`, `prefix_unary_expression` and
+    // `postfix_unary_expression` an empty `fields` map in
+    // node-types.json, so the field read Kotlin's and Groovy's
+    // equivalents use is unavailable and `child(1)` is a comment
+    // whenever one is written there. That is #1455, which predates
+    // #1463 and is a separate change; what this test adds is that the
+    // new arm does not join it.
+    #[test]
+    fn csharp_null_forgiving_operand_survives_an_interposed_comment() {
+        let src = "class A {
+                int p(bool b) { if (b!) { return 1; } return 0; }
+                int pc(bool b) { if (b /*c*/ !) { return 1; } return 0; }
+                int n(bool b) { if (!b) { return 1; } return 0; }
+                int nc(bool b) { if (! /*c*/ b) { return 1; } return 0; }
+                int r(bool b) { if ((b)) { return 1; } return 0; }
+                int rc(bool b) { if (( /*c*/ b)) { return 1; } return 0; }
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (
+                    Csharp::Comment as u16,
+                    3,
+                    "the interposed comments — without them every row is its own control",
+                ),
+                (Csharp::PostfixUnaryExpression as u16, 2, "`p` and `pc`"),
+                (Csharp::PrefixUnaryExpression as u16, 2, "`n` and `nc`"),
+                (
+                    Csharp::ParenthesizedExpression as u16,
+                    2,
+                    "`r` and `rc` — the `if` parens are anonymous tokens",
+                ),
+            ],
+        );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            assert_members_score(
+                &space.spaces[0],
+                &[
+                    ("p", 1, 2),
+                    // The row #1463 fixes and the only one of the three
+                    // pairs that agrees with its control.
+                    ("pc", 1, 2),
+                    ("n", 1, 2),
+                    // #1455: `child(1)` of the prefix wrapper is the
+                    // comment. Delete this expectation, not the row,
+                    // when that issue is fixed.
+                    ("nc", 0, 2),
+                    ("r", 1, 2),
+                    // #1455 again, through the paren wrapper.
+                    ("rc", 0, 2),
+                ],
+            );
+        });
+    }
+
     // The statement `switch` reaches the same `when_clause` kind through
     // a different parent — `switch_section` rather than
     // `switch_expression_arm` — which makes it an independent path in

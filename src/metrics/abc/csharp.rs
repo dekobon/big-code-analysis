@@ -15,11 +15,82 @@ use crate::macros::{
 };
 use crate::*;
 
+// The operand a transparent wrapper wraps, and whether the wrapper
+// itself proves that operand is boolean. `None` means the node is not a
+// wrapper and the peel stops there.
+//
+// Only the prefix `!` proves booleanness: `!x` is boolean whatever `x`
+// is, while parentheses and the null-forgiving postfix `x!` are
+// type-preserving — `x!` is boolean exactly when the slot it sits in
+// is — so they inherit the caller's verdict rather than setting it.
+//
+// `postfix_unary_expression` is the arm #1463 added, and the fifth
+// instance of one class: a condition slot that recognises a wrapper
+// kind list, and silently scores nothing for anything not on it. Before
+// it, `if (b!)` scored zero conditions against a cyclomatic decision of
+// one, while `if (b)` scored one — an asymmetry between two spellings
+// of the same test, in the notation nullable-reference-types projects
+// write everywhere. `!!` and `(b!)` nest through the same peel.
+//
+// The kind is one production for three operators (`++`, `--`, `!`), and
+// only `!` is type-preserving. `b++` and `b--` are arithmetic, never a
+// boolean slot's operand, so the peel declines rather than reaching a
+// bare `identifier` and counting it — the same exclusion Groovy's
+// `~a` / `+a` / `-a` and Kotlin's `-x` / `x++` take. Their tokens are
+// already ABC *assignments* (`PLUSPLUS | DASHDASH`), so accepting them
+// would also have scored one construct on two axes.
+//
+// No fixture pins that exclusion, deliberately (§6). `++` takes a
+// numeric operand and yields one, so `if (i++)` and `i++ && b` are type
+// errors the compiler rejects; only the grammar's over-permissiveness
+// reaches the arm, and a test over input C# rejects would make that
+// over-permissiveness the contract. Measured rather than reasoned:
+// dropping the `is_child` guard entirely fails **none** of the 3,429
+// library tests. The guard is here because the exclusion is right, not
+// because anything observable depends on it.
+//
+// No double count for the `!` itself (§5): no C# arm counts a `BANG`
+// token — it reaches `csharp_count_token_condition`'s `_ => return
+// false` and then `csharp_walk_for_conditions`, which matches no token
+// kind. `is_child` rather than an index read because the operator is
+// the node's *last* child and an `extra` may sit before it
+// (`b /*c*/ !`); the operand is `child(0)`, which no extra can precede
+// because the node starts there.
+//
+// The paren and prefix arms keep the positional reads they have always
+// had. The C# grammar names nothing here — `parenthesized_expression`,
+// `prefix_unary_expression` and `postfix_unary_expression` all carry an
+// empty `fields` map in node-types.json — so the field read that
+// Kotlin's and Groovy's equivalents use is unavailable, and with it the
+// comment bug those reads dodge: `if (( /*c*/ b))` and `if (! /*c*/ b)`
+// still score zero, because `child(1)` is the comment. Measured, not
+// assumed. That is #1455, which predates this change and is recorded
+// here rather than widened into it; the new arm adds no instance of it.
+fn csharp_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
+    use Csharp::*;
+
+    match node.kind_id().into() {
+        // `(expr)` — the inner expression follows the `(` token.
+        csharp_paren_expr_kinds!() => Some((node.child(1)?, false)),
+        // `!expr` — the operand follows the operator token. Seven other
+        // prefix operators (`++ -- + - ~ & ^`) share this kind, as does
+        // the `*` of a pointer indirection the grammar aliases onto it;
+        // none is a boolean slot's operand.
+        csharp_prefix_unary_expr_kinds!() => match node.child(0)?.kind_id().into() {
+            BANG => Some((node.child(1)?, true)),
+            _ => None,
+        },
+        // `expr!` — the null-forgiving operator. One kind id at the
+        // pinned `=0.23.5`, no numbered aliases (§1).
+        PostfixUnaryExpression if node.is_child(BANG as u16) => Some((node.child(0)?, false)),
+        _ => None,
+    }
+}
+
 fn csharp_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
     use Csharp::*;
 
     let mut node = *container_node;
-    let mut node_kind = node.kind_id().into();
 
     // Seed the boolean-context flag from the parent: known-boolean
     // contexts (loop / if / guard / binary expression) imply the
@@ -36,32 +107,12 @@ fn csharp_inspect_container(container_node: &Node, parent: &Node, conditions: &m
         _ => false,
     };
 
-    // Walk down through `(...)` and `!...` wrappers until we either hit
-    // the underlying operand or run out of nesting. The C# grammar
-    // aliases each of these kinds across multiple `kind_id`s
-    // (lesson #2): match every numbered variant.
-    loop {
-        let is_parens = matches!(node_kind, csharp_paren_expr_kinds!());
-        let is_not = matches!(node_kind, csharp_prefix_unary_expr_kinds!())
-            && node
-                .child(0)
-                .is_some_and(|c| matches!(c.kind_id().into(), BANG));
-
-        if !is_parens && !is_not {
-            break;
-        }
-
-        // A `!` wrapper proves the contained value is boolean even
-        // when the parent context didn't (e.g. `return !x;`).
-        if !has_boolean_content && is_not {
-            has_boolean_content = true;
-        }
-
-        // Both `parenthesized_expression` and `prefix_unary_expression`
-        // store their inner expression at child index 1.
-        let Some(child) = node.child(1) else { break };
-        node = child;
-        node_kind = node.kind_id().into();
+    // Walk down through the transparent wrappers until we either hit the
+    // underlying operand or run out of nesting. They chain: `(!b!)`
+    // peels three to one `identifier`.
+    while let Some((operand, proves_boolean)) = csharp_wrapper_operand(&node) {
+        has_boolean_content |= proves_boolean;
+        node = operand;
 
         // Found the innermost operand; count it if a boolean context
         // was established up the chain. The `csharp_bool_terminal_kinds!()`
@@ -69,7 +120,7 @@ fn csharp_inspect_container(container_node: &Node, parent: &Node, conditions: &m
         // `BooleanLiteral` leaves, and the five bool-evaluating kinds
         // restored by #372 (member access / await / cast / is-pattern /
         // element access).
-        if matches!(node_kind, csharp_bool_terminal_kinds!()) {
+        if matches!(node.kind_id().into(), csharp_bool_terminal_kinds!()) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -639,8 +690,7 @@ impl Abc for CsharpCode {
 
 // C# mirror of `java_inspect_child` / `groovy_inspect_child`: passes
 // `node.child(idx)` to `csharp_inspect_container`, which is a no-op on
-// kinds other than `csharp_paren_expr_kinds!()` / `!`-prefixed
-// `csharp_prefix_unary_expr_kinds!()`.
+// every kind `csharp_wrapper_operand` declines.
 fn csharp_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
     if let Some(child) = node.child(idx) {
         csharp_inspect_container(&child, node, conditions);
@@ -648,12 +698,15 @@ fn csharp_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
 }
 
 fn csharp_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
-    let kind = condition.kind_id().into();
-    if matches!(kind, csharp_bool_terminal_kinds!()) {
+    if matches!(condition.kind_id().into(), csharp_bool_terminal_kinds!()) {
         *conditions += 1.;
-    } else if matches!(kind, csharp_paren_expr_kinds!())
-        || matches!(kind, csharp_prefix_unary_expr_kinds!())
-    {
+    } else if csharp_wrapper_operand(condition).is_some() {
+        // Asking the peel itself which kinds it unwraps, rather than
+        // restating the list here. The two spelled it separately until
+        // #1463, and either one gaining a wrapper kind the other did not
+        // would read as covered while the slot dropped it on the floor
+        // (`.claude/rules/grammar-dispatch.md` §7) — the shape that
+        // produced the Kotlin half of #1459.
         csharp_inspect_container(condition, parent, conditions);
     }
 }
