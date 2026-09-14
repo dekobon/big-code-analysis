@@ -135,6 +135,43 @@ for historical reference.
 
 ### Fixed
 
+- **ABC now counts a boolean test that the grammar gives its own
+  production** (#1449). A construct spelled as a dedicated node rather
+  than a `binary_expression` reaches no comparison-token arm, so Groovy's
+  `in` / `!in` / `===` / `!==` / `=~` / `==~`, Perl's bare `//` and `m{}`
+  matches, and Ruby's `a in Integer` each scored zero conditions in an
+  `if` predicate or a `&&` operand where a bare identifier scores one.
+  Groovy's `===` / `!==` / `=~` / `==~` are counted as comparison
+  operator tokens rather than terminal kinds, so they now also score
+  outside a boolean slot, as `==` already did; `in` / `!in` cannot take
+  that route, because `in` is shared with `for_in_statement` and `!in`
+  emits no operator token at all. **Metric drift:** `abc.conditions`
+  rises by one per occurrence of these constructs in a boolean slot, and
+  by one per `===` / `!==` / `=~` / `==~` anywhere in Groovy.
+
+- **Kotlin ABC counts a null-asserted or cast condition, and C# ABC
+  counts `??`** (#1459). Both languages model a condition slot that
+  delegates to a per-language helper, and both helpers contributed
+  nothing for a valid boolean expression outside their allowlist. In
+  Kotlin, `when { a!! -> … }` and `when { a as Boolean -> … }` scored
+  zero against a decision count of one: `unary_expression` is a single
+  kind for both the prefix `!x` and the postfix `x!!`, so the slot routed
+  the null assertion in as handled while the peel looked for the operand
+  on the wrong side of the token, and an `as` cast was not recognised at
+  all. The peel now reads its operand through the grammar's fields and
+  unwraps parentheses, `!`, `!!` and `as` in any combination; the safe
+  cast `as?` is deliberately left to the `AsQMARK` token that already
+  counts it, so the two cast spellings come out level rather than the
+  safe one scoring twice. In C#, `??` was a cyclomatic decision that no
+  ABC arm counted, so `when b ?? false` scored one fewer condition than
+  `when x > 2`, `when E(x)` or `when x is int` — the spelling-dependence
+  #1422 exists to remove. It joins the condition tokens, matching the
+  JS/TS family, which has always counted it. `??=` is unchanged and
+  remains an assignment, as in the JS family. **Metric drift:** Kotlin
+  `abc.conditions` rises by one per `!!` or `as` cast standing as a
+  predicate or a `&&` / `||` operand; C# `abc.conditions` rises by one
+  per `??` anywhere.
+
 - **C# comparison-operator overloads no longer score a spurious
   condition** (#1420). C# overloads six comparison operators and #1297
   gated only `<` and `>`; the other four are distinct tokens that

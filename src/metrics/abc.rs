@@ -581,6 +581,9 @@ mod tests {
     // nothing.
     #[track_caller]
     fn assert_fixture_spells<P: ParserTrait>(src: &str, path: &str, kinds: &[(u16, usize, &str)]) {
+        // An empty list would make every following assertion vacuous,
+        // which is the anchor's own failure mode rather than a caller's.
+        assert!(!kinds.is_empty(), "anchor asserted nothing");
         let parser = P::new(src.as_bytes().to_vec(), std::path::Path::new(path), None);
         for (kind, want, spelling) in kinds {
             let found = parser
@@ -4501,6 +4504,23 @@ mod tests {
     // `csharp_inspect_container`, since `when_clause` wraps a
     // parenthesised guard in a real `parenthesized_expression` rather
     // than the anonymous parens `catch_filter_clause` uses.
+    //
+    // `nullc` is #1459's row and the counter-example that falsified the
+    // claim above when it was first written. A `??` guard is a
+    // `binary_expression`, which the slot declines — it leaves an
+    // operator guard to the arm that already counts the operator — and
+    // no ABC arm counted `??`, so this one spelling read 2 where the
+    // other four read 3. Counting the token levels it without touching
+    // the slot; an unconditional `+1` in the slot instead would have
+    // taken `cmp` to 4, re-creating the double count #1422 removed.
+    //
+    // It is the one guarded member whose cyclomatic is not 4, and that
+    // is not a discrepancy to fix: C# cyclomatic counts `??` as a
+    // decision *in addition to* the guard clause, so the arm below
+    // narrows the ABC-versus-cyclomatic gap from two to one rather than
+    // closing it. The remaining one is the slot's standing policy of
+    // leaving a `binary_expression` to its operators, and `cmp` pays it
+    // too — it just happens to break even there.
     #[test]
     fn csharp_switch_arm_guard_scores_one_condition_however_spelled() {
         let src = "class A {
@@ -4509,13 +4529,15 @@ mod tests {
                 int cmp(int x) => x switch { > 0 when x > 2 => 1, > 0 => 2, _ => 3 };
                 int call(int x) => x switch { > 0 when IsEven(x) => 1, > 0 => 2, _ => 3 };
                 int paren(int x) => x switch { > 0 when (IsEven(x)) => 1, > 0 => 2, _ => 3 };
+                int nullc(int x, bool? b) => x switch { > 0 when b ?? false => 1, > 0 => 2, _ => 3 };
                 int none(int x) => x switch { > 2 => 1, > 0 => 2, _ => 3 };
             }";
         assert_csharp_fixture_spells(
             src,
             &[
-                (Csharp::WhenClause as u16, 4, "`when` guards"),
+                (Csharp::WhenClause as u16, 5, "`when` guards"),
                 (Csharp::EQEQ as u16, 1, "`tok`'s `==`"),
+                (Csharp::QMARKQMARK as u16, 1, "`nullc`'s `??`"),
                 (
                     Csharp::ParenthesizedExpression as u16,
                     1,
@@ -4541,6 +4563,10 @@ mod tests {
                     ("cmp", 3, 4),
                     ("call", 3, 4),
                     ("paren", 3, 4),
+                    // Was 2 — the guard spelling nothing counted.
+                    // Cyclomatic 5 rather than 4 because `??` is a
+                    // decision there on top of the guard clause.
+                    ("nullc", 3, 5),
                     ("none", 2, 3),
                 ],
             );
@@ -4861,24 +4887,55 @@ mod tests {
     //
     // This test is what stops a later "make all three languages
     // consistent" pass from flipping C# to a `ConditionalExpression`
-    // allowlist: that would silently drop both counts here to 0 while
-    // every other ABC test still passed. `??` is deliberately absent
-    // from the expected total — C# ABC does not list `QMARKQMARK` as a
-    // condition (it does in the TS family), which is pre-existing and
-    // out of scope for #1275.
+    // allowlist: that would silently drop both `?` counts here while
+    // every other ABC test still passed. The third condition is the
+    // `??`, which #1459 added to close the gap this comment used to
+    // record as out of scope for #1275 — so a flipped `QMARK` polarity
+    // now reads 1 rather than 0, and the discrimination is unchanged.
     #[test]
     fn csharp_conditional_access_still_counts_as_a_condition() {
-        check_metrics::<CsharpParser>(
-            "class A {
+        let src = "class A {
                 object M(string s, int[] xs) {
                     return s?.Length ?? xs?[0];
                 }
-            }",
-            "foo.cs",
-            |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2);
-            },
+            }";
+        // The total is now fed by two token arms rather than one, so it
+        // carries the per-source claim only alongside these counts: 3 is
+        // two bare `?` plus one `??`, and without them a `QMARK` arm
+        // that had stopped counting `a?[0]` while `??` gained a second
+        // count elsewhere would still read 3.
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (Csharp::QMARK as u16, 2, "the `?.` and `?[` operators"),
+                (Csharp::QMARKQMARK as u16, 1, "the `??`"),
+            ],
         );
+        check_metrics::<CsharpParser>(src, "foo.cs", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 3);
+        });
+    }
+
+    // The `QMARKQMARK` arm away from any guard, where nothing else can
+    // supply the count (#1459). `coalesce`'s body holds no comparison,
+    // no call and no control-flow keyword, so its one condition is the
+    // `??` and nothing else; it read 0 before the arm while C#
+    // cyclomatic scored the decision, which is the direction ABC is not
+    // allowed to sit on.
+    //
+    // `plain` is the control that keeps this from being an assertion
+    // about `return` or about the method shape: same body without the
+    // operator, 0 conditions and 1 decision.
+    #[test]
+    fn csharp_null_coalescing_is_a_condition() {
+        let src = "class A {
+                int coalesce(int? x) { return x ?? 0; }
+                int plain(int x) { return x; }
+            }";
+        assert_csharp_fixture_spells(src, &[(Csharp::QMARKQMARK as u16, 1, "the `??`")]);
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            assert_members_score(&space.spaces[0], &[("coalesce", 1, 2), ("plain", 0, 1)]);
+        });
     }
 
     // The other direction of #1275's C# gate, isolated: narrowing
@@ -5739,6 +5796,113 @@ function f(int $a, int $b): int {
         );
     }
 
+    // #1459, the regression #1421 left behind. Turning the `when`
+    // entry's blanket count into a condition slot moved the payment from
+    // the entry to the condition — so every shape the slot cannot
+    // classify went from 1 to 0, silently. Two shapes did:
+    //
+    // - `a!!`. `unary_expression` is one kind for *both* Kotlin unary
+    //   spellings, and the slot routed it to the peel, so this reads as
+    //   handled at every call site. The peel then looked for the operand
+    //   at child(1) — right for the prefix `!x`, wrong for a postfix
+    //   `x!!`, whose child(1) is the `!!` token — and stopped.
+    // - `a as Boolean`. `as_expression` was not a wrapper the peel knew
+    //   at all, so the slot fell off the end of its `else if`.
+    //
+    // The controls are `bare` / `cmp` / `call`, one per surviving path
+    // (terminal, comparison token, invocation): a fix that moved the
+    // entry count back would take those to 2 and fail here, which is
+    // what distinguishes repairing the peel from reverting #1421.
+    //
+    // `safe` is the §5 row and the one measurement decided rather than
+    // taste. `as?` is already a condition *token*
+    // (`src/metrics/abc/kotlin.rs`), so a peel that treated `as` and
+    // `as?` alike would score it 2 — the double count that arm's own
+    // fix was avoiding. `kotlin_wrapper_operand` excludes `as?` for
+    // that reason, and this member is what fails if the exclusion goes:
+    // `(a as? Boolean)!!` is valid Kotlin whose peel reaches the cast
+    // through two other wrappers, so it needs no invalid fixture to
+    // discriminate.
+    //
+    // `iff` carries the same `a!!` through the `if` slot. That half is
+    // not #1421 fallout — `if (a!!)` has read 0 since the slot landed in
+    // #773 — but it is the same peel and the same edit, and a fix
+    // narrowed to `when` entries would leave it at 0.
+    //
+    // Every member is valid Kotlin: `a!!` on a `Boolean?`, `as` on an
+    // `Any`, and `(a as? Boolean)!!` back to a `Boolean`. The kind
+    // anchors are what stop a later edit from trimming a spelling out
+    // and turning its member into a silent copy of `bare`.
+    #[test]
+    fn kotlin_condition_slot_peels_null_assertions_and_casts() {
+        let src = "class K {
+                fun g(x: Boolean): Boolean = true
+                fun bare(a: Boolean): Int = when { a -> 1; else -> 0 }
+                fun cmp(a: Int): Int = when { a > 5 -> 1; else -> 0 }
+                fun call(a: Boolean): Int = when { g(a) -> 1; else -> 0 }
+                fun bang(a: Boolean?): Int = when { a!! -> 1; else -> 0 }
+                fun paren(a: Boolean?): Int = when { (a!!) -> 1; else -> 0 }
+                fun cast(a: Any): Int = when { a as Boolean -> 1; else -> 0 }
+                fun chain(a: Any?): Int = when { a!! as Boolean -> 1; else -> 0 }
+                fun safe(a: Any): Int = when { (a as? Boolean)!! -> 1; else -> 0 }
+                fun cmt(a: Boolean): Int = when { ! /*c*/ a -> 1; else -> 0 }
+                fun iff(a: Boolean?): Int { if (a!!) { return 1 }; return 0 }
+            }";
+        assert_kotlin_class_members(
+            src,
+            &[
+                (Kotlin::WhenSubject as u16, 0, "`when` subjects"),
+                (
+                    Kotlin::BANGBANG as u16,
+                    5,
+                    "the `!!` null assertions of `bang` / `paren` / `chain` / `safe` / `iff`",
+                ),
+                (
+                    Kotlin::AsExpression as u16,
+                    3,
+                    "the casts of `cast` / `chain` / `safe`",
+                ),
+                (Kotlin::AsQMARK as u16, 1, "`safe`'s safe cast"),
+                (
+                    Kotlin::BlockComment as u16,
+                    1,
+                    "`cmt`'s interposed comment, spaces and all",
+                ),
+                (
+                    Kotlin::ParenthesizedExpression as u16,
+                    2,
+                    "the parenthesised operands of `paren` / `safe`",
+                ),
+            ],
+            &[
+                // (member, abc.conditions, cyclomatic)
+                ("g", 0, 1),
+                // The three controls, unchanged by this fix.
+                ("bare", 1, 2),
+                ("cmp", 1, 2),
+                ("call", 1, 2),
+                // Each was 0: the peel stopped on the wrapper.
+                ("bang", 1, 2),
+                ("paren", 1, 2),
+                ("cast", 1, 2),
+                ("chain", 1, 2),
+                // 1, not 2 — the `as?` token owns this one, and the
+                // peel declines to charge for it a second time.
+                ("safe", 1, 2),
+                // The peel reads its operand through the `operator` /
+                // `argument` fields, so an `extra` between the two no
+                // longer displaces it. The spacing is load-bearing and
+                // must not be tidied away: `!/*c*/a` unspaced parses
+                // with the comment somewhere a `child(1)` read still
+                // skips, so only the spaced spelling can tell the field
+                // read from the positional one. Measured both ways.
+                ("cmt", 1, 2),
+                // The `if` slot, which has read 0 since #773.
+                ("iff", 1, 2),
+            ],
+        );
+    }
+
     // The other half of #1421: a subject-ful entry must not move. Its
     // condition is a *pattern* matched against the subject, not an
     // independent boolean expression, so the implicit `subject ==
@@ -6275,6 +6439,62 @@ function f(int $a, int $b): int {
                 assert_eq!(metric.abc.conditions_sum(), 2);
             },
         );
+    }
+
+    // `kotlin_inspect_container` has two callers, and #1459's fixture
+    // members all reach it through the *slot*
+    // (`kotlin_count_condition`). This is the other one: the `&&` / `||`
+    // walker, which routes any named non-terminal operand through the
+    // same peel. The two wrappers #1459 taught it therefore have a
+    // second, structurally independent path into the count, and a
+    // fixture covering only the slot leaves it untested
+    // (`.claude/rules/grammar-dispatch.md` §11).
+    //
+    // Each chain is one identifier plus one wrapped operand, so 2 is
+    // "the walker peeled the wrapper" and 1 is "it gave up on it" —
+    // which is what both lines scored before #1459. The bare `a && b`
+    // control is `kotlin_unary_conditions_in_chain`'s shape at 2, so a
+    // regression cannot be read as the chain itself changing.
+    #[test]
+    fn kotlin_chain_operands_peel_null_assertions_and_casts() {
+        // Anchored per row, because the assertion alone cannot tell the
+        // wrapper from its operand: `a && b` scores the same 2 / 3 as
+        // every row here, so trimming the `!!` or the cast out of a
+        // fixture would leave this green with its subject gone
+        // (`.claude/rules/testing.md`, "Perturb the fixture as well as
+        // the production line").
+        for (chain, spelling, anchors) in [
+            (
+                "a && b!!",
+                "null assertion",
+                &[(Kotlin::BANGBANG as u16, 1usize, "the `!!`")][..],
+            ),
+            (
+                "a && b as Boolean",
+                "cast",
+                &[(Kotlin::AsExpression as u16, 1, "the `as` cast")][..],
+            ),
+            (
+                "a && (b!!)",
+                "parenthesised null assertion",
+                &[
+                    (Kotlin::BANGBANG as u16, 1, "the `!!`"),
+                    (Kotlin::ParenthesizedExpression as u16, 1, "the parens"),
+                ][..],
+            ),
+        ] {
+            let src = format!("fun f(a: Boolean, b: Any) {{ if ({chain}) {{ println(\"x\") }} }}");
+            assert_fixture_spells::<KotlinParser>(&src, "foo.kt", anchors);
+            check_func_space::<KotlinParser, _>(&src, "foo.kt", |space| {
+                let f = child_space(&space, "f");
+                assert_eq!(
+                    f.metrics.abc.conditions(),
+                    2,
+                    "`{chain}`: the identifier plus the {spelling} operand"
+                );
+                assert_eq!(f.metrics.cyclomatic.cyclomatic(), 3, "`{chain}`: decisions");
+            });
+        }
     }
 
     #[test]
@@ -13446,7 +13666,7 @@ mod numeric_bool_operands {
 /// is what makes a `conditions` move unambiguously ABC's. The recorded
 /// figures differ per slot (Rust's chain slot carries the extra `&&`
 /// decision), so each slot pins its own pair rather than sharing one.
-// Gated on the union of the four languages with rows, so a build
+// Gated on the union of the three languages with rows, so a build
 // enabling none of them drops the module instead of failing its
 // guards (`.claude/rules/testing.md`, #1286 / #1411).
 #[cfg(test)]

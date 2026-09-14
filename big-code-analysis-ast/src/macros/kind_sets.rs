@@ -154,8 +154,22 @@ macro_rules! java_bool_terminal_kinds {
 // `cast_expression` inside `parenthesized_expression`). The set bundles
 // the bool-evaluating terminals added by #372 (`FieldAccess`,
 // `CastExpression`, `ParenthesizedTypeCast`, `InstanceofExpression`);
-// the dekobon Groovy grammar has no `await` or `array_access`
-// analogues, so those collapse out of the C# set.
+// the dekobon Groovy grammar has no `await` analogue, so that one
+// collapses out of the C# set.
+//
+// It DOES have an indexing analogue, and four navigation kinds beside
+// it — `subscript_expression`, `safe_subscript_expression`,
+// `safe_navigation_expression`, `safe_chain_dot_expression` and
+// `direct_field_access_expression`, all alternatives of `_expression`
+// and all legal in a boolean slot. None is listed, so `if (l[0])`,
+// `if (a?.b)` and `if (a.@b)` score zero where `if (a)` scores one,
+// while C# scores `l[0]` through `ElementAccessExpression` and Kotlin
+// scores both through `IndexExpression` / `NavigationExpression`.
+// `a?.b` is the worst of them: Groovy cyclomatic counts `?.` as a
+// decision, so ABC sits two below its own decision count on an
+// idiomatic predicate. Tracked separately — an earlier revision of
+// this comment claimed the analogue did not exist, which is the sort
+// of claim that stops the next reader looking.
 //
 // Groovy truth makes every non-zero number truthy, so `NumberLiteral`
 // is a unary condition here for the same reason Python's `Integer` /

@@ -20,8 +20,15 @@ use crate::*;
 // `else` / `when`-entry / `catch` arms. Compared with the Java impl we
 // stay token-level (matching the leaf kind_ids) rather than walking
 // `Modifiers` children; the Kotlin grammar exposes the relevant
-// operators directly as token nodes inside `binary_expression`,
-// `assignment`, `prefix_expression`, and `postfix_expression`.
+// operators directly as token nodes inside `binary_expression` and
+// `assignment`.
+//
+// It does *not* have `prefix_expression` / `postfix_expression`, which
+// this comment named until #1459. tree-sitter-kotlin-ng spells both
+// unary positions as one `unary_expression` told apart only by its
+// `operator` field — and believing the two-production version is how
+// `kotlin_inspect_container` came to handle the prefix `!` and drop the
+// postfix `!!` while reading as though it covered both.
 
 // Returns true when this `=` token initialises an *immutable* (`val`)
 // binding, whose initialiser is part of the declaration and therefore not
@@ -47,18 +54,89 @@ fn kotlin_eq_initializes_immutable_binding<'a>(
     parent.children().any(|child| child.kind_id() == Val)
 }
 
+// The operand a transparent wrapper wraps, and whether the wrapper
+// itself proves that operand is boolean. `None` means the node is not a
+// wrapper and the peel stops there.
+//
+// Only the prefix `!` proves booleanness: `!x` is boolean whatever `x`
+// is, while parentheses, a null assertion and a cast are all
+// type-preserving (`a!!` and `a as T` are boolean exactly when the slot
+// they sit in is). So they inherit the caller's verdict rather than
+// setting it.
+//
+// Two of the four shapes were not here from the start, and both were
+// #1459 fallout from #1421 turning the `when` entry's blanket count
+// into a condition slot: before that, `when { a!! -> … }` was paid for
+// by the entry, and after it by this peel, which scored zero.
+//
+// - `unary_expression` is one kind for *both* Kotlin unary spellings,
+//   and the peel recognised only the prefix one. A postfix `a!!` stores
+//   its operand *before* the token, so the positional read for `!x`
+//   found the `!!` and stopped on a node the slot had already routed
+//   here as handled.
+// - `as_expression` was not recognised at all, so a cast fell off the
+//   end of the slot's `else if`.
+//
+// By field, not index (`.claude/rules/grammar-dispatch.md` §3): both
+// kinds name their parts (`operator` / `argument`, `left` / `right`), so
+// one read serves the prefix and postfix spellings alike instead of the
+// per-spelling index that produced the defect, and it survives a grammar
+// re-order. It also survives an interposed `extra`: `when { ! /*c*/ a }`
+// scores its condition, where the positional read scored zero.
+//
+// `parenthesized_expression` names nothing — its only child in
+// node-types.json is the unlabelled inner `expression` — so it keeps the
+// positional read it has always had, and with it the comment bug:
+// `when { ( /*c*/ a) -> … }` still scores zero, because child(1) is the
+// comment. Measured, not assumed. That is the same class as the C#
+// `if` / `while` / `do` slots tracked in #1455 and left to their own
+// change there; it predates #1459 and is recorded here rather than
+// widened into it.
+fn kotlin_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
+    use Kotlin::*;
+
+    match node.kind_id().into() {
+        // `(expr)` — the inner expression follows the `(` token.
+        ParenthesizedExpression => Some((node.child(1)?, false)),
+        UnaryExpression => {
+            let operand = node.child_by_field_name("argument")?;
+            match node.child_by_field_name("operator")?.kind_id().into() {
+                BANG => Some((operand, true)),
+                BANGBANG => Some((operand, false)),
+                // `-x`, `x++` and friends: arithmetic, never a boolean
+                // slot's operand, so the peel declines rather than
+                // reaching a bare `identifier` and counting it.
+                _ => None,
+            }
+        }
+        // `x as T` — `left` is the operand, `right` the target type.
+        //
+        // The *safe* cast `x as? T` is excluded on purpose (§5, one kind
+        // per operator): `AsQMARK` is already a condition token below, so
+        // peeling through it too would score `when { a as? T -> … }` two
+        // where every other spelling scores one. The plain `as` has no
+        // such token — `As` is not in that arm — so the peel is the only
+        // thing that can count it, and the two spellings come out level.
+        AsExpression if !node.is_child(AsQMARK as u16) => {
+            Some((node.child_by_field_name("left")?, false))
+        }
+        _ => None,
+    }
+}
+
 // Kotlin ABC unary-conditional walker (Fitzpatrick Rule 9; issue #557).
 // tree-sitter-kotlin-ng parses `a && b || c` as a left-nested chain of
 // flat `binary_expression` nodes carrying `&&` / `||` operator tokens,
-// the same shape as the Java template. Negation surfaces as
-// `unary_expression` whose child(0) is the `!` token; the condition slot
-// may also be wrapped in `parenthesized_expression`. Both are unwrapped
-// by `kotlin_inspect_container` to reach the inner bare operand.
+// the same shape as the Java template. Negation surfaces as a
+// `unary_expression` whose `operator` field is the `!` token; the
+// condition slot may also be wrapped in `parenthesized_expression`, a
+// postfix `!!` null assertion, or an `as` cast. All are unwrapped by
+// `kotlin_inspect_container` to reach the inner bare operand, and they
+// chain: `(a!! as Boolean)` peels three wrappers to one `identifier`.
 fn kotlin_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
     use Kotlin::*;
 
     let mut node = *container_node;
-    let mut node_kind = node.kind_id().into();
     // A parenthesised / negated operand only contributes when it sits in
     // a boolean-evaluating slot. The chain wrapper (`binary_expression`)
     // and the control-flow headers all qualify; a `!`-operator anywhere
@@ -76,26 +154,11 @@ fn kotlin_inspect_container(container_node: &Node, parent: &Node, conditions: &m
             | WhenEntry
     );
 
-    loop {
-        let is_parens = matches!(node_kind, ParenthesizedExpression);
-        let is_not = matches!(node_kind, UnaryExpression)
-            && node.child(0).is_some_and(|c| c.kind_id() == BANG as u16);
+    while let Some((operand, proves_boolean)) = kotlin_wrapper_operand(&node) {
+        has_boolean_content |= proves_boolean;
+        node = operand;
 
-        if !is_parens && !is_not {
-            break;
-        }
-        if !has_boolean_content && is_not {
-            has_boolean_content = true;
-        }
-
-        // Parenthesised expressions wrap their inner expression at child
-        // index 1 (after the `(` token); a `!` unary stores its operand
-        // at index 1 (after the `!` token).
-        let Some(child) = node.child(1) else { break };
-        node = child;
-        node_kind = node.kind_id().into();
-
-        if matches!(node_kind, kotlin_bool_terminal_kinds!()) {
+        if matches!(node.kind_id().into(), kotlin_bool_terminal_kinds!()) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -150,17 +213,23 @@ fn kotlin_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 // comparison or boolean chain (`if (a == b)`, `if (a && b)`) is a nested
 // `binary_expression` already counted by the comparison-token and
 // `&&`/`||` walker arms, so it adds
-// nothing here. A parenthesised or negated predicate (`if ((flag))`,
-// `if (!flag)`) is unwrapped by `kotlin_inspect_container`. Without this
+// nothing here. A predicate wrapped in parentheses, a negation, a
+// postfix `!!` null assertion or an `as` cast (`if ((flag))`,
+// `if (!flag)`, `if (flag!!)`, `if (v as Boolean)`) is unwrapped by
+// `kotlin_inspect_container`. Without this
 // arm, idiomatic Kotlin bare predicates reported 0 ABC conditions while
 // Kotlin's own cyclomatic counted the decision, breaking the
 // conditions >= decisions invariant (#469/#473/#456/#696); issue #773.
 fn kotlin_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
-    use Kotlin::*;
-    let kind = condition.kind_id().into();
-    if matches!(kind, kotlin_bool_terminal_kinds!()) {
+    if matches!(condition.kind_id().into(), kotlin_bool_terminal_kinds!()) {
         *conditions += 1.;
-    } else if matches!(kind, ParenthesizedExpression | UnaryExpression) {
+    } else if kotlin_wrapper_operand(condition).is_some() {
+        // Asking the peel itself which kinds it unwraps, rather than
+        // restating the list here. The two spelled the list separately
+        // until #1459, and that is how `unary_expression` came to be
+        // routed here while the peel handled only half of it — the slot
+        // read as covering a shape the peel dropped on the floor
+        // (`.claude/rules/grammar-dispatch.md` §7).
         kotlin_inspect_container(condition, parent, conditions);
     }
 }

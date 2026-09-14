@@ -300,7 +300,30 @@ fn csharp_count_token_condition<'a>(
         // 3 == 4 - 1. Both arms have to move together. `goto default;`
         // costs nothing already, because `Default` is excluded as the
         // switch's unconditional fallthrough.
-        Else | Case | Try | Catch => {
+        //
+        // `QMARKQMARK` joined them in #1459 and is ungated for the same
+        // reason: `??` comes from `binary_expression` alone. It is a
+        // decision — `a ?? b` evaluates `b` only when `a` is null, the
+        // `a != null ? a : b` the language lets you not spell — and C#
+        // cyclomatic has always counted it
+        // (`src/metrics/cyclomatic/csharp.rs`), so ABC sat one *below*
+        // C#'s own decision count wherever a `??` appeared.
+        //
+        // #1422 made that gap visible rather than merely present. Its
+        // guard slot claims every spelling of a `when` guard is worth
+        // one condition, and `when b ?? false` was worth zero: the slot
+        // sees a `binary_expression`, which it leaves to the operator
+        // arms because a comparison guard's operator is already counted
+        // here — and for `??` there was nothing to leave it to. Counting
+        // the token is what levels the spellings *and* keeps a compound
+        // guard (`when a > 1 && b < 2`) at its two conditions; a blanket
+        // `+1` on the slot would have done neither.
+        //
+        // No double count (§5): `??` is one token, distinct from the
+        // bare `QMARK` below and from the `??=` compound assignment
+        // (`QMARKQMARKEQ`, counted as an assignment), and every
+        // condition slot declines a `binary_expression` outright.
+        Else | Case | Try | Catch | QMARKQMARK => {
             stats.conditions += 1.;
         }
         // All six C# comparison tokens, counted only where they *apply*
@@ -399,10 +422,15 @@ fn csharp_count_token_condition<'a>(
         // ABC *below* C#'s own cyclomatic decision count on a safe-
         // navigation chain. Denying the two type-syntax parents keeps
         // that count without an allowlist entry a later "consistency"
-        // pass could drop. It is agreement on this one token, not on
-        // the metric: `??` is a C# cyclomatic decision (`QMARKQMARK`
-        // there) and no ABC condition here, a pre-existing gap the
-        // JS-family arms do not share.
+        // pass could drop. The sibling `??` gap this comment used to
+        // record — a C# cyclomatic decision that was no ABC condition —
+        // is closed for `??` by `QMARKQMARK` joining the ungated
+        // condition-token arm at the top of this match (#1459). It is
+        // *not* closed for `??=`: `QMARKQMARKEQ` is a cyclomatic
+        // decision and stays an ABC assignment only, so `a ??= b` still
+        // sits one below C#'s decision count. That is deliberate rather
+        // than missed — the JS family scores `??=` the same way — but it
+        // is a live divergence, not a closed one.
         //
         // The agreement being protected is C#-internal, not cross-
         // language: `a?.b?.c` scores ABC conditions 2 in C# and 0 in
