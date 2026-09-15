@@ -508,6 +508,18 @@ jobs:
       # --features rust` fails 2,642 of 3,238 tests. Gating them is
       # tracked in #1472.
       - run: cargo clippy --all-targets ${{ matrix.flags }} --locked -- -D warnings
+      - uses: taiki-e/install-action@fa23953489c080190314742a9b907f8e97c6767c # v2.87.10
+        with:
+          tool: cargo-nextest
+      # The one thing a partial feature set breaks that the clippy run
+      # above cannot see (#1472): a test gated on the union of its rows
+      # must be *absent* when none of those features is enabled, not
+      # present and tripping its own `checked > 0` non-vacuity guard.
+      # That is a valid build, so nothing warns — it surfaces as a test
+      # failure on whichever leg enables none of the rows, which is how
+      # #1220 and PR #1221 shipped. `nextest list` answers it without
+      # running a test.
+      - run: ./utils/check-feature-gates.py ${{ matrix.flags }}
 
   deny:
     name: cargo-deny
