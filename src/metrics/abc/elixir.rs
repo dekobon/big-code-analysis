@@ -107,30 +107,19 @@ fn elixir_count_condition(condition: &Node, parent: &Node, conditions: &mut f64)
     }
 }
 
-// The guard slot of an anchored `when` operator, whose `right` field
-// holds the guard.
+// The guard slot of an anchored `when` operator.
 //
-// Alternative guards (`when a when b`, valid but rare) nest
-// right-associatively, so an anchored operator's `right` can be a
-// further `when`. The construct is one guard however many alternatives
-// it lists — the contract `elixir_when_is_guard` publishes, and what
-// the matching `Cyclomatic` arm counts — so the nesting is peeled and
-// the last alternative occupies the single slot. Each step descends one
-// level, so the walk is bounded by the guard's nesting depth.
+// Repeated guards (`when a when b`) are an or-chain — Elixir tries each
+// alternative in turn, moving on when the previous one is false or
+// raises — so the construct carries one slot per alternative, level
+// with the `when a or b` spelling. They nest right-associatively, and
+// `elixir_when_is_guard` anchors every `when` token in the chain, so
+// the slot this fills is the single alternative *this* token
+// introduces: one per token, never the whole chain once per token
+// (grammar-dispatch §5).
 fn elixir_count_guard(when_operator: &Node, conditions: &mut f64) {
-    use Elixir as E;
-
-    let mut operator = *when_operator;
-    while let Some(right) = operator.child_by_field_name("right") {
-        let nests_another_alternative = right.kind() == BINARY_OPERATOR
-            && right
-                .child_by_field_name("operator")
-                .is_some_and(|op| op.kind_id() == E::When as u16);
-        if !nests_another_alternative {
-            elixir_count_condition(&right, &operator, conditions);
-            return;
-        }
-        operator = right;
+    if let Some((alternative, owner)) = npa::elixir_when_alternative(when_operator) {
+        elixir_count_condition(&alternative, &owner, conditions);
     }
 }
 

@@ -448,17 +448,20 @@ for historical reference.
   the one language it was meant to fix. Elixir now routes the guard
   expression through the same classifier its `&&` operands use, so all
   of `when n > 5`, `when n == 5`, `when is_integer(n)`, `when n`,
-  `when (n)`, `when not n`, `when n in [1, 2]` and the multi-alternative
-  `when a when b` score exactly one. The Elixir arm is gated on the
-  guard's position, because the language has no guard production —
-  `x when g` is an ordinary `binary_operator` — and a typespec's
-  binding clause
-  (`@spec f(a) :: a when a: integer`) spells the same token; that gate
-  is shared by both metrics, so it also removes the condition the
-  typespec used to score against no decision anywhere. The same fix
-  closes the opposite-direction gap in the issue: a *bare* guard
-  (`match x { _ if b => … }`, `case _ if b:`) scored nothing at all,
-  one below the arm's own decision count. Groovy and Kotlin are
+  `when (n)`, `when not n` and `when n in [1, 2]` score exactly one. A
+  *repeated* guard (`when a when b`) is the one spelling the slot does
+  not collapse: Elixir tries each alternative in turn, moving to the
+  next when the previous is false or raises, so it is an or-chain and
+  scores one alternative per `when` — level with `when a or b` on both
+  axes rather than level with a single guard. The Elixir arm is gated
+  on the guard's position, because the language has no guard production
+  — `x when g` is an ordinary `binary_operator` — and a typespec's
+  binding clause (`@spec f(a) :: a when a: integer`) spells the same
+  token; that gate is shared by both metrics, so it also removes the
+  condition the typespec used to score against no decision anywhere.
+  The same fix closes the opposite-direction gap in the issue: a *bare*
+  guard (`match x { _ if b => … }`, `case _ if b:`) scored nothing at
+  all, one below the arm's own decision count. Groovy and Kotlin are
   unchanged and untested: neither pinned grammar has a guard
   production, and Kotlin 2.1 guard syntax does not parse at the pin, so
   per `grammar-dispatch` §6 pinning its numbers would make the
@@ -478,7 +481,9 @@ for historical reference.
   Rule 5 grounds #1461 applied to the other five languages, so
   `a in b` gains one and reads level with `a == b`; and the keyword
   `not` now counts as a negation alongside `!` in a `&&` / `||` chain,
-  so `a && not b` gains one and reads level with `a && !b`.
+  so `a && not b` gains one and reads level with `a && !b`. An Elixir
+  repeated guard gains one decision and one condition per alternative
+  past the first, where it previously scored as a single guard.
   Integration snapshots move for three `serde` files (Rust); no Python,
   Ruby, Java or Elixir corpus file carries a guard.
 

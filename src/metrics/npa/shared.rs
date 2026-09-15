@@ -656,6 +656,42 @@ pub(crate) fn ruby_in_clause_counts(in_clause: &Node, source: &[u8]) -> bool {
     })
 }
 
+/// Whether `node` is a `when` `binary_operator` — the shape a repeated
+/// guard's alternatives nest through.
+///
+/// `binary_operator` carries three kind aliases at this pin so it is
+/// matched by rule name rather than by enumerating ids
+/// (grammar-dispatch §1); `when` has exactly one id.
+fn elixir_is_when_operator(node: &Node) -> bool {
+    const BINARY_OPERATOR: &str = "binary_operator";
+
+    node.kind() == BINARY_OPERATOR
+        && node
+            .child_by_field_name("operator")
+            .is_some_and(|operator| operator.kind_id() == Elixir::When as u16)
+}
+
+/// The one alternative a guard's `when` token introduces, paired with
+/// the `binary_operator` whose field slot it occupies.
+///
+/// `head when a when b` parses right-associatively as
+/// `head when (a when b)`, so each `when` operator owns exactly one
+/// alternative: the nested operator's `left` where its `right` nests a
+/// further `when`, and its own `right` otherwise. One alternative per
+/// token is what holds the `Abc` slot count level with the `Cyclomatic`
+/// decision count at every chain length (§8), and what stops a chain of
+/// n alternatives being counted once per token that can see it (§5).
+pub(crate) fn elixir_when_alternative<'a>(
+    when_operator: &Node<'a>,
+) -> Option<(Node<'a>, Node<'a>)> {
+    let right = when_operator.child_by_field_name("right")?;
+    if elixir_is_when_operator(&right) {
+        right.child_by_field_name("left").map(|left| (left, right))
+    } else {
+        Some((right, *when_operator))
+    }
+}
+
 /// Whether a `when` operator token spells a real guard — a function
 /// head's (`def f(x) when g do`) or a clause's (`x when g -> …`) —
 /// rather than a typespec's `when` binding clause
@@ -676,15 +712,21 @@ pub(crate) fn ruby_in_clause_counts(in_clause: &Node, source: &[u8]) -> bool {
 /// `binary_operator` three, so both are matched by rule name rather
 /// than by enumerating ids (grammar-dispatch §1).
 ///
-/// Alternative guards (`when a when b`, valid but rare) parse
-/// right-associatively into nested `when` operators — the *outermost*
-/// is the one holding the anchor, and each further alternative hangs
-/// off its predecessor's `right`. Only that outermost one is a guard
-/// here: the construct scores one, the same as the single-alternative
-/// spelling. That is the slot model — the guard is one decision however
-/// many alternatives it lists — and it is what `ancestors` can answer
-/// in O(1) steps. `abc::elixir_count_guard` peels the same nesting to
-/// reach the alternative that occupies the slot.
+/// Repeated guards (`when a when b`) are an or-chain: Elixir tries each
+/// `when` expression in turn and moves to the next when the previous one
+/// is false *or raises*, so the construct carries one decision per
+/// alternative, level with the `when a or b` spelling. They parse
+/// right-associatively into nested `when` operators, and only the
+/// outermost sits on the anchor — so a nested one is a guard too, and
+/// the climb below walks the `when` operators between it and the anchor
+/// before asking the position question. [`elixir_when_alternative`]
+/// names the one alternative each token introduces, which is how the
+/// matching `Abc` slot stays one-per-token rather than double counting
+/// the chain (grammar-dispatch §5).
+///
+/// The climb stops at the first non-`when` ancestor, so an ordinary
+/// single guard pays no extra step and a chain pays one per alternative
+/// it lists — a bound set by the guard, not by the tree's depth.
 pub(crate) fn elixir_when_is_guard<'a>(
     node: &Node<'a>,
     code: &'a [u8],
@@ -695,12 +737,19 @@ pub(crate) fn elixir_when_is_guard<'a>(
     const ARGUMENTS: &str = "arguments";
 
     let mut chain = ancestors.iter(node);
-    // The token's parent is the `when` operator node itself; its parent
-    // is the position that decides.
-    let Some((operator, _)) = chain.next() else {
+    // The token's parent is the `when` operator node itself; the first
+    // ancestor above the chain of `when` operators is the position that
+    // decides.
+    let Some((mut operator, _)) = chain.next() else {
         return false;
     };
-    let Some((parent, _)) = chain.next() else {
+    let mut above = chain.next();
+    while let Some((enclosing, _)) = above.filter(|(ancestor, _)| elixir_is_when_operator(ancestor))
+    {
+        operator = enclosing;
+        above = chain.next();
+    }
+    let Some((parent, _)) = above else {
         return false;
     };
     if parent.kind_id() == E::StabClause as u16 {

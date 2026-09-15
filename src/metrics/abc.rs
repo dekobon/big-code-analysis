@@ -13659,9 +13659,11 @@ end
     //     relational operators, given the by-use arm #1461 gave the
     //     other five languages. Without it these two would score zero,
     //     since the slot correctly declines an operator application.
-    //   * `alternatives` — a multi-alternative guard is one guard, so
-    //     `elixir_count_guard` peels the nested `when` and scores the
-    //     last alternative once.
+    //
+    // A repeated guard (`when a when b`) is deliberately absent: it is
+    // an or-chain and scores one per alternative, so it belongs with
+    // `elixir_repeated_guard_matches_the_or_chain` below rather than in
+    // a table whose every row reads 2.
     //
     // §11: each bullet is an independent path, and no other member can
     // stand in for it — deleting the `in` arm leaves `membership` and
@@ -13718,23 +13720,13 @@ end
       _ -> 0
     end
   end
-  def alternatives(x) do
-    case x do
-      n when is_integer(n) when is_float(n) -> 1
-      _ -> 0
-    end
-  end
 end
 ";
         assert_fixture_spells::<ElixirParser>(
             src,
             "foo.ex",
             &[
-                (
-                    Elixir::When as u16,
-                    10,
-                    "`when` guards, `alternatives`'s two included",
-                ),
+                (Elixir::When as u16, 8, "one `when` guard per member"),
                 (Elixir::GT as u16, 1, "`tok`'s `>`"),
                 (Elixir::EQEQ as u16, 1, "`eq`'s `==`"),
                 (Elixir::Block as u16, 1, "`paren`'s parenthesised guard"),
@@ -13746,9 +13738,104 @@ end
         check_func_space::<ElixirParser, _>(src, "foo.ex", |space| {
             assert_every_member_scores(
                 &space.spaces[0],
-                9,
+                8,
                 2,
                 "one for the `case` arm and one for the guard, however the guard is spelled",
+            );
+        });
+    }
+
+    // Elixir's repeated guard is an or-chain, not a longer spelling of
+    // one guard: each `when` expression is tried in turn and evaluation
+    // moves to the next when the previous one is false *or raises*. So
+    // `when a when b` carries the alternatives `when a or b` does, and
+    // the two spellings have to score alike.
+    //
+    // They did not. The nesting is right-associative
+    // (`head when (a when (b when c))`), only the outermost `when` sat
+    // on the anchor `elixir_when_is_guard` tests, and the `Abc` slot
+    // peeled to the last alternative and scored that one — so a
+    // repeated guard read *identically to a single guard* on both axes
+    // while the `or` form read one higher per alternative.
+    //
+    // Asserted as an equality against the `or` spelling rather than
+    // against separate literals, so neither row can drift alone; the
+    // literals are here too, because a pair of equal wrong numbers
+    // would satisfy the equality on its own.
+    //
+    // Both anchors, because the climb has to reach each: a definition
+    // `Call`'s `arguments` (`repeated` / `ored`) and a `stab_clause`'s
+    // `left` (`clause` / `clause_or`). `single` is the control the
+    // repeated rows must sit *above*, which is the comparison that
+    // failed before.
+    #[test]
+    fn elixir_repeated_guard_matches_the_or_chain() {
+        let src = "defmodule T do
+  def repeated(n) when is_integer(n) when is_float(n) when is_atom(n) do
+    n
+  end
+  def ored(n) when is_integer(n) or is_float(n) or is_atom(n) do
+    n
+  end
+  def single(n) when is_integer(n) do
+    n
+  end
+  def clause(x) do
+    case x do
+      n when is_integer(n) when is_float(n) -> 1
+      _ -> 0
+    end
+  end
+  def clause_or(x) do
+    case x do
+      n when is_integer(n) or is_float(n) -> 1
+      _ -> 0
+    end
+  end
+end
+";
+        assert_fixture_spells::<ElixirParser>(
+            src,
+            "foo.ex",
+            &[
+                (
+                    Elixir::When as u16,
+                    8,
+                    "three repeated, one `or`-spelled, one single, two \
+                     repeated and one `or`-spelled in a clause",
+                ),
+                (Elixir::Or as u16, 3, "the two `or` spellings' operators"),
+            ],
+        );
+        check_func_space::<ElixirParser, _>(src, "foo.ex", |space| {
+            // Positional: a `def` whose head carries a guard parses its
+            // name out of a `binary_operator` rather than a plain
+            // `Call`, so `repeated`, `ored` and `single` all come back
+            // `<anonymous>` (the same naming gap
+            // `elixir_typespec_when_is_not_a_guard` reads around).
+            let members: Vec<(u64, u64)> = space.spaces[0]
+                .spaces
+                .iter()
+                .map(|m| {
+                    (
+                        m.metrics.abc.conditions(),
+                        m.metrics.cyclomatic.cyclomatic(),
+                    )
+                })
+                .collect();
+            assert_eq!(
+                members,
+                vec![(3, 4), (3, 4), (1, 2), (3, 4), (3, 4)],
+                "a repeated guard scores one alternative per `when`; the \
+                 single guard is the control one alternative lower"
+            );
+            assert_eq!(
+                members[0], members[1],
+                "`when a when b when c` is the or-chain `when a or b or c`"
+            );
+            assert_eq!(
+                members[3], members[4],
+                "and the same holds on a `stab_clause` anchor"
             );
         });
     }
