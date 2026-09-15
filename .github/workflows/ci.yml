@@ -519,7 +519,12 @@ jobs:
       # failure on whichever leg enables none of the rows, which is how
       # #1220 and PR #1221 shipped. `nextest list` answers it without
       # running a test.
-      - run: ./utils/check-feature-gates.py ${{ matrix.flags }}
+      #
+      # `--locked` for the same reason the clippy run above carries it:
+      # the script forwards every unrecognised argument to `cargo nextest
+      # list`, which would otherwise be the one cargo invocation in this
+      # job allowed to rewrite `Cargo.lock` instead of failing on it.
+      - run: ./utils/check-feature-gates.py ${{ matrix.flags }} --locked
 
   deny:
     name: cargo-deny
