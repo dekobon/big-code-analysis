@@ -89,6 +89,18 @@ for historical reference.
   omits `fuzz` (deliberately version `0.0.0`) and so would have missed
   one of the two lockfiles that motivated the change.
 
+- `bca check --baseline` now warns on stderr when a covered offender has
+  measured *past* its recorded value — below it, or above it for the
+  lower-is-worse `mi.*` family (#1465). Such an entry describes a tree
+  that no longer exists, and the filter keeps suppressing the offender
+  all the way up to the stale value, which is gate headroom nobody
+  chose. One aggregated line per run names the count and the worst entry
+  by relative drift; an entry sitting exactly on its record stays
+  silent, and the gate's exit code is unchanged. This covers only
+  offenders still above their limits: one whose metric stopped breaching
+  altogether produces no violation at all, so its entry remains
+  undetectable here and only a full regeneration finds it.
+
 ### Performance
 
 - The metric walk's cognitive nesting map no longer grows to one entry
@@ -135,6 +147,227 @@ for historical reference.
 
 ### Fixed
 
+- **A relational operator scored an ABC condition only inside a boolean
+  slot** (#1461). `var b = x == 1;` reported `abc.conditions` 1 while
+  `var b = x is int;` reported 0, and the same asymmetry held for
+  Java's and Groovy's `instanceof`, Groovy's `in`, Kotlin's `is` / `in`
+  and Ruby's one-line `in`. Each of those is a construct the grammar
+  spells as its own production rather than as a binary expression with
+  an operator token, so it reached the metric only through that
+  language's terminal-operand set — which every walker consults inside
+  an `if` / `while` / ternary / `&&`-operand slot and nowhere else. The
+  comparison token beside it carried no such gate. Fitzpatrick Rule 5
+  scores a relational operator by *use*, so the seven constructs now
+  have an unconditional arm in their language's ABC walk and have left
+  the operand sets, which hold values rather than operators. Groovy's
+  spaceship `<=>` joins them as a condition token, the spelling Ruby,
+  PHP, C++ and Mozcpp already used for it. Two further gaps close as
+  consequences: C#'s `x is > 5` now reads level with the `x > 5` it is
+  sugar for, an asymmetry #1383 recorded as a deliberate exception it
+  had no way to remove, and Rust's `if matches!(x, Some(_))` and
+  Python's `if (n := g()):` — an operand and a macro rather than
+  operators, so both stay slot-scoped — now score the 1 their
+  identifier controls always scored. The Python walrus is the one
+  construct in the survey that pays on two ABC axes, which is correct:
+  it binds a name *and* decides a branch, and the axes are independent
+  measurements rather than a partition. **Metric drift:**
+  `abc.conditions` rises by one per relational operator written outside
+  a boolean slot in C#, Java, Groovy, Kotlin and Ruby, and by one per
+  macro (Rust) or walrus (Python) predicate inside one. Only the
+  conditions count moves by one: `abc.magnitude` and `abc.value` are
+  `sqrt(A² + B² + C²)` over the whole vector, so how far they move
+  depends on what that vector already held. The gated threshold metric
+  is `abc`, which reads the magnitude — `abc.conditions` and
+  `abc.magnitude` are not threshold names.
+  Cyclomatic is unaffected, and no score inside a boolean slot moves,
+  so a construct already counted is not counted twice. One of the 1,610
+  integration snapshots moves — serde's `serde_derive/src/dummy.rs`,
+  on `if cfg!(no_underscore_consts)`. The five structurally changed
+  languages have no corpus exposure at all: no corpus carries a
+  `.groovy`, `.kt`, `.rb` or `.java` file, and the six-file C# corpus
+  spells no `is` test.
+
+- **A non-numeric literal in a boolean operand slot scored no ABC
+  condition** (#1462). `x || "default"` reported `abc.conditions` 1
+  against `x || y`'s 2, and `if ("s")` reported 0 against `if (b)`'s 1,
+  in all eleven truthy-valued languages. #1410 had closed the same gap
+  for numeric literals; the non-numeric ones were never swept and were
+  missing from every set the numerics were added to. Every kind below
+  was measured a condition short of an identifier control in *both*
+  walker paths — the `&&` / `and` chain operand and the `if` predicate —
+  before being added, and the `kind_id` each spelling parses to is now
+  asserted rather than inferred, which is the half a conditions
+  comparison cannot check when a grammar spells one node kind under
+  several ids:
+  - **JavaScript, Mozjs, TypeScript, Tsx**: `string`, `template_string`,
+    `regex`, `null`, `undefined`, `object`, `array`.
+  - **Python**: `string`, `concatenated_string`, `none`, `list`, `set`,
+    `tuple`, `dictionary`, `ellipsis`.
+  - **Lua**: `string`, `table_constructor`. Lua is the sharpest case —
+    everything but `false` and `nil` is truthy, which is why
+    `cond and "a" or "b"` is the language's ternary, and it scored one
+    below `cond and a or b`.
+  - **PHP**: `string`, `encapsed_string`, `heredoc`, `nowdoc`,
+    `array_creation_expression`, `null`, `shell_command_expression`, and
+    `cast_expression` — the last closing a second finding of the same
+    survey, PHP having been the only set in the Java / C# / Groovy / PHP
+    group that named no cast kind, so `if ((bool)$x)` scored zero where
+    the other three scored one.
+  - **Groovy**: `string_literal` (which also covers the slashy `/re/`),
+    `null_literal`, `list_literal`, `map_literal`.
+  - **Perl**: the four string productions the grammar keeps separate
+    (`'s'`, `q()`, `"s"`, `qq()`), `heredoc_initializer`, the two
+    command substitutions `qx()` and backticks, the `qw()` / `[…]` /
+    `{…}` collection literals, `qr//`, and `special_literal`
+    (`__FILE__` and its three siblings). `qr//` had been deferred as
+    "a compiled-pattern object that is always true", which is the
+    argument *for* counting it once the question became whether a
+    literal fills the slot; `s///` and `tr///` stay out, being
+    operations on `$_` rather than literals.
+  - **Ruby**: `string` (covering `"s"`, `'s'`, `%q()` and `%Q()`),
+    `chained_string`, `heredoc_beginning`, `subshell`, the four
+    collection literals `array` / `hash` / `%w[]` / `%i[]`, `regex`,
+    the one-character `?a`, and both symbol productions.
+  - **Elixir**: `string` (one kind for `"s"` and the `"""` heredoc),
+    `charlist`, `sigil`, `quoted_atom` — a separate production from
+    `atom`, so `:"q a"` scored zero while `:atom` scored one — and the
+    four collection literals `list` / `tuple` / `map` / `bitstring`.
+
+  A type keyword that renders to the same node-kind name as its literal
+  stays out, extending the rule PHP's `float` keyword established:
+  TypeScript's and Tsx's `string` / `object` annotation ids and PHP's
+  `string` / `null` ones are not values. C#, Java, Kotlin, Rust and Go
+  name no literal kind at all and are unchanged — a bare literal in a
+  boolean slot is a compile error there, so there is nothing to count.
+  The C family carries the same gap for `string_literal` and is
+  deliberately deferred: it is the one integer-truthy group with
+  integration-corpus exposure, so its snapshot delta wants its own
+  change. Tcl and iRules are the remaining truthy-valued languages and
+  needed nothing: `quoted_word`, `braced_word_simple` and `number`
+  already cover every literal an `expr {…}` operand can hold, verified
+  by measurement rather than assumed. **Metric drift:**
+  `abc.conditions` rises by one per non-numeric literal operand in a
+  boolean slot, in the eleven languages listed, and the derived
+  `abc.magnitude` and `abc.value` move with it; `abc` is the gated
+  threshold metric. Cyclomatic is unaffected. 85 of the 384 pdf.js JavaScript integration snapshots
+  move, all in the `conditions` family and all upward; no other corpus
+  moves, the DeepSpeech tree being entirely C/C++, the six-file PHP
+  corpus carrying no literal in a boolean slot, and no corpus carrying
+  a `.pl`, `.rb` or `.ex` file at all.
+
+- **Perl ABC scored statement-modifier conditions zero** (#1464).
+  `return 1 if $x;` reported `abc.conditions` 0 where the block form
+  `if ($x) { return 1; }` reports 1, and the same for `unless`, `while`
+  and `until`. The dispatcher had arms for the four block statements
+  and none for the `*_simple_statement` nodes the grammar emits for the
+  modifier spelling — which is the idiomatic Perl one (`next unless
+  $ok;`), so the undercount was systematic on real code. Perl's
+  *cyclomatic* dispatcher already counted all six modifier kinds, so
+  this was a straight ABC undercount against Perl's own decision count
+  rather than a disagreement between the two metrics. The slot is read
+  by the grammar's `condition` field and goes through the same
+  condition classifier the block forms use, so a compound predicate
+  keeps its sub-structure: `return 1 if $x && $y;` scores 2, as
+  `if ($x && $y)` already did. The `for` / `foreach` modifier
+  (`print $_ for @list;`) is deliberately excluded — it iterates a list
+  and has no boolean test, which the grammar itself records by naming
+  that slot `list` rather than `condition`. **Metric drift:** Perl
+  `abc.conditions` rises by one per `if` / `unless` / `while` / `until`
+  statement modifier, plus whatever its predicate contributes, and the
+  derived `abc.magnitude` and `abc.value` move with it; `abc` is the
+  gated threshold metric. No integration snapshot moves — the corpora contain no Perl.
+
+- **C# `goto case` counted as a decision** (#1450, #1451). `goto case 2;`
+  spells the same `case` keyword token as a real `switch` arm — the
+  grammar emits it from a second production, `goto_statement` — so both
+  C# ABC and C# cyclomatic scored the jump as an arm. A method whose
+  only difference from a control was a `goto case` read one higher on
+  both metrics while having exactly the same arms. Neither metric counts
+  the `default` token, so `goto default;` was already free, by accident
+  rather than design: it is the switch's unconditional fallthrough
+  (#456, #469). Both arms are now gated on a `switch_section` parent
+  through one shared predicate, in allowlist polarity, so a grammar
+  bump that grows a third `case`-bearing production fails closed.
+  Cognitive is unaffected and unchanged: it models the construct on the
+  `goto_statement` node, +1 as an unstructured jump per SonarSource §B2,
+  so a `goto case` remains a jump there and merely stops also being an
+  arm. **Metric drift:** C# `abc.conditions` and `cyclomatic` each fall
+  by one per `goto case`, and the derived `abc.magnitude` and
+  `abc.value` move with the conditions count; `abc` and `cyclomatic`
+  are the gated threshold metrics. No integration snapshot moves — the C# corpus
+  contains no `goto case`.
+
+- **C# ABC counts a null-forgiving predicate** (#1463). `if (b!)` scored
+  zero conditions where `if (b)` scores one, and likewise `if ((b!))`,
+  `if (!b!)`, `if (b!!)` and every `&&` / `||` operand spelled with the
+  suffix. `postfix_unary_expression` was in neither the terminal-operand
+  set nor the wrapper peel, so the slot recognised the shape and scored
+  nothing for it — the fifth instance of that class after Kotlin's
+  `is` / `in`, bare parentheses, Kotlin's infix `and` and its postfix
+  `!!` / `as`. With nullable reference types enabled the suffix is
+  ordinary notation, so ABC sat one below C#'s own cyclomatic decision
+  count on idiomatic predicates. The suffix is type-preserving, so it
+  scores exactly what its operand scores and the wrappers chain; `b++`
+  and `b--`, which share the grammar production, stay excluded as
+  arithmetic, and no token arm counts the `!` itself. The condition slot
+  now also asks the operand peel which wrappers it unwraps instead of
+  restating the list, the divergence #1459 and #1466 fixed in Kotlin and
+  Groovy. **Metric drift:** C# `abc.conditions` rises by one per
+  null-forgiving expression standing as a predicate or a `&&` / `||`
+  operand, and the derived `abc.magnitude` and `abc.value` move with
+  it. No integration snapshot moves: every
+  `postfix_unary_expression` in the corpus is an `i++` or an `n--`.
+
+- **Groovy ABC counts an indexing or navigation predicate** (#1466).
+  `if (l[0])`, `if (l?[0])`, `if (a?.b)`, `if (a??.b)` and `if (a.@b)`
+  each scored zero conditions where `if (a)` scores one, and likewise as
+  a `&&` / `||` operand — five alternatives of the grammar's
+  `_expression` rule that no comparison-token arm sees. C# already
+  counted its `element_access_expression` and Kotlin its
+  `index_expression` / `navigation_expression`, so this was a
+  per-language asymmetry rather than a policy difference. `a?.b` was the
+  worst of the five: Groovy cyclomatic counts `?.` as a decision, so ABC
+  sat *two* below its own decision count on an idiomatic predicate.
+  Counting the wrapper node double-counts nothing, because ABC's
+  condition-token arm lists no navigation operator. The condition slot
+  now also asks the operand peel which wrappers it unwraps instead of
+  restating the list — it had claimed every `unary_expression` while the
+  peel handled only the `!` spelling — and the peel reads that operand by
+  grammar field, so `if (! /*c*/ a)` scores like `if (!a)` instead of
+  reading the comment. **Metric drift:** Groovy `abc.conditions` rises
+  by one per indexing, safe-indexing, safe-navigation, safe-chain-dot
+  or direct-field-access expression standing as a predicate or a `&&` /
+  `||` operand, and per `!`-negated predicate whose operand is preceded
+  by a comment; the derived `abc.magnitude` and `abc.value` move with
+  it. No integration snapshot moves: no corpus carries a Groovy file.
+
+- **Groovy's safe-indexing operator counts as a decision** (#1471).
+  `?[` short-circuits on a null receiver exactly as `?.` and `??.` do,
+  but Groovy cyclomatic had an arm for the two navigation spellings and
+  none for the subscript one — so `l?[0]` read level with the
+  unconditional `l[0]`, while `l?.get(0)` read one higher. The arm
+  matches the `?[` token rather than the `safe_subscript_expression`
+  wrapper, the same granularity and the same reason as its two
+  siblings: a chain (`l?[0]?[1]`) nests one wrapper inside another, so
+  the token counts each operator once where the wrapper would not. No
+  §5 double count — that wrapper reaches no cyclomatic arm, only ABC's
+  bool-terminal set. **Metric drift:** Groovy `cyclomatic` (standard
+  and modified) rises by one per `?[`, and `wmc` and `mi` move with it,
+  so a `wmc` or `mi` threshold can newly fire on an unedited file. ABC
+  is unaffected. No integration snapshot moves: no corpus carries a
+  Groovy file.
+
+- **Groovy's Halstead `super` arm is gated on its `wildcard` parent, as
+  Java's is** (#1419). `super` is an operator only as a wildcard type
+  bound (`List<? super T>`), where it denotes no value and mirrors
+  `? extends T`; in receiver position it names a value and is an
+  operand. No metric moves: the pinned dekobon grammar spells `super` in
+  the `wildcard` production alone, so every super-reference already
+  parsed as a plain `identifier` and was already an operand. The gate
+  removes the grammar accident, so a future grammar bump that routes a
+  reference to the `super` token classifies it correctly instead of
+  billing it as an operator.
+
 - **ABC now counts a boolean test that the grammar gives its own
   production** (#1449). A construct spelled as a dedicated node rather
   than a `binary_expression` reaches no comparison-token arm, so Groovy's
@@ -148,6 +381,21 @@ for historical reference.
   emits no operator token at all. **Metric drift:** `abc.conditions`
   rises by one per occurrence of these constructs in a boolean slot, and
   by one per `===` / `!==` / `=~` / `==~` anywhere in Groovy.
+
+- **Objective-C ABC counts an `@available` check** (#1457). The runtime
+  OS-version test `@available(iOS 13.0, *)` (and its `__builtin_available`
+  synonym) parses to a dedicated `available_expression` node that no
+  comparison-token arm sees, so `if (@available(iOS 13.0, *))` scored zero
+  conditions where `if (a)` scores one — and likewise as a `&&` operand, a
+  `while` or `for` condition, a ternary condition, and under a `!`. The
+  node joins the name-keyed terminal set the C-family ABC walkers share.
+  The wrapper is the entry rather than any child, because one grammar rule
+  covers both spellings and makes the version child optional, so it is the
+  only node present for every form. No C, C++ or Mozcpp grammar emits a
+  node by that name, so the addition is inert for the other three
+  languages that share the set — now pinned by a test. **Metric drift:**
+  Objective-C `abc.conditions` rises by one per `@available` /
+  `__builtin_available` check in a boolean slot.
 
 - **Kotlin ABC counts a null-asserted or cast condition, and C# ABC
   counts `??`** (#1459). Both languages model a condition slot that
@@ -202,6 +450,65 @@ for historical reference.
   **Metric drift:** C# `abc.branches` rises by one per type passing
   arguments to its base from a primary constructor.
 
+- **A pattern-match guard now counts in Java, Rust, Python, Ruby and
+  Elixir** (#1454). #1422 made a C# `when` guard a cyclomatic decision
+  and an ABC condition slot, and argued from Rust that C# was the
+  outlier rather than the convention. That was half true: Rust's
+  *cyclomatic* counted the guard through the `if` keyword token inside
+  `match_pattern`, but no sibling modelled the ABC half, and Java had
+  neither. Each language now scores a guard as a slot — every spelling
+  contributes exactly one, a compound guard keeps its sub-structure —
+  and as a decision where it was not already one. Per language: Java 21's
+  `guard` on a pattern-switch label was referenced nowhere in either
+  metric; Rust's `match_pattern` guard and Python's `case … if g:` had
+  the decision but not the condition; Ruby's `if_guard` / `unless_guard`
+  on a `case … in` arm had neither; Elixir is the inverse case, having
+  counted the `when` token as a condition since #557 with no cyclomatic
+  arm behind it, and one that scored the `when` token flat rather than
+  through a slot, so `when n > 5` cost two where `when is_integer(n)`
+  cost one — the spelling-dependence this entry removes, reproduced in
+  the one language it was meant to fix. Elixir now routes the guard
+  expression through the same classifier its `&&` operands use, so all
+  of `when n > 5`, `when n == 5`, `when is_integer(n)`, `when n`,
+  `when (n)`, `when not n` and `when n in [1, 2]` score exactly one. A
+  *repeated* guard (`when a when b`) is the one spelling the slot does
+  not collapse: Elixir tries each alternative in turn, moving to the
+  next when the previous is false or raises, so it is an or-chain and
+  scores one alternative per `when` — level with `when a or b` on both
+  axes rather than level with a single guard. The Elixir arm is gated
+  on the guard's position, because the language has no guard production
+  — `x when g` is an ordinary `binary_operator` — and a typespec's
+  binding clause (`@spec f(a) :: a when a: integer`) spells the same
+  token; that gate is shared by both metrics, so it also removes the
+  condition the typespec used to score against no decision anywhere.
+  The same fix closes the opposite-direction gap in the issue: a *bare*
+  guard (`match x { _ if b => … }`, `case _ if b:`) scored nothing at
+  all, one below the arm's own decision count. Groovy and Kotlin are
+  unchanged and untested: neither pinned grammar has a guard
+  production, and Kotlin 2.1 guard syntax does not parse at the pin, so
+  per `grammar-dispatch` §6 pinning its numbers would make the
+  grammar's present limitation the contract.
+
+  **Metric drift:** Java, Ruby and Elixir `cyclomatic` (standard and
+  modified) gain one per guard, and `wmc` and `mi` move with it, so a
+  `wmc` or `mi` threshold can newly fire on an unedited file carrying
+  guarded arms. `abc.conditions` gains one per guard in Java, Rust,
+  Python and Ruby for any guard not already operator-shaped, and the
+  derived `abc.magnitude` and `abc.value` move with it. Elixir `abc.conditions` is unchanged for a guard that
+  was already scoring through its own operand, *falls* by one per
+  operator-spelled guard (`when n > 5`) and by one per typespec `when`.
+  Two Elixir arms move with the slot, because the slot presumes an
+  operator-spelled guard is owned by an operator arm and neither was:
+  `in` / `not in` become conditions wherever they are written, on the
+  Rule 5 grounds #1461 applied to the other five languages, so
+  `a in b` gains one and reads level with `a == b`; and the keyword
+  `not` now counts as a negation alongside `!` in a `&&` / `||` chain,
+  so `a && not b` gains one and reads level with `a && !b`. An Elixir
+  repeated guard gains one decision and one condition per alternative
+  past the first, where it previously scored as a single guard.
+  Integration snapshots move for three `serde` files (Rust); no Python,
+  Ruby, Java or Elixir corpus file carries a guard.
+
 - **A C# `when` guard now counts as a decision in both cyclomatic
   complexity and ABC** (#1422). Cyclomatic had no arm for either guard
   spelling — `when_clause` on a switch arm or `case` section, and
@@ -224,6 +531,9 @@ for historical reference.
   C# corpus snapshot records `class_wmc_sum` 27 → 29 and a matching fall
   in all three `mi` variants — so a `wmc` or `mi` threshold can newly
   fire on an unedited C# file carrying guarded arms.
+  #1454 carries the same rule to every other language whose grammar has a
+  guard production, so the C# scoping in this entry describes where the
+  rule started rather than where it applies.
 
 - **Kotlin no longer double-counts a subject-less `when` arm's comparison
   operator** (#1421). `when { x > 5 -> 1; x < 0 -> 2; else -> 0 }`

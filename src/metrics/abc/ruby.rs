@@ -67,9 +67,14 @@ fn ruby_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
     // Both were live across the C family, PHP, Perl and the JS family
     // until #1181 moved them all onto this form; the cross-language
     // regression test is `ternary_comment_invariance` in `abc.rs`.
+    // The three guard kinds joined this list with #1454: a `case … in`
+    // arm's `if` / `unless` guard is a boolean slot exactly as an `if`
+    // predicate is, so a parenthesised guard operand (`in [x] if (b)`)
+    // counts where the bare `in [x] if b` already did. `Guard` is the
+    // hidden `_guard` supertype, listed defensively (§2).
     let mut has_boolean_content = matches!(
         parent_kind,
-        Binary | Binary2 | Binary3 | If | Unless | While | Until
+        Binary | Binary2 | Binary3 | If | Unless | While | Until | Guard | IfGuard | UnlessGuard
     ) || (matches!(parent_kind, Conditional)
         && parent
             .child_by_field_name("condition")
@@ -224,8 +229,33 @@ impl Abc for RubyCode {
             // form (block and modifier) is one unary condition. The
             // `condition` field locates the predicate position-
             // independently across all eight node kinds (#696).
+            //
+            // The two `case … in` guard kinds share the arm: `if_guard`
+            // and `unless_guard` each expose their predicate through the
+            // same `condition` field, so a guard is a condition slot
+            // classified by exactly the code that classifies an `if`
+            // predicate (#1454, transferring #1422's C# rule). Before
+            // this, a guard scored whatever operator happened to sit
+            // inside it: `in [x] if x > 2` counted one via the
+            // comparison-token arm while `in [x] if x.even?` and
+            // `in [x] if b` counted zero, so three semantically
+            // identical guards produced two different numbers. As a slot
+            // every spelling contributes exactly one — a call /
+            // identifier / ivar / element reference through
+            // `ruby_bool_terminal_kinds!()`, a comparison through the
+            // token arm that already owns it — and a compound guard
+            // keeps its sub-structure rather than collapsing to one.
+            //
+            // `Guard` is the hidden `_guard` supertype (§2, lesson #34);
+            // it is listed for the same defensive reason
+            // `ruby_in_clause_counts` lists it.
+            //
+            // No double count (§5): the `if` / `unless` *keyword tokens*
+            // a guard contains are anonymous tokens distinct from the
+            // `If` / `Unless` statement kinds this arm matches, so a
+            // guard reaches the slot exactly once.
             If | Unless | While | Until | IfModifier | UnlessModifier | WhileModifier
-            | UntilModifier => {
+            | UntilModifier | Guard | IfGuard | UnlessGuard => {
                 if let Some(cond) = node.child_by_field_name("condition") {
                     ruby_count_condition(&cond, node, &mut stats.conditions);
                 }
@@ -252,8 +282,27 @@ impl Abc for RubyCode {
             {
                 stats.conditions += 1.;
             }
+            // Ruby 3.0's one-line pattern test (`a in Integer`) joins
+            // them in #1461, scored by use rather than by slot. It sat in
+            // `ruby_bool_terminal_kinds!()`, which counts only inside a
+            // boolean slot, so `b = a in Integer` scored zero where the
+            // `b = a == 1` beside it scored one — every comparison above
+            // is a token arm and `in` was not. Fitzpatrick Rule 5 scores
+            // a relational operator wherever it is written.
+            //
+            // Matched as the node rather than as the `in` token, which
+            // the language also spells in `for x in xs` and in the
+            // `in_clause` of a `case`/`in`. Those are separate
+            // productions (`bca dump`), so the `InClause` arm below
+            // never sees a `test_pattern` and exactly one arm fires per
+            // test (§5).
+            //
+            // It shares the arm rather than sitting beside it because
+            // the arm's meaning is "this node is a condition, with
+            // nothing to gate on" — as true of a production as of a
+            // token.
             Else | Elsif | When | QMARK | Rescue | RescueModifier | RescueModifier2
-            | RescueModifier3 => {
+            | RescueModifier3 | TestPattern => {
                 stats.conditions += 1.;
             }
             // A `case … in` pattern-match arm is a branch condition exactly

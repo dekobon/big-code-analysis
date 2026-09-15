@@ -129,27 +129,39 @@ impl Getter for GroovyCode {
             {
                 TokenRole::Unknown
             }
+            // `super` is an operator only as the bound of a `wildcard`
+            // (`List<? super T>`), where it denotes no value and mirrors
+            // `? extends T`'s `extends` — which the arm below bills as an
+            // operator. Everywhere else it names a receiver a `.`, `?.`
+            // or `::` acts on, so it is an operand. The parent alone
+            // separates the two, as #1380 settled for Java's
+            // identically-shaped arm.
+            //
+            // Forward compatibility, not a live fix: the pinned dekobon
+            // grammar spells `'super'` in the `wildcard` production and
+            // nowhere else, so every reference (`super(1)`, `super.h()`,
+            // `A.super.h()`, `super::h`, `super?.h()`) is already a plain
+            // `identifier` and an operand. Before the gate that agreement
+            // was a grammar accident — an ungated `Super` would bill a
+            // reference as an operator the moment a bump routed one here.
+            //
+            // The operand branch is consequently unreachable under the
+            // pin and deliberately untested: only error recovery on
+            // invalid Groovy (`List<? super>`) reaches it, and pinning
+            // that shape would make the grammar's present
+            // over-permissiveness the contract (grammar-dispatch section
+            // 6). `groovy_wildcard_super_bound_stays_an_operator` carries
+            // the node census that fails by name if a bump makes it
+            // reachable (#1419).
+            Super if ancestors.parent_has_kind(node, Wildcard as u16) => TokenRole::Operator,
+            Super => TokenRole::Operand,
+
             // Control-flow + keyword operators (mirrors Java's set,
             // minus tokens that no longer exist in the dekobon grammar
             // — `This`, `VoidType`, `Throws2`).
-            //
-            // `Super` fires for exactly one production: the pinned grammar
-            // emits the `super` token only as the bound of a `wildcard`
-            // (`List<? super T>`), where billing it as an operator mirrors
-            // `? extends T`'s `extends` and is the answer #1380 gated
-            // Java to (`java_wildcard_super_bound_stays_an_operator`). A
-            // super-*reference* — `super(1)`, `super.h()`, `A.super.h()`,
-            // `super::h`, `super?.h()` — is a plain `identifier`, so it
-            // is already an operand, and Groovy agrees with Java on both
-            // halves. The reference half holds by grammar accident: this
-            // arm has no parent gate, so a bump that routes a reference to
-            // `Groovy::Super` would bill it as an operator.
-            // `tests/parity/self_reference_operand_parity.rs` catches that
-            // flip, one crate away; #1419 tracks giving the arm Java's
-            // `Wildcard` parent gate, which removes the accident.
             If | Else | Switch | Case | Try | Catch | Throw | Throws | For | While | Continue
             | Break | Do | Finally | New | Return | Default | Abstract | Assert | Instanceof
-            | Extends | Final | Implements | Transient | Synchronized | Super | Def | In | As
+            | Extends | Final | Implements | Transient | Synchronized | Def | In | As
             // Separators / brackets.
             | SEMI | COMMA | COLONCOLON | DOT | DASHGT | LBRACE | LBRACK | LPAREN
             // Java-compatible operators (arithmetic, bitwise, comparison, assignment).

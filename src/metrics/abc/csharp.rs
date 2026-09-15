@@ -15,11 +15,91 @@ use crate::macros::{
 };
 use crate::*;
 
+// The operand a transparent wrapper wraps, and whether the wrapper
+// itself proves that operand is boolean. `None` means the node is not a
+// wrapper and the peel stops there.
+//
+// Only the prefix `!` proves booleanness: `!x` is boolean whatever `x`
+// is, while parentheses and the null-forgiving postfix `x!` are
+// type-preserving — `x!` is boolean exactly when the slot it sits in
+// is — so they inherit the caller's verdict rather than setting it.
+//
+// `postfix_unary_expression` is the arm #1463 added, and the fifth
+// instance of one class: a condition slot that recognises a wrapper
+// kind list, and silently scores nothing for anything not on it. Before
+// it, `if (b!)` scored zero conditions against a cyclomatic decision of
+// one, while `if (b)` scored one — an asymmetry between two spellings
+// of the same test, in the notation nullable-reference-types projects
+// write everywhere. `!!` and `(b!)` nest through the same peel.
+//
+// The kind is one production for three operators (`++`, `--`, `!`), and
+// only `!` is type-preserving. `b++` and `b--` are arithmetic, never a
+// boolean slot's operand, so the peel declines rather than reaching a
+// bare `identifier` and counting it — the same exclusion Groovy's
+// `~a` / `+a` / `-a` and Kotlin's `-x` / `x++` take. Their tokens are
+// already ABC *assignments* (`PLUSPLUS | DASHDASH`), so accepting them
+// would also have scored one construct on two axes.
+//
+// No fixture pins that exclusion, deliberately (§6). `++` takes a
+// numeric operand and yields one, so `if (i++)` and `i++ && b` are type
+// errors the compiler rejects; only the grammar's over-permissiveness
+// reaches the arm, and a test over input C# rejects would make that
+// over-permissiveness the contract. Measured rather than reasoned:
+// dropping the `is_child` guard entirely fails **none** of the 3,429
+// library tests. The guard is here because the exclusion is right, not
+// because anything observable depends on it.
+//
+// No double count for the `!` itself (§5): no C# arm counts a `BANG`
+// token — it reaches `csharp_count_token_condition`'s `_ => return
+// false` and then `csharp_walk_for_conditions`, which matches no token
+// kind. `is_child` rather than an index read because the operator is
+// the node's *last* child and an `extra` may sit before it
+// (`b /*c*/ !`); the operand is `child(0)`, which no extra can precede
+// because the node starts there.
+//
+// The paren and prefix arms keep the positional reads they have always
+// had. The C# grammar names nothing here — `parenthesized_expression`,
+// `prefix_unary_expression` and `postfix_unary_expression` all carry an
+// empty `fields` map in node-types.json — so the field read that
+// Kotlin's and Groovy's equivalents use is unavailable, and with it the
+// comment bug those reads dodge: `if (( /*c*/ b))` and `if (! /*c*/ b)`
+// still score zero, because `child(1)` is the comment. Measured, not
+// assumed. That is #1455, which predates this change and is recorded
+// here rather than widened into it; the new arm adds no instance of it.
+//
+// Every `?` below is infallible for well-formed C# — each wrapper is
+// the operator token plus its operand, so `child(0)` and `child(1)`
+// both exist — and is spelled as an `Option` because `AGENTS.md` bans
+// `expect` outside tests. Do not try to cover the `None` arms: only
+// error recovery reaches them (`bool b = !;` parses to a one-child
+// `prefix_unary_expression`, verified with `bca dump`), and that is
+// invalid C#, so pinning its numbers would make the grammar's present
+// over-permissiveness the contract (§6).
+fn csharp_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
+    use Csharp::*;
+
+    match node.kind_id().into() {
+        // `(expr)` — the inner expression follows the `(` token.
+        csharp_paren_expr_kinds!() => Some((node.child(1)?, false)),
+        // `!expr` — the operand follows the operator token. Seven other
+        // prefix operators (`++ -- + - ~ & ^`) share this kind, as does
+        // the `*` of a pointer indirection the grammar aliases onto it;
+        // none is a boolean slot's operand.
+        csharp_prefix_unary_expr_kinds!() => match node.child(0)?.kind_id().into() {
+            BANG => Some((node.child(1)?, true)),
+            _ => None,
+        },
+        // `expr!` — the null-forgiving operator. One kind id at the
+        // pinned `=0.23.5`, no numbered aliases (§1).
+        PostfixUnaryExpression if node.is_child(BANG as u16) => Some((node.child(0)?, false)),
+        _ => None,
+    }
+}
+
 fn csharp_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
     use Csharp::*;
 
     let mut node = *container_node;
-    let mut node_kind = node.kind_id().into();
 
     // Seed the boolean-context flag from the parent: known-boolean
     // contexts (loop / if / guard / binary expression) imply the
@@ -36,40 +116,22 @@ fn csharp_inspect_container(container_node: &Node, parent: &Node, conditions: &m
         _ => false,
     };
 
-    // Walk down through `(...)` and `!...` wrappers until we either hit
-    // the underlying operand or run out of nesting. The C# grammar
-    // aliases each of these kinds across multiple `kind_id`s
-    // (lesson #2): match every numbered variant.
-    loop {
-        let is_parens = matches!(node_kind, csharp_paren_expr_kinds!());
-        let is_not = matches!(node_kind, csharp_prefix_unary_expr_kinds!())
-            && node
-                .child(0)
-                .is_some_and(|c| matches!(c.kind_id().into(), BANG));
-
-        if !is_parens && !is_not {
-            break;
-        }
-
-        // A `!` wrapper proves the contained value is boolean even
-        // when the parent context didn't (e.g. `return !x;`).
-        if !has_boolean_content && is_not {
-            has_boolean_content = true;
-        }
-
-        // Both `parenthesized_expression` and `prefix_unary_expression`
-        // store their inner expression at child index 1.
-        let Some(child) = node.child(1) else { break };
-        node = child;
-        node_kind = node.kind_id().into();
+    // Walk down through the transparent wrappers until we either hit the
+    // underlying operand or run out of nesting. They chain: `(!b!)`
+    // peels three to one `identifier`.
+    while let Some((operand, proves_boolean)) = csharp_wrapper_operand(&node) {
+        has_boolean_content |= proves_boolean;
+        node = operand;
 
         // Found the innermost operand; count it if a boolean context
         // was established up the chain. The `csharp_bool_terminal_kinds!()`
         // set bundles invocation aliases, the `Identifier` /
-        // `BooleanLiteral` leaves, and the five bool-evaluating kinds
-        // restored by #372 (member access / await / cast / is-pattern /
-        // element access).
-        if matches!(node_kind, csharp_bool_terminal_kinds!()) {
+        // `BooleanLiteral` leaves, and the bool-evaluating kinds
+        // restored by #372 (member access / await / cast / element
+        // access). The two `is` tests left the set in #1461 for an
+        // unconditional arm, so a type-test operand contributes nothing
+        // here.
+        if matches!(node.kind_id().into(), csharp_bool_terminal_kinds!()) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -92,7 +154,9 @@ fn csharp_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             // `csharp_bool_terminal_kinds!()` bundles invocation aliases,
             // `Identifier`, `BooleanLiteral`, and the bool-evaluating
             // expression kinds restored by #372 (member access / await /
-            // cast / is-pattern / element access).
+            // cast / element access). An `is` operand contributes nothing
+            // here since #1461 — its own arm counts it wherever it
+            // appears, chain or no chain.
             if matches!(node_kind, csharp_bool_terminal_kinds!())
                 && matches!(list_kind, BinaryExpression)
             {
@@ -286,20 +350,11 @@ fn csharp_count_token_condition<'a>(
         // is excluded, mirroring cyclomatic's `Case`-only count and the
         // expression-arm discard rule below (issues #456, #469).
         //
-        // These four stay ungated; `EQEQ` / `BANGEQ` shared the arm until
-        // #1420 and moved to the gated one below. `Else`, `Try` and
-        // `Catch` come from one production each (`if_statement`,
-        // `try_statement`, `catch_clause`), so there is nothing to gate on.
-        // `Case` comes from two — `switch_section` and `goto_statement` —
-        // and the second is over-counted: FIXME(#1450), `goto case 2;`
-        // scores a condition without being an arm. Left alone rather than
-        // missed: C# cyclomatic counts the same token
-        // (`src/metrics/cyclomatic/csharp.rs`), so gating it here alone
-        // would break the §8 parity `conditions == cyclomatic() - 1` that
-        // a two-arm-plus-`goto case` method currently satisfies at
-        // 3 == 4 - 1. Both arms have to move together. `goto default;`
-        // costs nothing already, because `Default` is excluded as the
-        // switch's unconditional fallthrough.
+        // These three stay ungated; `EQEQ` / `BANGEQ` shared the arm until
+        // #1420 and moved to the gated one below, and `Case` moved to its
+        // own gated arm in #1450 / #1451. `Else`, `Try` and `Catch` come
+        // from one production each (`if_statement`, `try_statement`,
+        // `catch_clause`), so there is nothing to gate on.
         //
         // `QMARKQMARK` joined them in #1459 and is ungated for the same
         // reason: `??` comes from `binary_expression` alone. It is a
@@ -323,7 +378,56 @@ fn csharp_count_token_condition<'a>(
         // bare `QMARK` below and from the `??=` compound assignment
         // (`QMARKQMARKEQ`, counted as an assignment), and every
         // condition slot declines a `binary_expression` outright.
-        Else | Case | Try | Catch | QMARKQMARK => {
+        // C#'s two type tests join them in #1461, scored by use rather
+        // than by slot. They sat in `csharp_bool_terminal_kinds!()` until
+        // then, which counts only inside a boolean slot: `var b = x is
+        // int;` scored zero where the `var b = x == 1;` beside it
+        // scored one, because `EQEQ` is a token arm and `is` was not.
+        // Fitzpatrick Rule 5 scores a relational operator wherever it is
+        // written, so the asymmetry was in the mechanism, not the rule.
+        //
+        // Matched as nodes rather than as an `Is` token because the
+        // grammar splits the construct across two productions by
+        // pattern-ness, not by keyword: `x is int` is an
+        // `is_expression` and `x is null` / `x is not Foo` / `x is int
+        // n` are all `is_pattern_expression` (verified with `bca dump`).
+        // The two are disjoint alternatives, never nested, so exactly
+        // one fires per test (§5), and no arm counts the keyword.
+        //
+        // The guard slot added by #1422 is unaffected: a `when x is
+        // int` now reaches this arm instead of the slot's terminal-set
+        // test, and still totals one.
+        //
+        // They share the arm rather than sitting beside it because the
+        // arm's meaning is "this node is a condition, with nothing to
+        // gate on" — which is as true of a production as of a token.
+        Else | Try | Catch | QMARKQMARK | IsExpression | IsPatternExpression => {
+            stats.conditions += 1.;
+        }
+        // `case` comes from two productions — `switch_section`, a real
+        // arm, and `goto_statement`, where `goto case 2;` is an
+        // unconditional jump to one. Both spell the same token, so the
+        // jump scored a condition it does not earn: a method whose only
+        // difference from a control was a `goto case` read one condition
+        // *and* one cyclomatic decision higher (#1450 / #1451). The gate
+        // is shared with `src/metrics/cyclomatic/csharp.rs` and carries
+        // the grammar sweep and the allowlist rationale in its doc
+        // comment.
+        //
+        // The two arms moved in one change because they measure the same
+        // token, not because any global law binds them: `conditions ==
+        // cyclomatic() - 1` is an opt-in fixture property asserted by two
+        // of `src/metrics/abc.rs`'s three helpers, and the third
+        // documents it as knowingly false in general. Gating one side
+        // alone broke no test in the suite — no fixture spelled `goto
+        // case` outside the cognitive tests — which is the reason to
+        // write the pair as one commit rather than trust the gate to
+        // notice.
+        //
+        // A gated-out `Case` falls through to
+        // `csharp_walk_for_conditions`, which has no `Case` arm, so the
+        // fall-through is a no-op.
+        Case if crate::metrics::cyclomatic::csharp_case_token_is_switch_arm(node, ancestors) => {
             stats.conditions += 1.;
         }
         // All six C# comparison tokens, counted only where they *apply*
@@ -525,9 +629,10 @@ fn csharp_walk_for_conditions<'a>(
         // the comparison-token arm while `when IsEven(x)` counted zero,
         // so three semantically identical guards produced two different
         // numbers. As a slot every spelling contributes exactly one —
-        // a call / `is` test / bare identifier through
-        // `csharp_bool_terminal_kinds!()`, a comparison through the
-        // token arm that already owned it — and a compound guard
+        // a call / bare identifier through
+        // `csharp_bool_terminal_kinds!()`, a comparison or (since
+        // #1461) an `is` test through the arm that owns it — and a
+        // compound guard
         // (`when a > 1 && b < 2`) keeps its sub-structure rather than
         // collapsing to one.
         //
@@ -639,8 +744,7 @@ impl Abc for CsharpCode {
 
 // C# mirror of `java_inspect_child` / `groovy_inspect_child`: passes
 // `node.child(idx)` to `csharp_inspect_container`, which is a no-op on
-// kinds other than `csharp_paren_expr_kinds!()` / `!`-prefixed
-// `csharp_prefix_unary_expr_kinds!()`.
+// every kind `csharp_wrapper_operand` declines.
 fn csharp_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
     if let Some(child) = node.child(idx) {
         csharp_inspect_container(&child, node, conditions);
@@ -648,12 +752,15 @@ fn csharp_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
 }
 
 fn csharp_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
-    let kind = condition.kind_id().into();
-    if matches!(kind, csharp_bool_terminal_kinds!()) {
+    if matches!(condition.kind_id().into(), csharp_bool_terminal_kinds!()) {
         *conditions += 1.;
-    } else if matches!(kind, csharp_paren_expr_kinds!())
-        || matches!(kind, csharp_prefix_unary_expr_kinds!())
-    {
+    } else if csharp_wrapper_operand(condition).is_some() {
+        // Asking the peel itself which kinds it unwraps, rather than
+        // restating the list here. The two spelled it separately until
+        // #1463, and either one gaining a wrapper kind the other did not
+        // would read as covered while the slot dropped it on the floor
+        // (`.claude/rules/grammar-dispatch.md` §7) — the shape that
+        // produced the Kotlin half of #1459.
         csharp_inspect_container(condition, parent, conditions);
     }
 }

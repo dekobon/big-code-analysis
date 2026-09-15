@@ -455,8 +455,8 @@ implement_metric_trait!(Abc, PreprocCode, CcommentCode);
 )]
 mod tests {
     use crate::test_support::{
-        ast_has_kind_id, check_func_space_only_shim, check_metrics_only_shim, child_space,
-        metrics_verbatim,
+        assert_csharp_fixture_spells, assert_fixture_spells, ast_has_kind_id,
+        check_func_space_only_shim, check_metrics_only_shim, child_space, metrics_verbatim,
     };
     use crate::traits::ParserTrait;
 
@@ -562,48 +562,6 @@ mod tests {
                 "{name}: cyclomatic"
             );
         }
-    }
-
-    // #1383's fix makes a relational pattern's operator score *zero*, so
-    // its tests have no second axis to anchor on: trimming `> 5` down to
-    // `5` leaves every assertion satisfied and the construct under test
-    // gone (`.claude/rules/testing.md`, "Perturb the fixture as well as
-    // the production line"). Asserting the kind ids are still present in
-    // the parsed fixture is the anchor that replaces it — editing a
-    // spelling out of the source now fails here by name instead of
-    // silently turning the method into a copy of the control.
-    // Counts rather than presence, because these fixtures carry several
-    // methods spelling the same construct: a bare `ast_has_kind_id` is
-    // still satisfied after one method loses its pattern, which is
-    // exactly the decay that turns that method into a silent duplicate
-    // of the control. Measured — with presence-only anchoring, rewriting
-    // `if (x is > 0)` to `if (x > 0)` in one method of five failed
-    // nothing.
-    #[track_caller]
-    fn assert_fixture_spells<P: ParserTrait>(src: &str, path: &str, kinds: &[(u16, usize, &str)]) {
-        // An empty list would make every following assertion vacuous,
-        // which is the anchor's own failure mode rather than a caller's.
-        assert!(!kinds.is_empty(), "anchor asserted nothing");
-        let parser = P::new(src.as_bytes().to_vec(), std::path::Path::new(path), None);
-        for (kind, want, spelling) in kinds {
-            let found = parser
-                .root()
-                .preorder()
-                .filter(|n| n.kind_id() == *kind)
-                .count();
-            assert_eq!(
-                found, *want,
-                "fixture has {found} of {spelling}, expected {want} — the construct under test was edited"
-            );
-        }
-    }
-
-    // The C# binding of the anchor above. Fourteen callers pass a `foo.cs`
-    // fixture, so the parser and path are fixed here rather than repeated
-    // at each one.
-    #[track_caller]
-    fn assert_csharp_fixture_spells(src: &str, kinds: &[(u16, usize, &str)]) {
-        assert_fixture_spells::<CsharpParser>(src, "foo.cs", kinds);
     }
 
     /// Regression for #227: a `Stats::default()` that never sees an
@@ -1645,6 +1603,11 @@ mod tests {
         // counted. Java has no `await` or `is_pattern` analogues,
         // so the C# fix's five-kind set collapses to four here.
         //
+        // `instanceof` has since moved out of the terminal set to an
+        // unconditional arm (#1461), so it no longer depends on the
+        // slot to be counted. The total is unchanged, which is the
+        // point of that change rather than an accident of it.
+        //
         // expected: 4 conditions (one per `if`), 0 assignments,
         // 0 branches (no invocations).
         check_metrics::<JavaParser>(
@@ -2399,6 +2362,11 @@ mod tests {
         // Java-style `(boolean) v`. The grammar has no `await` or
         // `array_access` analogues, so the C# fix's five-kind set
         // collapses to four here (with the cast slot doubled).
+        //
+        // `instanceof` has since moved out of the terminal set to an
+        // unconditional arm (#1461), so it no longer depends on the
+        // slot to be counted. The total is unchanged, which is the
+        // point of that change rather than an accident of it.
         //
         // expected: 4 conditions (one per `if`), 0 assignments,
         // 0 branches (no invocations).
@@ -3227,6 +3195,64 @@ mod tests {
         );
     }
 
+    /// Regression #1450 / #1451: `goto case 2;` spells the same `case`
+    /// keyword token (id 114) as a real arm, from a second production
+    /// (`goto_statement`), and scored an ABC condition it does not earn —
+    /// an unconditional jump to an arm is not a decision.
+    ///
+    /// `jmp` differs from `ctl` by exactly one statement, so the
+    /// `goto case` is the only thing that can separate their scores
+    /// (`.claude/rules/grammar-dispatch.md` §11 — an arm and a
+    /// `goto case` are independent paths into the same counter, and a
+    /// fixture carrying only arms cannot show the gate works). `dfl` is
+    /// the control that was already correct, by accident rather than
+    /// design: `goto default;` spells `Default`, which neither metric
+    /// counts because it is the switch's unconditional fallthrough
+    /// (#456, #469).
+    ///
+    /// [`assert_every_member_scores`] covers cyclomatic as well as ABC,
+    /// through its per-member §8 parity assertion, and would catch the
+    /// gate being removed from *either* side alone: dropping ABC's puts
+    /// `jmp` at conditions 3 against the asserted 2, and dropping
+    /// cyclomatic's leaves conditions 2 against a decision count of 3.
+    /// Removing both restores the parity at `3 == 4 - 1` and is caught by
+    /// the conditions value, which is why 2 is named rather than derived.
+    ///
+    /// The `Case` anchor is the second axis. Every member scores 2 from
+    /// its two arms alone, so deleting `goto case 2;` leaves every
+    /// assertion below satisfied and the construct under test gone; the
+    /// anchor's count of 7 — six arms plus the one jump — fails by name
+    /// instead.
+    #[test]
+    fn csharp_goto_case_is_not_a_condition() {
+        let src = "class A {
+                int ctl(int x) { switch (x) { case 1: return 1; case 2: return 2; default: return 0; } }
+                int jmp(int x) { switch (x) { case 1: goto case 2; case 2: return 2; default: return 0; } }
+                int dfl(int x) { switch (x) { case 1: goto default; case 2: return 2; default: return 0; } }
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (Csharp::Case as u16, 7, "`case` tokens (6 arms + 1 jump)"),
+                (Csharp::SwitchSection as u16, 9, "switch arms"),
+                (Csharp::GotoStatement as u16, 2, "`goto` statements"),
+                (
+                    Csharp::Default as u16,
+                    4,
+                    "`default` tokens (3 arms + 1 jump)",
+                ),
+            ],
+        );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            assert_every_member_scores(
+                &space.spaces[0],
+                3,
+                2,
+                "one condition per `case` arm, none for a `goto` into one",
+            );
+        });
+    }
+
     #[test]
     fn cpp_switch_default_not_a_condition() {
         // C++ (and plain C, which shares this grammar) already excluded
@@ -3691,6 +3717,11 @@ mod tests {
         //   - `v is not null`   — IsPatternExpression
         //   - `flags[0]`        — ElementAccessExpression
         //
+        // The `is` test has since moved out of the terminal set to an
+        // unconditional arm (#1461), so it no longer depends on the
+        // slot to be counted. The total is unchanged, which is the
+        // point of that change rather than an accident of it.
+        //
         // expected: 5 conditions (one per `if`), 0 assignments,
         // 1 branch (the single `c.Check()` invocation; the other
         // `if`-condition expressions are not invocations).
@@ -4089,11 +4120,13 @@ mod tests {
     // The fixture carries the two overloads plus one `a < b` inside a
     // `binary_expression` and one `x is > 0 ? 2 : 3`, which the grammar
     // parses as a `relational_pattern` whose operand is the ternary (see
-    // the assertion). Every mis-aim lands on its own number: 5
-    // with neither gate, 3 if `RelationalPattern` is readmitted to the
-    // allowlist (#1383 dropped it), 1 if the gate swallows
-    // `BinaryExpression` too (only the ternary `?` survives), 0 if the
-    // fixture stops parsing.
+    // the assertion). Every mis-aim lands on its own number: 6
+    // with neither gate, 4 if `RelationalPattern` is readmitted to the
+    // allowlist (#1383 dropped it), 2 if the gate swallows
+    // `BinaryExpression` too (only the ternary `?` and the `is` test
+    // survive), 0 if the fixture stops parsing. Each is one higher than
+    // before #1461, which added the `is` test as a count no gate on the
+    // `<` / `>` token can reach.
     #[test]
     fn csharp_operator_declaration_is_not_a_condition() {
         check_func_space::<CsharpParser, _>(
@@ -4120,15 +4153,19 @@ mod tests {
                         "operator declaration {i} must score no condition"
                     );
                 }
-                // 2, not 3, since #1383: the `a < b` comparison and the
-                // ternary `?`. tree-sitter-c-sharp 0.23.5 parses
+                // 3: the `a < b` comparison, the ternary `?`, and the
+                // `is` test. tree-sitter-c-sharp 0.23.5 parses
                 // `x is > 0 ? 2 : 3` as `x is > (0 ? 2 : 3)` — the ternary
                 // is the pattern's operand, so the pattern sits in no
-                // decision slot and its `>` scores nothing, while the
-                // ternary's condition is the literal `0`. C# itself binds
-                // it `(x is > 0) ? 2 : 3`; a grammar that agrees makes
-                // this 3, because that condition slot scores the `is` test.
-                assert_eq!(class.spaces[2].metrics.abc.conditions(), 2);
+                // decision slot and its `>` still scores nothing (#1383),
+                // while the ternary's condition is the literal `0`.
+                // The third count is the enclosing `is_pattern_expression`
+                // itself, which since #1461 scores by use rather than only
+                // inside a boolean slot. C# itself binds the source
+                // `(x is > 0) ? 2 : 3`; a grammar that agrees still reads
+                // 3 here, by the same three counts in a different
+                // arrangement.
+                assert_eq!(class.spaces[2].metrics.abc.conditions(), 3);
             },
         );
     }
@@ -4355,24 +4392,28 @@ mod tests {
     // #1383's second, quieter effect, and the one its issue does not
     // mention: a relational pattern outside any decision slot went from
     // 1 to 0 as well, because the gate is on the operator's parent and
-    // not on what encloses the pattern.
+    // not on what encloses the pattern. That left `q` — the equivalent
+    // binary comparison `x > 5` in the same slot — scoring 1 against
+    // these four's 0, so a relational pattern read one *lower* than the
+    // comparison it is sugar for. #1383 recorded that as a deliberate
+    // exception to Fitzpatrick Rule 5 and kept it, because the only
+    // route it had was to readmit the pattern's `<` / `>` token, which
+    // would have scored the decision-slot case twice.
     //
-    // That is the right side of the trade, but it is a trade and the
-    // numbers should be visible. It puts `x is > 5` in agreement with
-    // the plain type test `x is int` (`t`, always 0 — note the grammar
-    // spells that one `is_expression`, not a pattern at all) and with
-    // cyclomatic, where before the fix it disagreed with both. The
-    // price is `q`:
-    // the equivalent binary comparison `x > 5` still scores 1 in the
-    // same slot, so a relational pattern now reads one lower than the
-    // comparison it is sugar for. Fitzpatrick counts comparison
-    // operators wherever they appear, so `q` is the spec-faithful one
-    // and these four are the deliberate exception — kept because the
-    // decision-slot case is what the metric is for, and Option 2 in
-    // #1383 (count the operator, drop the arm) could not justify
-    // itself.
+    // #1461 closed it from the other end, and the test now pins the
+    // agreement rather than the exception. The enclosing
+    // `is_pattern_expression` scores by use, so `x is > 5` reads 1
+    // wherever it is written — level with `q`, and level with the plain
+    // type test `x is int` (`t`, whose `is_expression` moved for the
+    // same reason). The pattern's own `>` still scores nothing, which
+    // is what keeps the whole test at 1 rather than 2: one relational
+    // operation, one condition.
+    //
+    // The four probes stay because they are four different enclosings —
+    // a declarator, a bare `return`, an argument, a type test — and the
+    // point was never that the pattern is special in one of them.
     #[test]
-    fn csharp_relational_pattern_outside_a_decision_slot_scores_zero() {
+    fn csharp_relational_pattern_scores_one_wherever_it_is_written() {
         let src = "class A {
                 static bool M(bool b) { return b; }
                 bool p(int x) { bool b = x is > 5; return b; }
@@ -4406,10 +4447,11 @@ mod tests {
             // spelling scores what, so a reordering of the fixture must
             // not silently re-point the assertions.
             for probe in ["p", "r", "s"] {
-                assert_eq!(by_name(probe), 0, "`{probe}`: pattern operator excluded");
+                assert_eq!(by_name(probe), 1, "`{probe}`: the `is` test, once");
             }
-            assert_eq!(by_name("t"), 0, "type pattern, the agreement target");
-            assert_eq!(by_name("q"), 1, "a plain comparison still counts");
+            assert_eq!(by_name("t"), 1, "the bare type test, the same once");
+            assert_eq!(by_name("q"), 1, "the comparison it is sugar for");
+            assert_eq!(by_name("M"), 0, "no relational operator anywhere");
         });
     }
 
@@ -4586,7 +4628,10 @@ mod tests {
     // however it is spelled" — `when x is int` read 1 where
     // `when IsEven(x)` read 2, which is the spelling-dependence that
     // fix exists to remove. It is the C# half of the gap #1421 closed
-    // for Kotlin by adding `IsExpression | InExpression` there.
+    // for Kotlin by adding `IsExpression | InExpression` there. Both
+    // languages' type tests have since moved out of the terminal set to
+    // an unconditional arm (#1461), which leaves every number here
+    // unchanged — the slot no longer counts the test and the arm does.
     //
     // The plain `if` members are the control that keeps this honest: a
     // guard-only fixture could be satisfied by a guard-specific rule,
@@ -4630,6 +4675,145 @@ mod tests {
                     // test agree outside a guard too.
                     ("p", 1, 2),
                     ("q", 1, 2),
+                ],
+            );
+        });
+    }
+
+    // The null-forgiving `b!` is transparent: it scores whatever the
+    // operand it wraps scores (#1463).
+    //
+    // `postfix_unary_expression` was in neither
+    // `csharp_bool_terminal_kinds!()` nor the wrapper peel, so every
+    // spelling below scored **zero** conditions against a cyclomatic
+    // decision of one, while the bare `b` control scored one. In a
+    // codebase with nullable reference types enabled the suffix is
+    // everywhere, so the gap is not an exotic corner.
+    //
+    // Both walker paths, per `.claude/rules/grammar-dispatch.md` §11:
+    // `p*` go through the `if` predicate slot
+    // (`csharp_count_condition`) and `c*` through the `&&` chain slot
+    // (`csharp_count_unary_conditions`), which reach
+    // `csharp_inspect_container` independently. A fixture of only one
+    // reads correct with the other path dead.
+    //
+    // The controls are load-bearing in both directions. `p` / `c` pin
+    // what the wrapper must score, so a regression fails on the pair
+    // rather than on an absolute number; and the cyclomatic column pins
+    // that only `conditions` moved — the suffix is not a decision in any
+    // language, so a fix that moved both together would be a different
+    // bug.
+    #[test]
+    fn csharp_null_forgiving_operand_scores_like_its_operand() {
+        let src = "class A {
+                int p(bool b) { if (b) { return 1; } return 0; }
+                int pn(bool b) { if (b!) { return 1; } return 0; }
+                int pp(bool b) { if ((b!)) { return 1; } return 0; }
+                int pd(bool b) { if (b!!) { return 1; } return 0; }
+                int pb(bool b) { if (!b!) { return 1; } return 0; }
+                int c(bool b) { if (b && b) { return 1; } return 0; }
+                int cn(bool b) { if (b! && b) { return 1; } return 0; }
+                int cp(bool b) { if ((b!) && b) { return 1; } return 0; }
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                // Seven, not five: `b!!` is two nested nodes, and each
+                // chain member carries one. Trimming a `!` out of any
+                // member fails here by name instead of turning that
+                // member into a silent copy of its control.
+                (
+                    Csharp::PostfixUnaryExpression as u16,
+                    7,
+                    "the null-forgiving suffixes",
+                ),
+                // The `if (…)` parens are anonymous tokens rather than
+                // nodes in this grammar, so these two are `pp`'s and
+                // `cp`'s explicit ones — the wrappers that make the peel
+                // chain rather than peel once.
+                (
+                    Csharp::ParenthesizedExpression as u16,
+                    2,
+                    "the explicit parenthesised spellings",
+                ),
+                (Csharp::PrefixUnaryExpression as u16, 1, "`pb`'s `!`"),
+            ],
+        );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            assert_members_score(
+                &space.spaces[0],
+                &[
+                    ("p", 1, 2),
+                    ("pn", 1, 2),
+                    ("pp", 1, 2),
+                    ("pd", 1, 2),
+                    ("pb", 1, 2),
+                    ("c", 2, 3),
+                    ("cn", 2, 3),
+                    ("cp", 2, 3),
+                ],
+            );
+        });
+    }
+
+    // The null-forgiving operand is read by position, but from the end
+    // the grammar cannot move: a `postfix_unary_expression` *starts* at
+    // its operand, so `child(0)` is the operand whatever `extra` sits
+    // between it and the operator. The operator is identified by
+    // membership rather than by index for the same reason.
+    //
+    // The other two wrappers have no such luck and are pinned here as a
+    // *measured* gap rather than left to be discovered: the C# grammar
+    // gives `parenthesized_expression`, `prefix_unary_expression` and
+    // `postfix_unary_expression` an empty `fields` map in
+    // node-types.json, so the field read Kotlin's and Groovy's
+    // equivalents use is unavailable and `child(1)` is a comment
+    // whenever one is written there. That is #1455, which predates
+    // #1463 and is a separate change; what this test adds is that the
+    // new arm does not join it.
+    #[test]
+    fn csharp_null_forgiving_operand_survives_an_interposed_comment() {
+        let src = "class A {
+                int p(bool b) { if (b!) { return 1; } return 0; }
+                int pc(bool b) { if (b /*c*/ !) { return 1; } return 0; }
+                int n(bool b) { if (!b) { return 1; } return 0; }
+                int nc(bool b) { if (! /*c*/ b) { return 1; } return 0; }
+                int r(bool b) { if ((b)) { return 1; } return 0; }
+                int rc(bool b) { if (( /*c*/ b)) { return 1; } return 0; }
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (
+                    Csharp::Comment as u16,
+                    3,
+                    "the interposed comments — without them every row is its own control",
+                ),
+                (Csharp::PostfixUnaryExpression as u16, 2, "`p` and `pc`"),
+                (Csharp::PrefixUnaryExpression as u16, 2, "`n` and `nc`"),
+                (
+                    Csharp::ParenthesizedExpression as u16,
+                    2,
+                    "`r` and `rc` — the `if` parens are anonymous tokens",
+                ),
+            ],
+        );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            assert_members_score(
+                &space.spaces[0],
+                &[
+                    ("p", 1, 2),
+                    // The row #1463 fixes and the only one of the three
+                    // pairs that agrees with its control.
+                    ("pc", 1, 2),
+                    ("n", 1, 2),
+                    // #1455: `child(1)` of the prefix wrapper is the
+                    // comment. Delete this expectation, not the row,
+                    // when that issue is fixed.
+                    ("nc", 0, 2),
+                    ("r", 1, 2),
+                    // #1455 again, through the paren wrapper.
+                    ("rc", 0, 2),
                 ],
             );
         });
@@ -6096,15 +6280,21 @@ function f(int $a, int $b): int {
     // nothing counted them: `if (a is String)` scored 0 against a
     // decision count of 1, and the same test in a subject-less `when`
     // scored 1 only because the entry's blanket `+1` happened to cover
-    // it. Removing that blanket without listing these two in
-    // `kotlin_bool_terminal_kinds!()` would have regressed `whenIs` and
-    // `whenIn` to 0, and `isAnd` — where the `is` test is one operand of
-    // a `&&` chain and so reaches the walker rather than the slot — from
-    // 2 to 1.
+    // it. Removing that blanket without counting these two somewhere
+    // would have regressed `whenIs` and `whenIn` to 0, and `isAnd` —
+    // where the `is` test is one operand of a `&&` chain and so reaches
+    // the walker rather than the slot — from 2 to 1.
     //
-    // The `if` members are here because the fix is in the shared
-    // terminal-kind set, not in the `when` arm: they are the call sites
-    // that prove it reaches the `if` / `while` predicate slot too.
+    // The `if` members are here because the fix was never `when`-
+    // specific: they are the call sites that prove it reaches the `if` /
+    // `while` predicate slot too.
+    //
+    // #1421 counted them through `kotlin_bool_terminal_kinds!()` and
+    // #1461 moved them to an unconditional arm, which leaves every
+    // number below unchanged — the slot no longer counts the test and
+    // the arm does. `kotlin_is_and_in_score_outside_a_boolean_slot` is
+    // the half this fixture cannot see, every member of it being inside
+    // a slot.
     #[test]
     fn kotlin_is_and_in_expressions_are_unary_conditions() {
         let src = "class K {
@@ -7630,15 +7820,16 @@ function f(int $a, int $b): int {
     fn ruby_case_match_guarded_wildcard_is_a_condition() {
         // Regression for #977: a guarded wildcard arm `in _ if x` is not a
         // bare default and counts as one ABC condition, while the trailing
-        // bare `in _` adds none. The guard predicate here is a bare
-        // identifier (no comparison operator), so the single counted
-        // condition is the guarded `in_clause` itself.
-        // expected: 1 condition — the guarded `in _ if x` arm only.
+        // bare `in _` adds none.
+        // expected: 2 conditions — the guarded `in _ if x` arm, plus its
+        // guard slot. The guard predicate is a bare identifier, so before
+        // #1454 it contributed nothing and the total was 1; the slot is
+        // what makes `if x`, `if x.even?` and `if x > 0` agree.
         check_metrics::<RubyParser>(
             "def f(x)\n  case x\n  in _ if x then :y\n  in _ then :default\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 1);
+                assert_eq!(metric.abc.conditions_sum(), 2);
             },
         );
     }
@@ -9588,16 +9779,72 @@ function f(int $a, int $b): int {
         );
     }
 
-    // Guard `when` clause counts as a condition. One `when` → +1.
-    // `def f(x) when x > 0` also has `>` → +1, totalling 2.
+    // #1461 moved every relational construct a grammar spells as its own
+    // production onto an unconditional arm — scored by use, Fitzpatrick
+    // Rule 5 — in C#, Java, Groovy, Kotlin and Ruby. Elixir's membership
+    // and type tests were the same class and were not in that sweep, so
+    // `a in b` scored zero where `a == b` scored one. The gap stayed
+    // invisible while the `when` arm paid a flat one for every guard,
+    // and surfaced the moment the guard became a slot: an
+    // operator-spelled guard is owned by its operator's arm, and `in`
+    // had none.
+    //
+    // `bare` / `negbare` are the by-use claim; `slot` is the §5 check
+    // that a boolean slot does not now score the same operator twice;
+    // `cmp` is the control the two membership rows are levelled against.
+    // `in` rides the `<` / `>` `binary_operator` gate rather than
+    // standing alone — it has the same three grammar positions — and
+    // `elixir_operator_identifier_is_not_a_condition` pins that gate.
+    #[test]
+    fn elixir_membership_is_a_condition_by_use() {
+        check_func_space::<ElixirParser, _>(
+            "defmodule Foo do\n\
+               def bare(a, b), do: a in b\n\
+               def negbare(a, b), do: a not in b\n\
+               def slot(a, b) do\n\
+                 if a in b do\n\
+                   IO.puts(\"x\")\n\
+                 end\n\
+               end\n\
+               def cmp(a, b), do: a == b\n\
+             end\n",
+            "foo.ex",
+            |space| {
+                assert_members_score(
+                    &space.spaces[0],
+                    &[
+                        // Each was 0 before the arm.
+                        ("bare", 1, 1),
+                        ("negbare", 1, 1),
+                        // `if` (1) + `in` (1), exactly as `if a == b`
+                        // scores.
+                        ("slot", 2, 2),
+                        ("cmp", 1, 1),
+                    ],
+                );
+            },
+        );
+    }
+
+    // Guard `when` clause counts as a condition — exactly one, and here
+    // it is the `>` that supplies it. The guard is a condition *slot*
+    // (#1454), so an operator-spelled guard scores through the operator
+    // arm that owns it and the slot itself adds nothing; see
+    // `elixir_guard_is_a_decision_however_spelled` for the four-spelling
+    // agreement this is one row of.
+    //
+    // Was 2, on a flat `+1` for the `when` token laid on top of the `>`:
+    // the §5 double count a whole-branch review of the #1454 batch
+    // found.
     #[test]
     fn elixir_guard_when_is_condition() {
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def f(x) when x > 0 do\n    :pos\n  end\nend\n",
             "foo.ex",
             |metric| {
-                // when (+1) + > (+1) = 2
-                assert_eq!(metric.abc.conditions_sum(), 2);
+                // the guard slot (+0, the guard is an operator
+                // application) + `>` (+1) = 1
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9680,6 +9927,33 @@ function f(int $a, int $b): int {
             "foo.ex",
             |metric| {
                 assert_eq!(metric.abc.conditions_sum(), 4);
+            },
+        );
+    }
+
+    // Elixir spells negation two ways and `elixir_inspect_container`
+    // recognised only `!`, so `a && not b` scored 3 where `a && !b`
+    // scored 4 — the `not` operand reached no terminal and vanished.
+    // Both forms now read the same. `not` is the stricter of the two (it
+    // raises on a non-boolean operand where `!` accepts any truthy
+    // value), so it is at least as good a proof that what it wraps is
+    // boolean, which is all the walker's flag claims.
+    //
+    // Both members in one fixture because the claim is that they agree:
+    // asserting either alone says nothing about the pair (§11), and a
+    // shared `check_metrics` total could not tell 3 + 4 from 4 + 3.
+    //
+    // `assert_members_score` rather than the parity-asserting sibling:
+    // a `&&` operand is an ABC condition with no cyclomatic decision
+    // behind it, so both members legitimately sit one above their
+    // decision count (`base 1 + if + &&` = 3).
+    #[test]
+    fn elixir_keyword_not_negates_like_bang() {
+        check_func_space::<ElixirParser, _>(
+            "defmodule Foo do\n  def kw(a, b) do\n    if a && not b do\n      IO.puts(\"x\")\n    end\n  end\n  def bang(a, b) do\n    if a && !b do\n      IO.puts(\"x\")\n    end\n  end\nend\n",
+            "foo.ex",
+            |space| {
+                assert_members_score(&space.spaces[0], &[("kw", 3, 3), ("bang", 3, 3)]);
             },
         );
     }
@@ -12978,6 +13252,1086 @@ function f(int $a, int $b): int {
             "parenthesising the condition must not change the count"
         );
     }
+
+    // #1454's five-language sweep of #1422's C# rule: a pattern-match
+    // guard is a condition *slot*, so every spelling of one contributes
+    // exactly one condition, and the guard is a cyclomatic decision the
+    // arm it guards does not already pay for.
+    //
+    // Each fixture is the §11 triple — an operator guard (`> 5`, whose
+    // comparison token already counted before the fix), a call guard,
+    // and a bare-identifier guard (the two that counted nothing) —
+    // plus a parenthesised guard, which is the only member that
+    // exercises the boolean-context seed, plus an unguarded control
+    // that must stay where it was. A single-spelling fixture cannot
+    // show the slot works: before the fix the operator member already
+    // read the right number.
+    //
+    // The controls are load-bearing twice over. `none` pins that the
+    // slot fires on the guard and not on the arm — a `+1` on every arm
+    // would satisfy every guarded row and break this one — and the
+    // helper (`is_even` / `isEven`) pins that the call-guard row is
+    // scoring its guard rather than its call, since a call is an ABC
+    // *branch* everywhere and a condition nowhere.
+    //
+    // `assert_members_score` rather than `assert_every_member_scores`:
+    // the guarded members and their control sit at different values,
+    // which is the comparison these tests exist to make.
+
+    #[test]
+    fn rust_match_guard_scores_one_condition_however_spelled() {
+        let src = "fn is_even(n: i32) -> bool {
+                n == 0
+            }
+            fn tok(x: i32) -> i32 {
+                match x { n if n > 5 => 1, _ => 0 }
+            }
+            fn call(x: i32) -> i32 {
+                match x { n if is_even(n) => 1, _ => 0 }
+            }
+            fn bare(x: i32, b: bool) -> i32 {
+                match x { _ if b => 1, _ => 0 }
+            }
+            fn paren(x: i32, b: bool) -> i32 {
+                match x { n if (b) => n, _ => 0 }
+            }
+            fn none(x: i32) -> i32 {
+                match x { 1 => 1, _ => 0 }
+            }";
+        assert_fixture_spells::<RustParser>(
+            src,
+            "foo.rs",
+            &[
+                // The guard's own `if` keyword, one per guarded member.
+                // It is also how Rust cyclomatic already saw the guard,
+                // which is why only the ABC half moved here.
+                (Rust::If as u16, 4, "match guards"),
+                (Rust::GT as u16, 1, "`tok`'s `>`"),
+                (Rust::CallExpression as u16, 1, "the `is_even` call"),
+                (
+                    Rust::ParenthesizedExpression as u16,
+                    1,
+                    "`paren`'s parenthesised guard",
+                ),
+                // Two arms per member: the guarded one and its bare `_`.
+                (Rust::MatchPattern as u16, 10, "match arms"),
+            ],
+        );
+        check_func_space::<RustParser, _>(src, "foo.rs", |space| {
+            assert_members_score(
+                &space,
+                &[
+                    ("is_even", 1, 1),
+                    ("tok", 2, 3),
+                    // Was 1 — the guard spelling nothing counted.
+                    ("call", 2, 3),
+                    ("bare", 2, 3),
+                    ("paren", 2, 3),
+                    ("none", 1, 2),
+                ],
+            );
+        });
+    }
+
+    #[test]
+    fn java_pattern_switch_guard_scores_one_condition_however_spelled() {
+        let src = "class T {
+                static boolean isEven(int i) { return i == 0; }
+                int tok(Object o) { return switch (o) { case Integer i when i > 5 -> 1; default -> 0; }; }
+                int call(Object o) { return switch (o) { case Integer i when isEven(i) -> 1; default -> 0; }; }
+                int bare(Object o, boolean b) { return switch (o) { case Integer i when b -> 1; default -> 0; }; }
+                int paren(Object o, boolean b) { return switch (o) { case Integer i when (b) -> 1; default -> 0; }; }
+                int none(Object o) { return switch (o) { case Integer i -> 1; default -> 0; }; }
+            }";
+        assert_fixture_spells::<JavaParser>(
+            src,
+            "foo.java",
+            &[
+                (Java::Guard as u16, 4, "`when` guards"),
+                (Java::GT as u16, 1, "`tok`'s `>`"),
+                (Java::MethodInvocation as u16, 1, "the `isEven` call"),
+                // Five `switch (o)` subjects plus `paren`'s `when (b)`.
+                // Java wraps a switch subject in the same kind, so this
+                // count moves if either is edited out.
+                (
+                    Java::ParenthesizedExpression as u16,
+                    6,
+                    "the switch subjects and `paren`'s guard",
+                ),
+            ],
+        );
+        check_func_space::<JavaParser, _>(src, "foo.java", |space| {
+            assert_members_score(
+                &space.spaces[0],
+                &[
+                    ("isEven", 1, 1),
+                    // Was 2 conditions against a *flat* cyclomatic of 2:
+                    // Java had neither half of the rule, so the guard
+                    // was invisible to cyclomatic and visible to ABC
+                    // only through whatever operator it spelled.
+                    ("tok", 2, 3),
+                    ("call", 2, 3),
+                    ("bare", 2, 3),
+                    ("paren", 2, 3),
+                    ("none", 1, 2),
+                ],
+            );
+        });
+    }
+
+    #[test]
+    fn python_case_guard_scores_one_condition_however_spelled() {
+        let src = "def is_even(n):
+    return n == 0
+def tok(x):
+    match x:
+        case n if n > 5:
+            return 1
+        case _:
+            return 0
+def call(x):
+    match x:
+        case n if is_even(x):
+            return 1
+        case _:
+            return 0
+def bare(x, b):
+    match x:
+        case _ if b:
+            return 1
+        case _:
+            return 0
+def paren(x, b):
+    match x:
+        case n if (b):
+            return n
+        case _:
+            return 0
+def none(x):
+    match x:
+        case 1:
+            return 1
+        case _:
+            return 0
+";
+        assert_fixture_spells::<PythonParser>(
+            src,
+            "foo.py",
+            &[
+                // The `case` guard clause. A comprehension filter is the
+                // same kind in a different role, and the `guard` field
+                // is what keeps it out of the slot — there is none in
+                // this fixture, and `python_comprehension_if_clause_is_not_a_case_guard`
+                // is where that separation is pinned.
+                (Python::IfClause as u16, 4, "`case` guards"),
+                (
+                    Python::ComparisonOperator as u16,
+                    2,
+                    "`tok`'s `>` and `is_even`'s `==`",
+                ),
+                (Python::Call as u16, 1, "the `is_even` call"),
+                (
+                    Python::ParenthesizedExpression as u16,
+                    1,
+                    "`paren`'s parenthesised guard",
+                ),
+            ],
+        );
+        check_func_space::<PythonParser, _>(src, "foo.py", |space| {
+            assert_members_score(
+                &space,
+                &[
+                    ("is_even", 1, 1),
+                    ("tok", 2, 3),
+                    ("call", 2, 3),
+                    ("bare", 2, 3),
+                    ("paren", 2, 3),
+                    ("none", 1, 2),
+                ],
+            );
+        });
+    }
+
+    // A comprehension's `if` filter is an `if_clause` too, and it is not
+    // a `case` guard: the slot reads `case_clause`'s `guard` field, so
+    // the two cannot be confused by construction. Python cyclomatic does
+    // count the filter (through the same `If` keyword token it counts a
+    // guard by), and ABC does not — a pre-existing divergence this
+    // change deliberately leaves where it found it. The test is here so
+    // that a later `IfClause` arm added without the field read fails
+    // loudly rather than moving comprehensions silently.
+    #[test]
+    fn python_comprehension_if_clause_is_not_a_case_guard() {
+        let src = "def m(xs):
+    return [x for x in xs if x]
+";
+        assert_fixture_spells::<PythonParser>(
+            src,
+            "foo.py",
+            &[(Python::IfClause as u16, 1, "the comprehension filter")],
+        );
+        check_func_space::<PythonParser, _>(src, "foo.py", |space| {
+            assert_members_score(&space, &[("m", 0, 3)]);
+        });
+    }
+
+    #[test]
+    fn ruby_in_clause_guard_scores_one_condition_however_spelled() {
+        let src = "def is_even(x)
+  x == 0
+end
+def tok(x)
+  case x
+  in [n] if n > 5 then 1
+  in _ then 0
+  end
+end
+def call(x)
+  case x
+  in [n] if n.even? then 1
+  in _ then 0
+  end
+end
+def bare(x, b)
+  case x
+  in [n] if b then 1
+  in _ then 0
+  end
+end
+def unguard(x, b)
+  case x
+  in [n] unless b then 1
+  in _ then 0
+  end
+end
+def paren(x, b)
+  case x
+  in [n] if (b) then 1
+  in _ then 0
+  end
+end
+def none(x)
+  case x
+  in [n] then 1
+  in _ then 0
+  end
+end
+";
+        assert_fixture_spells::<RubyParser>(
+            src,
+            "foo.rb",
+            &[
+                (Ruby::IfGuard as u16, 4, "`if` guards"),
+                (Ruby::UnlessGuard as u16, 1, "the `unless` guard"),
+                (Ruby::GT as u16, 1, "`tok`'s `>`"),
+                (
+                    Ruby::ParenthesizedStatements as u16,
+                    1,
+                    "`paren`'s parenthesised guard",
+                ),
+            ],
+        );
+        // `Ruby::Guard` (210) is the hidden `_guard` supertype: the two
+        // dispatchers list it beside the concrete kinds so a grammar
+        // that starts emitting it keeps working, and this pins that it
+        // does not emit it today — otherwise the defensive arm is
+        // indistinguishable from a dead one
+        // (`.claude/rules/grammar-dispatch.md` §2).
+        let parser = RubyParser::new(
+            src.as_bytes().to_vec(),
+            &std::path::PathBuf::from("foo.rb"),
+            None,
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Ruby::Guard as u16),
+            "`_guard` stopped being hidden — the defensive arms now fire"
+        );
+        check_func_space::<RubyParser, _>(src, "foo.rb", |space| {
+            assert_members_score(
+                &space,
+                &[
+                    ("is_even", 1, 1),
+                    // Was 2 / 2: Ruby had neither half either, and the
+                    // arm's own condition supplied the 2 that made the
+                    // operator spelling look correct.
+                    ("tok", 2, 3),
+                    ("call", 2, 3),
+                    ("bare", 2, 3),
+                    ("unguard", 2, 3),
+                    ("paren", 2, 3),
+                    ("none", 1, 2),
+                ],
+            );
+        });
+    }
+
+    // Elixir is the inverse of the four above: ABC counted the `when`
+    // token from the start and cyclomatic had no arm at all, so a guard
+    // read as a condition with no decision behind it. #1454 adds the
+    // decision, which is why `tok` / `call` / `bare` move on the
+    // cyclomatic axis here and on the ABC axis everywhere else.
+    //
+    // Elixir was also the one language of the six that #1454 left
+    // *without* the slot. Its `when` arm added a flat one on top of
+    // whatever the guard's sub-structure already scored, so `tok` came
+    // back 3 against `call` and `bare`'s 2 — the spelling-dependence the
+    // batch exists to remove, and a `.claude/rules/grammar-dispatch.md`
+    // §5 double count with the `>` token arm. A whole-branch review of
+    // the batch found it; all three rows now read 2, level with the
+    // sibling fixtures above and with their own decision counts.
+    #[test]
+    fn elixir_guard_is_a_decision_however_spelled() {
+        let src = "defmodule T do
+  def is_even(x) do
+    x == 0
+  end
+  def tok(x) do
+    case x do
+      n when n > 5 -> 1
+      _ -> 0
+    end
+  end
+  def call(x) do
+    case x do
+      n when is_integer(n) -> 1
+      _ -> 0
+    end
+  end
+  def bare(x, b) do
+    case x do
+      _n when b -> 1
+      _ -> 0
+    end
+  end
+  def none(x) do
+    case x do
+      1 -> 1
+      _ -> 0
+    end
+  end
+end
+";
+        assert_fixture_spells::<ElixirParser>(
+            src,
+            "foo.ex",
+            &[
+                (Elixir::When as u16, 3, "`when` guards"),
+                (Elixir::GT as u16, 1, "`tok`'s `>`"),
+            ],
+        );
+        check_func_space::<ElixirParser, _>(src, "foo.ex", |space| {
+            assert_members_score(
+                &space.spaces[0],
+                &[
+                    ("is_even", 1, 1),
+                    // All three guarded members were cyclomatic 2 —
+                    // level with `none` — before the decision arm, and
+                    // `tok` was abc 3 before the slot.
+                    ("tok", 2, 3),
+                    ("call", 2, 3),
+                    ("bare", 2, 3),
+                    ("none", 1, 2),
+                ],
+            );
+        });
+    }
+
+    // The slot's whole claim, on every spelling the Elixir grammar gives
+    // a guard — and on `assert_every_member_scores`, which asserts §8
+    // parity where the fixture above cannot (its unguarded control and
+    // its bare-comparison member legitimately sit off their decision
+    // counts, which is why that one takes a per-member table).
+    //
+    // Nine members, nine routes to the same 2:
+    //
+    //   * `tok` / `eq` — the guard is an operator application, so the
+    //     slot adds nothing and the `>` / `==` token arm supplies the
+    //     one. These were 3 before the slot.
+    //   * `call` / `bare` — `Call` and `Identifier` are
+    //     `elixir_bool_terminal_kinds!()` members, so the slot supplies
+    //     the one directly.
+    //   * `paren` / `negated` — `block` and `unary_operator` are
+    //     wrappers, peeled by `elixir_inspect_container`. `negated`
+    //     covers the keyword `not`, which that walker did not recognise
+    //     as a negation until this change and which would otherwise have
+    //     scored zero here.
+    //   * `membership` / `nonmembership` — `in` / `not in` are
+    //     relational operators, given the by-use arm #1461 gave the
+    //     other five languages. Without it these two would score zero,
+    //     since the slot correctly declines an operator application.
+    //
+    // A repeated guard (`when a when b`) is deliberately absent: it is
+    // an or-chain and scores one per alternative, so it belongs with
+    // `elixir_repeated_guard_matches_the_or_chain` below rather than in
+    // a table whose every row reads 2.
+    //
+    // §11: each bullet is an independent path, and no other member can
+    // stand in for it — deleting the `in` arm leaves `membership` and
+    // `nonmembership` alone failing, deleting the `not` recognition
+    // leaves `negated` alone failing.
+    #[test]
+    fn elixir_guard_scores_one_however_spelled() {
+        let src = "defmodule T do
+  def tok(x) do
+    case x do
+      n when n > 5 -> 1
+      _ -> 0
+    end
+  end
+  def eq(x) do
+    case x do
+      n when n == 5 -> 1
+      _ -> 0
+    end
+  end
+  def call(x) do
+    case x do
+      n when is_integer(n) -> 1
+      _ -> 0
+    end
+  end
+  def bare(x, b) do
+    case x do
+      _n when b -> 1
+      _ -> 0
+    end
+  end
+  def paren(x, b) do
+    case x do
+      _n when (b) -> 1
+      _ -> 0
+    end
+  end
+  def negated(x, b) do
+    case x do
+      _n when not b -> 1
+      _ -> 0
+    end
+  end
+  def membership(x) do
+    case x do
+      n when n in [1, 2] -> 1
+      _ -> 0
+    end
+  end
+  def nonmembership(x) do
+    case x do
+      n when n not in [1, 2] -> 1
+      _ -> 0
+    end
+  end
+end
+";
+        assert_fixture_spells::<ElixirParser>(
+            src,
+            "foo.ex",
+            &[
+                (Elixir::When as u16, 8, "one `when` guard per member"),
+                (Elixir::GT as u16, 1, "`tok`'s `>`"),
+                (Elixir::EQEQ as u16, 1, "`eq`'s `==`"),
+                (Elixir::Block as u16, 1, "`paren`'s parenthesised guard"),
+                (Elixir::Not as u16, 1, "`negated`'s `not`"),
+                (Elixir::In as u16, 1, "`membership`'s `in`"),
+                (Elixir::Notin as u16, 1, "`nonmembership`'s `not in`"),
+            ],
+        );
+        check_func_space::<ElixirParser, _>(src, "foo.ex", |space| {
+            assert_every_member_scores(
+                &space.spaces[0],
+                8,
+                2,
+                "one for the `case` arm and one for the guard, however the guard is spelled",
+            );
+        });
+    }
+
+    // Elixir's repeated guard is an or-chain, not a longer spelling of
+    // one guard: each `when` expression is tried in turn and evaluation
+    // moves to the next when the previous one is false *or raises*. So
+    // `when a when b` carries the alternatives `when a or b` does, and
+    // the two spellings have to score alike.
+    //
+    // They did not. The nesting is right-associative
+    // (`head when (a when (b when c))`), only the outermost `when` sat
+    // on the anchor `elixir_when_is_guard` tests, and the `Abc` slot
+    // peeled to the last alternative and scored that one — so a
+    // repeated guard read *identically to a single guard* on both axes
+    // while the `or` form read one higher per alternative.
+    //
+    // Asserted as an equality against the `or` spelling rather than
+    // against separate literals, so neither row can drift alone; the
+    // literals are here too, because a pair of equal wrong numbers
+    // would satisfy the equality on its own.
+    //
+    // Both anchors, because the climb has to reach each: a definition
+    // `Call`'s `arguments` (`repeated` / `ored`) and a `stab_clause`'s
+    // `left` (`clause` / `clause_or`). `single` is the control the
+    // repeated rows must sit *above*, which is the comparison that
+    // failed before.
+    #[test]
+    fn elixir_repeated_guard_matches_the_or_chain() {
+        let src = "defmodule T do
+  def repeated(n) when is_integer(n) when is_float(n) when is_atom(n) do
+    n
+  end
+  def ored(n) when is_integer(n) or is_float(n) or is_atom(n) do
+    n
+  end
+  def single(n) when is_integer(n) do
+    n
+  end
+  def clause(x) do
+    case x do
+      n when is_integer(n) when is_float(n) -> 1
+      _ -> 0
+    end
+  end
+  def clause_or(x) do
+    case x do
+      n when is_integer(n) or is_float(n) -> 1
+      _ -> 0
+    end
+  end
+end
+";
+        assert_fixture_spells::<ElixirParser>(
+            src,
+            "foo.ex",
+            &[
+                (
+                    Elixir::When as u16,
+                    8,
+                    "three repeated, one `or`-spelled, one single, two \
+                     repeated and one `or`-spelled in a clause",
+                ),
+                (Elixir::Or as u16, 3, "the two `or` spellings' operators"),
+            ],
+        );
+        check_func_space::<ElixirParser, _>(src, "foo.ex", |space| {
+            // Positional: a `def` whose head carries a guard parses its
+            // name out of a `binary_operator` rather than a plain
+            // `Call`, so `repeated`, `ored` and `single` all come back
+            // `<anonymous>` (the same naming gap
+            // `elixir_typespec_when_is_not_a_guard` reads around).
+            let members: Vec<(u64, u64)> = space.spaces[0]
+                .spaces
+                .iter()
+                .map(|m| {
+                    (
+                        m.metrics.abc.conditions(),
+                        m.metrics.cyclomatic.cyclomatic(),
+                    )
+                })
+                .collect();
+            assert_eq!(
+                members,
+                vec![(3, 4), (3, 4), (1, 2), (3, 4), (3, 4)],
+                "a repeated guard scores one alternative per `when`; the \
+                 single guard is the control one alternative lower"
+            );
+            assert_eq!(
+                members[0], members[1],
+                "`when a when b when c` is the or-chain `when a or b or c`"
+            );
+            assert_eq!(
+                members[3], members[4],
+                "and the same holds on a `stab_clause` anchor"
+            );
+        });
+    }
+
+    // The gate that makes the Elixir arm safe. Elixir has no dedicated
+    // guard production, and a typespec's binding clause spells the same
+    // `when` token — so an ungated arm would have made type syntax a
+    // decision. It was already an ABC condition against no decision
+    // anywhere, which this removes.
+    //
+    // Both members carry the same `@spec`; only `guarded` carries a real
+    // head guard, so the difference between the two rows is the guard
+    // and nothing else.
+    #[test]
+    fn elixir_typespec_when_is_not_a_guard() {
+        let src = "defmodule T do
+  @spec plain(a) :: a when a: integer
+  def plain(x) do
+    x
+  end
+  @spec guarded(a) :: a when a: integer
+  def guarded(x) when is_integer(x) do
+    x
+  end
+end
+";
+        assert_fixture_spells::<ElixirParser>(
+            src,
+            "foo.ex",
+            &[(
+                Elixir::When as u16,
+                3,
+                "two typespec `when`s and one head guard",
+            )],
+        );
+        check_func_space::<ElixirParser, _>(src, "foo.ex", |space| {
+            let module = &space.spaces[0];
+            // Positional rather than by name: a `def` whose head carries
+            // a guard parses its name out of a `binary_operator` instead
+            // of a plain `Call` target, and the space comes back
+            // `<anonymous>`. That naming gap predates this change and is
+            // why `assert_members_score` cannot serve here.
+            let members: Vec<(u64, u64)> = module
+                .spaces
+                .iter()
+                .map(|m| {
+                    (
+                        m.metrics.abc.conditions(),
+                        m.metrics.cyclomatic.cyclomatic(),
+                    )
+                })
+                .collect();
+            assert_eq!(
+                members,
+                vec![(0, 1), (1, 2)],
+                "`plain` scores nothing; `guarded` scores its head guard \
+                 in both metrics"
+            );
+            // The typespecs sit in the module body, outside either
+            // member, so their (non-)contribution has to be read off
+            // the container. Was 2 before the gate: one per `@spec`.
+            assert_eq!(
+                module.metrics.abc.conditions(),
+                0,
+                "a typespec `when` is type syntax, not a guard"
+            );
+        });
+    }
+
+    // The other half of that gate's allowlist. `elixir_when_is_guard`
+    // accepts a definition `Call`'s `arguments` anchor when the call's
+    // keyword is a method macro *or* one of `defguard` / `defguardp`,
+    // and the second disjunct is its own path: `elixir_is_method_macro`
+    // spells only `def` / `defp` / `defmacro` / `defmacrop`, so a
+    // `defguard` head reaches the anchor test solely through the
+    // `matches!`. Nothing in the suite spelled `defguard` before this,
+    // which left the disjunct scored by no fixture at all.
+    //
+    // `defguard` is where a guard is most obviously a decision — the
+    // macro exists to name one — so an ungated head would have scored
+    // the construct zero on both axes while the `def f(x) when g`
+    // spelling it expands into scores one.
+    //
+    // Read off the *module*, not off a member: `defguard` is not a
+    // method macro, so it opens no function space and its guard lands
+    // in the container's body. `plain` is the control that pins the
+    // module's rows to the two guards and nothing else, and the guard
+    // bodies are calls (`is_integer/1`, `is_atom/1`) rather than
+    // comparisons so neither can supply a condition of its own.
+    #[test]
+    fn elixir_defguard_head_is_a_guard() {
+        let src = "defmodule T do
+  defguard is_int(x) when is_integer(x)
+  defguardp is_at(x) when is_atom(x)
+  def plain(x) do
+    x
+  end
+end
+";
+        assert_fixture_spells::<ElixirParser>(
+            src,
+            "foo.ex",
+            &[(
+                Elixir::When as u16,
+                2,
+                "one per `defguard` / `defguardp` head",
+            )],
+        );
+        check_func_space::<ElixirParser, _>(src, "foo.ex", |space| {
+            let module = &space.spaces[0];
+            assert_eq!(
+                (
+                    module.metrics.abc.conditions(),
+                    module.metrics.cyclomatic.cyclomatic()
+                ),
+                (2, 3),
+                "each of `defguard` and `defguardp` carries one guard, on \
+                 both axes (cyclomatic counts from its base of 1)"
+            );
+            let members: Vec<(u64, u64)> = module
+                .spaces
+                .iter()
+                .map(|m| {
+                    (
+                        m.metrics.abc.conditions(),
+                        m.metrics.cyclomatic.cyclomatic(),
+                    )
+                })
+                .collect();
+            assert_eq!(
+                members,
+                vec![(0, 1)],
+                "`defguard` opens no function space, so `plain` is the \
+                 module's only member and scores nothing"
+            );
+        });
+    }
+
+    // #1461's structural half: a relational operator scores by *use*,
+    // a value-bearing operand scores in a boolean *slot*.
+    //
+    // Until this, the relational constructs a grammar spells as their
+    // own production — C#'s two `is` tests, Java's and Groovy's
+    // `instanceof`, Groovy's `in`, Kotlin's `is` / `in`, Ruby's
+    // one-line `in` — reached `stats.conditions` only through
+    // `<lang>_bool_terminal_kinds!()`, which every walker consults
+    // inside a boolean slot and nowhere else. The comparison token
+    // beside each of them carried no such gate, so one language scored
+    // two spellings of the same relational test differently by
+    // position:
+    //
+    //     val b = a == c        // 1 condition
+    //     val b = a is String   // 0 conditions
+    //
+    // Fitzpatrick Rule 5 scores a relational operator wherever it is
+    // written, so the asymmetry was in the mechanism. Each construct
+    // now has an unconditional arm in its language's `compute` and has
+    // left the terminal set; listing it in both would score it twice
+    // (`.claude/rules/grammar-dispatch.md` §5).
+    //
+    // Every fixture below carries the same four shapes, because they
+    // are structurally independent paths and covering one says nothing
+    // about the others (§11):
+    //
+    // - `out*` — the construct with no boolean slot above it. This is
+    //   the case the change exists for, and the one no prior fixture
+    //   covered: measured against the pre-change binary, every `out*`
+    //   member here scored **0**.
+    // - `outCtl` — the same member spelling `==`. It read 1 before and
+    //   after, so it is the anchor that makes `out*`'s 1 a claim about
+    //   the construct rather than about the member shape
+    //   (`.claude/rules/testing.md`, "Perturb the fixture as well as
+    //   the production line").
+    // - `in*` / `inAnd` — the predicate slot and the `&&`-chain walker,
+    //   the two paths that already owned the count. They must be
+    //   *unchanged*; a §5 double count surfaces here as a 2 against the
+    //   control's 1, which is how #1459 caught the Kotlin `as?`
+    //   collision.
+    // - `forIn` (Kotlin / Groovy / Ruby) — the `for … in …` header,
+    //   which spells the same keyword from a different production and
+    //   must stay at 0. It is the reason those three count the node and
+    //   not the token.
+
+    #[test]
+    fn csharp_is_tests_score_outside_a_boolean_slot() {
+        let src = "class A {
+                bool outIs(object x) => x is int;
+                bool outPat(object x) => x is null;
+                bool outCtl(int x) => x == 1;
+                int inIs(object x) { if (x is int) { return 1; } return 0; }
+                int inAnd(object x, bool b) { if (x is int && b) { return 1; } return 0; }
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (Csharp::IsExpression as u16, 3, "the bare `is` type tests"),
+                (
+                    Csharp::IsPatternExpression as u16,
+                    1,
+                    "`outPat`'s null pattern",
+                ),
+                (Csharp::EQEQ as u16, 1, "`outCtl`'s comparison"),
+            ],
+        );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            assert_members_score(
+                &space.spaces[0],
+                &[
+                    // Both were 0, against `outCtl`'s 1 on the same
+                    // expression-bodied shape.
+                    ("outIs", 1, 1),
+                    ("outPat", 1, 1),
+                    ("outCtl", 1, 1),
+                    // Unchanged: the slot no longer counts the test, the
+                    // new arm does, and the total stays put.
+                    ("inIs", 1, 2),
+                    ("inAnd", 2, 3),
+                ],
+            );
+        });
+    }
+
+    #[test]
+    fn java_instanceof_scores_outside_a_boolean_slot() {
+        let src = "class A {
+                boolean outOf(Object x) { return x instanceof String; }
+                boolean outCtl(int x) { return x == 1; }
+                int inOf(Object x) { if (x instanceof String) { return 1; } return 0; }
+                int inAnd(Object x, boolean b) { if (x instanceof String && b) { return 1; } return 0; }
+            }";
+        assert_fixture_spells::<JavaParser>(
+            src,
+            "foo.java",
+            &[
+                (
+                    Java::InstanceofExpression as u16,
+                    3,
+                    "the `instanceof` tests",
+                ),
+                (Java::EQEQ as u16, 1, "`outCtl`'s comparison"),
+            ],
+        );
+        check_func_space::<JavaParser, _>(src, "foo.java", |space| {
+            assert_members_score(
+                &space.spaces[0],
+                &[
+                    // Was 0, against `outCtl`'s 1 on the same
+                    // `return`-a-predicate shape.
+                    ("outOf", 1, 1),
+                    ("outCtl", 1, 1),
+                    ("inOf", 1, 2),
+                    ("inAnd", 2, 3),
+                ],
+            );
+        });
+    }
+
+    // Groovy carries item 4 as well as the structural pass. `<=>`
+    // yields -1 / 0 / 1 rather than a boolean, which is why it never
+    // belonged in the terminal set — that set holds operands — but it
+    // is a relational operator, and `LTEQGT` is already a condition
+    // token in Ruby, PHP, C++ and Mozcpp. Groovy was the outlier at 0.
+    #[test]
+    fn groovy_relational_productions_score_outside_a_boolean_slot() {
+        let src = "class A {
+                def outIs(x) { def b = x instanceof String; return b }
+                def outIn(x, l) { def b = x in l; return b }
+                def outShip(a, c) { def r = a <=> c; return r }
+                def outCtl(x) { def b = x == 1; return b }
+                def inIs(x) { if (x instanceof String) { return 1 }; return 0 }
+                def inIn(x, l) { if (x in l) { return 1 }; return 0 }
+                def forIn(l) { for (q in l) { }; return 0 }
+            }";
+        assert_fixture_spells::<GroovyParser>(
+            src,
+            "foo.groovy",
+            &[
+                (
+                    Groovy::InstanceofExpression as u16,
+                    2,
+                    "the `instanceof` tests",
+                ),
+                (Groovy::MembershipExpression as u16, 2, "the `in` tests"),
+                (Groovy::SpaceshipExpression as u16, 1, "`outShip`'s `<=>`"),
+                (
+                    Groovy::ForInStatement as u16,
+                    1,
+                    "`forIn`'s loop header, which spells the same `in`",
+                ),
+                (Groovy::EQEQ as u16, 1, "`outCtl`'s comparison"),
+            ],
+        );
+        check_func_space::<GroovyParser, _>(src, "foo.groovy", |space| {
+            assert_members_score(
+                &space.spaces[0],
+                &[
+                    // All three were 0, against `outCtl`'s 1 on the
+                    // identical declare-and-return shape.
+                    ("outIs", 1, 1),
+                    ("outIn", 1, 1),
+                    ("outShip", 1, 1),
+                    ("outCtl", 1, 1),
+                    ("inIs", 1, 2),
+                    ("inIn", 1, 2),
+                    // The loop header is not a membership test and
+                    // stays at 0 — counting the `in` *token* would have
+                    // scored it.
+                    ("forIn", 0, 2),
+                ],
+            );
+        });
+    }
+
+    #[test]
+    fn kotlin_is_and_in_score_outside_a_boolean_slot() {
+        let src = "class K {
+                fun outIs(a: Any): Boolean { val b = a is String; return b }
+                fun outIn(a: Int): Boolean { val b = a in 1..2; return b }
+                fun outCtl(a: Int): Boolean { val b = a == 1; return b }
+                fun inIs(a: Any): Int { if (a is String) { return 1 }; return 0 }
+                fun forIn(l: List<Int>): Int { for (q in l) { }; return 0 }
+            }";
+        assert_kotlin_class_members(
+            src,
+            &[
+                (Kotlin::IsExpression as u16, 2, "the `is` tests"),
+                (Kotlin::InExpression as u16, 1, "`outIn`'s `in` test"),
+                (
+                    Kotlin::ForStatement as u16,
+                    1,
+                    "`forIn`'s loop header, which spells the same `in`",
+                ),
+                (Kotlin::EQEQ as u16, 1, "`outCtl`'s comparison"),
+            ],
+            &[
+                // Both were 0, against `outCtl`'s 1 on the identical
+                // `val`-and-return shape.
+                ("outIs", 1, 1),
+                ("outIn", 1, 1),
+                ("outCtl", 1, 1),
+                ("inIs", 1, 2),
+                ("forIn", 0, 2),
+            ],
+        );
+    }
+
+    #[test]
+    fn ruby_test_pattern_scores_outside_a_boolean_slot() {
+        let src = "def out_in(a)
+  b = a in Integer
+  b
+end
+def out_ctl(a)
+  b = a == 1
+  b
+end
+def in_in(a)
+  if a in Integer
+    return 1
+  end
+  0
+end
+def for_in(l)
+  for q in l do end
+  0
+end
+";
+        assert_fixture_spells::<RubyParser>(
+            src,
+            "foo.rb",
+            &[
+                (Ruby::TestPattern as u16, 2, "the one-line `in` tests"),
+                (
+                    Ruby::For as u16,
+                    1,
+                    "`for_in`'s loop header, which spells the same `in`",
+                ),
+                (Ruby::EQEQ as u16, 1, "`out_ctl`'s comparison"),
+            ],
+        );
+        check_func_space::<RubyParser, _>(src, "foo.rb", |space| {
+            assert_members_score(
+                &space,
+                &[
+                    // Was 0, against `out_ctl`'s 1 on the identical
+                    // assign-and-return shape.
+                    ("out_in", 1, 1),
+                    ("out_ctl", 1, 1),
+                    ("in_in", 1, 2),
+                    ("for_in", 0, 2),
+                ],
+            );
+        });
+    }
+
+    // #1461 item 1. The walrus is an *operand*, not an operator, so it
+    // joins `python_bool_terminal_kinds!()` and stays slot-scoped —
+    // `b = (n := g())` outside a predicate is a binding, not a
+    // decision. Inside one the slot tests `g()`'s truth, and
+    // `if (n := g()):` scored 0 where the `if g():` it is a
+    // refactoring of scored 1.
+    //
+    // `assignments` is asserted beside `conditions` because the walrus
+    // is the one construct in the survey that pays on two axes, and
+    // that is deliberate rather than a §5 double count: ABC's axes are
+    // independent measurements of the same source, and `if (n := g()):`
+    // genuinely both binds a name and decides a branch. Without this
+    // row a later reader has no way to tell the intent from an
+    // oversight.
+    #[test]
+    fn python_walrus_is_a_unary_condition() {
+        let src = "def in_slot(g):
+    if (n := g()):
+        return 1
+    return 0
+
+def chain(g, b):
+    return b and (n := g())
+
+def ctrl(g):
+    if g():
+        return 1
+    return 0
+";
+        assert_fixture_spells::<PythonParser>(
+            src,
+            "foo.py",
+            &[(Python::NamedExpression as u16, 2, "the walrus bindings")],
+        );
+        check_func_space::<PythonParser, _>(src, "foo.py", |space| {
+            assert_members_score(
+                &space,
+                &[
+                    // Was 0, against `ctrl`'s 1 for the same predicate
+                    // without the binding.
+                    ("in_slot", 1, 2),
+                    // The `and`-chain walker is the second, independent
+                    // path (§11): was 1, the bare `b` operand alone.
+                    ("chain", 2, 2),
+                    ("ctrl", 1, 2),
+                ],
+            );
+            for (name, assignments) in [("in_slot", 1u64), ("chain", 1), ("ctrl", 0)] {
+                assert_eq!(
+                    child_space(&space, name).metrics.abc.assignments(),
+                    assignments,
+                    "{name}: the walrus also pays on the A axis, on purpose"
+                );
+            }
+        });
+    }
+
+    // #1461 item 2. A macro in a boolean slot expands to a boolean
+    // expression, and `if matches!(x, Some(_))` scored 0 against a
+    // cyclomatic decision of 1.
+    //
+    // `cfg_slot` is in the fixture because the arm's *breadth* is the
+    // decision, not a side effect: these sets discriminate on slot and
+    // never on return type, so `cfg!` counts exactly as `matches!`
+    // does. It is also the construct the corpus actually moves —
+    // serde's one changed snapshot is `if cfg!(no_underscore_consts)`,
+    // not a `matches!` — so asserting only `matches!` would leave the
+    // measured case uncovered.
+    #[test]
+    fn rust_macro_invocation_is_a_unary_condition() {
+        let src = "fn in_slot(x: Option<u8>) -> u8 { if matches!(x, Some(_)) { 1 } else { 0 } }
+fn cfg_slot() -> u8 { if cfg!(unix) { 1 } else { 0 } }
+fn chain(x: Option<u8>, b: bool) -> bool { b && matches!(x, Some(_)) }
+fn ctrl(x: Option<u8>) -> u8 { if x.is_some() { 1 } else { 0 } }
+";
+        assert_fixture_spells::<RustParser>(
+            src,
+            "foo.rs",
+            &[(
+                Rust::MacroInvocation as u16,
+                3,
+                "the `matches!` / `cfg!` predicates",
+            )],
+        );
+        check_func_space::<RustParser, _>(src, "foo.rs", |space| {
+            assert_members_score(
+                &space,
+                &[
+                    // Each was 1 — the `else` alone — against `ctrl`'s
+                    // 2 for the same shape with a method call in the
+                    // predicate.
+                    ("in_slot", 2, 2),
+                    ("cfg_slot", 2, 2),
+                    // The `&&`-chain walker, the second independent
+                    // path (§11): was 1, the bare `b` operand alone.
+                    ("chain", 2, 2),
+                    ("ctrl", 2, 2),
+                ],
+            );
+        });
+    }
 }
 
 /// A comment inside a ternary must not change its ABC conditions
@@ -13515,10 +14869,13 @@ mod numeric_bool_operands {
     ///   language is compiled in; this catches the residual case where
     ///   the runtime `is_enabled()` check stops agreeing with the feature
     ///   it compiled under.
-    /// - **the `numerics` list keeps its recorded length** — `checked`
-    ///   counts *languages*, so trimming a row's numeric list back to
-    ///   `&["1"]` (the pre-#1379 fixture) or emptying it left every test
-    ///   passing when measured, with that language's coverage deleted.
+    /// - **the `numerics` list is non-empty and keeps its recorded
+    ///   length** — `checked` counts *languages*, so trimming a row's
+    ///   numeric list back to `&["1"]` (the pre-#1379 fixture) or
+    ///   emptying it left every test passing when measured, with that
+    ///   language's coverage deleted. Two assertions, because the
+    ///   length check passes an emptied row whose count was zeroed with
+    ///   it.
     /// - **every template keeps its `{}`** — without the slot,
     ///   `str::replace` is a no-op, baseline and candidate are computed
     ///   from the same string, and the comparison degenerates to
@@ -13534,6 +14891,15 @@ mod numeric_bool_operands {
             let Some(case @ (slots, _, numerics, expected_kinds)) = cases(lang) else {
                 continue;
             };
+            // Emptying a row is the half the length check below cannot
+            // see: `&[]` against an `expected_kinds` of 0 agrees with
+            // itself, the inner loops run zero times, and `checked` —
+            // which counts languages, not spellings — still reads
+            // satisfied.
+            assert!(
+                !numerics.is_empty(),
+                "{lang:?}: the numeric-operand list is empty; this language asserted nothing"
+            );
             assert_eq!(
                 numerics.len(),
                 expected_kinds,
@@ -13629,6 +14995,14 @@ mod numeric_bool_operands {
 /// - **Ruby** `a in Integer` (`test_pattern`), the one-line pattern
 ///   test. Decided against `match_pattern` (`expr => pat`), which
 ///   raises rather than yielding a boolean.
+/// - **Objective-C** `@available(iOS 13.0, *)` and its
+///   `__builtin_available` synonym (`available_expression`), the runtime
+///   OS-version check. Not relational, but boolean by definition and
+///   invisible to every comparison-token arm, so it measured short in
+///   exactly the same way (#1457). Its entry lands in the *name*-keyed
+///   `cpp_bool_terminal_kinds!()` that C, C++ and Mozcpp share, which is
+///   why `the_c_family_grammars_do_not_emit_available_expression` below
+///   pins the inertness the other three rely on.
 ///
 /// Rust's `matches!(…)` measures short in the same way, and is
 /// deliberately **not** here: its fix is `macro_invocation`, which also
@@ -13670,7 +15044,12 @@ mod numeric_bool_operands {
 // enabling none of them drops the module instead of failing its
 // guards (`.claude/rules/testing.md`, #1286 / #1411).
 #[cfg(test)]
-#[cfg(any(feature = "groovy", feature = "perl", feature = "ruby"))]
+#[cfg(any(
+    feature = "groovy",
+    feature = "perl",
+    feature = "ruby",
+    feature = "objc"
+))]
 mod own_production_bool_constructs {
     use crate::test_support::metrics_verbatim;
     use crate::{LANG, MetricsOptions};
@@ -13731,8 +15110,21 @@ mod own_production_bool_constructs {
                     "s =~ /p/",
                     "s ==~ /p/",
                     "!(a in l)",
+                    // The indexing / navigation kinds added by #1466.
+                    // These two are the cyclomatic-neutral ones, so
+                    // they belong in this module's same-as-the-control
+                    // shape. The three *null-safe* spellings (`a?.b`,
+                    // `a??.b`, `l?[0]`) each short-circuit on a null
+                    // receiver and so add a cyclomatic decision, which
+                    // a row whose contract is "the control's
+                    // cyclomatic" cannot express; they get their own
+                    // test,
+                    // `groovy_safe_navigation_closes_the_two_below_gap`,
+                    // which anchors them on that axis explicitly.
+                    "l[0]",
+                    "a.@b",
                 ],
-                7,
+                9,
             ),
             LANG::Perl => (
                 [
@@ -13752,6 +15144,27 @@ mod own_production_bool_constructs {
                 &["a in Integer", "!(a in Integer)"],
                 2,
             ),
+            // Objective-C's `@available` is not relational like the three
+            // above, but it reaches the terminal set by the same route: a
+            // dedicated `available_expression` production whose value is a
+            // boolean, seen by no comparison-token arm (#1457). Both
+            // spellings are listed because they are alternatives of one
+            // rule's leading token rather than two rules — so unlike
+            // Perl's `m{}` above they cannot drift apart, and the second
+            // row is here to keep that claim measured rather than assumed.
+            LANG::Objc => (
+                [
+                    ("int f(int a) {\n  return {} && b;\n}\n", 2, 3),
+                    ("int f() {\n  if ({}) { return 1; }\n}\n", 1, 3),
+                ],
+                "a",
+                &[
+                    "@available(iOS 13.0, *)",
+                    "__builtin_available(macOS 10.15, *)",
+                    "!@available(iOS 13.0, *)",
+                ],
+                3,
+            ),
             _ => return None,
         })
     }
@@ -13759,12 +15172,13 @@ mod own_production_bool_constructs {
     /// Runs `check` once per enabled language that has a case, having
     /// first established that the case can still assert something.
     ///
-    /// The three guards mirror `numeric_bool_operands::for_each_case`,
+    /// The four guards mirror `numeric_bool_operands::for_each_case`,
     /// where each was added only after a measured perturbation of it
     /// left that module green: `checked > 0` for the runtime half of
-    /// the feature gate, the recorded construct count so a trimmed row
-    /// cannot vanish silently, and the `{}` slot so `str::replace` does
-    /// not degenerate into comparing a string with itself.
+    /// the feature gate, a non-empty construct list and its recorded
+    /// count so a trimmed row cannot vanish silently, and the `{}` slot
+    /// so `str::replace` does not degenerate into comparing a string
+    /// with itself.
     fn for_each_case(check: impl Fn(LANG, Case)) {
         let mut checked = 0;
         for lang in LANG::into_enum_iter() {
@@ -13780,9 +15194,7 @@ mod own_production_bool_constructs {
             // setting its count to 0 — the shape a careless "the test
             // failed, fix the number" edit takes — deleted that
             // language's coverage with both tests still green when
-            // measured. `numeric_bool_operands` above has the same
-            // weakness and is left alone here, being out of this
-            // change's scope.
+            // measured.
             assert!(
                 !constructs.is_empty(),
                 "{lang:?}: the construct list is empty; this language asserted nothing"
@@ -13825,6 +15237,118 @@ mod own_production_bool_constructs {
                 }
             }
         });
+    }
+
+    /// Groovy's three null-safe spellings, on the cyclomatic axis.
+    ///
+    /// They cannot ride the rows above, whose contract is "scores the
+    /// control's `conditions` *and* the control's `cyclomatic`":
+    /// `groovy_bool_terminal_kinds!()` does not move cyclomatic, but
+    /// `?.` (`QMARKDOT`), `??.` (`QMARKQMARKDOT`) and `?[`
+    /// (`QMARKLBRACK`) are already cyclomatic decisions in their own
+    /// right (`src/metrics/cyclomatic/groovy.rs`), so each spelling
+    /// scores the control's conditions against the control's cyclomatic
+    /// **plus one**. That is the whole reason this family was the worst
+    /// case in #1466: before the fix ABC sat *two* below its own
+    /// decision count on `if (a?.b)`, against one below for every other
+    /// spelling.
+    ///
+    /// `l?[0]` joined the family in #1471. It sat in the neutral rows
+    /// above until then, passing only because Groovy cyclomatic had no
+    /// `?[` arm — a fixture that would have rejected the fix for the
+    /// very gap it recorded.
+    ///
+    /// Asserting the offset rather than the bare conditions is what
+    /// makes this a §5 double-count guard as well. If a later change
+    /// added `QMARKDOT` to `groovy_count_token_condition`'s arm while
+    /// the wrapper stayed in the terminal set, `conditions` would go to
+    /// `control + 1` and this test — not a snapshot — would say so.
+    #[test]
+    #[cfg(feature = "groovy")]
+    fn groovy_safe_navigation_closes_the_two_below_gap() {
+        for (template, control_conditions, control_cyclomatic) in [
+            ("def f(a, b, l) {\n  return {} && b\n}\n", 2, 3),
+            ("def f(a, b, l) {\n  if ({}) { return 1 }\n}\n", 1, 3),
+        ] {
+            let control = template.replace("{}", "b");
+            assert_eq!(conditions(LANG::Groovy, &control), control_conditions);
+            assert_eq!(cyclomatic_sum(LANG::Groovy, &control), control_cyclomatic);
+
+            for spelling in ["a?.b", "a??.b", "l?[0]"] {
+                let source = template.replace("{}", spelling);
+                assert_eq!(
+                    conditions(LANG::Groovy, &source),
+                    control_conditions,
+                    "`{spelling}` conditions\n  source: {source}"
+                );
+                assert_eq!(
+                    cyclomatic_sum(LANG::Groovy, &source),
+                    control_cyclomatic + 1,
+                    "`{spelling}` cyclomatic_sum: the navigation operator's own \
+                     decision has moved\n  source: {source}"
+                );
+            }
+        }
+    }
+
+    /// The `!` operand is read by field, so an `extra` cannot hide it.
+    ///
+    /// `groovy_wrapper_operand` took `child(1)` until #1466, which is
+    /// the `!` operand only when nothing sits between the two. A comment
+    /// is an `extra` and occupies that slot, so `if (! /*c*/ a)` scored
+    /// zero conditions where `if (!a)` scored one — the positional-read
+    /// class grammar-dispatch §3 is about, and the observable half of
+    /// the peel rewrite.
+    ///
+    /// `parenthesized_expression` names nothing in node-types.json, so
+    /// it keeps the positional read and keeps the bug; that half is
+    /// pinned here as a *measured* gap rather than left to be discovered
+    /// as a surprise. Kotlin records the identical pair
+    /// (`kotlin_wrapper_operand`).
+    #[test]
+    #[cfg(feature = "groovy")]
+    fn groovy_negation_operand_survives_an_interposed_comment() {
+        let template = "def f(a) {\n  if ({}) { return 1 }\n}\n";
+
+        assert_eq!(conditions(LANG::Groovy, &template.replace("{}", "!a")), 1);
+        assert_eq!(
+            conditions(LANG::Groovy, &template.replace("{}", "! /*c*/ a")),
+            1,
+            "the `!` operand is being read positionally again; a comment displaces it"
+        );
+
+        assert_eq!(conditions(LANG::Groovy, &template.replace("{}", "(a)")), 1);
+        assert_eq!(
+            conditions(LANG::Groovy, &template.replace("{}", "( /*c*/ a)")),
+            0,
+            "`parenthesized_expression` now survives an interposed comment — if the \
+             grammar gained a field for its inner expression, read it and delete this"
+        );
+    }
+
+    /// The arithmetic unary operators stay out of the boolean slot.
+    ///
+    /// `groovy_count_condition` routed every `unary_expression` to the
+    /// peel while the peel handled only the `!` spelling, so the arm
+    /// claimed `~a` / `-a` / `+a` and dropped them
+    /// (grammar-dispatch §7). #1466 made the arm ask the peel, which
+    /// removes the divergence without moving a number — so this test
+    /// cannot be verified by reverting the production change, and is
+    /// here to pin the *answer* those three spellings give against a
+    /// future peel that starts accepting them by accident.
+    #[test]
+    #[cfg(feature = "groovy")]
+    fn groovy_arithmetic_unary_is_not_a_condition() {
+        let template = "def f(a) {\n  if ({}) { return 1 }\n}\n";
+
+        assert_eq!(conditions(LANG::Groovy, &template.replace("{}", "a")), 1);
+        for spelling in ["~a", "-a", "+a"] {
+            assert_eq!(
+                conditions(LANG::Groovy, &template.replace("{}", spelling)),
+                0,
+                "`{spelling}` is arithmetic, not a boolean operand"
+            );
+        }
     }
 
     /// The two Perl spellings must remain two distinct grammar kinds.
@@ -13885,6 +15409,77 @@ mod own_production_bool_constructs {
         }
     }
 
+    /// `"available_expression"` must stay an Objective-C-only kind.
+    ///
+    /// Alone among the terminal sets, `cpp_bool_terminal_kinds!()` keys
+    /// on node-kind *names* so that C, C++, Mozcpp and Objective-C can
+    /// share one list despite assigning different ids to the same kinds
+    /// (#720 / #732). The price is that every entry is live in all four:
+    /// the Objective-C rows above say nothing about what the addition
+    /// did to the other three, and a grammar bump that gave any of them
+    /// an `available_expression` node would start counting it with no
+    /// test anywhere noticing.
+    ///
+    /// The Objective-C half is not decoration. Without it a fixture that
+    /// stopped parsing — or a typo'd kind name — would leave the
+    /// negative assertions passing for the wrong reason. Both halves
+    /// were verified by perturbing the probed kind name: to a typo,
+    /// which fails the positive, and to `if_statement`, which fails the
+    /// negatives.
+    #[test]
+    #[cfg(all(
+        feature = "objc",
+        any(feature = "c", feature = "cpp", feature = "mozcpp")
+    ))]
+    fn the_c_family_grammars_do_not_emit_available_expression() {
+        use crate::ParserTrait;
+
+        const SOURCE: &str = "int f(int a) {\n  if (@available(iOS 13.0, *)) { return 1; }\n}\n";
+
+        fn emits<P: ParserTrait>(path: &str) -> bool {
+            let parser = P::new(
+                SOURCE.as_bytes().to_vec(),
+                &std::path::PathBuf::from(path),
+                None,
+            );
+            parser
+                .root()
+                .preorder()
+                .any(|node| node.kind() == "available_expression")
+        }
+
+        assert!(
+            emits::<crate::ObjcParser>("f.m"),
+            "the fixture no longer parses to an `available_expression`; every \
+             Objective-C row above is now measuring some other node"
+        );
+
+        // The siblings are `#[cfg]`-gated array *elements* rather than
+        // conditional pushes, so the `any(…)` half of this test's gate
+        // makes the list non-empty by construction: a build reaching
+        // this line always has at least one row. That is the same
+        // non-vacuity guarantee the `checked > 0` counters elsewhere in
+        // this module buy at runtime, moved to compile time because here
+        // the row set is fixed rather than iterated over `LANG`.
+        let c_family = [
+            #[cfg(feature = "c")]
+            ("C", emits::<crate::CParser>("f.c")),
+            #[cfg(feature = "cpp")]
+            ("C++", emits::<crate::CppParser>("f.cpp")),
+            #[cfg(feature = "mozcpp")]
+            ("Mozcpp", emits::<crate::MozcppParser>("f.cpp")),
+        ];
+
+        for (language, emitted) in c_family {
+            assert!(
+                !emitted,
+                "{language} now emits `available_expression`, so the shared \
+                 `cpp_bool_terminal_kinds!()` entry is no longer inert there \
+                 and its ABC conditions have moved"
+            );
+        }
+    }
+
     /// The absolute anchor under the comparison above: every spelling
     /// must produce the slot's recorded `conditions`, and must leave
     /// `cyclomatic` alone.
@@ -13907,5 +15502,736 @@ mod own_production_bool_constructs {
                 }
             }
         });
+    }
+}
+
+/// A Perl statement modifier must score like the block form it is
+/// shorthand for (#1464).
+///
+/// `return 1 if $x;` and `if ($x) { return 1; }` are the same decision
+/// written two ways, and the modifier is the idiomatic Perl spelling —
+/// `next unless $ok;`, `warn "..." if $debug;`. Perl's *cyclomatic*
+/// dispatcher already counted all six modifier kinds, so this was a
+/// straight ABC undercount against Perl's own decision count rather
+/// than a policy disagreement between the two metrics.
+///
+/// Each pair is asserted equal **and** equal to a literal, so a
+/// regression that zeroed both spellings still fails. The fixtures are
+/// spell-anchored because the modifier is the only thing in them that
+/// scores a condition: deleting `if $x` from the modifier fixture would
+/// otherwise turn it into a silent copy of nothing at all
+/// (`.claude/rules/testing.md`, "Perturb the fixture as well as the
+/// production line").
+#[cfg(test)]
+#[cfg(feature = "perl")]
+mod perl_statement_modifier_parity {
+    use crate::test_support::{assert_perl_fixture_spells, metrics_verbatim};
+    use crate::{LANG, MetricsOptions, Perl};
+
+    fn conditions(source: &str) -> u64 {
+        metrics_verbatim(LANG::Perl, source.as_bytes(), MetricsOptions::default())
+            .abc
+            .conditions_sum()
+    }
+
+    /// `(keyword, kind id, kind name)` — the four modifier keywords
+    /// whose grammar slot is a `condition`. `for` / `foreach` is the
+    /// fifth spelling and is covered by its own test below; `when` is
+    /// the sixth and has no fixture at all, being unreachable from
+    /// valid Perl (see `perl_walk_statement_modifier`).
+    const CONDITION_MODIFIERS: [(&str, u16, &str); 4] = [
+        ("if", Perl::IfSimpleStatement as u16, "if_simple_statement"),
+        (
+            "unless",
+            Perl::UnlessSimpleStatement as u16,
+            "unless_simple_statement",
+        ),
+        (
+            "while",
+            Perl::WhileSimpleStatement as u16,
+            "while_simple_statement",
+        ),
+        (
+            "until",
+            Perl::UntilSimpleStatement as u16,
+            "until_simple_statement",
+        ),
+    ];
+
+    #[test]
+    fn a_modifier_scores_like_its_block_form() {
+        assert!(
+            LANG::Perl.is_enabled(),
+            "compiled under `feature = \"perl\"` but `LANG::Perl` reports disabled; \
+             this test asserted nothing"
+        );
+        for (keyword, kind, name) in CONDITION_MODIFIERS {
+            let modifier = format!("sub f {{ my $x = shift; return 1 {keyword} $x; }}");
+            let block = format!("sub f {{ my $x = shift; {keyword} ($x) {{ return 1; }} }}");
+            assert_perl_fixture_spells(&modifier, &[(kind, 1, name)]);
+            assert_eq!(
+                conditions(&modifier),
+                conditions(&block),
+                "`{keyword}` modifier and block form disagree\n  modifier: {modifier}\n  block:    {block}"
+            );
+            assert_eq!(
+                conditions(&modifier),
+                1,
+                "`{keyword}` modifier: the bare scalar predicate is one condition"
+            );
+        }
+    }
+
+    /// The modifier's `condition` field goes through the shared
+    /// condition classifier, not a flat `+1`, so a compound predicate
+    /// keeps its sub-structure — three shapes the block form already
+    /// scores above and below one.
+    #[test]
+    fn a_modifier_condition_keeps_its_substructure() {
+        for (predicate, expected) in [("!$x", 1), ("($x)", 1), ("$x && $x", 2), ("$x > 2", 1)] {
+            let modifier = format!("sub f {{ my $x = shift; return 1 if {predicate}; }}");
+            let block = format!("sub f {{ my $x = shift; if ({predicate}) {{ return 1; }} }}");
+            assert_perl_fixture_spells(
+                &modifier,
+                &[(Perl::IfSimpleStatement as u16, 1, "if_simple_statement")],
+            );
+            assert_eq!(
+                conditions(&modifier),
+                expected,
+                "`if {predicate}` modifier\n  source: {modifier}"
+            );
+            assert_eq!(
+                conditions(&block),
+                expected,
+                "`if ({predicate})` block form\n  source: {block}"
+            );
+        }
+    }
+
+    /// The `for` / `foreach` modifier iterates a list and is not a
+    /// boolean test — the grammar names its slot `list`, not
+    /// `condition`. Pinned against the `if` modifier so the zero reads
+    /// as a decision rather than as an arm nothing reaches.
+    ///
+    /// Measured: simply *adding* `ForSimpleStatement` to the dispatch
+    /// arm does not fail this test, because the walker reads the slot by
+    /// field name and `for_simple_statement` exposes no `condition` —
+    /// the exclusion is structural, not a listed omission. What it does
+    /// catch is a rework that reaches the slot some other way (a child
+    /// index, the `list` field) or a grammar that renames the field.
+    #[test]
+    fn the_for_modifier_is_not_a_condition() {
+        for keyword in ["for", "foreach"] {
+            let source = format!("sub f {{ my $x = shift; print 5 {keyword} @$x; }}");
+            assert_perl_fixture_spells(
+                &source,
+                &[(Perl::ForSimpleStatement as u16, 1, "for_simple_statement")],
+            );
+            let abc =
+                metrics_verbatim(LANG::Perl, source.as_bytes(), MetricsOptions::default()).abc;
+            assert_eq!(abc.conditions_sum(), 0, "`{keyword}` modifier: {source}");
+            // The expected value *is* the default, so the zero above
+            // proves nothing on its own — a fixture that stopped
+            // parsing would satisfy it too. `my $x = shift` is the
+            // file's one assignment, and `shift` and `print 5` its two
+            // branches; all three must survive.
+            assert_eq!(
+                abc.assignments_sum(),
+                1,
+                "`{keyword}`: fixture stopped scoring"
+            );
+            assert_eq!(
+                abc.branches_sum(),
+                2,
+                "`{keyword}`: fixture stopped scoring"
+            );
+        }
+        assert_eq!(
+            conditions("sub f { my $x = shift; return 1 if $x; }"),
+            1,
+            "control: the `if` modifier still counts, so the zero above is a \
+             policy decision and not a dead arm"
+        );
+    }
+}
+
+/// A non-numeric literal in a boolean operand slot must score like an
+/// identifier in the same slot (#1462).
+///
+/// The sibling module above pins the *numeric* half, closed by #1410.
+/// The non-numeric literals were never swept and were missing from
+/// every set the numerics were added to — same mechanism, same silent
+/// zero, same file. Measured before the fix, every row below scored
+/// exactly one condition short of its identifier control, in **both**
+/// slots: `x || "default"` — the language's commonest truthy-default
+/// idiom — reported 1 against `x || y`'s 2.
+///
+/// Scope is the eleven truthy-valued sets. #1462 shipped eight of them
+/// and called that complete; a whole-branch review of the batch found
+/// Perl, Ruby and Elixir in neither the swept list nor the
+/// compile-error exemption, each already carrying `False` / `Nil`, and
+/// each reproducing the gap exactly. They were swept on the same terms
+/// and are rows here. Tcl and iRules are truthy too and needed nothing:
+/// their `quoted_word` / `braced_word_simple` / `number` kinds already
+/// cover every literal an `expr {…}` operand can hold, so they have no
+/// row rather than a vacuous one.
+///
+/// C#, Java, Kotlin, Rust and Go name no literal kind at all and stay
+/// that way: a bare literal in a boolean slot is a compile error there,
+/// so there is nothing to count. The C family is integer-truthy and
+/// does carry the same gap for `string_literal`, but it is the one
+/// group in that class with integration-corpus exposure, so it is
+/// deferred rather than decided (see `cpp_bool_terminal_kinds!`).
+///
+/// Three things each row pins that a conditions comparison alone
+/// cannot:
+///
+/// - **The `kind_id` each spelling parses to.** This is the whole bug
+///   class (`.claude/rules/grammar-dispatch.md` §1): the grammars here
+///   emit `string` under two ids in JavaScript, Mozjs and Tsx and under
+///   three in Tsx counting the type keyword, and listing the wrong one
+///   compiles, runs, and returns the unfixed number. Asserting the id
+///   turns that measurement into a standing claim rather than a note in
+///   an issue. It is also the fixture anchor `.claude/rules/testing.md`
+///   asks for — editing `"s"` to `1` in a row now fails by name instead
+///   of quietly turning that row into a copy of the numeric module.
+/// - **`cyclomatic` does not move.** Only the operand spelling changes
+///   between a row and its control, so a `conditions` difference is
+///   unambiguously ABC's.
+/// - **Both walker paths.** The sets feed two structurally independent
+///   consumers (§11) — the operands of a `&&` / `and` chain, and the
+///   predicate of an `if` — and every row measured short in both. A
+///   fixture of only one leaves the other path invisible.
+///
+/// The JS-family rows go through `js_literals!` rather than four hand-
+/// written arrays, because the four languages differ in exactly one
+/// place — which `string` alias an operand slot carries — and making
+/// that the macro's only argument states the asymmetry instead of
+/// leaving a reader to diff four near-identical lists for it.
+#[cfg(test)]
+#[cfg(any(
+    feature = "javascript",
+    feature = "mozjs",
+    feature = "typescript",
+    feature = "python",
+    feature = "lua",
+    feature = "php",
+    feature = "groovy",
+    feature = "perl",
+    feature = "ruby",
+    feature = "elixir"
+))]
+mod literal_bool_operands {
+    use crate::test_support::{assert_fixture_spells, metrics_verbatim};
+    use crate::{LANG, MetricsOptions};
+
+    /// One fixture shape: a source template with a `{}` operand slot,
+    /// and the `abc.conditions_sum` / `cyclomatic_sum` every spelling of
+    /// that operand must produce.
+    type Slot = (&'static str, u64, u64);
+
+    /// One literal operand: its spelling, and the `kind_id` the grammar
+    /// must emit for it.
+    type Literal = (&'static str, u16);
+
+    /// A language's two slots, its identifier baseline operand, the
+    /// literal operands that must score the same, and how many of those
+    /// there should be.
+    ///
+    /// The count is not bookkeeping. `for_each_case` counts *languages*,
+    /// so trimming a row's literal list — the pre-#1462 state is the
+    /// empty list — would leave the whole module green.
+    type Case = ([Slot; 2], &'static str, &'static [Literal], usize);
+
+    /// The seven non-numeric literal kinds of a JS-family grammar, with
+    /// the `string` alias an operand slot carries passed in: `String2`
+    /// for JavaScript, Mozjs and Tsx, `String` for TypeScript. That one
+    /// argument is the entire difference between the four rows, and it
+    /// is the same split `Checker::is_string` makes (§7).
+    macro_rules! js_literals {
+        ($Lang:ident, $string:ident) => {
+            &[
+                ("\"s\"", crate::$Lang::$string as u16),
+                ("`t`", crate::$Lang::TemplateString as u16),
+                ("/re/", crate::$Lang::Regex as u16),
+                ("null", crate::$Lang::Null as u16),
+                ("undefined", crate::$Lang::Undefined as u16),
+                ("{}", crate::$Lang::Object as u16),
+                ("[]", crate::$Lang::Array as u16),
+            ]
+        };
+    }
+
+    const JS_SLOTS: [Slot; 2] = [
+        ("function f(a) {\n  return a && {};\n}\n", 2, 3),
+        ("function f() {\n  if ({}) { return 1; }\n}\n", 1, 3),
+    ];
+
+    fn conditions(lang: LANG, source: &str) -> u64 {
+        metrics_verbatim(lang, source.as_bytes(), MetricsOptions::default())
+            .abc
+            .conditions_sum()
+    }
+
+    fn cyclomatic_sum(lang: LANG, source: &str) -> u64 {
+        metrics_verbatim(lang, source.as_bytes(), MetricsOptions::default())
+            .cyclomatic
+            .cyclomatic_sum()
+    }
+
+    /// Asserts the fixture still spells the construct under test, by
+    /// parsing it with the language's own parser. Split out of `cases`
+    /// because only the parser types are feature-gated; the `kind_id`
+    /// enums are compiled unconditionally.
+    fn assert_spells(lang: LANG, source: &str, kinds: &[(u16, usize, &str)]) {
+        match lang {
+            #[cfg(feature = "javascript")]
+            LANG::Javascript => {
+                assert_fixture_spells::<crate::JavascriptParser>(source, "f.js", kinds);
+            }
+            #[cfg(feature = "mozjs")]
+            LANG::Mozjs => assert_fixture_spells::<crate::MozjsParser>(source, "f.jsm", kinds),
+            #[cfg(feature = "typescript")]
+            LANG::Typescript => {
+                assert_fixture_spells::<crate::TypescriptParser>(source, "f.ts", kinds);
+            }
+            #[cfg(feature = "typescript")]
+            LANG::Tsx => assert_fixture_spells::<crate::TsxParser>(source, "f.tsx", kinds),
+            #[cfg(feature = "python")]
+            LANG::Python => assert_fixture_spells::<crate::PythonParser>(source, "f.py", kinds),
+            #[cfg(feature = "lua")]
+            LANG::Lua => assert_fixture_spells::<crate::LuaParser>(source, "f.lua", kinds),
+            #[cfg(feature = "php")]
+            LANG::Php => assert_fixture_spells::<crate::PhpParser>(source, "f.php", kinds),
+            #[cfg(feature = "groovy")]
+            LANG::Groovy => {
+                assert_fixture_spells::<crate::GroovyParser>(source, "f.groovy", kinds);
+            }
+            #[cfg(feature = "perl")]
+            LANG::Perl => assert_fixture_spells::<crate::PerlParser>(source, "f.pl", kinds),
+            #[cfg(feature = "ruby")]
+            LANG::Ruby => assert_fixture_spells::<crate::RubyParser>(source, "f.rb", kinds),
+            #[cfg(feature = "elixir")]
+            LANG::Elixir => assert_fixture_spells::<crate::ElixirParser>(source, "f.ex", kinds),
+            other => panic!("{other:?} has a case row but no parser arm"),
+        }
+    }
+
+    /// `([chain_slot, condition_slot], identifier, literals)` per
+    /// language, one spelling per literal *kind* the grammar emits.
+    ///
+    /// - JS family: `string`, `template_string`, `regex`, `null`,
+    ///   `undefined`, `object`, `array`. TypeScript's `string` / `object`
+    ///   type keywords (`a: string`) are different ids rendering to the
+    ///   same names and are deliberately not in the sets, so a row that
+    ///   accidentally named one would fail the id anchor here.
+    /// - Python: `string` covers `'s'`, `"""s"""`, `f'x'` and `b'x'`,
+    ///   while the implicit-join `'a' 'b'` is the separate
+    ///   `concatenated_string` rule — the sibling-rule-under-a-supertype
+    ///   shape #1379's Perl numerals were, which an alias sweep cannot
+    ///   see. Then `none`, the four collection displays, and `ellipsis`.
+    /// - Lua: one `string` kind for `"s"`, `'s'` and `[[s]]`, plus
+    ///   `table_constructor`. Lua's is the strongest case of the eight:
+    ///   everything but `false` and `nil` is truthy, which is why
+    ///   `cond and "a" or "b"` is the language's ternary.
+    /// - PHP: `string` (single-quoted) and `encapsed_string`
+    ///   (interpolating) are separate rules, as are `heredoc` and
+    ///   `nowdoc`; then `array_creation_expression`, `null`, the
+    ///   backtick `shell_command_expression`, and `cast_expression` —
+    ///   the second finding of #1462, PHP being the only set in the
+    ///   Java / C# / Groovy / PHP group that named no cast kind.
+    /// - Groovy: `string_literal` (which also covers the slashy `/re/`),
+    ///   `null_literal`, `list_literal`, `map_literal`.
+    /// - Perl: the four string productions the grammar keeps separate
+    ///   (`'s'`, `q()`, `"s"`, `qq()`), the two command substitutions
+    ///   (`qx()`, backticks), the `qw()` / `[…]` / `{…}` collection
+    ///   literals, `qr//`, and `special_literal` (`__FILE__`).
+    ///   `heredoc_initializer` is the twelfth kind and cannot live in
+    ///   this table — a Perl heredoc body follows the *statement*, not
+    ///   the operand — so it has its own test below.
+    /// - Ruby: `string` (covering `"s"`, `'s'`, `%q()`, `%Q()`),
+    ///   `chained_string` (the adjacent-literal join `"a" "b"`, a
+    ///   sibling rule an alias sweep cannot see), `subshell`, the four
+    ///   collection literals `array` / `hash` / `%w[]` / `%i[]`,
+    ///   `regex`, the one-character `?a`, and both symbol productions.
+    ///   `heredoc_beginning` is the twelfth and shares the Perl heredoc
+    ///   test for the same reason.
+    /// - Elixir: `string` (one kind for `"s"` and the `"""` heredoc),
+    ///   `charlist`, `sigil` (one kind for `~r//`, `~s()`, `~w()`),
+    ///   `quoted_atom` — a separate production from `atom`, so
+    ///   `:"q a"` scored zero while `:atom` scored one — and the four
+    ///   collection literals `list` / `tuple` / `map` / `bitstring`.
+    ///
+    /// Elixir is the one row whose two slots are not two independent
+    /// consumers: the language has no bare-truthy `if` predicate slot
+    /// to route, since an Elixir `if` is a keyword-shaped `Call` scoring
+    /// one whatever its argument. Its second slot negates the operand
+    /// instead, which reaches the terminal set through
+    /// `elixir_inspect_container` rather than through the chain
+    /// walker's own check — a different path to the same set, which is
+    /// what the second slot exists to exercise.
+    ///
+    /// Shapes that measured short and are deliberately absent, none of
+    /// them a literal: JavaScript's `this` and Groovy's
+    /// `object_creation_expression` (recorded in #1462); Perl's
+    /// `s///` and `tr///` (operations on `$_` evaluating to a count),
+    /// `anonymous_function` and `array_dereference`; Ruby's `lambda`;
+    /// and Elixir's `anonymous_function` and `&f/1` capture.
+    fn cases(lang: LANG) -> Option<Case> {
+        Some(match lang {
+            LANG::Javascript => (JS_SLOTS, "b", js_literals!(Javascript, String2), 7),
+            LANG::Mozjs => (JS_SLOTS, "b", js_literals!(Mozjs, String2), 7),
+            LANG::Typescript => (JS_SLOTS, "b", js_literals!(Typescript, String), 7),
+            LANG::Tsx => (JS_SLOTS, "b", js_literals!(Tsx, String2), 7),
+            LANG::Python => (
+                [
+                    ("def f(a):\n    return a and {}\n", 2, 3),
+                    ("def f():\n    if {}:\n        return 1\n", 1, 3),
+                ],
+                "b",
+                &[
+                    ("'s'", crate::Python::String as u16),
+                    ("'a' 'b'", crate::Python::ConcatenatedString as u16),
+                    ("None", crate::Python::None as u16),
+                    ("[]", crate::Python::List as u16),
+                    ("{1}", crate::Python::Set as u16),
+                    ("()", crate::Python::Tuple as u16),
+                    ("{}", crate::Python::Dictionary as u16),
+                    ("...", crate::Python::Ellipsis as u16),
+                ],
+                8,
+            ),
+            LANG::Lua => (
+                [
+                    ("function f(a)\n  return a and {}\nend\n", 2, 3),
+                    ("function f()\n  if {} then return 1 end\nend\n", 1, 3),
+                ],
+                "b",
+                &[
+                    ("\"s\"", crate::Lua::String as u16),
+                    ("{}", crate::Lua::TableConstructor as u16),
+                ],
+                2,
+            ),
+            LANG::Php => (
+                [
+                    ("<?php\nfunction f($a) {\n  return $a && {};\n}\n", 2, 3),
+                    ("<?php\nfunction f() {\n  if ({}) { return 1; }\n}\n", 1, 3),
+                ],
+                "$b",
+                &[
+                    ("'s'", crate::Php::String as u16),
+                    ("\"x$b\"", crate::Php::EncapsedString as u16),
+                    ("<<<EOT\ns\nEOT", crate::Php::Heredoc as u16),
+                    ("<<<'EOT'\ns\nEOT", crate::Php::Nowdoc as u16),
+                    ("[]", crate::Php::ArrayCreationExpression as u16),
+                    ("null", crate::Php::Null as u16),
+                    ("`ls`", crate::Php::ShellCommandExpression as u16),
+                    ("(bool)$b", crate::Php::CastExpression as u16),
+                ],
+                8,
+            ),
+            LANG::Groovy => (
+                [
+                    ("def f(a) {\n  return a && {}\n}\n", 2, 3),
+                    ("def f() {\n  if ({}) { return 1 }\n}\n", 1, 3),
+                ],
+                "b",
+                &[
+                    ("\"s\"", crate::Groovy::StringLiteral as u16),
+                    ("null", crate::Groovy::NullLiteral as u16),
+                    ("[]", crate::Groovy::ListLiteral as u16),
+                    ("[:]", crate::Groovy::MapLiteral as u16),
+                ],
+                4,
+            ),
+            LANG::Perl => (
+                [
+                    (
+                        "sub f {\n  my ($a, $b) = @_;\n  if ($a && {}) { print 1; }\n}\n",
+                        2,
+                        4,
+                    ),
+                    (
+                        "sub f {\n  my ($a, $b) = @_;\n  if ({}) { print 1; }\n}\n",
+                        1,
+                        3,
+                    ),
+                ],
+                "$b",
+                &[
+                    ("'s'", crate::Perl::StringSingleQuoted as u16),
+                    ("q(s)", crate::Perl::StringQQuoted as u16),
+                    ("\"s\"", crate::Perl::StringDoubleQuoted as u16),
+                    ("qq(s)", crate::Perl::StringQqQuoted as u16),
+                    ("qx(ls)", crate::Perl::CommandQxQuoted as u16),
+                    ("`ls`", crate::Perl::BacktickQuoted as u16),
+                    ("qw(a b)", crate::Perl::WordListQw as u16),
+                    ("[1, 2]", crate::Perl::ArrayRef as u16),
+                    ("{ a => 1 }", crate::Perl::HashRef as u16),
+                    ("qr/re/", crate::Perl::RegexPatternQr as u16),
+                    ("__FILE__", crate::Perl::SpecialLiteral as u16),
+                ],
+                11,
+            ),
+            LANG::Ruby => (
+                [
+                    ("def f(a, b)\n  if a && {} then 1 else 0 end\nend\n", 3, 4),
+                    ("def f(a, b)\n  if {} then 1 else 0 end\nend\n", 2, 3),
+                ],
+                "b",
+                &[
+                    ("\"s\"", crate::Ruby::String as u16),
+                    ("\"a\" \"b\"", crate::Ruby::ChainedString as u16),
+                    ("`ls`", crate::Ruby::Subshell as u16),
+                    ("[1, 2]", crate::Ruby::Array as u16),
+                    ("{ a: 1 }", crate::Ruby::Hash as u16),
+                    ("%w[a b]", crate::Ruby::StringArray as u16),
+                    ("%i[a b]", crate::Ruby::SymbolArray as u16),
+                    ("/re/", crate::Ruby::Regex as u16),
+                    ("?a", crate::Ruby::Character as u16),
+                    (":sym", crate::Ruby::SimpleSymbol as u16),
+                    (":\"sym\"", crate::Ruby::DelimitedSymbol as u16),
+                ],
+                11,
+            ),
+            LANG::Elixir => (
+                [
+                    (
+                        "defmodule M do\n  def f(a, b) do\n    if a && {} do\n      a\n    end\n  end\nend\n",
+                        3,
+                        5,
+                    ),
+                    (
+                        "defmodule M do\n  def f(a, b) do\n    if a && !{} do\n      a\n    end\n  end\nend\n",
+                        3,
+                        5,
+                    ),
+                ],
+                "b",
+                &[
+                    ("\"s\"", crate::Elixir::String as u16),
+                    ("'c'", crate::Elixir::Charlist as u16),
+                    ("~r/re/", crate::Elixir::Sigil as u16),
+                    (":\"q a\"", crate::Elixir::QuotedAtom as u16),
+                    ("[1, 2]", crate::Elixir::List as u16),
+                    ("{1, 2}", crate::Elixir::Tuple as u16),
+                    ("%{a: 1}", crate::Elixir::Map as u16),
+                    ("<<1>>", crate::Elixir::Bitstring as u16),
+                ],
+                8,
+            ),
+            _ => return None,
+        })
+    }
+
+    /// Runs `check` once per enabled language that has a case, having
+    /// first established that the case can still assert something. The
+    /// four guards are the sibling module's, for the same four ways
+    /// this table could decay into asserting nothing: no language
+    /// enabled, an emptied literal list, a list that no longer covers
+    /// every kind, and a template that lost its `{}` slot (which makes
+    /// every comparison `x == x`).
+    fn for_each_case(check: impl Fn(LANG, Case)) {
+        let mut checked = 0;
+        for lang in LANG::into_enum_iter() {
+            if !lang.is_enabled() {
+                continue;
+            }
+            let Some(case @ (slots, _, literals, expected_kinds)) = cases(lang) else {
+                continue;
+            };
+            // The length check does not imply this one: it asserts only
+            // that the list and its recorded count *agree*, which an
+            // emptied row with `expected_kinds` set to 0 satisfies —
+            // the shape a "the test failed, fix the number" edit takes.
+            // `checked` counts languages, so that row still increments
+            // it and the non-vacuity guard below reads satisfied.
+            assert!(
+                !literals.is_empty(),
+                "{lang:?}: the literal-operand list is empty; this language asserted nothing"
+            );
+            assert_eq!(
+                literals.len(),
+                expected_kinds,
+                "{lang:?}: the literal-operand list no longer covers one spelling \
+                 per grammar literal kind"
+            );
+            for (template, _, _) in slots {
+                assert!(
+                    template.contains("{}"),
+                    "{lang:?}: template lost its `{{}}` operand slot: {template}"
+                );
+            }
+            check(lang, case);
+            checked += 1;
+        }
+        assert!(
+            checked > 0,
+            "no truthy-valued language enabled; this test asserted nothing"
+        );
+    }
+
+    #[test]
+    fn a_literal_operand_scores_like_an_identifier_operand() {
+        for_each_case(|lang, (slots, identifier, literals, _)| {
+            for (template, _, _) in slots {
+                let baseline = conditions(lang, &template.replace("{}", identifier));
+                for (literal, _) in literals {
+                    let source = template.replace("{}", literal);
+                    let scored = conditions(lang, &source);
+                    assert_eq!(
+                        scored, baseline,
+                        "{lang:?}: `{literal}` scored {scored} unary conditions against \
+                         `{identifier}`'s {baseline}\n  source: {source}"
+                    );
+                }
+            }
+        });
+    }
+
+    /// The absolute anchor under the comparison above: every operand
+    /// spelling must produce the slot's recorded `conditions`, and must
+    /// leave `cyclomatic` alone.
+    #[test]
+    fn every_literal_operand_scores_its_recorded_values() {
+        for_each_case(|lang, (slots, identifier, literals, _)| {
+            for (template, expected_conditions, expected_cyclomatic) in slots {
+                let operands = std::iter::once(identifier)
+                    .chain(literals.iter().map(|(spelling, _)| *spelling));
+                for operand in operands {
+                    let source = template.replace("{}", operand);
+                    assert_eq!(
+                        conditions(lang, &source),
+                        expected_conditions,
+                        "{lang:?}: `{operand}` conditions\n  source: {source}"
+                    );
+                    assert_eq!(
+                        cyclomatic_sum(lang, &source),
+                        expected_cyclomatic,
+                        "{lang:?}: `{operand}` cyclomatic_sum\n  source: {source}"
+                    );
+                }
+            }
+        });
+    }
+
+    /// The twelfth Perl and Ruby literal kind, which the table above
+    /// cannot hold: in both languages a heredoc body follows the
+    /// *statement*, so the operand slot carries only the introducer and
+    /// the rest of the literal lands on later lines. Substituting one
+    /// into a single-line template produces an unterminated heredoc and
+    /// an `ERROR` parse, not a measurement.
+    ///
+    /// That shape is also why exactly one kind is listed per language
+    /// (§5): `heredoc_initializer` / `heredoc_beginning` is the node in
+    /// the operand slot, while `heredoc_body_statement` /
+    /// `heredoc_body` is a sibling the walker never reaches. Listing
+    /// both would score one literal twice.
+    #[cfg(any(feature = "perl", feature = "ruby"))]
+    #[test]
+    fn a_heredoc_operand_scores_like_an_identifier_operand() {
+        #[cfg(feature = "perl")]
+        {
+            let heredoc = "sub f {\n  my ($a, $b) = @_;\n  if ($a && <<\"EOT\") { print 1; }\nhello\nEOT\n}\n";
+            assert_spells(
+                LANG::Perl,
+                heredoc,
+                &[(crate::Perl::HeredocInitializer as u16, 1, "<<\"EOT\"")],
+            );
+            assert_eq!(
+                conditions(LANG::Perl, heredoc),
+                conditions(
+                    LANG::Perl,
+                    "sub f {\n  my ($a, $b) = @_;\n  if ($a && $b) { print 1; }\n}\n"
+                ),
+                "Perl heredoc operand"
+            );
+        }
+        #[cfg(feature = "ruby")]
+        {
+            let heredoc =
+                "def f(a, b)\n  if a && <<~TXT then 1 else 0 end\n    hello\n  TXT\nend\n";
+            assert_spells(
+                LANG::Ruby,
+                heredoc,
+                &[(crate::Ruby::HeredocBeginning as u16, 1, "<<~TXT")],
+            );
+            assert_eq!(
+                conditions(LANG::Ruby, heredoc),
+                conditions(
+                    LANG::Ruby,
+                    "def f(a, b)\n  if a && b then 1 else 0 end\nend\n"
+                ),
+                "Ruby heredoc operand"
+            );
+        }
+    }
+
+    /// Every spelling must parse to the `kind_id` its row names — the
+    /// §1 alias claim, which is the one thing a conditions comparison
+    /// cannot check: a row naming the wrong alias of a multi-id kind
+    /// would simply keep reporting the unfixed number.
+    #[test]
+    fn every_literal_spelling_parses_to_the_kind_its_row_names() {
+        for_each_case(|lang, (slots, _, literals, _)| {
+            for (template, _, _) in slots {
+                for (literal, kind) in literals {
+                    let source = template.replace("{}", literal);
+                    assert_spells(lang, &source, &[(*kind, 1, literal)]);
+                }
+            }
+        });
+    }
+}
+
+/// PHP's `String3` is the hidden `_string` supertype and Groovy's
+/// `SlashyString` the hidden `_slashy_string` one — both listed in, or
+/// deliberately omitted from, their terminal-bool sets on the strength
+/// of being unreachable (`.claude/rules/grammar-dispatch.md` §2). A
+/// grammar bump that promotes either changes ABC's answer silently, so
+/// the unreachability is pinned rather than assumed.
+// Gated on the union of the two features its tests name, so a build
+// enabling neither drops the module rather than leaving its imports
+// unused (`.claude/rules/testing.md`, #1286).
+#[cfg(all(test, any(feature = "php", feature = "groovy")))]
+mod hidden_literal_supertypes {
+    use crate::test_support::ast_has_kind_id;
+    use crate::*;
+
+    #[cfg(feature = "php")]
+    #[test]
+    fn php_hidden_string_supertype_is_unreachable() {
+        let src = "<?php\nfunction f($a) {\n  return $a && 's' && \"x$a\" && <<<EOT\ns\nEOT;\n}\n";
+        let parser = PhpParser::new(src.as_bytes().to_vec(), std::path::Path::new("f.php"), None);
+        assert!(
+            ast_has_kind_id(&parser, Php::String as u16),
+            "control: the fixture must carry the reachable `string` kind"
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Php::String3 as u16),
+            "`_string` is no longer hidden; the defensive arm in \
+             `php_bool_terminal_kinds!()` is now live and needs a fixture"
+        );
+    }
+
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_hidden_slashy_string_is_unreachable() {
+        let src = "def f(a) {\n  return a && /re/ && \"s\"\n}\n";
+        let parser = GroovyParser::new(
+            src.as_bytes().to_vec(),
+            std::path::Path::new("f.groovy"),
+            None,
+        );
+        assert!(
+            ast_has_kind_id(&parser, Groovy::StringLiteral as u16),
+            "control: a slashy string must still parse to `string_literal`"
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Groovy::SlashyString as u16),
+            "`_slashy_string` is no longer hidden; `groovy_bool_terminal_kinds!()` \
+             omits it on the strength of it being unreachable"
+        );
     }
 }

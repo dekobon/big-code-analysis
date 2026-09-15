@@ -588,6 +588,11 @@ pub(crate) fn provenance_warning(
 /// stderr renderer can attach a `[new]` / `[regr +N%]` tag. Without
 /// `--baseline`, `Option<Coverage>` is `None` and the renderer emits
 /// the exact pre-tag line format byte-identically.
+///
+/// Also the emission point for the two `--baseline` warnings: the
+/// provenance mismatch above, and the [`baseline::StaleTally`] below,
+/// which reports entries the code has improved past. Neither changes
+/// what is kept or the gate's exit code.
 pub(crate) fn filter_by_baseline(
     violations: Vec<Violation>,
     baseline_path: Option<&Path>,
@@ -608,17 +613,33 @@ pub(crate) fn filter_by_baseline(
         warn(msg);
     }
     let before = violations.len();
+    // Issue #1465: a covered offender whose value has moved past its
+    // recorded one no longer describes the tree, and the ratchet is
+    // silent about it in both directions. Tallied here, where `classify`
+    // has just resolved the recorded value and the violation still owns
+    // the live one, so nothing has to be re-keyed.
+    let mut stale = baseline::StaleTally::default();
     let kept: Vec<_> = violations
         .into_iter()
-        .filter_map(|v| match baseline.classify(&v) {
-            // `--report-suppressed` keeps baseline-covered offenders (tagged
-            // `Covered`) so they can be surfaced as `external` suppressions
-            // in the document; the split in `run_check` keeps them out of the
-            // gate. The default path still drops them entirely.
-            Coverage::Covered { .. } if !keep_covered => None,
-            c => Some((v, Some(c))),
+        .filter_map(|v| {
+            let coverage = baseline.classify(&v);
+            if let Coverage::Covered { recorded } = coverage {
+                stale.observe(&v, recorded);
+            }
+            match coverage {
+                // `--report-suppressed` keeps baseline-covered offenders
+                // (tagged `Covered`) so they can be surfaced as `external`
+                // suppressions in the document; the split in `run_check`
+                // keeps them out of the gate. The default path still drops
+                // them entirely.
+                Coverage::Covered { .. } if !keep_covered => None,
+                c => Some((v, Some(c))),
+            }
         })
         .collect();
+    if let Some(msg) = stale.warning() {
+        warn(msg);
+    }
     let filtered = before - kept.len();
     if filtered > 0 {
         eprintln!("bca: filtered {filtered} violations via baseline");

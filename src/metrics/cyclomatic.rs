@@ -489,6 +489,45 @@ pub(crate) fn csharp_switch_expression_arm_is_bare_discard(node: &Node) -> bool 
     !named.any(|c| c.kind_id() == WhenClause)
 }
 
+/// Distinguishes the C# `case` keyword of a real `switch` arm from the
+/// one inside `goto case 2;`, which spells the same token (id 114) from
+/// a second production and is an unconditional jump, not a decision.
+///
+/// A `grammar.json` sweep of tree-sitter-c-sharp 0.23.5 finds the
+/// `"case"` string in exactly two rules — `switch_section` and
+/// `goto_statement` — and only the first is an arm. `Csharp::Case` and
+/// `Csharp::SwitchSection` each carry no numeric-suffix alias at this
+/// pin (`.claude/rules/grammar-dispatch.md` §1), and `switch_section`
+/// is not a hidden `_`-prefixed rule (§2), so the one-variant allowlist
+/// is the whole answer.
+///
+/// Allowlist polarity, matching the comparison-token gate in
+/// `src/metrics/abc/csharp.rs`: naming the one decision parent means a
+/// grammar bump that grows a third `case`-bearing production fails
+/// *closed* — the new spelling stops counting rather than silently
+/// counting as an arm. It also covers error recovery, where a token the
+/// parser reparents under `{ERROR}` stops counting; nothing pins that,
+/// because a fixture the language rejects would make the grammar's
+/// present recovery the contract (§6).
+///
+/// Both C# metrics that count the bare token gate on this — ABC's
+/// `conditions` and cyclomatic's decision count — so `goto case` moves
+/// them together. Cognitive models the construct on a different node
+/// entirely (`GotoStatement`, +1 as an unstructured jump per
+/// SonarSource §B2, `src/metrics/cognitive/csharp.rs`) and is
+/// unaffected: a `goto case` remains a jump there, it merely stops
+/// also being an arm here.
+///
+/// `goto default;` needed no equivalent gate: `Default` is a distinct
+/// token that neither metric counts, since it is the switch's
+/// unconditional fallthrough (#456, #469).
+pub(crate) fn csharp_case_token_is_switch_arm<'a>(
+    node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    ancestors.parent_has_kind(node, Csharp::SwitchSection as u16)
+}
+
 /// Detects Kotlin `when_entry` nodes that are `else -> …` arms — the
 /// analogue of the C-family `default:` arm. tree-sitter-kotlin-ng
 /// attaches a `condition` field to every case-style entry; the `else`
@@ -571,7 +610,10 @@ mod typescript;
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::test_support::{ast_has_kind_id, check_metrics_only_shim};
+    use crate::test_support::{
+        assert_csharp_fixture_spells, ast_has_kind_id, check_func_space_only,
+        check_metrics_only_shim, child_space,
+    };
 
     use super::*;
 
@@ -2015,6 +2057,66 @@ mod tests {
         );
     }
 
+    /// Regression #1450 / #1451: `goto case 2;` spells the same `case`
+    /// keyword token (id 114) as a real arm, from a second production
+    /// (`goto_statement`), and scored a decision it does not earn — an
+    /// unconditional jump to an arm is not a branch point.
+    ///
+    /// Per member, never through `cyclomatic_sum()`: the sum cannot tell
+    /// the shipped `{3, 3, 3}` from the pre-fix `{3, 4, 3}` without also
+    /// pinning the member count, and the whole claim is that `jmp` reads
+    /// the same as `ctl`. The three methods are identical but for one
+    /// statement each, so `jmp`'s `goto case` is the only thing that can
+    /// separate them (`.claude/rules/grammar-dispatch.md` §11 — an arm
+    /// and a `goto case` are independent paths into the same counter, and
+    /// a fixture carrying only arms cannot show the gate works).
+    ///
+    /// `dfl` is the control that was already correct, by accident rather
+    /// than design: `goto default;` spells `Default`, which neither
+    /// metric counts because it is the switch's unconditional
+    /// fallthrough (#456, #469).
+    ///
+    /// The `Case` anchor is the second axis. Every member scores 3 from
+    /// its two arms alone, so deleting `goto case 2;` from the fixture
+    /// leaves every assertion below satisfied and the construct under
+    /// test gone; the anchor's count of 7 — six arms plus the one jump —
+    /// fails by name instead.
+    #[test]
+    fn csharp_goto_case_is_not_a_switch_arm() {
+        let src = "class A {
+                int ctl(int x) { switch (x) { case 1: return 1; case 2: return 2; default: return 0; } }
+                int jmp(int x) { switch (x) { case 1: goto case 2; case 2: return 2; default: return 0; } }
+                int dfl(int x) { switch (x) { case 1: goto default; case 2: return 2; default: return 0; } }
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (Csharp::Case as u16, 7, "`case` tokens (6 arms + 1 jump)"),
+                (Csharp::SwitchSection as u16, 9, "switch arms"),
+                (Csharp::GotoStatement as u16, 2, "`goto` statements"),
+                (
+                    Csharp::Default as u16,
+                    4,
+                    "`default` tokens (3 arms + 1 jump)",
+                ),
+            ],
+        );
+        check_func_space_only::<CsharpParser, _>(src, "foo.cs", &[Metric::Cyclomatic], |space| {
+            let class = child_space(&space, "A");
+            assert_eq!(class.spaces.len(), 3, "fixture moved, not the metric");
+            for name in ["ctl", "jmp", "dfl"] {
+                let member = child_space(class, name);
+                // base 1 + one decision per `case` arm; the `default:`
+                // arm and both `goto` forms contribute nothing.
+                assert_eq!(
+                    member.metrics.cyclomatic.cyclomatic(),
+                    3,
+                    "{name}: two arms over a base of 1"
+                );
+            }
+        });
+    }
+
     /// Modified CCN: C# switch statement with 2 cases counts as 1.
     #[test]
     fn csharp_switch_modified() {
@@ -2940,6 +3042,25 @@ mod tests {
         // `a?.b?.c` adds +2 to both standard and modified CCN.
         check_metrics::<GroovyParser>("def read(a){ return a?.b?.c }", "foo.groovy", |metric| {
             // unit(1) + fn(base 1 + ?. 1 + ?. 1) = sum 4, max 3.
+            let s = &metric.cyclomatic;
+            assert_eq!(s.cyclomatic_sum(), 4);
+            assert_eq!(s.cyclomatic_max(), 3);
+            assert_eq!(s.cyclomatic_modified_sum(), 4);
+            assert_eq!(s.cyclomatic_modified_max(), 3);
+        });
+    }
+
+    #[test]
+    fn groovy_safe_subscript_cyclomatic() {
+        // Issue #1471: `?[` short-circuits on a null receiver exactly as
+        // `?.` does, and had no arm — so `l?[0]` read level with the
+        // unconditional `l[0]`. Chained, because the arm matches the
+        // token and not the `safe_subscript_expression` wrapper: a
+        // chain nests one wrapper inside another, so the wrapper
+        // spelling would score this 1 and only the token spelling
+        // scores it 2 (grammar-dispatch §5).
+        check_metrics::<GroovyParser>("def read(l){ return l?[0]?[1] }", "foo.groovy", |metric| {
+            // unit(1) + fn(base 1 + ?[ 1 + ?[ 1) = sum 4, max 3.
             let s = &metric.cyclomatic;
             assert_eq!(s.cyclomatic_sum(), 4);
             assert_eq!(s.cyclomatic_max(), 3);
@@ -5382,16 +5503,19 @@ f() {
     // A guarded wildcard (`_ when g ->`) is a real decision — the
     // guard can fail, so control can fall through — and must keep
     // counting, matching Rust's `_ if guard` rule (issue #1272).
-    // standard = 3 entries + `1 ->` + `_ when x > 5 ->` = 5 (only the
-    // final bare `_ ->` is excluded); modified = 3 entries + case = 4.
+    // standard = 3 entries + `1 ->` + `_ when x > 5 ->` + the guard
+    // itself = 6 (only the final bare `_ ->` is excluded); modified =
+    // 3 entries + case + the guard = 5. The guard is the #1454 arm: it
+    // is a second way the arm can fail, and no container collapses it,
+    // so it counts in both tiers where the arm counts only in standard.
     #[test]
     fn elixir_case_guarded_wildcard_counts() {
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def classify(x) do\n    case x do\n      1 -> :one\n      _ when x > 5 -> :big\n      _ -> :other\n    end\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 5);
             },
         );
     }
@@ -6723,15 +6847,18 @@ f() {
         // Regression for #977: a non-wildcard `in 1` arm and a guarded
         // wildcard `in _ if x > 0` arm each add one standard decision,
         // while the trailing bare `in _` default arm adds none. The
-        // `case_match` container stays a modified-only decision.
+        // `case_match` container stays a modified-only decision, but the
+        // guard itself is a decision in both tiers (#1454): nothing
+        // collapses it the way the container collapses its arms.
         // expected per function: standard = 1 (base) + `in 1` + `in _ if`
-        // = 3; modified = 1 (base) + 1 (case_match) = 2.
+        // + the `if` guard = 4; modified = 1 (base) + 1 (case_match) +
+        // the guard = 3.
         check_metrics::<RubyParser>(
             "def f(x)\n  case x\n  in 1 then :one\n  in _ if x > 0 then :positive\n  in _ then :default\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 3);
             },
         );
     }

@@ -656,6 +656,127 @@ pub(crate) fn ruby_in_clause_counts(in_clause: &Node, source: &[u8]) -> bool {
     })
 }
 
+/// Whether `node` is a `when` `binary_operator` — the shape a repeated
+/// guard's alternatives nest through.
+///
+/// `binary_operator` carries three kind aliases at this pin so it is
+/// matched by rule name rather than by enumerating ids
+/// (grammar-dispatch §1); `when` has exactly one id.
+fn elixir_is_when_operator(node: &Node) -> bool {
+    const BINARY_OPERATOR: &str = "binary_operator";
+
+    node.kind() == BINARY_OPERATOR
+        && node
+            .child_by_field_name("operator")
+            .is_some_and(|operator| operator.kind_id() == Elixir::When as u16)
+}
+
+/// The one alternative a guard's `when` token introduces, paired with
+/// the `binary_operator` whose field slot it occupies.
+///
+/// `head when a when b` parses right-associatively as
+/// `head when (a when b)`, so each `when` operator owns exactly one
+/// alternative: the nested operator's `left` where its `right` nests a
+/// further `when`, and its own `right` otherwise. One alternative per
+/// token is what holds the `Abc` slot count level with the `Cyclomatic`
+/// decision count at every chain length (§8), and what stops a chain of
+/// n alternatives being counted once per token that can see it (§5).
+///
+/// The `?` is infallible at the pinned grammar — `binary_operator`
+/// declares `right` required — and is spelled as an `Option` because
+/// `AGENTS.md` bans `expect` outside tests.
+pub(crate) fn elixir_when_alternative<'a>(
+    when_operator: &Node<'a>,
+) -> Option<(Node<'a>, Node<'a>)> {
+    let right = when_operator.child_by_field_name("right")?;
+    if elixir_is_when_operator(&right) {
+        right.child_by_field_name("left").map(|left| (left, right))
+    } else {
+        Some((right, *when_operator))
+    }
+}
+
+/// Whether a `when` operator token spells a real guard — a function
+/// head's (`def f(x) when g do`) or a clause's (`x when g -> …`) —
+/// rather than a typespec's `when` binding clause
+/// (`@spec f(a) :: a when a: integer`), which is type syntax and no
+/// decision at all.
+///
+/// Shared by the `Cyclomatic` and `Abc` impls for `ElixirCode` so the
+/// two cannot disagree about what a guard is (grammar-dispatch §7).
+/// Elixir has no dedicated guard production — `x when g` is an ordinary
+/// `binary_operator` — so the position it sits in is the only thing that
+/// tells a guard from a typespec, and the allowlist below is that
+/// position set at the pinned grammar: the `left` slot of a
+/// `stab_clause` (`case` / `cond` / `fn` / `receive` / `with`'s `else`
+/// / `try`'s handlers), or an argument of a definition Call that takes
+/// a guarded head.
+///
+/// `arguments` carries five kind aliases at this pin and
+/// `binary_operator` three, so both are matched by rule name rather
+/// than by enumerating ids (grammar-dispatch §1).
+///
+/// Repeated guards (`when a when b`) are an or-chain: Elixir tries each
+/// `when` expression in turn and moves to the next when the previous one
+/// is false *or raises*, so the construct carries one decision per
+/// alternative, level with the `when a or b` spelling. They parse
+/// right-associatively into nested `when` operators, and only the
+/// outermost sits on the anchor — so a nested one is a guard too, and
+/// the climb below walks the `when` operators between it and the anchor
+/// before asking the position question. [`elixir_when_alternative`]
+/// names the one alternative each token introduces, which is how the
+/// matching `Abc` slot stays one-per-token rather than double counting
+/// the chain (grammar-dispatch §5).
+///
+/// The climb stops at the first non-`when` ancestor, so an ordinary
+/// single guard pays no extra step and a chain pays one per alternative
+/// it lists — a bound set by the guard, not by the tree's depth.
+///
+/// Both `return false` guards below are unreachable at the pin, not
+/// untested: a `when` *token*'s chain always holds at least the
+/// `binary_operator` it belongs to, and that operator always sits under
+/// something, because the Elixir root is `source` and no `when`
+/// operator can be it. They stay as defensive `else` arms because
+/// `AGENTS.md` bans the `expect` that would replace them.
+pub(crate) fn elixir_when_is_guard<'a>(
+    node: &Node<'a>,
+    code: &'a [u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    use Elixir as E;
+
+    const ARGUMENTS: &str = "arguments";
+
+    let mut chain = ancestors.iter(node);
+    // The token's parent is the `when` operator node itself; the first
+    // ancestor above the chain of `when` operators is the position that
+    // decides.
+    let Some((mut operator, _)) = chain.next() else {
+        return false;
+    };
+    let mut above = chain.next();
+    while let Some((enclosing, _)) = above.filter(|(ancestor, _)| elixir_is_when_operator(ancestor))
+    {
+        operator = enclosing;
+        above = chain.next();
+    }
+    let Some((parent, _)) = above else {
+        return false;
+    };
+    if parent.kind_id() == E::StabClause as u16 {
+        return parent
+            .child_by_field_name("left")
+            .is_some_and(|left| left.id() == operator.id());
+    }
+    parent.kind() == ARGUMENTS
+        && chain.next().is_some_and(|(call, _)| {
+            crate::lang_helpers::elixir::elixir_call_keyword(&call, code).is_some_and(|keyword| {
+                crate::lang_helpers::elixir::elixir_is_method_macro(keyword)
+                    || matches!(keyword, "defguard" | "defguardp")
+            })
+        })
+}
+
 // A `visibility_modifier` node counts as public unless it has a direct
 // `Zelf` child — the structural signature of `pub(self)` / `pub(in self)`,
 // which restrict visibility to the current module (semantically private,

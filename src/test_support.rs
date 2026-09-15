@@ -11,6 +11,7 @@
 use std::path::PathBuf;
 
 use crate::spaces::metrics_inner;
+use crate::traits::ParserTrait;
 use crate::{
     CodeMetrics, FuncSpace, LANG, Metric, MetricSuite, MetricsOptions, Source, SpaceKind, analyze,
 };
@@ -270,6 +271,63 @@ pub(crate) fn function_space<'a>(func_space: &'a FuncSpace, name: &str) -> &'a F
             other.len()
         ),
     }
+}
+
+/// Asserts `src` parses to exactly `want` nodes of each given kind id.
+///
+/// The anchor for a fixture whose construct under test contributes
+/// *nothing* once the fix lands — a relational pattern's operator after
+/// #1383, a `goto case`'s `case` token after #1450 — and so has no
+/// second axis for the metric assertions to rest on. Trimming `> 5` down
+/// to `5`, or deleting `goto case 2;`, leaves every metric assertion
+/// satisfied and the construct gone (`.claude/rules/testing.md`,
+/// "Perturb the fixture as well as the production line"). Editing a
+/// spelling out of the source now fails here by name instead of silently
+/// turning the method into a copy of its control.
+///
+/// Counts rather than presence, because these fixtures carry several
+/// methods spelling the same construct: a bare [`ast_has_kind_id`] is
+/// still satisfied after one method loses its pattern, which is exactly
+/// the decay that turns that method into a silent duplicate of the
+/// control. Measured — with presence-only anchoring, rewriting
+/// `if (x is > 0)` to `if (x > 0)` in one method of five failed nothing.
+#[track_caller]
+pub(crate) fn assert_fixture_spells<P: ParserTrait>(
+    src: &str,
+    path: &str,
+    kinds: &[(u16, usize, &str)],
+) {
+    // An empty list would make every following assertion vacuous, which
+    // is the anchor's own failure mode rather than a caller's.
+    assert!(!kinds.is_empty(), "anchor asserted nothing");
+    let parser = P::new(src.as_bytes().to_vec(), std::path::Path::new(path), None);
+    for (kind, want, spelling) in kinds {
+        let found = parser
+            .root()
+            .preorder()
+            .filter(|n| n.kind_id() == *kind)
+            .count();
+        assert_eq!(
+            found, *want,
+            "fixture has {found} of {spelling}, expected {want} — the construct under test was edited"
+        );
+    }
+}
+
+/// The C# binding of [`assert_fixture_spells`]. Every caller passes a
+/// `foo.cs` fixture, so the parser and path are fixed here rather than
+/// repeated at each one.
+#[track_caller]
+pub(crate) fn assert_csharp_fixture_spells(src: &str, kinds: &[(u16, usize, &str)]) {
+    assert_fixture_spells::<crate::CsharpParser>(src, "foo.cs", kinds);
+}
+
+/// The Perl binding of [`assert_fixture_spells`], with the same
+/// fixed-parser rationale as the C# one above.
+#[cfg(feature = "perl")]
+#[track_caller]
+pub(crate) fn assert_perl_fixture_spells(src: &str, kinds: &[(u16, usize, &str)]) {
+    assert_fixture_spells::<crate::PerlParser>(src, "foo.pl", kinds);
 }
 
 // The parse-only helpers live beside the parse layer and are shared with

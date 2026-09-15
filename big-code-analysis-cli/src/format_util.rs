@@ -66,6 +66,21 @@ pub(crate) fn strip_path_prefix<'a>(path: &'a str, prefix: &str) -> &'a str {
     }
 }
 
+/// Separator between a path and its qualified symbol in a rendered
+/// offender identity.
+pub(crate) const ID_SEP: &str = "::";
+
+/// Display identity for one offender: `path::qualified` (file-level
+/// metrics carry the `<file>` sentinel in `qualified`, e.g.
+/// `src/x.rs::<file>`). Shared by `bca diff-baseline`'s rows and the
+/// stale-baseline warning so both name an entry the same way.
+///
+/// `path` is taken as `Display` so a caller holding a `Path` need not
+/// render it to an intermediate `String` first.
+pub(crate) fn identity(path: impl fmt::Display, qualified: &str) -> String {
+    format!("{path}{ID_SEP}{qualified}")
+}
+
 /// `3 files`, `1 ignored directory`: a count with the noun that agrees
 /// with it. The crate spells this rule in several report renderers;
 /// new sites should call this one.

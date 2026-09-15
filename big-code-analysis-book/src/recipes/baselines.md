@@ -110,6 +110,12 @@ A shrinking diff is the goal. Two `--write-baseline` runs over an
 unchanged tree produce byte-identical output, so spurious diffs only
 appear when actual offenders changed.
 
+You do not have to guess when a refresh is due. A gated run whose
+offenders have measured *better* than their recorded values says so on
+stderr — see [the stale-entry
+warning](#the-stale-entry-warning) — because the difference between
+recorded and live is suppression nobody chose.
+
 #### Before tightening a limit, price it at both tiers {#price-a-candidate-limit}
 
 Paying debt down invites tightening the limit that produced it, and the
@@ -165,7 +171,10 @@ Map the buckets back to the old heuristics:
   `--write-baseline` after the function got worse. Treat the same as
   `added` — surface the change in review.
 - **`improved`.** A recorded offender got better without dropping out
-  of the baseline; harmless, and a good sign the refactor is working.
+  of the baseline — a good sign the refactor is working, and the
+  reason to land the refreshed file rather than leave it. Until it is
+  refreshed, the old entry keeps suppressing the offender up to a value
+  the tree no longer produces.
 
 For a PR bot, `bca diff-baseline <old> <new> --format markdown` emits
 a fenced block ready to drop into a sticky comment, and the
@@ -305,6 +314,38 @@ equal provenance, for pre-v5 baselines (provenance unknown), and when
 either side is a `[thresholds.soft]`-table baseline (no single ratio to
 compare). To clear a genuine warning, refresh the baseline at the
 current tier with the matching `--write-baseline` recipe.
+
+## The stale-entry warning {#the-stale-entry-warning}
+
+The ratchet suppresses a violation for as long as it has not *worsened*
+past its recorded value, so everything on the improving side classifies
+alike: a function measuring 5 against a recorded 7 is treated exactly
+like one still measuring 7. The two points between them are gate
+headroom nobody chose — the function can grow back to 7 and the gate
+will not notice.
+
+A gated run reports that drift in one stderr line:
+
+```text
+warning: 3 baseline entries improved past the recorded value (worst:
+src/spaces/compute.rs::metrics_inner halstead.effort 119147.75 →
+116715.61); that gap is gate headroom nobody chose, so refresh with
+`--write-baseline`. …
+```
+
+It names one example rather than every entry, because the response to
+any number of them is the same wholesale refresh. Direction follows the
+metric: for the lower-is-worse `mi.*` family the stale direction is a
+*rise* above the record. An entry sitting exactly on its recorded value
+is silent, so a freshly written baseline never warns about itself.
+
+**It finds only half of the staleness.** A function that stopped
+breaching its limit altogether produces no violation at all, so it never
+reaches the baseline matcher and cannot be counted here. Its entry stays
+in the file, inert and invisible, until someone regenerates. Closing
+that half needs a scheduled `--write-baseline` run whose output is
+diffed against the committed file; the warning covers only the offenders
+still above their limits.
 
 ## How matching works {#how-matching-works}
 

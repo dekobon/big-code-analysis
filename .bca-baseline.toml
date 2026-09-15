@@ -264,6 +264,12 @@ metric = "halstead.effort"
 value = 120805.48245794396
 
 [[entry]]
+path = "big-code-analysis-ast/src/macros/kind_sets.rs"
+qualified = "<file>"
+metric = "loc.sloc"
+value = 1357.0
+
+[[entry]]
 path = "big-code-analysis-ast/src/node.rs"
 qualified = "Node<'a>"
 metric = "nom"
@@ -882,12 +888,6 @@ metric = "nexits"
 value = 8.0
 
 [[entry]]
-path = "src/metrics/abc/csharp.rs"
-qualified = "csharp_inspect_container"
-metric = "cognitive"
-value = 15.0
-
-[[entry]]
 path = "src/metrics/abc/go.rs"
 qualified = "GoCode::compute"
 metric = "cyclomatic"
@@ -898,12 +898,6 @@ path = "src/metrics/abc/go.rs"
 qualified = "GoCode::compute"
 metric = "halstead.effort"
 value = 49999.43426005393
-
-[[entry]]
-path = "src/metrics/abc/groovy.rs"
-qualified = "groovy_inspect_container"
-metric = "cognitive"
-value = 15.0
 
 [[entry]]
 path = "src/metrics/abc/java.rs"
@@ -927,7 +921,7 @@ value = 50110.01872952996
 path = "src/metrics/abc/rust.rs"
 qualified = "RustCode::compute"
 metric = "cyclomatic"
-value = 16.0
+value = 15.0
 
 [[entry]]
 path = "src/metrics/cognitive/bash.rs"

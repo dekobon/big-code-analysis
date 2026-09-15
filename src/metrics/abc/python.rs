@@ -60,9 +60,13 @@ fn python_inspect_container(container_node: &Node, parent: &Node, conditions: &m
 
     let mut node = *container_node;
     let mut node_kind = node.kind_id().into();
+    // `IfClause` joined this list with #1454: a `case … if g:` guard is
+    // a boolean slot exactly as an `if` condition is, so a parenthesised
+    // guard operand (`case n if (b):`) counts where the bare
+    // `case n if b:` already did.
     let has_boolean_content = matches!(
         parent.kind_id().into(),
-        BooleanOperator | IfStatement | WhileStatement | ConditionalExpression
+        BooleanOperator | IfStatement | WhileStatement | ConditionalExpression | IfClause
     );
 
     loop {
@@ -142,6 +146,43 @@ fn python_count_ternary_condition(node: &Node, conditions: &mut f64) {
         .find(|child| child.kind_id() != Comment as u16)
     {
         python_count_condition(&condition, node, conditions);
+    }
+}
+
+// The `case … if g:` guard of a `case_clause`, modelled as a condition
+// slot exactly like the `if` / `while` slots (#1454, transferring
+// #1422's C# rule). Before this, a guard scored whatever operator
+// happened to sit inside it: `case n if n > 5:` counted one via the
+// `comparison_operator` arm while `case n if is_even(n):` and
+// `case _ if b:` counted zero, so three semantically identical guards
+// produced two different numbers. As a slot every spelling contributes
+// exactly one — a call / attribute / subscript / bare identifier through
+// `python_bool_terminal_kinds!()`, a comparison or `not` through the arm
+// that already owns it — and a compound guard (`case n if a > 1 and b:`)
+// keeps its sub-structure rather than collapsing to one.
+//
+// By grammar FIELD, not index (`.claude/rules/grammar-dispatch.md` §3):
+// `case_clause` names its guard `guard`, which is what keeps a
+// comprehension's `if_clause` — the same kind, in a wholly different
+// role — out of this slot. The clause itself carries no field for its
+// expression (it is `seq('if', expression)`), so the operand is located
+// as a named child rather than at a fixed offset, and *every* named
+// child is passed: tree-sitter `extra`s are named and may precede it,
+// so `case n if  # why\n b:` hands a `comment` to a first-child read.
+// Python's extras at this pin are `comment` and `line_continuation`,
+// neither a `python_bool_terminal_kinds!()` member nor a
+// `parenthesized_expression`, so passing them through adds nothing and
+// the loop cannot double count a clause that holds one expression by
+// construction.
+//
+// No double count (§5): cyclomatic reaches this guard through the `If`
+// *keyword token* inside the `if_clause`, which no ABC arm matches.
+fn python_count_case_guard(case_clause: &Node, conditions: &mut f64) {
+    let Some(guard) = case_clause.child_by_field_name("guard") else {
+        return;
+    };
+    for operand in guard.children().filter(Node::is_named) {
+        python_count_condition(&operand, &guard, conditions);
     }
 }
 
@@ -236,8 +277,17 @@ impl Abc for PythonCode {
             // on the `case_clause` — `case _ if g:` carries a guard
             // and still counts. The shared classifier lives in
             // `super::npa` next to `pattern_is_bare_underscore`.
+            // The guard is a further condition slot — see
+            // `python_count_case_guard`. It is counted inside this arm
+            // rather than from an `IfClause` arm of its own because a
+            // comprehension filter (`[x for x in xs if g]`) is the same
+            // `if_clause` kind, and the `guard` field reaches only the
+            // `case` one. A guarded clause always satisfies the gate
+            // (`python_case_clause_counts` returns `true` on sight of
+            // an `if_clause`), so no guard is lost to it.
             CaseClause if super::npa::python_case_clause_counts(node, UNDERSCORE as u16) => {
                 stats.conditions += 1.;
+                python_count_case_guard(node, &mut stats.conditions);
             }
             // Fitzpatrick Rule 9 walker: each operand of an `and` /
             // `or` chain is one condition (issue #403). The `And` /

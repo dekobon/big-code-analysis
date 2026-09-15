@@ -35,9 +35,13 @@ fn rust_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
 
     let mut node = *container_node;
     let mut node_kind = node.kind_id().into();
+    // `MatchPattern` joined this list with #1454: a match guard
+    // (`n if g =>`) is a boolean slot exactly as an `if` condition is,
+    // so a parenthesised guard operand (`n if (b)`) counts where the
+    // bare `n if b` already did.
     let mut has_boolean_content = matches!(
         parent.kind_id().into(),
-        BinaryExpression | IfExpression | WhileExpression | LetChain | LetChain2
+        BinaryExpression | IfExpression | WhileExpression | LetChain | LetChain2 | MatchPattern
     );
 
     loop {
@@ -80,6 +84,52 @@ fn rust_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
         *conditions += 1.;
     } else if matches!(kind, ParenthesizedExpression | UnaryExpression) {
         rust_inspect_container(condition, parent, conditions);
+    }
+}
+
+// The conditions a `match_arm` contributes: the arm itself, plus its
+// guard.
+//
+// The arm counts unless its pattern is a bare `_` — the C / Java
+// `default:` equivalent, filtered here exactly as cyclomatic filters it.
+//
+// The guard is a condition slot, modelled like the `if` / `while` slots
+// (#1454, transferring #1422's C# rule). Before this, a guard scored
+// whatever operator happened to sit inside it: `n if n > 5` counted one
+// via the comparison-token arm while `n if is_even(n)` and `_ if b`
+// counted zero, so three semantically identical guards produced two
+// different numbers. As a slot every spelling contributes exactly one —
+// a call / field / index / bare identifier through
+// `rust_bool_terminal_kinds!()`, a comparison through the token arm
+// that already owns it — and a compound guard (`n if a > 1 && b`) keeps
+// its sub-structure rather than collapsing to one.
+//
+// By grammar FIELD, not index (`.claude/rules/grammar-dispatch.md` §3):
+// `match_pattern` names its guard `condition`, so a comment between the
+// pattern and the `if` cannot shift the read the way it does for the
+// positional sibling slots. The field is absent on an unguarded arm,
+// which is what keeps the control at its old value.
+//
+// No double count (§5): cyclomatic reaches this guard through the `If`
+// *keyword token* inside `match_pattern`, which no ABC arm matches, and
+// the field's two non-expression types — `let_condition` (`n if let
+// Some(v) = o`) and `let_chain` — are already owned by the
+// `LetCondition` token arm and by the `&&` walker respectively. Neither
+// is a `rust_bool_terminal_kinds!()` member, so routing them through
+// the slot adds nothing.
+fn rust_count_match_arm(node: &Node, conditions: &mut f64) {
+    let Some(pattern) = node.child_by_field_name("pattern") else {
+        // `pattern` is a required field, so this is unreachable at the
+        // pinned grammar; counting the arm keeps the pre-#1454
+        // `is_some_and` polarity if error recovery ever produces one.
+        *conditions += 1.;
+        return;
+    };
+    if !super::npa::pattern_is_bare_underscore(&pattern, Rust::UNDERSCORE as u16) {
+        *conditions += 1.;
+    }
+    if let Some(guard) = pattern.child_by_field_name("condition") {
+        rust_count_condition(&guard, &pattern, conditions);
     }
 }
 
@@ -200,14 +250,10 @@ impl Abc for RustCode {
             // not throw off the detection. A guard (`_ if g`) adds a
             // second named child to `match_pattern` and so escapes
             // the bare-wildcard filter.
-            MatchArm | MatchArm2 => {
-                let is_bare_wildcard = node.child_by_field_name("pattern").is_some_and(|pat| {
-                    super::npa::pattern_is_bare_underscore(&pat, UNDERSCORE as u16)
-                });
-                if !is_bare_wildcard {
-                    stats.conditions += 1.;
-                }
-            }
+            //
+            // The arm's guard is a further condition slot — see
+            // `rust_count_match_arm`.
+            MatchArm | MatchArm2 => rust_count_match_arm(node, &mut stats.conditions),
             // Fitzpatrick Rule 7: each operand of a `&&` / `||` chain
             // is one condition. The walker iterates immediate children
             // of the parent `binary_expression`; the per-`&&` / per-`||`

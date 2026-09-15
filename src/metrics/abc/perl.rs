@@ -53,14 +53,26 @@ use crate::*;
 // wrappers (`ScalarVariable`, `ArrayVariable`, `HashVariable` plus the
 // access shapes).
 fn perl_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
-    // bca: suppress(cognitive) — wrapper-peeling state machine, clearest whole
+    // bca: suppress(cognitive, halstead) — wrapper-peeling state machine, clearest whole
     // See `cpp_inspect_container` for the shared rationale: one loop peels
     // `(...)` / `!...` layers while carrying a single boolean-context flag.
+    // `halstead` joined the marker in #1464: the five statement-modifier
+    // kinds added to the boolean-context seed list took `effort` past the
+    // 50000 limit. Every one of those operands is a distinct grammar enum
+    // variant in one flat `matches!`, so the number counts node kinds the
+    // parser can hand us, not reasoning a reader must do — the same
+    // artifact `PerlCode::compute` below already carries the marker for.
     use Perl as P;
 
     let mut node = *container_node;
     let mut node_kind = node.kind_id().into();
     let parent_kind = parent.kind_id().into();
+    // The `*SimpleStatement` kinds are the statement-modifier forms
+    // (`return 1 if $x;`), whose `condition` slot is as boolean as the
+    // block form's (issue #1464). `ForSimpleStatement` is absent for
+    // the same reason `ForStatement2` is: its slot is a list to
+    // iterate, not a predicate — the grammar even names that field
+    // `list` rather than `condition`.
     let mut has_boolean_content = matches!(
         parent_kind,
         P::BinaryExpression
@@ -69,6 +81,11 @@ fn perl_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
             | P::WhileStatement
             | P::UntilStatement
             | P::ForStatement1
+            | P::IfSimpleStatement
+            | P::UnlessSimpleStatement
+            | P::WhileSimpleStatement
+            | P::UntilSimpleStatement
+            | P::WhenSimpleStatement
     ) || (matches!(parent_kind, P::TernaryExpression)
         && parent
             .child_by_field_name("condition")
@@ -234,6 +251,72 @@ fn perl_walk_for_statement(node: &Node, conditions: &mut f64) {
     }
 }
 
+// Phase-2B (issue #1464): the statement-modifier forms
+// `EXPR if COND;` / `unless` / `while` / `until`. Each is its own node
+// whose `condition` field is the predicate, so the slot is read by
+// grammar FIELD rather than by child index (`.claude/rules/grammar-
+// dispatch.md` §3). Perl's cyclomatic dispatcher already counts all
+// six modifier kinds, so before this Perl scored `return 1 if $x;`
+// zero conditions against `if ($x) { return 1; }`'s one — a straight
+// undercount on the idiomatic spelling, not a metric disagreement.
+//
+// `for_simple_statement` — the sixth modifier kind — is deliberately
+// absent: `print $_ for @list;` iterates a list and has no boolean
+// test, and the grammar names its field `list`, not `condition`. That
+// mirrors the block forms, where `ForStatement1` contributes only its
+// C-style header *condition* and the `foreach` shape `ForStatement2`
+// contributes nothing.
+//
+// `when_simple_statement` is listed for parity with the cyclomatic
+// dispatcher, which counts all six, but it is untested and unreachable
+// from valid Perl: `when` is a statement inside a `given` / `for`
+// topicalizer, never a modifier, and `perl -c` rejects
+// `print 6 when $x;`. Only error recovery can produce the node, so a
+// fixture would pin the grammar's present over-permissiveness as the
+// contract (`.claude/rules/grammar-dispatch.md` §6).
+//
+// `_if_simple` (`Perl::IfSimple`) is a hidden rule and gets no arm —
+// the parser inlines it, emitting the `if` token directly beneath
+// `if_simple_statement` (§2, verified with `bca dump`).
+//
+// The `condition` field holds an `_argument_choice`: either a
+// `parenthesized_argument`, which `perl_inspect_container` already
+// peels, or a bare `arguments` wrapper, which it does not. Peel the
+// `arguments` layer here — via the same last-named-child rule the
+// `Array` `(...)` wrapper uses, since a Perl comma list evaluates to
+// its last element in the scalar context a condition imposes — and
+// hand what it holds to the shared condition classifier.
+//
+// Three of the four paths below are unreachable or unobservable at the
+// pinned grammar, and are spelled as `Option` rather than as an
+// `expect` because `AGENTS.md` bans the latter outside tests. Do not
+// try to cover them:
+//
+// - `condition` is a required field on all five modifier productions
+//   (node-types.json), so the early `return` needs error recovery.
+// - The `else` arm takes a `parenthesized_argument`, which the parser
+//   emits in this slot only for the *empty* spelling `EXPR if ();`
+//   (valid Perl; anything with content resolves to `arguments`
+//   wrapping an `array`). An empty wrapper peels to nothing, so that
+//   arm and a bare `None` score alike — measured by perturbation, not
+//   assumed. A test would pin a value neither branch decides.
+// - `perl_last_named_child` returns `None` only for an `arguments`
+//   node with no named child, which the grammar's comma-separated
+//   one-or-more list cannot produce.
+fn perl_walk_statement_modifier(node: &Node, conditions: &mut f64) {
+    let Some(condition) = node.child_by_field_name("condition") else {
+        return;
+    };
+    let slot = if matches!(condition.kind_id().into(), Perl::Arguments) {
+        perl_last_named_child(&condition)
+    } else {
+        Some(condition)
+    };
+    if let Some(slot) = slot {
+        perl_count_condition(&slot, node, conditions);
+    }
+}
+
 fn perl_is_call_argument_parent(parent: Node) -> bool {
     use Perl as P;
     matches!(
@@ -291,7 +374,8 @@ impl Abc for PerlCode {
         // and the cyclomatic count is the number of node kinds the
         // grammar can hand us, neither being reasoning a reader must
         // do. Adding the guarded `<` / `>` arm for #1297 took the
-        // count from 14 to 15; the arm is independent and
+        // count from 14 to 15, and the statement-modifier arm for
+        // #1464 from 15 to 16; each arm is independent and
         // self-describing like every other, and there is no semantic
         // boundary to split this lookup on.
         use Perl as P;
@@ -446,6 +530,16 @@ impl Abc for PerlCode {
             // field and counts nothing.
             P::ForStatement1 => {
                 perl_walk_for_statement(node, &mut stats.conditions);
+            }
+            // Statement modifiers — `return 1 if $x;`, `next unless $ok;`
+            // (issue #1464). See `perl_walk_statement_modifier` for why
+            // `for_simple_statement` is not in this list.
+            P::IfSimpleStatement
+            | P::UnlessSimpleStatement
+            | P::WhileSimpleStatement
+            | P::UntilSimpleStatement
+            | P::WhenSimpleStatement => {
+                perl_walk_statement_modifier(node, &mut stats.conditions);
             }
             _ => {}
         }

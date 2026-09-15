@@ -421,6 +421,18 @@ purely procedural: do not bypass pre-commit, and refresh the baseline
 with `make self-scan-write-baseline-headroom` in the commit that moved
 the metric. A red gate on `main` traces directly to skipping this step.
 
+**The same duty runs the other way**, and nothing can make it red. A
+change that *lowers* a baselined metric leaves the recorded value
+describing a tree that no longer exists, and the filter keeps
+suppressing the offender all the way up to it — headroom nobody chose,
+in which a later regression hides. Since #1465 `bca check --baseline`
+warns on stderr when a covered offender has measured past its record
+(below it, or above it for the lower-is-worse `mi.*` family), naming
+the worst entry and the count. Refresh in the same commit, exactly as
+for an increase. The warning covers only offenders still above their
+limits: one that stopped breaching altogether produces no violation and
+so leaves an entry that only a full regeneration finds.
+
 The same rule governs **merges**. `.bca-baseline.toml` is marked
 `-merge` in `.gitattributes`, so git leaves it wholly conflicted rather
 than splicing two branches' entries together. That is deliberate:

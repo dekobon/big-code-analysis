@@ -417,6 +417,18 @@ repos:
         entry: python3 -m unittest -q utils/check-diagnostic-prefix-test.py
         pass_filenames: false
 
+      # Self-tests for the feature-gate reachability gate (#1472). Only
+      # the self-tests run here: the gate itself needs a test-binary
+      # build per feature set and lives in the `feature-matrix` CI job.
+      # Its scanner is the same hazard as the one above — a scan that
+      # stops matching reports a clean tree.
+      - id: check-feature-gates-test
+        name: check-feature-gates-test
+        language: system
+        files: '^utils/check-feature-gates(-test)?\.py$'
+        entry: python3 -m unittest -q utils/check-feature-gates-test.py
+        pass_filenames: false
+
       # Safety-doc pin gate — the module doc of
       # big-code-analysis-py/src/node.rs is the canonical soundness
       # argument for this workspace's only sanctioned `unsafe` block,

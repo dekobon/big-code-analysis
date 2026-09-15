@@ -10,6 +10,7 @@
 )]
 
 use super::{Abc, Stats};
+use crate::lang_helpers::elixir::elixir_call_keyword;
 use crate::macros::elixir_bool_terminal_kinds;
 use crate::*;
 
@@ -44,8 +45,17 @@ fn elixir_inspect_container(container_node: &Node, parent: &Node, conditions: &m
 
     loop {
         let is_block = matches!(node_kind, E::Block);
+        // Both of Elixir's negations, not just `!`. The keyword `not` is
+        // the stricter of the two — it raises on a non-boolean operand,
+        // where `!` accepts any truthy value — so it is at least as good
+        // a proof that what it wraps is boolean. Listing only `BANG`
+        // scored `a && not b` one condition against `a && !b`'s two, and
+        // would have dropped `when not is_nil(y)` to zero once the guard
+        // became a slot below.
         let is_not = matches!(node_kind, E::UnaryOperator)
-            && node.child(0).is_some_and(|c| c.kind_id() == E::BANG as u16);
+            && node
+                .child(0)
+                .is_some_and(|c| matches!(c.kind_id().into(), E::BANG | E::Not));
 
         if !is_block && !is_not {
             break;
@@ -72,6 +82,49 @@ fn elixir_inspect_container(container_node: &Node, parent: &Node, conditions: &m
             }
             break;
         }
+    }
+}
+
+// The Elixir sibling of `java_count_condition` / `ruby_count_condition`:
+// classifies one boolean *slot* — a position whose occupant is evaluated
+// for truth — and adds at most one condition for it.
+//
+// A slot adds nothing for an operator-spelled occupant: `y > 5` is a
+// `binary_operator`, absent from `elixir_bool_terminal_kinds!()`, and
+// the `>` token arm in `compute` already owns that one. Counting it here
+// too is the `.claude/rules/grammar-dispatch.md` §5 double count, and is
+// what made an Elixir guard's score depend on its spelling. `Block`
+// (`(y)`) and `UnaryOperator` (`!y`, `not y`) are wrappers rather than
+// occupants, so they are peeled by `elixir_inspect_container`.
+fn elixir_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
+    use Elixir as E;
+
+    let kind = condition.kind_id().into();
+    if matches!(kind, elixir_bool_terminal_kinds!()) {
+        *conditions += 1.;
+    } else if matches!(kind, E::Block | E::UnaryOperator) {
+        elixir_inspect_container(condition, parent, conditions);
+    }
+}
+
+// The guard slot of an anchored `when` operator.
+//
+// Repeated guards (`when a when b`) are an or-chain — Elixir tries each
+// alternative in turn, moving on when the previous one is false or
+// raises — so the construct carries one slot per alternative, level
+// with the `when a or b` spelling. They nest right-associatively, and
+// `elixir_when_is_guard` anchors every `when` token in the chain, so
+// the slot this fills is the single alternative *this* token
+// introduces: one per token, never the whole chain once per token
+// (grammar-dispatch §5).
+//
+// `elixir_when_alternative` answers `None` only when a `when`
+// `binary_operator` has no `right` child, which the grammar declares
+// required — so the `if let`'s else is unreachable at the pin rather
+// than untested.
+fn elixir_count_guard(when_operator: &Node, conditions: &mut f64) {
+    if let Some((alternative, owner)) = npa::elixir_when_alternative(when_operator) {
+        elixir_count_condition(&alternative, &owner, conditions);
     }
 }
 
@@ -104,6 +157,38 @@ fn elixir_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
                 break;
             }
         }
+    }
+}
+
+// What an Elixir `Call` contributes. The classification is by keyword
+// text rather than by kind, so it is a paragraph of policy rather than a
+// dispatch arm — the same split `java_count_token_branch` and
+// `csharp_count_token_assignment` make in the two largest sibling impls.
+fn elixir_count_call(node: &Node, code: &[u8], stats: &mut Stats) {
+    let keyword = elixir_call_keyword(node, code);
+    let is_definition_or_directive = matches!(
+        keyword,
+        Some(
+            "def"
+                | "defp"
+                | "defmacro"
+                | "defmacrop"
+                | "defmodule"
+                | "defstruct"
+                | "defprotocol"
+                | "defimpl"
+                | "alias"
+                | "import"
+                | "require"
+                | "use"
+        )
+    );
+    if !is_definition_or_directive {
+        stats.branches += 1.;
+    }
+    // Keyword-shaped control-flow Calls also contribute one condition.
+    if matches!(keyword, Some("if" | "unless" | "case" | "cond" | "with")) {
+        stats.conditions += 1.;
     }
 }
 
@@ -158,9 +243,7 @@ impl Abc for ElixirCode {
             // boolean ops, arithmetic) so the constant-time check
             // matters.
             E::BinaryOperator | E::BinaryOperator2 | E::BinaryOperator3
-                if node
-                    .child(1)
-                    .is_some_and(|c| c.kind_id() == E::EQ as u16) =>
+                if node.child(1).is_some_and(|c| c.kind_id() == E::EQ as u16) =>
             {
                 stats.assignments += 1.;
             }
@@ -194,32 +277,79 @@ impl Abc for ElixirCode {
             // are intentionally different — both impls use the same
             // helper to look up the keyword, but apply different
             // policies on top.
-            E::Call => {
-                let keyword = crate::lang_helpers::elixir::elixir_call_keyword(node, code);
-                let is_definition_or_directive = matches!(
-                    keyword,
-                    Some(
-                        "def" | "defp" | "defmacro" | "defmacrop"
-                        | "defmodule" | "defstruct" | "defprotocol" | "defimpl"
-                        | "alias" | "import" | "require" | "use"
-                    )
-                );
-                if !is_definition_or_directive {
-                    stats.branches += 1.;
-                }
-                // Keyword-shaped control-flow Calls also contribute
-                // one condition.
-                if matches!(keyword, Some("if" | "unless" | "case" | "cond" | "with")) {
-                    stats.conditions += 1.;
-                }
-            }
-            E::EQEQ | E::EQEQEQ | E::BANGEQ | E::BANGEQEQ | E::LTEQ | E::GTEQ
-            // Guard `when` token: introduces the guard clause of a
-            // function head or `case` arm.
-            | E::When => {
+            E::Call => elixir_count_call(node, code, stats),
+            E::EQEQ | E::EQEQEQ | E::BANGEQ | E::BANGEQEQ | E::LTEQ | E::GTEQ => {
                 stats.conditions += 1.;
             }
-            // Counts `<` / `>` only as the operator token of a
+            // Guard `when` token: introduces the guard clause of a
+            // function head or `case` / `fn` / `receive` arm. The guard
+            // is a condition *slot*, so every spelling contributes
+            // exactly one — the condition-slot model #1422 gave C# and
+            // #1454 gave Java, Rust, Python and Ruby.
+            //
+            // Elixir was the one language of the six that did not get
+            // the slot. It added a flat one for the `when` token *on top
+            // of* whatever the guard's sub-structure already scored, so
+            // `when y > 5` cost two where `when is_integer(y)` and
+            // `when y` cost one — precisely the spelling-dependence the
+            // slot exists to remove, and a §5 double count with the `>`
+            // token arm below. Routing the guard expression through
+            // `elixir_count_condition` puts all four spellings at one:
+            // a value-bearing guard scores in the slot, an
+            // operator-spelled one scores through the operator's own
+            // arm.
+            //
+            // By grammar FIELD, not index (grammar-dispatch §3): Elixir
+            // has no `guard` production — `when` is a `binary_operator`
+            // whose `left` is the head being guarded and whose `right`
+            // is the guard — so a comment between the two cannot shift
+            // the read. That the operator *is* a `binary_operator` is
+            // also why `elixir_inspect_container` needs no new
+            // `has_boolean_content` seed for this slot the way its Java,
+            // Rust and Ruby siblings did: the seed list already opens
+            // with the three `BinaryOperator` aliases, so `when (y)` and
+            // `when !y` are proven boolean for free.
+            //
+            // The gate is #1454's, shared with the `Cyclomatic` impl
+            // that carries the matching decision (§7). Elixir has no
+            // dedicated guard production, and a typespec's binding
+            // clause (`@spec f(a) :: a when a: integer`) spells the same
+            // token: it scored a condition here against no decision
+            // anywhere, on type syntax that branches on nothing.
+            //
+            // The `if let` cannot take its else: the gate already walked
+            // this token's ancestor chain and returns false when it is
+            // empty, so reaching the body proves the parent exists. It
+            // is not re-plumbed out of the predicate because that
+            // predicate's whole job (§7) is to be one boolean the `Abc`
+            // and `Cyclomatic` impls share.
+            E::When if npa::elixir_when_is_guard(node, code, ancestors) => {
+                if let Some(operator) = ancestors.parent(node) {
+                    elixir_count_guard(&operator, &mut stats.conditions);
+                }
+            }
+            // `in` / `not in` are Elixir's membership and type tests
+            // (`x in [1, 2]`, `rescue e in RuntimeError`) — relational
+            // operators, which Fitzpatrick Rule 5 scores by use. #1461
+            // moved exactly this class onto an unconditional arm in C#,
+            // Java, Groovy, Kotlin and Ruby but did not reach Elixir, so
+            // `x in y` scored zero where `x == y` scored one. The gap
+            // stayed invisible while the `when` arm above paid a flat
+            // one for every guard; as a slot, `when x in [1, 2]` would
+            // have fallen to zero, so the arm the slot model presumes —
+            // every operator-spelled guard is owned by an operator arm —
+            // has to exist for `in` as it already does for `>`.
+            //
+            // Sharing the `<` / `>` gate rather than standing alone
+            // because `in` has the same three grammar positions: a
+            // `grammar.json` sweep of the pinned tree-sitter-elixir
+            // finds it in `binary_operator`, in `operator_identifier`
+            // (`&in/2`) and in `_remote_dot` (`Kernel.in(a, b)`), the
+            // last two being how an operator is *named* rather than
+            // applied. `not in` lexes as one token and so has no inner
+            // `not` leaf to double count (§5).
+            //
+            // Counts all four only as the operator token of a
             // `binary_operator`, the allowlist polarity the rest of the
             // workspace moved to in #1274 and #1297. The previous
             // denylist excluded a sigil delimiter (`~s<hi>`, #1256) and
@@ -244,9 +374,9 @@ impl Abc for ElixirCode {
             // (`.claude/rules/grammar-dispatch.md` §1, the same call
             // `QUOTED_CONTENT` makes in `src/metrics/loc/elixir.rs`).
             // The runtime cost that trade buys there is not paid here:
-            // the guard runs only for a `<` or `>` token, not for every
-            // node.
-            E::LT | E::GT
+            // the guard runs only for one of these four tokens, not for
+            // every node.
+            E::LT | E::GT | E::In | E::Notin
                 if ancestors
                     .parent(node)
                     .is_some_and(|parent| parent.kind() == BINARY_OPERATOR) =>

@@ -497,7 +497,34 @@ jobs:
       # The `-- -D warnings` is belt-and-braces against that env var
       # being narrowed later. All ten pre-existing legs were verified
       # against the stricter command before it landed.
+      #
+      # These legs verify that the workspace *compiles* across feature
+      # combinations. They deliberately do not run the suite — that runs
+      # under `default` and `--all-features` in the `test` job — because
+      # running it here would fail in the thousands rather than report
+      # anything. Per-language tests are not feature-gated (30 of 3,482
+      # `#[test]` fns in `src/`), and `Node` panics by contract on a
+      # grammar that is not compiled in, so `--no-default-features
+      # --features rust` fails 2,642 of 3,238 tests. Gating them is
+      # tracked in #1472.
       - run: cargo clippy --all-targets ${{ matrix.flags }} --locked -- -D warnings
+      - uses: taiki-e/install-action@fa23953489c080190314742a9b907f8e97c6767c # v2.87.10
+        with:
+          tool: cargo-nextest
+      # The one thing a partial feature set breaks that the clippy run
+      # above cannot see (#1472): a test gated on the union of its rows
+      # must be *absent* when none of those features is enabled, not
+      # present and tripping its own `checked > 0` non-vacuity guard.
+      # That is a valid build, so nothing warns — it surfaces as a test
+      # failure on whichever leg enables none of the rows, which is how
+      # #1220 and PR #1221 shipped. `nextest list` answers it without
+      # running a test.
+      #
+      # `--locked` for the same reason the clippy run above carries it:
+      # the script forwards every unrecognised argument to `cargo nextest
+      # list`, which would otherwise be the one cargo invocation in this
+      # job allowed to rewrite `Cargo.lock` instead of failing on it.
+      - run: ./utils/check-feature-gates.py ${{ matrix.flags }} --locked
 
   deny:
     name: cargo-deny

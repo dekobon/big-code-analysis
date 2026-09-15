@@ -53,33 +53,24 @@ macro_rules! csharp_prefix_unary_expr_kinds {
 // the C# grammar. Anything in this set, when it appears in a known-
 // boolean context (if / while / do / for / ternary / binary), counts
 // as one condition. The set bundles `csharp_invocation_expr_kinds!()`
-// with the bare `Identifier` / `BooleanLiteral` leaves *and* the six
+// with the bare `Identifier` / `BooleanLiteral` leaves *and* the four
 // expression kinds whose evaluated value is implicitly boolean in any
-// idiomatic codebase:
+// idiomatic codebase: `MemberAccessExpression` (`cfg.Enabled`),
+// `AwaitExpression` (`await CheckAsync()`), `CastExpression`
+// (`(bool)v`) and `ElementAccessExpression` (`flags[0]`). Before #372
+// only invocation / identifier / boolean were recognised, so all four
+// silently scored zero conditions in `if` / `while` / `do` / ternary
+// contexts.
 //
-// - `MemberAccessExpression` — `cfg.Enabled`, `Request.IsHttps`
-// - `AwaitExpression`        — `await CheckAsync()`
-// - `CastExpression`         — `(bool)v`, `(IDisposable)x is not null`
-// - `IsPatternExpression`    — `x is null`, `x is not Foo f`
-// - `IsExpression`           — `x is int`, the bare type test
-// - `ElementAccessExpression` — `flags[0]`, `dict["key"]`
-//
-// Before #372 only the first three (invocation / identifier /
-// boolean) were recognised, so all five kinds above silently scored
-// zero conditions in `if` / `while` / `do` / ternary contexts.
-//
-// `IsExpression` (391) and `IsPatternExpression` (392) are distinct
-// kinds, not aliases: the grammar emits the first for a bare type test
-// (`x is int`) and the second only once a pattern is involved
-// (`x is int y`, `x is null`, `x is not Foo`). Listing only the second
-// scored `if (x is int)` zero conditions against a cyclomatic decision
-// of one, while `if (x is int y)` scored one — an asymmetry between two
-// spellings of the same test, and the C# half of the gap #1421 closed
-// for Kotlin by adding `IsExpression | InExpression` there. It also
-// left #1422's guard slot spelling-dependent in the one case that fix
-// claims to have fixed: `when x is int` scored 1 where
-// `when IsEven(x)` scored 2. No arm counts the `is` token itself, so
-// there is nothing to double-count (§5).
+// `IsExpression` (391) and `IsPatternExpression` (392) are the two
+// type tests, distinct kinds rather than aliases: the grammar emits
+// the first for a bare test (`x is int`) and the second once a pattern
+// is involved (`x is int y`, `x is null`, `x is not Foo`). Both were
+// listed here until #1461 moved them to an unconditional arm in
+// `src/metrics/abc/csharp.rs` — see the operands-not-operators note on
+// the Phase-2 block below. Slot-scoped, `var b = x is int;` scored
+// zero beside `x == 1`'s one. Nothing counts the `is` token itself and
+// the pair is disjoint, so exactly one arm fires per test (§5).
 #[macro_export]
 #[doc(hidden)]
 macro_rules! csharp_bool_terminal_kinds {
@@ -92,8 +83,6 @@ macro_rules! csharp_bool_terminal_kinds {
             | $crate::Csharp::MemberAccessExpression
             | $crate::Csharp::AwaitExpression
             | $crate::Csharp::CastExpression
-            | $crate::Csharp::IsPatternExpression
-            | $crate::Csharp::IsExpression
             | $crate::Csharp::ElementAccessExpression
     };
 }
@@ -117,13 +106,20 @@ macro_rules! csharp_var_declarator_kinds {
 // Terminal-bool operand kinds recognised by ABC condition counting for
 // the Java grammar. Sister of `csharp_bool_terminal_kinds!()` — bundles
 // the four "bare boolean leaf" kinds (`MethodInvocation`, `Identifier`,
-// `True`, `False`) with the four bool-evaluating expression kinds
-// surfaced by #372 / lesson #19:
+// `True`, `False`) with the bool-evaluating expression kinds surfaced
+// by #372 / lesson #19:
 //
 // - `FieldAccess`          — `cfg.flag`
 // - `CastExpression`       — `(boolean) v`
 // - `ArrayAccess`          — `flags[0]`
-// - `InstanceofExpression` — `x instanceof Foo`
+//
+// `InstanceofExpression` (`x instanceof Foo`) was the fourth until
+// #1461 moved it to an unconditional arm in `src/metrics/abc/java.rs`;
+// slot-scoped it scored `boolean b = x instanceof String;` zero beside
+// `x == 1`'s one. See the operands-not-operators note on the Phase-2
+// block below. One node covers both spellings (`x instanceof Foo` and
+// the pattern form `x instanceof Foo f`), and no arm counts the
+// `instanceof` token, so exactly one arm fires per test (§5).
 //
 // Used by `java_inspect_container`, `java_count_unary_conditions`,
 // `java_walk_ternary`, and the two branches of `java_walk_for_statement`
@@ -140,7 +136,6 @@ macro_rules! java_bool_terminal_kinds {
             | $crate::Java::FieldAccess
             | $crate::Java::CastExpression
             | $crate::Java::ArrayAccess
-            | $crate::Java::InstanceofExpression
     };
 }
 
@@ -153,23 +148,72 @@ macro_rules! java_bool_terminal_kinds {
 // grammar represents it as its own kind rather than nesting
 // `cast_expression` inside `parenthesized_expression`). The set bundles
 // the bool-evaluating terminals added by #372 (`FieldAccess`,
-// `CastExpression`, `ParenthesizedTypeCast`, `InstanceofExpression`);
-// the dekobon Groovy grammar has no `await` analogue, so that one
-// collapses out of the C# set.
+// `CastExpression`, `ParenthesizedTypeCast`); the dekobon Groovy
+// grammar has no `await` analogue, so that one collapses out of the C#
+// set.
 //
 // It DOES have an indexing analogue, and four navigation kinds beside
 // it — `subscript_expression`, `safe_subscript_expression`,
 // `safe_navigation_expression`, `safe_chain_dot_expression` and
 // `direct_field_access_expression`, all alternatives of `_expression`
-// and all legal in a boolean slot. None is listed, so `if (l[0])`,
-// `if (a?.b)` and `if (a.@b)` score zero where `if (a)` scores one,
-// while C# scores `l[0]` through `ElementAccessExpression` and Kotlin
-// scores both through `IndexExpression` / `NavigationExpression`.
-// `a?.b` is the worst of them: Groovy cyclomatic counts `?.` as a
-// decision, so ABC sits two below its own decision count on an
-// idiomatic predicate. Tracked separately — an earlier revision of
-// this comment claimed the analogue did not exist, which is the sort
-// of claim that stops the next reader looking.
+// and all legal in a boolean slot. All five join the set in #1466:
+// until then `if (l[0])`, `if (a?.b)` and `if (a.@b)` scored zero
+// where `if (a)` scored one, while C# scored `l[0]` through
+// `ElementAccessExpression` and Kotlin scored both through
+// `IndexExpression` / `NavigationExpression` — a per-language
+// asymmetry rather than a policy difference. `a?.b` was the worst of
+// them: Groovy cyclomatic counts `?.` as a decision, so ABC sat *two*
+// below its own decision count on an idiomatic predicate. An earlier
+// revision of this comment claimed the analogue did not exist, which
+// is the sort of claim that stops the next reader looking.
+//
+// None of the five double-counts a token (§5). ABC's condition-token
+// arm (`groovy_count_token_condition`) lists no navigation operator:
+// `?.` (`QMARKDOT`), `??.` (`QMARKQMARKDOT`) and `?[`
+// (`QMARKLBRACK` — its own token, verified with `bca dump`, not a
+// bare `QMARK` that the ternary-gated arm could see) are cyclomatic
+// decisions only. So listing the wrapper is the sole place each is
+// scored.
+//
+// The remaining `_expression` alternatives are absent on purpose. The
+// relational trio (`identity_expression`, `regex_find_expression`,
+// `regex_match_expression`) comes through the token arm, see below;
+// `binary_expression`, `ternary_expression`, `elvis_expression` and
+// `switch_expression` are scored by their own operator token or
+// nested condition; and the rest — `closure`,
+// `object_creation_expression`, `range_expression`, `power_expression`,
+// `update_expression`, `method_pointer_expression`,
+// `method_reference_expression`, `spread_dot_expression` — are shapes
+// whose Groovy-truth value is either constant or degenerate in a
+// predicate slot. `spread_dot_expression` (`a*.b`) is the closest call
+// of those; it is recorded in #1466 rather than added blind, as is
+// `object_creation_expression`, which #1462 measured short and left
+// alone because `new Foo()` is not a literal.
+//
+// Four more `_expression` alternatives moved into the set in #1462 and
+// so are no longer named in the paragraph above: `string_literal`,
+// `null_literal`, `list_literal` and `map_literal`. An earlier revision
+// of this comment excluded them as "constant or degenerate … and none
+// has a sibling-language precedent", and both halves of that stopped
+// being true. The precedent now exists in every truthy-valued sibling —
+// JavaScript's `string` / `null` / `object` / `array`, Python's
+// `string` / `none` / `list` / `dictionary`, PHP's `string` /
+// `array_creation_expression` / `null`, Lua's `string` /
+// `table_constructor` — and constant-ness never was the test, since
+// `BooleanLiteral` has been here since #403 and `NumberLiteral` since
+// #1410. All four measured a condition short of a `b` control in both
+// the `&&` chain and the `if` predicate. Landing only `string_literal`,
+// which is the one #1466 flagged, would have left `if ([])` scoring
+// zero beside `if ("s")` scoring one — the within-language asymmetry
+// this issue exists to close, one kind narrower.
+//
+// One `string_literal` kind covers every spelling: `'s'`, `"s"`, the
+// triple-quoted `"""s"""` and the slashy `/re/` all lex to it. The
+// grammar's `SlashyString` variant is the hidden `_slashy_string`
+// supertype the parser never emits (grammar-dispatch §2), which is why
+// `Checker::is_string` names only `string_literal` and this set follows
+// it (§7); `groovy_hidden_slashy_string_is_unreachable` in
+// `metrics/abc.rs` pins that.
 //
 // Groovy truth makes every non-zero number truthy, so `NumberLiteral`
 // is a unary condition here for the same reason Python's `Integer` /
@@ -189,24 +233,23 @@ macro_rules! java_bool_terminal_kinds {
 // outside every test glob (`tests/corpus/deepspeech_test.rs` globs
 // `*.cc` / `*.cpp` / `*.h` / `*.hh`), so this fix moves no snapshot.
 //
-// `membership_expression` (`a in l`, `a !in l`) is the Groovy spelling
-// of Kotlin's `in_expression`, and joins the set for the same reason
-// #1421 added that one: the grammar gives membership its own
-// production rather than a `binary_expression`, so no comparison-token
-// arm ever sees it and `if (a in l)` scored zero conditions against a
-// cyclomatic decision of one.
+// `membership_expression` (`a in l`, `a !in l`) and
+// `instanceof_expression` (`a instanceof T`, `a !instanceof T`) are
+// the two relational forms this grammar spells as their own
+// production. Both were listed here until #1461 moved them to an
+// unconditional arm in `src/metrics/abc/groovy.rs`, where a relational
+// belongs; see the operands-not-operators note on the Phase-2 block
+// below. Slot-scoped, `def b = a in l` scored zero beside
+// `def b = a == 1`'s one.
 //
-// It is the one Groovy relational form that has to come through the
-// terminal set rather than through `groovy_count_token_condition`'s
-// token arm, and a `grammar.json` sweep of dekobon-tree-sitter-groovy
-// 0.2.2 says why on both halves: the `in` token is shared with
-// `for_in_statement`, so an ungated token arm would score every
-// `for (x in list)` header, and the `!in` spelling emits **no operator
-// token at all** — `bca dump` shows `membership_expression` with two
-// `identifier` children and nothing between them — so a token arm
-// could not reach the negated form however it were gated. Listing the
-// wrapper covers both spellings at once and double-counts neither,
-// since neither token is counted anywhere (§5).
+// Neither can be reached by the *token* spelling that `==` / `===` /
+// `=~` use, and a `grammar.json` sweep of dekobon-tree-sitter-groovy
+// 0.2.2 says why for membership on both halves: the `in` token is
+// shared with `for_in_statement`, so an ungated token arm would score
+// every `for (x in list)` header, and the `!in` spelling emits **no
+// operator token at all** (`bca dump`). The node covers both spellings
+// of each construct, and neither construct's token is counted
+// anywhere, so exactly one arm fires per test (§5).
 //
 // The sibling relational productions `identity_expression` (`===`,
 // `!==`) and `regex_find_expression` / `regex_match_expression` (`=~`,
@@ -228,11 +271,18 @@ macro_rules! groovy_bool_terminal_kinds {
             | $crate::Groovy::Identifier
             | $crate::Groovy::BooleanLiteral
             | $crate::Groovy::NumberLiteral
+            | $crate::Groovy::StringLiteral
+            | $crate::Groovy::NullLiteral
+            | $crate::Groovy::ListLiteral
+            | $crate::Groovy::MapLiteral
             | $crate::Groovy::FieldAccess
             | $crate::Groovy::CastExpression
             | $crate::Groovy::ParenthesizedTypeCast
-            | $crate::Groovy::InstanceofExpression
-            | $crate::Groovy::MembershipExpression
+            | $crate::Groovy::SubscriptExpression
+            | $crate::Groovy::SafeSubscriptExpression
+            | $crate::Groovy::SafeNavigationExpression
+            | $crate::Groovy::SafeChainDotExpression
+            | $crate::Groovy::DirectFieldAccessExpression
     };
 }
 
@@ -243,6 +293,26 @@ macro_rules! groovy_bool_terminal_kinds {
 // per-language walker pair (`<lang>_inspect_container` +
 // `<lang>_count_unary_conditions`) consumes the same set in both
 // helpers, so hoisting to a macro removes the literal duplication.
+//
+// **These sets hold operands, never operators** (#1461). Membership is
+// slot-scoped by construction — a kind here scores only where a walker
+// consults the set, which is inside a boolean slot — and that is the
+// right scope for a *value*, whose truthiness is interesting only
+// because the slot reads it. It is the wrong scope for a **relational
+// operator**, which Fitzpatrick Rule 5 scores by use: `a == b` counts
+// wherever it is written, so `a is String` must too. The type-test and
+// membership productions a grammar spells as their own node sat here
+// until #1461 and so scored one inside a predicate and zero outside
+// it, while the comparison token beside them scored in both. Each now
+// has an unconditional arm in its language's ABC `compute` and is
+// listed in neither place twice — which would score it twice
+// (`.claude/rules/grammar-dispatch.md` §5). The five affected sets say
+// which of their members moved.
+//
+// The line is the construct's *value*, not its type. A cast, a type
+// assertion and an `@available` query all yield something the slot
+// then reads as a boolean, so they stay; a type test yields the
+// comparison's own result, so it does not.
 
 #[macro_export]
 #[doc(hidden)]
@@ -254,10 +324,31 @@ macro_rules! rust_bool_terminal_kinds {
     // for `CastExpression`, `MemberAccessExpression`, and
     // `AwaitExpression` on the C# side.
     //
+    // `MacroInvocation` joins them in #1461. A macro in a boolean slot
+    // expands to a boolean expression — `matches!`, `cfg!`, a crate's
+    // own predicate macro — and `if matches!(x, Some(_))` scored zero
+    // conditions against a cyclomatic decision of one.
+    //
+    // **The arm's breadth is the decision, not a side effect.** It
+    // fires for every macro reaching a boolean slot, `dbg!` and `todo!`
+    // included, because these sets discriminate on *slot*, never on
+    // return type: `CallExpression` beside it counts whatever the call
+    // returns, and `kotlin_bool_terminal_kinds!` says so in as many
+    // words for `infix_expression`. A macro that cannot be a predicate
+    // will not compile in the slot. Measured on the serde corpus it
+    // moves one snapshot, on `if cfg!(no_underscore_consts)` — a
+    // `cfg!`, not a `matches!`.
+    //
+    // `src/metrics/abc/rust.rs` excludes macros from *Branches*, which
+    // is a different axis and not a contradiction: B counts dispatch to
+    // a function body, and a macro expands in place rather than
+    // dispatching. C counts what the predicate makes a reader decide,
+    // and a macro predicate makes them decide exactly as a call does.
     () => {
         $crate::Rust::Identifier
             | $crate::Rust::BooleanLiteral
             | $crate::Rust::CallExpression
+            | $crate::Rust::MacroInvocation
             | $crate::Rust::FieldExpression
             | $crate::Rust::IndexExpression
             | $crate::Rust::ScopedIdentifier
@@ -307,6 +398,14 @@ macro_rules! go_bool_terminal_kinds {
 // `escape_sequence` child, so the wrapper is the only node reachable
 // here and there is nothing to double-count.
 //
+// `string_literal` / `concatenated_string` / `nullptr` are **not**
+// here, and that is a deferral rather than a decision: `if ("s")` is
+// legal C and always true, so by this set's own integer-truthiness
+// argument they belong. #1462 added the equivalent kinds to the eight
+// truthy-valued sets and left the C family out because it is the one
+// group in that class with integration-corpus exposure (the DeepSpeech
+// `native_client` tree), so the snapshot delta wants its own change.
+//
 // Two neighbouring kinds are deliberately absent. C++'s
 // `user_defined_literal` (`1.0_km`) wraps a `number_literal` but
 // evaluates to whatever `operator""` returns, which need not be
@@ -332,6 +431,24 @@ macro_rules! cpp_bool_terminal_kinds {
     // grammar has a node by that name, so the arm is inert there.
     // Without it every `if ([a ok])` / `for (; [a ok]; )` scored zero
     // conditions where `if (ok())` scored one.
+    // `available_expression` is Objective-C's runtime OS-version check
+    // (`@available(iOS 13.0, *)`), in the same inert-elsewhere position
+    // as `message_expression`: no C / C++ / Mozcpp grammar has a node by
+    // that name. It is the one entry here that *is* a boolean rather
+    // than something contextually converted to one, which is why it
+    // belongs in a set otherwise justified by integer truthiness.
+    // Without it `if (@available(iOS 13.0, *))` scored zero conditions
+    // where `if (a)` scored one (#1457).
+    //
+    // The wrapper is the keeper, not any child (grammar-dispatch §6):
+    // tree-sitter-objc's one `available_expression` rule spans both
+    // spellings of the construct (`@available` and `__builtin_available`
+    // are alternatives of its leading token) and makes the `version`
+    // child optional, so `@available(iOS, *)` carries no numeric node at
+    // all. Only the wrapper is present for every spelling, and it is
+    // the node that occupies the operand slot. That is also why the
+    // neighbouring exclusion above stands: `version_number` is a
+    // fragment of this node's interior, never an operand itself.
     () => {
         "identifier"
             | "true"
@@ -340,6 +457,7 @@ macro_rules! cpp_bool_terminal_kinds {
             | "char_literal"
             | "call_expression"
             | "message_expression"
+            | "available_expression"
             | "field_expression"
             | "subscript_expression"
             | "cast_expression"
@@ -364,6 +482,45 @@ macro_rules! cpp_bool_terminal_kinds {
 // groups with `Int` / `Bool` / `String2` rather than with the `Integer`
 // / `Float` value operands (`getter/php.rs`). Listing it would be the
 // `Number2` mistake `typescript_bool_terminal_kinds!` records below.
+//
+// #1462 added the non-numeric literals and the cast, each measured a
+// condition short of a `$b` control in both the `&&` chain and the `if`
+// predicate:
+//
+// - `String` (368) is the single-quoted literal and `EncapsedString`
+//   (367) the interpolating double-quoted one — separate rules, not
+//   aliases. `Heredoc` (371) and `Nowdoc` (373) are the two block
+//   spellings. All four are what `Checker::is_string` already lists
+//   (grammar-dispatch §7).
+// - `String3` (378) is the hidden `_string` supertype the parser never
+//   emits (grammar-dispatch §2) — listed defensively so a grammar that
+//   starts emitting it counts, and pinned as hidden by
+//   `php_hidden_string_supertype_is_unreachable` in `metrics/abc.rs`.
+//   `is_string` carries the same defensive arm.
+// - The `Float2` rule keeps two neighbours out. `String2` (25) is the
+//   `string` *type* keyword of `function f(): string`, and `Null2` (55)
+//   the `null` type keyword PHP 8 allows in the same position; neither
+//   is a value. `is_string` does list `String2`, which is a separate
+//   question about `find string` rather than a precedent for this set.
+// - `ArrayCreationExpression` (355) covers both `[]` and `array()`.
+// - `Null` (377) is a falsy constant and counts for the reason `False`
+//   does — see `perl_bool_terminal_kinds!`.
+// - `CastExpression` / `CastExpression2` (322, 323) close the second
+//   finding of #1462: PHP was the only set in the Java / C# / Groovy /
+//   PHP group naming no cast kind, so `if ((bool)$x)` scored zero where
+//   the other three scored one through `CastExpression` /
+//   `ParenthesizedTypeCast`. Two ids, both listed per lesson 2, though
+//   only 322 is reachable at this pin — every cast spelling the
+//   language has (`(bool)`, `(int)`, `(double)`, `(string)`,
+//   `(binary)`, `(array)`, `(object)`, `(unset)`) parses to it, so 323
+//   is a defensive arm in the `Perl::Octal` sense.
+// - `ShellCommandExpression` (`` `ls` ``) evaluates to the command's
+//   output, so it fills a boolean slot exactly as
+//   `FunctionCallExpression` does, and measured short beside it.
+//
+// None of these double counts (§5): the PHP ABC impl's condition arm
+// lists comparison and logical *tokens* only, and no arm matches a
+// literal, a cast, or a backtick.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! php_bool_terminal_kinds {
@@ -384,6 +541,16 @@ macro_rules! php_bool_terminal_kinds {
             | $crate::Php::Boolean
             | $crate::Php::Integer
             | $crate::Php::Float
+            | $crate::Php::String
+            | $crate::Php::String3
+            | $crate::Php::EncapsedString
+            | $crate::Php::Heredoc
+            | $crate::Php::Nowdoc
+            | $crate::Php::ArrayCreationExpression
+            | $crate::Php::Null
+            | $crate::Php::CastExpression
+            | $crate::Php::CastExpression2
+            | $crate::Php::ShellCommandExpression
             | $crate::Php::FunctionCallExpression
             | $crate::Php::MemberCallExpression
             | $crate::Php::ScopedCallExpression
@@ -415,16 +582,70 @@ macro_rules! python_bool_terminal_kinds {
     // Mirrors the Lua `Number` fix (#772). Statically-typed languages
     // omit numerics (a bare int in a bool slot is a type error); a
     // dynamically-typed language must count them.
+    //
+    // The remaining seven literal kinds joined in #1462 on the same
+    // argument, each measured a condition short of an identifier
+    // control in both the `and`/`or` chain and the `if` predicate:
+    //
+    // - `String` covers every quoting, prefix and interpolation
+    //   spelling — `'s'`, `"""s"""`, `f'x{a}'` and `b'x'` all lex to
+    //   it, verified by reading ids off a parsed fixture. Its neighbour
+    //   `ConcatenatedString` (`'a' 'b'`, the implicit-join form) is a
+    //   separate rule, not an alias, and is listed for the reason
+    //   #1379's Perl numerals were: the supertype's arm list is the
+    //   unit to check, and an alias sweep comes back clean on both.
+    //   Pairing them also matches `Checker::is_string`, which has
+    //   listed exactly `String | ConcatenatedString` since #301
+    //   (grammar-dispatch §7).
+    // - `None` is a falsy constant, and counts for the same reason
+    //   `False` has since #403 — see `perl_bool_terminal_kinds!` on
+    //   why the slot, not the value, is what the set measures.
+    // - `List` / `Set` / `Tuple` / `Dictionary` are the four collection
+    //   displays. `if items:` on a *name* already scored through
+    //   `Identifier`; the literal spelling scored zero.
+    // - `Ellipsis` completes the set. `if ...:` is rare, but leaving
+    //   the one remaining literal kind out would reproduce the same
+    //   within-language asymmetry one kind narrower, which is the
+    //   defect this issue is about rather than a smaller version of it.
+    //
+    // A collection literal holding an expression (`a and [x > 1]`)
+    // does not double count (§5): the walker never descends into the
+    // operand, and the inner comparison reaches `conditions` through
+    // the top-level `ComparisonOperator` arm — the same split that
+    // already governs `a and f(x > 1)`, where `Call` and the
+    // comparison each score once.
+    //
+    // `NamedExpression` — the walrus `if (n := g()):` — joins them in
+    // #1461. It is an operand like any other: the slot tests `g()`'s
+    // truth, and `if (n := g()):` scored zero conditions where the
+    // `if g():` it is a refactoring of scored one.
+    //
+    // **It also scores on the A axis, and that is not a double count**
+    // (`src/metrics/abc/python.rs` counts `:=` as an assignment). ABC's
+    // axes are independent measurements of the same source, not a
+    // partition of it, and the walrus genuinely both binds a name and
+    // decides a branch. §5's double count is one axis charged twice for
+    // one construct, which does not happen here — no other Python arm
+    // counts `named_expression`.
     () => {
         $crate::Python::Identifier
             | $crate::Python::True
             | $crate::Python::False
+            | $crate::Python::None
             | $crate::Python::Integer
             | $crate::Python::Float
+            | $crate::Python::String
+            | $crate::Python::ConcatenatedString
+            | $crate::Python::List
+            | $crate::Python::Set
+            | $crate::Python::Tuple
+            | $crate::Python::Dictionary
+            | $crate::Python::Ellipsis
             | $crate::Python::Call
             | $crate::Python::Attribute
             | $crate::Python::Subscript
             | $crate::Python::Await
+            | $crate::Python::NamedExpression
     };
 }
 
@@ -458,7 +679,46 @@ macro_rules! python_bool_terminal_kinds {
 //
 // The sets for C#, Java, Kotlin, Rust and Go deliberately name no
 // numeric kind: a bare number in a boolean slot is a compile error in
-// those five, so there is nothing to count.
+// those five, so there is nothing to count. **That reasoning extends to
+// every other literal kind**, which is why #1462 left all five alone
+// while adding strings, `null`, and collection literals to the
+// truthy-valued sets: `if ("s")` and `if (null)` are compile errors in
+// the same five for the same reason `if (1)` is.
+//
+// #1462 landed that sweep across eight sets — the four JS-family ones
+// plus Python, Lua, PHP and Groovy — and its own comment called that
+// the complete truthy-valued set. It was not: **Perl, Ruby and Elixir**
+// are truthy-valued too, appeared in neither the swept list nor the
+// compile-error exemption, and already carried `False` / `Nil` — the
+// very precedent the paragraph below cites. A whole-branch review of
+// the batch measured the gap the CHANGELOG describes in all three:
+// `$a && "s"` scored 1 against `$a && $b`'s 2, and `if ("s")` scored 0
+// against `if ($b)`'s 1. The three sets were swept on the same terms
+// and each names its additions below.
+//
+// Tcl and iRules are the remaining truthy-valued languages and needed
+// nothing: their `quoted_word`, `braced_word_simple` and `number` kinds
+// already cover every literal spelling an `expr {…}` operand can take
+// (measured, not assumed). A bare `simple_word` still scores zero,
+// which is correct — an unquoted bareword is not a literal in `expr`,
+// it is a syntax error.
+//
+// #1462 is also where the *value* of the literal stopped being the
+// question. Every set here has listed `False` since #403 and several
+// list `Nil` / `Null`, so the rule these sets encode is already "a
+// literal **fills** the operand slot", not "a literal is truthy" — a
+// falsy constant is a Fitzpatrick unary condition exactly as `false`
+// is. The issue title says truthy because that is the idiom that
+// exposed the gap (`x || "default"`), not because a `null` operand
+// scores differently.
+//
+// The one exclusion that survives in a truthy-valued language is a
+// kind that is not a **value**: a type keyword rendering to the same
+// node-kind name as its literal. PHP's `Float2` records the original,
+// and #1462 added four more — TypeScript's `String2` / `Object2`,
+// Tsx's `String3` / `Object2`, and PHP's `String2` / `Null2`, each the
+// annotation spelling (`a: string`, `function f(): null`) rather than
+// a value. Each set names the ids so the next reader can check them.
 //
 // That rationale does **not** extend to the C family, which an earlier
 // revision of this comment wrongly grouped with them: C and C++ are
@@ -490,12 +750,35 @@ macro_rules! python_bool_terminal_kinds {
 // (`perl_count_unary_conditions`), so the pattern node is never
 // reached alongside its own `=~`.
 //
-// Three further rules in the same grammar family are deliberately
-// absent because whether they are boolean *tests* is a judgement call,
-// not a dispatch gap: `substitution_pattern_s` (`s///`) and
-// `transliteration_tr_or_y` (`tr///`) each evaluate to a count rather
-// than a bool, and `regex_pattern_qr` (`qr//`) to a compiled-pattern
-// object that is always true. All three measure zero conditions today.
+// `substitution_pattern_s` (`s///`) and `transliteration_tr_or_y`
+// (`tr///`) are deliberately absent: both edit `$_` and evaluate to a
+// count, so they are operations rather than literals, and both measure
+// zero today. `regex_pattern_qr` (`qr//`) sat beside them until #1462's
+// sweep reached Perl, deferred as "a compiled-pattern object that is
+// always true" — which is the argument *for* counting it once the
+// question became whether a literal fills the slot rather than whether
+// it is a boolean test. It is the JavaScript `regex` / Groovy slashy
+// literal by another spelling, so it counts.
+//
+// The literal kinds that sweep added, each measured a condition short
+// of a `$b` control in *both* the `&&`-chain and the `if` predicate
+// slot, with every id read off `bca dump`: the four string productions
+// the grammar keeps separate — `string_single_quoted` (329),
+// `string_q_quoted` (330), `string_double_quoted` (331),
+// `string_qq_quoted` (332), so listing one would have closed a quarter
+// of the gap; `heredoc_initializer` (216), the `<<"EOT"` token that
+// occupies the slot while the body is a statement node the walker never
+// reaches (so no §5 double count); `command_qx_quoted` (333) and
+// `backtick_quoted` (334), on PHP's `shell_command_expression`
+// precedent; the collection literals `word_list_qw` (335), `array_ref`
+// (357) and `hash_ref` (358), `(1, 2)` (`array`, 356) having already
+// scored; `regex_pattern_qr` (338) per above; and `special_literal`
+// (220) — `__FILE__` / `__LINE__` / `__PACKAGE__` / `__SUB__`, constants
+// standing where a value stands. That rule also spells `__END__` /
+// `__DATA__`, which end the compilation unit and so reach no operand
+// slot to be excluded from. None of the twelve has a numeric-suffix
+// alias in tree-sitter-perl 1.1.2 (§1, swept over the whole enum) and
+// every one was observed emitted (§2).
 #[macro_export]
 #[doc(hidden)]
 macro_rules! perl_bool_terminal_kinds {
@@ -524,6 +807,18 @@ macro_rules! perl_bool_terminal_kinds {
             | $crate::Perl::MethodInvocation
             | $crate::Perl::PatternMatcher
             | $crate::Perl::PatternMatcherM
+            | $crate::Perl::StringSingleQuoted
+            | $crate::Perl::StringQQuoted
+            | $crate::Perl::StringDoubleQuoted
+            | $crate::Perl::StringQqQuoted
+            | $crate::Perl::HeredocInitializer
+            | $crate::Perl::CommandQxQuoted
+            | $crate::Perl::BacktickQuoted
+            | $crate::Perl::WordListQw
+            | $crate::Perl::ArrayRef
+            | $crate::Perl::HashRef
+            | $crate::Perl::RegexPatternQr
+            | $crate::Perl::SpecialLiteral
     };
 }
 
@@ -532,6 +827,14 @@ macro_rules! perl_bool_terminal_kinds {
 // the language has no counterpart of the #1379 Ruby / Elixir / Perl gap.
 // The same holds for Tcl, iRules and the four JS-family sets, each
 // measured rather than read off the grammar.
+//
+// `String` and `TableConstructor` joined in #1462. Lua's truth rule is
+// the strongest case in the workspace for counting them: everything but
+// `false` and `nil` is truthy, which is why `cond and "a" or "b"` *is*
+// the language's ternary — and it scored 1 where `cond and a or b`
+// scored 2. One `string` kind covers all three spellings (`"s"`, `'s'`
+// and the long-bracket `[[s]]`), verified by reading ids off a parsed
+// fixture; `Checker::is_string` likewise lists only `String`.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! lua_bool_terminal_kinds {
@@ -541,6 +844,8 @@ macro_rules! lua_bool_terminal_kinds {
             | $crate::Lua::False
             | $crate::Lua::Nil
             | $crate::Lua::Number
+            | $crate::Lua::String
+            | $crate::Lua::TableConstructor
             | $crate::Lua::FunctionCall
             | $crate::Lua::DotIndexExpression
             | $crate::Lua::DotIndexExpression2
@@ -600,12 +905,42 @@ macro_rules! javascript_bool_terminal_kinds {
     // numeric-truthy operand: JS treats every non-zero number as
     // truthy, so `while (5)` / `x && 5` count their numeric literal
     // as a Fitzpatrick unary condition (#772, mirrors the Lua fix).
+    //
+    // The seven non-numeric literal kinds join it in #1462 — every one
+    // measured a condition short of the identifier control in both
+    // slots. `x || "default"` is the language's commonest truthy-default
+    // idiom and scored 1 against `x || y`'s 2.
+    //
+    // **Both `string` ids are listed, and that is per language.** The
+    // grammar declares `string` under two kind_ids here (196, 221) and
+    // the one an operand slot carries is `String2` (221) — but
+    // `Checker::is_string` already lists both for JavaScript, Mozjs and
+    // Tsx and only `String` for TypeScript, having made exactly this
+    // per-language alias decision (grammar-dispatch §7). Mirroring it
+    // keeps `find string` and ABC answering the same question about the
+    // same node; diverging would be the drift §7 exists to prevent.
+    //
+    // `String` (196) is a defensive arm, like Perl's `Octal`: at this
+    // grammar pin nothing emits it — an import specifier, an `export
+    // from` clause, a quoted object key and a JSX attribute value all
+    // parse to 221 — so removing it fails no test. It stays because the
+    // alias exists in the enum, a pin bump renumbers ids freely (#732),
+    // and the cost of a grammar that starts emitting it is a silent
+    // zero rather than a build error.
     () => {
         $crate::Javascript::Identifier
             | $crate::Javascript::Identifier2
             | $crate::Javascript::True
             | $crate::Javascript::False
             | $crate::Javascript::Number
+            | $crate::Javascript::String
+            | $crate::Javascript::String2
+            | $crate::Javascript::TemplateString
+            | $crate::Javascript::Regex
+            | $crate::Javascript::Null
+            | $crate::Javascript::Undefined
+            | $crate::Javascript::Object
+            | $crate::Javascript::Array
             | $crate::Javascript::CallExpression
             | $crate::Javascript::CallExpression2
             | $crate::Javascript::NewExpression
@@ -622,14 +957,26 @@ macro_rules! javascript_bool_terminal_kinds {
 macro_rules! mozjs_bool_terminal_kinds {
     // `AwaitExpression` (`await ready()`) is in the terminal set
     // mirroring the C# reference (lesson 19). `Number` is a
-    // numeric-truthy operand (#772, mirrors the Lua fix) — see
-    // `javascript_bool_terminal_kinds!`.
+    // numeric-truthy operand (#772, mirrors the Lua fix), and the seven
+    // non-numeric literal kinds joined in #1462 — see
+    // `javascript_bool_terminal_kinds!` for both. Mozjs renumbers every
+    // id (`string` is 222 here, 221 there) but its alias *shape* is
+    // JavaScript's: two `string` ids, and `Checker::is_string` lists
+    // both for this language too.
     () => {
         $crate::Mozjs::Identifier
             | $crate::Mozjs::Identifier2
             | $crate::Mozjs::True
             | $crate::Mozjs::False
             | $crate::Mozjs::Number
+            | $crate::Mozjs::String
+            | $crate::Mozjs::String2
+            | $crate::Mozjs::TemplateString
+            | $crate::Mozjs::Regex
+            | $crate::Mozjs::Null
+            | $crate::Mozjs::Undefined
+            | $crate::Mozjs::Object
+            | $crate::Mozjs::Array
             | $crate::Mozjs::CallExpression
             | $crate::Mozjs::CallExpression2
             | $crate::Mozjs::NewExpression
@@ -650,11 +997,31 @@ macro_rules! typescript_bool_terminal_kinds {
     // grammar's other `number` alias, `Number2` (id 133), is the
     // `predefined_type` keyword `number` in a type annotation — NOT a
     // value — so it is deliberately omitted from the terminal-bool set.
+    //
+    // The seven non-numeric literal kinds joined in #1462, and the
+    // `Number2` rule decides two of them here. TypeScript spells
+    // `string` under two ids and `object` under two: the *literals* are
+    // `String` (247) and `Object` (213), while `String2` (135) and
+    // `Object2` (137) are the `predefined_type` keywords of `a: string`
+    // / `a: object`. Only the literals are listed — which is also the
+    // split `Checker::is_string` already made, listing `String` alone
+    // for TypeScript where it lists both ids for JavaScript, Mozjs and
+    // Tsx (grammar-dispatch §7). Verified by parsing a fixture carrying
+    // both spellings and reading the ids, not by reading the grammar:
+    // all four render to the same node-kind string, so an alias sweep
+    // cannot tell them apart.
     () => {
         $crate::Typescript::Identifier
             | $crate::Typescript::True
             | $crate::Typescript::False
             | $crate::Typescript::Number
+            | $crate::Typescript::String
+            | $crate::Typescript::TemplateString
+            | $crate::Typescript::Regex
+            | $crate::Typescript::Null
+            | $crate::Typescript::Undefined
+            | $crate::Typescript::Object
+            | $crate::Typescript::Array
             | $crate::Typescript::CallExpression
             | $crate::Typescript::CallExpression2
             | $crate::Typescript::CallExpression3
@@ -679,12 +1046,33 @@ macro_rules! tsx_bool_terminal_kinds {
     // grammar's other `number` alias, `Number2` (id 139), is the
     // `predefined_type` keyword `number` in a type annotation — NOT a
     // value — so it is deliberately omitted from the terminal-bool set.
+    //
+    // The seven non-numeric literal kinds joined in #1462. Tsx is the
+    // reason this file has four JS macros rather than one: it spells
+    // `string` under **three** ids where TypeScript has two and
+    // JavaScript has two different ones. `String` (233) and `String2`
+    // (261) are both value literals — an operand slot carries 261, a
+    // JSX attribute value 233 — and `String3` (141) is the
+    // `predefined_type` keyword, the `Number2` case one kind over.
+    // `Object` (219) is the literal, `Object2` (143) the type keyword.
+    // Same split as `Checker::is_string`, which lists 233 and 261 and
+    // not 141 (grammar-dispatch §7). Measured, 233 turns out to be the
+    // same defensive-arm case as JavaScript's `String` (196): no
+    // position reaches it at this pin, JSX attribute values included.
     () => {
         $crate::Tsx::Identifier
             | $crate::Tsx::Identifier2
             | $crate::Tsx::True
             | $crate::Tsx::False
             | $crate::Tsx::Number
+            | $crate::Tsx::String
+            | $crate::Tsx::String2
+            | $crate::Tsx::TemplateString
+            | $crate::Tsx::Regex
+            | $crate::Tsx::Null
+            | $crate::Tsx::Undefined
+            | $crate::Tsx::Object
+            | $crate::Tsx::Array
             | $crate::Tsx::CallExpression
             | $crate::Tsx::CallExpression2
             | $crate::Tsx::CallExpression3
@@ -725,13 +1113,18 @@ macro_rules! tsx_bool_terminal_kinds {
 // `is_expression` (`a is String`, `a !is String`) and `in_expression`
 // (`a in 1..2`, `a !in 1..2`) are the two relational forms the grammar
 // spells as their own production rather than as a `binary_expression`,
-// so the comparison-token arms never see them and nothing else in the
-// Kotlin impl counts them. They are terminal for every consumer of this
-// set — neither carries a nested chain link, and neither's own operator
-// token (`is` / `!is` / `in` / `!in`) is counted anywhere — so listing
-// them here scores each exactly once, as Fitzpatrick Rule 5 scores any
-// other relational operator. Before #1421 `if (a is String)` scored
-// zero conditions against a cyclomatic decision of one.
+// so the comparison-token arms never see them. #1421 added them here
+// and #1461 moved them to an unconditional arm in
+// `src/metrics/abc/kotlin.rs`, slot-scoping having scored
+// `val b = a is String` zero beside `val b = a == c`'s one — see the
+// operands-not-operators note on the Phase-2 block below.
+//
+// Nothing else in the Kotlin impl counts either, and the node is the
+// half to count rather than the token: `!is` / `!in` are their own
+// spellings of the same production, and a bare `in` token is also the
+// `for (x in xs)` header's. `bca dump` confirms a subject-ful `when`
+// arm spells its patterns `range_test` / `type_test` rather than these
+// two, so the entry's own count and this arm never both fire (§5).
 #[macro_export]
 #[doc(hidden)]
 macro_rules! kotlin_bool_terminal_kinds {
@@ -741,8 +1134,6 @@ macro_rules! kotlin_bool_terminal_kinds {
             | $crate::Kotlin::NavigationExpression
             | $crate::Kotlin::IndexExpression
             | $crate::Kotlin::ThisExpression
-            | $crate::Kotlin::IsExpression
-            | $crate::Kotlin::InExpression
             | $crate::Kotlin::InfixExpression
     };
 }
@@ -788,14 +1179,46 @@ macro_rules! kotlin_bool_terminal_kinds {
 // which evaluates to a boolean. The grammar gives it its own
 // production, so the comparison-token arm in `metrics/abc/ruby.rs`
 // never sees it — that arm is gated on a `binary` parent and lists no
-// `in` token — and `if a in Integer` scored zero conditions against a
-// cyclomatic decision of one. Nothing counts the `in` token itself, so
-// listing the wrapper scores it exactly once (§5).
+// `in` token. It was listed here until #1461 moved it to an
+// unconditional arm in that file, slot-scoping having scored
+// `b = a in Integer` zero beside `b = a == 1`'s one. See the
+// operands-not-operators note on the Phase-2 block below.
+//
+// Counting the node rather than the `in` token is what keeps it to one
+// (§5): the same token heads `for x in xs` and the `in_clause` of a
+// `case`/`in`, and `bca dump` shows all three as separate productions,
+// so the `InClause` arm never sees a `test_pattern`.
 //
 // Its neighbour `match_pattern` (`expr => pat`, id 252) is **not**
 // here and must not be added: that spelling raises `NoMatchingPattern`
 // on failure rather than yielding a boolean, so it is a destructuring
 // assignment, not a condition.
+//
+// The literal kinds #1462's sweep added, each measured a condition
+// short of a `b` control in *both* the `&&`-chain and the `if`
+// predicate slot, with every id read off `bca dump`: `string` (314),
+// which covers `"s"`, `'s'`, `%q()` and `%Q()` alike; `chained_string`
+// (312), the adjacent-literal concatenation `"a" "b"`, a sibling rule
+// rather than an alias and so invisible to an alias sweep;
+// `heredoc_beginning` (142), the `<<~TXT` token that occupies the slot
+// while `heredoc_body` is a separate node the walker never reaches (so
+// no §5 double count); the collection literals `array` (322), `hash`
+// (323), `string_array` (316, `%w[]`) and `symbol_array` (317, `%i[]`);
+// `regex` (319), which in a predicate is additionally an implicit match
+// against `$_`; `subshell` (315), `` `ls` `` and `%x{}`, on PHP's
+// `shell_command_expression` precedent; `character` (123), the
+// one-character literal `?a`, the counterpart of the `Char` Elixir's
+// set already named; and the two symbol productions `simple_symbol`
+// (130) and `delimited_symbol` (318), which are to Ruby what `atom` is
+// to Elixir. None has a numeric-suffix alias in tree-sitter-ruby 0.23.1
+// (§1) and every one was observed emitted (§2).
+//
+// `Nil2` (22) is **not** here and must not be added. `nil` parses as a
+// `nil` *wrapper* (309, listed) around a `nil` keyword token (22), so
+// listing both would score the literal twice (§5); the same shape holds
+// for Elixir's `Nil` / `Nil2` below. `lambda` (325, `->{}`) and the
+// range productions are absent as well — a closure and a range are not
+// literals in the class this sweep covers.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! ruby_bool_terminal_kinds {
@@ -817,7 +1240,18 @@ macro_rules! ruby_bool_terminal_kinds {
             | $crate::Ruby::Float
             | $crate::Ruby::Rational
             | $crate::Ruby::Complex
-            | $crate::Ruby::TestPattern
+            | $crate::Ruby::String
+            | $crate::Ruby::ChainedString
+            | $crate::Ruby::HeredocBeginning
+            | $crate::Ruby::Subshell
+            | $crate::Ruby::Array
+            | $crate::Ruby::Hash
+            | $crate::Ruby::StringArray
+            | $crate::Ruby::SymbolArray
+            | $crate::Ruby::Regex
+            | $crate::Ruby::Character
+            | $crate::Ruby::SimpleSymbol
+            | $crate::Ruby::DelimitedSymbol
     };
 }
 
@@ -845,6 +1279,29 @@ macro_rules! ruby_bool_terminal_kinds {
 // string; `x && ?a` scored 1 against `x && b`'s 2 until it was listed.
 // Radix prefixes (`0x`, `0o`, `0b`) fold into `integer`, verified by
 // measurement.
+//
+// The non-numeric literal kinds #1462's sweep added, each measured a
+// condition short of a `b` control in the `&&`-chain slot, with every
+// id read off `bca dump`: `string` (153), one kind for the `"s"` and
+// the `"""` heredoc spelling alike; `charlist` (154); the collection
+// literals `list` (162), `tuple` (163), `map` (165) and `bitstring`
+// (164), `map` also being what `%Foo{}` parses to (`struct`, 166, is
+// its child, so listing `map` alone is right and cannot double count,
+// §5); `sigil` (156), one kind for `~r//`, `~s()` and `~w()` alike; and
+// `quoted_atom` (132), which is a **separate production** from `atom`
+// (14) rather than an alias of it, so `:"quoted atom"` scored zero
+// while `:atom` scored one. Elixir has no bare-truthy `if` predicate
+// slot, so only the chain slot moves. None of the seven has a
+// numeric-suffix alias in tree-sitter-elixir 0.3.5 (§1) and every one
+// was observed emitted (§2).
+//
+// `Nil2` (13) and `Atom2` (131) are **not** here and must not be added.
+// `nil` parses as a `nil` wrapper (130, listed) around a `nil` keyword
+// token (13), so listing both would score the literal twice (§5), and
+// `Atom2` is unreachable at this pin — `:atom` is `Atom` (14) and
+// `:"q a"` is `quoted_atom`. The closures (`anonymous_function`, 203)
+// and captures (`&Foo.bar/1`, a `unary_operator`) are absent on the
+// same rule as Ruby's `lambda`: not literals.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! elixir_bool_terminal_kinds {
@@ -865,6 +1322,14 @@ macro_rules! elixir_bool_terminal_kinds {
             | $crate::Elixir::Float
             | $crate::Elixir::Char
             | $crate::Elixir::AccessCall
+            | $crate::Elixir::String
+            | $crate::Elixir::Charlist
+            | $crate::Elixir::Sigil
+            | $crate::Elixir::QuotedAtom
+            | $crate::Elixir::List
+            | $crate::Elixir::Tuple
+            | $crate::Elixir::Map
+            | $crate::Elixir::Bitstring
     };
 }
 

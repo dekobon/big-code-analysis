@@ -13,8 +13,30 @@ coverage:
     project:
       default:
         informational: true
+    # A fixed floor rather than `auto` (which targets the project figure).
+    # `auto` is unreachable by construction for a grammar-dispatch patch:
+    # `AGENTS.md` bans `unwrap` / `expect` in non-test code, so every
+    # infallible node lookup is spelled `?` — `node.child(1)?` on a
+    # `parenthesized_expression`, `child_by_field_name("operand")?` on a
+    # `unary_expression` — and each mints a `None` region no valid input can
+    # reach. Partials dominate the miss list for that reason (12 of 19 on
+    # PR #1476). Raising the floor is the fix; adding an `expect` to win the
+    # region would trade an uncoverable branch for a panic in a library that
+    # parses untrusted source.
+    #
+    # Second thing to know before reading any patch number here: Codecov
+    # silently drops a file whose diff GitHub's API refuses to send (over
+    # ~3,000 changed lines), so a heavily-edited file is *absent* from the
+    # patch rather than counted as missing. The tell is `<ø>` in the
+    # per-file table instead of a percentage. On PR #1476 that removed
+    # `src/metrics/abc.rs` — the largest changed file — from the
+    # denominator entirely (283/303 lines). Production changes to a file of
+    # that size are invisible to patch coverage; judge them on the covered-
+    # region delta instead.
     patch:
       default:
+        target: 90%
+        threshold: 2%
         informational: true
 
 comment:

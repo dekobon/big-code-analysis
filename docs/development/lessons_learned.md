@@ -985,7 +985,12 @@ any future regression shifting the same metric by `±OFFSET` becomes
 invisible, and an explanatory comment is no substitute for a failing
 test, because reviewers skim comments and CI cannot. The rule
 generalises: anywhere a calibration constant compensates for a known
-asymmetry, that test cannot catch bugs in the asymmetric path.
+asymmetry, that test cannot catch bugs in the asymmetric path — and the
+compensation need not be a constant. A helper that pins each value
+absolutely but asserts no relation *between* them has the same blind
+spot: a wrong value that is individually plausible reads exactly like a
+right one, with no literal to grep for and a call site identical to
+every other.
 
 **`PYTHON_ELSE_BUG_OFFSET` hid the Python over-count from the parity
 test designed to catch it** (#229, `a239cf6`). `if_else_if_else_chain_parity`
@@ -1000,6 +1005,21 @@ any future regression shifting the count in a different direction. #229
 fixed `has_ancestors` (renamed `parent_grandparent_match`, strictly
 checking both predicates), updated the sole call site, and removed the
 offset in the same commit.
+
+**A helper that pinned absolutes recorded the wrong absolute** (#1454).
+Of the five languages one commit gave a pattern-match guard, four got a
+condition slot and Elixir got a flat `+1` on top of the guard's existing
+sub-structure, so `when y > 5` scored 3 where every sibling scored 2 —
+the spelling-dependence the change existed to remove. All five tests use
+`assert_members_score`, which pins each member's pair absolutely, because
+the fixtures put guarded members and their controls at different values
+and `assert_every_member_scores` takes one expected value for all of
+them. That choice is right; the cost is that it asserts no relation
+*between* the two numbers, so Elixir's `("tok", 3, 3)` reads exactly like
+its siblings' `("tok", 2, 3)` while violating
+`conditions == cyclomatic() - 1`. Its own commit's four-stage review, a
+green `make pre-commit`, 5,766 tests and 99.5% patch coverage all passed
+over it; only reading the five legs against each other found it.
 
 ---
 
@@ -1872,7 +1892,12 @@ into children, a single-arm `switch` for a container-vs-arm counter. Then
 test-via-revert each new arm independently and confirm it fails when
 that *one* arm is dropped. When auditing an existing metric, identify
 every independent path contributing to the field and ensure each has an
-input no other path covers.
+input no other path covers. The same audit is owed *prospectively* when
+a change removes one of the paths: replacing an ad-hoc accumulator with
+one that delegates makes the result depend on every construct the
+delegate can now decline being owned somewhere else, and where it is
+not, the score falls to zero — indistinguishable from a construct that
+legitimately scores nothing.
 
 Both paths add into the same `Stats` field, so any fixture covered by
 *either* reads the right total and passes. The dead path is invisible
@@ -1900,6 +1925,19 @@ the `BooleanLiteral` wrapper the grammar interposes for a condition, so
 `if (true)`, `while (false)`, and `!true` all scored 0 — but only when no
 other condition token fired in the same statement. Same root cause,
 different node shape, within one week.
+
+**Removing the masking path exposed two arms that had never existed**
+(#1454, and #1461 for the `in` half). Elixir's guard scored a flat `+1`,
+which the fix replaced with a condition slot that classifies the guard
+expression and declines what it does not recognise. Two constructs the
+slot model presumes are owned elsewhere were not: `in` / `not in` had no
+arm in either metric, and only `!` counted as negation, not the keyword
+`not`. Inside a guard the `+1` supplied their count regardless, so
+`when a in b` read correctly; outside one, `a in b` already scored 0
+against `a == b`'s 1 — visible to anyone who looked, and nobody did.
+Both would have fallen to 0 in the guard too the moment the slot
+declined them. The audit that catches this is done before the change, by
+enumerating what the delegate can refuse.
 
 ---
 
@@ -3246,6 +3284,16 @@ that subtraction failed **0 of 3,390** lib tests, where dropping either
 sibling fails 3 and 1. It survived two fresh-context reviews *because* it
 admitted the uncertainty: a hedge reads as a gap someone has already
 logged, not as a claim to test. The remedy was a `debug_assert_eq!` on the walk, not a fixture.
+
+**A FIXME's reason ages independently of its conclusion** (issues #1450
+and #1451). Paired FIXMEs in C#'s ABC and cyclomatic arms each justified
+leaving a `goto case` over-count by citing the parity
+`conditions == cyclomatic() - 1`. Gating either side alone breaks
+**zero** of 3,429 lib tests: that parity is opt-in fixture policy, and no
+fixture outside the cognitive tests spelled `goto case`. The conclusion
+held; the stated reason never did. `AGENTS.md`'s rule to re-verify a
+deferred issue's premises covers in-source FIXMEs, which are trusted
+*more* for sitting beside the code.
 
 ---
 

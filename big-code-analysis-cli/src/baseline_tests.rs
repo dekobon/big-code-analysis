@@ -512,6 +512,158 @@ fn classify_lower_is_worse_rise_is_covered() {
     ));
 }
 
+// -- Stale-entry tally (#1465) --------------------------------------------
+
+/// Drive [`StaleTally`] over `(recorded, violation)` pairs, the shape
+/// `filter_by_baseline` feeds it once `classify` has answered `Covered`.
+fn tally(observations: &[(f64, Violation)]) -> Option<String> {
+    let mut t = StaleTally::default();
+    for (recorded, v) in observations {
+        t.observe(v, *recorded);
+    }
+    t.warning()
+}
+
+#[test]
+fn stale_tally_is_silent_at_the_exact_recorded_value() {
+    // The boundary `classify_at_exact_baseline_is_covered` guards from
+    // the other side: an entry sitting exactly on its record still
+    // describes the tree, so warning about it would fire on every
+    // freshly written baseline. Pinned in both metric directions.
+    assert_eq!(tally(&[(9.0, v("a", "f", 1, "cyclomatic", 9.0))]), None);
+    assert_eq!(
+        tally(&[(60.0, v_low("a", "f", 1, "mi.original", 60.0))]),
+        None
+    );
+}
+
+#[test]
+fn stale_tally_is_silent_when_the_value_worsened() {
+    // Defensive: `classify` routes a worsened value to `Regressed`, so
+    // this pair never reaches `observe` in production. The tally must
+    // still not read a rise as an improvement if it ever does.
+    assert_eq!(tally(&[(9.0, v("a", "f", 1, "cyclomatic", 12.0))]), None);
+    assert_eq!(
+        tally(&[(60.0, v_low("a", "f", 1, "mi.original", 45.0))]),
+        None
+    );
+}
+
+#[test]
+fn stale_tally_is_silent_on_nan() {
+    // `classify` routes NaN to `Regressed` before `observe` sees it, but
+    // every `breaches_limit` comparison against NaN is false either way,
+    // so a NaN arriving here must not be counted as an improvement.
+    assert_eq!(
+        tally(&[(9.0, v("a", "f", 1, "cyclomatic", f64::NAN))]),
+        None
+    );
+}
+
+#[test]
+fn stale_tally_warns_when_a_higher_is_worse_metric_fell() {
+    let msg = tally(&[(9.0, v("src/a.rs", "S::f", 1, "cyclomatic", 5.0))])
+        .expect("a fall below the record is stale");
+    assert!(msg.starts_with("1 baseline entry improved past"), "{msg}");
+    assert!(
+        msg.contains("src/a.rs::S::f cyclomatic 9 \u{2192} 5"),
+        "{msg}"
+    );
+}
+
+#[test]
+fn stale_tally_warns_when_a_lower_is_worse_metric_rose() {
+    // The `mi.*` mirror image: for a lower-is-worse metric the stale
+    // direction is *up*, so a shared-polarity implementation that only
+    // looked for a fall would report nothing here.
+    let msg = tally(&[(60.0, v_low("src/a.rs", "S::f", 1, "mi.original", 75.0))])
+        .expect("a rise above an mi.* record is stale");
+    assert!(
+        msg.contains("src/a.rs::S::f mi.original 60 \u{2192} 75"),
+        "{msg}"
+    );
+}
+
+#[test]
+fn stale_tally_names_only_the_worst_entry_by_relative_drift() {
+    // Aggregation contract: one line for the whole run, naming the
+    // entry that drifted furthest *relative* to its record. The
+    // halstead entry moved by 2,000 in absolute terms and the
+    // cyclomatic one by 15, so an absolute ranking would name the
+    // wrong one.
+    let msg = tally(&[
+        (
+            100_000.0,
+            v("src/a.rs", "big", 1, "halstead.effort", 98_000.0),
+        ),
+        (20.0, v("src/b.rs", "small", 1, "cyclomatic", 5.0)),
+    ])
+    .expect("two stale entries");
+    assert!(msg.starts_with("2 baseline entries improved past"), "{msg}");
+    assert!(
+        msg.contains("src/b.rs::small cyclomatic 20 \u{2192} 5"),
+        "{msg}"
+    );
+    // Exactly one `old → new` pair is rendered, whichever order the
+    // observations arrived in: the line names an example, not a list.
+    assert_eq!(msg.matches('\u{2192}').count(), 1, "{msg}");
+}
+
+#[test]
+fn stale_tally_worst_is_order_independent() {
+    // The maximum-tracking in `observe` must not depend on the worst
+    // entry arriving last.
+    let worse = (20.0, v("src/b.rs", "small", 1, "cyclomatic", 5.0));
+    let milder = (
+        100_000.0,
+        v("src/a.rs", "big", 1, "halstead.effort", 98_000.0),
+    );
+    let forward = tally(&[worse.clone(), milder.clone()]).expect("two stale entries");
+    let reversed = tally(&[milder, worse]).expect("two stale entries");
+    assert_eq!(forward, reversed);
+    // Equal *and* right: an `observe` that simply kept the last entry
+    // it saw would also be order-dependent, but one that kept the first
+    // would agree with itself while naming the wrong entry.
+    assert!(
+        reversed.contains("src/b.rs::small cyclomatic 20 \u{2192} 5"),
+        "{reversed}"
+    );
+}
+
+#[test]
+fn stale_tally_ranks_a_zero_record_worst() {
+    // A zero record is reachable: `mi.original` bottoms out at 0 for bad
+    // enough code, and the baseline loader drops only *negative* values.
+    // Such an entry gives away every point of headroom there is — the
+    // gate could never fire below zero — so it must rank above the
+    // cyclomatic entry's 0.75 rather than fall out of the ranking. That
+    // the key stays finite is a property of the denominator, which no
+    // assertion on the rendered message can observe; it is argued at
+    // `relative_drift` instead.
+    let msg = tally(&[
+        (20.0, v("src/b.rs", "small", 1, "cyclomatic", 5.0)),
+        (0.0, v_low("src/a.rs", "floor", 1, "mi.original", 4.0)),
+    ])
+    .expect("two stale entries");
+    assert!(msg.starts_with("2 baseline entries improved past"), "{msg}");
+    assert!(
+        msg.contains("src/a.rs::floor mi.original 0 \u{2192} 4"),
+        "{msg}"
+    );
+}
+
+#[test]
+fn stale_tally_names_the_uncovered_half_of_the_class() {
+    // The warning must not read as if it closes baseline staleness: an
+    // entry whose metric stopped breaching its limit produces no
+    // `Violation`, so it never reaches `classify` and cannot be counted.
+    let msg = tally(&[(9.0, v("src/a.rs", "S::f", 1, "cyclomatic", 5.0))]).expect("stale");
+    assert!(
+        msg.contains("stopped breaching its limit produces no violation"),
+        "{msg}"
+    );
+}
+
 #[test]
 fn classify_different_path_is_new() {
     let b = baseline_with(vec![entry("a", "f", 1, "cyclomatic", 5.0)]);
