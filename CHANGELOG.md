@@ -147,6 +147,28 @@ for historical reference.
 
 ### Fixed
 
+- **Perl ABC scored statement-modifier conditions zero** (#1464).
+  `return 1 if $x;` reported `abc.conditions` 0 where the block form
+  `if ($x) { return 1; }` reports 1, and the same for `unless`, `while`
+  and `until`. The dispatcher had arms for the four block statements
+  and none for the `*_simple_statement` nodes the grammar emits for the
+  modifier spelling — which is the idiomatic Perl one (`next unless
+  $ok;`), so the undercount was systematic on real code. Perl's
+  *cyclomatic* dispatcher already counted all six modifier kinds, so
+  this was a straight ABC undercount against Perl's own decision count
+  rather than a disagreement between the two metrics. The slot is read
+  by the grammar's `condition` field and goes through the same
+  condition classifier the block forms use, so a compound predicate
+  keeps its sub-structure: `return 1 if $x && $y;` scores 2, as
+  `if ($x && $y)` already did. The `for` / `foreach` modifier
+  (`print $_ for @list;`) is deliberately excluded — it iterates a list
+  and has no boolean test, which the grammar itself records by naming
+  that slot `list` rather than `condition`. **Metric drift:** Perl
+  `abc.conditions` and `abc.magnitude` rise by one per `if` / `unless`
+  / `while` / `until` statement modifier, plus whatever its predicate
+  contributes; both are gated threshold metrics. No integration
+  snapshot moves — the corpora contain no Perl.
+
 - **C# `goto case` counted as a decision** (#1450, #1451). `goto case 2;`
   spells the same `case` keyword token as a real `switch` arm — the
   grammar emits it from a second production, `goto_statement` — so both

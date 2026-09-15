@@ -322,6 +322,14 @@ pub(crate) fn assert_csharp_fixture_spells(src: &str, kinds: &[(u16, usize, &str
     assert_fixture_spells::<crate::CsharpParser>(src, "foo.cs", kinds);
 }
 
+/// The Perl binding of [`assert_fixture_spells`], with the same
+/// fixed-parser rationale as the C# one above.
+#[cfg(feature = "perl")]
+#[track_caller]
+pub(crate) fn assert_perl_fixture_spells(src: &str, kinds: &[(u16, usize, &str)]) {
+    assert_fixture_spells::<crate::PerlParser>(src, "foo.pl", kinds);
+}
+
 // The parse-only helpers live beside the parse layer and are shared with
 // its own tests through the `test-support` feature.
 pub(crate) use big_code_analysis_ast::test_support::{ast_has_kind_id, for_each_node_with_chain};

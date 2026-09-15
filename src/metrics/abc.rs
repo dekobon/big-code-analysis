@@ -14287,3 +14287,153 @@ mod own_production_bool_constructs {
         });
     }
 }
+
+/// A Perl statement modifier must score like the block form it is
+/// shorthand for (#1464).
+///
+/// `return 1 if $x;` and `if ($x) { return 1; }` are the same decision
+/// written two ways, and the modifier is the idiomatic Perl spelling —
+/// `next unless $ok;`, `warn "..." if $debug;`. Perl's *cyclomatic*
+/// dispatcher already counted all six modifier kinds, so this was a
+/// straight ABC undercount against Perl's own decision count rather
+/// than a policy disagreement between the two metrics.
+///
+/// Each pair is asserted equal **and** equal to a literal, so a
+/// regression that zeroed both spellings still fails. The fixtures are
+/// spell-anchored because the modifier is the only thing in them that
+/// scores a condition: deleting `if $x` from the modifier fixture would
+/// otherwise turn it into a silent copy of nothing at all
+/// (`.claude/rules/testing.md`, "Perturb the fixture as well as the
+/// production line").
+#[cfg(test)]
+#[cfg(feature = "perl")]
+mod perl_statement_modifier_parity {
+    use crate::test_support::{assert_perl_fixture_spells, metrics_verbatim};
+    use crate::{LANG, MetricsOptions, Perl};
+
+    fn conditions(source: &str) -> u64 {
+        metrics_verbatim(LANG::Perl, source.as_bytes(), MetricsOptions::default())
+            .abc
+            .conditions_sum()
+    }
+
+    /// `(keyword, kind id, kind name)` — the four modifier keywords
+    /// whose grammar slot is a `condition`. `for` / `foreach` is the
+    /// fifth spelling and is covered by its own test below; `when` is
+    /// the sixth and has no fixture at all, being unreachable from
+    /// valid Perl (see `perl_walk_statement_modifier`).
+    const CONDITION_MODIFIERS: [(&str, u16, &str); 4] = [
+        ("if", Perl::IfSimpleStatement as u16, "if_simple_statement"),
+        (
+            "unless",
+            Perl::UnlessSimpleStatement as u16,
+            "unless_simple_statement",
+        ),
+        (
+            "while",
+            Perl::WhileSimpleStatement as u16,
+            "while_simple_statement",
+        ),
+        (
+            "until",
+            Perl::UntilSimpleStatement as u16,
+            "until_simple_statement",
+        ),
+    ];
+
+    #[test]
+    fn a_modifier_scores_like_its_block_form() {
+        assert!(
+            LANG::Perl.is_enabled(),
+            "compiled under `feature = \"perl\"` but `LANG::Perl` reports disabled; \
+             this test asserted nothing"
+        );
+        for (keyword, kind, name) in CONDITION_MODIFIERS {
+            let modifier = format!("sub f {{ my $x = shift; return 1 {keyword} $x; }}");
+            let block = format!("sub f {{ my $x = shift; {keyword} ($x) {{ return 1; }} }}");
+            assert_perl_fixture_spells(&modifier, &[(kind, 1, name)]);
+            assert_eq!(
+                conditions(&modifier),
+                conditions(&block),
+                "`{keyword}` modifier and block form disagree\n  modifier: {modifier}\n  block:    {block}"
+            );
+            assert_eq!(
+                conditions(&modifier),
+                1,
+                "`{keyword}` modifier: the bare scalar predicate is one condition"
+            );
+        }
+    }
+
+    /// The modifier's `condition` field goes through the shared
+    /// condition classifier, not a flat `+1`, so a compound predicate
+    /// keeps its sub-structure — three shapes the block form already
+    /// scores above and below one.
+    #[test]
+    fn a_modifier_condition_keeps_its_substructure() {
+        for (predicate, expected) in [("!$x", 1), ("($x)", 1), ("$x && $x", 2), ("$x > 2", 1)] {
+            let modifier = format!("sub f {{ my $x = shift; return 1 if {predicate}; }}");
+            let block = format!("sub f {{ my $x = shift; if ({predicate}) {{ return 1; }} }}");
+            assert_perl_fixture_spells(
+                &modifier,
+                &[(Perl::IfSimpleStatement as u16, 1, "if_simple_statement")],
+            );
+            assert_eq!(
+                conditions(&modifier),
+                expected,
+                "`if {predicate}` modifier\n  source: {modifier}"
+            );
+            assert_eq!(
+                conditions(&block),
+                expected,
+                "`if ({predicate})` block form\n  source: {block}"
+            );
+        }
+    }
+
+    /// The `for` / `foreach` modifier iterates a list and is not a
+    /// boolean test — the grammar names its slot `list`, not
+    /// `condition`. Pinned against the `if` modifier so the zero reads
+    /// as a decision rather than as an arm nothing reaches.
+    ///
+    /// Measured: simply *adding* `ForSimpleStatement` to the dispatch
+    /// arm does not fail this test, because the walker reads the slot by
+    /// field name and `for_simple_statement` exposes no `condition` —
+    /// the exclusion is structural, not a listed omission. What it does
+    /// catch is a rework that reaches the slot some other way (a child
+    /// index, the `list` field) or a grammar that renames the field.
+    #[test]
+    fn the_for_modifier_is_not_a_condition() {
+        for keyword in ["for", "foreach"] {
+            let source = format!("sub f {{ my $x = shift; print 5 {keyword} @$x; }}");
+            assert_perl_fixture_spells(
+                &source,
+                &[(Perl::ForSimpleStatement as u16, 1, "for_simple_statement")],
+            );
+            let abc =
+                metrics_verbatim(LANG::Perl, source.as_bytes(), MetricsOptions::default()).abc;
+            assert_eq!(abc.conditions_sum(), 0, "`{keyword}` modifier: {source}");
+            // The expected value *is* the default, so the zero above
+            // proves nothing on its own — a fixture that stopped
+            // parsing would satisfy it too. `my $x = shift` is the
+            // file's one assignment, and `shift` and `print 5` its two
+            // branches; all three must survive.
+            assert_eq!(
+                abc.assignments_sum(),
+                1,
+                "`{keyword}`: fixture stopped scoring"
+            );
+            assert_eq!(
+                abc.branches_sum(),
+                2,
+                "`{keyword}`: fixture stopped scoring"
+            );
+        }
+        assert_eq!(
+            conditions("sub f { my $x = shift; return 1 if $x; }"),
+            1,
+            "control: the `if` modifier still counts, so the zero above is a \
+             policy decision and not a dead arm"
+        );
+    }
+}
