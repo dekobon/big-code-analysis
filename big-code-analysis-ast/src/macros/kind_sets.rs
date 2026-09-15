@@ -185,15 +185,39 @@ macro_rules! java_bool_terminal_kinds {
 // `regex_match_expression`) comes through the token arm, see below;
 // `binary_expression`, `ternary_expression`, `elvis_expression` and
 // `switch_expression` are scored by their own operator token or
-// nested condition; and the rest — `list_literal`, `map_literal`,
-// `closure`, `object_creation_expression`, `range_expression`,
-// `power_expression`, `update_expression`, `method_pointer_expression`,
-// `method_reference_expression`, `spread_dot_expression`,
-// `string_literal`, `null_literal` — are shapes whose Groovy-truth
-// value is either constant or degenerate in a predicate slot, and
-// none has a sibling-language precedent. `spread_dot_expression`
-// (`a*.b`) is the closest call of those; it is recorded in #1466
-// rather than added blind.
+// nested condition; and the rest — `closure`,
+// `object_creation_expression`, `range_expression`, `power_expression`,
+// `update_expression`, `method_pointer_expression`,
+// `method_reference_expression`, `spread_dot_expression` — are shapes
+// whose Groovy-truth value is either constant or degenerate in a
+// predicate slot. `spread_dot_expression` (`a*.b`) is the closest call
+// of those; it is recorded in #1466 rather than added blind, as is
+// `object_creation_expression`, which #1462 measured short and left
+// alone because `new Foo()` is not a literal.
+//
+// Four of that list moved into the set in #1462: `string_literal`,
+// `null_literal`, `list_literal` and `map_literal`. An earlier revision
+// of this comment excluded them as "constant or degenerate … and none
+// has a sibling-language precedent", and both halves of that stopped
+// being true. The precedent now exists in every truthy-valued sibling —
+// JavaScript's `string` / `null` / `object` / `array`, Python's
+// `string` / `none` / `list` / `dictionary`, PHP's `string` /
+// `array_creation_expression` / `null`, Lua's `string` /
+// `table_constructor` — and constant-ness never was the test, since
+// `BooleanLiteral` has been here since #403 and `NumberLiteral` since
+// #1410. All four measured a condition short of a `b` control in both
+// the `&&` chain and the `if` predicate. Landing only `string_literal`,
+// which is the one #1466 flagged, would have left `if ([])` scoring
+// zero beside `if ("s")` scoring one — the within-language asymmetry
+// this issue exists to close, one kind narrower.
+//
+// One `string_literal` kind covers every spelling: `'s'`, `"s"`, the
+// triple-quoted `"""s"""` and the slashy `/re/` all lex to it. The
+// grammar's `SlashyString` variant is the hidden `_slashy_string`
+// supertype the parser never emits (grammar-dispatch §2), which is why
+// `Checker::is_string` names only `string_literal` and this set follows
+// it (§7); `groovy_hidden_slashy_string_is_unreachable` in
+// `metrics/abc.rs` pins that.
 //
 // Groovy truth makes every non-zero number truthy, so `NumberLiteral`
 // is a unary condition here for the same reason Python's `Integer` /
@@ -252,6 +276,10 @@ macro_rules! groovy_bool_terminal_kinds {
             | $crate::Groovy::Identifier
             | $crate::Groovy::BooleanLiteral
             | $crate::Groovy::NumberLiteral
+            | $crate::Groovy::StringLiteral
+            | $crate::Groovy::NullLiteral
+            | $crate::Groovy::ListLiteral
+            | $crate::Groovy::MapLiteral
             | $crate::Groovy::FieldAccess
             | $crate::Groovy::CastExpression
             | $crate::Groovy::ParenthesizedTypeCast
@@ -336,6 +364,14 @@ macro_rules! go_bool_terminal_kinds {
 // `escape_sequence` child, so the wrapper is the only node reachable
 // here and there is nothing to double-count.
 //
+// `string_literal` / `concatenated_string` / `nullptr` are **not**
+// here, and that is a deferral rather than a decision: `if ("s")` is
+// legal C and always true, so by this set's own integer-truthiness
+// argument they belong. #1462 added the equivalent kinds to the eight
+// truthy-valued sets and left the C family out because it is the one
+// group in that class with integration-corpus exposure (the DeepSpeech
+// `native_client` tree), so the snapshot delta wants its own change.
+//
 // Two neighbouring kinds are deliberately absent. C++'s
 // `user_defined_literal` (`1.0_km`) wraps a `number_literal` but
 // evaluates to whatever `operator""` returns, which need not be
@@ -412,6 +448,45 @@ macro_rules! cpp_bool_terminal_kinds {
 // groups with `Int` / `Bool` / `String2` rather than with the `Integer`
 // / `Float` value operands (`getter/php.rs`). Listing it would be the
 // `Number2` mistake `typescript_bool_terminal_kinds!` records below.
+//
+// #1462 added the non-numeric literals and the cast, each measured a
+// condition short of a `$b` control in both the `&&` chain and the `if`
+// predicate:
+//
+// - `String` (368) is the single-quoted literal and `EncapsedString`
+//   (367) the interpolating double-quoted one — separate rules, not
+//   aliases. `Heredoc` (371) and `Nowdoc` (373) are the two block
+//   spellings. All four are what `Checker::is_string` already lists
+//   (grammar-dispatch §7).
+// - `String3` (378) is the hidden `_string` supertype the parser never
+//   emits (grammar-dispatch §2) — listed defensively so a grammar that
+//   starts emitting it counts, and pinned as hidden by
+//   `php_hidden_string_supertype_is_unreachable` in `metrics/abc.rs`.
+//   `is_string` carries the same defensive arm.
+// - The `Float2` rule keeps two neighbours out. `String2` (25) is the
+//   `string` *type* keyword of `function f(): string`, and `Null2` (55)
+//   the `null` type keyword PHP 8 allows in the same position; neither
+//   is a value. `is_string` does list `String2`, which is a separate
+//   question about `find string` rather than a precedent for this set.
+// - `ArrayCreationExpression` (355) covers both `[]` and `array()`.
+// - `Null` (377) is a falsy constant and counts for the reason `False`
+//   does — see `perl_bool_terminal_kinds!`.
+// - `CastExpression` / `CastExpression2` (322, 323) close the second
+//   finding of #1462: PHP was the only set in the Java / C# / Groovy /
+//   PHP group naming no cast kind, so `if ((bool)$x)` scored zero where
+//   the other three scored one through `CastExpression` /
+//   `ParenthesizedTypeCast`. Two ids, both listed per lesson 2, though
+//   only 322 is reachable at this pin — every cast spelling the
+//   language has (`(bool)`, `(int)`, `(double)`, `(string)`,
+//   `(binary)`, `(array)`, `(object)`, `(unset)`) parses to it, so 323
+//   is a defensive arm in the `Perl::Octal` sense.
+// - `ShellCommandExpression` (`` `ls` ``) evaluates to the command's
+//   output, so it fills a boolean slot exactly as
+//   `FunctionCallExpression` does, and measured short beside it.
+//
+// None of these double counts (§5): the PHP ABC impl's condition arm
+// lists comparison and logical *tokens* only, and no arm matches a
+// literal, a cast, or a backtick.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! php_bool_terminal_kinds {
@@ -432,6 +507,16 @@ macro_rules! php_bool_terminal_kinds {
             | $crate::Php::Boolean
             | $crate::Php::Integer
             | $crate::Php::Float
+            | $crate::Php::String
+            | $crate::Php::String3
+            | $crate::Php::EncapsedString
+            | $crate::Php::Heredoc
+            | $crate::Php::Nowdoc
+            | $crate::Php::ArrayCreationExpression
+            | $crate::Php::Null
+            | $crate::Php::CastExpression
+            | $crate::Php::CastExpression2
+            | $crate::Php::ShellCommandExpression
             | $crate::Php::FunctionCallExpression
             | $crate::Php::MemberCallExpression
             | $crate::Php::ScopedCallExpression
@@ -463,12 +548,52 @@ macro_rules! python_bool_terminal_kinds {
     // Mirrors the Lua `Number` fix (#772). Statically-typed languages
     // omit numerics (a bare int in a bool slot is a type error); a
     // dynamically-typed language must count them.
+    //
+    // The remaining seven literal kinds joined in #1462 on the same
+    // argument, each measured a condition short of an identifier
+    // control in both the `and`/`or` chain and the `if` predicate:
+    //
+    // - `String` covers every quoting, prefix and interpolation
+    //   spelling — `'s'`, `"""s"""`, `f'x{a}'` and `b'x'` all lex to
+    //   it, verified by reading ids off a parsed fixture. Its neighbour
+    //   `ConcatenatedString` (`'a' 'b'`, the implicit-join form) is a
+    //   separate rule, not an alias, and is listed for the reason
+    //   #1379's Perl numerals were: the supertype's arm list is the
+    //   unit to check, and an alias sweep comes back clean on both.
+    //   Pairing them also matches `Checker::is_string`, which has
+    //   listed exactly `String | ConcatenatedString` since #301
+    //   (grammar-dispatch §7).
+    // - `None` is a falsy constant, and counts for the same reason
+    //   `False` has since #403 — see `perl_bool_terminal_kinds!` on
+    //   why the slot, not the value, is what the set measures.
+    // - `List` / `Set` / `Tuple` / `Dictionary` are the four collection
+    //   displays. `if items:` on a *name* already scored through
+    //   `Identifier`; the literal spelling scored zero.
+    // - `Ellipsis` completes the set. `if ...:` is rare, but leaving
+    //   the one remaining literal kind out would reproduce the same
+    //   within-language asymmetry one kind narrower, which is the
+    //   defect this issue is about rather than a smaller version of it.
+    //
+    // A collection literal holding an expression (`a and [x > 1]`)
+    // does not double count (§5): the walker never descends into the
+    // operand, and the inner comparison reaches `conditions` through
+    // the top-level `ComparisonOperator` arm — the same split that
+    // already governs `a and f(x > 1)`, where `Call` and the
+    // comparison each score once.
     () => {
         $crate::Python::Identifier
             | $crate::Python::True
             | $crate::Python::False
+            | $crate::Python::None
             | $crate::Python::Integer
             | $crate::Python::Float
+            | $crate::Python::String
+            | $crate::Python::ConcatenatedString
+            | $crate::Python::List
+            | $crate::Python::Set
+            | $crate::Python::Tuple
+            | $crate::Python::Dictionary
+            | $crate::Python::Ellipsis
             | $crate::Python::Call
             | $crate::Python::Attribute
             | $crate::Python::Subscript
@@ -506,7 +631,28 @@ macro_rules! python_bool_terminal_kinds {
 //
 // The sets for C#, Java, Kotlin, Rust and Go deliberately name no
 // numeric kind: a bare number in a boolean slot is a compile error in
-// those five, so there is nothing to count.
+// those five, so there is nothing to count. **That reasoning extends to
+// every other literal kind**, which is why #1462 left all five alone
+// while adding strings, `null`, and collection literals to the eight
+// truthy-valued sets: `if ("s")` and `if (null)` are compile errors in
+// the same five for the same reason `if (1)` is.
+//
+// #1462 is also where the *value* of the literal stopped being the
+// question. Every set here has listed `False` since #403 and several
+// list `Nil` / `Null`, so the rule these sets encode is already "a
+// literal **fills** the operand slot", not "a literal is truthy" — a
+// falsy constant is a Fitzpatrick unary condition exactly as `false`
+// is. The issue title says truthy because that is the idiom that
+// exposed the gap (`x || "default"`), not because a `null` operand
+// scores differently.
+//
+// The one exclusion that survives in a truthy-valued language is a
+// kind that is not a **value**: a type keyword rendering to the same
+// node-kind name as its literal. PHP's `Float2` records the original,
+// and #1462 added four more — TypeScript's `String2` / `Object2`,
+// Tsx's `String3` / `Object2`, and PHP's `String2` / `Null2`, each the
+// annotation spelling (`a: string`, `function f(): null`) rather than
+// a value. Each set names the ids so the next reader can check them.
 //
 // That rationale does **not** extend to the C family, which an earlier
 // revision of this comment wrongly grouped with them: C and C++ are
@@ -580,6 +726,14 @@ macro_rules! perl_bool_terminal_kinds {
 // the language has no counterpart of the #1379 Ruby / Elixir / Perl gap.
 // The same holds for Tcl, iRules and the four JS-family sets, each
 // measured rather than read off the grammar.
+//
+// `String` and `TableConstructor` joined in #1462. Lua's truth rule is
+// the strongest case in the workspace for counting them: everything but
+// `false` and `nil` is truthy, which is why `cond and "a" or "b"` *is*
+// the language's ternary — and it scored 1 where `cond and a or b`
+// scored 2. One `string` kind covers all three spellings (`"s"`, `'s'`
+// and the long-bracket `[[s]]`), verified by reading ids off a parsed
+// fixture; `Checker::is_string` likewise lists only `String`.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! lua_bool_terminal_kinds {
@@ -589,6 +743,8 @@ macro_rules! lua_bool_terminal_kinds {
             | $crate::Lua::False
             | $crate::Lua::Nil
             | $crate::Lua::Number
+            | $crate::Lua::String
+            | $crate::Lua::TableConstructor
             | $crate::Lua::FunctionCall
             | $crate::Lua::DotIndexExpression
             | $crate::Lua::DotIndexExpression2
@@ -648,12 +804,42 @@ macro_rules! javascript_bool_terminal_kinds {
     // numeric-truthy operand: JS treats every non-zero number as
     // truthy, so `while (5)` / `x && 5` count their numeric literal
     // as a Fitzpatrick unary condition (#772, mirrors the Lua fix).
+    //
+    // The seven non-numeric literal kinds join it in #1462 — every one
+    // measured a condition short of the identifier control in both
+    // slots. `x || "default"` is the language's commonest truthy-default
+    // idiom and scored 1 against `x || y`'s 2.
+    //
+    // **Both `string` ids are listed, and that is per language.** The
+    // grammar declares `string` under two kind_ids here (196, 221) and
+    // the one an operand slot carries is `String2` (221) — but
+    // `Checker::is_string` already lists both for JavaScript, Mozjs and
+    // Tsx and only `String` for TypeScript, having made exactly this
+    // per-language alias decision (grammar-dispatch §7). Mirroring it
+    // keeps `find string` and ABC answering the same question about the
+    // same node; diverging would be the drift §7 exists to prevent.
+    //
+    // `String` (196) is a defensive arm, like Perl's `Octal`: at this
+    // grammar pin nothing emits it — an import specifier, an `export
+    // from` clause, a quoted object key and a JSX attribute value all
+    // parse to 221 — so removing it fails no test. It stays because the
+    // alias exists in the enum, a pin bump renumbers ids freely (#732),
+    // and the cost of a grammar that starts emitting it is a silent
+    // zero rather than a build error.
     () => {
         $crate::Javascript::Identifier
             | $crate::Javascript::Identifier2
             | $crate::Javascript::True
             | $crate::Javascript::False
             | $crate::Javascript::Number
+            | $crate::Javascript::String
+            | $crate::Javascript::String2
+            | $crate::Javascript::TemplateString
+            | $crate::Javascript::Regex
+            | $crate::Javascript::Null
+            | $crate::Javascript::Undefined
+            | $crate::Javascript::Object
+            | $crate::Javascript::Array
             | $crate::Javascript::CallExpression
             | $crate::Javascript::CallExpression2
             | $crate::Javascript::NewExpression
@@ -670,14 +856,26 @@ macro_rules! javascript_bool_terminal_kinds {
 macro_rules! mozjs_bool_terminal_kinds {
     // `AwaitExpression` (`await ready()`) is in the terminal set
     // mirroring the C# reference (lesson 19). `Number` is a
-    // numeric-truthy operand (#772, mirrors the Lua fix) — see
-    // `javascript_bool_terminal_kinds!`.
+    // numeric-truthy operand (#772, mirrors the Lua fix), and the seven
+    // non-numeric literal kinds joined in #1462 — see
+    // `javascript_bool_terminal_kinds!` for both. Mozjs renumbers every
+    // id (`string` is 222 here, 221 there) but its alias *shape* is
+    // JavaScript's: two `string` ids, and `Checker::is_string` lists
+    // both for this language too.
     () => {
         $crate::Mozjs::Identifier
             | $crate::Mozjs::Identifier2
             | $crate::Mozjs::True
             | $crate::Mozjs::False
             | $crate::Mozjs::Number
+            | $crate::Mozjs::String
+            | $crate::Mozjs::String2
+            | $crate::Mozjs::TemplateString
+            | $crate::Mozjs::Regex
+            | $crate::Mozjs::Null
+            | $crate::Mozjs::Undefined
+            | $crate::Mozjs::Object
+            | $crate::Mozjs::Array
             | $crate::Mozjs::CallExpression
             | $crate::Mozjs::CallExpression2
             | $crate::Mozjs::NewExpression
@@ -698,11 +896,31 @@ macro_rules! typescript_bool_terminal_kinds {
     // grammar's other `number` alias, `Number2` (id 133), is the
     // `predefined_type` keyword `number` in a type annotation — NOT a
     // value — so it is deliberately omitted from the terminal-bool set.
+    //
+    // The seven non-numeric literal kinds joined in #1462, and the
+    // `Number2` rule decides two of them here. TypeScript spells
+    // `string` under two ids and `object` under two: the *literals* are
+    // `String` (247) and `Object` (213), while `String2` (135) and
+    // `Object2` (137) are the `predefined_type` keywords of `a: string`
+    // / `a: object`. Only the literals are listed — which is also the
+    // split `Checker::is_string` already made, listing `String` alone
+    // for TypeScript where it lists both ids for JavaScript, Mozjs and
+    // Tsx (grammar-dispatch §7). Verified by parsing a fixture carrying
+    // both spellings and reading the ids, not by reading the grammar:
+    // all four render to the same node-kind string, so an alias sweep
+    // cannot tell them apart.
     () => {
         $crate::Typescript::Identifier
             | $crate::Typescript::True
             | $crate::Typescript::False
             | $crate::Typescript::Number
+            | $crate::Typescript::String
+            | $crate::Typescript::TemplateString
+            | $crate::Typescript::Regex
+            | $crate::Typescript::Null
+            | $crate::Typescript::Undefined
+            | $crate::Typescript::Object
+            | $crate::Typescript::Array
             | $crate::Typescript::CallExpression
             | $crate::Typescript::CallExpression2
             | $crate::Typescript::CallExpression3
@@ -727,12 +945,33 @@ macro_rules! tsx_bool_terminal_kinds {
     // grammar's other `number` alias, `Number2` (id 139), is the
     // `predefined_type` keyword `number` in a type annotation — NOT a
     // value — so it is deliberately omitted from the terminal-bool set.
+    //
+    // The seven non-numeric literal kinds joined in #1462. Tsx is the
+    // reason this file has four JS macros rather than one: it spells
+    // `string` under **three** ids where TypeScript has two and
+    // JavaScript has two different ones. `String` (233) and `String2`
+    // (261) are both value literals — an operand slot carries 261, a
+    // JSX attribute value 233 — and `String3` (141) is the
+    // `predefined_type` keyword, the `Number2` case one kind over.
+    // `Object` (219) is the literal, `Object2` (143) the type keyword.
+    // Same split as `Checker::is_string`, which lists 233 and 261 and
+    // not 141 (grammar-dispatch §7). Measured, 233 turns out to be the
+    // same defensive-arm case as JavaScript's `String` (196): no
+    // position reaches it at this pin, JSX attribute values included.
     () => {
         $crate::Tsx::Identifier
             | $crate::Tsx::Identifier2
             | $crate::Tsx::True
             | $crate::Tsx::False
             | $crate::Tsx::Number
+            | $crate::Tsx::String
+            | $crate::Tsx::String2
+            | $crate::Tsx::TemplateString
+            | $crate::Tsx::Regex
+            | $crate::Tsx::Null
+            | $crate::Tsx::Undefined
+            | $crate::Tsx::Object
+            | $crate::Tsx::Array
             | $crate::Tsx::CallExpression
             | $crate::Tsx::CallExpression2
             | $crate::Tsx::CallExpression3

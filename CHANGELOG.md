@@ -147,6 +147,53 @@ for historical reference.
 
 ### Fixed
 
+- **A non-numeric literal in a boolean operand slot scored no ABC
+  condition** (#1462). `x || "default"` reported `abc.conditions` 1
+  against `x || y`'s 2, and `if ("s")` reported 0 against `if (b)`'s 1,
+  in all eight truthy-valued languages. #1410 had closed the same gap
+  for numeric literals; the non-numeric ones were never swept and were
+  missing from every set the numerics were added to. Every kind below
+  was measured a condition short of an identifier control in *both*
+  walker paths — the `&&` / `and` chain operand and the `if` predicate —
+  before being added, and the `kind_id` each spelling parses to is now
+  asserted rather than inferred, which is the half a conditions
+  comparison cannot check when a grammar spells one node kind under
+  several ids:
+  - **JavaScript, Mozjs, TypeScript, Tsx**: `string`, `template_string`,
+    `regex`, `null`, `undefined`, `object`, `array`.
+  - **Python**: `string`, `concatenated_string`, `none`, `list`, `set`,
+    `tuple`, `dictionary`, `ellipsis`.
+  - **Lua**: `string`, `table_constructor`. Lua is the sharpest case —
+    everything but `false` and `nil` is truthy, which is why
+    `cond and "a" or "b"` is the language's ternary, and it scored one
+    below `cond and a or b`.
+  - **PHP**: `string`, `encapsed_string`, `heredoc`, `nowdoc`,
+    `array_creation_expression`, `null`, `shell_command_expression`, and
+    `cast_expression` — the last closing a second finding of the same
+    survey, PHP having been the only set in the Java / C# / Groovy / PHP
+    group that named no cast kind, so `if ((bool)$x)` scored zero where
+    the other three scored one.
+  - **Groovy**: `string_literal` (which also covers the slashy `/re/`),
+    `null_literal`, `list_literal`, `map_literal`.
+
+  A type keyword that renders to the same node-kind name as its literal
+  stays out, extending the rule PHP's `float` keyword established:
+  TypeScript's and Tsx's `string` / `object` annotation ids and PHP's
+  `string` / `null` ones are not values. C#, Java, Kotlin, Rust and Go
+  name no literal kind at all and are unchanged — a bare literal in a
+  boolean slot is a compile error there, so there is nothing to count.
+  The C family carries the same gap for `string_literal` and is
+  deliberately deferred: it is the one integer-truthy group with
+  integration-corpus exposure, so its snapshot delta wants its own
+  change. **Metric drift:** `abc.conditions`, `abc.magnitude` and
+  `abc.value` rise by one per non-numeric literal operand in a boolean
+  slot, in the eight languages listed; `abc` is a gated threshold
+  metric. Cyclomatic is unaffected. 85 of the 384 pdf.js JavaScript
+  integration snapshots move, all in the `conditions` family and all
+  upward; no other corpus moves, the DeepSpeech tree being entirely
+  C/C++ and the six-file PHP corpus carrying no literal in a boolean
+  slot.
+
 - **Perl ABC scored statement-modifier conditions zero** (#1464).
   `return 1 if $x;` reported `abc.conditions` 0 where the block form
   `if ($x) { return 1; }` reports 1, and the same for `unless`, `while`

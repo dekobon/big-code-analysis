@@ -14881,3 +14881,393 @@ mod perl_statement_modifier_parity {
         );
     }
 }
+
+/// A non-numeric literal in a boolean operand slot must score like an
+/// identifier in the same slot (#1462).
+///
+/// The sibling module above pins the *numeric* half, closed by #1410.
+/// The non-numeric literals were never swept and were missing from
+/// every set the numerics were added to — same mechanism, same silent
+/// zero, same file. Measured before the fix, every row below scored
+/// exactly one condition short of its identifier control, in **both**
+/// slots: `x || "default"` — the language's commonest truthy-default
+/// idiom — reported 1 against `x || y`'s 2.
+///
+/// Scope is the eight truthy-valued sets. C#, Java, Kotlin, Rust and Go
+/// name no literal kind at all and stay that way: a bare literal in a
+/// boolean slot is a compile error there, so there is nothing to count.
+/// The C family is integer-truthy and does carry the same gap for
+/// `string_literal`, but it is the one group in that class with
+/// integration-corpus exposure, so it is deferred rather than decided
+/// (see `cpp_bool_terminal_kinds!`).
+///
+/// Three things each row pins that a conditions comparison alone
+/// cannot:
+///
+/// - **The `kind_id` each spelling parses to.** This is the whole bug
+///   class (`.claude/rules/grammar-dispatch.md` §1): the grammars here
+///   emit `string` under two ids in JavaScript, Mozjs and Tsx and under
+///   three in Tsx counting the type keyword, and listing the wrong one
+///   compiles, runs, and returns the unfixed number. Asserting the id
+///   turns that measurement into a standing claim rather than a note in
+///   an issue. It is also the fixture anchor `.claude/rules/testing.md`
+///   asks for — editing `"s"` to `1` in a row now fails by name instead
+///   of quietly turning that row into a copy of the numeric module.
+/// - **`cyclomatic` does not move.** Only the operand spelling changes
+///   between a row and its control, so a `conditions` difference is
+///   unambiguously ABC's.
+/// - **Both walker paths.** The sets feed two structurally independent
+///   consumers (§11) — the operands of a `&&` / `and` chain, and the
+///   predicate of an `if` — and every row measured short in both. A
+///   fixture of only one leaves the other path invisible.
+///
+/// The JS-family rows go through `js_literals!` rather than four hand-
+/// written arrays, because the four languages differ in exactly one
+/// place — which `string` alias an operand slot carries — and making
+/// that the macro's only argument states the asymmetry instead of
+/// leaving a reader to diff four near-identical lists for it.
+#[cfg(test)]
+#[cfg(any(
+    feature = "javascript",
+    feature = "mozjs",
+    feature = "typescript",
+    feature = "python",
+    feature = "lua",
+    feature = "php",
+    feature = "groovy"
+))]
+mod literal_bool_operands {
+    use crate::test_support::{assert_fixture_spells, metrics_verbatim};
+    use crate::{LANG, MetricsOptions};
+
+    /// One fixture shape: a source template with a `{}` operand slot,
+    /// and the `abc.conditions_sum` / `cyclomatic_sum` every spelling of
+    /// that operand must produce.
+    type Slot = (&'static str, u64, u64);
+
+    /// One literal operand: its spelling, and the `kind_id` the grammar
+    /// must emit for it.
+    type Literal = (&'static str, u16);
+
+    /// A language's two slots, its identifier baseline operand, the
+    /// literal operands that must score the same, and how many of those
+    /// there should be.
+    ///
+    /// The count is not bookkeeping. `for_each_case` counts *languages*,
+    /// so trimming a row's literal list — the pre-#1462 state is the
+    /// empty list — would leave the whole module green.
+    type Case = ([Slot; 2], &'static str, &'static [Literal], usize);
+
+    /// The seven non-numeric literal kinds of a JS-family grammar, with
+    /// the `string` alias an operand slot carries passed in: `String2`
+    /// for JavaScript, Mozjs and Tsx, `String` for TypeScript. That one
+    /// argument is the entire difference between the four rows, and it
+    /// is the same split `Checker::is_string` makes (§7).
+    macro_rules! js_literals {
+        ($Lang:ident, $string:ident) => {
+            &[
+                ("\"s\"", crate::$Lang::$string as u16),
+                ("`t`", crate::$Lang::TemplateString as u16),
+                ("/re/", crate::$Lang::Regex as u16),
+                ("null", crate::$Lang::Null as u16),
+                ("undefined", crate::$Lang::Undefined as u16),
+                ("{}", crate::$Lang::Object as u16),
+                ("[]", crate::$Lang::Array as u16),
+            ]
+        };
+    }
+
+    const JS_SLOTS: [Slot; 2] = [
+        ("function f(a) {\n  return a && {};\n}\n", 2, 3),
+        ("function f() {\n  if ({}) { return 1; }\n}\n", 1, 3),
+    ];
+
+    fn conditions(lang: LANG, source: &str) -> u64 {
+        metrics_verbatim(lang, source.as_bytes(), MetricsOptions::default())
+            .abc
+            .conditions_sum()
+    }
+
+    fn cyclomatic_sum(lang: LANG, source: &str) -> u64 {
+        metrics_verbatim(lang, source.as_bytes(), MetricsOptions::default())
+            .cyclomatic
+            .cyclomatic_sum()
+    }
+
+    /// Asserts the fixture still spells the construct under test, by
+    /// parsing it with the language's own parser. Split out of `cases`
+    /// because only the parser types are feature-gated; the `kind_id`
+    /// enums are compiled unconditionally.
+    fn assert_spells(lang: LANG, source: &str, kinds: &[(u16, usize, &str)]) {
+        match lang {
+            #[cfg(feature = "javascript")]
+            LANG::Javascript => {
+                assert_fixture_spells::<crate::JavascriptParser>(source, "f.js", kinds);
+            }
+            #[cfg(feature = "mozjs")]
+            LANG::Mozjs => assert_fixture_spells::<crate::MozjsParser>(source, "f.jsm", kinds),
+            #[cfg(feature = "typescript")]
+            LANG::Typescript => {
+                assert_fixture_spells::<crate::TypescriptParser>(source, "f.ts", kinds);
+            }
+            #[cfg(feature = "typescript")]
+            LANG::Tsx => assert_fixture_spells::<crate::TsxParser>(source, "f.tsx", kinds),
+            #[cfg(feature = "python")]
+            LANG::Python => assert_fixture_spells::<crate::PythonParser>(source, "f.py", kinds),
+            #[cfg(feature = "lua")]
+            LANG::Lua => assert_fixture_spells::<crate::LuaParser>(source, "f.lua", kinds),
+            #[cfg(feature = "php")]
+            LANG::Php => assert_fixture_spells::<crate::PhpParser>(source, "f.php", kinds),
+            #[cfg(feature = "groovy")]
+            LANG::Groovy => {
+                assert_fixture_spells::<crate::GroovyParser>(source, "f.groovy", kinds);
+            }
+            other => panic!("{other:?} has a case row but no parser arm"),
+        }
+    }
+
+    /// `([chain_slot, condition_slot], identifier, literals)` per
+    /// language, one spelling per literal *kind* the grammar emits.
+    ///
+    /// - JS family: `string`, `template_string`, `regex`, `null`,
+    ///   `undefined`, `object`, `array`. TypeScript's `string` / `object`
+    ///   type keywords (`a: string`) are different ids rendering to the
+    ///   same names and are deliberately not in the sets, so a row that
+    ///   accidentally named one would fail the id anchor here.
+    /// - Python: `string` covers `'s'`, `"""s"""`, `f'x'` and `b'x'`,
+    ///   while the implicit-join `'a' 'b'` is the separate
+    ///   `concatenated_string` rule — the sibling-rule-under-a-supertype
+    ///   shape #1379's Perl numerals were, which an alias sweep cannot
+    ///   see. Then `none`, the four collection displays, and `ellipsis`.
+    /// - Lua: one `string` kind for `"s"`, `'s'` and `[[s]]`, plus
+    ///   `table_constructor`. Lua's is the strongest case of the eight:
+    ///   everything but `false` and `nil` is truthy, which is why
+    ///   `cond and "a" or "b"` is the language's ternary.
+    /// - PHP: `string` (single-quoted) and `encapsed_string`
+    ///   (interpolating) are separate rules, as are `heredoc` and
+    ///   `nowdoc`; then `array_creation_expression`, `null`, the
+    ///   backtick `shell_command_expression`, and `cast_expression` —
+    ///   the second finding of #1462, PHP being the only set in the
+    ///   Java / C# / Groovy / PHP group that named no cast kind.
+    /// - Groovy: `string_literal` (which also covers the slashy `/re/`),
+    ///   `null_literal`, `list_literal`, `map_literal`.
+    ///
+    /// Two shapes measured short here and are deliberately absent,
+    /// because neither is a literal: JavaScript's `this` and Groovy's
+    /// `object_creation_expression`. Both are recorded in #1462.
+    fn cases(lang: LANG) -> Option<Case> {
+        Some(match lang {
+            LANG::Javascript => (JS_SLOTS, "b", js_literals!(Javascript, String2), 7),
+            LANG::Mozjs => (JS_SLOTS, "b", js_literals!(Mozjs, String2), 7),
+            LANG::Typescript => (JS_SLOTS, "b", js_literals!(Typescript, String), 7),
+            LANG::Tsx => (JS_SLOTS, "b", js_literals!(Tsx, String2), 7),
+            LANG::Python => (
+                [
+                    ("def f(a):\n    return a and {}\n", 2, 3),
+                    ("def f():\n    if {}:\n        return 1\n", 1, 3),
+                ],
+                "b",
+                &[
+                    ("'s'", crate::Python::String as u16),
+                    ("'a' 'b'", crate::Python::ConcatenatedString as u16),
+                    ("None", crate::Python::None as u16),
+                    ("[]", crate::Python::List as u16),
+                    ("{1}", crate::Python::Set as u16),
+                    ("()", crate::Python::Tuple as u16),
+                    ("{}", crate::Python::Dictionary as u16),
+                    ("...", crate::Python::Ellipsis as u16),
+                ],
+                8,
+            ),
+            LANG::Lua => (
+                [
+                    ("function f(a)\n  return a and {}\nend\n", 2, 3),
+                    ("function f()\n  if {} then return 1 end\nend\n", 1, 3),
+                ],
+                "b",
+                &[
+                    ("\"s\"", crate::Lua::String as u16),
+                    ("{}", crate::Lua::TableConstructor as u16),
+                ],
+                2,
+            ),
+            LANG::Php => (
+                [
+                    ("<?php\nfunction f($a) {\n  return $a && {};\n}\n", 2, 3),
+                    ("<?php\nfunction f() {\n  if ({}) { return 1; }\n}\n", 1, 3),
+                ],
+                "$b",
+                &[
+                    ("'s'", crate::Php::String as u16),
+                    ("\"x$b\"", crate::Php::EncapsedString as u16),
+                    ("<<<EOT\ns\nEOT", crate::Php::Heredoc as u16),
+                    ("<<<'EOT'\ns\nEOT", crate::Php::Nowdoc as u16),
+                    ("[]", crate::Php::ArrayCreationExpression as u16),
+                    ("null", crate::Php::Null as u16),
+                    ("`ls`", crate::Php::ShellCommandExpression as u16),
+                    ("(bool)$b", crate::Php::CastExpression as u16),
+                ],
+                8,
+            ),
+            LANG::Groovy => (
+                [
+                    ("def f(a) {\n  return a && {}\n}\n", 2, 3),
+                    ("def f() {\n  if ({}) { return 1 }\n}\n", 1, 3),
+                ],
+                "b",
+                &[
+                    ("\"s\"", crate::Groovy::StringLiteral as u16),
+                    ("null", crate::Groovy::NullLiteral as u16),
+                    ("[]", crate::Groovy::ListLiteral as u16),
+                    ("[:]", crate::Groovy::MapLiteral as u16),
+                ],
+                4,
+            ),
+            _ => return None,
+        })
+    }
+
+    /// Runs `check` once per enabled language that has a case, having
+    /// first established that the case can still assert something. The
+    /// three guards are the sibling module's, for the same three ways
+    /// this table could decay into asserting nothing: no language
+    /// enabled, an emptied literal list, and a template that lost its
+    /// `{}` slot (which makes every comparison `x == x`).
+    fn for_each_case(check: impl Fn(LANG, Case)) {
+        let mut checked = 0;
+        for lang in LANG::into_enum_iter() {
+            if !lang.is_enabled() {
+                continue;
+            }
+            let Some(case @ (slots, _, literals, expected_kinds)) = cases(lang) else {
+                continue;
+            };
+            assert_eq!(
+                literals.len(),
+                expected_kinds,
+                "{lang:?}: the literal-operand list no longer covers one spelling \
+                 per grammar literal kind"
+            );
+            for (template, _, _) in slots {
+                assert!(
+                    template.contains("{}"),
+                    "{lang:?}: template lost its `{{}}` operand slot: {template}"
+                );
+            }
+            check(lang, case);
+            checked += 1;
+        }
+        assert!(
+            checked > 0,
+            "no truthy-valued language enabled; this test asserted nothing"
+        );
+    }
+
+    #[test]
+    fn a_literal_operand_scores_like_an_identifier_operand() {
+        for_each_case(|lang, (slots, identifier, literals, _)| {
+            for (template, _, _) in slots {
+                let baseline = conditions(lang, &template.replace("{}", identifier));
+                for (literal, _) in literals {
+                    let source = template.replace("{}", literal);
+                    let scored = conditions(lang, &source);
+                    assert_eq!(
+                        scored, baseline,
+                        "{lang:?}: `{literal}` scored {scored} unary conditions against \
+                         `{identifier}`'s {baseline}\n  source: {source}"
+                    );
+                }
+            }
+        });
+    }
+
+    /// The absolute anchor under the comparison above: every operand
+    /// spelling must produce the slot's recorded `conditions`, and must
+    /// leave `cyclomatic` alone.
+    #[test]
+    fn every_literal_operand_scores_its_recorded_values() {
+        for_each_case(|lang, (slots, identifier, literals, _)| {
+            for (template, expected_conditions, expected_cyclomatic) in slots {
+                let operands = std::iter::once(identifier)
+                    .chain(literals.iter().map(|(spelling, _)| *spelling));
+                for operand in operands {
+                    let source = template.replace("{}", operand);
+                    assert_eq!(
+                        conditions(lang, &source),
+                        expected_conditions,
+                        "{lang:?}: `{operand}` conditions\n  source: {source}"
+                    );
+                    assert_eq!(
+                        cyclomatic_sum(lang, &source),
+                        expected_cyclomatic,
+                        "{lang:?}: `{operand}` cyclomatic_sum\n  source: {source}"
+                    );
+                }
+            }
+        });
+    }
+
+    /// Every spelling must parse to the `kind_id` its row names — the
+    /// §1 alias claim, which is the one thing a conditions comparison
+    /// cannot check: a row naming the wrong alias of a multi-id kind
+    /// would simply keep reporting the unfixed number.
+    #[test]
+    fn every_literal_spelling_parses_to_the_kind_its_row_names() {
+        for_each_case(|lang, (slots, _, literals, _)| {
+            for (template, _, _) in slots {
+                for (literal, kind) in literals {
+                    let source = template.replace("{}", literal);
+                    assert_spells(lang, &source, &[(*kind, 1, literal)]);
+                }
+            }
+        });
+    }
+}
+
+/// PHP's `String3` is the hidden `_string` supertype and Groovy's
+/// `SlashyString` the hidden `_slashy_string` one — both listed in, or
+/// deliberately omitted from, their terminal-bool sets on the strength
+/// of being unreachable (`.claude/rules/grammar-dispatch.md` §2). A
+/// grammar bump that promotes either changes ABC's answer silently, so
+/// the unreachability is pinned rather than assumed.
+#[cfg(test)]
+mod hidden_literal_supertypes {
+    use crate::test_support::ast_has_kind_id;
+    use crate::*;
+
+    #[cfg(feature = "php")]
+    #[test]
+    fn php_hidden_string_supertype_is_unreachable() {
+        let src = "<?php\nfunction f($a) {\n  return $a && 's' && \"x$a\" && <<<EOT\ns\nEOT;\n}\n";
+        let parser = PhpParser::new(src.as_bytes().to_vec(), std::path::Path::new("f.php"), None);
+        assert!(
+            ast_has_kind_id(&parser, Php::String as u16),
+            "control: the fixture must carry the reachable `string` kind"
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Php::String3 as u16),
+            "`_string` is no longer hidden; the defensive arm in \
+             `php_bool_terminal_kinds!()` is now live and needs a fixture"
+        );
+    }
+
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_hidden_slashy_string_is_unreachable() {
+        let src = "def f(a) {\n  return a && /re/ && \"s\"\n}\n";
+        let parser = GroovyParser::new(
+            src.as_bytes().to_vec(),
+            std::path::Path::new("f.groovy"),
+            None,
+        );
+        assert!(
+            ast_has_kind_id(&parser, Groovy::StringLiteral as u16),
+            "control: a slashy string must still parse to `string_literal`"
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Groovy::SlashyString as u16),
+            "`_slashy_string` is no longer hidden; `groovy_bool_terminal_kinds!()` \
+             omits it on the strength of it being unreachable"
+        );
+    }
+}
