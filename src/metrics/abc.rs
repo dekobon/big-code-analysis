@@ -16005,7 +16005,10 @@ mod literal_bool_operands {
 /// of being unreachable (`.claude/rules/grammar-dispatch.md` §2). A
 /// grammar bump that promotes either changes ABC's answer silently, so
 /// the unreachability is pinned rather than assumed.
-#[cfg(test)]
+// Gated on the union of the two features its tests name, so a build
+// enabling neither drops the module rather than leaving its imports
+// unused (`.claude/rules/testing.md`, #1286).
+#[cfg(all(test, any(feature = "php", feature = "groovy")))]
 mod hidden_literal_supertypes {
     use crate::test_support::ast_has_kind_id;
     use crate::*;
