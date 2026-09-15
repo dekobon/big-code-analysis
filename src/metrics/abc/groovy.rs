@@ -40,6 +40,14 @@ use crate::*;
 // `Option<(Node, bool)>` signature, not a generic function. C#'s
 // positional read over its aliased wrapper kinds is #1455's, not this
 // change's.
+//
+// Every `?` below is infallible at the pinned grammar and is spelled
+// that way because `AGENTS.md` bans `expect` outside tests — do not try
+// to cover the `None` arms. `unary_expression` declares `operand` and
+// `operator` as required fields, and a `parenthesized_expression` is
+// `(` expr `)`, so `child(1)` exists. Only error recovery on invalid
+// Groovy can produce a shorter node, and pinning that would make the
+// grammar's present over-permissiveness the contract (§6).
 fn groovy_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     use Groovy::*;
 

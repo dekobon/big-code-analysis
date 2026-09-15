@@ -66,6 +66,15 @@ use crate::*;
 // still score zero, because `child(1)` is the comment. Measured, not
 // assumed. That is #1455, which predates this change and is recorded
 // here rather than widened into it; the new arm adds no instance of it.
+//
+// Every `?` below is infallible for well-formed C# — each wrapper is
+// the operator token plus its operand, so `child(0)` and `child(1)`
+// both exist — and is spelled as an `Option` because `AGENTS.md` bans
+// `expect` outside tests. Do not try to cover the `None` arms: only
+// error recovery reaches them (`bool b = !;` parses to a one-child
+// `prefix_unary_expression`, verified with `bca dump`), and that is
+// invalid C#, so pinning its numbers would make the grammar's present
+// over-permissiveness the contract (§6).
 fn csharp_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     use Csharp::*;
 

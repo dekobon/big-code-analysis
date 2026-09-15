@@ -286,6 +286,23 @@ fn perl_walk_for_statement(node: &Node, conditions: &mut f64) {
 // `Array` `(...)` wrapper uses, since a Perl comma list evaluates to
 // its last element in the scalar context a condition imposes — and
 // hand what it holds to the shared condition classifier.
+//
+// Three of the four paths below are unreachable or unobservable at the
+// pinned grammar, and are spelled as `Option` rather than as an
+// `expect` because `AGENTS.md` bans the latter outside tests. Do not
+// try to cover them:
+//
+// - `condition` is a required field on all five modifier productions
+//   (node-types.json), so the early `return` needs error recovery.
+// - The `else` arm takes a `parenthesized_argument`, which the parser
+//   emits in this slot only for the *empty* spelling `EXPR if ();`
+//   (valid Perl; anything with content resolves to `arguments`
+//   wrapping an `array`). An empty wrapper peels to nothing, so that
+//   arm and a bare `None` score alike — measured by perturbation, not
+//   assumed. A test would pin a value neither branch decides.
+// - `perl_last_named_child` returns `None` only for an `arguments`
+//   node with no named child, which the grammar's comma-separated
+//   one-or-more list cannot produce.
 fn perl_walk_statement_modifier(node: &Node, conditions: &mut f64) {
     let Some(condition) = node.child_by_field_name("condition") else {
         return;

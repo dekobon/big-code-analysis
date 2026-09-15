@@ -117,6 +117,11 @@ fn elixir_count_condition(condition: &Node, parent: &Node, conditions: &mut f64)
 // the slot this fills is the single alternative *this* token
 // introduces: one per token, never the whole chain once per token
 // (grammar-dispatch §5).
+//
+// `elixir_when_alternative` answers `None` only when a `when`
+// `binary_operator` has no `right` child, which the grammar declares
+// required — so the `if let`'s else is unreachable at the pin rather
+// than untested.
 fn elixir_count_guard(when_operator: &Node, conditions: &mut f64) {
     if let Some((alternative, owner)) = npa::elixir_when_alternative(when_operator) {
         elixir_count_condition(&alternative, &owner, conditions);
@@ -311,6 +316,13 @@ impl Abc for ElixirCode {
             // clause (`@spec f(a) :: a when a: integer`) spells the same
             // token: it scored a condition here against no decision
             // anywhere, on type syntax that branches on nothing.
+            //
+            // The `if let` cannot take its else: the gate already walked
+            // this token's ancestor chain and returns false when it is
+            // empty, so reaching the body proves the parent exists. It
+            // is not re-plumbed out of the predicate because that
+            // predicate's whole job (§7) is to be one boolean the `Abc`
+            // and `Cyclomatic` impls share.
             E::When if npa::elixir_when_is_guard(node, code, ancestors) => {
                 if let Some(operator) = ancestors.parent(node) {
                     elixir_count_guard(&operator, &mut stats.conditions);

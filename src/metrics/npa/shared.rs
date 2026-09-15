@@ -681,6 +681,10 @@ fn elixir_is_when_operator(node: &Node) -> bool {
 /// token is what holds the `Abc` slot count level with the `Cyclomatic`
 /// decision count at every chain length (§8), and what stops a chain of
 /// n alternatives being counted once per token that can see it (§5).
+///
+/// The `?` is infallible at the pinned grammar — `binary_operator`
+/// declares `right` required — and is spelled as an `Option` because
+/// `AGENTS.md` bans `expect` outside tests.
 pub(crate) fn elixir_when_alternative<'a>(
     when_operator: &Node<'a>,
 ) -> Option<(Node<'a>, Node<'a>)> {
@@ -727,6 +731,13 @@ pub(crate) fn elixir_when_alternative<'a>(
 /// The climb stops at the first non-`when` ancestor, so an ordinary
 /// single guard pays no extra step and a chain pays one per alternative
 /// it lists — a bound set by the guard, not by the tree's depth.
+///
+/// Both `return false` guards below are unreachable at the pin, not
+/// untested: a `when` *token*'s chain always holds at least the
+/// `binary_operator` it belongs to, and that operator always sits under
+/// something, because the Elixir root is `source` and no `when`
+/// operator can be it. They stay as defensive `else` arms because
+/// `AGENTS.md` bans the `expect` that would replace them.
 pub(crate) fn elixir_when_is_guard<'a>(
     node: &Node<'a>,
     code: &'a [u8],
