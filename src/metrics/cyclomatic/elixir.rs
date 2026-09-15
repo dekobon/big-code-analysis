@@ -200,6 +200,31 @@ impl Cyclomatic for ElixirCode {
             E::StabClause => {
                 stats.cyclomatic += 1.;
             }
+            // A guard is a decision the construct it guards does not
+            // already pay for (#1454, transferring #1422's C# rule): a
+            // guarded clause fails two ways — the pattern does not
+            // match, or it matches and the guard is false — and a
+            // guarded function head is one alternative among the
+            // clauses. Both standard and modified, because no container
+            // collapses it: a `case`'s arms collapse into the container
+            // for modified, the guard on an arm does not, exactly as
+            // C#'s `when_clause` counts in both tiers.
+            //
+            // Elixir's ABC counted the `when` token from the start; it
+            // was cyclomatic that had no arm, so a guard read as a
+            // condition with no decision behind it. The #1422 order
+            // applies — fix cyclomatic, then re-derive ABC — and the
+            // re-derivation is that ABC's existing count is already the
+            // slot model (one per guard, sub-structure kept) and needs
+            // only this gate, which it now shares.
+            //
+            // No double count (§5): the token fires once per `when`,
+            // and the `binary_operator` that wraps it is not matched by
+            // any arm here.
+            E::When if crate::metrics::npa::elixir_when_is_guard(node, code, ancestors) => {
+                stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
+            }
             // Short-circuit booleans add a decision point in both
             // metrics.
             E::AMPAMP | E::PIPEPIPE | E::And | E::Or => {

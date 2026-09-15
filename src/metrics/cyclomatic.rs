@@ -5484,16 +5484,19 @@ f() {
     // A guarded wildcard (`_ when g ->`) is a real decision — the
     // guard can fail, so control can fall through — and must keep
     // counting, matching Rust's `_ if guard` rule (issue #1272).
-    // standard = 3 entries + `1 ->` + `_ when x > 5 ->` = 5 (only the
-    // final bare `_ ->` is excluded); modified = 3 entries + case = 4.
+    // standard = 3 entries + `1 ->` + `_ when x > 5 ->` + the guard
+    // itself = 6 (only the final bare `_ ->` is excluded); modified =
+    // 3 entries + case + the guard = 5. The guard is the #1454 arm: it
+    // is a second way the arm can fail, and no container collapses it,
+    // so it counts in both tiers where the arm counts only in standard.
     #[test]
     fn elixir_case_guarded_wildcard_counts() {
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def classify(x) do\n    case x do\n      1 -> :one\n      _ when x > 5 -> :big\n      _ -> :other\n    end\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 5);
             },
         );
     }
@@ -6825,15 +6828,18 @@ f() {
         // Regression for #977: a non-wildcard `in 1` arm and a guarded
         // wildcard `in _ if x > 0` arm each add one standard decision,
         // while the trailing bare `in _` default arm adds none. The
-        // `case_match` container stays a modified-only decision.
+        // `case_match` container stays a modified-only decision, but the
+        // guard itself is a decision in both tiers (#1454): nothing
+        // collapses it the way the container collapses its arms.
         // expected per function: standard = 1 (base) + `in 1` + `in _ if`
-        // = 3; modified = 1 (base) + 1 (case_match) = 2.
+        // + the `if` guard = 4; modified = 1 (base) + 1 (case_match) +
+        // the guard = 3.
         check_metrics::<RubyParser>(
             "def f(x)\n  case x\n  in 1 then :one\n  in _ if x > 0 then :positive\n  in _ then :default\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 3);
             },
         );
     }

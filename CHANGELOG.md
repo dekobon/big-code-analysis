@@ -324,6 +324,44 @@ for historical reference.
   **Metric drift:** C# `abc.branches` rises by one per type passing
   arguments to its base from a primary constructor.
 
+- **A pattern-match guard now counts in Java, Rust, Python, Ruby and
+  Elixir** (#1454). #1422 made a C# `when` guard a cyclomatic decision
+  and an ABC condition slot, and argued from Rust that C# was the
+  outlier rather than the convention. That was half true: Rust's
+  *cyclomatic* counted the guard through the `if` keyword token inside
+  `match_pattern`, but no sibling modelled the ABC half, and Java had
+  neither. Each language now scores a guard as a slot — every spelling
+  contributes exactly one, a compound guard keeps its sub-structure —
+  and as a decision where it was not already one. Per language: Java 21's
+  `guard` on a pattern-switch label was referenced nowhere in either
+  metric; Rust's `match_pattern` guard and Python's `case … if g:` had
+  the decision but not the condition; Ruby's `if_guard` / `unless_guard`
+  on a `case … in` arm had neither; Elixir is the inverse case, having
+  counted the `when` token as a condition since #557 with no cyclomatic
+  arm behind it. The Elixir arm is gated on the guard's position,
+  because the language has no guard production — `x when g` is an
+  ordinary `binary_operator` — and a typespec's binding clause
+  (`@spec f(a) :: a when a: integer`) spells the same token; that gate
+  is shared by both metrics, so it also removes the condition the
+  typespec used to score against no decision anywhere. The same fix
+  closes the opposite-direction gap in the issue: a *bare* guard
+  (`match x { _ if b => … }`, `case _ if b:`) scored nothing at all,
+  one below the arm's own decision count. Groovy and Kotlin are
+  unchanged and untested: neither pinned grammar has a guard
+  production, and Kotlin 2.1 guard syntax does not parse at the pin, so
+  per `grammar-dispatch` §6 pinning its numbers would make the
+  grammar's present limitation the contract.
+
+  **Metric drift:** Java, Ruby and Elixir `cyclomatic` (standard and
+  modified) gain one per guard, and `wmc` and `mi` move with it, so a
+  `wmc` or `mi` threshold can newly fire on an unedited file carrying
+  guarded arms. `abc.conditions` and `abc.magnitude` gain one per guard
+  in Java, Rust, Python and Ruby for any guard not already
+  operator-shaped. Elixir `abc.conditions` is unchanged for real guards
+  and falls by one per typespec `when`. Integration snapshots move for
+  three `serde` files (Rust); no Python, Ruby, Java or Elixir corpus
+  file carries a guard.
+
 - **A C# `when` guard now counts as a decision in both cyclomatic
   complexity and ABC** (#1422). Cyclomatic had no arm for either guard
   spelling — `when_clause` on a switch arm or `case` section, and
@@ -346,6 +384,9 @@ for historical reference.
   C# corpus snapshot records `class_wmc_sum` 27 → 29 and a matching fall
   in all three `mi` variants — so a `wmc` or `mi` threshold can newly
   fire on an unedited C# file carrying guarded arms.
+  #1454 carries the same rule to every other language whose grammar has a
+  guard production, so the C# scoping in this entry describes where the
+  rule started rather than where it applies.
 
 - **Kotlin no longer double-counts a subject-less `when` arm's comparison
   operator** (#1421). `when { x > 5 -> 1; x < 0 -> 2; else -> 0 }`

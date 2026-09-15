@@ -34,7 +34,32 @@ impl Cyclomatic for RubyCode {
                 stats.cyclomatic_modified += 1.;
             }
             // Both standard and modified.
-            R::If
+            //
+            // `IfGuard` / `UnlessGuard` are the two guard spellings of a
+            // `case … in` pattern arm (`in [x] if x > 2`), and each is a
+            // decision the arm does not already pay for (#1454,
+            // transferring #1422's C# rule): a guarded arm fails two
+            // ways — the pattern does not match, or it matches and the
+            // guard is false. Unlike `InClause`, the guard is not
+            // collapsed by the `case` container, so it counts toward
+            // modified as well, exactly as C#'s `when_clause` does.
+            //
+            // `Guard` (210) is the hidden `_guard` supertype the parser
+            // never emits; it is listed defensively beside the two
+            // concrete kinds, as `ruby_in_clause_counts` already lists
+            // it (grammar-dispatch §2, lesson #34). Its hidden status is
+            // pinned by an `ast_has_kind_id` assertion in the
+            // `ruby_in_clause_guard_*` tests.
+            //
+            // No double count (§5): the `if` / `unless` *keyword tokens*
+            // inside a guard are anonymous tokens distinct from
+            // `R::If` (239) / `R::Unless` (240), which are the statement
+            // nodes — measured, not assumed: before this arm a guarded
+            // `in` arm scored exactly what its unguarded control did.
+            R::Guard
+            | R::IfGuard
+            | R::UnlessGuard
+            | R::If
             | R::Unless
             | R::Elsif
             | R::IfModifier

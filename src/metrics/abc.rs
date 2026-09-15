@@ -7785,15 +7785,16 @@ function f(int $a, int $b): int {
     fn ruby_case_match_guarded_wildcard_is_a_condition() {
         // Regression for #977: a guarded wildcard arm `in _ if x` is not a
         // bare default and counts as one ABC condition, while the trailing
-        // bare `in _` adds none. The guard predicate here is a bare
-        // identifier (no comparison operator), so the single counted
-        // condition is the guarded `in_clause` itself.
-        // expected: 1 condition — the guarded `in _ if x` arm only.
+        // bare `in _` adds none.
+        // expected: 2 conditions — the guarded `in _ if x` arm, plus its
+        // guard slot. The guard predicate is a bare identifier, so before
+        // #1454 it contributed nothing and the total was 1; the slot is
+        // what makes `if x`, `if x.even?` and `if x > 0` agree.
         check_metrics::<RubyParser>(
             "def f(x)\n  case x\n  in _ if x then :y\n  in _ then :default\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 1);
+                assert_eq!(metric.abc.conditions_sum(), 2);
             },
         );
     }
@@ -13132,6 +13133,449 @@ function f(int $a, int $b): int {
             bare,
             "parenthesising the condition must not change the count"
         );
+    }
+
+    // #1454's five-language sweep of #1422's C# rule: a pattern-match
+    // guard is a condition *slot*, so every spelling of one contributes
+    // exactly one condition, and the guard is a cyclomatic decision the
+    // arm it guards does not already pay for.
+    //
+    // Each fixture is the §11 triple — an operator guard (`> 5`, whose
+    // comparison token already counted before the fix), a call guard,
+    // and a bare-identifier guard (the two that counted nothing) —
+    // plus a parenthesised guard, which is the only member that
+    // exercises the boolean-context seed, plus an unguarded control
+    // that must stay where it was. A single-spelling fixture cannot
+    // show the slot works: before the fix the operator member already
+    // read the right number.
+    //
+    // The controls are load-bearing twice over. `none` pins that the
+    // slot fires on the guard and not on the arm — a `+1` on every arm
+    // would satisfy every guarded row and break this one — and the
+    // helper (`is_even` / `isEven`) pins that the call-guard row is
+    // scoring its guard rather than its call, since a call is an ABC
+    // *branch* everywhere and a condition nowhere.
+    //
+    // `assert_members_score` rather than `assert_every_member_scores`:
+    // the guarded members and their control sit at different values,
+    // which is the comparison these tests exist to make.
+
+    #[test]
+    fn rust_match_guard_scores_one_condition_however_spelled() {
+        let src = "fn is_even(n: i32) -> bool {
+                n == 0
+            }
+            fn tok(x: i32) -> i32 {
+                match x { n if n > 5 => 1, _ => 0 }
+            }
+            fn call(x: i32) -> i32 {
+                match x { n if is_even(n) => 1, _ => 0 }
+            }
+            fn bare(x: i32, b: bool) -> i32 {
+                match x { _ if b => 1, _ => 0 }
+            }
+            fn paren(x: i32, b: bool) -> i32 {
+                match x { n if (b) => n, _ => 0 }
+            }
+            fn none(x: i32) -> i32 {
+                match x { 1 => 1, _ => 0 }
+            }";
+        assert_fixture_spells::<RustParser>(
+            src,
+            "foo.rs",
+            &[
+                // The guard's own `if` keyword, one per guarded member.
+                // It is also how Rust cyclomatic already saw the guard,
+                // which is why only the ABC half moved here.
+                (Rust::If as u16, 4, "match guards"),
+                (Rust::GT as u16, 1, "`tok`'s `>`"),
+                (Rust::CallExpression as u16, 1, "the `is_even` call"),
+                (
+                    Rust::ParenthesizedExpression as u16,
+                    1,
+                    "`paren`'s parenthesised guard",
+                ),
+                // Two arms per member: the guarded one and its bare `_`.
+                (Rust::MatchPattern as u16, 10, "match arms"),
+            ],
+        );
+        check_func_space::<RustParser, _>(src, "foo.rs", |space| {
+            assert_members_score(
+                &space,
+                &[
+                    ("is_even", 1, 1),
+                    ("tok", 2, 3),
+                    // Was 1 — the guard spelling nothing counted.
+                    ("call", 2, 3),
+                    ("bare", 2, 3),
+                    ("paren", 2, 3),
+                    ("none", 1, 2),
+                ],
+            );
+        });
+    }
+
+    #[test]
+    fn java_pattern_switch_guard_scores_one_condition_however_spelled() {
+        let src = "class T {
+                static boolean isEven(int i) { return i == 0; }
+                int tok(Object o) { return switch (o) { case Integer i when i > 5 -> 1; default -> 0; }; }
+                int call(Object o) { return switch (o) { case Integer i when isEven(i) -> 1; default -> 0; }; }
+                int bare(Object o, boolean b) { return switch (o) { case Integer i when b -> 1; default -> 0; }; }
+                int paren(Object o, boolean b) { return switch (o) { case Integer i when (b) -> 1; default -> 0; }; }
+                int none(Object o) { return switch (o) { case Integer i -> 1; default -> 0; }; }
+            }";
+        assert_fixture_spells::<JavaParser>(
+            src,
+            "foo.java",
+            &[
+                (Java::Guard as u16, 4, "`when` guards"),
+                (Java::GT as u16, 1, "`tok`'s `>`"),
+                (Java::MethodInvocation as u16, 1, "the `isEven` call"),
+                // Five `switch (o)` subjects plus `paren`'s `when (b)`.
+                // Java wraps a switch subject in the same kind, so this
+                // count moves if either is edited out.
+                (
+                    Java::ParenthesizedExpression as u16,
+                    6,
+                    "the switch subjects and `paren`'s guard",
+                ),
+            ],
+        );
+        check_func_space::<JavaParser, _>(src, "foo.java", |space| {
+            assert_members_score(
+                &space.spaces[0],
+                &[
+                    ("isEven", 1, 1),
+                    // Was 2 conditions against a *flat* cyclomatic of 2:
+                    // Java had neither half of the rule, so the guard
+                    // was invisible to cyclomatic and visible to ABC
+                    // only through whatever operator it spelled.
+                    ("tok", 2, 3),
+                    ("call", 2, 3),
+                    ("bare", 2, 3),
+                    ("paren", 2, 3),
+                    ("none", 1, 2),
+                ],
+            );
+        });
+    }
+
+    #[test]
+    fn python_case_guard_scores_one_condition_however_spelled() {
+        let src = "def is_even(n):
+    return n == 0
+def tok(x):
+    match x:
+        case n if n > 5:
+            return 1
+        case _:
+            return 0
+def call(x):
+    match x:
+        case n if is_even(x):
+            return 1
+        case _:
+            return 0
+def bare(x, b):
+    match x:
+        case _ if b:
+            return 1
+        case _:
+            return 0
+def paren(x, b):
+    match x:
+        case n if (b):
+            return n
+        case _:
+            return 0
+def none(x):
+    match x:
+        case 1:
+            return 1
+        case _:
+            return 0
+";
+        assert_fixture_spells::<PythonParser>(
+            src,
+            "foo.py",
+            &[
+                // The `case` guard clause. A comprehension filter is the
+                // same kind in a different role, and the `guard` field
+                // is what keeps it out of the slot — there is none in
+                // this fixture, and `python_comprehension_if_clause_is_not_a_case_guard`
+                // is where that separation is pinned.
+                (Python::IfClause as u16, 4, "`case` guards"),
+                (
+                    Python::ComparisonOperator as u16,
+                    2,
+                    "`tok`'s `>` and `is_even`'s `==`",
+                ),
+                (Python::Call as u16, 1, "the `is_even` call"),
+                (
+                    Python::ParenthesizedExpression as u16,
+                    1,
+                    "`paren`'s parenthesised guard",
+                ),
+            ],
+        );
+        check_func_space::<PythonParser, _>(src, "foo.py", |space| {
+            assert_members_score(
+                &space,
+                &[
+                    ("is_even", 1, 1),
+                    ("tok", 2, 3),
+                    ("call", 2, 3),
+                    ("bare", 2, 3),
+                    ("paren", 2, 3),
+                    ("none", 1, 2),
+                ],
+            );
+        });
+    }
+
+    // A comprehension's `if` filter is an `if_clause` too, and it is not
+    // a `case` guard: the slot reads `case_clause`'s `guard` field, so
+    // the two cannot be confused by construction. Python cyclomatic does
+    // count the filter (through the same `If` keyword token it counts a
+    // guard by), and ABC does not — a pre-existing divergence this
+    // change deliberately leaves where it found it. The test is here so
+    // that a later `IfClause` arm added without the field read fails
+    // loudly rather than moving comprehensions silently.
+    #[test]
+    fn python_comprehension_if_clause_is_not_a_case_guard() {
+        let src = "def m(xs):
+    return [x for x in xs if x]
+";
+        assert_fixture_spells::<PythonParser>(
+            src,
+            "foo.py",
+            &[(Python::IfClause as u16, 1, "the comprehension filter")],
+        );
+        check_func_space::<PythonParser, _>(src, "foo.py", |space| {
+            assert_members_score(&space, &[("m", 0, 3)]);
+        });
+    }
+
+    #[test]
+    fn ruby_in_clause_guard_scores_one_condition_however_spelled() {
+        let src = "def is_even(x)
+  x == 0
+end
+def tok(x)
+  case x
+  in [n] if n > 5 then 1
+  in _ then 0
+  end
+end
+def call(x)
+  case x
+  in [n] if n.even? then 1
+  in _ then 0
+  end
+end
+def bare(x, b)
+  case x
+  in [n] if b then 1
+  in _ then 0
+  end
+end
+def unguard(x, b)
+  case x
+  in [n] unless b then 1
+  in _ then 0
+  end
+end
+def paren(x, b)
+  case x
+  in [n] if (b) then 1
+  in _ then 0
+  end
+end
+def none(x)
+  case x
+  in [n] then 1
+  in _ then 0
+  end
+end
+";
+        assert_fixture_spells::<RubyParser>(
+            src,
+            "foo.rb",
+            &[
+                (Ruby::IfGuard as u16, 4, "`if` guards"),
+                (Ruby::UnlessGuard as u16, 1, "the `unless` guard"),
+                (Ruby::GT as u16, 1, "`tok`'s `>`"),
+                (
+                    Ruby::ParenthesizedStatements as u16,
+                    1,
+                    "`paren`'s parenthesised guard",
+                ),
+            ],
+        );
+        // `Ruby::Guard` (210) is the hidden `_guard` supertype: the two
+        // dispatchers list it beside the concrete kinds so a grammar
+        // that starts emitting it keeps working, and this pins that it
+        // does not emit it today — otherwise the defensive arm is
+        // indistinguishable from a dead one
+        // (`.claude/rules/grammar-dispatch.md` §2).
+        let parser = RubyParser::new(
+            src.as_bytes().to_vec(),
+            &std::path::PathBuf::from("foo.rb"),
+            None,
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Ruby::Guard as u16),
+            "`_guard` stopped being hidden — the defensive arms now fire"
+        );
+        check_func_space::<RubyParser, _>(src, "foo.rb", |space| {
+            assert_members_score(
+                &space,
+                &[
+                    ("is_even", 1, 1),
+                    // Was 2 / 2: Ruby had neither half either, and the
+                    // arm's own condition supplied the 2 that made the
+                    // operator spelling look correct.
+                    ("tok", 2, 3),
+                    ("call", 2, 3),
+                    ("bare", 2, 3),
+                    ("unguard", 2, 3),
+                    ("paren", 2, 3),
+                    ("none", 1, 2),
+                ],
+            );
+        });
+    }
+
+    // Elixir is the inverse of the four above: ABC counted the `when`
+    // token from the start and cyclomatic had no arm at all, so a guard
+    // read as a condition with no decision behind it. #1454 adds the
+    // decision, which is why `tok` / `call` / `bare` move on the
+    // cyclomatic axis here and on the ABC axis everywhere else.
+    //
+    // `tok` sits one *above* its decision count because Elixir keeps the
+    // guard's sub-structure — `when n > 5` pays the `>` on top of the
+    // `when` — which is the same slot policy the other four follow and
+    // the reason `assert_members_score` does not assert §8 parity.
+    #[test]
+    fn elixir_guard_is_a_decision_however_spelled() {
+        let src = "defmodule T do
+  def is_even(x) do
+    x == 0
+  end
+  def tok(x) do
+    case x do
+      n when n > 5 -> 1
+      _ -> 0
+    end
+  end
+  def call(x) do
+    case x do
+      n when is_integer(n) -> 1
+      _ -> 0
+    end
+  end
+  def bare(x, b) do
+    case x do
+      _n when b -> 1
+      _ -> 0
+    end
+  end
+  def none(x) do
+    case x do
+      1 -> 1
+      _ -> 0
+    end
+  end
+end
+";
+        assert_fixture_spells::<ElixirParser>(
+            src,
+            "foo.ex",
+            &[
+                (Elixir::When as u16, 3, "`when` guards"),
+                (Elixir::GT as u16, 1, "`tok`'s `>`"),
+            ],
+        );
+        check_func_space::<ElixirParser, _>(src, "foo.ex", |space| {
+            assert_members_score(
+                &space.spaces[0],
+                &[
+                    ("is_even", 1, 1),
+                    // All three guarded members were cyclomatic 2 —
+                    // level with `none` — before the decision arm.
+                    ("tok", 3, 3),
+                    ("call", 2, 3),
+                    ("bare", 2, 3),
+                    ("none", 1, 2),
+                ],
+            );
+        });
+    }
+
+    // The gate that makes the Elixir arm safe. Elixir has no dedicated
+    // guard production, and a typespec's binding clause spells the same
+    // `when` token — so an ungated arm would have made type syntax a
+    // decision. It was already an ABC condition against no decision
+    // anywhere, which this removes.
+    //
+    // Both members carry the same `@spec`; only `guarded` carries a real
+    // head guard, so the difference between the two rows is the guard
+    // and nothing else.
+    #[test]
+    fn elixir_typespec_when_is_not_a_guard() {
+        let src = "defmodule T do
+  @spec plain(a) :: a when a: integer
+  def plain(x) do
+    x
+  end
+  @spec guarded(a) :: a when a: integer
+  def guarded(x) when is_integer(x) do
+    x
+  end
+end
+";
+        assert_fixture_spells::<ElixirParser>(
+            src,
+            "foo.ex",
+            &[(
+                Elixir::When as u16,
+                3,
+                "two typespec `when`s and one head guard",
+            )],
+        );
+        check_func_space::<ElixirParser, _>(src, "foo.ex", |space| {
+            let module = &space.spaces[0];
+            // Positional rather than by name: a `def` whose head carries
+            // a guard parses its name out of a `binary_operator` instead
+            // of a plain `Call` target, and the space comes back
+            // `<anonymous>`. That naming gap predates this change and is
+            // why `assert_members_score` cannot serve here.
+            let members: Vec<(u64, u64)> = module
+                .spaces
+                .iter()
+                .map(|m| {
+                    (
+                        m.metrics.abc.conditions(),
+                        m.metrics.cyclomatic.cyclomatic(),
+                    )
+                })
+                .collect();
+            assert_eq!(
+                members,
+                vec![(0, 1), (1, 2)],
+                "`plain` scores nothing; `guarded` scores its head guard \
+                 in both metrics"
+            );
+            // The typespecs sit in the module body, outside either
+            // member, so their (non-)contribution has to be read off
+            // the container. Was 2 before the gate: one per `@spec`.
+            assert_eq!(
+                module.metrics.abc.conditions(),
+                0,
+                "a typespec `when` is type syntax, not a guard"
+            );
+        });
     }
 }
 

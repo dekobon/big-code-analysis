@@ -10,6 +10,7 @@
 )]
 
 use super::{Abc, Stats};
+use crate::lang_helpers::elixir::elixir_call_keyword;
 use crate::macros::elixir_bool_terminal_kinds;
 use crate::*;
 
@@ -107,6 +108,38 @@ fn elixir_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     }
 }
 
+// What an Elixir `Call` contributes. The classification is by keyword
+// text rather than by kind, so it is a paragraph of policy rather than a
+// dispatch arm — the same split `java_count_token_branch` and
+// `csharp_count_token_assignment` make in the two largest sibling impls.
+fn elixir_count_call(node: &Node, code: &[u8], stats: &mut Stats) {
+    let keyword = elixir_call_keyword(node, code);
+    let is_definition_or_directive = matches!(
+        keyword,
+        Some(
+            "def"
+                | "defp"
+                | "defmacro"
+                | "defmacrop"
+                | "defmodule"
+                | "defstruct"
+                | "defprotocol"
+                | "defimpl"
+                | "alias"
+                | "import"
+                | "require"
+                | "use"
+        )
+    );
+    if !is_definition_or_directive {
+        stats.branches += 1.;
+    }
+    // Keyword-shaped control-flow Calls also contribute one condition.
+    if matches!(keyword, Some("if" | "unless" | "case" | "cond" | "with")) {
+        stats.conditions += 1.;
+    }
+}
+
 impl Abc for ElixirCode {
     // Elixir's pattern-match `=` is a `BinaryOperator` whose middle
     // child is an `EQ` token. The same wrapper node also hosts `+=`-
@@ -158,9 +191,7 @@ impl Abc for ElixirCode {
             // boolean ops, arithmetic) so the constant-time check
             // matters.
             E::BinaryOperator | E::BinaryOperator2 | E::BinaryOperator3
-                if node
-                    .child(1)
-                    .is_some_and(|c| c.kind_id() == E::EQ as u16) =>
+                if node.child(1).is_some_and(|c| c.kind_id() == E::EQ as u16) =>
             {
                 stats.assignments += 1.;
             }
@@ -194,29 +225,25 @@ impl Abc for ElixirCode {
             // are intentionally different — both impls use the same
             // helper to look up the keyword, but apply different
             // policies on top.
-            E::Call => {
-                let keyword = crate::lang_helpers::elixir::elixir_call_keyword(node, code);
-                let is_definition_or_directive = matches!(
-                    keyword,
-                    Some(
-                        "def" | "defp" | "defmacro" | "defmacrop"
-                        | "defmodule" | "defstruct" | "defprotocol" | "defimpl"
-                        | "alias" | "import" | "require" | "use"
-                    )
-                );
-                if !is_definition_or_directive {
-                    stats.branches += 1.;
-                }
-                // Keyword-shaped control-flow Calls also contribute
-                // one condition.
-                if matches!(keyword, Some("if" | "unless" | "case" | "cond" | "with")) {
-                    stats.conditions += 1.;
-                }
+            E::Call => elixir_count_call(node, code, stats),
+            E::EQEQ | E::EQEQEQ | E::BANGEQ | E::BANGEQEQ | E::LTEQ | E::GTEQ => {
+                stats.conditions += 1.;
             }
-            E::EQEQ | E::EQEQEQ | E::BANGEQ | E::BANGEQEQ | E::LTEQ | E::GTEQ
             // Guard `when` token: introduces the guard clause of a
-            // function head or `case` arm.
-            | E::When => {
+            // function head or `case` / `fn` / `receive` arm. One
+            // condition per guard, whatever the guard spells, with its
+            // sub-structure (`when x > 2` also pays the `>`) left to the
+            // arms that own it — the condition-slot model #1422 gave C#,
+            // which Elixir already had here.
+            //
+            // What it lacked was the gate, added with #1454 and shared
+            // with the `Cyclomatic` impl that gained the matching
+            // decision (grammar-dispatch §7). Elixir has no dedicated
+            // guard production, and a typespec's binding clause
+            // (`@spec f(a) :: a when a: integer`) spells the same token:
+            // it scored a condition here against no decision anywhere,
+            // on type syntax that branches on nothing.
+            E::When if npa::elixir_when_is_guard(node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             // Counts `<` / `>` only as the operator token of a

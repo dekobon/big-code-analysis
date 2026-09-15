@@ -656,6 +656,64 @@ pub(crate) fn ruby_in_clause_counts(in_clause: &Node, source: &[u8]) -> bool {
     })
 }
 
+/// Whether a `when` operator token spells a real guard — a function
+/// head's (`def f(x) when g do`) or a clause's (`x when g -> …`) —
+/// rather than a typespec's `when` binding clause
+/// (`@spec f(a) :: a when a: integer`), which is type syntax and no
+/// decision at all.
+///
+/// Shared by the `Cyclomatic` and `Abc` impls for `ElixirCode` so the
+/// two cannot disagree about what a guard is (grammar-dispatch §7).
+/// Elixir has no dedicated guard production — `x when g` is an ordinary
+/// `binary_operator` — so the position it sits in is the only thing that
+/// tells a guard from a typespec, and the allowlist below is that
+/// position set at the pinned grammar: the `left` slot of a
+/// `stab_clause` (`case` / `cond` / `fn` / `receive` / `with`'s `else`
+/// / `try`'s handlers), or an argument of a definition Call that takes
+/// a guarded head.
+///
+/// `arguments` carries five kind aliases at this pin and
+/// `binary_operator` three, so both are matched by rule name rather
+/// than by enumerating ids (grammar-dispatch §1).
+///
+/// Alternative guards (`when a when b`, valid but rare) parse
+/// left-associatively into nested `when` operators, and only the
+/// outermost reaches an anchor: the construct scores one, the same as
+/// the single-alternative spelling. That is the slot model — the guard
+/// is one decision however many alternatives it lists — and it is what
+/// `ancestors` can answer in O(1) steps.
+pub(crate) fn elixir_when_is_guard<'a>(
+    node: &Node<'a>,
+    code: &'a [u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    use Elixir as E;
+
+    const ARGUMENTS: &str = "arguments";
+
+    let mut chain = ancestors.iter(node);
+    // The token's parent is the `when` operator node itself; its parent
+    // is the position that decides.
+    let Some((operator, _)) = chain.next() else {
+        return false;
+    };
+    let Some((parent, _)) = chain.next() else {
+        return false;
+    };
+    if parent.kind_id() == E::StabClause as u16 {
+        return parent
+            .child_by_field_name("left")
+            .is_some_and(|left| left.id() == operator.id());
+    }
+    parent.kind() == ARGUMENTS
+        && chain.next().is_some_and(|(call, _)| {
+            crate::lang_helpers::elixir::elixir_call_keyword(&call, code).is_some_and(|keyword| {
+                crate::lang_helpers::elixir::elixir_is_method_macro(keyword)
+                    || matches!(keyword, "defguard" | "defguardp")
+            })
+        })
+}
+
 // A `visibility_modifier` node counts as public unless it has a direct
 // `Zelf` child — the structural signature of `pub(self)` / `pub(in self)`,
 // which restrict visibility to the current module (semantically private,
