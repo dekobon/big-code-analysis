@@ -190,7 +190,8 @@ macro_rules! java_bool_terminal_kinds {
 // `object_creation_expression`, which #1462 measured short and left
 // alone because `new Foo()` is not a literal.
 //
-// Four of that list moved into the set in #1462: `string_literal`,
+// Four more `_expression` alternatives moved into the set in #1462 and
+// so are no longer named in the paragraph above: `string_literal`,
 // `null_literal`, `list_literal` and `map_literal`. An earlier revision
 // of this comment excluded them as "constant or degenerate … and none
 // has a sibling-language precedent", and both halves of that stopped
@@ -680,9 +681,27 @@ macro_rules! python_bool_terminal_kinds {
 // numeric kind: a bare number in a boolean slot is a compile error in
 // those five, so there is nothing to count. **That reasoning extends to
 // every other literal kind**, which is why #1462 left all five alone
-// while adding strings, `null`, and collection literals to the eight
+// while adding strings, `null`, and collection literals to the
 // truthy-valued sets: `if ("s")` and `if (null)` are compile errors in
 // the same five for the same reason `if (1)` is.
+//
+// #1462 landed that sweep across eight sets — the four JS-family ones
+// plus Python, Lua, PHP and Groovy — and its own comment called that
+// the complete truthy-valued set. It was not: **Perl, Ruby and Elixir**
+// are truthy-valued too, appeared in neither the swept list nor the
+// compile-error exemption, and already carried `False` / `Nil` — the
+// very precedent the paragraph below cites. A whole-branch review of
+// the batch measured the gap the CHANGELOG describes in all three:
+// `$a && "s"` scored 1 against `$a && $b`'s 2, and `if ("s")` scored 0
+// against `if ($b)`'s 1. The three sets were swept on the same terms
+// and each names its additions below.
+//
+// Tcl and iRules are the remaining truthy-valued languages and needed
+// nothing: their `quoted_word`, `braced_word_simple` and `number` kinds
+// already cover every literal spelling an `expr {…}` operand can take
+// (measured, not assumed). A bare `simple_word` still scores zero,
+// which is correct — an unquoted bareword is not a literal in `expr`,
+// it is a syntax error.
 //
 // #1462 is also where the *value* of the literal stopped being the
 // question. Every set here has listed `False` since #403 and several
@@ -731,12 +750,35 @@ macro_rules! python_bool_terminal_kinds {
 // (`perl_count_unary_conditions`), so the pattern node is never
 // reached alongside its own `=~`.
 //
-// Three further rules in the same grammar family are deliberately
-// absent because whether they are boolean *tests* is a judgement call,
-// not a dispatch gap: `substitution_pattern_s` (`s///`) and
-// `transliteration_tr_or_y` (`tr///`) each evaluate to a count rather
-// than a bool, and `regex_pattern_qr` (`qr//`) to a compiled-pattern
-// object that is always true. All three measure zero conditions today.
+// `substitution_pattern_s` (`s///`) and `transliteration_tr_or_y`
+// (`tr///`) are deliberately absent: both edit `$_` and evaluate to a
+// count, so they are operations rather than literals, and both measure
+// zero today. `regex_pattern_qr` (`qr//`) sat beside them until #1462's
+// sweep reached Perl, deferred as "a compiled-pattern object that is
+// always true" — which is the argument *for* counting it once the
+// question became whether a literal fills the slot rather than whether
+// it is a boolean test. It is the JavaScript `regex` / Groovy slashy
+// literal by another spelling, so it counts.
+//
+// The literal kinds that sweep added, each measured a condition short
+// of a `$b` control in *both* the `&&`-chain and the `if` predicate
+// slot, with every id read off `bca dump`: the four string productions
+// the grammar keeps separate — `string_single_quoted` (329),
+// `string_q_quoted` (330), `string_double_quoted` (331),
+// `string_qq_quoted` (332), so listing one would have closed a quarter
+// of the gap; `heredoc_initializer` (216), the `<<"EOT"` token that
+// occupies the slot while the body is a statement node the walker never
+// reaches (so no §5 double count); `command_qx_quoted` (333) and
+// `backtick_quoted` (334), on PHP's `shell_command_expression`
+// precedent; the collection literals `word_list_qw` (335), `array_ref`
+// (357) and `hash_ref` (358), `(1, 2)` (`array`, 356) having already
+// scored; `regex_pattern_qr` (338) per above; and `special_literal`
+// (220) — `__FILE__` / `__LINE__` / `__PACKAGE__` / `__SUB__`, constants
+// standing where a value stands. That rule also spells `__END__` /
+// `__DATA__`, which end the compilation unit and so reach no operand
+// slot to be excluded from. None of the twelve has a numeric-suffix
+// alias in tree-sitter-perl 1.1.2 (§1, swept over the whole enum) and
+// every one was observed emitted (§2).
 #[macro_export]
 #[doc(hidden)]
 macro_rules! perl_bool_terminal_kinds {
@@ -765,6 +807,18 @@ macro_rules! perl_bool_terminal_kinds {
             | $crate::Perl::MethodInvocation
             | $crate::Perl::PatternMatcher
             | $crate::Perl::PatternMatcherM
+            | $crate::Perl::StringSingleQuoted
+            | $crate::Perl::StringQQuoted
+            | $crate::Perl::StringDoubleQuoted
+            | $crate::Perl::StringQqQuoted
+            | $crate::Perl::HeredocInitializer
+            | $crate::Perl::CommandQxQuoted
+            | $crate::Perl::BacktickQuoted
+            | $crate::Perl::WordListQw
+            | $crate::Perl::ArrayRef
+            | $crate::Perl::HashRef
+            | $crate::Perl::RegexPatternQr
+            | $crate::Perl::SpecialLiteral
     };
 }
 
@@ -1139,6 +1193,32 @@ macro_rules! kotlin_bool_terminal_kinds {
 // here and must not be added: that spelling raises `NoMatchingPattern`
 // on failure rather than yielding a boolean, so it is a destructuring
 // assignment, not a condition.
+//
+// The literal kinds #1462's sweep added, each measured a condition
+// short of a `b` control in *both* the `&&`-chain and the `if`
+// predicate slot, with every id read off `bca dump`: `string` (314),
+// which covers `"s"`, `'s'`, `%q()` and `%Q()` alike; `chained_string`
+// (312), the adjacent-literal concatenation `"a" "b"`, a sibling rule
+// rather than an alias and so invisible to an alias sweep;
+// `heredoc_beginning` (142), the `<<~TXT` token that occupies the slot
+// while `heredoc_body` is a separate node the walker never reaches (so
+// no §5 double count); the collection literals `array` (322), `hash`
+// (323), `string_array` (316, `%w[]`) and `symbol_array` (317, `%i[]`);
+// `regex` (319), which in a predicate is additionally an implicit match
+// against `$_`; `subshell` (315), `` `ls` `` and `%x{}`, on PHP's
+// `shell_command_expression` precedent; `character` (123), the
+// one-character literal `?a`, the counterpart of the `Char` Elixir's
+// set already named; and the two symbol productions `simple_symbol`
+// (130) and `delimited_symbol` (318), which are to Ruby what `atom` is
+// to Elixir. None has a numeric-suffix alias in tree-sitter-ruby 0.23.1
+// (§1) and every one was observed emitted (§2).
+//
+// `Nil2` (22) is **not** here and must not be added. `nil` parses as a
+// `nil` *wrapper* (309, listed) around a `nil` keyword token (22), so
+// listing both would score the literal twice (§5); the same shape holds
+// for Elixir's `Nil` / `Nil2` below. `lambda` (325, `->{}`) and the
+// range productions are absent as well — a closure and a range are not
+// literals in the class this sweep covers.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! ruby_bool_terminal_kinds {
@@ -1160,6 +1240,18 @@ macro_rules! ruby_bool_terminal_kinds {
             | $crate::Ruby::Float
             | $crate::Ruby::Rational
             | $crate::Ruby::Complex
+            | $crate::Ruby::String
+            | $crate::Ruby::ChainedString
+            | $crate::Ruby::HeredocBeginning
+            | $crate::Ruby::Subshell
+            | $crate::Ruby::Array
+            | $crate::Ruby::Hash
+            | $crate::Ruby::StringArray
+            | $crate::Ruby::SymbolArray
+            | $crate::Ruby::Regex
+            | $crate::Ruby::Character
+            | $crate::Ruby::SimpleSymbol
+            | $crate::Ruby::DelimitedSymbol
     };
 }
 
@@ -1187,6 +1279,29 @@ macro_rules! ruby_bool_terminal_kinds {
 // string; `x && ?a` scored 1 against `x && b`'s 2 until it was listed.
 // Radix prefixes (`0x`, `0o`, `0b`) fold into `integer`, verified by
 // measurement.
+//
+// The non-numeric literal kinds #1462's sweep added, each measured a
+// condition short of a `b` control in the `&&`-chain slot, with every
+// id read off `bca dump`: `string` (153), one kind for the `"s"` and
+// the `"""` heredoc spelling alike; `charlist` (154); the collection
+// literals `list` (162), `tuple` (163), `map` (165) and `bitstring`
+// (164), `map` also being what `%Foo{}` parses to (`struct`, 166, is
+// its child, so listing `map` alone is right and cannot double count,
+// §5); `sigil` (156), one kind for `~r//`, `~s()` and `~w()` alike; and
+// `quoted_atom` (132), which is a **separate production** from `atom`
+// (14) rather than an alias of it, so `:"quoted atom"` scored zero
+// while `:atom` scored one. Elixir has no bare-truthy `if` predicate
+// slot, so only the chain slot moves. None of the seven has a
+// numeric-suffix alias in tree-sitter-elixir 0.3.5 (§1) and every one
+// was observed emitted (§2).
+//
+// `Nil2` (13) and `Atom2` (131) are **not** here and must not be added.
+// `nil` parses as a `nil` wrapper (130, listed) around a `nil` keyword
+// token (13), so listing both would score the literal twice (§5), and
+// `Atom2` is unreachable at this pin — `:atom` is `Atom` (14) and
+// `:"q a"` is `quoted_atom`. The closures (`anonymous_function`, 203)
+// and captures (`&Foo.bar/1`, a `unary_operator`) are absent on the
+// same rule as Ruby's `lambda`: not literals.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! elixir_bool_terminal_kinds {
@@ -1207,6 +1322,14 @@ macro_rules! elixir_bool_terminal_kinds {
             | $crate::Elixir::Float
             | $crate::Elixir::Char
             | $crate::Elixir::AccessCall
+            | $crate::Elixir::String
+            | $crate::Elixir::Charlist
+            | $crate::Elixir::Sigil
+            | $crate::Elixir::QuotedAtom
+            | $crate::Elixir::List
+            | $crate::Elixir::Tuple
+            | $crate::Elixir::Map
+            | $crate::Elixir::Bitstring
     };
 }
 

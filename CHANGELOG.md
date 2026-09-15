@@ -186,7 +186,7 @@ for historical reference.
 - **A non-numeric literal in a boolean operand slot scored no ABC
   condition** (#1462). `x || "default"` reported `abc.conditions` 1
   against `x || y`'s 2, and `if ("s")` reported 0 against `if (b)`'s 1,
-  in all eight truthy-valued languages. #1410 had closed the same gap
+  in all eleven truthy-valued languages. #1410 had closed the same gap
   for numeric literals; the non-numeric ones were never swept and were
   missing from every set the numerics were added to. Every kind below
   was measured a condition short of an identifier control in *both*
@@ -211,6 +211,23 @@ for historical reference.
     the other three scored one.
   - **Groovy**: `string_literal` (which also covers the slashy `/re/`),
     `null_literal`, `list_literal`, `map_literal`.
+  - **Perl**: the four string productions the grammar keeps separate
+    (`'s'`, `q()`, `"s"`, `qq()`), `heredoc_initializer`, the two
+    command substitutions `qx()` and backticks, the `qw()` / `[…]` /
+    `{…}` collection literals, `qr//`, and `special_literal`
+    (`__FILE__` and its three siblings). `qr//` had been deferred as
+    "a compiled-pattern object that is always true", which is the
+    argument *for* counting it once the question became whether a
+    literal fills the slot; `s///` and `tr///` stay out, being
+    operations on `$_` rather than literals.
+  - **Ruby**: `string` (covering `"s"`, `'s'`, `%q()` and `%Q()`),
+    `chained_string`, `heredoc_beginning`, `subshell`, the four
+    collection literals `array` / `hash` / `%w[]` / `%i[]`, `regex`,
+    the one-character `?a`, and both symbol productions.
+  - **Elixir**: `string` (one kind for `"s"` and the `"""` heredoc),
+    `charlist`, `sigil`, `quoted_atom` — a separate production from
+    `atom`, so `:"q a"` scored zero while `:atom` scored one — and the
+    four collection literals `list` / `tuple` / `map` / `bitstring`.
 
   A type keyword that renders to the same node-kind name as its literal
   stays out, extending the rule PHP's `float` keyword established:
@@ -221,14 +238,18 @@ for historical reference.
   The C family carries the same gap for `string_literal` and is
   deliberately deferred: it is the one integer-truthy group with
   integration-corpus exposure, so its snapshot delta wants its own
-  change. **Metric drift:** `abc.conditions`, `abc.magnitude` and
-  `abc.value` rise by one per non-numeric literal operand in a boolean
-  slot, in the eight languages listed; `abc` is a gated threshold
-  metric. Cyclomatic is unaffected. 85 of the 384 pdf.js JavaScript
-  integration snapshots move, all in the `conditions` family and all
-  upward; no other corpus moves, the DeepSpeech tree being entirely
-  C/C++ and the six-file PHP corpus carrying no literal in a boolean
-  slot.
+  change. Tcl and iRules are the remaining truthy-valued languages and
+  needed nothing: `quoted_word`, `braced_word_simple` and `number`
+  already cover every literal an `expr {…}` operand can hold, verified
+  by measurement rather than assumed. **Metric drift:**
+  `abc.conditions`, `abc.magnitude` and `abc.value` rise by one per
+  non-numeric literal operand in a boolean slot, in the eleven
+  languages listed; `abc` is a gated threshold metric. Cyclomatic is
+  unaffected. 85 of the 384 pdf.js JavaScript integration snapshots
+  move, all in the `conditions` family and all upward; no other corpus
+  moves, the DeepSpeech tree being entirely C/C++, the six-file PHP
+  corpus carrying no literal in a boolean slot, and no corpus carrying
+  a `.pl`, `.rb` or `.ex` file at all.
 
 - **Perl ABC scored statement-modifier conditions zero** (#1464).
   `return 1 if $x;` reported `abc.conditions` 0 where the block form

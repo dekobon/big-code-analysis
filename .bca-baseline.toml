@@ -264,6 +264,12 @@ metric = "halstead.effort"
 value = 120805.48245794396
 
 [[entry]]
+path = "big-code-analysis-ast/src/macros/kind_sets.rs"
+qualified = "<file>"
+metric = "loc.sloc"
+value = 1357.0
+
+[[entry]]
 path = "big-code-analysis-ast/src/node.rs"
 qualified = "Node<'a>"
 metric = "nom"

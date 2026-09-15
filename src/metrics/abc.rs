@@ -15491,13 +15491,22 @@ mod perl_statement_modifier_parity {
 /// slots: `x || "default"` — the language's commonest truthy-default
 /// idiom — reported 1 against `x || y`'s 2.
 ///
-/// Scope is the eight truthy-valued sets. C#, Java, Kotlin, Rust and Go
-/// name no literal kind at all and stay that way: a bare literal in a
-/// boolean slot is a compile error there, so there is nothing to count.
-/// The C family is integer-truthy and does carry the same gap for
-/// `string_literal`, but it is the one group in that class with
-/// integration-corpus exposure, so it is deferred rather than decided
-/// (see `cpp_bool_terminal_kinds!`).
+/// Scope is the eleven truthy-valued sets. #1462 shipped eight of them
+/// and called that complete; a whole-branch review of the batch found
+/// Perl, Ruby and Elixir in neither the swept list nor the
+/// compile-error exemption, each already carrying `False` / `Nil`, and
+/// each reproducing the gap exactly. They were swept on the same terms
+/// and are rows here. Tcl and iRules are truthy too and needed nothing:
+/// their `quoted_word` / `braced_word_simple` / `number` kinds already
+/// cover every literal an `expr {…}` operand can hold, so they have no
+/// row rather than a vacuous one.
+///
+/// C#, Java, Kotlin, Rust and Go name no literal kind at all and stay
+/// that way: a bare literal in a boolean slot is a compile error there,
+/// so there is nothing to count. The C family is integer-truthy and
+/// does carry the same gap for `string_literal`, but it is the one
+/// group in that class with integration-corpus exposure, so it is
+/// deferred rather than decided (see `cpp_bool_terminal_kinds!`).
 ///
 /// Three things each row pins that a conditions comparison alone
 /// cannot:
@@ -15532,7 +15541,10 @@ mod perl_statement_modifier_parity {
     feature = "python",
     feature = "lua",
     feature = "php",
-    feature = "groovy"
+    feature = "groovy",
+    feature = "perl",
+    feature = "ruby",
+    feature = "elixir"
 ))]
 mod literal_bool_operands {
     use crate::test_support::{assert_fixture_spells, metrics_verbatim};
@@ -15620,6 +15632,12 @@ mod literal_bool_operands {
             LANG::Groovy => {
                 assert_fixture_spells::<crate::GroovyParser>(source, "f.groovy", kinds);
             }
+            #[cfg(feature = "perl")]
+            LANG::Perl => assert_fixture_spells::<crate::PerlParser>(source, "f.pl", kinds),
+            #[cfg(feature = "ruby")]
+            LANG::Ruby => assert_fixture_spells::<crate::RubyParser>(source, "f.rb", kinds),
+            #[cfg(feature = "elixir")]
+            LANG::Elixir => assert_fixture_spells::<crate::ElixirParser>(source, "f.ex", kinds),
             other => panic!("{other:?} has a case row but no parser arm"),
         }
     }
@@ -15649,10 +15667,41 @@ mod literal_bool_operands {
     ///   Java / C# / Groovy / PHP group that named no cast kind.
     /// - Groovy: `string_literal` (which also covers the slashy `/re/`),
     ///   `null_literal`, `list_literal`, `map_literal`.
+    /// - Perl: the four string productions the grammar keeps separate
+    ///   (`'s'`, `q()`, `"s"`, `qq()`), the two command substitutions
+    ///   (`qx()`, backticks), the `qw()` / `[…]` / `{…}` collection
+    ///   literals, `qr//`, and `special_literal` (`__FILE__`).
+    ///   `heredoc_initializer` is the twelfth kind and cannot live in
+    ///   this table — a Perl heredoc body follows the *statement*, not
+    ///   the operand — so it has its own test below.
+    /// - Ruby: `string` (covering `"s"`, `'s'`, `%q()`, `%Q()`),
+    ///   `chained_string` (the adjacent-literal join `"a" "b"`, a
+    ///   sibling rule an alias sweep cannot see), `subshell`, the four
+    ///   collection literals `array` / `hash` / `%w[]` / `%i[]`,
+    ///   `regex`, the one-character `?a`, and both symbol productions.
+    ///   `heredoc_beginning` is the twelfth and shares the Perl heredoc
+    ///   test for the same reason.
+    /// - Elixir: `string` (one kind for `"s"` and the `"""` heredoc),
+    ///   `charlist`, `sigil` (one kind for `~r//`, `~s()`, `~w()`),
+    ///   `quoted_atom` — a separate production from `atom`, so
+    ///   `:"q a"` scored zero while `:atom` scored one — and the four
+    ///   collection literals `list` / `tuple` / `map` / `bitstring`.
     ///
-    /// Two shapes measured short here and are deliberately absent,
-    /// because neither is a literal: JavaScript's `this` and Groovy's
-    /// `object_creation_expression`. Both are recorded in #1462.
+    /// Elixir is the one row whose two slots are not two independent
+    /// consumers: the language has no bare-truthy `if` predicate slot
+    /// to route, since an Elixir `if` is a keyword-shaped `Call` scoring
+    /// one whatever its argument. Its second slot negates the operand
+    /// instead, which reaches the terminal set through
+    /// `elixir_inspect_container` rather than through the chain
+    /// walker's own check — a different path to the same set, which is
+    /// what the second slot exists to exercise.
+    ///
+    /// Shapes that measured short and are deliberately absent, none of
+    /// them a literal: JavaScript's `this` and Groovy's
+    /// `object_creation_expression` (recorded in #1462); Perl's
+    /// `s///` and `tr///` (operations on `$_` evaluating to a count),
+    /// `anonymous_function` and `array_dereference`; Ruby's `lambda`;
+    /// and Elixir's `anonymous_function` and `&f/1` capture.
     fn cases(lang: LANG) -> Option<Case> {
         Some(match lang {
             LANG::Javascript => (JS_SLOTS, "b", js_literals!(Javascript, String2), 7),
@@ -15720,6 +15769,82 @@ mod literal_bool_operands {
                     ("[:]", crate::Groovy::MapLiteral as u16),
                 ],
                 4,
+            ),
+            LANG::Perl => (
+                [
+                    (
+                        "sub f {\n  my ($a, $b) = @_;\n  if ($a && {}) { print 1; }\n}\n",
+                        2,
+                        4,
+                    ),
+                    (
+                        "sub f {\n  my ($a, $b) = @_;\n  if ({}) { print 1; }\n}\n",
+                        1,
+                        3,
+                    ),
+                ],
+                "$b",
+                &[
+                    ("'s'", crate::Perl::StringSingleQuoted as u16),
+                    ("q(s)", crate::Perl::StringQQuoted as u16),
+                    ("\"s\"", crate::Perl::StringDoubleQuoted as u16),
+                    ("qq(s)", crate::Perl::StringQqQuoted as u16),
+                    ("qx(ls)", crate::Perl::CommandQxQuoted as u16),
+                    ("`ls`", crate::Perl::BacktickQuoted as u16),
+                    ("qw(a b)", crate::Perl::WordListQw as u16),
+                    ("[1, 2]", crate::Perl::ArrayRef as u16),
+                    ("{ a => 1 }", crate::Perl::HashRef as u16),
+                    ("qr/re/", crate::Perl::RegexPatternQr as u16),
+                    ("__FILE__", crate::Perl::SpecialLiteral as u16),
+                ],
+                11,
+            ),
+            LANG::Ruby => (
+                [
+                    ("def f(a, b)\n  if a && {} then 1 else 0 end\nend\n", 3, 4),
+                    ("def f(a, b)\n  if {} then 1 else 0 end\nend\n", 2, 3),
+                ],
+                "b",
+                &[
+                    ("\"s\"", crate::Ruby::String as u16),
+                    ("\"a\" \"b\"", crate::Ruby::ChainedString as u16),
+                    ("`ls`", crate::Ruby::Subshell as u16),
+                    ("[1, 2]", crate::Ruby::Array as u16),
+                    ("{ a: 1 }", crate::Ruby::Hash as u16),
+                    ("%w[a b]", crate::Ruby::StringArray as u16),
+                    ("%i[a b]", crate::Ruby::SymbolArray as u16),
+                    ("/re/", crate::Ruby::Regex as u16),
+                    ("?a", crate::Ruby::Character as u16),
+                    (":sym", crate::Ruby::SimpleSymbol as u16),
+                    (":\"sym\"", crate::Ruby::DelimitedSymbol as u16),
+                ],
+                11,
+            ),
+            LANG::Elixir => (
+                [
+                    (
+                        "defmodule M do\n  def f(a, b) do\n    if a && {} do\n      a\n    end\n  end\nend\n",
+                        3,
+                        5,
+                    ),
+                    (
+                        "defmodule M do\n  def f(a, b) do\n    if a && !{} do\n      a\n    end\n  end\nend\n",
+                        3,
+                        5,
+                    ),
+                ],
+                "b",
+                &[
+                    ("\"s\"", crate::Elixir::String as u16),
+                    ("'c'", crate::Elixir::Charlist as u16),
+                    ("~r/re/", crate::Elixir::Sigil as u16),
+                    (":\"q a\"", crate::Elixir::QuotedAtom as u16),
+                    ("[1, 2]", crate::Elixir::List as u16),
+                    ("{1, 2}", crate::Elixir::Tuple as u16),
+                    ("%{a: 1}", crate::Elixir::Map as u16),
+                    ("<<1>>", crate::Elixir::Bitstring as u16),
+                ],
+                8,
             ),
             _ => return None,
         })
@@ -15803,6 +15928,58 @@ mod literal_bool_operands {
                 }
             }
         });
+    }
+
+    /// The twelfth Perl and Ruby literal kind, which the table above
+    /// cannot hold: in both languages a heredoc body follows the
+    /// *statement*, so the operand slot carries only the introducer and
+    /// the rest of the literal lands on later lines. Substituting one
+    /// into a single-line template produces an unterminated heredoc and
+    /// an `ERROR` parse, not a measurement.
+    ///
+    /// That shape is also why exactly one kind is listed per language
+    /// (§5): `heredoc_initializer` / `heredoc_beginning` is the node in
+    /// the operand slot, while `heredoc_body_statement` /
+    /// `heredoc_body` is a sibling the walker never reaches. Listing
+    /// both would score one literal twice.
+    #[cfg(any(feature = "perl", feature = "ruby"))]
+    #[test]
+    fn a_heredoc_operand_scores_like_an_identifier_operand() {
+        #[cfg(feature = "perl")]
+        {
+            let heredoc = "sub f {\n  my ($a, $b) = @_;\n  if ($a && <<\"EOT\") { print 1; }\nhello\nEOT\n}\n";
+            assert_spells(
+                LANG::Perl,
+                heredoc,
+                &[(crate::Perl::HeredocInitializer as u16, 1, "<<\"EOT\"")],
+            );
+            assert_eq!(
+                conditions(LANG::Perl, heredoc),
+                conditions(
+                    LANG::Perl,
+                    "sub f {\n  my ($a, $b) = @_;\n  if ($a && $b) { print 1; }\n}\n"
+                ),
+                "Perl heredoc operand"
+            );
+        }
+        #[cfg(feature = "ruby")]
+        {
+            let heredoc =
+                "def f(a, b)\n  if a && <<~TXT then 1 else 0 end\n    hello\n  TXT\nend\n";
+            assert_spells(
+                LANG::Ruby,
+                heredoc,
+                &[(crate::Ruby::HeredocBeginning as u16, 1, "<<~TXT")],
+            );
+            assert_eq!(
+                conditions(LANG::Ruby, heredoc),
+                conditions(
+                    LANG::Ruby,
+                    "def f(a, b)\n  if a && b then 1 else 0 end\nend\n"
+                ),
+                "Ruby heredoc operand"
+            );
+        }
     }
 
     /// Every spelling must parse to the `kind_id` its row names — the
