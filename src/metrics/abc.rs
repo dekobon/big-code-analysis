@@ -13904,6 +13904,76 @@ end
             );
         });
     }
+
+    // The other half of that gate's allowlist. `elixir_when_is_guard`
+    // accepts a definition `Call`'s `arguments` anchor when the call's
+    // keyword is a method macro *or* one of `defguard` / `defguardp`,
+    // and the second disjunct is its own path: `elixir_is_method_macro`
+    // spells only `def` / `defp` / `defmacro` / `defmacrop`, so a
+    // `defguard` head reaches the anchor test solely through the
+    // `matches!`. Nothing in the suite spelled `defguard` before this,
+    // which left the disjunct scored by no fixture at all.
+    //
+    // `defguard` is where a guard is most obviously a decision — the
+    // macro exists to name one — so an ungated head would have scored
+    // the construct zero on both axes while the `def f(x) when g`
+    // spelling it expands into scores one.
+    //
+    // Read off the *module*, not off a member: `defguard` is not a
+    // method macro, so it opens no function space and its guard lands
+    // in the container's body. `plain` is the control that pins the
+    // module's rows to the two guards and nothing else, and the guard
+    // bodies are calls (`is_integer/1`, `is_atom/1`) rather than
+    // comparisons so neither can supply a condition of its own.
+    #[test]
+    fn elixir_defguard_head_is_a_guard() {
+        let src = "defmodule T do
+  defguard is_int(x) when is_integer(x)
+  defguardp is_at(x) when is_atom(x)
+  def plain(x) do
+    x
+  end
+end
+";
+        assert_fixture_spells::<ElixirParser>(
+            src,
+            "foo.ex",
+            &[(
+                Elixir::When as u16,
+                2,
+                "one per `defguard` / `defguardp` head",
+            )],
+        );
+        check_func_space::<ElixirParser, _>(src, "foo.ex", |space| {
+            let module = &space.spaces[0];
+            assert_eq!(
+                (
+                    module.metrics.abc.conditions(),
+                    module.metrics.cyclomatic.cyclomatic()
+                ),
+                (2, 3),
+                "each of `defguard` and `defguardp` carries one guard, on \
+                 both axes (cyclomatic counts from its base of 1)"
+            );
+            let members: Vec<(u64, u64)> = module
+                .spaces
+                .iter()
+                .map(|m| {
+                    (
+                        m.metrics.abc.conditions(),
+                        m.metrics.cyclomatic.cyclomatic(),
+                    )
+                })
+                .collect();
+            assert_eq!(
+                members,
+                vec![(0, 1)],
+                "`defguard` opens no function space, so `plain` is the \
+                 module's only member and scores nothing"
+            );
+        });
+    }
+
     // #1461's structural half: a relational operator scores by *use*,
     // a value-bearing operand scores in a boolean *slot*.
     //
