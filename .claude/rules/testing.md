@@ -96,6 +96,28 @@ perturbation then reports the integration guard as passing, which reads
 as a dead guard rather than a harness artifact (#1270). Pass
 `--no-fail-fast` in any multi-target perturbation run.
 
+**Classify a build failure by `error[` or `could not compile`, never by
+`error`.** `cargo test` prints `error: test failed` to stderr on an
+ordinary red run, so a driver matching bare `error` reads every
+discriminating perturbation as a build break. One sweep returned
+BUILD-ERROR for six of seven cases that were in fact all working (#1466)
+— a uniform non-answer of exactly the shape the uniform-34 and uniform-0
+tells above describe.
+
+**A perturbation that *passes* is a finding, not a null result.** It says
+the assertion does not depend on the line you neutralised, and the usual
+cause is that the test's stated claim is wrong rather than that the test
+is weak. Check whether the behaviour is *enforced by the mechanism* or
+merely *absent from a list* before strengthening anything: Perl's
+statement-modifier walker keys on the grammar's `condition` field, so
+adding `ForSimpleStatement` to its arm changes nothing — the `for`
+modifier exposes no such field — and a comment claiming the test would
+catch a widened arm was false until the sweep proved it (#1464). Correct
+the comment; do not invent a fixture to justify it. The inverse error is
+equally common: two candidate rankings in #1465 were merely *different
+valid orderings* rather than defects, and the honest fix was to trim the
+test comment's claim.
+
 After restoring, `git status` / `git diff --stat` must show exactly
 the edits you intend — nothing extra, nothing missing.
 
@@ -233,7 +255,7 @@ fixture rather than like the fix working.
 `loc/wide-cfg-test-mod` (`big-code-analysis-bench/src/shapes.rs`) read
 `sloc` under `exclude_tests` on a file of nothing but `#[cfg(test)]
 mod m {}` repeated. Its only non-zero row was the phantom attribute row
-#1431 then removed, so the probe scored zero and tripped
+that #1431 then removed, so the probe scored zero and tripped
 `probe_workload_is_exercised`. Left unnoticed it would have timed the
 walk's fixed overhead and reported an excellent exponent forever. The
 repair was to render a retained `fn p() {}` per item, so the reading
@@ -427,6 +449,17 @@ single non-listed language (`--features go`) is the reproducer.
 
 Note the union is over *features*, not languages: `LANG::Tsx` rides
 `feature = "typescript"`, so a seven-row table can need only six.
+
+**That verification needs `-p big-code-analysis`.** A workspace-wide
+`cargo test --no-default-features --features X` does not isolate features
+at all: `big-code-analysis-cli` and `big-code-analysis-web` depend on the
+library with default features, and cargo unifies them, so everything is
+silently re-enabled. Three different feature sets reported an identical
+`4 passed; 3428 filtered out` before this was noticed (#1457) — the
+uniform-number tell from the harness sections above. Only `-p` narrowed
+it, and then the counts varied (0 / 2 / 3). A feature-gate check run
+without `-p` proves nothing, and proves it while looking green; confirm
+real isolation by watching the *filtered-out* count differ across sets.
 
 ## Assert a whole-run invariant in the run, not in a fixture list
 
