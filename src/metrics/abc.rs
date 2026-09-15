@@ -14799,10 +14799,13 @@ mod numeric_bool_operands {
     ///   language is compiled in; this catches the residual case where
     ///   the runtime `is_enabled()` check stops agreeing with the feature
     ///   it compiled under.
-    /// - **the `numerics` list keeps its recorded length** — `checked`
-    ///   counts *languages*, so trimming a row's numeric list back to
-    ///   `&["1"]` (the pre-#1379 fixture) or emptying it left every test
-    ///   passing when measured, with that language's coverage deleted.
+    /// - **the `numerics` list is non-empty and keeps its recorded
+    ///   length** — `checked` counts *languages*, so trimming a row's
+    ///   numeric list back to `&["1"]` (the pre-#1379 fixture) or
+    ///   emptying it left every test passing when measured, with that
+    ///   language's coverage deleted. Two assertions, because the
+    ///   length check passes an emptied row whose count was zeroed with
+    ///   it.
     /// - **every template keeps its `{}`** — without the slot,
     ///   `str::replace` is a no-op, baseline and candidate are computed
     ///   from the same string, and the comparison degenerates to
@@ -14818,6 +14821,15 @@ mod numeric_bool_operands {
             let Some(case @ (slots, _, numerics, expected_kinds)) = cases(lang) else {
                 continue;
             };
+            // Emptying a row is the half the length check below cannot
+            // see: `&[]` against an `expected_kinds` of 0 agrees with
+            // itself, the inner loops run zero times, and `checked` —
+            // which counts languages, not spellings — still reads
+            // satisfied.
+            assert!(
+                !numerics.is_empty(),
+                "{lang:?}: the numeric-operand list is empty; this language asserted nothing"
+            );
             assert_eq!(
                 numerics.len(),
                 expected_kinds,
@@ -15090,12 +15102,13 @@ mod own_production_bool_constructs {
     /// Runs `check` once per enabled language that has a case, having
     /// first established that the case can still assert something.
     ///
-    /// The three guards mirror `numeric_bool_operands::for_each_case`,
+    /// The four guards mirror `numeric_bool_operands::for_each_case`,
     /// where each was added only after a measured perturbation of it
     /// left that module green: `checked > 0` for the runtime half of
-    /// the feature gate, the recorded construct count so a trimmed row
-    /// cannot vanish silently, and the `{}` slot so `str::replace` does
-    /// not degenerate into comparing a string with itself.
+    /// the feature gate, a non-empty construct list and its recorded
+    /// count so a trimmed row cannot vanish silently, and the `{}` slot
+    /// so `str::replace` does not degenerate into comparing a string
+    /// with itself.
     fn for_each_case(check: impl Fn(LANG, Case)) {
         let mut checked = 0;
         for lang in LANG::into_enum_iter() {
@@ -15111,9 +15124,7 @@ mod own_production_bool_constructs {
             // setting its count to 0 — the shape a careless "the test
             // failed, fix the number" edit takes — deleted that
             // language's coverage with both tests still green when
-            // measured. `numeric_bool_operands` above has the same
-            // weakness and is left alone here, being out of this
-            // change's scope.
+            // measured.
             assert!(
                 !constructs.is_empty(),
                 "{lang:?}: the construct list is empty; this language asserted nothing"
@@ -15946,10 +15957,11 @@ mod literal_bool_operands {
 
     /// Runs `check` once per enabled language that has a case, having
     /// first established that the case can still assert something. The
-    /// three guards are the sibling module's, for the same three ways
+    /// four guards are the sibling module's, for the same four ways
     /// this table could decay into asserting nothing: no language
-    /// enabled, an emptied literal list, and a template that lost its
-    /// `{}` slot (which makes every comparison `x == x`).
+    /// enabled, an emptied literal list, a list that no longer covers
+    /// every kind, and a template that lost its `{}` slot (which makes
+    /// every comparison `x == x`).
     fn for_each_case(check: impl Fn(LANG, Case)) {
         let mut checked = 0;
         for lang in LANG::into_enum_iter() {
@@ -15959,6 +15971,16 @@ mod literal_bool_operands {
             let Some(case @ (slots, _, literals, expected_kinds)) = cases(lang) else {
                 continue;
             };
+            // The length check does not imply this one: it asserts only
+            // that the list and its recorded count *agree*, which an
+            // emptied row with `expected_kinds` set to 0 satisfies —
+            // the shape a "the test failed, fix the number" edit takes.
+            // `checked` counts languages, so that row still increments
+            // it and the non-vacuity guard below reads satisfied.
+            assert!(
+                !literals.is_empty(),
+                "{lang:?}: the literal-operand list is empty; this language asserted nothing"
+            );
             assert_eq!(
                 literals.len(),
                 expected_kinds,
