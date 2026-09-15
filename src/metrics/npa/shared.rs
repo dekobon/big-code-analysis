@@ -677,11 +677,14 @@ pub(crate) fn ruby_in_clause_counts(in_clause: &Node, source: &[u8]) -> bool {
 /// than by enumerating ids (grammar-dispatch §1).
 ///
 /// Alternative guards (`when a when b`, valid but rare) parse
-/// left-associatively into nested `when` operators, and only the
-/// outermost reaches an anchor: the construct scores one, the same as
-/// the single-alternative spelling. That is the slot model — the guard
-/// is one decision however many alternatives it lists — and it is what
-/// `ancestors` can answer in O(1) steps.
+/// right-associatively into nested `when` operators — the *outermost*
+/// is the one holding the anchor, and each further alternative hangs
+/// off its predecessor's `right`. Only that outermost one is a guard
+/// here: the construct scores one, the same as the single-alternative
+/// spelling. That is the slot model — the guard is one decision however
+/// many alternatives it lists — and it is what `ancestors` can answer
+/// in O(1) steps. `abc::elixir_count_guard` peels the same nesting to
+/// reach the alternative that occupies the slot.
 pub(crate) fn elixir_when_is_guard<'a>(
     node: &Node<'a>,
     code: &'a [u8],

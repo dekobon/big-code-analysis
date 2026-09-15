@@ -9779,16 +9779,72 @@ function f(int $a, int $b): int {
         );
     }
 
-    // Guard `when` clause counts as a condition. One `when` → +1.
-    // `def f(x) when x > 0` also has `>` → +1, totalling 2.
+    // #1461 moved every relational construct a grammar spells as its own
+    // production onto an unconditional arm — scored by use, Fitzpatrick
+    // Rule 5 — in C#, Java, Groovy, Kotlin and Ruby. Elixir's membership
+    // and type tests were the same class and were not in that sweep, so
+    // `a in b` scored zero where `a == b` scored one. The gap stayed
+    // invisible while the `when` arm paid a flat one for every guard,
+    // and surfaced the moment the guard became a slot: an
+    // operator-spelled guard is owned by its operator's arm, and `in`
+    // had none.
+    //
+    // `bare` / `negbare` are the by-use claim; `slot` is the §5 check
+    // that a boolean slot does not now score the same operator twice;
+    // `cmp` is the control the two membership rows are levelled against.
+    // `in` rides the `<` / `>` `binary_operator` gate rather than
+    // standing alone — it has the same three grammar positions — and
+    // `elixir_operator_identifier_is_not_a_condition` pins that gate.
+    #[test]
+    fn elixir_membership_is_a_condition_by_use() {
+        check_func_space::<ElixirParser, _>(
+            "defmodule Foo do\n\
+               def bare(a, b), do: a in b\n\
+               def negbare(a, b), do: a not in b\n\
+               def slot(a, b) do\n\
+                 if a in b do\n\
+                   IO.puts(\"x\")\n\
+                 end\n\
+               end\n\
+               def cmp(a, b), do: a == b\n\
+             end\n",
+            "foo.ex",
+            |space| {
+                assert_members_score(
+                    &space.spaces[0],
+                    &[
+                        // Each was 0 before the arm.
+                        ("bare", 1, 1),
+                        ("negbare", 1, 1),
+                        // `if` (1) + `in` (1), exactly as `if a == b`
+                        // scores.
+                        ("slot", 2, 2),
+                        ("cmp", 1, 1),
+                    ],
+                );
+            },
+        );
+    }
+
+    // Guard `when` clause counts as a condition — exactly one, and here
+    // it is the `>` that supplies it. The guard is a condition *slot*
+    // (#1454), so an operator-spelled guard scores through the operator
+    // arm that owns it and the slot itself adds nothing; see
+    // `elixir_guard_is_a_decision_however_spelled` for the four-spelling
+    // agreement this is one row of.
+    //
+    // Was 2, on a flat `+1` for the `when` token laid on top of the `>`:
+    // the §5 double count a whole-branch review of the #1454 batch
+    // found.
     #[test]
     fn elixir_guard_when_is_condition() {
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def f(x) when x > 0 do\n    :pos\n  end\nend\n",
             "foo.ex",
             |metric| {
-                // when (+1) + > (+1) = 2
-                assert_eq!(metric.abc.conditions_sum(), 2);
+                // the guard slot (+0, the guard is an operator
+                // application) + `>` (+1) = 1
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9871,6 +9927,33 @@ function f(int $a, int $b): int {
             "foo.ex",
             |metric| {
                 assert_eq!(metric.abc.conditions_sum(), 4);
+            },
+        );
+    }
+
+    // Elixir spells negation two ways and `elixir_inspect_container`
+    // recognised only `!`, so `a && not b` scored 3 where `a && !b`
+    // scored 4 — the `not` operand reached no terminal and vanished.
+    // Both forms now read the same. `not` is the stricter of the two (it
+    // raises on a non-boolean operand where `!` accepts any truthy
+    // value), so it is at least as good a proof that what it wraps is
+    // boolean, which is all the walker's flag claims.
+    //
+    // Both members in one fixture because the claim is that they agree:
+    // asserting either alone says nothing about the pair (§11), and a
+    // shared `check_metrics` total could not tell 3 + 4 from 4 + 3.
+    //
+    // `assert_members_score` rather than the parity-asserting sibling:
+    // a `&&` operand is an ABC condition with no cyclomatic decision
+    // behind it, so both members legitimately sit one above their
+    // decision count (`base 1 + if + &&` = 3).
+    #[test]
+    fn elixir_keyword_not_negates_like_bang() {
+        check_func_space::<ElixirParser, _>(
+            "defmodule Foo do\n  def kw(a, b) do\n    if a && not b do\n      IO.puts(\"x\")\n    end\n  end\n  def bang(a, b) do\n    if a && !b do\n      IO.puts(\"x\")\n    end\n  end\nend\n",
+            "foo.ex",
+            |space| {
+                assert_members_score(&space.spaces[0], &[("kw", 3, 3), ("bang", 3, 3)]);
             },
         );
     }
@@ -13488,10 +13571,14 @@ end
     // decision, which is why `tok` / `call` / `bare` move on the
     // cyclomatic axis here and on the ABC axis everywhere else.
     //
-    // `tok` sits one *above* its decision count because Elixir keeps the
-    // guard's sub-structure — `when n > 5` pays the `>` on top of the
-    // `when` — which is the same slot policy the other four follow and
-    // the reason `assert_members_score` does not assert §8 parity.
+    // Elixir was also the one language of the six that #1454 left
+    // *without* the slot. Its `when` arm added a flat one on top of
+    // whatever the guard's sub-structure already scored, so `tok` came
+    // back 3 against `call` and `bare`'s 2 — the spelling-dependence the
+    // batch exists to remove, and a `.claude/rules/grammar-dispatch.md`
+    // §5 double count with the `>` token arm. A whole-branch review of
+    // the batch found it; all three rows now read 2, level with the
+    // sibling fixtures above and with their own decision counts.
     #[test]
     fn elixir_guard_is_a_decision_however_spelled() {
         let src = "defmodule T do
@@ -13538,12 +13625,130 @@ end
                 &[
                     ("is_even", 1, 1),
                     // All three guarded members were cyclomatic 2 —
-                    // level with `none` — before the decision arm.
-                    ("tok", 3, 3),
+                    // level with `none` — before the decision arm, and
+                    // `tok` was abc 3 before the slot.
+                    ("tok", 2, 3),
                     ("call", 2, 3),
                     ("bare", 2, 3),
                     ("none", 1, 2),
                 ],
+            );
+        });
+    }
+
+    // The slot's whole claim, on every spelling the Elixir grammar gives
+    // a guard — and on `assert_every_member_scores`, which asserts §8
+    // parity where the fixture above cannot (its unguarded control and
+    // its bare-comparison member legitimately sit off their decision
+    // counts, which is why that one takes a per-member table).
+    //
+    // Nine members, nine routes to the same 2:
+    //
+    //   * `tok` / `eq` — the guard is an operator application, so the
+    //     slot adds nothing and the `>` / `==` token arm supplies the
+    //     one. These were 3 before the slot.
+    //   * `call` / `bare` — `Call` and `Identifier` are
+    //     `elixir_bool_terminal_kinds!()` members, so the slot supplies
+    //     the one directly.
+    //   * `paren` / `negated` — `block` and `unary_operator` are
+    //     wrappers, peeled by `elixir_inspect_container`. `negated`
+    //     covers the keyword `not`, which that walker did not recognise
+    //     as a negation until this change and which would otherwise have
+    //     scored zero here.
+    //   * `membership` / `nonmembership` — `in` / `not in` are
+    //     relational operators, given the by-use arm #1461 gave the
+    //     other five languages. Without it these two would score zero,
+    //     since the slot correctly declines an operator application.
+    //   * `alternatives` — a multi-alternative guard is one guard, so
+    //     `elixir_count_guard` peels the nested `when` and scores the
+    //     last alternative once.
+    //
+    // §11: each bullet is an independent path, and no other member can
+    // stand in for it — deleting the `in` arm leaves `membership` and
+    // `nonmembership` alone failing, deleting the `not` recognition
+    // leaves `negated` alone failing.
+    #[test]
+    fn elixir_guard_scores_one_however_spelled() {
+        let src = "defmodule T do
+  def tok(x) do
+    case x do
+      n when n > 5 -> 1
+      _ -> 0
+    end
+  end
+  def eq(x) do
+    case x do
+      n when n == 5 -> 1
+      _ -> 0
+    end
+  end
+  def call(x) do
+    case x do
+      n when is_integer(n) -> 1
+      _ -> 0
+    end
+  end
+  def bare(x, b) do
+    case x do
+      _n when b -> 1
+      _ -> 0
+    end
+  end
+  def paren(x, b) do
+    case x do
+      _n when (b) -> 1
+      _ -> 0
+    end
+  end
+  def negated(x, b) do
+    case x do
+      _n when not b -> 1
+      _ -> 0
+    end
+  end
+  def membership(x) do
+    case x do
+      n when n in [1, 2] -> 1
+      _ -> 0
+    end
+  end
+  def nonmembership(x) do
+    case x do
+      n when n not in [1, 2] -> 1
+      _ -> 0
+    end
+  end
+  def alternatives(x) do
+    case x do
+      n when is_integer(n) when is_float(n) -> 1
+      _ -> 0
+    end
+  end
+end
+";
+        assert_fixture_spells::<ElixirParser>(
+            src,
+            "foo.ex",
+            &[
+                (
+                    Elixir::When as u16,
+                    10,
+                    "`when` guards, `alternatives`'s two included",
+                ),
+                (Elixir::GT as u16, 1, "`tok`'s `>`"),
+                (Elixir::EQEQ as u16, 1, "`eq`'s `==`"),
+                (Elixir::Block as u16, 1, "`paren`'s parenthesised guard"),
+                (Elixir::Not as u16, 1, "`negated`'s `not`"),
+                (Elixir::In as u16, 1, "`membership`'s `in`"),
+                (Elixir::Notin as u16, 1, "`nonmembership`'s `not in`"),
+            ],
+        );
+        check_func_space::<ElixirParser, _>(src, "foo.ex", |space| {
+            assert_every_member_scores(
+                &space.spaces[0],
+                9,
+                2,
+                "one for the `case` arm and one for the guard, however the guard is spelled",
             );
         });
     }

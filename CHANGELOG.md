@@ -421,9 +421,17 @@ for historical reference.
   the decision but not the condition; Ruby's `if_guard` / `unless_guard`
   on a `case … in` arm had neither; Elixir is the inverse case, having
   counted the `when` token as a condition since #557 with no cyclomatic
-  arm behind it. The Elixir arm is gated on the guard's position,
-  because the language has no guard production — `x when g` is an
-  ordinary `binary_operator` — and a typespec's binding clause
+  arm behind it, and one that scored the `when` token flat rather than
+  through a slot, so `when n > 5` cost two where `when is_integer(n)`
+  cost one — the spelling-dependence this entry removes, reproduced in
+  the one language it was meant to fix. Elixir now routes the guard
+  expression through the same classifier its `&&` operands use, so all
+  of `when n > 5`, `when n == 5`, `when is_integer(n)`, `when n`,
+  `when (n)`, `when not n`, `when n in [1, 2]` and the multi-alternative
+  `when a when b` score exactly one. The Elixir arm is gated on the
+  guard's position, because the language has no guard production —
+  `x when g` is an ordinary `binary_operator` — and a typespec's
+  binding clause
   (`@spec f(a) :: a when a: integer`) spells the same token; that gate
   is shared by both metrics, so it also removes the condition the
   typespec used to score against no decision anywhere. The same fix
@@ -440,10 +448,18 @@ for historical reference.
   `wmc` or `mi` threshold can newly fire on an unedited file carrying
   guarded arms. `abc.conditions` and `abc.magnitude` gain one per guard
   in Java, Rust, Python and Ruby for any guard not already
-  operator-shaped. Elixir `abc.conditions` is unchanged for real guards
-  and falls by one per typespec `when`. Integration snapshots move for
-  three `serde` files (Rust); no Python, Ruby, Java or Elixir corpus
-  file carries a guard.
+  operator-shaped. Elixir `abc.conditions` is unchanged for a guard that
+  was already scoring through its own operand, *falls* by one per
+  operator-spelled guard (`when n > 5`) and by one per typespec `when`.
+  Two Elixir arms move with the slot, because the slot presumes an
+  operator-spelled guard is owned by an operator arm and neither was:
+  `in` / `not in` become conditions wherever they are written, on the
+  Rule 5 grounds #1461 applied to the other five languages, so
+  `a in b` gains one and reads level with `a == b`; and the keyword
+  `not` now counts as a negation alongside `!` in a `&&` / `||` chain,
+  so `a && not b` gains one and reads level with `a && !b`.
+  Integration snapshots move for three `serde` files (Rust); no Python,
+  Ruby, Java or Elixir corpus file carries a guard.
 
 - **A C# `when` guard now counts as a decision in both cyclomatic
   complexity and ABC** (#1422). Cyclomatic had no arm for either guard
