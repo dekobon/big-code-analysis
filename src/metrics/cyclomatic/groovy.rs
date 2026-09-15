@@ -26,8 +26,18 @@ use super::*;
 //   +2). Matching the wrapper nodes instead would miscount nested
 //   chains; the token is the single granularity that fires once per
 //   textual operator, paralleling Kotlin/TS which match `QMARKDOT`.
+// - Safe indexing `?[` (`QMARKLBRACK`): the same short-circuit on a
+//   null receiver, spelled for a subscript instead of a member access
+//   (#1471). It was the one member of that family with no arm, so
+//   `l?[0]` read level with the unconditional `l[0]` while `l?.get(0)`
+//   read one higher. The token granularity is the same choice for the
+//   same reason: the grammar emits one `?[` per operator inside a
+//   `safe_subscript_expression`, which nests for a chain (`l?[0]?[1]`
+//   is one wrapper inside another), so the token counts each operator
+//   once and the wrapper would not. No §5 double count — that wrapper
+//   node reaches no cyclomatic arm; it is an ABC bool-terminal only.
 impl_cyclomatic_java_like!(
     GroovyCode,
     Groovy,
-    [Assert, QMARKCOLON, QMARKDOT, QMARKQMARKDOT]
+    [Assert, QMARKCOLON, QMARKDOT, QMARKQMARKDOT, QMARKLBRACK]
 );

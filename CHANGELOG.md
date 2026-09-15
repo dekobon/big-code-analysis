@@ -335,6 +335,22 @@ for historical reference.
   predicate whose operand is preceded by a comment. No integration
   snapshot moves: no corpus carries a Groovy file.
 
+- **Groovy's safe-indexing operator counts as a decision** (#1471).
+  `?[` short-circuits on a null receiver exactly as `?.` and `??.` do,
+  but Groovy cyclomatic had an arm for the two navigation spellings and
+  none for the subscript one — so `l?[0]` read level with the
+  unconditional `l[0]`, while `l?.get(0)` read one higher. The arm
+  matches the `?[` token rather than the `safe_subscript_expression`
+  wrapper, the same granularity and the same reason as its two
+  siblings: a chain (`l?[0]?[1]`) nests one wrapper inside another, so
+  the token counts each operator once where the wrapper would not. No
+  §5 double count — that wrapper reaches no cyclomatic arm, only ABC's
+  bool-terminal set. **Metric drift:** Groovy `cyclomatic` (standard
+  and modified) rises by one per `?[`, and `wmc` and `mi` move with it,
+  so a `wmc` or `mi` threshold can newly fire on an unedited file. ABC
+  is unaffected. No integration snapshot moves: no corpus carries a
+  Groovy file.
+
 - **Groovy's Halstead `super` arm is gated on its `wildcard` parent, as
   Java's is** (#1419). `super` is an operator only as a wildcard type
   bound (`List<? super T>`), where it denotes no value and mirrors

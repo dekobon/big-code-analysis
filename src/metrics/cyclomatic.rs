@@ -3051,6 +3051,25 @@ mod tests {
     }
 
     #[test]
+    fn groovy_safe_subscript_cyclomatic() {
+        // Issue #1471: `?[` short-circuits on a null receiver exactly as
+        // `?.` does, and had no arm — so `l?[0]` read level with the
+        // unconditional `l[0]`. Chained, because the arm matches the
+        // token and not the `safe_subscript_expression` wrapper: a
+        // chain nests one wrapper inside another, so the wrapper
+        // spelling would score this 1 and only the token spelling
+        // scores it 2 (grammar-dispatch §5).
+        check_metrics::<GroovyParser>("def read(l){ return l?[0]?[1] }", "foo.groovy", |metric| {
+            // unit(1) + fn(base 1 + ?[ 1 + ?[ 1) = sum 4, max 3.
+            let s = &metric.cyclomatic;
+            assert_eq!(s.cyclomatic_sum(), 4);
+            assert_eq!(s.cyclomatic_max(), 3);
+            assert_eq!(s.cyclomatic_modified_sum(), 4);
+            assert_eq!(s.cyclomatic_modified_max(), 3);
+        });
+    }
+
+    #[test]
     fn groovy_safe_chain_dot_cyclomatic() {
         // Issue #452: Groovy's `??.` (QMARKQMARKDOT, the spread-safe
         // chain-dot operator) is also a short-circuit decision point,

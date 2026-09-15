@@ -15029,19 +15029,20 @@ mod own_production_bool_constructs {
                     "s ==~ /p/",
                     "!(a in l)",
                     // The indexing / navigation kinds added by #1466.
-                    // These three are the cyclomatic-neutral ones, so
+                    // These two are the cyclomatic-neutral ones, so
                     // they belong in this module's same-as-the-control
-                    // shape. The two *safe-navigation* spellings
-                    // (`a?.b`, `a??.b`) each add a cyclomatic decision
-                    // and so cannot sit in a row whose contract is "the
-                    // control's cyclomatic"; they get their own test,
+                    // shape. The three *null-safe* spellings (`a?.b`,
+                    // `a??.b`, `l?[0]`) each short-circuit on a null
+                    // receiver and so add a cyclomatic decision, which
+                    // a row whose contract is "the control's
+                    // cyclomatic" cannot express; they get their own
+                    // test,
                     // `groovy_safe_navigation_closes_the_two_below_gap`,
                     // which anchors them on that axis explicitly.
                     "l[0]",
-                    "l?[0]",
                     "a.@b",
                 ],
-                10,
+                9,
             ),
             LANG::Perl => (
                 [
@@ -15157,18 +15158,24 @@ mod own_production_bool_constructs {
         });
     }
 
-    /// Groovy's two safe-navigation spellings, on the cyclomatic axis.
+    /// Groovy's three null-safe spellings, on the cyclomatic axis.
     ///
     /// They cannot ride the rows above, whose contract is "scores the
     /// control's `conditions` *and* the control's `cyclomatic`":
     /// `groovy_bool_terminal_kinds!()` does not move cyclomatic, but
-    /// `?.` (`QMARKDOT`) and `??.` (`QMARKQMARKDOT`) are already
-    /// cyclomatic decisions in their own right
-    /// (`src/metrics/cyclomatic/groovy.rs`), so each spelling scores the
-    /// control's conditions against the control's cyclomatic **plus
-    /// one**. That is the whole reason this pair was the worst case in
-    /// #1466: before the fix ABC sat *two* below its own decision count
-    /// on `if (a?.b)`, against one below for every other spelling.
+    /// `?.` (`QMARKDOT`), `??.` (`QMARKQMARKDOT`) and `?[`
+    /// (`QMARKLBRACK`) are already cyclomatic decisions in their own
+    /// right (`src/metrics/cyclomatic/groovy.rs`), so each spelling
+    /// scores the control's conditions against the control's cyclomatic
+    /// **plus one**. That is the whole reason this family was the worst
+    /// case in #1466: before the fix ABC sat *two* below its own
+    /// decision count on `if (a?.b)`, against one below for every other
+    /// spelling.
+    ///
+    /// `l?[0]` joined the family in #1471. It sat in the neutral rows
+    /// above until then, passing only because Groovy cyclomatic had no
+    /// `?[` arm — a fixture that would have rejected the fix for the
+    /// very gap it recorded.
     ///
     /// Asserting the offset rather than the bare conditions is what
     /// makes this a §5 double-count guard as well. If a later change
@@ -15179,14 +15186,14 @@ mod own_production_bool_constructs {
     #[cfg(feature = "groovy")]
     fn groovy_safe_navigation_closes_the_two_below_gap() {
         for (template, control_conditions, control_cyclomatic) in [
-            ("def f(a, b) {\n  return {} && b\n}\n", 2, 3),
-            ("def f(a, b) {\n  if ({}) { return 1 }\n}\n", 1, 3),
+            ("def f(a, b, l) {\n  return {} && b\n}\n", 2, 3),
+            ("def f(a, b, l) {\n  if ({}) { return 1 }\n}\n", 1, 3),
         ] {
             let control = template.replace("{}", "b");
             assert_eq!(conditions(LANG::Groovy, &control), control_conditions);
             assert_eq!(cyclomatic_sum(LANG::Groovy, &control), control_cyclomatic);
 
-            for spelling in ["a?.b", "a??.b"] {
+            for spelling in ["a?.b", "a??.b", "l?[0]"] {
                 let source = template.replace("{}", spelling);
                 assert_eq!(
                     conditions(LANG::Groovy, &source),
