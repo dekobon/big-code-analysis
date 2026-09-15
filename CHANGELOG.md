@@ -171,10 +171,14 @@ for historical reference.
   construct in the survey that pays on two ABC axes, which is correct:
   it binds a name *and* decides a branch, and the axes are independent
   measurements rather than a partition. **Metric drift:**
-  `abc.conditions`, `abc.magnitude` and `abc.value` rise by one per
-  relational operator written outside a boolean slot in C#, Java,
-  Groovy, Kotlin and Ruby, and by one per macro (Rust) or walrus
-  (Python) predicate inside one; `abc` is a gated threshold metric.
+  `abc.conditions` rises by one per relational operator written outside
+  a boolean slot in C#, Java, Groovy, Kotlin and Ruby, and by one per
+  macro (Rust) or walrus (Python) predicate inside one. Only the
+  conditions count moves by one: `abc.magnitude` and `abc.value` are
+  `sqrt(A² + B² + C²)` over the whole vector, so how far they move
+  depends on what that vector already held. The gated threshold metric
+  is `abc`, which reads the magnitude — `abc.conditions` and
+  `abc.magnitude` are not threshold names.
   Cyclomatic is unaffected, and no score inside a boolean slot moves,
   so a construct already counted is not counted twice. One of the 1,610
   integration snapshots moves — serde's `serde_derive/src/dummy.rs`,
@@ -242,10 +246,10 @@ for historical reference.
   needed nothing: `quoted_word`, `braced_word_simple` and `number`
   already cover every literal an `expr {…}` operand can hold, verified
   by measurement rather than assumed. **Metric drift:**
-  `abc.conditions`, `abc.magnitude` and `abc.value` rise by one per
-  non-numeric literal operand in a boolean slot, in the eleven
-  languages listed; `abc` is a gated threshold metric. Cyclomatic is
-  unaffected. 85 of the 384 pdf.js JavaScript integration snapshots
+  `abc.conditions` rises by one per non-numeric literal operand in a
+  boolean slot, in the eleven languages listed, and the derived
+  `abc.magnitude` and `abc.value` move with it; `abc` is the gated
+  threshold metric. Cyclomatic is unaffected. 85 of the 384 pdf.js JavaScript integration snapshots
   move, all in the `conditions` family and all upward; no other corpus
   moves, the DeepSpeech tree being entirely C/C++, the six-file PHP
   corpus carrying no literal in a boolean slot, and no corpus carrying
@@ -268,10 +272,10 @@ for historical reference.
   (`print $_ for @list;`) is deliberately excluded — it iterates a list
   and has no boolean test, which the grammar itself records by naming
   that slot `list` rather than `condition`. **Metric drift:** Perl
-  `abc.conditions` and `abc.magnitude` rise by one per `if` / `unless`
-  / `while` / `until` statement modifier, plus whatever its predicate
-  contributes; both are gated threshold metrics. No integration
-  snapshot moves — the corpora contain no Perl.
+  `abc.conditions` rises by one per `if` / `unless` / `while` / `until`
+  statement modifier, plus whatever its predicate contributes, and the
+  derived `abc.magnitude` and `abc.value` move with it; `abc` is the
+  gated threshold metric. No integration snapshot moves — the corpora contain no Perl.
 
 - **C# `goto case` counted as a decision** (#1450, #1451). `goto case 2;`
   spells the same `case` keyword token as a real `switch` arm — the
@@ -287,9 +291,10 @@ for historical reference.
   Cognitive is unaffected and unchanged: it models the construct on the
   `goto_statement` node, +1 as an unstructured jump per SonarSource §B2,
   so a `goto case` remains a jump there and merely stops also being an
-  arm. **Metric drift:** C# `abc.conditions`, `abc.magnitude` and
-  `cyclomatic` each fall by one per `goto case`; all three are gated
-  threshold metrics. No integration snapshot moves — the C# corpus
+  arm. **Metric drift:** C# `abc.conditions` and `cyclomatic` each fall
+  by one per `goto case`, and the derived `abc.magnitude` and
+  `abc.value` move with the conditions count; `abc` and `cyclomatic`
+  are the gated threshold metrics. No integration snapshot moves — the C# corpus
   contains no `goto case`.
 
 - **C# ABC counts a null-forgiving predicate** (#1463). `if (b!)` scored
@@ -307,9 +312,10 @@ for historical reference.
   arithmetic, and no token arm counts the `!` itself. The condition slot
   now also asks the operand peel which wrappers it unwraps instead of
   restating the list, the divergence #1459 and #1466 fixed in Kotlin and
-  Groovy. **Metric drift:** C# `abc.conditions` and `abc.magnitude` rise
-  by one per null-forgiving expression standing as a predicate or a
-  `&&` / `||` operand. No integration snapshot moves: every
+  Groovy. **Metric drift:** C# `abc.conditions` rises by one per
+  null-forgiving expression standing as a predicate or a `&&` / `||`
+  operand, and the derived `abc.magnitude` and `abc.value` move with
+  it. No integration snapshot moves: every
   `postfix_unary_expression` in the corpus is an `i++` or an `n--`.
 
 - **Groovy ABC counts an indexing or navigation predicate** (#1466).
@@ -328,12 +334,12 @@ for historical reference.
   restating the list — it had claimed every `unary_expression` while the
   peel handled only the `!` spelling — and the peel reads that operand by
   grammar field, so `if (! /*c*/ a)` scores like `if (!a)` instead of
-  reading the comment. **Metric drift:** Groovy `abc.conditions` and
-  `abc.magnitude` rise by one per indexing, safe-indexing,
-  safe-navigation, safe-chain-dot or direct-field-access expression
-  standing as a predicate or a `&&` / `||` operand, and per `!`-negated
-  predicate whose operand is preceded by a comment. No integration
-  snapshot moves: no corpus carries a Groovy file.
+  reading the comment. **Metric drift:** Groovy `abc.conditions` rises
+  by one per indexing, safe-indexing, safe-navigation, safe-chain-dot
+  or direct-field-access expression standing as a predicate or a `&&` /
+  `||` operand, and per `!`-negated predicate whose operand is preceded
+  by a comment; the derived `abc.magnitude` and `abc.value` move with
+  it. No integration snapshot moves: no corpus carries a Groovy file.
 
 - **Groovy's safe-indexing operator counts as a decision** (#1471).
   `?[` short-circuits on a null receiver exactly as `?.` and `??.` do,
@@ -486,9 +492,9 @@ for historical reference.
   **Metric drift:** Java, Ruby and Elixir `cyclomatic` (standard and
   modified) gain one per guard, and `wmc` and `mi` move with it, so a
   `wmc` or `mi` threshold can newly fire on an unedited file carrying
-  guarded arms. `abc.conditions` and `abc.magnitude` gain one per guard
-  in Java, Rust, Python and Ruby for any guard not already
-  operator-shaped. Elixir `abc.conditions` is unchanged for a guard that
+  guarded arms. `abc.conditions` gains one per guard in Java, Rust,
+  Python and Ruby for any guard not already operator-shaped, and the
+  derived `abc.magnitude` and `abc.value` move with it. Elixir `abc.conditions` is unchanged for a guard that
   was already scoring through its own operand, *falls* by one per
   operator-spelled guard (`when n > 5`) and by one per typespec `when`.
   Two Elixir arms move with the slot, because the slot presumes an
