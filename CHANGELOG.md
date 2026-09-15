@@ -147,6 +147,42 @@ for historical reference.
 
 ### Fixed
 
+- **A relational operator scored an ABC condition only inside a boolean
+  slot** (#1461). `var b = x == 1;` reported `abc.conditions` 1 while
+  `var b = x is int;` reported 0, and the same asymmetry held for
+  Java's and Groovy's `instanceof`, Groovy's `in`, Kotlin's `is` / `in`
+  and Ruby's one-line `in`. Each of those is a construct the grammar
+  spells as its own production rather than as a binary expression with
+  an operator token, so it reached the metric only through that
+  language's terminal-operand set — which every walker consults inside
+  an `if` / `while` / ternary / `&&`-operand slot and nowhere else. The
+  comparison token beside it carried no such gate. Fitzpatrick Rule 5
+  scores a relational operator by *use*, so the seven constructs now
+  have an unconditional arm in their language's ABC walk and have left
+  the operand sets, which hold values rather than operators. Groovy's
+  spaceship `<=>` joins them as a condition token, the spelling Ruby,
+  PHP, C++ and Mozcpp already used for it. Two further gaps close as
+  consequences: C#'s `x is > 5` now reads level with the `x > 5` it is
+  sugar for, an asymmetry #1383 recorded as a deliberate exception it
+  had no way to remove, and Rust's `if matches!(x, Some(_))` and
+  Python's `if (n := g()):` — an operand and a macro rather than
+  operators, so both stay slot-scoped — now score the 1 their
+  identifier controls always scored. The Python walrus is the one
+  construct in the survey that pays on two ABC axes, which is correct:
+  it binds a name *and* decides a branch, and the axes are independent
+  measurements rather than a partition. **Metric drift:**
+  `abc.conditions`, `abc.magnitude` and `abc.value` rise by one per
+  relational operator written outside a boolean slot in C#, Java,
+  Groovy, Kotlin and Ruby, and by one per macro (Rust) or walrus
+  (Python) predicate inside one; `abc` is a gated threshold metric.
+  Cyclomatic is unaffected, and no score inside a boolean slot moves,
+  so a construct already counted is not counted twice. One of the 1,610
+  integration snapshots moves — serde's `serde_derive/src/dummy.rs`,
+  on `if cfg!(no_underscore_consts)`. The five structurally changed
+  languages have no corpus exposure at all: no corpus carries a
+  `.groovy`, `.kt`, `.rb` or `.java` file, and the six-file C# corpus
+  spells no `is` test.
+
 - **A non-numeric literal in a boolean operand slot scored no ABC
   condition** (#1462). `x || "default"` reported `abc.conditions` 1
   against `x || y`'s 2, and `if ("s")` reported 0 against `if (b)`'s 1,

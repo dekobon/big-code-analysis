@@ -172,8 +172,9 @@ fn kotlin_inspect_container(container_node: &Node, parent: &Node, conditions: &m
 // operand is a nested `binary_expression`, absent from
 // `kotlin_bool_terminal_kinds!()`, and contributes nothing here because
 // its operator token was counted directly; bare identifiers / calls /
-// member accesses, and the `is` / `in` tests no token arm sees, each add
-// one. Inner chain links and `!` / paren wrappers are routed through
+// member accesses each add one. An `is` / `in` operand is in the same
+// position as a comparison since #1461 — its own arm counts it, here or
+// anywhere. Inner chain links and `!` / paren wrappers are routed through
 // `kotlin_inspect_container`.
 fn kotlin_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     use Kotlin::*;
@@ -209,7 +210,8 @@ fn kotlin_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 // field lookup is position-independent across all three forms. Since
 // #1421 it also scores a subject-less `when` entry's condition, which is
 // an `if` predicate in all but spelling. A bare terminal (`if (flag)`)
-// counts directly, as does an `is` / `in` test that no token arm sees; a
+// counts directly; an `is` / `in` test does not, since #1461 gave it an
+// arm of its own that fires here and outside a predicate alike. A
 // comparison or boolean chain (`if (a == b)`, `if (a && b)`) is a nested
 // `binary_expression` already counted by the comparison-token and
 // `&&`/`||` walker arms, so it adds
@@ -285,9 +287,9 @@ fn kotlin_enclosing_when_has_subject<'a>(entry: &Node<'a>, ancestors: Ancestors<
 // its condition already scored through the token arms, so
 // `when { x > 5 -> 1; x < 0 -> 2; else -> 0 }` reported 4 conditions
 // against a cyclomatic decision count of 2. The slot scores a bare
-// terminal (`when { x -> … }`, `when { a is String -> … }`) directly and
-// leaves a comparison or `&&` / `||` chain to the arms that already own
-// it. Suppressing the operator instead would have been the wrong half to
+// terminal (`when { x -> … }`) directly and leaves a comparison, an
+// `is` / `in` test (#1461) or an `&&` / `||` chain to the arms that
+// already own it. Suppressing the operator instead would have been the wrong half to
 // give way: a compound condition `when { a > 1 && b < 2 -> … }` needs
 // both its comparisons, and suppression collapses it to one.
 //
@@ -417,8 +419,36 @@ impl Abc for KotlinCode {
             // Java / C# / C++ / Groovy already count both; Kotlin previously
             // counted only `CatchBlock`, so `try {} catch (e) {}` scored one
             // fewer condition here than in every sibling (#696).
+            // Kotlin's two relational forms with no usable operator
+            // token join them in #1461, scored by use rather than by
+            // slot. #1421
+            // put them in `kotlin_bool_terminal_kinds!()`, which counts
+            // only inside a boolean slot, so `val b = a is String`
+            // scored zero where the `val b = a == c` beside it scored
+            // one — `EQEQ` is a token arm above and `is` was not.
+            // Fitzpatrick Rule 5 scores a relational operator wherever
+            // it is written.
+            //
+            // Matched as nodes rather than as tokens because neither
+            // construct has a token this arm could use: a bare `in` is
+            // also the `for (x in xs)` header's, and the negated
+            // spellings `!is` / `!in` are their own tokens again. One
+            // node covers every spelling of each.
+            //
+            // No double count with the `when` arms below (§5). A
+            // subject-ful entry pays its own condition, and `bca dump`
+            // shows its patterns spelled `range_test` / `type_test` —
+            // separate productions this arm never sees. A subject-less
+            // entry routes its condition through `kotlin_count_condition`,
+            // which since this change declines an `is` / `in` test the
+            // way it already declines a comparison, leaving it to here.
+            //
+            // They share the arm rather than sitting beside it because
+            // the arm's meaning is "this node is a condition, with
+            // nothing to gate on" — as true of a production as of a
+            // token.
             LTEQ | GTEQ | EQEQ | EQEQEQ | BANGEQ | BANGEQEQ | Try | CatchBlock | QMARKCOLON
-            | AsQMARK => {
+            | AsQMARK | IsExpression | InExpression => {
                 stats.conditions += 1.;
             }
             // Phase-2B condition slot: the bare predicate of an

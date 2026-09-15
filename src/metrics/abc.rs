@@ -1603,6 +1603,11 @@ mod tests {
         // counted. Java has no `await` or `is_pattern` analogues,
         // so the C# fix's five-kind set collapses to four here.
         //
+        // `instanceof` has since moved out of the terminal set to an
+        // unconditional arm (#1461), so it no longer depends on the
+        // slot to be counted. The total is unchanged, which is the
+        // point of that change rather than an accident of it.
+        //
         // expected: 4 conditions (one per `if`), 0 assignments,
         // 0 branches (no invocations).
         check_metrics::<JavaParser>(
@@ -2357,6 +2362,11 @@ mod tests {
         // Java-style `(boolean) v`. The grammar has no `await` or
         // `array_access` analogues, so the C# fix's five-kind set
         // collapses to four here (with the cast slot doubled).
+        //
+        // `instanceof` has since moved out of the terminal set to an
+        // unconditional arm (#1461), so it no longer depends on the
+        // slot to be counted. The total is unchanged, which is the
+        // point of that change rather than an accident of it.
         //
         // expected: 4 conditions (one per `if`), 0 assignments,
         // 0 branches (no invocations).
@@ -3707,6 +3717,11 @@ mod tests {
         //   - `v is not null`   — IsPatternExpression
         //   - `flags[0]`        — ElementAccessExpression
         //
+        // The `is` test has since moved out of the terminal set to an
+        // unconditional arm (#1461), so it no longer depends on the
+        // slot to be counted. The total is unchanged, which is the
+        // point of that change rather than an accident of it.
+        //
         // expected: 5 conditions (one per `if`), 0 assignments,
         // 1 branch (the single `c.Check()` invocation; the other
         // `if`-condition expressions are not invocations).
@@ -4105,11 +4120,13 @@ mod tests {
     // The fixture carries the two overloads plus one `a < b` inside a
     // `binary_expression` and one `x is > 0 ? 2 : 3`, which the grammar
     // parses as a `relational_pattern` whose operand is the ternary (see
-    // the assertion). Every mis-aim lands on its own number: 5
-    // with neither gate, 3 if `RelationalPattern` is readmitted to the
-    // allowlist (#1383 dropped it), 1 if the gate swallows
-    // `BinaryExpression` too (only the ternary `?` survives), 0 if the
-    // fixture stops parsing.
+    // the assertion). Every mis-aim lands on its own number: 6
+    // with neither gate, 4 if `RelationalPattern` is readmitted to the
+    // allowlist (#1383 dropped it), 2 if the gate swallows
+    // `BinaryExpression` too (only the ternary `?` and the `is` test
+    // survive), 0 if the fixture stops parsing. Each is one higher than
+    // before #1461, which added the `is` test as a count no gate on the
+    // `<` / `>` token can reach.
     #[test]
     fn csharp_operator_declaration_is_not_a_condition() {
         check_func_space::<CsharpParser, _>(
@@ -4136,15 +4153,19 @@ mod tests {
                         "operator declaration {i} must score no condition"
                     );
                 }
-                // 2, not 3, since #1383: the `a < b` comparison and the
-                // ternary `?`. tree-sitter-c-sharp 0.23.5 parses
+                // 3: the `a < b` comparison, the ternary `?`, and the
+                // `is` test. tree-sitter-c-sharp 0.23.5 parses
                 // `x is > 0 ? 2 : 3` as `x is > (0 ? 2 : 3)` — the ternary
                 // is the pattern's operand, so the pattern sits in no
-                // decision slot and its `>` scores nothing, while the
-                // ternary's condition is the literal `0`. C# itself binds
-                // it `(x is > 0) ? 2 : 3`; a grammar that agrees makes
-                // this 3, because that condition slot scores the `is` test.
-                assert_eq!(class.spaces[2].metrics.abc.conditions(), 2);
+                // decision slot and its `>` still scores nothing (#1383),
+                // while the ternary's condition is the literal `0`.
+                // The third count is the enclosing `is_pattern_expression`
+                // itself, which since #1461 scores by use rather than only
+                // inside a boolean slot. C# itself binds the source
+                // `(x is > 0) ? 2 : 3`; a grammar that agrees still reads
+                // 3 here, by the same three counts in a different
+                // arrangement.
+                assert_eq!(class.spaces[2].metrics.abc.conditions(), 3);
             },
         );
     }
@@ -4371,24 +4392,28 @@ mod tests {
     // #1383's second, quieter effect, and the one its issue does not
     // mention: a relational pattern outside any decision slot went from
     // 1 to 0 as well, because the gate is on the operator's parent and
-    // not on what encloses the pattern.
+    // not on what encloses the pattern. That left `q` — the equivalent
+    // binary comparison `x > 5` in the same slot — scoring 1 against
+    // these four's 0, so a relational pattern read one *lower* than the
+    // comparison it is sugar for. #1383 recorded that as a deliberate
+    // exception to Fitzpatrick Rule 5 and kept it, because the only
+    // route it had was to readmit the pattern's `<` / `>` token, which
+    // would have scored the decision-slot case twice.
     //
-    // That is the right side of the trade, but it is a trade and the
-    // numbers should be visible. It puts `x is > 5` in agreement with
-    // the plain type test `x is int` (`t`, always 0 — note the grammar
-    // spells that one `is_expression`, not a pattern at all) and with
-    // cyclomatic, where before the fix it disagreed with both. The
-    // price is `q`:
-    // the equivalent binary comparison `x > 5` still scores 1 in the
-    // same slot, so a relational pattern now reads one lower than the
-    // comparison it is sugar for. Fitzpatrick counts comparison
-    // operators wherever they appear, so `q` is the spec-faithful one
-    // and these four are the deliberate exception — kept because the
-    // decision-slot case is what the metric is for, and Option 2 in
-    // #1383 (count the operator, drop the arm) could not justify
-    // itself.
+    // #1461 closed it from the other end, and the test now pins the
+    // agreement rather than the exception. The enclosing
+    // `is_pattern_expression` scores by use, so `x is > 5` reads 1
+    // wherever it is written — level with `q`, and level with the plain
+    // type test `x is int` (`t`, whose `is_expression` moved for the
+    // same reason). The pattern's own `>` still scores nothing, which
+    // is what keeps the whole test at 1 rather than 2: one relational
+    // operation, one condition.
+    //
+    // The four probes stay because they are four different enclosings —
+    // a declarator, a bare `return`, an argument, a type test — and the
+    // point was never that the pattern is special in one of them.
     #[test]
-    fn csharp_relational_pattern_outside_a_decision_slot_scores_zero() {
+    fn csharp_relational_pattern_scores_one_wherever_it_is_written() {
         let src = "class A {
                 static bool M(bool b) { return b; }
                 bool p(int x) { bool b = x is > 5; return b; }
@@ -4422,10 +4447,11 @@ mod tests {
             // spelling scores what, so a reordering of the fixture must
             // not silently re-point the assertions.
             for probe in ["p", "r", "s"] {
-                assert_eq!(by_name(probe), 0, "`{probe}`: pattern operator excluded");
+                assert_eq!(by_name(probe), 1, "`{probe}`: the `is` test, once");
             }
-            assert_eq!(by_name("t"), 0, "type pattern, the agreement target");
-            assert_eq!(by_name("q"), 1, "a plain comparison still counts");
+            assert_eq!(by_name("t"), 1, "the bare type test, the same once");
+            assert_eq!(by_name("q"), 1, "the comparison it is sugar for");
+            assert_eq!(by_name("M"), 0, "no relational operator anywhere");
         });
     }
 
@@ -4602,7 +4628,10 @@ mod tests {
     // however it is spelled" — `when x is int` read 1 where
     // `when IsEven(x)` read 2, which is the spelling-dependence that
     // fix exists to remove. It is the C# half of the gap #1421 closed
-    // for Kotlin by adding `IsExpression | InExpression` there.
+    // for Kotlin by adding `IsExpression | InExpression` there. Both
+    // languages' type tests have since moved out of the terminal set to
+    // an unconditional arm (#1461), which leaves every number here
+    // unchanged — the slot no longer counts the test and the arm does.
     //
     // The plain `if` members are the control that keeps this honest: a
     // guard-only fixture could be satisfied by a guard-specific rule,
@@ -6251,15 +6280,21 @@ function f(int $a, int $b): int {
     // nothing counted them: `if (a is String)` scored 0 against a
     // decision count of 1, and the same test in a subject-less `when`
     // scored 1 only because the entry's blanket `+1` happened to cover
-    // it. Removing that blanket without listing these two in
-    // `kotlin_bool_terminal_kinds!()` would have regressed `whenIs` and
-    // `whenIn` to 0, and `isAnd` — where the `is` test is one operand of
-    // a `&&` chain and so reaches the walker rather than the slot — from
-    // 2 to 1.
+    // it. Removing that blanket without counting these two somewhere
+    // would have regressed `whenIs` and `whenIn` to 0, and `isAnd` —
+    // where the `is` test is one operand of a `&&` chain and so reaches
+    // the walker rather than the slot — from 2 to 1.
     //
-    // The `if` members are here because the fix is in the shared
-    // terminal-kind set, not in the `when` arm: they are the call sites
-    // that prove it reaches the `if` / `while` predicate slot too.
+    // The `if` members are here because the fix was never `when`-
+    // specific: they are the call sites that prove it reaches the `if` /
+    // `while` predicate slot too.
+    //
+    // #1421 counted them through `kotlin_bool_terminal_kinds!()` and
+    // #1461 moved them to an unconditional arm, which leaves every
+    // number below unchanged — the slot no longer counts the test and
+    // the arm does. `kotlin_is_and_in_score_outside_a_boolean_slot` is
+    // the half this fixture cannot see, every member of it being inside
+    // a slot.
     #[test]
     fn kotlin_is_and_in_expressions_are_unary_conditions() {
         let src = "class K {
@@ -13574,6 +13609,364 @@ end
                 module.metrics.abc.conditions(),
                 0,
                 "a typespec `when` is type syntax, not a guard"
+            );
+        });
+    }
+    // #1461's structural half: a relational operator scores by *use*,
+    // a value-bearing operand scores in a boolean *slot*.
+    //
+    // Until this, the relational constructs a grammar spells as their
+    // own production — C#'s two `is` tests, Java's and Groovy's
+    // `instanceof`, Groovy's `in`, Kotlin's `is` / `in`, Ruby's
+    // one-line `in` — reached `stats.conditions` only through
+    // `<lang>_bool_terminal_kinds!()`, which every walker consults
+    // inside a boolean slot and nowhere else. The comparison token
+    // beside each of them carried no such gate, so one language scored
+    // two spellings of the same relational test differently by
+    // position:
+    //
+    //     val b = a == c        // 1 condition
+    //     val b = a is String   // 0 conditions
+    //
+    // Fitzpatrick Rule 5 scores a relational operator wherever it is
+    // written, so the asymmetry was in the mechanism. Each construct
+    // now has an unconditional arm in its language's `compute` and has
+    // left the terminal set; listing it in both would score it twice
+    // (`.claude/rules/grammar-dispatch.md` §5).
+    //
+    // Every fixture below carries the same four shapes, because they
+    // are structurally independent paths and covering one says nothing
+    // about the others (§11):
+    //
+    // - `out*` — the construct with no boolean slot above it. This is
+    //   the case the change exists for, and the one no prior fixture
+    //   covered: measured against the pre-change binary, every `out*`
+    //   member here scored **0**.
+    // - `outCtl` — the same member spelling `==`. It read 1 before and
+    //   after, so it is the anchor that makes `out*`'s 1 a claim about
+    //   the construct rather than about the member shape
+    //   (`.claude/rules/testing.md`, "Perturb the fixture as well as
+    //   the production line").
+    // - `in*` / `inAnd` — the predicate slot and the `&&`-chain walker,
+    //   the two paths that already owned the count. They must be
+    //   *unchanged*; a §5 double count surfaces here as a 2 against the
+    //   control's 1, which is how #1459 caught the Kotlin `as?`
+    //   collision.
+    // - `forIn` (Kotlin / Groovy / Ruby) — the `for … in …` header,
+    //   which spells the same keyword from a different production and
+    //   must stay at 0. It is the reason those three count the node and
+    //   not the token.
+
+    #[test]
+    fn csharp_is_tests_score_outside_a_boolean_slot() {
+        let src = "class A {
+                bool outIs(object x) => x is int;
+                bool outPat(object x) => x is null;
+                bool outCtl(int x) => x == 1;
+                int inIs(object x) { if (x is int) { return 1; } return 0; }
+                int inAnd(object x, bool b) { if (x is int && b) { return 1; } return 0; }
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (Csharp::IsExpression as u16, 3, "the bare `is` type tests"),
+                (
+                    Csharp::IsPatternExpression as u16,
+                    1,
+                    "`outPat`'s null pattern",
+                ),
+                (Csharp::EQEQ as u16, 1, "`outCtl`'s comparison"),
+            ],
+        );
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            assert_members_score(
+                &space.spaces[0],
+                &[
+                    // Both were 0, against `outCtl`'s 1 on the same
+                    // expression-bodied shape.
+                    ("outIs", 1, 1),
+                    ("outPat", 1, 1),
+                    ("outCtl", 1, 1),
+                    // Unchanged: the slot no longer counts the test, the
+                    // new arm does, and the total stays put.
+                    ("inIs", 1, 2),
+                    ("inAnd", 2, 3),
+                ],
+            );
+        });
+    }
+
+    #[test]
+    fn java_instanceof_scores_outside_a_boolean_slot() {
+        let src = "class A {
+                boolean outOf(Object x) { return x instanceof String; }
+                boolean outCtl(int x) { return x == 1; }
+                int inOf(Object x) { if (x instanceof String) { return 1; } return 0; }
+                int inAnd(Object x, boolean b) { if (x instanceof String && b) { return 1; } return 0; }
+            }";
+        assert_fixture_spells::<JavaParser>(
+            src,
+            "foo.java",
+            &[
+                (
+                    Java::InstanceofExpression as u16,
+                    3,
+                    "the `instanceof` tests",
+                ),
+                (Java::EQEQ as u16, 1, "`outCtl`'s comparison"),
+            ],
+        );
+        check_func_space::<JavaParser, _>(src, "foo.java", |space| {
+            assert_members_score(
+                &space.spaces[0],
+                &[
+                    // Was 0, against `outCtl`'s 1 on the same
+                    // `return`-a-predicate shape.
+                    ("outOf", 1, 1),
+                    ("outCtl", 1, 1),
+                    ("inOf", 1, 2),
+                    ("inAnd", 2, 3),
+                ],
+            );
+        });
+    }
+
+    // Groovy carries item 4 as well as the structural pass. `<=>`
+    // yields -1 / 0 / 1 rather than a boolean, which is why it never
+    // belonged in the terminal set — that set holds operands — but it
+    // is a relational operator, and `LTEQGT` is already a condition
+    // token in Ruby, PHP, C++ and Mozcpp. Groovy was the outlier at 0.
+    #[test]
+    fn groovy_relational_productions_score_outside_a_boolean_slot() {
+        let src = "class A {
+                def outIs(x) { def b = x instanceof String; return b }
+                def outIn(x, l) { def b = x in l; return b }
+                def outShip(a, c) { def r = a <=> c; return r }
+                def outCtl(x) { def b = x == 1; return b }
+                def inIs(x) { if (x instanceof String) { return 1 }; return 0 }
+                def inIn(x, l) { if (x in l) { return 1 }; return 0 }
+                def forIn(l) { for (q in l) { }; return 0 }
+            }";
+        assert_fixture_spells::<GroovyParser>(
+            src,
+            "foo.groovy",
+            &[
+                (
+                    Groovy::InstanceofExpression as u16,
+                    2,
+                    "the `instanceof` tests",
+                ),
+                (Groovy::MembershipExpression as u16, 2, "the `in` tests"),
+                (Groovy::SpaceshipExpression as u16, 1, "`outShip`'s `<=>`"),
+                (
+                    Groovy::ForInStatement as u16,
+                    1,
+                    "`forIn`'s loop header, which spells the same `in`",
+                ),
+                (Groovy::EQEQ as u16, 1, "`outCtl`'s comparison"),
+            ],
+        );
+        check_func_space::<GroovyParser, _>(src, "foo.groovy", |space| {
+            assert_members_score(
+                &space.spaces[0],
+                &[
+                    // All three were 0, against `outCtl`'s 1 on the
+                    // identical declare-and-return shape.
+                    ("outIs", 1, 1),
+                    ("outIn", 1, 1),
+                    ("outShip", 1, 1),
+                    ("outCtl", 1, 1),
+                    ("inIs", 1, 2),
+                    ("inIn", 1, 2),
+                    // The loop header is not a membership test and
+                    // stays at 0 — counting the `in` *token* would have
+                    // scored it.
+                    ("forIn", 0, 2),
+                ],
+            );
+        });
+    }
+
+    #[test]
+    fn kotlin_is_and_in_score_outside_a_boolean_slot() {
+        let src = "class K {
+                fun outIs(a: Any): Boolean { val b = a is String; return b }
+                fun outIn(a: Int): Boolean { val b = a in 1..2; return b }
+                fun outCtl(a: Int): Boolean { val b = a == 1; return b }
+                fun inIs(a: Any): Int { if (a is String) { return 1 }; return 0 }
+                fun forIn(l: List<Int>): Int { for (q in l) { }; return 0 }
+            }";
+        assert_kotlin_class_members(
+            src,
+            &[
+                (Kotlin::IsExpression as u16, 2, "the `is` tests"),
+                (Kotlin::InExpression as u16, 1, "`outIn`'s `in` test"),
+                (
+                    Kotlin::ForStatement as u16,
+                    1,
+                    "`forIn`'s loop header, which spells the same `in`",
+                ),
+                (Kotlin::EQEQ as u16, 1, "`outCtl`'s comparison"),
+            ],
+            &[
+                // Both were 0, against `outCtl`'s 1 on the identical
+                // `val`-and-return shape.
+                ("outIs", 1, 1),
+                ("outIn", 1, 1),
+                ("outCtl", 1, 1),
+                ("inIs", 1, 2),
+                ("forIn", 0, 2),
+            ],
+        );
+    }
+
+    #[test]
+    fn ruby_test_pattern_scores_outside_a_boolean_slot() {
+        let src = "def out_in(a)
+  b = a in Integer
+  b
+end
+def out_ctl(a)
+  b = a == 1
+  b
+end
+def in_in(a)
+  if a in Integer
+    return 1
+  end
+  0
+end
+def for_in(l)
+  for q in l do end
+  0
+end
+";
+        assert_fixture_spells::<RubyParser>(
+            src,
+            "foo.rb",
+            &[
+                (Ruby::TestPattern as u16, 2, "the one-line `in` tests"),
+                (
+                    Ruby::For as u16,
+                    1,
+                    "`for_in`'s loop header, which spells the same `in`",
+                ),
+                (Ruby::EQEQ as u16, 1, "`out_ctl`'s comparison"),
+            ],
+        );
+        check_func_space::<RubyParser, _>(src, "foo.rb", |space| {
+            assert_members_score(
+                &space,
+                &[
+                    // Was 0, against `out_ctl`'s 1 on the identical
+                    // assign-and-return shape.
+                    ("out_in", 1, 1),
+                    ("out_ctl", 1, 1),
+                    ("in_in", 1, 2),
+                    ("for_in", 0, 2),
+                ],
+            );
+        });
+    }
+
+    // #1461 item 1. The walrus is an *operand*, not an operator, so it
+    // joins `python_bool_terminal_kinds!()` and stays slot-scoped —
+    // `b = (n := g())` outside a predicate is a binding, not a
+    // decision. Inside one the slot tests `g()`'s truth, and
+    // `if (n := g()):` scored 0 where the `if g():` it is a
+    // refactoring of scored 1.
+    //
+    // `assignments` is asserted beside `conditions` because the walrus
+    // is the one construct in the survey that pays on two axes, and
+    // that is deliberate rather than a §5 double count: ABC's axes are
+    // independent measurements of the same source, and `if (n := g()):`
+    // genuinely both binds a name and decides a branch. Without this
+    // row a later reader has no way to tell the intent from an
+    // oversight.
+    #[test]
+    fn python_walrus_is_a_unary_condition() {
+        let src = "def in_slot(g):
+    if (n := g()):
+        return 1
+    return 0
+
+def chain(g, b):
+    return b and (n := g())
+
+def ctrl(g):
+    if g():
+        return 1
+    return 0
+";
+        assert_fixture_spells::<PythonParser>(
+            src,
+            "foo.py",
+            &[(Python::NamedExpression as u16, 2, "the walrus bindings")],
+        );
+        check_func_space::<PythonParser, _>(src, "foo.py", |space| {
+            assert_members_score(
+                &space,
+                &[
+                    // Was 0, against `ctrl`'s 1 for the same predicate
+                    // without the binding.
+                    ("in_slot", 1, 2),
+                    // The `and`-chain walker is the second, independent
+                    // path (§11): was 1, the bare `b` operand alone.
+                    ("chain", 2, 2),
+                    ("ctrl", 1, 2),
+                ],
+            );
+            for (name, assignments) in [("in_slot", 1u64), ("chain", 1), ("ctrl", 0)] {
+                assert_eq!(
+                    child_space(&space, name).metrics.abc.assignments(),
+                    assignments,
+                    "{name}: the walrus also pays on the A axis, on purpose"
+                );
+            }
+        });
+    }
+
+    // #1461 item 2. A macro in a boolean slot expands to a boolean
+    // expression, and `if matches!(x, Some(_))` scored 0 against a
+    // cyclomatic decision of 1.
+    //
+    // `cfg_slot` is in the fixture because the arm's *breadth* is the
+    // decision, not a side effect: these sets discriminate on slot and
+    // never on return type, so `cfg!` counts exactly as `matches!`
+    // does. It is also the construct the corpus actually moves —
+    // serde's one changed snapshot is `if cfg!(no_underscore_consts)`,
+    // not a `matches!` — so asserting only `matches!` would leave the
+    // measured case uncovered.
+    #[test]
+    fn rust_macro_invocation_is_a_unary_condition() {
+        let src = "fn in_slot(x: Option<u8>) -> u8 { if matches!(x, Some(_)) { 1 } else { 0 } }
+fn cfg_slot() -> u8 { if cfg!(unix) { 1 } else { 0 } }
+fn chain(x: Option<u8>, b: bool) -> bool { b && matches!(x, Some(_)) }
+fn ctrl(x: Option<u8>) -> u8 { if x.is_some() { 1 } else { 0 } }
+";
+        assert_fixture_spells::<RustParser>(
+            src,
+            "foo.rs",
+            &[(
+                Rust::MacroInvocation as u16,
+                3,
+                "the `matches!` / `cfg!` predicates",
+            )],
+        );
+        check_func_space::<RustParser, _>(src, "foo.rs", |space| {
+            assert_members_score(
+                &space,
+                &[
+                    // Each was 1 — the `else` alone — against `ctrl`'s
+                    // 2 for the same shape with a method call in the
+                    // predicate.
+                    ("in_slot", 2, 2),
+                    ("cfg_slot", 2, 2),
+                    // The `&&`-chain walker, the second independent
+                    // path (§11): was 1, the bare `b` operand alone.
+                    ("chain", 2, 2),
+                    ("ctrl", 2, 2),
+                ],
             );
         });
     }

@@ -53,33 +53,24 @@ macro_rules! csharp_prefix_unary_expr_kinds {
 // the C# grammar. Anything in this set, when it appears in a known-
 // boolean context (if / while / do / for / ternary / binary), counts
 // as one condition. The set bundles `csharp_invocation_expr_kinds!()`
-// with the bare `Identifier` / `BooleanLiteral` leaves *and* the six
+// with the bare `Identifier` / `BooleanLiteral` leaves *and* the four
 // expression kinds whose evaluated value is implicitly boolean in any
-// idiomatic codebase:
+// idiomatic codebase: `MemberAccessExpression` (`cfg.Enabled`),
+// `AwaitExpression` (`await CheckAsync()`), `CastExpression`
+// (`(bool)v`) and `ElementAccessExpression` (`flags[0]`). Before #372
+// only invocation / identifier / boolean were recognised, so all four
+// silently scored zero conditions in `if` / `while` / `do` / ternary
+// contexts.
 //
-// - `MemberAccessExpression` — `cfg.Enabled`, `Request.IsHttps`
-// - `AwaitExpression`        — `await CheckAsync()`
-// - `CastExpression`         — `(bool)v`, `(IDisposable)x is not null`
-// - `IsPatternExpression`    — `x is null`, `x is not Foo f`
-// - `IsExpression`           — `x is int`, the bare type test
-// - `ElementAccessExpression` — `flags[0]`, `dict["key"]`
-//
-// Before #372 only the first three (invocation / identifier /
-// boolean) were recognised, so all five kinds above silently scored
-// zero conditions in `if` / `while` / `do` / ternary contexts.
-//
-// `IsExpression` (391) and `IsPatternExpression` (392) are distinct
-// kinds, not aliases: the grammar emits the first for a bare type test
-// (`x is int`) and the second only once a pattern is involved
-// (`x is int y`, `x is null`, `x is not Foo`). Listing only the second
-// scored `if (x is int)` zero conditions against a cyclomatic decision
-// of one, while `if (x is int y)` scored one — an asymmetry between two
-// spellings of the same test, and the C# half of the gap #1421 closed
-// for Kotlin by adding `IsExpression | InExpression` there. It also
-// left #1422's guard slot spelling-dependent in the one case that fix
-// claims to have fixed: `when x is int` scored 1 where
-// `when IsEven(x)` scored 2. No arm counts the `is` token itself, so
-// there is nothing to double-count (§5).
+// `IsExpression` (391) and `IsPatternExpression` (392) are the two
+// type tests, distinct kinds rather than aliases: the grammar emits
+// the first for a bare test (`x is int`) and the second once a pattern
+// is involved (`x is int y`, `x is null`, `x is not Foo`). Both were
+// listed here until #1461 moved them to an unconditional arm in
+// `src/metrics/abc/csharp.rs` — see the operands-not-operators note on
+// the Phase-2 block below. Slot-scoped, `var b = x is int;` scored
+// zero beside `x == 1`'s one. Nothing counts the `is` token itself and
+// the pair is disjoint, so exactly one arm fires per test (§5).
 #[macro_export]
 #[doc(hidden)]
 macro_rules! csharp_bool_terminal_kinds {
@@ -92,8 +83,6 @@ macro_rules! csharp_bool_terminal_kinds {
             | $crate::Csharp::MemberAccessExpression
             | $crate::Csharp::AwaitExpression
             | $crate::Csharp::CastExpression
-            | $crate::Csharp::IsPatternExpression
-            | $crate::Csharp::IsExpression
             | $crate::Csharp::ElementAccessExpression
     };
 }
@@ -117,13 +106,20 @@ macro_rules! csharp_var_declarator_kinds {
 // Terminal-bool operand kinds recognised by ABC condition counting for
 // the Java grammar. Sister of `csharp_bool_terminal_kinds!()` — bundles
 // the four "bare boolean leaf" kinds (`MethodInvocation`, `Identifier`,
-// `True`, `False`) with the four bool-evaluating expression kinds
-// surfaced by #372 / lesson #19:
+// `True`, `False`) with the bool-evaluating expression kinds surfaced
+// by #372 / lesson #19:
 //
 // - `FieldAccess`          — `cfg.flag`
 // - `CastExpression`       — `(boolean) v`
 // - `ArrayAccess`          — `flags[0]`
-// - `InstanceofExpression` — `x instanceof Foo`
+//
+// `InstanceofExpression` (`x instanceof Foo`) was the fourth until
+// #1461 moved it to an unconditional arm in `src/metrics/abc/java.rs`;
+// slot-scoped it scored `boolean b = x instanceof String;` zero beside
+// `x == 1`'s one. See the operands-not-operators note on the Phase-2
+// block below. One node covers both spellings (`x instanceof Foo` and
+// the pattern form `x instanceof Foo f`), and no arm counts the
+// `instanceof` token, so exactly one arm fires per test (§5).
 //
 // Used by `java_inspect_container`, `java_count_unary_conditions`,
 // `java_walk_ternary`, and the two branches of `java_walk_for_statement`
@@ -140,7 +136,6 @@ macro_rules! java_bool_terminal_kinds {
             | $crate::Java::FieldAccess
             | $crate::Java::CastExpression
             | $crate::Java::ArrayAccess
-            | $crate::Java::InstanceofExpression
     };
 }
 
@@ -153,9 +148,9 @@ macro_rules! java_bool_terminal_kinds {
 // grammar represents it as its own kind rather than nesting
 // `cast_expression` inside `parenthesized_expression`). The set bundles
 // the bool-evaluating terminals added by #372 (`FieldAccess`,
-// `CastExpression`, `ParenthesizedTypeCast`, `InstanceofExpression`);
-// the dekobon Groovy grammar has no `await` analogue, so that one
-// collapses out of the C# set.
+// `CastExpression`, `ParenthesizedTypeCast`); the dekobon Groovy
+// grammar has no `await` analogue, so that one collapses out of the C#
+// set.
 //
 // It DOES have an indexing analogue, and four navigation kinds beside
 // it — `subscript_expression`, `safe_subscript_expression`,
@@ -237,24 +232,23 @@ macro_rules! java_bool_terminal_kinds {
 // outside every test glob (`tests/corpus/deepspeech_test.rs` globs
 // `*.cc` / `*.cpp` / `*.h` / `*.hh`), so this fix moves no snapshot.
 //
-// `membership_expression` (`a in l`, `a !in l`) is the Groovy spelling
-// of Kotlin's `in_expression`, and joins the set for the same reason
-// #1421 added that one: the grammar gives membership its own
-// production rather than a `binary_expression`, so no comparison-token
-// arm ever sees it and `if (a in l)` scored zero conditions against a
-// cyclomatic decision of one.
+// `membership_expression` (`a in l`, `a !in l`) and
+// `instanceof_expression` (`a instanceof T`, `a !instanceof T`) are
+// the two relational forms this grammar spells as their own
+// production. Both were listed here until #1461 moved them to an
+// unconditional arm in `src/metrics/abc/groovy.rs`, where a relational
+// belongs; see the operands-not-operators note on the Phase-2 block
+// below. Slot-scoped, `def b = a in l` scored zero beside
+// `def b = a == 1`'s one.
 //
-// It is the one Groovy relational form that has to come through the
-// terminal set rather than through `groovy_count_token_condition`'s
-// token arm, and a `grammar.json` sweep of dekobon-tree-sitter-groovy
-// 0.2.2 says why on both halves: the `in` token is shared with
-// `for_in_statement`, so an ungated token arm would score every
-// `for (x in list)` header, and the `!in` spelling emits **no operator
-// token at all** — `bca dump` shows `membership_expression` with two
-// `identifier` children and nothing between them — so a token arm
-// could not reach the negated form however it were gated. Listing the
-// wrapper covers both spellings at once and double-counts neither,
-// since neither token is counted anywhere (§5).
+// Neither can be reached by the *token* spelling that `==` / `===` /
+// `=~` use, and a `grammar.json` sweep of dekobon-tree-sitter-groovy
+// 0.2.2 says why for membership on both halves: the `in` token is
+// shared with `for_in_statement`, so an ungated token arm would score
+// every `for (x in list)` header, and the `!in` spelling emits **no
+// operator token at all** (`bca dump`). The node covers both spellings
+// of each construct, and neither construct's token is counted
+// anywhere, so exactly one arm fires per test (§5).
 //
 // The sibling relational productions `identity_expression` (`===`,
 // `!==`) and `regex_find_expression` / `regex_match_expression` (`=~`,
@@ -283,8 +277,6 @@ macro_rules! groovy_bool_terminal_kinds {
             | $crate::Groovy::FieldAccess
             | $crate::Groovy::CastExpression
             | $crate::Groovy::ParenthesizedTypeCast
-            | $crate::Groovy::InstanceofExpression
-            | $crate::Groovy::MembershipExpression
             | $crate::Groovy::SubscriptExpression
             | $crate::Groovy::SafeSubscriptExpression
             | $crate::Groovy::SafeNavigationExpression
@@ -300,6 +292,26 @@ macro_rules! groovy_bool_terminal_kinds {
 // per-language walker pair (`<lang>_inspect_container` +
 // `<lang>_count_unary_conditions`) consumes the same set in both
 // helpers, so hoisting to a macro removes the literal duplication.
+//
+// **These sets hold operands, never operators** (#1461). Membership is
+// slot-scoped by construction — a kind here scores only where a walker
+// consults the set, which is inside a boolean slot — and that is the
+// right scope for a *value*, whose truthiness is interesting only
+// because the slot reads it. It is the wrong scope for a **relational
+// operator**, which Fitzpatrick Rule 5 scores by use: `a == b` counts
+// wherever it is written, so `a is String` must too. The type-test and
+// membership productions a grammar spells as their own node sat here
+// until #1461 and so scored one inside a predicate and zero outside
+// it, while the comparison token beside them scored in both. Each now
+// has an unconditional arm in its language's ABC `compute` and is
+// listed in neither place twice — which would score it twice
+// (`.claude/rules/grammar-dispatch.md` §5). The five affected sets say
+// which of their members moved.
+//
+// The line is the construct's *value*, not its type. A cast, a type
+// assertion and an `@available` query all yield something the slot
+// then reads as a boolean, so they stay; a type test yields the
+// comparison's own result, so it does not.
 
 #[macro_export]
 #[doc(hidden)]
@@ -311,10 +323,31 @@ macro_rules! rust_bool_terminal_kinds {
     // for `CastExpression`, `MemberAccessExpression`, and
     // `AwaitExpression` on the C# side.
     //
+    // `MacroInvocation` joins them in #1461. A macro in a boolean slot
+    // expands to a boolean expression — `matches!`, `cfg!`, a crate's
+    // own predicate macro — and `if matches!(x, Some(_))` scored zero
+    // conditions against a cyclomatic decision of one.
+    //
+    // **The arm's breadth is the decision, not a side effect.** It
+    // fires for every macro reaching a boolean slot, `dbg!` and `todo!`
+    // included, because these sets discriminate on *slot*, never on
+    // return type: `CallExpression` beside it counts whatever the call
+    // returns, and `kotlin_bool_terminal_kinds!` says so in as many
+    // words for `infix_expression`. A macro that cannot be a predicate
+    // will not compile in the slot. Measured on the serde corpus it
+    // moves one snapshot, on `if cfg!(no_underscore_consts)` — a
+    // `cfg!`, not a `matches!`.
+    //
+    // `src/metrics/abc/rust.rs` excludes macros from *Branches*, which
+    // is a different axis and not a contradiction: B counts dispatch to
+    // a function body, and a macro expands in place rather than
+    // dispatching. C counts what the predicate makes a reader decide,
+    // and a macro predicate makes them decide exactly as a call does.
     () => {
         $crate::Rust::Identifier
             | $crate::Rust::BooleanLiteral
             | $crate::Rust::CallExpression
+            | $crate::Rust::MacroInvocation
             | $crate::Rust::FieldExpression
             | $crate::Rust::IndexExpression
             | $crate::Rust::ScopedIdentifier
@@ -580,6 +613,19 @@ macro_rules! python_bool_terminal_kinds {
     // the top-level `ComparisonOperator` arm — the same split that
     // already governs `a and f(x > 1)`, where `Call` and the
     // comparison each score once.
+    //
+    // `NamedExpression` — the walrus `if (n := g()):` — joins them in
+    // #1461. It is an operand like any other: the slot tests `g()`'s
+    // truth, and `if (n := g()):` scored zero conditions where the
+    // `if g():` it is a refactoring of scored one.
+    //
+    // **It also scores on the A axis, and that is not a double count**
+    // (`src/metrics/abc/python.rs` counts `:=` as an assignment). ABC's
+    // axes are independent measurements of the same source, not a
+    // partition of it, and the walrus genuinely both binds a name and
+    // decides a branch. §5's double count is one axis charged twice for
+    // one construct, which does not happen here — no other Python arm
+    // counts `named_expression`.
     () => {
         $crate::Python::Identifier
             | $crate::Python::True
@@ -598,6 +644,7 @@ macro_rules! python_bool_terminal_kinds {
             | $crate::Python::Attribute
             | $crate::Python::Subscript
             | $crate::Python::Await
+            | $crate::Python::NamedExpression
     };
 }
 
@@ -1012,13 +1059,18 @@ macro_rules! tsx_bool_terminal_kinds {
 // `is_expression` (`a is String`, `a !is String`) and `in_expression`
 // (`a in 1..2`, `a !in 1..2`) are the two relational forms the grammar
 // spells as their own production rather than as a `binary_expression`,
-// so the comparison-token arms never see them and nothing else in the
-// Kotlin impl counts them. They are terminal for every consumer of this
-// set — neither carries a nested chain link, and neither's own operator
-// token (`is` / `!is` / `in` / `!in`) is counted anywhere — so listing
-// them here scores each exactly once, as Fitzpatrick Rule 5 scores any
-// other relational operator. Before #1421 `if (a is String)` scored
-// zero conditions against a cyclomatic decision of one.
+// so the comparison-token arms never see them. #1421 added them here
+// and #1461 moved them to an unconditional arm in
+// `src/metrics/abc/kotlin.rs`, slot-scoping having scored
+// `val b = a is String` zero beside `val b = a == c`'s one — see the
+// operands-not-operators note on the Phase-2 block below.
+//
+// Nothing else in the Kotlin impl counts either, and the node is the
+// half to count rather than the token: `!is` / `!in` are their own
+// spellings of the same production, and a bare `in` token is also the
+// `for (x in xs)` header's. `bca dump` confirms a subject-ful `when`
+// arm spells its patterns `range_test` / `type_test` rather than these
+// two, so the entry's own count and this arm never both fire (§5).
 #[macro_export]
 #[doc(hidden)]
 macro_rules! kotlin_bool_terminal_kinds {
@@ -1028,8 +1080,6 @@ macro_rules! kotlin_bool_terminal_kinds {
             | $crate::Kotlin::NavigationExpression
             | $crate::Kotlin::IndexExpression
             | $crate::Kotlin::ThisExpression
-            | $crate::Kotlin::IsExpression
-            | $crate::Kotlin::InExpression
             | $crate::Kotlin::InfixExpression
     };
 }
@@ -1075,9 +1125,15 @@ macro_rules! kotlin_bool_terminal_kinds {
 // which evaluates to a boolean. The grammar gives it its own
 // production, so the comparison-token arm in `metrics/abc/ruby.rs`
 // never sees it — that arm is gated on a `binary` parent and lists no
-// `in` token — and `if a in Integer` scored zero conditions against a
-// cyclomatic decision of one. Nothing counts the `in` token itself, so
-// listing the wrapper scores it exactly once (§5).
+// `in` token. It was listed here until #1461 moved it to an
+// unconditional arm in that file, slot-scoping having scored
+// `b = a in Integer` zero beside `b = a == 1`'s one. See the
+// operands-not-operators note on the Phase-2 block below.
+//
+// Counting the node rather than the `in` token is what keeps it to one
+// (§5): the same token heads `for x in xs` and the `in_clause` of a
+// `case`/`in`, and `bca dump` shows all three as separate productions,
+// so the `InClause` arm never sees a `test_pattern`.
 //
 // Its neighbour `match_pattern` (`expr => pat`, id 252) is **not**
 // here and must not be added: that spelling raises `NoMatchingPattern`
@@ -1104,7 +1160,6 @@ macro_rules! ruby_bool_terminal_kinds {
             | $crate::Ruby::Float
             | $crate::Ruby::Rational
             | $crate::Ruby::Complex
-            | $crate::Ruby::TestPattern
     };
 }
 

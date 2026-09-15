@@ -272,14 +272,43 @@ fn groovy_count_token_condition<'a>(
         // and Bash. `getter/groovy.rs` already classifies all four as
         // Halstead operators.
         //
-        // Groovy's membership (`in` / `!in`) is the one relational
-        // form that cannot come through here — see
-        // `groovy_bool_terminal_kinds!()` for why. The spaceship `<=>`
-        // is deliberately still absent: it yields -1 / 0 / 1 rather
-        // than a boolean, so whether it is a condition at all is the
-        // open question in FIXME(#1461) item 4, not an oversight here.
-        GTEQ | LTEQ | EQEQ | BANGEQ | EQEQEQ | BANGEQEQ | EQTILDE | EQEQTILDE | Else | Case
-        | Try | Catch | QMARKCOLON => {
+        // `LTEQGT` is the spaceship `<=>`, added in #1461. It yields
+        // -1 / 0 / 1 rather than a boolean, which is why it was not
+        // listed in `groovy_bool_terminal_kinds!()` — that set holds
+        // operands, and `<=>` is not one — but it *is* a relational
+        // operator, and Fitzpatrick Rule 5 counts those by use
+        // regardless of result type — and `<=>` is the whole of a
+        // three-way decision, not a fragment of one. Every sibling
+        // language with a spaceship already counted it: `LTEQGT` is a
+        // condition token in Ruby, PHP, C++ and Mozcpp, and Perl adds
+        // its word spelling `cmp` beside it. Groovy was the outlier,
+        // scoring `def r = a <=> b` zero against `a == b`'s one. The
+        // same dekobon-tree-sitter-groovy 0.2.2 `grammar.json` sweep
+        // finds `<=>` in `spaceship_expression` alone, so it is ungated
+        // for the reason `EQEQEQ` is, and the expression node itself is
+        // counted nowhere (§5).
+        // Groovy's two relational forms with no usable operator token
+        // join them in #1461,
+        // scored by use rather than by slot (#1461). Both sat in
+        // `groovy_bool_terminal_kinds!()` until then, which counts only
+        // inside a boolean slot: `def b = a in l` and
+        // `def b = a instanceof String` scored zero where the
+        // `def b = a == 1` beside them scored one.
+        //
+        // Matched as nodes rather than as tokens because neither
+        // construct has a token this arm could use: `in` is shared with
+        // the `for (x in l)` header, and the negated spellings `!in` /
+        // `!instanceof` emit no operator token at all — `bca dump`
+        // shows `membership_expression` with two `identifier` children
+        // and nothing between them. One node covers both spellings of
+        // each construct, and neither token is counted anywhere, so
+        // exactly one arm fires per test (§5).
+        //
+        // They share the arm rather than sitting beside it because the
+        // arm's meaning is "this node is a condition, with nothing to
+        // gate on" — which is as true of a production as of a token.
+        GTEQ | LTEQ | LTEQGT | EQEQ | BANGEQ | EQEQEQ | BANGEQEQ | EQTILDE | EQEQTILDE | Else
+        | Case | Try | Catch | QMARKCOLON | MembershipExpression | InstanceofExpression => {
             stats.conditions += 1.;
         }
         // As in Java: a bare `?` is either a ternary head or the head of

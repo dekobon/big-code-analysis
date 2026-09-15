@@ -282,8 +282,27 @@ impl Abc for RubyCode {
             {
                 stats.conditions += 1.;
             }
+            // Ruby 3.0's one-line pattern test (`a in Integer`) joins
+            // them in #1461, scored by use rather than by slot. It sat in
+            // `ruby_bool_terminal_kinds!()`, which counts only inside a
+            // boolean slot, so `b = a in Integer` scored zero where the
+            // `b = a == 1` beside it scored one — every comparison above
+            // is a token arm and `in` was not. Fitzpatrick Rule 5 scores
+            // a relational operator wherever it is written.
+            //
+            // Matched as the node rather than as the `in` token, which
+            // the language also spells in `for x in xs` and in the
+            // `in_clause` of a `case`/`in`. Those are separate
+            // productions (`bca dump`), so the `InClause` arm below
+            // never sees a `test_pattern` and exactly one arm fires per
+            // test (§5).
+            //
+            // It shares the arm rather than sitting beside it because
+            // the arm's meaning is "this node is a condition, with
+            // nothing to gate on" — as true of a production as of a
+            // token.
             Else | Elsif | When | QMARK | Rescue | RescueModifier | RescueModifier2
-            | RescueModifier3 => {
+            | RescueModifier3 | TestPattern => {
                 stats.conditions += 1.;
             }
             // A `case … in` pattern-match arm is a branch condition exactly

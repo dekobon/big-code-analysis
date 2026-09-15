@@ -69,10 +69,12 @@ fn java_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
 
         // Stops the exploration when the content is found. The terminal
         // set includes `FieldAccess` (`obj.flag`), `CastExpression`
-        // (`(boolean)v`), `ArrayAccess` (`flags[0]`), and
-        // `InstanceofExpression` (`x instanceof Foo`) — every kind whose
-        // evaluated value is implicitly boolean in idiomatic Java, mirroring
-        // the C# fix in #372 (lesson #19).
+        // (`(boolean)v`) and `ArrayAccess` (`flags[0]`) — every kind
+        // whose evaluated value is implicitly boolean in idiomatic
+        // Java, mirroring the C# fix in #372 (lesson #19).
+        // `InstanceofExpression` was a fifth until #1461 moved it to
+        // an unconditional arm: it is an operator, so it scores by use
+        // rather than only where this walker looks.
         if matches!(node_kind, java_bool_terminal_kinds!()) {
             if has_boolean_content {
                 *conditions += 1.;
@@ -97,10 +99,12 @@ fn java_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             let node_kind = node.kind_id().into();
 
             // Checks if the node is a unary condition. The terminal set
-            // includes `FieldAccess`, `CastExpression`, `ArrayAccess`,
-            // and `InstanceofExpression` so that bool-evaluating
-            // operands of `&&` / `||` chains are not silently zeroed
-            // out (mirrors the C# fix in #372; lesson #19).
+            // includes `FieldAccess`, `CastExpression` and `ArrayAccess`
+            // so that bool-evaluating operands of `&&` / `||` chains are
+            // not silently zeroed out (mirrors the C# fix in #372;
+            // lesson #19). An `instanceof` operand contributes nothing
+            // here since #1461 — its own arm counts it wherever it
+            // appears, chain or no chain.
             if matches!(node_kind, java_bool_terminal_kinds!())
                 && matches!(list_kind, BinaryExpression)
             {
@@ -255,7 +259,24 @@ fn java_count_token_condition<'a>(
 ) -> bool {
     use Java::*;
     match node.kind_id().into() {
-        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Try | Catch => {
+        // `x instanceof Foo` joins them in #1461, scored by use rather
+        // than by slot.
+        // It sat in `java_bool_terminal_kinds!()` until then, which
+        // counts only inside a boolean slot: `boolean b = x instanceof
+        // String;` scored zero where the `boolean b = x == 1;` beside it
+        // scored one, because `EQEQ` is a token arm and `instanceof` was
+        // not. Fitzpatrick Rule 5 scores a relational operator wherever
+        // it is written.
+        //
+        // Matched as the node rather than as the `instanceof` token
+        // because one node spans both spellings — the plain test and
+        // Java 16's pattern form `x instanceof String s` — and no arm
+        // counts the keyword, so exactly one fires per test (§5).
+        //
+        // It shares the arm rather than sitting beside it because the
+        // arm's meaning is "this node is a condition, with nothing to
+        // gate on" — which is as true of a production as of a token.
+        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Try | Catch | InstanceofExpression => {
             stats.conditions += 1.;
         }
         // `?` opens a ternary, but tree-sitter-java also emits it bare
@@ -320,9 +341,10 @@ fn java_walk_for_conditions<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, s
         // while `when isEven(i)` and `when b` counted zero, so three
         // semantically identical guards produced two different numbers.
         // As a slot every spelling contributes exactly one — a call /
-        // field access / `instanceof` test / bare identifier through
-        // `java_bool_terminal_kinds!()`, a comparison through the token
-        // arm that already owns it — and a compound guard
+        // field access / bare identifier through
+        // `java_bool_terminal_kinds!()`, a comparison or (since #1461)
+        // an `instanceof` test through the arm that owns
+        // it — and a compound guard
         // (`when a > 1 && b < 2`) keeps its sub-structure rather than
         // collapsing to one.
         //
@@ -381,8 +403,10 @@ fn java_walk_ternary(node: &Node, stats: &mut Stats) {
 // chain, and anything else (a `binary_expression`, whose operator token
 // the dispatcher already counted) contributes nothing. The terminal set
 // mirrors `java_inspect_container` (issue #372 / lesson #19):
-// FieldAccess / CastExpression / ArrayAccess / InstanceofExpression all
-// evaluate to a boolean in idiomatic Java condition slots. Mirrors
+// FieldAccess / CastExpression / ArrayAccess all evaluate to a boolean
+// in idiomatic Java condition slots. An `instanceof` predicate is
+// among the "anything else" since #1461 — its own arm counts it.
+// Mirrors
 // `csharp_count_condition` / `groovy_count_condition`.
 fn java_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
     use Java::*;

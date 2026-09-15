@@ -117,9 +117,11 @@ fn csharp_inspect_container(container_node: &Node, parent: &Node, conditions: &m
         // Found the innermost operand; count it if a boolean context
         // was established up the chain. The `csharp_bool_terminal_kinds!()`
         // set bundles invocation aliases, the `Identifier` /
-        // `BooleanLiteral` leaves, and the five bool-evaluating kinds
-        // restored by #372 (member access / await / cast / is-pattern /
-        // element access).
+        // `BooleanLiteral` leaves, and the bool-evaluating kinds
+        // restored by #372 (member access / await / cast / element
+        // access). The two `is` tests left the set in #1461 for an
+        // unconditional arm, so a type-test operand contributes nothing
+        // here.
         if matches!(node.kind_id().into(), csharp_bool_terminal_kinds!()) {
             if has_boolean_content {
                 *conditions += 1.;
@@ -143,7 +145,9 @@ fn csharp_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             // `csharp_bool_terminal_kinds!()` bundles invocation aliases,
             // `Identifier`, `BooleanLiteral`, and the bool-evaluating
             // expression kinds restored by #372 (member access / await /
-            // cast / is-pattern / element access).
+            // cast / element access). An `is` operand contributes nothing
+            // here since #1461 — its own arm counts it wherever it
+            // appears, chain or no chain.
             if matches!(node_kind, csharp_bool_terminal_kinds!())
                 && matches!(list_kind, BinaryExpression)
             {
@@ -365,7 +369,30 @@ fn csharp_count_token_condition<'a>(
         // bare `QMARK` below and from the `??=` compound assignment
         // (`QMARKQMARKEQ`, counted as an assignment), and every
         // condition slot declines a `binary_expression` outright.
-        Else | Try | Catch | QMARKQMARK => {
+        // C#'s two type tests join them in #1461, scored by use rather
+        // than by slot. They sat in `csharp_bool_terminal_kinds!()` until
+        // then, which counts only inside a boolean slot: `var b = x is
+        // int;` scored zero where the `var b = x == 1;` beside it
+        // scored one, because `EQEQ` is a token arm and `is` was not.
+        // Fitzpatrick Rule 5 scores a relational operator wherever it is
+        // written, so the asymmetry was in the mechanism, not the rule.
+        //
+        // Matched as nodes rather than as an `Is` token because the
+        // grammar splits the construct across two productions by
+        // pattern-ness, not by keyword: `x is int` is an
+        // `is_expression` and `x is null` / `x is not Foo` / `x is int
+        // n` are all `is_pattern_expression` (verified with `bca dump`).
+        // The two are disjoint alternatives, never nested, so exactly
+        // one fires per test (§5), and no arm counts the keyword.
+        //
+        // The guard slot added by #1422 is unaffected: a `when x is
+        // int` now reaches this arm instead of the slot's terminal-set
+        // test, and still totals one.
+        //
+        // They share the arm rather than sitting beside it because the
+        // arm's meaning is "this node is a condition, with nothing to
+        // gate on" — which is as true of a production as of a token.
+        Else | Try | Catch | QMARKQMARK | IsExpression | IsPatternExpression => {
             stats.conditions += 1.;
         }
         // `case` comes from two productions — `switch_section`, a real
@@ -593,9 +620,10 @@ fn csharp_walk_for_conditions<'a>(
         // the comparison-token arm while `when IsEven(x)` counted zero,
         // so three semantically identical guards produced two different
         // numbers. As a slot every spelling contributes exactly one —
-        // a call / `is` test / bare identifier through
-        // `csharp_bool_terminal_kinds!()`, a comparison through the
-        // token arm that already owned it — and a compound guard
+        // a call / bare identifier through
+        // `csharp_bool_terminal_kinds!()`, a comparison or (since
+        // #1461) an `is` test through the arm that owns it — and a
+        // compound guard
         // (`when a > 1 && b < 2`) keeps its sub-structure rather than
         // collapsing to one.
         //
