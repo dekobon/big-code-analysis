@@ -94,3 +94,129 @@ a plausible number rather than an error:
 - **`bca check` writes offenders to stderr.** `2>/dev/null` on a check
   invocation discards the entire result and leaves an empty stdout that
   reads as "no offenders".
+
+## A `pgrep -f` wait loop matches itself and never exits
+
+`pgrep -f` matches against the **full command line**. When a wait loop
+is passed as text — `zsh -c "until ! pgrep -f 'make pre-commit' …"`,
+which is exactly how the `Bash` tool runs every command — that text
+*is* the shell's argv. The loop therefore finds itself, the condition
+never goes false, and it runs until the machine reboots:
+
+```zsh
+# Never exits: this shell's own argv contains "make pre-commit".
+zsh -c "until ! pgrep -f 'make pre-commit' >/dev/null; do sleep 30; done"
+```
+
+**The `-c` part is the precondition, not incidental.** The identical
+loop inside a script file has argv `zsh /path/to/waiter.sh`, does not
+match itself, and exits normally — verified by probe. So the bug is
+specific to the way commands are issued here, and a reader who fails to
+reproduce it from a `.sh` file has not disproved it.
+
+The failure is silent in the way the rest of this file describes: no
+error, no output, nothing in the log. It reads as "the job is still
+running", which is indistinguishable from the truth right up until you
+notice the job finished half a day ago.
+
+Ten of these accumulated in one session here — seven waiting on a
+`make pre-commit` that had long since written its `BCA_GATE: pass`,
+three on a finished `collect.sh`. Each spun a `sleep` every 15-30s, the
+oldest for twelve hours. They also **match each other**, so killing one
+at a time does not help: six siblings keep the seventh's condition
+true. `pgrep -af <pattern>` is the diagnosis — if every PID it prints
+is a waiter, that is the whole bug.
+
+### How to apply
+
+- **Prefer a condition that is not a process at all.** The artifact the
+  job produces cannot match the watcher — and bound the wait, because
+  an unbounded loop on a job that dies is the same hang by another
+  route:
+
+  ```zsh
+  log=$(mktemp /tmp/bca-pre-commit.XXXXXX.log)
+  make pre-commit >"$log" 2>&1 &
+
+  for _ in {1..90}; do                    # ceiling: 90 x 20s = 30 min
+    grep -qs '^BCA_GATE:' "$log" && break
+    sleep 20
+  done
+
+  grep -s '^BCA_GATE:' "$log" ||
+    { echo "no BCA_GATE line after 30 min — crashed, killed, or still running" >&2; exit 1; }
+  ```
+
+  Three details earn their place. The `for` ceiling is what makes a
+  dead job a bounded failure instead of a hang. `-s` on both greps
+  suppresses `No such file or directory` before the log exists —
+  without it the loop emits one stderr line per tick, forever. And the
+  trailing `grep ||` makes the no-verdict case exit non-zero, so
+  "silence" cannot read as success; that is the third state
+  [`AGENTS.md`](../../AGENTS.md) names under "Reading the verdict".
+
+  Exit 0 here means *a verdict appeared*, not that it said `pass` —
+  read the line, as that section requires.
+
+  Verified against four cases: verdict already present (breaks early),
+  verdict arriving mid-wait (picked up), log present with no verdict,
+  and log never created (both exit 1, no stderr noise).
+
+- **When it really must be a process, break the self-match** with a
+  bracket class, the standard `ps | grep` trick — `[m]ake` matches the
+  string `make` but the pattern itself does not contain it:
+
+  ```zsh
+  until ! pgrep -f '[m]ake pre-commit' >/dev/null; do sleep 30; done
+  ```
+
+  Verified both halves by probe: the bracket watcher does not appear in
+  its own `pgrep` output (so the loop exits), and the pattern still
+  matches a real process whose argv contains `make pre-commit`. The
+  naive form in the same probe matched itself and hung.
+
+  It protects the watcher from *itself* only. Any other process quoting
+  the plain string still matches — a sibling watcher written the naive
+  way, a `ps | grep` someone left running, an editor holding the
+  command in a buffer. That is why the file-artifact form above is the
+  first recommendation and this one the fallback.
+
+- **Do not reach for `$$` to exclude yourself. It does not work.**
+  The obvious repair —
+
+  ```zsh
+  # BROKEN. Hangs exactly like the naive form.
+  until ! (pgrep -f 'make pre-commit' | grep -qv "^$$\$"); do sleep 30; done
+  ```
+
+  — fails because the watcher is not the only process carrying that
+  argv. The command substitution and the `(…)` subshell both fork from
+  it and inherit it, so `pgrep` returns several PIDs where `$$` is only
+  one:
+
+  ```text
+  watcher $$ = 1347315 ; pgrep sees: 1347301 1347315 1347316
+  ```
+
+  Filtering one PID can never empty that list, the pipeline stays true,
+  and the loop never ends — measured, in both quoting styles. (Under
+  `zsh -c "…"` there is a second, independent defect: a double-quoted
+  `$$` is expanded by the *parent* before the child ever sees it, so
+  the watcher excludes someone else's PID.) The bracket class above
+  avoids the whole class, because it forks no subshell and `pgrep`'s
+  own argv carries `[m]ake`, not `make`.
+
+- **Do not poll for harness-tracked work at all.** `Bash` with
+  `run_in_background` re-invokes on exit, and `Monitor` streams events.
+  A hand-rolled waiter is only for something neither can see.
+
+- **Check for leaks before ending a long session**: `pgrep -af 'do
+  sleep'`. A waiter costs almost nothing, but it outlives the session
+  and the next one inherits a process list nobody can account for.
+
+Every snippet in this section was run before it was written down. The
+first draft was not: the bracket form was probed and the other two were
+reasoned about, and both of the reasoned ones were wrong — one hung,
+one claimed a timeout it did not have. In a file about shell that
+returns a plausible answer instead of an error, an unrun example is the
+defect it documents.
