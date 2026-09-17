@@ -402,7 +402,9 @@ jobs:
   feature-matrix:
     name: features (${{ matrix.name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Raised from 30 with #1472: each leg now links and runs a test
+    # binary as well as a clippy check build.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -498,15 +500,9 @@ jobs:
       # being narrowed later. All ten pre-existing legs were verified
       # against the stricter command before it landed.
       #
-      # These legs verify that the workspace *compiles* across feature
-      # combinations. They deliberately do not run the suite — that runs
-      # under `default` and `--all-features` in the `test` job — because
-      # running it here would fail in the thousands rather than report
-      # anything. Per-language tests are not feature-gated (30 of 3,482
-      # `#[test]` fns in `src/`), and `Node` panics by contract on a
-      # grammar that is not compiled in, so `--no-default-features
-      # --features rust` fails 2,642 of 3,238 tests. Gating them is
-      # tracked in #1472.
+      # These legs verify that the workspace compiles across feature
+      # combinations. Since #1472 they also *run* the suite, in the step
+      # below.
       - run: cargo clippy --all-targets ${{ matrix.flags }} --locked -- -D warnings
       - uses: taiki-e/install-action@fa23953489c080190314742a9b907f8e97c6767c # v2.87.10
         with:
@@ -525,6 +521,28 @@ jobs:
       # list`, which would otherwise be the one cargo invocation in this
       # job allowed to rewrite `Cargo.lock` instead of failing on it.
       - run: ./utils/check-feature-gates.py ${{ matrix.flags }} --locked
+      # Until #1472 these legs compiled the suite and never ran it,
+      # because running it failed in the thousands: a test naming
+      # `PythonParser` builds without the `python` grammar and then
+      # panics in `ParserTrait::new`. Every such test now carries its
+      # language's feature, so the leg that drops the grammar drops the
+      # test with it and what remains actually passes. This is the half
+      # `cargo clippy` cannot see — a gate too *narrow* compiles
+      # perfectly and silently stops running.
+      #
+      # The corpus-dependent binaries are excluded rather than gated
+      # away: their fixtures live in the `tests/repositories/`
+      # submodules, which this job checks out with `submodules: false`.
+      # The `test` job runs them with `submodules: recursive`.
+      #
+      # Three binaries, not one. The lib's `corpus` target is the
+      # obvious one; the CLI's `cli_ux` and `output` targets are the
+      # non-obvious ones, because nineteen of their tests resolve
+      # `DeepSpeech/stats.py` through `common::corpus_fixture_path()`,
+      # which *panics* with the #1171 "integration corpus not checked
+      # out" diagnostic rather than skipping. Exact matchers (`=name`)
+      # so `output` cannot also swallow the lib's `output_formats`.
+      - run: cargo nextest run ${{ matrix.flags }} --locked -E 'not binary(=corpus) and not binary(=cli_ux) and not binary(=output)'
 
   deny:
     name: cargo-deny
@@ -582,6 +600,11 @@ jobs:
     name: lint (make lint)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # `pull-requests: read` is for the `--compare` step below, which
+    # reads this PR's labels live rather than from the event payload.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -756,6 +779,50 @@ jobs:
       # gate without surfacing the regression in CI.
       - name: check-excluded-manifests self-tests (explicit)
         run: python3 -m unittest -q utils/check-excluded-manifests-test.py
+      # The one direction `make lint`'s gates cannot reach (#1478). Both
+      # of them compare a `cfg` marker against the derivation; when the
+      # two agree and are both wrong, only the previous revision says
+      # so. This scans the base branch head too and fails on a test that
+      # still exists but stopped being compiled by some single-language
+      # build — which nothing else notices, because a gate too *narrow*
+      # just drops the test and every leg stays green.
+      #
+      # Pull requests only: it needs a base revision, and a push to
+      # `main` has no meaningful one. `fetch-depth: 1` above leaves the
+      # base commit unfetched, so fetch exactly that one object —
+      # `git archive` needs the tree, not the history.
+      #
+      # Narrowing a gate on purpose — the gate *was* too wide and the
+      # test really does not need that grammar — drops builds too, and
+      # looks identical from here. The escape is the
+      # `gate-narrowing-intended` label rather than an in-source marker:
+      # this comparison is relative to the base branch head, so a marker
+      # would be permanently stale the moment the PR lands and would sit in
+      # the tree as a hole nothing can detect. A label leaves the
+      # decision on the PR, where a reviewer sees it.
+      #
+      # The label is read **live**, not from `github.event.pull_request`.
+      # That payload is a snapshot taken when the run was queued, so a
+      # label applied in response to this very failure is invisible to
+      # it — and re-running the job replays the same stale payload, so
+      # the documented remedy could never take effect. Measured on
+      # PR #1479, where exactly that happened.
+      - name: check-test-lang-gates --compare (pull requests)
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          if gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/labels" \
+               --jq '.[].name' | grep -qx 'gate-narrowing-intended'; then
+            echo "gate-narrowing-intended is set: skipping the comparison." \
+                 "Narrowing on this PR is declared deliberate."
+            exit 0
+          fi
+          git fetch --depth=1 origin "${BASE_SHA}"
+          python3 utils/check-test-lang-gates.py --compare "${BASE_SHA}"
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
       # Defensive twin for the ruff-lockstep gate (#1230): the
       # ruff-pre-commit `rev:`, `uv.lock`, and the hash-pinned
       # `requirements/dev.txt` export CI installs from must name one
