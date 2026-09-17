@@ -859,6 +859,7 @@ mod tests {
     /// The fixture is the #1236 reproducer, picked because no space in it
     /// has `own == total`: a fixture where the two agree passes whichever
     /// one the code reads.
+    #[cfg(feature = "rust")]
     #[test]
     fn own_args_excludes_nested_closure_spaces() {
         fn walk(space: &FuncSpace, rows: &mut Vec<(String, usize, u64, u64)>) {
@@ -909,6 +910,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_no_functions_and_closures() {
         check_metrics::<PythonParser>("a = 42", "foo.py", |metric| {
@@ -934,6 +936,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_no_functions_and_closures() {
         check_metrics::<RustParser>("let a = 42;", "foo.rs", |metric| {
@@ -959,6 +962,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_no_functions_and_closures() {
         check_metrics::<CppParser>("int a = 42;", "foo.cpp", |metric| {
@@ -984,6 +988,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_no_functions_and_closures() {
         check_metrics::<JavascriptParser>("var a = 42;", "foo.js", |metric| {
@@ -1009,6 +1014,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_single_function() {
         check_metrics::<PythonParser>(
@@ -1040,6 +1046,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_single_function() {
         check_metrics::<RustParser>(
@@ -1073,6 +1080,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_single_function() {
         check_metrics::<CParser>(
@@ -1106,6 +1114,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_single_function() {
         check_metrics::<JavascriptParser>(
@@ -1137,6 +1146,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_single_lambda() {
         check_metrics::<PythonParser>("bar = lambda a: True", "foo.py", |metric| {
@@ -1162,6 +1172,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_single_closure() {
         check_metrics::<RustParser>("let bar = |i: i32| -> i32 { i + 1 };", "foo.rs", |metric| {
@@ -1187,6 +1198,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_single_lambda() {
         check_metrics::<CppParser>(
@@ -1216,6 +1228,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_single_closure() {
         check_metrics::<JavascriptParser>("function (a, b) {return a + b};", "foo.js", |metric| {
@@ -1241,6 +1254,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_functions() {
         check_metrics::<PythonParser>(
@@ -1306,6 +1320,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_functions() {
         check_metrics::<RustParser>(
@@ -1382,6 +1397,7 @@ mod tests {
     /// The `self` receiver (`self`, `&self`, `&mut self`) parses as a
     /// `self_parameter` node and, like Go's `receiver` field and C++'s
     /// implicit `this`, must not be counted as a formal parameter (#457).
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_method_excludes_self_receiver() {
         check_metrics::<RustParser>(
@@ -1427,6 +1443,7 @@ mod tests {
         );
     }
 
+    #[cfg(all(feature = "c", feature = "cpp"))]
     #[test]
     fn c_functions() {
         check_metrics::<CParser>(
@@ -1500,6 +1517,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_functions() {
         check_metrics::<JavascriptParser>(
@@ -1565,6 +1583,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_nested_functions() {
         check_metrics::<PythonParser>(
@@ -1599,6 +1618,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_nested_functions() {
         check_metrics::<RustParser>(
@@ -1635,6 +1655,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_nested_functions() {
         check_metrics::<CppParser>(
@@ -1671,6 +1692,7 @@ mod tests {
     /// Default arguments still surface as separate `parameter_declaration`
     /// nodes — defaults are not removed from the count.  A 3-param function
     /// whose third parameter has a default value reports `nargs = 3`.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_default_arguments() {
         check_metrics::<CppParser>(
@@ -1710,6 +1732,7 @@ mod tests {
     /// as a sibling parameter node that `count_args` counts, because it is
     /// neither a comment nor one of the `(`, `)`, `,` tokens `CCode::is_non_arg`
     /// rejects.
+    #[cfg(feature = "c")]
     #[test]
     fn c_variadic_function() {
         check_metrics::<CParser>(
@@ -1750,6 +1773,7 @@ mod tests {
     /// not on `parameters`.  The tree-sitter-cpp grammar represents
     /// `Args... args` as a single `variadic_parameter_declaration` under
     /// `parameters`.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_template_parameter_pack() {
         check_metrics::<CppParser>(
@@ -1789,6 +1813,7 @@ mod tests {
     /// `compute_args` reads the `declarator` field, which only contains the
     /// `( … )` parameter list.  Variables captured for the closure body do
     /// not inflate `nargs`.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_lambda_capture_not_counted() {
         check_metrics::<CppParser>(
@@ -1831,6 +1856,7 @@ mod tests {
     /// parameter list — it is an implicit argument at the language level
     /// only.  A non-static member function `void M(int a)` reports
     /// `nargs = 1`, not 2.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_member_function_this_not_counted() {
         check_metrics::<CppParser>(
@@ -1869,6 +1895,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_zero_args() {
         check_metrics::<GoParser>(
@@ -1898,6 +1925,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_multiple_args() {
         check_metrics::<GoParser>(
@@ -1927,6 +1955,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_method_excludes_receiver() {
         check_metrics::<GoParser>(
@@ -1960,6 +1989,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_variadic() {
         check_metrics::<GoParser>(
@@ -1989,6 +2019,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_grouped_params() {
         check_metrics::<GoParser>(
@@ -2020,6 +2051,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_func_literal_args() {
         check_metrics::<GoParser>(
@@ -2050,6 +2082,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_nested_functions() {
         check_metrics::<JavascriptParser>(
@@ -2086,6 +2119,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_no_functions_and_closures() {
         check_metrics::<PerlParser>(
@@ -2121,6 +2155,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_single_function() {
         // This sub declares no signature, so it has no formal parameters to
@@ -2159,6 +2194,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_single_closure() {
         // This closure declares no signature, so nargs stays 0; it takes its
@@ -2197,6 +2233,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_multiple_functions() {
         // Neither sub declares a signature, so both count 0. Assert nom
@@ -2234,6 +2271,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_nested_closure() {
         // Neither the outer sub nor the nested closure declares a signature,
@@ -2273,6 +2311,7 @@ mod tests {
     /// Regression for #1147: a signature sub reported 0 because the
     /// signature is an unnamed `function_signature` child, not a
     /// `parameters` field.
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_signature_function() {
         check_metrics::<PerlParser>(
@@ -2310,6 +2349,7 @@ mod tests {
     /// `scalar_variable`, so counting only the variable kinds would report
     /// 2 here instead of 3. Pins the negative filter in
     /// `compute_perl_args` (#1147).
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_signature_defaults_and_slurpy() {
         check_metrics::<PerlParser>(
@@ -2346,6 +2386,7 @@ mod tests {
     /// A signature sub and an `@_` sub in one file: the min/max and the
     /// average have to keep the zero-argument sub in the divisor rather
     /// than folding it away.
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_signature_and_at_underscore_mixed() {
         check_metrics::<PerlParser>(
@@ -2386,6 +2427,7 @@ mod tests {
     /// (`sub NAME ATTRS SIG BLOCK`), and a bare attribute swallows the
     /// signature into its own `function_attribute` node. Pins the
     /// one-level descent in `perl_signature`.
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_signature_behind_attribute() {
         check_metrics::<PerlParser>(
@@ -2423,6 +2465,7 @@ mod tests {
     /// children sitting directly under `function_signature`, so the
     /// negative filter has to exclude them or a documented 3-parameter sub
     /// reads 6 and trips the default `nargs` limit of 5.
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_signature_comments_are_not_parameters() {
         check_metrics::<PerlParser>(
@@ -2464,6 +2507,7 @@ mod tests {
     /// depends on: an empty signature has no children but the parens, and
     /// a prototype (`($$)`) is a `function_prototype`, a different kind
     /// that `perl_signature` deliberately does not match.
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_empty_signature_and_prototype_are_zero() {
         check_metrics::<PerlParser>(
@@ -2483,6 +2527,7 @@ mod tests {
     /// Perl 5.38's `method` is a second `is_func` kind
     /// (`function_definition_without_sub`) reaching the same helper, so it
     /// gets its own fixture rather than riding on the `sub` tests.
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_method_signature_function() {
         check_metrics::<PerlParser>(
@@ -2503,6 +2548,7 @@ mod tests {
     /// `perl_signature` lists it defensively. Pin that the grammar never
     /// emits it, so a bump that promotes the rule fails loudly instead of
     /// changing behaviour invisibly (lesson 34).
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_hidden_function_signature_is_unreachable() {
         let mut hidden = false;
@@ -2530,6 +2576,7 @@ mod tests {
     /// 1.1.2 parses an anonymous sub's signature inside an `ERROR` node,
     /// so a signature-carrying closure counts 0. A grammar bump that fixes
     /// the parse should fail this test rather than shift metrics silently.
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_anonymous_sub_signature_is_zero() {
         check_metrics::<PerlParser>(
@@ -2564,6 +2611,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_no_functions() {
         check_metrics::<JavaParser>(
@@ -2595,6 +2643,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_single_method() {
         check_metrics::<JavaParser>(
@@ -2627,6 +2676,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_multiple_methods() {
         check_metrics::<JavaParser>(
@@ -2662,6 +2712,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_constructor_args() {
         check_metrics::<JavaParser>(
@@ -2707,6 +2758,7 @@ mod tests {
     /// walked to the outermost record instead would give `Single` 2 and
     /// total 4, and one that read the constructor node itself — which has
     /// no `parameters` field — would give 0.
+    #[cfg(feature = "java")]
     #[test]
     fn java_record_compact_constructor_counts_record_components() {
         check_metrics::<JavaParser>(
@@ -2737,6 +2789,7 @@ mod tests {
     /// `formal_parameter` — and binds `this`, not a value. Like Rust's
     /// `self_parameter` (#457), Go's `receiver` field, and C++'s implicit
     /// `this`, it must not be counted as a formal parameter (#470).
+    #[cfg(feature = "java")]
     #[test]
     fn java_method_excludes_explicit_receiver() {
         check_metrics::<JavaParser>(
@@ -2757,6 +2810,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_lambda_args() {
         check_metrics::<JavaParser>(
@@ -2789,6 +2843,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_no_functions_and_closures() {
         check_metrics::<GroovyParser>("int x = 1", "foo.groovy", |metric| {
@@ -2796,6 +2851,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_single_method() {
         check_metrics::<GroovyParser>(
@@ -2812,6 +2868,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_multiple_methods() {
         check_metrics::<GroovyParser>(
@@ -2826,6 +2883,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_lambda_args() {
         // Two-parameter Groovy closure inside a method body. Groovy's
@@ -2846,6 +2904,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_implicit_it_not_counted() {
         // The `it` implicit closure parameter is just an identifier in
@@ -2864,6 +2923,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_no_functions() {
         check_metrics::<CsharpParser>(
@@ -2895,6 +2955,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_single_method() {
         check_metrics::<CsharpParser>(
@@ -2927,6 +2988,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_multiple_methods() {
         check_metrics::<CsharpParser>(
@@ -2962,6 +3024,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_constructor_args() {
         check_metrics::<CsharpParser>(
@@ -2994,6 +3057,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_lambda_args() {
         check_metrics::<CsharpParser>(
@@ -3026,6 +3090,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_function_and_arrow() {
         check_metrics::<TsxParser>(
@@ -3057,6 +3122,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_typed_and_optional_params() {
         check_metrics::<TypescriptParser>(
@@ -3088,6 +3154,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_single_function() {
         check_metrics::<MozjsParser>(
@@ -3118,6 +3185,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_closure_args() {
         check_metrics::<MozjsParser>("function (a, b) {return a + b};", "foo.js", |metric| {
@@ -3151,6 +3219,7 @@ mod tests {
     // on its enclosing context — e.g. a `VariableDeclarator` ancestor makes
     // it a function).
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_bare_arrow_function() {
         check_metrics::<JavascriptParser>("const f = x => x;", "foo.js", |metric| {
@@ -3158,6 +3227,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_async_bare_arrow_function() {
         check_metrics::<JavascriptParser>("const f = async x => x;", "foo.js", |metric| {
@@ -3165,6 +3235,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_parenthesized_arrow_function() {
         check_metrics::<JavascriptParser>("const f = (x) => x;", "foo.js", |metric| {
@@ -3172,6 +3243,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_multi_parenthesized_arrow_function() {
         check_metrics::<JavascriptParser>("const f = (x, y) => x + y;", "foo.js", |metric| {
@@ -3179,6 +3251,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_bare_arrow_function() {
         check_metrics::<TypescriptParser>("const f = x => x;", "foo.ts", |metric| {
@@ -3186,6 +3259,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_async_bare_arrow_function() {
         check_metrics::<TypescriptParser>("const f = async x => x;", "foo.ts", |metric| {
@@ -3193,6 +3267,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_parenthesized_arrow_function() {
         check_metrics::<TypescriptParser>("const f = (x: number) => x;", "foo.ts", |metric| {
@@ -3200,6 +3275,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_multi_parenthesized_arrow_function() {
         check_metrics::<TypescriptParser>(
@@ -3211,6 +3287,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_bare_arrow_function() {
         check_metrics::<TsxParser>("const f = x => x;", "foo.tsx", |metric| {
@@ -3218,6 +3295,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_async_bare_arrow_function() {
         check_metrics::<TsxParser>("const f = async x => x;", "foo.tsx", |metric| {
@@ -3225,6 +3303,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_parenthesized_arrow_function() {
         check_metrics::<TsxParser>("const f = (x: number) => x;", "foo.tsx", |metric| {
@@ -3232,6 +3311,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_multi_parenthesized_arrow_function() {
         check_metrics::<TsxParser>(
@@ -3243,6 +3323,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_bare_arrow_function() {
         check_metrics::<MozjsParser>("const f = x => x;", "foo.js", |metric| {
@@ -3250,6 +3331,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_async_bare_arrow_function() {
         check_metrics::<MozjsParser>("const f = async x => x;", "foo.js", |metric| {
@@ -3257,6 +3339,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_parenthesized_arrow_function() {
         check_metrics::<MozjsParser>("const f = (x) => x;", "foo.js", |metric| {
@@ -3264,6 +3347,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_multi_parenthesized_arrow_function() {
         check_metrics::<MozjsParser>("const f = (x, y) => x + y;", "foo.js", |metric| {
@@ -3271,6 +3355,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_nargs_functions_and_closures() {
         check_metrics::<KotlinParser>(
@@ -3302,6 +3387,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_no_functions_and_closures() {
         check_metrics::<LuaParser>("local x = 1", "foo.lua", |metric| {
@@ -3312,6 +3398,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_single_function() {
         check_metrics::<LuaParser>("function f(a, b) return a + b end", "foo.lua", |metric| {
@@ -3322,6 +3409,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_single_closure() {
         check_metrics::<LuaParser>(
@@ -3336,6 +3424,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_functions() {
         check_metrics::<LuaParser>(
@@ -3351,6 +3440,7 @@ function g(x, y, z) return x + y + z end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_vararg_function() {
         // `...` is a vararg_expression node and counts as one argument.
@@ -3362,6 +3452,7 @@ function g(x, y, z) return x + y + z end",
         });
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_colon_method_nargs() {
         // Colon syntax: `self` is implicit and NOT in the `parameters` node.
@@ -3378,6 +3469,7 @@ function g(x, y, z) return x + y + z end",
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_no_functions() {
         check_metrics::<TclParser>("set x 1", "foo.tcl", |metric| {
@@ -3388,6 +3480,7 @@ function g(x, y, z) return x + y + z end",
         });
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_single_function() {
         check_metrics::<TclParser>("proc f {a b} { puts $a }", "foo.tcl", |metric| {
@@ -3398,6 +3491,7 @@ function g(x, y, z) return x + y + z end",
         });
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_single_function_no_args() {
         check_metrics::<TclParser>("proc f {} { puts hello }", "foo.tcl", |metric| {
@@ -3408,6 +3502,7 @@ function g(x, y, z) return x + y + z end",
         });
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_functions() {
         check_metrics::<TclParser>(
@@ -3423,6 +3518,7 @@ proc g {x y z} { puts $x }",
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_nested_functions() {
         check_metrics::<TclParser>(
@@ -3440,6 +3536,7 @@ proc g {x y z} { puts $x }",
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_args_vararg() {
         // `args` is the Tcl variadic catch-all; it counts as one argument.
@@ -3451,6 +3548,7 @@ proc g {x y z} { puts $x }",
         });
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_default_arg() {
         // `{name default}` is a single argument with a default value.
@@ -3468,6 +3566,7 @@ proc g {x y z} { puts $x }",
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_zero_args() {
         check_metrics::<KotlinParser>("fun f(): Int { return 42 }", "foo.kt", |metric| {
@@ -3478,6 +3577,7 @@ proc g {x y z} { puts $x }",
         });
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_single_arg() {
         check_metrics::<KotlinParser>(
@@ -3492,6 +3592,7 @@ proc g {x y z} { puts $x }",
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_multiple_args() {
         check_metrics::<KotlinParser>(
@@ -3506,6 +3607,7 @@ proc g {x y z} { puts $x }",
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_default_args() {
         check_metrics::<KotlinParser>(
@@ -3522,6 +3624,7 @@ proc g {x y z} { puts $x }",
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_empty_lambda() {
         // Two lambdas in the same function body: one with two explicit parameters
@@ -3548,6 +3651,7 @@ proc g {x y z} { puts $x }",
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_anonymous_function() {
         // `fun(x: Int, y: Int) = x + y` — anonymous function expression.
@@ -3565,6 +3669,7 @@ proc g {x y z} { puts $x }",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_no_functions_and_closures() {
         check_metrics::<PhpParser>("<?php $a = 42;", "foo.php", |metric| {
@@ -3589,6 +3694,7 @@ proc g {x y z} { puts $x }",
         });
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_single_function() {
         // Two parameters in a regular function.
@@ -3622,6 +3728,7 @@ proc g {x y z} { puts $x }",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_single_closure() {
         // Anonymous function with 2 params + arrow function with 1 param.
@@ -3654,6 +3761,7 @@ proc g {x y z} { puts $x }",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_functions() {
         // Two top-level functions, 1 + 2 args.
@@ -3685,6 +3793,7 @@ proc g {x y z} { puts $x }",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_nested_functions() {
         // PHP cannot define nested named functions inside a function body
@@ -3725,6 +3834,7 @@ proc g {x y z} { puts $x }",
     /// Regression for #1142: the parameter list sits two `arguments`
     /// levels down, so the `parameters`-field heuristic found nothing and
     /// every Elixir function reported 0.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_named_function_args() {
         check_metrics::<ElixirParser>(
@@ -3742,6 +3852,7 @@ proc g {x y z} { puts $x }",
     /// A guard interposes a `when` `binary_operator` between the macro's
     /// `arguments` and the head `Call`. Without unwrapping it every
     /// guarded clause — a large fraction of real Elixir — counts 0.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_guarded_clause_args() {
         check_metrics::<ElixirParser>(
@@ -3760,6 +3871,7 @@ proc g {x y z} { puts $x }",
     /// would be. It has no parameter list, and the walk must stop there
     /// rather than fall through to the enclosing `arguments` — which
     /// holds the `do:` keyword pair and would count 1.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_zero_arg_function_has_no_parameter_list() {
         check_metrics::<ElixirParser>(
@@ -3775,6 +3887,7 @@ proc g {x y z} { puts $x }",
     /// Pattern and defaulted parameters are `map` and `binary_operator`
     /// nodes rather than plain identifiers, so the punctuation-negative
     /// filter is what keeps them counted.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_pattern_and_default_args() {
         check_metrics::<ElixirParser>(
@@ -3791,6 +3904,7 @@ proc g {x y z} { puts $x }",
 
     /// Every clause of one `fn` has the same arity, so a two-clause
     /// two-argument closure is 2 — summing the clauses would report 4.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_multi_clause_closure_counts_one_clause() {
         check_metrics::<ElixirParser>(
@@ -3810,6 +3924,7 @@ proc g {x y z} { puts $x }",
     /// unwrap. Without it the count is the guard expression's fixed three
     /// children — 3 for any arity, which is why the four-parameter form is
     /// the fixture here.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_guarded_closure_args() {
         check_metrics::<ElixirParser>(
@@ -3827,6 +3942,7 @@ proc g {x y z} { puts $x }",
     /// `def a + b` and `def -a` define the operator functions `+/2` and
     /// `-/1`. Their head is the operator node itself, with no `arguments`
     /// container to walk, so the arity comes from the operator's shape.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_operator_definition_args() {
         check_metrics::<ElixirParser>(
@@ -3844,6 +3960,7 @@ proc g {x y z} { puts $x }",
     /// A `def` inside `quote do … end` is a code template, not a
     /// declaration, and must not contribute arguments (#310). The quoted
     /// head carries three parameters, so dropping the rule reads 3.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_quoted_def_contributes_no_args() {
         check_metrics::<ElixirParser>(
@@ -3865,6 +3982,7 @@ proc g {x y z} { puts $x }",
     /// `defmodule` and `defdelegate` are ordinary `Call`s of the same
     /// shape — `defdelegate log(msg), to: Logger` has a head `Call` with
     /// one parameter, so a gate that matched any macro would read 1.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_non_method_macros_count_zero() {
         check_metrics::<ElixirParser>(
@@ -3877,6 +3995,7 @@ proc g {x y z} { puts $x }",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_no_functions_and_closures() {
         check_metrics::<RubyParser>("a = 42\n", "foo.rb", |metric| {
@@ -3885,6 +4004,7 @@ proc g {x y z} { puts $x }",
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_single_function() {
         // Single method with 3 parameters.
@@ -3894,6 +4014,7 @@ proc g {x y z} { puts $x }",
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_single_closure() {
         // A bare block `[1,2,3].each { |x| ... }` is the only closure
@@ -3904,6 +4025,7 @@ proc g {x y z} { puts $x }",
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_functions() {
         // Two methods, args=2 and args=1; one lambda with args=2.
@@ -3917,6 +4039,7 @@ proc g {x y z} { puts $x }",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_nested_functions() {
         // An outer method with 1 arg containing an inner method with 2.
@@ -3934,6 +4057,7 @@ proc g {x y z} { puts $x }",
     /// punctuation, not parameters. The grammar emits them as
     /// `positional_separator` / `keyword_separator` siblings of the real
     /// parameter nodes; both must be excluded from nargs (issue #414).
+    #[cfg(feature = "python")]
     #[test]
     fn python_both_parameter_separators() {
         // 1 function, 3 real parameters: pos_only, normal, kw_only.
@@ -3948,6 +4072,7 @@ proc g {x y z} { puts $x }",
     }
 
     /// Trailing positional-only `/` (no following parameter) is still excluded.
+    #[cfg(feature = "python")]
     #[test]
     fn python_positional_separator_only() {
         // 1 function, 2 real parameters: a, b (`/` excluded).
@@ -3959,6 +4084,7 @@ proc g {x y z} { puts $x }",
 
     /// Leading keyword-only `*` (forcing all following parameters to be
     /// keyword-only) is excluded.
+    #[cfg(feature = "python")]
     #[test]
     fn python_keyword_separator_only() {
         // 1 function, 2 real parameters: a, b (`*` excluded).
@@ -3970,6 +4096,7 @@ proc g {x y z} { puts $x }",
 
     /// Lambdas accept the same keyword-only `*` separator; it is excluded
     /// from the closure arg count.
+    #[cfg(feature = "python")]
     #[test]
     fn python_lambda_keyword_separator() {
         // 1 lambda, 2 real parameters: a, b (`*` excluded).
@@ -3982,6 +4109,7 @@ proc g {x y z} { puts $x }",
     /// Regression guard: `*args` / `**kwargs` are real parameter nodes
     /// (`list_splat_pattern` / `dictionary_splat_pattern`), not separators,
     /// and must keep contributing to the count after the #414 fix.
+    #[cfg(feature = "python")]
     #[test]
     fn python_args_kwargs_still_counted() {
         // 1 function, 3 parameters: a, *args, **kwargs.
@@ -3993,6 +4121,7 @@ proc g {x y z} { puts $x }",
 
     /// A file of bare top-level commands has no function spaces, so the
     /// argument count is zero.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_no_functions_and_closures() {
         check_metrics::<IrulesParser>("set x 1\nlog local0. $x\n", "foo.irule", |metric| {
@@ -4004,6 +4133,7 @@ proc g {x y z} { puts $x }",
     /// A `when` handler is a function space but has no formal parameters
     /// (the event context is implicit), so its argument count is zero —
     /// `when_event` carries no `arguments` field. Guards edge case #10.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_handler_zero_args() {
         check_metrics::<IrulesParser>(
@@ -4019,6 +4149,7 @@ proc g {x y z} { puts $x }",
     }
 
     /// A `proc` with two formal parameters contributes two arguments.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_single_proc() {
         check_metrics::<IrulesParser>("proc f { a b } { return $a }\n", "foo.irule", |metric| {
@@ -4028,6 +4159,7 @@ proc g {x y z} { puts $x }",
     }
 
     /// A `proc` with an empty argument list contributes zero arguments.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_proc_no_args() {
         check_metrics::<IrulesParser>("proc f { } { return 1 }\n", "foo.irule", |metric| {
@@ -4038,6 +4170,7 @@ proc g {x y z} { puts $x }",
     /// A default-valued parameter (`{b 5}`) is a single `argument`, so each
     /// formal parameter counts once regardless of its default: `{a {b 5} c}`
     /// is three arguments.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_proc_arg_defaults() {
         check_metrics::<IrulesParser>(
@@ -4051,6 +4184,7 @@ proc g {x y z} { puts $x }",
 
     /// A `proc` and a `when` handler in one file: only the proc's two
     /// parameters count; the handler contributes zero.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_multiple_functions() {
         check_metrics::<IrulesParser>(
@@ -4066,6 +4200,7 @@ when HTTP_REQUEST { log local0. \"hit\" }
     }
 
     /// Objective-C unary method `- (void)foo` declares zero arguments.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_no_args() {
         check_metrics::<ObjcParser>(
@@ -4099,6 +4234,7 @@ when HTTP_REQUEST { log local0. \"hit\" }
 
     /// Objective-C keyword method `- (void)foo:(int)a bar:(int)b` has two
     /// `method_parameter` children, so `function_args` is 2.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_method_two_args() {
         check_metrics::<ObjcParser>(
@@ -4132,6 +4268,7 @@ when HTTP_REQUEST { log local0. \"hit\" }
 
     /// Free C `function_definition` inside an ObjC translation unit counts
     /// its declarator parameters: `void f(int a, int b, int c)` has 3.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_function_args() {
         check_metrics::<ObjcParser>(
@@ -4164,6 +4301,7 @@ when HTTP_REQUEST { log local0. \"hit\" }
     /// Objective-C block literal `^(int x, int y){ … }` is a closure
     /// whose `parameter_list` holds two `parameter_declaration`s, so
     /// `closure_args` is 2.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_block_args() {
         check_metrics::<ObjcParser>(
@@ -4209,6 +4347,7 @@ when HTTP_REQUEST { log local0. \"hit\" }
     /// through `count_args`, while the function channel beside it was
     /// already correct: `host` below reports 0 either way, which is what
     /// makes this a test of the block channel specifically.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_block_void_marker_is_not_a_parameter() {
         check_metrics::<ObjcParser>(
@@ -4252,6 +4391,7 @@ when HTTP_REQUEST { log local0. \"hit\" }
     /// arm switched to `count_args`, whose *negative* filtering is what
     /// now makes `Checker::is_comment` live on this path. Perturb it by
     /// dropping `is_comment` from `count_args`, not by reverting the arm.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_block_comment_is_not_a_parameter() {
         check_metrics::<ObjcParser>(
@@ -4276,6 +4416,7 @@ when HTTP_REQUEST { log local0. \"hit\" }
     /// old match and in none of the new filters, so only a fixture says
     /// whether it survived. `ObjcCode::is_non_arg` covers the list's
     /// punctuation (`(`, `,`, `)`) and nothing else, so it does.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_block_variadic_parameter_still_counts() {
         check_metrics::<ObjcParser>(
@@ -4299,6 +4440,7 @@ when HTTP_REQUEST { log local0. \"hit\" }
     /// `count_args` is reached. Pinned beside the `^(void)` case because
     /// the two spellings mean the same thing and only one of them ever
     /// went through the counting path.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_block_without_a_parameter_list_is_zero() {
         check_metrics::<ObjcParser>(
@@ -4324,6 +4466,7 @@ when HTTP_REQUEST { log local0. \"hit\" }
     /// function `f` (2 args) and no merged closures (0), while the sum
     /// is 3 function args (f=2, foo=1) and 2 closure args. Before the
     /// fix Display printed `function_args: 2, closure_args: 0`.
+    #[cfg(feature = "python")]
     #[test]
     fn display_headline_matches_sum_for_nested_functions() {
         check_metrics::<PythonParser>(

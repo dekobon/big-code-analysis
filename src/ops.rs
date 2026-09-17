@@ -413,6 +413,16 @@ mod tests {
     use super::Ops;
     use crate::{Ast, LANG, Source};
 
+    #[cfg(any(
+        feature = "cpp",
+        feature = "java",
+        feature = "javascript",
+        feature = "mozjs",
+        feature = "perl",
+        feature = "python",
+        feature = "rust",
+        feature = "typescript",
+    ))]
     #[inline]
     fn check_ops(
         lang: LANG,
@@ -443,6 +453,7 @@ mod tests {
         assert_eq!(&operands_str[..], correct_operands);
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_ops() {
         check_ops(
@@ -455,6 +466,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_pattern_operations_render_as_source_spellings() {
         // #1314 classifies `s///` and `tr///` as Halstead operators.
@@ -483,6 +495,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_function_ops() {
         check_ops(
@@ -499,6 +512,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_ops() {
         check_ops(
@@ -512,6 +526,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_function_ops() {
         check_ops(
@@ -540,6 +555,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_ops() {
         check_ops(
@@ -551,6 +567,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_function_ops() {
         check_ops(
@@ -566,6 +583,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_ops() {
         check_ops(
@@ -583,6 +601,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_function_ops() {
         check_ops(
@@ -604,6 +623,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_ops() {
         check_ops(
@@ -621,6 +641,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_function_ops() {
         check_ops(
@@ -642,6 +663,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_ops() {
         // Issue #1261: the `: string` annotation counts exactly once,
@@ -682,6 +704,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_function_ops() {
         // Issue #1261: see `typescript_ops` — the `string` type keyword
@@ -723,6 +746,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_ops() {
         // Issue #1261: TSX exposes the `: string` type-keyword child as
@@ -761,6 +785,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_function_ops() {
         // Issue #1261: see `tsx_ops` — TSX::String3 (type-keyword
@@ -809,6 +834,7 @@ mod tests {
     // keyed `operators[Void]` — trips the assertion. This pins the lesson-4
     // `n1 == dedupe(ops.operators)` invariant for the two `void` forms in
     // one file.
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_void_return_and_expression_single_operator_453() {
         check_ops(
@@ -820,6 +846,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_void_return_and_expression_single_operator_453() {
         check_ops(
@@ -831,6 +858,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_ops() {
         check_ops(
@@ -864,6 +892,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_primitive_ops() {
         check_ops(
@@ -1235,6 +1264,9 @@ mod tests {
     /// hoisting it back out a failure. The node-count assertion is what
     /// makes the counts distinguishable — a fixture whose nodes and
     /// spaces were equal in number could not tell the two apart.
+    // test-lang-gates: hand-written(rust) — the one grammar that
+    //     makes the fixture list non-empty, so the non-vacuity
+    //     assertion cannot fire on a minimal build
     #[test]
     // Gated on the language that guarantees a non-empty case list, so
     // the emptiness assertion below cannot fire on a minimal build.

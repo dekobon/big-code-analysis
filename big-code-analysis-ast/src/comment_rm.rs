@@ -191,12 +191,20 @@ mod tests {
     /// Panics when nothing was removed, which every caller below relies
     /// on: each fixture carries at least one strippable comment, so a
     /// `None` means the walk stopped finding comments at all.
+    #[cfg(any(
+        feature = "c",
+        feature = "c-family-helpers",
+        feature = "cpp",
+        feature = "mozcpp",
+        feature = "objc",
+    ))]
     fn strip<T: ParserTrait>(src: &str, path: &str) -> String {
         let parser = T::new(src.as_bytes().to_vec(), &PathBuf::from(path), None);
         let stripped = rm_comments(&parser).expect("every fixture has a removable comment");
         String::from_utf8(stripped).expect("stripping preserves UTF-8")
     }
 
+    #[cfg(feature = "c-family-helpers")]
     const SOURCE_CODE: &str = "/* Remove this code block */\n\
                                int a = 42; // Remove this comment\n\
                                // Remove this comment\n\
@@ -206,6 +214,7 @@ mod tests {
                                 * comment\n\
                                 */";
 
+    #[cfg(feature = "c-family-helpers")]
     const SOURCE_CODE_NO_COMMENTS: &str = "\n\
                                            int a = 42; \n\
                                            \n\
@@ -215,6 +224,7 @@ mod tests {
                                            \n\
                                            \n";
 
+    #[cfg(feature = "c-family-helpers")]
     #[test]
     fn ccomment_remove_comments() {
         let path = PathBuf::from("foo.c");
@@ -237,6 +247,7 @@ mod tests {
     /// newline as `\r\n` — including the lines the removed comment spanned
     /// (issue #767). Before the fix, `remove_from_code` substituted bare `\n`
     /// for those lines, producing a mixed-ending buffer.
+    #[cfg(feature = "c-family-helpers")]
     #[test]
     fn ccomment_remove_comments_preserves_crlf() {
         let path = PathBuf::from("foo.c");
@@ -287,6 +298,7 @@ mod tests {
     /// than calling `Node::parent` (#1096), so this pins that the chain
     /// really reaches the comment: a chain that went stale would report
     /// the wrong parent and strip the token.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_keeps_a_macro_token_comment_and_strips_an_ordinary_one() {
         let path = PathBuf::from("foo.rs");
@@ -319,11 +331,25 @@ mod tests {
     /// Each case pairs the marker comment with an ordinary one so a
     /// `is_useful_comment` that answered `true` unconditionally — the
     /// other way to make the first assertion pass — fails the second.
+    #[cfg(all(
+        feature = "c",
+        feature = "c-family-helpers",
+        feature = "cpp",
+        feature = "mozcpp",
+        feature = "objc",
+    ))]
     #[test]
     fn the_c_family_keeps_a_rustbindgen_comment_and_strips_an_ordinary_one() {
         // `/** <div rustbindgen ... */` is the shape bindgen documents;
         // the needle is a plain substring match, so the surrounding
         // syntax only has to parse as a comment in each grammar.
+        #[cfg(any(
+            feature = "c",
+            feature = "c-family-helpers",
+            feature = "cpp",
+            feature = "mozcpp",
+            feature = "objc",
+        ))]
         const SRC: &str = "/** <div rustbindgen opaque></div> */\nint a = 1;\n/* drop me */\n";
 
         let cases = [

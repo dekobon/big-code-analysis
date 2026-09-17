@@ -194,6 +194,7 @@ fn dump_span_ansi_layout_error_branch() {
 /// trips its assertion here rather than only in the web crate's
 /// endpoint tests (fully under `make chain-audit`; in a plain debug
 /// build, for the slips the `O(1)` guard sees — see #1122).
+#[cfg(feature = "javascript")]
 #[test]
 fn js_function_spans_name_expressions_from_their_binding() {
     use crate::langs::JavascriptParser;

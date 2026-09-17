@@ -339,6 +339,7 @@ mod tests {
     // the per-language `compute` paths — which also pins behaviour the
     // whole-source integration tests reach only transitively.
 
+    #[cfg(feature = "cpp")]
     fn parse(src: &str) -> CppParser {
         CppParser::new(
             src.as_bytes().to_vec(),
@@ -352,12 +353,14 @@ mod tests {
     // on the metric walk (#1096). These tests reach their container by
     // search rather than by descent, so the authoritative lookup is what
     // supplies it here.
+    #[cfg(feature = "cpp")]
     fn parent_of<'a>(node: &Node<'a>) -> Node<'a> {
         node.parent()
             .expect("every fixture below places its container under a parent node")
     }
 
     // First node in pre-order (document order) whose kind name is `kind`.
+    #[cfg(feature = "cpp")]
     fn first_of_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
         let mut stack = vec![node];
         while let Some(n) = stack.pop() {
@@ -377,6 +380,7 @@ mod tests {
     // and counts each boolean-terminal operand once. `a` and `b` are both
     // `identifier`s (members of `cpp_bool_terminal_kinds!`) and the `&&`
     // token is anonymous, so the count is exactly 2.
+    #[cfg(feature = "cpp")]
     #[test]
     fn count_unary_conditions_counts_each_boolean_operand() {
         let p = parse("int f(int a, int b) { return a && b; }");
@@ -390,6 +394,7 @@ mod tests {
     // `if (a)`: the `condition_clause` wraps `( a )`. `cpp_inspect_container`
     // seeds boolean context from the `if_statement` parent, unwraps the
     // parens to the `a` identifier terminal, and counts it once.
+    #[cfg(feature = "cpp")]
     #[test]
     fn inspect_container_counts_parenthesized_condition() {
         let p = parse("void f(int a) { if (a) {} }");
@@ -402,6 +407,7 @@ mod tests {
 
     // `if (((a)))`: the unwrap loop strips every parenthesis layer and
     // counts the single terminal `a` exactly once — not once per paren.
+    #[cfg(feature = "cpp")]
     #[test]
     fn inspect_container_unwraps_nested_parens_once() {
         let p = parse("void f(int a) { if (((a))) {} }");
@@ -415,6 +421,7 @@ mod tests {
     // `if (!a)`: the leading `!` drives the `is_not` branch, which marks the
     // unwrap chain as boolean content before reaching the `a` terminal, so
     // the negated operand is counted once.
+    #[cfg(feature = "cpp")]
     #[test]
     fn inspect_container_counts_negated_condition() {
         let p = parse("void f(int a) { if (!a) {} }");
@@ -429,6 +436,7 @@ mod tests {
     // initializer, not a condition, so the `has_boolean_content` guard
     // stays false and the unwrapped `a` terminal is NOT counted. This
     // guard branch is awkward to reach through the full `compute` path.
+    #[cfg(feature = "cpp")]
     #[test]
     fn inspect_container_ignores_non_boolean_context() {
         let p = parse("int g(int a) { int x = (a); return x; }");

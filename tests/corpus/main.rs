@@ -7,6 +7,15 @@
 //! rationale. These six modules held one `#[test]` each and linked a
 //! ~280 MB binary apiece to run it.
 
+// Per-language test gating (#1472) makes "is this import live" a
+// function of the enabled feature set, which no `cfg` on the import
+// itself can express. Partial builds only — the build CI gates on and
+// the one a contributor runs still police every unused import. Dead
+// *items* are not relaxed: unlike the two library roots this test crate
+// carries no `allow(dead_code)`, so every helper, `const`, macro and
+// test here still needs its own gate. See `.claude/rules/testing.md`,
+// "Why the import lint is off on a partial build".
+#![cfg_attr(not(feature = "all-languages"), allow(unused_imports))]
 #[path = "../common/mod.rs"]
 mod common;
 

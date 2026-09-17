@@ -24,6 +24,7 @@ use big_code_analysis::{LANG, MetricsOptions, Source, SpaceKind, analyze};
 /// arm, an early `return`, and command substitutions (`[HTTP::uri]`). The
 /// grammar README documents these commands but ships no full sample, so the
 /// fixture is hand-written.
+#[cfg(feature = "irules")]
 const SOURCE: &str = r#"when CLIENT_ACCEPTED {
     set start [clock clicks]
 }
@@ -55,6 +56,7 @@ proc rewrite_path { prefix uri } {
 /// The analyzed tree must expose both `when` handlers and the `proc` as
 /// `Function` spaces under the file `Unit`, with per-space metrics matching
 /// the constructs each contains, and the file-level rollups summing them.
+#[cfg(feature = "irules")]
 #[test]
 fn irules_end_to_end_funcspace_tree() {
     let unit = analyze(

@@ -317,6 +317,12 @@ pub(crate) fn assert_fixture_spells<P: ParserTrait>(
 /// The C# binding of [`assert_fixture_spells`]. Every caller passes a
 /// `foo.cs` fixture, so the parser and path are fixed here rather than
 /// repeated at each one.
+// Gated to match the Perl binding below: every caller of this one is a
+// `#[cfg(feature = "csharp")]` test now too, so the definition says the
+// same thing they do. `lib.rs`'s `allow(dead_code)` would have kept a
+// partial build quiet either way — the gate is for the reader and for
+// the derivation, not for a lint (#1472).
+#[cfg(feature = "csharp")]
 #[track_caller]
 pub(crate) fn assert_csharp_fixture_spells(src: &str, kinds: &[(u16, usize, &str)]) {
     assert_fixture_spells::<crate::CsharpParser>(src, "foo.cs", kinds);
@@ -332,4 +338,12 @@ pub(crate) fn assert_perl_fixture_spells(src: &str, kinds: &[(u16, usize, &str)]
 
 // The parse-only helpers live beside the parse layer and are shared with
 // its own tests through the `test-support` feature.
+//
+// Left ungated on purpose: these are re-exported to call sites across
+// seven metric modules, so which build uses them depends on which
+// per-language tests it compiled, and enumerating that union here would
+// be a hand-maintained copy of seven files' gates. The crate-level
+// `cfg_attr` in `lib.rs` silences the partial builds; an item-level
+// `allow` on top of it would be live only in the *full* build, which is
+// the one that should still police this (#1472).
 pub(crate) use big_code_analysis_ast::test_support::{ast_has_kind_id, for_each_node_with_chain};

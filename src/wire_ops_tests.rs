@@ -63,6 +63,9 @@ fn parse_ops(lang: crate::LANG, source: &str) -> ops::Ops {
 /// This is what keeps them from drifting: a field renamed, reordered,
 /// retyped, or given a different `skip_serializing_if` on one side
 /// fails here.
+// test-lang-gates: hand-written(rust) — the one grammar that makes the
+//     fixture list non-empty, so the non-vacuity assertion cannot fire
+//     on a minimal build
 #[test]
 // Gated on the language that guarantees a non-empty fixture list, so
 // the emptiness assertion below cannot fire on a minimal build.

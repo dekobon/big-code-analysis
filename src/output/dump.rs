@@ -372,6 +372,7 @@ mod tests {
 
     use super::*;
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn dump_node_non_utf8_source_emits_the_raw_snippet() {
         // Regression: `stdout.write_all(code).unwrap()` panicked when the
@@ -423,6 +424,7 @@ mod tests {
         assert_eq!(Connector::Inner.glyphs(), ("│  ", "├─ "));
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn start_connector_distinguishes_parentless_from_parented() {
         // `start_connector` is the walk's only `Node::parent` call
@@ -442,6 +444,7 @@ mod tests {
         assert_eq!(start_connector(&child), Connector::Last);
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn dump_output_matches_expected_tree() {
         // Byte-exact guard that the split preserves the rendered tree.
@@ -467,6 +470,7 @@ mod tests {
     /// Render `node` to an in-memory sink under the given line filter and
     /// return the raw bytes. Not necessarily UTF-8: a non-UTF-8 source
     /// snippet is written through verbatim by `write_node_snippet`.
+    #[cfg(feature = "cpp")]
     fn render_raw(
         code: &[u8],
         node: &Node,
@@ -502,6 +506,7 @@ mod tests {
     /// a hoisted cursor records **zero** and a per-node one records once
     /// per interior node. The exact zero is the discriminator; a
     /// fraction-of-nodes bound would hold for either on a small fixture.
+    #[cfg(feature = "cpp")]
     #[test]
     fn dump_holds_one_cursor_for_the_whole_tree() {
         let parser = CppParser::new(
@@ -529,6 +534,7 @@ mod tests {
     }
 
     /// [`render_raw`] as text, for the (usual) UTF-8 case.
+    #[cfg(feature = "cpp")]
     fn render_range(
         code: &[u8],
         node: &Node,
@@ -541,10 +547,12 @@ mod tests {
     }
 
     /// [`render_range`] with the filter disabled — the `bca dump` default.
+    #[cfg(feature = "cpp")]
     fn render(code: &[u8], node: &Node, depth: i32) -> String {
         render_range(code, node, depth, None, None)
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn dump_output_restores_prefix_after_nested_subtree() {
         // The walk keeps one shared prefix buffer that is appended to on
@@ -582,6 +590,7 @@ mod tests {
         assert_eq!(rendered, expected);
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn dump_output_from_a_parented_start_node_indents_as_a_last_child() {
         // `bca find` dumps the matched node, not the file root, so the
@@ -614,6 +623,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn dump_output_line_range_filters_rows() {
         // A tight `[2, 2]` range hides every node whose start row is 1,
@@ -634,6 +644,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn deeply_nested_ast_dumps_without_stack_overflow() {
         // The dump walk is iterative (#700): a pathologically deep AST —
@@ -681,6 +692,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn dump_output_depth_limits_recursion() {
         // `bca find` dumps with depth=1
@@ -727,6 +739,7 @@ mod tests {
     /// The fixture is deliberately the smallest tree that still nests:
     /// the sweep re-runs the whole dump once per write position, so cost
     /// is quadratic in the node count.
+    #[cfg(feature = "cpp")]
     #[test]
     fn every_write_position_propagates_an_io_error() {
         let code = b"int a = 42;\n";

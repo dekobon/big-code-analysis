@@ -72,12 +72,21 @@
 // root `Cargo.toml` for why this is a per-root attribute and not a
 // Cargo lint (#1227).
 #![cfg_attr(not(test), warn(clippy::unwrap_used))]
-
 // The `pub(crate)` entries below are named by nothing outside this
 // crate, so they stay narrow per AGENTS.md ("widen visibility only when
 // an item is re-exported from `lib.rs`"). `comment_rm` and `find` look
 // like exceptions and are not: they are reached through `$crate::` in
 // `mk_action!`, which expands here.
+
+// The import half of the `allow(dead_code)` carve-out above, and for
+// the same reason: per-language test gating (#1472) makes "is this
+// import live" a function of the enabled feature set, which no `cfg` on
+// the import itself can express. Partial builds only — `all-languages`
+// is on by default and under `--all-features`, so the build CI gates on
+// and the one a contributor runs still police every unused import. See
+// `.claude/rules/testing.md`, "Why the import lint is off on a partial
+// build".
+#![cfg_attr(not(feature = "all-languages"), allow(unused_imports))]
 pub mod alterator;
 pub mod ast;
 pub mod c_declarator;

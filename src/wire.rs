@@ -664,6 +664,7 @@ mod tests {
 
     /// A branchy multi-function Rust fixture so several metrics are
     /// non-trivial (cyclomatic > 1, multiple spaces, real Halstead/MI).
+    #[cfg(feature = "rust")]
     const FIXTURE: &str = "\
 fn classify(x: i32) -> i32 {
     if x > 0 {
@@ -687,6 +688,7 @@ fn run() {
     /// so a swap corrupts them identically — so the round-trip tests anchor
     /// against these known values to break the closed loop. (Grammar bumps
     /// may shift them; update alongside the metric snapshot tests.)
+    #[cfg(feature = "rust")]
     fn assert_fixture_oracle(tree: &FuncSpace) {
         // Two top-level functions: `classify` and `run`.
         assert_eq!(tree.kind, SpaceKind::Unit);
@@ -745,6 +747,7 @@ fn run() {
     /// back into a `wire::FuncSpace` that re-serializes byte-for-byte, is
     /// structurally equal to the source projection, and carries the
     /// hand-verified metric values.
+    #[cfg(feature = "rust")]
     #[test]
     fn json_round_trips() {
         check_func_space::<RustParser, _>(FIXTURE, "fixture.rs", |fs| {
@@ -766,6 +769,7 @@ fn run() {
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn yaml_round_trips() {
         check_func_space::<RustParser, _>(FIXTURE, "fixture.rs", |fs| {
@@ -776,6 +780,7 @@ fn run() {
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn toml_round_trips() {
         check_func_space::<RustParser, _>(FIXTURE, "fixture.rs", |fs| {
@@ -786,6 +791,7 @@ fn run() {
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn cbor_round_trips() {
         check_func_space::<RustParser, _>(FIXTURE, "fixture.rs", |fs| {
@@ -927,6 +933,7 @@ fn run() {
     /// `selected()` reconstructs the `MetricSet` from the metric keys
     /// present on the wire: a full tree marks every metric, a pruned tree
     /// (here keeping only `loc`) marks exactly that one.
+    #[cfg(feature = "rust")]
     #[test]
     fn selected_is_inferred_from_present_keys() {
         check_func_space::<RustParser, _>(FIXTURE, "fixture.rs", |fs| {
@@ -962,6 +969,7 @@ fn run() {
 
     /// The size of a `bca` consumer thread and of a `tokio` blocking
     /// thread — the stack the guarded limits are dimensioned against.
+    #[cfg(feature = "rust")]
     const PRODUCTION_STACK: usize = 2 * 1024 * 1024;
 
     /// Deliberately far below `PRODUCTION_STACK`: a re-recursed `From` or
@@ -985,6 +993,7 @@ fn run() {
 
     /// Analyses [`nested_functions`], computing only `loc` so the cost of
     /// unrelated metrics does not dominate a deep fixture.
+    #[cfg(feature = "rust")]
     fn analyze_nested(depth: usize) -> crate::FuncSpace {
         crate::analyze(
             crate::Source::new(crate::LANG::Rust, nested_functions(depth).as_bytes())
@@ -1046,6 +1055,7 @@ fn run() {
         root
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn deeply_nested_spaces_convert_to_wire_without_stack_overflow() {
         // `From<&spaces::FuncSpace>` walks an explicit work stack: the
@@ -1076,6 +1086,7 @@ fn run() {
         assert_eq!(depth, DEPTH + 1, "the whole chain must survive conversion");
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn spaces_deeper_than_the_limit_fail_serialization_rather_than_abort() {
         // The reported symptom: `bca metrics -O json` on ~1 000 nested
@@ -1095,6 +1106,7 @@ fn run() {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn space_nesting_at_the_serialize_limit_is_accepted_and_one_deeper_is_not() {
         // `depth` counts non-empty child lists, so `n` nested functions
@@ -1134,6 +1146,7 @@ fn run() {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn deeply_nested_ops_convert_and_serialize_without_stack_overflow() {
         // `Ops` mirrors `FuncSpace`'s nesting and had the same recursive

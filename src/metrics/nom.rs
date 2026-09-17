@@ -310,6 +310,7 @@ mod tests {
         assert_eq!(stats.closures_min(), 0);
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_nom() {
         check_metrics::<PythonParser>(
@@ -349,6 +350,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_nom() {
         check_metrics::<RustParser>(
@@ -379,6 +381,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_nom() {
         check_metrics::<CParser>(
@@ -411,6 +414,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_nom() {
         check_metrics::<CppParser>(
@@ -447,6 +451,7 @@ mod tests {
     /// `Cpp::FunctionDefinition` and count toward `functions`.  Member
     /// functions are nested inside a struct/class space; the count is on
     /// the function-definition node itself, not on the enclosing scope.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_free_and_member_functions() {
         check_metrics::<CppParser>(
@@ -469,6 +474,7 @@ mod tests {
     /// `static` member functions still surface as `Cpp::FunctionDefinition`
     /// — the `static` keyword is a storage-class specifier, not a separate
     /// node kind — so they are counted just like non-static members.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_static_member_function() {
         check_metrics::<CppParser>(
@@ -490,6 +496,7 @@ mod tests {
     /// `Cpp::FunctionDefinition` nodes with a `function_declarator` whose
     /// identifier is the class name (ctor) or `~ClassName` (dtor).  Both
     /// count as functions.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_constructor_and_destructor() {
         check_metrics::<CppParser>(
@@ -512,6 +519,7 @@ mod tests {
     /// Operator overloads surface as `FunctionDefinition` whose declarator
     /// has an `OperatorName` identifier (`operator+`, `operator==`).  Both
     /// inline overloads count toward `functions`.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_operator_overloads() {
         check_metrics::<CppParser>(
@@ -533,6 +541,7 @@ mod tests {
     /// Function-template definition counts as a single function — the
     /// `template<>` prefix wraps a `FunctionDefinition` and does not
     /// produce additional function-definition nodes.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_function_template() {
         check_metrics::<CppParser>(
@@ -551,6 +560,7 @@ mod tests {
     /// Class-template member functions defined in-line each count as one
     /// function.  The `template<>` head wraps the class, and the methods
     /// inside it surface as ordinary `FunctionDefinition` nodes.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_class_template_members() {
         check_metrics::<CppParser>(
@@ -574,6 +584,7 @@ mod tests {
     /// `functions` — Cpp::LambdaExpression is the closure kind.  The
     /// enclosing function adds 1 to `functions`; each lambda adds 1 to
     /// `closures`.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_lambdas_inside_function() {
         check_metrics::<CppParser>(
@@ -594,6 +605,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_nom() {
         check_metrics::<JavascriptParser>(
@@ -655,6 +667,7 @@ mod tests {
     /// Uses `metrics_verbatim` rather than the `check_metrics` shim,
     /// whose bare-`fn` callback cannot capture the case's label or its
     /// expectation.
+    #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
     fn check_js_binding_site_parity(lang: crate::LANG) {
         let split = |source: &str| {
             let m = crate::test_support::metrics_verbatim(
@@ -785,26 +798,31 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_binding_site_parity() {
         check_js_binding_site_parity(crate::LANG::Javascript);
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_binding_site_parity() {
         check_js_binding_site_parity(crate::LANG::Mozjs);
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_binding_site_parity() {
         check_js_binding_site_parity(crate::LANG::Typescript);
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_binding_site_parity() {
         check_js_binding_site_parity(crate::LANG::Tsx);
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_call_nom() {
         check_metrics::<JavascriptParser>(
@@ -836,6 +854,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_assignment_nom() {
         check_metrics::<JavascriptParser>(
@@ -864,6 +883,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_labeled_nom() {
         check_metrics::<JavascriptParser>(
@@ -894,6 +914,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_labeled_arrow_nom() {
         check_metrics::<JavascriptParser>(
@@ -924,6 +945,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_pair_nom() {
         check_metrics::<JavascriptParser>(
@@ -956,6 +978,7 @@ mod tests {
         );
     }
 
+    #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
     fn check_returned_object_arrow_nom<T: MetricSuite>(file_name: &str) {
         check_metrics::<T>(
             "function f() { return { foo: x => x }; }",
@@ -984,26 +1007,31 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_returned_object_arrow_nom() {
         check_returned_object_arrow_nom::<JavascriptParser>("foo.js");
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_returned_object_arrow_nom() {
         check_returned_object_arrow_nom::<MozjsParser>("foo.js");
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_returned_object_arrow_nom() {
         check_returned_object_arrow_nom::<TypescriptParser>("foo.ts");
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_returned_object_arrow_nom() {
         check_returned_object_arrow_nom::<TsxParser>("foo.tsx");
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_unnamed_nom() {
         check_metrics::<JavascriptParser>(
@@ -1036,6 +1064,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_arrow_nom() {
         check_metrics::<JavascriptParser>(
@@ -1068,6 +1097,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_arrow_assignment_nom() {
         check_metrics::<JavascriptParser>("sink.onPull = () => { };", "foo.js", |metric| {
@@ -1092,6 +1122,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_arrow_new_nom() {
         check_metrics::<JavascriptParser>(
@@ -1120,6 +1151,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_arrow_call_nom() {
         check_metrics::<JavascriptParser>(
@@ -1150,6 +1182,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_nom() {
         check_metrics::<JavaParser>(
@@ -1185,6 +1218,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_nom() {
         check_metrics::<CsharpParser>(
@@ -1228,6 +1262,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_closure_nom() {
         check_metrics::<CsharpParser>(
@@ -1261,6 +1296,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_indexer_nom() {
         // A bodied indexer defines two callable accessors (`get`, `set`).
@@ -1300,6 +1336,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_expression_bodied_indexer_nom() {
         // An expression-bodied indexer (`this[int i] => _d[i];`) has NO
@@ -1339,6 +1376,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_property_nom() {
         // A bodied property (`int W { get => _w; set => _w = value; }`)
@@ -1361,6 +1399,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_auto_property_nom() {
         // An auto-property (`int Y { get; set; }`) still has two
@@ -1379,6 +1418,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_expression_bodied_property_nom() {
         // An expression-bodied property (`int W => _w;`) has NO
@@ -1402,6 +1442,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_top_level_funcs() {
         check_metrics::<GoParser>(
@@ -1433,6 +1474,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_method_declaration() {
         check_metrics::<GoParser>(
@@ -1463,6 +1505,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_func_literal_is_closure() {
         check_metrics::<GoParser>(
@@ -1492,6 +1535,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_nested_closures() {
         check_metrics::<GoParser>(
@@ -1535,6 +1579,7 @@ mod tests {
     /// `constructor_declaration` and was always counted, so a fixture with
     /// only the compact form could not distinguish "counted once" from
     /// "counted as the other constructor".
+    #[cfg(feature = "java")]
     #[test]
     fn java_record_compact_constructor_counts_as_a_function() {
         check_metrics::<JavaParser>(
@@ -1553,6 +1598,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_closure_nom() {
         check_metrics::<JavaParser>(
@@ -1598,6 +1644,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_nom() {
         check_metrics::<GroovyParser>(
@@ -1626,6 +1673,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_nom_function_definition() {
         // `def foo() {}` at top level uses `function_definition`, not
@@ -1642,6 +1690,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_nom() {
         check_metrics::<PerlParser>(
@@ -1675,6 +1724,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_named_and_arrow_functions() {
         check_metrics::<TsxParser>(
@@ -1706,6 +1756,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_named_arrow_and_class_methods() {
         check_metrics::<TypescriptParser>(
@@ -1741,6 +1792,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_nom() {
         check_metrics::<MozjsParser>(
@@ -1780,6 +1832,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_arrow_and_method() {
         check_metrics::<MozjsParser>(
@@ -1812,6 +1865,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_nom_class_with_methods() {
         check_metrics::<KotlinParser>(
@@ -1846,6 +1900,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_nom() {
         check_metrics::<LuaParser>(
@@ -1884,6 +1939,7 @@ end",
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_nom() {
         check_metrics::<BashParser>(
@@ -1919,6 +1975,7 @@ bar",
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_nom() {
         check_metrics::<TclParser>(
@@ -1935,6 +1992,7 @@ bar 2 3",
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_nested_nom() {
         check_metrics::<TclParser>(
@@ -1951,6 +2009,7 @@ bar 2 3",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_class_methods() {
         check_metrics::<TypescriptParser>(
@@ -1967,6 +2026,7 @@ bar 2 3",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_arrow_and_function() {
         check_metrics::<TypescriptParser>(
@@ -1982,6 +2042,7 @@ bar 2 3",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_class_methods() {
         check_metrics::<TsxParser>(
@@ -1998,6 +2059,7 @@ bar 2 3",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_arrow_and_function() {
         check_metrics::<TsxParser>(
@@ -2013,6 +2075,7 @@ bar 2 3",
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_multiple_functions_nom() {
         check_metrics::<BashParser>(
@@ -2032,6 +2095,7 @@ g() {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_nested_functions_nom() {
         check_metrics::<BashParser>(
@@ -2051,6 +2115,7 @@ outer() {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_nested_function_nom() {
         check_metrics::<MozjsParser>(
@@ -2069,6 +2134,7 @@ outer() {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_class_methods_nom() {
         check_metrics::<MozjsParser>(
@@ -2085,6 +2151,7 @@ outer() {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_iife_nom() {
         check_metrics::<MozjsParser>(
@@ -2101,6 +2168,7 @@ outer() {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_class_methods_nom() {
         check_metrics::<KotlinParser>(
@@ -2117,6 +2185,7 @@ outer() {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_lambda_nom() {
         check_metrics::<KotlinParser>(
@@ -2133,6 +2202,7 @@ outer() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_nom() {
         // Top-level function + 2 methods inside a class + 1 anonymous +
@@ -2171,6 +2241,7 @@ outer() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_nom_anonymous_class() {
         // Methods inside `new class { … }` count toward the closure-style
@@ -2214,6 +2285,7 @@ outer() {
     // the two `fn x -> … end` literals count as CLOSURES — the same split
     // every other language already produced. `functions_sum` was pinned at
     // 0 before the fix (the bug this test now guards against regressing).
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_nom_counts_def_as_functions_and_fn_as_closures() {
         check_metrics::<ElixirParser>(
@@ -2264,6 +2336,7 @@ outer() {
         }
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_nom() {
         // expected: total = 4 (2 methods `add`/`mul` + 1 singleton
@@ -2282,6 +2355,7 @@ outer() {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_stabby_lambda_single_closure() {
         // A stabby lambda `->(z) { … }` parses as a `Lambda` node that
@@ -2294,6 +2368,7 @@ outer() {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_stabby_lambda_multi_statement_single_closure() {
         // A multi-statement body does not change the structure: still one
@@ -2307,6 +2382,7 @@ outer() {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_stabby_lambda_do_block_single_closure() {
         // The `do … end` body form of a stabby lambda parses as a `Lambda`
@@ -2316,6 +2392,7 @@ outer() {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_keyword_lambda_single_closure() {
         // The keyword forms `lambda { }` / `proc { }` parse as a `Call`
@@ -2336,6 +2413,7 @@ outer() {
     /// and one proc reports three functions, zero closures. Confirms the
     /// handlers-as-functions decision end to end. (`try`'s `on` / `trap`
     /// handlers are branch points, not functions — issue #1266.)
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_nom_handlers_and_procs() {
         check_metrics::<IrulesParser>(
@@ -2363,6 +2441,7 @@ proc helper { x } {
     /// one function (issue #1266). Before the fix each handler's dedicated
     /// `on_handler` / `trap_handler` node was classified as a function
     /// space, so this fixture reported three.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_try_handlers_are_not_functions() {
         check_metrics::<IrulesParser>(
@@ -2389,6 +2468,7 @@ proc helper { x } {
     /// `block_literal`: the two methods are functions, the block is a
     /// closure (it does not open its own space), so functions = 2,
     /// closures = 1, total = 3.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_nom() {
         check_metrics::<ObjcParser>(

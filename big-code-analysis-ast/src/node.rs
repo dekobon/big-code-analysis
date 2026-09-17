@@ -1099,6 +1099,7 @@ mod tests {
     /// children was supposed to change, and this is what says so —
     /// node-by-node over a real tree, same order and same short-circuit,
     /// without hardcoding grammar `kind_id`s.
+    #[cfg(feature = "mozjs")]
     fn sibling_chain_has_sibling(node: OtherNode, id: u16) -> bool {
         node.parent().is_some_and(|parent| {
             let mut cur = parent.child(0);
@@ -1138,6 +1139,7 @@ mod tests {
         assert_eq!(root.utf8_text(&code[..4]), None);
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn has_sibling_matches_the_retired_sibling_chain() {
         // Arrow functions exercise the `check_if_arrow_func!` call site
@@ -1211,6 +1213,7 @@ mod tests {
     /// count). This pins the no-duplicate-padding property: a desync
     /// between `child_count` and the cursor walk would surface here as
     /// extra trailing duplicates or a length mismatch.
+    #[cfg(feature = "mozjs")]
     #[test]
     fn children_matches_tree_sitter_child_walk() {
         // Mix of leaf nodes (no children), single-child wrappers, and
@@ -1254,6 +1257,7 @@ mod tests {
     /// `parent`'s borrow and this would fail to compile. Binding the
     /// child to a variable that outlives the `&parent` reborrow inside
     /// the helper exercises the widened lifetime.
+    #[cfg(feature = "cpp")]
     #[test]
     fn child_by_field_name_outlives_self_borrow() {
         // `find_named_child` takes the parent by value, reborrows it
@@ -1298,6 +1302,7 @@ mod tests {
     /// the wrapper through the public `CppParser` + `ParserTrait::root`
     /// path (rather than the in-module `Tree::new`) proves the accessor
     /// is the public seam that replaced the former `pub` `.0` field.
+    #[cfg(feature = "cpp")]
     #[test]
     fn as_tree_sitter_round_trips_wrapper_kind() {
         use crate::{CppParser, ParserTrait};
@@ -1325,6 +1330,7 @@ mod tests {
     /// document order (`child(0..child_count)`). [`Node::preorder`] must
     /// emit exactly this sequence of node ids — node first, then each
     /// child subtree left to right.
+    #[cfg(feature = "cpp")]
     fn ground_truth_preorder(node: OtherNode) -> Vec<usize> {
         let mut out = vec![node.id()];
         for i in 0..node.child_count() as u32 {
@@ -1335,6 +1341,7 @@ mod tests {
         out
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn preorder_matches_recursive_document_order() {
         // A nested construct (function holding a declaration and a call)
@@ -1355,6 +1362,7 @@ mod tests {
         assert_eq!(actual[0], root.id(), "root must be yielded first");
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn descendants_by_kind_collects_matching_subtree_nodes() {
         // `x` is declared once and used twice, so three `identifier`
@@ -1400,6 +1408,7 @@ mod tests {
     /// child iterators are checked against it, so the contract is stated
     /// once — `children_with` exists to save an allocation, and a
     /// separate copy of this is how the two would come to disagree.
+    #[cfg(feature = "mozjs")]
     fn drain_checking_exact_size<'a>(
         mut iter: impl ExactSizeIterator<Item = Node<'a>>,
         child_count: usize,
@@ -1431,6 +1440,16 @@ mod tests {
     }
 
     /// Ancestor ids yielded by `ancestors`, nearest first.
+    #[cfg(any(
+        feature = "c",
+        feature = "elixir",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+    ))]
     fn ancestor_ids(ancestors: Ancestors<'_, '_>, node: &Node<'_>) -> Vec<usize> {
         ancestors.iter(node).map(|(a, _)| a.id()).collect()
     }
@@ -1445,6 +1464,16 @@ mod tests {
     /// parent clause, `loc`'s declaration gate), JVM-family
     /// (`is_else_if` via the preceding `else` token), Python (the
     /// grandparent shape), and Elixir (`quote` templates).
+    #[cfg(all(
+        feature = "c",
+        feature = "elixir",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+    ))]
     #[test]
     fn a_known_chain_answers_exactly_what_climbing_answers() {
         /// `must_nest` names kinds that have to appear *inside another
@@ -1453,6 +1482,16 @@ mod tests {
         /// the nesting a row was added for would leave a large,
         /// clean-parsing tree that no longer exercises the shape, and
         /// the parity assertions would keep passing over it.
+        #[cfg(any(
+            feature = "c",
+            feature = "elixir",
+            feature = "java",
+            feature = "javascript",
+            feature = "kotlin",
+            feature = "python",
+            feature = "ruby",
+            feature = "rust",
+        ))]
         fn assert_parity<L: LanguageInfo>(label: &str, code: &[u8], must_nest: &[&str]) {
             let mut nested_seen = vec![false; must_nest.len()];
             let visited = for_each_node_with_chain::<L>(code, |node, chain| {
@@ -1574,7 +1613,10 @@ mod tests {
     /// Seeding a real scan first is what makes it falsifiable: compared
     /// against zero these assertions would also pass with `record()`
     /// never wired up at all.
-    #[cfg(all(feature = "c", feature = "mozjs", feature = "python", feature = "rust"))]
+    // `python` and `rust` were stale: the body builds only `CCode` and
+    // `MozjsCode`, so naming them kept the test out of builds that could
+    // run it.
+    #[cfg(all(feature = "c", feature = "mozjs"))]
     #[test]
     fn the_converted_traversals_scan_a_tree_on_one_cursor() {
         let seed_tree = Tree::new::<crate::langs::CCode>(b"int main() { int a; }");
@@ -1639,6 +1681,7 @@ mod tests {
     /// Checked through both `Ancestors` constructors: the chain and the
     /// climb reach the end by different code paths (`split_last` on an
     /// empty slice, versus `Node::parent` returning `None`).
+    #[cfg(feature = "c")]
     #[test]
     fn parent_grandparent_match_is_false_when_either_link_is_absent() {
         let tree = Tree::new::<crate::langs::CCode>(b"int main() { int a; }");
@@ -1676,6 +1719,7 @@ mod tests {
     /// step were wrong. It also covers the reuse itself — one cursor
     /// drives every node's scan here, so a `reset` that failed to rewind
     /// would show as the second node inheriting the first's position.
+    #[cfg(feature = "mozjs")]
     #[test]
     fn children_with_yields_exactly_what_children_does() {
         let code = b"const o = { m: (a) => a + 1, n: function () {} }; foo(); ;";
@@ -1727,6 +1771,7 @@ mod tests {
     /// single-child wrapper (`expression_statement` over its expression,
     /// say) spans exactly what its child spans, so tightening either
     /// bound to `<` would reject a correct chain on most real input.
+    #[cfg(all(feature = "c", feature = "javascript", feature = "python"))]
     #[test]
     fn checked_accepts_the_chains_the_walkers_build() {
         let mut equal_span_pairs = 0;
@@ -1765,6 +1810,7 @@ mod tests {
     ///
     /// Debug-gated because `debug_assert!` compiles out under
     /// `--release`, where `checked` degrades to `known` by design.
+    #[cfg(feature = "c")]
     #[test]
     #[cfg(debug_assertions)]
     #[should_panic(expected = "ancestor chain desynchronised")]
@@ -1781,6 +1827,7 @@ mod tests {
     /// A dropped `truncate` leaves the previous subtree's path in place,
     /// so the next node up gets a `chain.last()` from a sibling subtree —
     /// disjoint from it in bytes. That is the containment half.
+    #[cfg(feature = "c")]
     #[test]
     #[cfg(debug_assertions)]
     #[should_panic(expected = "ancestor chain desynchronised")]
@@ -1809,6 +1856,7 @@ mod tests {
     /// reclassify an arrow function rather than fail. Checked for every
     /// node against every kind the fixture contains, plus one that never
     /// occurs so the absent-sibling answer is covered too.
+    #[cfg(feature = "javascript")]
     #[test]
     fn has_sibling_agrees_between_known_and_climbing() {
         // Object-literal methods and an arrow bound to a property are
@@ -1861,6 +1909,7 @@ mod tests {
     /// the fixture below is the guard, and it fails against an empty
     /// seed both here and through `Ancestors::checked`'s debug
     /// assertion.
+    #[cfg(feature = "mozjs")]
     #[test]
     fn act_on_node_hands_a_subtree_its_real_ancestry() {
         let code = b"var outer = function () { return 1; };\n";
@@ -1895,6 +1944,7 @@ mod tests {
     /// entry for `node`; a miss means the caller paired the two wrongly.
     /// Reporting `None` there would be a wrong answer dressed as a
     /// legitimate one, so the fallback re-asks the tree.
+    #[cfg(feature = "c")]
     #[test]
     fn previous_sibling_falls_back_on_a_chain_that_is_not_this_nodes() {
         let code = b"int main() { int a; int b; }";
@@ -1936,6 +1986,7 @@ mod tests {
     /// (`while`/`for`/`if` header, stopping at the enclosing block), so
     /// the fixture exercises both the counted case (the `for`-header
     /// declaration) and the stopped case (the block-scoped ones).
+    #[cfg(feature = "c")]
     #[test]
     fn count_specific_ancestors_agrees_between_known_and_climbing() {
         let code =

@@ -3,6 +3,18 @@ use crate::common;
 
 use common::compare_rca_output_with_files;
 
+// Hand-written, not derived: the corpus walk picks a language per
+// file at run time from its extension, so nothing in this body
+// names the grammar it needs. The glob list decides it, and all four
+// of `*.cc` / `*.cpp` / `*.h` / `*.hh` belong to `LANG::Cpp` —
+// `LANG::C` owns `.c` alone (`mk_langs!`), so naming it too would only
+// make the gate narrower than the corpus is. A build without the C++
+// grammar scores every file zero rather than matching the snapshot
+// (#1472).
+// test-lang-gates: hand-written(cpp) — the corpus walk picks a
+//     language per file from its extension, so the glob list decides
+//     it and nothing in the body names it
+#[cfg(feature = "cpp")]
 #[test]
 fn test_deepspeech() {
     // FIXME: Ignoring these files temporarily due to parsing errors (originally https://github.com/dekobon/big-code-analysis/issues/83,

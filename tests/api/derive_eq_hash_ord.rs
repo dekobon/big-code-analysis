@@ -14,6 +14,7 @@ use big_code_analysis::metric_catalog::Direction;
 use big_code_analysis::{FuncSpace, LANG, MetricsOptions, Severity, Source, SpaceKind, analyze};
 
 /// Analyze a Rust snippet via the public `analyze` entry point.
+#[cfg(feature = "rust")]
 fn analyze_rust(source: &str) -> FuncSpace {
     analyze(
         Source::new(LANG::Rust, source.as_bytes()).with_name(Some("eq.rs".to_string())),
@@ -22,6 +23,7 @@ fn analyze_rust(source: &str) -> FuncSpace {
     .expect("parser produced no FuncSpace for fixture")
 }
 
+#[cfg(feature = "rust")]
 const SRC_A: &str = r#"fn classify(x: u8) -> &'static str {
     if x > 10 && x < 100 {
         "mid"
@@ -33,9 +35,11 @@ const SRC_A: &str = r#"fn classify(x: u8) -> &'static str {
 }
 "#;
 
+#[cfg(feature = "rust")]
 const SRC_B: &str = r"fn noop() {}
 ";
 
+#[cfg(feature = "rust")]
 #[test]
 fn cognitive_stats_partial_eq_same_and_different_source() {
     let a1 = analyze_rust(SRC_A).metrics.cognitive.clone();
@@ -46,6 +50,7 @@ fn cognitive_stats_partial_eq_same_and_different_source() {
     assert_ne!(a1, b, "different source must yield unequal cognitive Stats");
 }
 
+#[cfg(feature = "rust")]
 #[test]
 fn halstead_stats_partial_eq_same_and_different_source() {
     let a1 = analyze_rust(SRC_A).metrics.halstead.clone();
@@ -56,6 +61,7 @@ fn halstead_stats_partial_eq_same_and_different_source() {
     assert_ne!(a1, b, "different source must yield unequal halstead Stats");
 }
 
+#[cfg(feature = "rust")]
 #[test]
 fn loc_stats_partial_eq_same_and_different_source() {
     let a1 = analyze_rust(SRC_A).metrics.loc.clone();
@@ -66,6 +72,7 @@ fn loc_stats_partial_eq_same_and_different_source() {
     assert_ne!(a1, b, "different source must yield unequal loc Stats");
 }
 
+#[cfg(feature = "rust")]
 #[test]
 fn code_metrics_and_func_space_partial_eq() {
     let a1 = analyze_rust(SRC_A);

@@ -224,6 +224,7 @@ fn metrics_can_be_recomputed_with_different_selections() {
 // `Rc<T>`, `RefCell<T>`, a raw `*mut`, or any non-`Sync` smart pointer
 // would silently strip the auto-trait — and this assertion would then
 // fail to compile, alerting the author before the docs go out of sync.
+#[cfg(feature = "rust")]
 const _: fn() = || {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<Ast>();
@@ -762,10 +763,14 @@ fn preprocess_harvest_feeds_the_macro_masking_pass() {
 /// failing (`.claude/rules/testing.md`, "Perturb the fixture as well as
 /// the production line"). Inside, the `proc` is load-bearing for the
 /// expected sequence.
+// test-lang-gates: hand-written(tcl) — a source fixture for this
+//     grammar, and its text is a string
 #[cfg(feature = "tcl")]
 const TCL_SCRIPT_AND_LITERALS: &str = "proc p {x} { puts \"q\" }\nlappend l {a b}\n";
 
 /// The iRules twin, which already had the quoted word inside the body.
+// test-lang-gates: hand-written(irules) — a source fixture for this
+//     grammar, and its text is a string
 #[cfg(feature = "irules")]
 const IRULES_SCRIPT_AND_LITERALS: &str =
     "when HTTP_REQUEST { log local0. \"hi\" }\nlappend l {x y}\n";

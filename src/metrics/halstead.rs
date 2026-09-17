@@ -505,6 +505,20 @@ mod tests {
     /// Runs the `--ops` walk over `source` and returns the root space's
     /// merged vocabulary, with every nested space still reachable
     /// through [`crate::ops::Ops::spaces`].
+    #[cfg(any(
+        feature = "c",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "groovy",
+        feature = "irules",
+        feature = "java",
+        feature = "kotlin",
+        feature = "mozcpp",
+        feature = "objc",
+        feature = "perl",
+        feature = "ruby",
+        feature = "tcl",
+    ))]
     fn ops_of<T: crate::MetricSuite>(source: &str, file: &str) -> crate::ops::Ops {
         let path = PathBuf::from(file);
         let parser = T::new(source.as_bytes().to_vec(), &path, None);
@@ -522,6 +536,18 @@ mod tests {
     // (`assert_char_literal_operands`, #1316) are tracked too, so the
     // reported location names the language row instead of a shared line
     // no assertion message distinguishes.
+    #[cfg(any(
+        feature = "c",
+        feature = "cpp",
+        feature = "groovy",
+        feature = "irules",
+        feature = "kotlin",
+        feature = "mozcpp",
+        feature = "objc",
+        feature = "perl",
+        feature = "ruby",
+        feature = "tcl",
+    ))]
     #[track_caller]
     fn assert_ops_operands<T: crate::MetricSuite>(
         source: &str,
@@ -553,6 +579,12 @@ mod tests {
     /// `n2`/`N2` — and an assertion that only looked for its arrival
     /// among the operands would pass on that. The operator side is what
     /// pins the removal.
+    #[cfg(any(
+        feature = "csharp",
+        feature = "groovy",
+        feature = "java",
+        feature = "kotlin"
+    ))]
     #[track_caller]
     fn assert_keywords_are_operands_only<T: crate::MetricSuite>(
         source: &str,
@@ -589,6 +621,7 @@ mod tests {
     /// no row, so the result is the set of places the keyword actually
     /// reaches — which is what distinguishes a parent gate from its own
     /// inverse, and what the merged root vocabulary cannot show.
+    #[cfg(feature = "csharp")]
     fn collect_keyword_roles(ops: &crate::ops::Ops, keyword: &str, out: &mut Vec<Role>) {
         let operator = ops.operators.iter().any(|o| o == keyword);
         let operand = ops.operands.iter().any(|o| o == keyword);
@@ -632,6 +665,7 @@ mod tests {
     /// The fixtures deliberately exclude the two gated positions (C#'s
     /// indexer declarator, Java's wildcard bound); those are operators,
     /// and their own tests pin them.
+    #[cfg(any(feature = "csharp", feature = "java", feature = "kotlin"))]
     #[track_caller]
     fn assert_self_reference_leaves<L: LanguageInfo + Getter>(
         source: &str,
@@ -703,6 +737,26 @@ mod tests {
     /// plain `fn` that cannot capture a loop variable, so they reach
     /// for the closure-taking helper it wraps. Three copies of that
     /// dance is two too many.
+    #[cfg(any(
+        feature = "bash",
+        feature = "c",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "elixir",
+        feature = "groovy",
+        feature = "irules",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "mozcpp",
+        feature = "mozjs",
+        feature = "objc",
+        feature = "perl",
+        feature = "php",
+        feature = "ruby",
+        feature = "tcl",
+        feature = "typescript",
+    ))]
     fn assert_halstead_counts<T: crate::MetricSuite>(
         source: &str,
         file: &str,
@@ -729,6 +783,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_operators_and_operands() {
         check_metrics::<PythonParser>(
@@ -774,6 +829,7 @@ mod tests {
     /// once in `n1`; multiple uses bump `N1`. The headline integer values
     /// (`u_operators`, `u_operands`) anchor the snapshot per the
     /// snapshot-anchor policy.
+    #[cfg(feature = "c")]
     #[test]
     fn c_pointer_arithmetic_operators() {
         check_metrics::<CParser>(
@@ -798,6 +854,7 @@ mod tests {
     /// `!`) operators are distinct kind_ids and count as separate unique
     /// operators in Halstead.  `&` (bitwise-and) and `&&` (logical-and)
     /// must NOT collapse, even though both render as ampersands.
+    #[cfg(feature = "c")]
     #[test]
     fn c_bitwise_and_logical_operators() {
         check_metrics::<CParser>(
@@ -830,6 +887,7 @@ mod tests {
     /// each contribute distinct unique operators.  C-style casts in the
     /// tree-sitter grammar surface as `cast_expression` with the type
     /// token classified as a primitive_type operator.
+    #[cfg(feature = "c")]
     #[test]
     fn c_increment_decrement_and_sizeof() {
         check_metrics::<CParser>(
@@ -855,6 +913,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_operators_and_operands() {
         // Define operators and operands for C/C++ grammar according to this specification:
@@ -908,6 +967,7 @@ mod tests {
     /// contributed nothing. They must each count as a distinct operator,
     /// while `long long`'s two `long` tokens fold to one `n1` entry but
     /// two `N1` hits. Regression test for issue #466.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_sized_type_specifier_operators() {
         let source = "unsigned int u = 3; signed long b = 4; long long c = 5;";
@@ -953,6 +1013,7 @@ mod tests {
     /// dropped from `n1` / `N1`, under-reporting volume / effort on any
     /// C++20+ codebase that defines `operator<=>`. Regression test for
     /// issue #197.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_spaceship_operator_is_halstead_operator() {
         check_metrics::<CppParser>(
@@ -1000,6 +1061,7 @@ mod tests {
     /// arm and was silently dropped from `n1` / `N1` — under-reporting
     /// volume / effort wherever C++ code subtracts in place. Regression
     /// test for issue #198.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_dash_eq_is_halstead_operator() {
         check_metrics::<CppParser>("void f(int a, int b) { a -= b; }", "foo.cpp", |metric| {
@@ -1023,6 +1085,7 @@ mod tests {
     /// `DOTSTAR` leaf; in expression position (`a.*b`) some grammar
     /// versions split the token into `DOT` + `STAR` and the regression
     /// would be masked.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_dot_star_is_halstead_operator() {
         check_metrics::<CppParser>("struct S { void operator.*(int); };", "foo.cpp", |metric| {
@@ -1046,6 +1109,7 @@ mod tests {
     /// `DASHGTSTAR` leaf; in expression position (`a->*b`) the grammar
     /// splits the token into `DASHGT` + `STAR` and the regression would
     /// be masked.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_dash_gt_star_is_halstead_operator() {
         check_metrics::<CppParser>(
@@ -1063,6 +1127,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_raw_string_delimiter_is_not_an_operator() {
         // Regression: issue #1314, the C++ sibling of Elixir #1256 and
@@ -1096,6 +1161,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_operators_and_operands() {
         check_metrics::<RustParser>(
@@ -1133,6 +1199,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_aliased_primitive_type_classification() {
         // Regression for issue #95 (lesson #2): the Rust grammar emits 17
@@ -1202,6 +1269,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_field_identifier_is_operand() {
         // Regression for issue #390: prior to the fix, `FieldIdentifier`
@@ -1251,6 +1319,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_type_identifier_is_operand() {
         // Regression for issue #390: `TypeIdentifier` (e.g. `Vec`,
@@ -1304,6 +1373,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_path_separator_is_operator() {
         // Regression for issue #394: `::` (`COLONCOLON`) was missing
@@ -1340,6 +1410,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_declaration_keywords_are_operators() {
         // Regression for issue #394: the Rust impl already accepted 17
@@ -1370,6 +1441,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_operators_and_operands() {
         check_metrics::<JavascriptParser>(
@@ -1412,6 +1484,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_operators_and_operands() {
         check_metrics::<MozjsParser>(
@@ -1454,6 +1527,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_operators_and_operands() {
         check_metrics::<TypescriptParser>(
@@ -1496,6 +1570,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_operators_and_operands() {
         check_metrics::<TsxParser>(
@@ -1538,6 +1613,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_template_string_plain_is_operand() {
         // Regression: issue #192. A backtick-delimited `` `hello` ``
@@ -1560,6 +1636,7 @@ mod tests {
     /// operands, so the same accessor keyword landed in opposite Halstead
     /// groups across languages. This pins them in the operator store and
     /// out of the operand store.
+    #[cfg(feature = "javascript")]
     #[test]
     fn js_get_set_accessors_are_operators() {
         let source = "class C { get x() { return 1; } set x(v) { this._x = v; } }";
@@ -1580,6 +1657,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_template_string_interpolation_no_double_count() {
         // Regression: issue #192. An interpolated template literal
@@ -1607,6 +1685,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_template_string_plain_is_operand() {
         // Regression: issue #192. Mirrors
@@ -1619,6 +1698,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_template_string_interpolation_no_double_count() {
         // Regression: issue #192. Mirrors
@@ -1634,6 +1714,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_template_string_plain_is_operand() {
         // Regression: issue #192. Mirrors
@@ -1656,6 +1737,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_template_string_interpolation_no_double_count() {
         // Regression: issue #192. Mirrors
@@ -1677,6 +1759,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_template_string_plain_is_operand() {
         // Regression: issue #192. Mirrors
@@ -1696,6 +1779,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_template_string_interpolation_no_double_count() {
         // Regression: issue #192. Mirrors
@@ -1722,6 +1806,7 @@ mod tests {
     /// 224/250/264/225), so each expansion is a separate compiled arm
     /// and a drift in one grammar is invisible if only one is checked
     /// (grammar-dispatch section 11).
+    #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
     fn assert_js_family_counts(source: &str, expected: [u64; 4]) {
         assert_halstead_counts::<JavascriptParser>(source, "foo.js", expected, "javascript");
         assert_halstead_counts::<MozjsParser>(source, "foo.jsm", expected, "mozjs");
@@ -1729,6 +1814,7 @@ mod tests {
         assert_halstead_counts::<TsxParser>(source, "foo.tsx", expected, "tsx");
     }
 
+    #[cfg(all(feature = "javascript", feature = "mozjs", feature = "typescript"))]
     #[test]
     fn js_family_regex_delimiters_are_not_operators() {
         // Regression: issue #1314, the JS-family sibling of Elixir
@@ -1756,6 +1842,7 @@ mod tests {
         assert_js_family_counts("const a = /abc/g;\nlet b = a;\nb = a;\n", [4, 8, 3, 6]);
     }
 
+    #[cfg(all(feature = "javascript", feature = "mozjs", feature = "typescript"))]
     #[test]
     fn js_family_division_survives_the_regex_guard() {
         // Control for #1314: the guard is scoped to a `Regex` parent,
@@ -1770,6 +1857,7 @@ mod tests {
         assert_js_family_counts("const q = a / b / c;\nconst r = /x/;\n", [4, 8, 6, 6]);
     }
 
+    #[cfg(all(feature = "javascript", feature = "mozjs", feature = "typescript"))]
     #[test]
     fn js_regex_delimiter_guard_is_parent_scoped_is_unobservable() {
         // Companion to the two above, and a statement of what they do
@@ -1828,6 +1916,7 @@ mod tests {
     ///
     /// Backs `js_regex_delimiter_guard_is_parent_scoped_is_unobservable`
     /// — see there for why the property is worth pinning.
+    #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
     fn assert_regex_slashes_are_immediate_children<L: crate::traits::LanguageInfo>(
         source: &[u8],
         slash: u16,
@@ -1877,6 +1966,7 @@ mod tests {
     // unique — `LPAREN`/`LBRACE` count once, closing tokens are not
     // in the operator set). Before the fix, TS/TSX reported 9/7
     // instead of 7/6.
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_optional_chain_not_double_counted_in_halstead_281() {
         check_metrics::<JavascriptParser>("function f(a) { return a?.b?.c; }", "foo.js", |m| {
@@ -1885,6 +1975,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_optional_chain_not_double_counted_in_halstead_281() {
         check_metrics::<MozjsParser>("function f(a) { return a?.b?.c; }", "foo.js", |m| {
@@ -1893,6 +1984,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_optional_chain_not_double_counted_in_halstead_281() {
         // The TS grammar wraps member-expression `?.` in an
@@ -1905,6 +1997,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_optional_chain_not_double_counted_in_halstead_281() {
         check_metrics::<TsxParser>("function f(a) { return a?.b?.c; }", "foo.tsx", |m| {
@@ -1937,12 +2030,14 @@ mod tests {
     // separate fixture. The `PredefinedType` operator path (`: void`
     // double-count) is now covered by `ts_void_return_type_single_operator_453`
     // below.
+    #[cfg(all(feature = "javascript", feature = "mozjs", feature = "typescript"))]
     #[test]
     fn js_family_get_op_type_parity_optional_chain_member_299() {
         // Non-capturing closure (coerced to the `fn` pointer that
         // `check_metrics` accepts) avoids the
         // `clippy::needless_pass_by_value` warning that a free `fn`
         // taking `CodeMetrics` by value would trigger.
+        #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
         const SRC: &str = "function f(a) { return a?.b?.c; }";
         let check = |m: crate::CodeMetrics| {
             assert_eq!(m.halstead.unique_operators(), 6);
@@ -1973,8 +2068,10 @@ mod tests {
     // `impl_js_family_get_op_type!` emits one shared operand arm: the
     // lockstep is the point of the macro, and a per-language extras
     // list is exactly where a future edit could break it.
+    #[cfg(all(feature = "javascript", feature = "mozjs", feature = "typescript"))]
     #[test]
     fn js_family_member_access_counts_leaves_not_the_composite_1263() {
+        #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
         const SRC: &str = "var r = a.b;";
         let check = |m: crate::CodeMetrics| {
             assert_eq!(m.halstead.unique_operators(), 4);
@@ -2008,8 +2105,10 @@ mod tests {
     //   parses as `type_identifier`, which those getters do not
     //   classify, so both counts drop by one to 5/4 — a pre-existing
     //   divergence this fixture records rather than fixes.
+    #[cfg(all(feature = "javascript", feature = "mozjs", feature = "typescript"))]
     #[test]
     fn js_family_private_field_leaf_is_the_operand_1263() {
+        #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
         const SRC: &str = "class C { #x = 1; m() { return this.#x; } }";
         let check_js = |m: crate::CodeMetrics| {
             assert_eq!(m.halstead.unique_operators(), 6);
@@ -2043,8 +2142,10 @@ mod tests {
     // asserted: the `import` / `new` keyword tokens inside the
     // meta-property keep their pre-existing operator classification,
     // which this fixture neither pins nor contests.
+    #[cfg(all(feature = "javascript", feature = "mozjs", feature = "typescript"))]
     #[test]
     fn js_family_meta_property_is_one_operand_1263() {
+        #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
         const SRC: &str = "var t = import.meta.url; function f() { return new.target; }";
         let check = |m: crate::CodeMetrics| {
             assert_eq!(m.halstead.unique_operands(), 5);
@@ -2066,6 +2167,7 @@ mod tests {
     //   the JS-family operator arm.)
     // * Operands: `N`, `M` — 2 total, 2 unique. Before the fix the
     //   `nested_identifier` added `N.M`, making both 3.
+    #[cfg(feature = "typescript")]
     #[test]
     fn ts_nested_identifier_counts_leaves_not_the_composite_1263() {
         const SRC: &str = "namespace N.M { }";
@@ -2098,6 +2200,7 @@ mod tests {
     // Verified by test-via-revert: restoring `String2` to TS's
     // `operand_extras` (or `String3` to TSX's) trips this test on
     // `u_operands` / `operands` for the affected language.
+    #[cfg(feature = "typescript")]
     #[test]
     fn ts_family_type_keyword_counts_once_1261() {
         const SRC: &str = "let x: string = \"y\";";
@@ -2126,6 +2229,7 @@ mod tests {
     // operands — while a string *literal* `"string"` stays an operand
     // (distinct from the keyword: TS kind `String`, TSX kind `String2`,
     // both quoted in the operand key).
+    #[cfg(feature = "typescript")]
     #[test]
     fn ts_family_string_annotation_symmetric_with_number_1261() {
         const SRC: &str = "let x: string = \"a\";\nlet y: number = 1;\nlet s = \"string\";";
@@ -2162,6 +2266,7 @@ mod tests {
     /// generic argument, and template-literal type. A string *literal*
     /// spelling `"string"` is a different kind and must not be confused
     /// for the keyword, so one is in the fixture too.
+    #[cfg(feature = "typescript")]
     #[test]
     fn ts_family_type_keyword_only_appears_under_predefined_type_1261() {
         // Exercises each position the keyword can take. Valid in both
@@ -2251,6 +2356,7 @@ mod tests {
     // (one kind_id-keyed, one in `primitive_operators`). Both `metrics()`
     // and the `ops`-list dedup invariant (`ts_void_return_and_expression_*`
     // in `ops.rs`) are pinned per lesson 4.
+    #[cfg(feature = "typescript")]
     #[test]
     fn ts_void_return_type_single_operator_453() {
         const SRC: &str = "function f(): void { return; }";
@@ -2273,6 +2379,7 @@ mod tests {
     //
     // * Operators (n1 = 4, N1 = 4): `const`, `=`, `void`, `;`.
     // * Operands (n2 = 2, N2 = 2): `x`, `0`.
+    #[cfg(feature = "typescript")]
     #[test]
     fn ts_void_expression_still_single_operator_453() {
         const SRC: &str = "const x = void 0;";
@@ -2287,6 +2394,7 @@ mod tests {
         check_metrics::<TsxParser>(SRC, "foo.tsx", check);
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_wrong_operators() {
         check_metrics::<PythonParser>("()[]{}", "foo.py", |metric| {
@@ -2314,6 +2422,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_check_metrics() {
         check_metrics::<PythonParser>(
@@ -2346,6 +2455,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_operators_and_operands() {
         check_metrics::<JavaParser>(
@@ -2386,6 +2496,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_primitive_types_and_booleans() {
         check_metrics::<JavaParser>(
@@ -2437,6 +2548,7 @@ mod tests {
     // scored `this.x` as a binary operator with one operand while `p.x`
     // is one operator and two operands. Both are operands now, matching
     // the eleven other languages that classify a self-reference.
+    #[cfg(feature = "java")]
     #[test]
     fn java_self_and_super_references_are_operands() {
         let source = "class T {\n    int f() { return this.x + super.y; }\n}";
@@ -2461,6 +2573,7 @@ mod tests {
     // the independent path through the operand arm (grammar-dispatch
     // section 11): only it can put `this` in the operand vocabulary
     // here, and only the wildcard can put `super` in the operator one.
+    #[cfg(feature = "java")]
     #[test]
     fn java_wildcard_super_bound_stays_an_operator() {
         let source = "import java.util.List;\n\
@@ -2493,6 +2606,7 @@ mod tests {
     /// call, an explicit superclass constructor call, a field access, a
     /// method-invocation receiver, a method reference, a call argument,
     /// and the two qualified forms an inner class allows.
+    #[cfg(feature = "java")]
     const JAVA_SELF_POSITIONS: &str = "class Pos extends P {
         int x;
         Pos() { this(1); }
@@ -2508,6 +2622,7 @@ mod tests {
         }
     }";
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_self_and_super_leaves_are_unaliased_and_unconditional() {
         assert_self_reference_leaves::<JavaCode>(
@@ -2533,6 +2648,7 @@ mod tests {
     // deliberately untested rather than pinned against an invalid
     // fixture. The node census is the drift marker for it: a grammar bump
     // that routes a reference to `Groovy::Super` fails here by name.
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_wildcard_super_bound_stays_an_operator() {
         let bounds =
@@ -2589,6 +2705,7 @@ mod tests {
         assert_keywords_are_operands_only::<GroovyParser>(refs, "foo.groovy", &["super", "this"]);
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_operators_and_operands() {
         check_metrics::<GroovyParser>(
@@ -2644,6 +2761,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_primitive_types_and_booleans() {
         check_metrics::<GroovyParser>(
@@ -2714,6 +2832,7 @@ mod tests {
     // expected, for `package com.example`: operators `.` (1/1);
     // operands `com`, `example` (2/2). Pre-fix the `qualified_name`
     // added `com.example`, making the operand counts 3/3.
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_qualified_name_counts_leaves_not_the_composite_1263() {
         check_metrics::<GroovyParser>("package com.example", "foo.groovy", |metric| {
@@ -2742,6 +2861,7 @@ mod tests {
     // `=` → n1 = 2, N1 = 3; operands `java`, `util`, `List`, `x`,
     // `null` → n2 = 5, N2 = 5. Listing the wrapper would add the whole
     // span `java.util.List`, making the operand counts 6/6.
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_qualified_type_counts_leaves_not_the_composite_1352() {
         const SOURCE: &str = "java.util.List x = null";
@@ -2771,6 +2891,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_closure_operators_and_operands() {
         check_metrics::<GroovyParser>("def double = { x -> x * 2 }", "foo.groovy", |metric| {
@@ -2793,6 +2914,7 @@ mod tests {
     /// `?[` safe index — every distinct operator kind must appear in
     /// `u_operators` (the count grows by exactly the number of new
     /// distinct operator tokens introduced).
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_dekobon_operator_coverage_247() {
         check_metrics::<GroovyParser>(
@@ -2850,6 +2972,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_gstring_no_double_count() {
         // Issue #454: before the fix Groovy had no interpolation guard
@@ -2876,6 +2999,7 @@ mod tests {
         assert_ops_operands::<GroovyParser>(src, "foo.groovy", 2, vec!["greet", "name"]);
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_gstring_dollar_form_no_double_count() {
         // Issue #454: the short `$name` GString form emits a distinct
@@ -2896,6 +3020,7 @@ mod tests {
         assert_ops_operands::<GroovyParser>(src, "foo.groovy", 3, vec!["greet", "name", "$name"]);
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_plain_string_still_operand() {
         // Counterpart to `groovy_gstring_no_double_count`: a plain
@@ -2912,6 +3037,7 @@ mod tests {
         assert_ops_operands::<GroovyParser>(src, "foo.groovy", 2, vec!["f", "\"plain\""]);
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_slashy_string_delimiter_is_not_an_operator() {
         // Regression: issue #1314, the Groovy sibling of Elixir #1256
@@ -2937,6 +3063,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_division_survives_the_slashy_guard() {
         // Control for #1314: the guard is scoped to a `StringLiteral`
@@ -2955,6 +3082,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_slashy_guard_is_parent_scoped_not_ancestor_scoped() {
         // The input that separates the parent-scoped guard from the
@@ -2988,6 +3116,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_every_string_spelling_scores_alike() {
         // Companion to the three above (#1314). Groovy has five ways to
@@ -3017,6 +3146,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_operators_and_operands() {
         // After issue #286, `void`, `string`, and `int` count as three
@@ -3058,6 +3188,7 @@ mod tests {
     // Three fixtures rather than one, so a regression names which
     // container came back. Each is hand-tallied; the removed composite
     // is called out per case.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_name_containers_count_leaves_not_the_composite_1263() {
         // expected: operators `using`, `.`, `;` (3/3); operands
@@ -3105,6 +3236,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_primitive_types_and_booleans() {
         // After issue #286: each of `byte`, `short`, `int`, `long`,
@@ -3147,6 +3279,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_boolean_literal_counts_once() {
         // Regression: issue #1253. `boolean_literal: choice('true',
@@ -3173,6 +3306,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_boolean_keyword_outside_a_literal_still_counts() {
         // Companion to the test above (#1253): the suppression fires on
@@ -3203,6 +3337,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_predefined_types_keyed_by_lexeme() {
         // Regression: issue #286. The C# grammar emits one `PredefinedType`
@@ -3229,6 +3364,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_interpolated_string_no_double_count() {
         // Regression: issue #183. A C# `$"Hi {name}!"` used to be
@@ -3258,6 +3394,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_static_interpolated_string_is_operand() {
         // Regression: issue #183. A `$"..."` with no `{...}` is
@@ -3277,6 +3414,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_plain_string_still_operand() {
         // The fix for #183 only changes how `InterpolatedStringExpression`
@@ -3297,6 +3435,7 @@ mod tests {
     // C# half of #1380 — see `java_self_and_super_references_are_operands`
     // for the structural argument. `base` moves with `this`: both are
     // receivers of a member access.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_self_and_base_references_are_operands() {
         let source = "class T {\n    int F() { return this.x + base.y; }\n}";
@@ -3323,6 +3462,7 @@ mod tests {
     // Asserting only the operand side would pass with the gate deleted,
     // and only the operator side would pass with the whole #1380 change
     // reverted (grammar-dispatch section 11).
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_indexer_declaration_keyword_is_not_a_self_reference() {
         let source = "class C {\n    int[] _a;\n    \
@@ -3370,6 +3510,7 @@ mod tests {
     /// initializer, a base-constructor initializer, a member access, an
     /// element access, and a call argument. No `indexer_declaration` —
     /// that position is the gated one and is an operator.
+    #[cfg(feature = "csharp")]
     const CSHARP_SELF_POSITIONS: &str = "class Pos : B {
         int[] _a;
         public Pos() : this(1) { }
@@ -3382,6 +3523,7 @@ mod tests {
         void M(object o) { }
     }";
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_self_and_base_leaves_are_unaliased_and_unconditional() {
         assert_self_reference_leaves::<CsharpCode>(
@@ -3394,6 +3536,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_operators_and_operands() {
         check_metrics::<GoParser>(
@@ -3428,6 +3571,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_operators_and_operands() {
         check_metrics::<PerlParser>(
@@ -3462,6 +3606,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_interpolated_string_no_double_count() {
         // Regression: issue #199. A `string_double_quoted` (and
@@ -3492,6 +3637,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_plain_string_still_operand() {
         // The fix for #199 only skips wrapping literals that carry an
@@ -3509,6 +3655,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_single_quoted_string_never_interpolates() {
         // Single-quoted (`'…'`) and `q{…}` literals are not subject to
@@ -3527,6 +3674,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_plain_heredoc_counts_as_one_operand() {
         // Regression: issue #287. A plain (non-interpolating) Perl
@@ -3552,6 +3700,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_interpolated_heredoc_no_double_count() {
         // Regression: issue #287. An interpolating Perl heredoc
@@ -3585,6 +3734,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_bare_pattern_delimiters_are_not_operators() {
         // Regression: issue #1312, the Perl sibling of Elixir #1256.
@@ -3608,6 +3758,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_every_pattern_value_spelling_scores_alike() {
         // Companion to the test above (#1312, extended by #1314).
@@ -3654,6 +3805,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_every_pattern_operation_spelling_scores_alike() {
         // The other half of the split (#1314). Substitution and
@@ -3679,6 +3831,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_interpolated_pattern_operands_agree_but_operators_do_not() {
         // Two things at once (#1314), because they are the same
@@ -3730,6 +3883,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_division_emits_no_slash_token() {
         // Drift marker, not an endorsement. Ruby's counterpart
@@ -3793,6 +3947,7 @@ mod tests {
     /// components, the kinds it subsumes the distinct second ones.
     /// `perl_name_wrappers_bill_the_name_once_1355` witnesses every row
     /// and fails on an eleventh pairing.
+    #[cfg(feature = "perl")]
     const PERL_NAME_WRAPPER_PAIRINGS: [(Perl, Perl); 10] = [
         (Perl::PackageName, Perl::Identifier),
         (Perl::PackageName, Perl::ScalarVariable),
@@ -3815,6 +3970,7 @@ mod tests {
     /// token-shaped kinds too (`True`, `FILE`, `SUB`, …), and a bump
     /// that let one of those inside a wrapper would otherwise be
     /// silenced with nothing failing.
+    #[cfg(feature = "perl")]
     const PERL_NAME_WRAPPER_TOKENS: [Perl; 4] =
         [Perl::COLONCOLON, Perl::STAR, Perl::LBRACE, Perl::RBRACE];
 
@@ -3825,6 +3981,7 @@ mod tests {
     /// ancestor chain exactly as `spaces::compute` does, so "parent"
     /// here means what `Ancestors::parent` means inside the guard
     /// rather than what a differently-built chain would say.
+    #[cfg(feature = "perl")]
     fn perl_subsumed_operands(source: &str) -> (Vec<String>, HashSet<(u16, u16)>) {
         let wrappers: HashSet<u16> = PERL_NAME_WRAPPER_PAIRINGS
             .map(|(wrapper, _)| wrapper as u16)
@@ -3913,6 +4070,7 @@ mod tests {
     /// test. What *is* pinned is the arm's position: moving it above the
     /// operator arm swallows `::`, `*` and the typeglob's opening brace,
     /// and the operator columns below fail.
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_name_wrappers_bill_the_name_once_1355() {
         let cases: [PerlNameWrapperCase; 12] = [
@@ -4068,6 +4226,7 @@ mod tests {
     /// the `identifier` leaf and would be collateral damage. It does
     /// not: `use 'Foo.pm'` parses to a leaf holding only its two quote
     /// tokens, so it wraps nothing and is untouched either way.
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_qw_list_bills_one_operand_per_element() {
         // `qw(a b c)` was invisible to Halstead — neither the elements,
@@ -4118,6 +4277,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_qualified_name_leaves_still_count_elsewhere_1355() {
         // expected: operators `my` × 4, `$` × 3 (one per `$`-sigilled
@@ -4157,6 +4317,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_operators_and_operands() {
         check_metrics::<LuaParser>(
@@ -4203,6 +4364,7 @@ end",
     /// inflating n1 and N1. With the fix only the folded `(` opener counts:
     /// `local x = (1)` yields operators `local`, `=`, `()` — n1 = N1 = 3,
     /// with no standalone `)`.
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_balanced_paren_counts_opener_only() {
         let source = "local x = (1)\n";
@@ -4243,8 +4405,10 @@ end",
     /// the pair glyph. If a grammar bump makes an alias id observable, this
     /// goes red and signals that the alias arms must additionally fold to
     /// the base in `get_operator_id_as_str` (the fix #768 proposed).
+    #[cfg(all(feature = "c", feature = "cpp", feature = "elixir", feature = "ruby"))]
     #[test]
     fn second_alias_opener_collapses_to_base_kind_id() {
+        #[cfg(any(feature = "c", feature = "cpp", feature = "elixir", feature = "ruby"))]
         fn assert_no_alias<T: crate::ParserTrait>(
             source: &str,
             file: &str,
@@ -4272,6 +4436,7 @@ end",
 
         // Balanced openers must count once and render folded (no bare
         // `(`/`[`, no n1 inflation) — the property #768 feared was broken.
+        #[cfg(any(feature = "c", feature = "cpp", feature = "elixir", feature = "ruby"))]
         fn assert_folded_openers<T: crate::MetricSuite>(source: &str, file: &str) {
             let path = PathBuf::from(file);
             let parser = T::new(source.as_bytes().to_vec(), &path, None);
@@ -4330,6 +4495,7 @@ end",
         assert_folded_openers::<crate::RubyParser>("f(1)\nb = [1]\nb[0]\n", "b.rb");
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_halstead_basic() {
         check_metrics::<KotlinParser>(
@@ -4364,6 +4530,7 @@ end",
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_string_template_no_double_count() {
         // Re-anchored for issue #454. The pre-#454 comment claimed
@@ -4406,6 +4573,7 @@ end",
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_short_interpolation_counts_inner_not_wrapper() {
         // Issue #454: the short `$name` template — distinct from the
@@ -4434,6 +4602,7 @@ end",
         assert_ops_operands::<KotlinParser>(src, "foo.kt", 4, vec!["f", "x", "println", "1"]);
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_short_interpolation_space_separated() {
         // Issue #454 follow-up: tree-sitter-kotlin-ng splits the literal
@@ -4482,6 +4651,7 @@ end",
         assert_ops_operands::<KotlinParser>(prose_long, "foo.kt", 3, vec!["f", "s", "x"]);
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_dollar_non_identifier_stays_literal() {
         // Issue #454 boundary: a `$` not followed by a clean identifier
@@ -4499,6 +4669,7 @@ end",
         assert_ops_operands::<KotlinParser>(src, "foo.kt", 3, vec!["f", "a", "\"price: $5\""]);
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_string_template_long_form_no_double_count() {
         // The `${expr}` long form of a Kotlin string template also
@@ -4522,6 +4693,7 @@ end",
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_plain_string_still_operand() {
         // The fix for #191 only skips wrapping templates that contain
@@ -4544,6 +4716,7 @@ end",
     // Kotlin half of #1380 — see
     // `java_self_and_super_references_are_operands` for the structural
     // argument.
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_self_and_super_references_are_operands() {
         let source = "class T {\n    fun f() = this.x + super.y\n}";
@@ -4566,6 +4739,7 @@ end",
     // and `Inner` stay separate operands: the `this_expression` wrapper
     // whose span would have swallowed them is deliberately unclassified
     // (section 5).
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_labelled_self_and_super_references_are_operands() {
         let source = "class Outer {\n    inner class Inner : A() {\n        \
@@ -4599,6 +4773,7 @@ end",
     // delegation zero. This is the only spelling that can tell the two
     // choices apart — every other `this` carries both nodes — so it is
     // the independent path grammar-dispatch section 11 asks for.
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_constructor_delegation_self_reference_is_an_operand() {
         let source = "class C(val n: Int) {\n    constructor() : this(0)\n}";
@@ -4620,6 +4795,7 @@ end",
     /// call argument, a navigation receiver, a type-argument-qualified
     /// `super<P>`, both label-qualified forms, and the
     /// `constructor_delegation_call` that carries no wrapper.
+    #[cfg(feature = "kotlin")]
     const KOTLIN_SELF_POSITIONS: &str = "class P {
         fun h() = 1
     }
@@ -4640,6 +4816,7 @@ end",
     }
 ";
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_self_and_super_leaves_are_unaliased_and_unconditional() {
         assert_self_reference_leaves::<KotlinCode>(
@@ -4654,6 +4831,7 @@ end",
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_fstring_no_double_count() {
         // Regression: issue #191. A Python f-string (`f"Hi {name}!"`)
@@ -4680,6 +4858,7 @@ end",
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_plain_string_still_operand() {
         // The fix for #191 only skips wrapping `String` nodes that
@@ -4697,6 +4876,7 @@ end",
         });
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_concatenated_docstring_suppressed() {
         // Regression for #695. An implicit-concatenation docstring
@@ -4721,6 +4901,7 @@ end",
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_concatenated_non_docstring_still_counts() {
         // The #695 fix must only suppress concatenated literals in the
@@ -4743,6 +4924,7 @@ end",
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_empty_file_halstead() {
         check_metrics::<PythonParser>("", "empty.py", |metric| {
@@ -4764,6 +4946,7 @@ end",
     /// operator arm listed both the await-expression node (Await=237) and the
     /// nested `await` keyword token (Await2=95). Only the node should count,
     /// mirroring how `yield` counts only the Yield node.
+    #[cfg(feature = "python")]
     #[test]
     fn python_await_counted_once_per_use() {
         check_metrics::<PythonParser>(
@@ -4783,6 +4966,7 @@ end",
     /// Regression #413, sub-fix (3): `lambda` was dropped entirely. Only the
     /// `lambda` keyword token (Lambda3=73) is classified, not the wrapping
     /// Lambda/Lambda2 expression nodes, to avoid an await-style double count.
+    #[cfg(feature = "python")]
     #[test]
     fn python_lambda_counted_once() {
         check_metrics::<PythonParser>("g = lambda x: x + 1\n", "foo.py", |metric| {
@@ -4796,6 +4980,7 @@ end",
     /// Regression #413, sub-fix (2): `match` / `case` keyword tokens
     /// (Match=26, Case=27) were dropped. Each should now count as an operator,
     /// matching the cyclomatic metric which already counts every `case`.
+    #[cfg(feature = "python")]
     #[test]
     fn python_match_case_counted() {
         check_metrics::<PythonParser>(
@@ -4813,6 +4998,7 @@ end",
 
     /// Regression #413, sub-fix (2): `nonlocal` (Nonlocal=41) was dropped while
     /// `global` was already classified. Both should count, for parity.
+    #[cfg(feature = "python")]
     #[test]
     fn python_nonlocal_and_global_counted() {
         check_metrics::<PythonParser>(
@@ -4831,6 +5017,7 @@ end",
     /// (Isnot=194) are single compound operators. The parent-guard suppresses
     /// the inner Not/In/Is leaves only under those compounds, so standalone
     /// `not x`, `a in b`, `a is b`, and `for x in y` still count their leaves.
+    #[cfg(feature = "python")]
     #[test]
     fn python_not_in_is_not_counted_as_single_operator() {
         check_metrics::<PythonParser>(
@@ -4853,6 +5040,7 @@ end",
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_operators_and_operands() {
         check_metrics::<BashParser>(
@@ -4886,6 +5074,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_interpolated_string_no_double_count() {
         // Regression: issue #180. A double-quoted Bash string containing
@@ -4915,6 +5104,7 @@ f() {
         });
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_interpolated_string_no_double_count() {
         // Regression: issue #180. Without the fix, an interpolated
@@ -4950,6 +5140,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_plain_string_still_operand() {
         // The fix for #180 only skips wrapping literals that contain
@@ -4962,6 +5153,7 @@ f() {
         });
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_boolean_and_nil_literals_count_once() {
         // Regression: issue #1253. `boolean: choice("true", "false")`
@@ -4998,6 +5190,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_reserved_word_after_a_dot_stays_an_operand() {
         // Companion to the test above (#1253). Elixir drops `True` /
@@ -5021,6 +5214,7 @@ f() {
         });
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_interpolated_sigil_no_double_count() {
         // Sigils mirror strings under #180. For `~r/foo#{name}/`, the
@@ -5039,6 +5233,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_interpolated_charlist_no_double_count() {
         // Charlists mirror strings and sigils under #180. The
@@ -5062,6 +5257,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_sigil_delimiters_are_not_operators() {
         // Regression: issue #1256. Sigil delimiter tokens share their
@@ -5088,6 +5284,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_sigil_delimiter_choice_is_invariant() {
         // Companion to the test above (#1256): two sigils differing
@@ -5119,6 +5316,7 @@ f() {
         }
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_standalone_operators_survive_the_sigil_guard() {
         // Control for #1256: the guard is parent-scoped, so the same
@@ -5143,6 +5341,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_interpolated_sigil_keeps_inner_nodes_counting() {
         // Interpolation inside a sigil after #1256: the `{` delimiter
@@ -5181,6 +5380,7 @@ f() {
         });
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_all_expansion_kinds_skip_wrapper() {
         // Exercises every node kind tested by
@@ -5236,6 +5436,7 @@ f() {
     /// when its parent is a `simple_expansion`, so `$x` contributes exactly
     /// one operand while the assignment LHS `variable_name` (`x` in `x=…`,
     /// parent is `variable_assignment`) still counts.
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_bare_variable_no_double_count() {
         let source = "x=1\necho $x\necho $?\n";
@@ -5301,6 +5502,7 @@ f() {
     /// assertion here that fails when the wrapper arm comes back; measured
     /// by neutralising it under the pre-fix arm, which leaves both tables
     /// green.
+    #[cfg(feature = "bash")]
     #[track_caller]
     fn assert_bash_wrapper_sheds_one_operand(
         source: &str,
@@ -5363,6 +5565,7 @@ f() {
     /// `translated_string` wrapper to #1358 as well.
     /// `assert_bash_wrapper_sheds_one_operand` re-derives both from the
     /// current parse rather than trusting them.
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_command_name_wrapper_no_double_count() {
         // (source, [n1, N1, n2, N2], (n2_before, N2_before))
@@ -5427,6 +5630,7 @@ f() {
     /// two vocabulary entries rather than repeating one — which is why the
     /// `n2_before` column is carried too, and checked against the wrapper
     /// spellings the row actually parses to.
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_translated_string_wrapper_no_double_count() {
         // (source, [n1, N1, n2, N2], (n2_before, N2_before))
@@ -5474,6 +5678,7 @@ f() {
     /// the wrapper makes the wrapper-bearing positions agree with argument
     /// position rather than newly disagree. If a grammar bump starts
     /// emitting the wrapper here, the deletion has to be re-derived.
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_translated_string_scores_alike_in_both_positions() {
         // `${#}` carries the residue: it contributes no operand of its own,
@@ -5526,6 +5731,7 @@ f() {
     /// The parity is the load-bearing half of that argument and nothing
     /// else asserts it, so if a future arm starts classifying these the
     /// two positions have to move together.
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_operandless_expansion_scores_alike_in_both_positions() {
         // `${!}` carries a `!`, which the operator arm counts; `${#}`'s `#`
@@ -5555,6 +5761,7 @@ f() {
     /// arm fails no test in the suite, because the token is unreachable.
     /// Unreachability is the only coverage such an arm can have, which is
     /// why this test asserts it directly instead of asserting a count.
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_hidden_concat_token_is_unreachable() {
         let source = "a=foo$x\nb=pre\"$y\"post\ncmd bar$z\n";
@@ -5575,6 +5782,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_operators_and_operands() {
         check_metrics::<TclParser>(
@@ -5606,6 +5814,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_bitwise_ternary_string_ops() {
         // Exercises operator families not covered by tcl_operators_and_operands:
@@ -5646,6 +5855,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_array_reference_bills_the_reference_and_the_index() {
         // `$arr($i)` is the reference plus the index Tcl substitutes
@@ -5663,6 +5873,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_bare_variable_operand() {
         // Bare `$varname` produces a VariableSubstitution node (already an operand).
@@ -5690,6 +5901,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_inert_quoted_word_counts_as_operand() {
         // Regression for #277. A `"..."` literal with no `$var` / `[cmd]`
@@ -5721,6 +5933,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_interpolated_quoted_word_no_double_count() {
         // Regression for #277. Before the fix, `"$x is $y"` produced an
@@ -5747,6 +5960,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_command_substitution_quoted_word_no_double_count() {
         // Regression for #277. A `"...[cmd]..."` literal exposes the
@@ -5782,6 +5996,7 @@ f() {
     /// fix from a regression in either direction: a re-blanketed
     /// exclusion drops `s`/`t` (total 2), while losing the guard
     /// double-counts the `$s` leaf as a second `s` (total 5).
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_set_target_is_operand() {
         let source = "set s 1\nset t $s\n";
@@ -5825,6 +6040,7 @@ f() {
     /// var-sub leaf). The `Tcl::Id` arm in `get_op_type` is therefore
     /// defensive; if a grammar bump starts emitting 84 this fails and
     /// the arm's classification must be re-derived instead of trusted.
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_named_id_variant_is_unreachable() {
         let source = "proc f {x} {\n    set s $x\n    foreach v {1 2} { puts \"$v\" }\n}\n";
@@ -5843,6 +6059,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_braced_word_delimiter_is_not_an_operator() {
         // Regression: issue #1314, the Tcl sibling of Elixir #1256 and
@@ -5869,6 +6086,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_script_bodies_keep_their_braces() {
         // Control for #1314, and the reason a kind-scoped guard is safe
@@ -5906,6 +6124,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_braced_word_guard_is_parent_scoped_not_ancestor_scoped() {
         // The input that separates the parent-scoped guard from the
@@ -5945,6 +6164,7 @@ f() {
         });
     }
 
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_braced_word_guard_is_parent_scoped_not_ancestor_scoped() {
         // The iRules twin of the test above — the two getters are
@@ -6006,6 +6226,7 @@ f() {
         interpolation: [u16; 2],
     }
 
+    #[cfg(feature = "tcl")]
     const TCL_BRACED_WORD_KINDS: BracedWordKinds = BracedWordKinds {
         wrapper: Tcl::BracedWordSimple as u16,
         script_body: Tcl::BracedWord as u16,
@@ -6031,6 +6252,7 @@ f() {
         ],
     };
 
+    #[cfg(feature = "irules")]
     const IRULES_BRACED_WORD_KINDS: BracedWordKinds = BracedWordKinds {
         wrapper: Irules::BracedWordSimple as u16,
         script_body: Irules::BracedWord as u16,
@@ -6067,6 +6289,7 @@ f() {
     /// the wrapper outside `children` ∪ `delimiters` fails on the spot,
     /// which is what makes keying the arm on the parent alone — rather
     /// than on an enumerated child list — safe to rely on.
+    #[cfg(any(feature = "irules", feature = "tcl"))]
     fn braced_word_shed<L: crate::LanguageInfo>(
         source: &str,
         kinds: &BracedWordKinds,
@@ -6130,6 +6353,7 @@ f() {
     /// Every row is measured in *both* dialects, so a fix applied to
     /// one getter and not its clone fails here. `braced_word_shed`'s
     /// drift assertion likewise runs against both grammars.
+    #[cfg(any(feature = "irules", feature = "tcl"))]
     fn check_braced_word_cases<T: crate::MetricSuite, L: crate::LanguageInfo>(
         cases: &[BracedWordCase],
         file: &str,
@@ -6175,6 +6399,7 @@ f() {
     /// `braced_word_simple` admits, the childless spelling, the
     /// repeated-value row that separates `n2` from `N2` (#1294), and
     /// the braced/quoted parity pair #1317 asks for.
+    #[cfg(any(feature = "irules", feature = "tcl"))]
     const BRACED_WORD_CASES: [BracedWordCase; 11] = [
         // simple_word, the reported fixture. Two words inside one
         // value scored two operands beside the value itself.
@@ -6299,6 +6524,7 @@ f() {
     /// block's `{}`. The operand columns are untouched by it — #1318
     /// revises the brace and nothing else — so every `before` here
     /// still describes #1354 alone.
+    #[cfg(any(feature = "irules", feature = "tcl"))]
     const SCRIPT_BODY_CASES: [BracedWordCase; 9] = [
         BracedWordCase {
             source: "proc p {} { set b 1 }\n",
@@ -6386,6 +6612,7 @@ f() {
     /// admits inside a braced word, and no other — the other half of
     /// the drift marker in `braced_word_shed`, which can only police
     /// kinds a fixture actually produces.
+    #[cfg(any(feature = "irules", feature = "tcl"))]
     fn assert_braced_word_children_witnessed(
         witnessed: &HashSet<u16>,
         kinds: &BracedWordKinds,
@@ -6425,6 +6652,7 @@ f() {
     /// arm: it fails if the grammar ever puts a seventh kind directly
     /// inside a braced word, and the union assertion below fails if a
     /// bump stops emitting one of the six.
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_braced_word_bills_its_content_once_1354() {
         let mut witnessed = check_braced_word_cases::<TclParser, TclCode>(
@@ -6444,6 +6672,7 @@ f() {
     /// only `big-code-analysis-ast/src/getter/tcl.rs` fails every row
     /// here — the two getters are deliberate clones and #1354 names
     /// both.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_braced_word_bills_its_content_once_1354() {
         let mut witnessed = check_braced_word_cases::<IrulesParser, IrulesCode>(
@@ -6507,6 +6736,7 @@ f() {
     /// Runs one #1318 table against one dialect. Both dialects run
     /// every shared row, so a fix that reached one getter and not its
     /// clone fails here.
+    #[cfg(any(feature = "irules", feature = "tcl"))]
     fn check_braced_word_value_cases<T: crate::MetricSuite>(
         cases: &[BracedWordValueCase],
         file: &str,
@@ -6536,6 +6766,7 @@ f() {
     /// *contents* — the tidier-looking rule, which collapses an
     /// `oo::class create C {…}` body into a single operand — fails
     /// here rather than passing as an improvement.
+    #[cfg(any(feature = "irules", feature = "tcl"))]
     const BRACED_WORD_VALUE_CASES: [BracedWordValueCase; 16] = [
         // The rule reaches the opener and *only* the opener. A `;`
         // separating two commands is a direct child of the
@@ -6703,6 +6934,7 @@ f() {
     /// body, in both the one-arm-per-line and the one-line layouts.
     /// Their iRules counterparts are dedicated nodes and are covered by
     /// the sibling test.
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_braced_word_role_follows_the_enclosing_command_1318() {
         check_braced_word_value_cases::<TclParser>(&BRACED_WORD_VALUE_CASES, "foo.tcl");
@@ -6779,6 +7011,7 @@ f() {
     /// unchanged — the two getters are deliberate clones and #1318
     /// names both — and the dialect rows cover the handler bodies,
     /// which have no Tcl spelling.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_braced_word_role_follows_the_enclosing_command_1318() {
         check_braced_word_value_cases::<IrulesParser>(&BRACED_WORD_VALUE_CASES, "foo.irule");
@@ -6824,6 +7057,7 @@ f() {
         check_braced_word_value_cases::<IrulesParser>(&irules_only, "foo.irule");
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_operators_and_operands() {
         check_metrics::<PhpParser>(
@@ -6855,6 +7089,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_simple_function() {
         check_metrics::<PhpParser>(
@@ -6880,6 +7115,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_variable_reference_counts_once() {
         // Regression: issue #1259. `$x` parses as a `variable_name`
@@ -6907,6 +7143,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_dynamic_variable_name_counts_once_at_any_depth() {
         // Regression: issue #1259. Variable-variable syntax nests the
@@ -6935,6 +7172,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_dynamic_variable_name_guard_is_parent_scoped() {
         // Companion to the two tests above (#1259): the guards fire on
@@ -6963,6 +7201,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_type_wrappers_count_the_type_once() {
         // Regression: issue #1293. A parameter type nests wrapper nodes
@@ -6993,6 +7232,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_qualified_name_counts_its_components_once() {
         // Regression: issue #1293. `Foo\Bar\Baz` parses as
@@ -7022,6 +7262,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_nested_type_wrappers_count_once_at_any_depth() {
         // Companion to the two tests above (#1293): the type and
@@ -7051,6 +7292,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_childless_primitive_types_still_count() {
         // Guards the direction of the #1293 fix for `primitive_type`,
@@ -7080,6 +7322,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_primitive_type_keyword_guard_is_parent_scoped() {
         // Companion to the test above (#1293): the keyword suppression
@@ -7104,6 +7347,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_encapsed_string_interpolation_no_double_count() {
         // Regression: issue #184. A PHP `"Hello $name!"` used to be
@@ -7138,6 +7382,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_encapsed_string_no_interpolation_still_operand() {
         // The fix for #184 only drops `EncapsedString`/`Heredoc` from
@@ -7153,6 +7398,7 @@ f() {
         });
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_heredoc_interpolation_no_double_count() {
         // Regression: issue #184. A PHP heredoc whose body
@@ -7181,6 +7427,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_nowdoc_unaffected() {
         // `Nowdoc` (single-quoted heredoc) never interpolates and is
@@ -7204,6 +7451,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_encapsed_string_bare_member_access_no_double_count() {
         // Regression: issue #184 follow-up. The PHP grammar allows
@@ -7240,6 +7488,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_encapsed_string_bare_subscript_no_double_count() {
         // Regression: issue #184 follow-up. Bare `$arr[0]` inside
@@ -7266,6 +7515,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_shell_command_expression_inert_is_operand() {
         // Regression: issue #288. Backtick command literals (PHP's
@@ -7289,6 +7539,7 @@ f() {
         });
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_shell_command_expression_interpolation_no_double_count() {
         // Regression: issue #288. PHP backtick literals DO support
@@ -7319,6 +7570,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_interpolation_opener_is_not_an_operator() {
         // Regression: issue #1314. `Php::LBRACE` is *both* the
@@ -7342,6 +7594,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_interpolation_opener_guard_covers_every_wrapper() {
         // The opener is a direct child of four distinct parents, and
@@ -7378,6 +7631,7 @@ f() {
         }
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_every_interpolation_spelling_scores_alike() {
         // The policy stated as a test (#1314). PHP writes one
@@ -7408,6 +7662,7 @@ f() {
         }
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_compound_statement_brace_still_counts() {
         // Control for #1314: the guard is scoped to the four
@@ -7430,6 +7685,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_interpolation_guard_is_parent_scoped_not_ancestor_scoped() {
         // The input that separates the parent-scoped guard from the
@@ -7456,6 +7712,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_operators_and_operands() {
         // Exercises every Halstead family classified in Elixir's
@@ -7503,6 +7760,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_operators_and_operands() {
         // A small Ruby method exercising operators (def/if/end keyword
@@ -7530,6 +7788,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_halstead_plain_string_operand() {
         // A bare string literal contributes exactly one operand. The
@@ -7546,6 +7805,7 @@ f() {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_halstead_interpolated_string_no_double_count() {
         // Regression mirror for #180 (Bash) / #183 (C#): when a Ruby
@@ -7570,6 +7830,7 @@ f() {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_halstead_symbol_literal_operand() {
         // `:foo` is a `SimpleSymbol` leaf — counts as a single
@@ -7582,6 +7843,7 @@ f() {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_halstead_regex_operand() {
         // `/foo/` parses as a `Regex` node — one operand. Its two
@@ -7600,6 +7862,7 @@ f() {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_regex_delimiters_are_not_operators() {
         // Regression: issue #1312, the Ruby sibling of Elixir #1256.
@@ -7618,6 +7881,7 @@ f() {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_regex_delimiter_choice_is_invariant() {
         // Companion to the test above (#1312): `%r`-form regexes are
@@ -7643,6 +7907,7 @@ f() {
         }
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_division_survives_the_regex_guard() {
         // Control for #1312: the guard is scoped to a `Regex` parent,
@@ -7660,6 +7925,7 @@ f() {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_regex_guard_is_parent_scoped_not_ancestor_scoped() {
         // The one input that separates the correct parent-scoped guard
@@ -7688,6 +7954,7 @@ f() {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_regex_start_alias_never_reaches_kind_id() {
         // Drift marker for the `R::SLASH2` half of #1312's guard.
@@ -7717,6 +7984,7 @@ f() {
         }
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_subshell_delimiters_are_not_operators() {
         // Regression: issue #1360, the second delimiter family of the
@@ -7737,6 +8005,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_subshell_delimiter_choice_is_invariant() {
         // Companion to the test above (#1360): `%x`-form subshells are
@@ -7772,6 +8041,7 @@ f() {
         }
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_backtick_method_name_survives_the_subshell_guard() {
         // Control for #1360, and the reason the kind is gated rather
@@ -7793,6 +8063,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_subshell_guard_is_parent_scoped_not_ancestor_scoped() {
         // The one input that separates the correct parent-scoped guard
@@ -7824,6 +8095,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_subshell_start_alias_never_reaches_kind_id() {
         // Drift marker for #1360's guard, the `BQUOTE2` sibling of
@@ -7861,6 +8133,7 @@ f() {
         }
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_interpolation_opener_is_not_an_operator() {
         // Behaviour change, not a fabrication fix: #1314 drops
@@ -7890,6 +8163,7 @@ f() {
         }
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_interpolation_opener_drop_covers_every_literal() {
         // `HASHLBRACE` is one arm, but it fires under every Ruby
@@ -7910,6 +8184,7 @@ f() {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_element_containers_count_elements_not_the_composite_1353() {
         // #1353. `chained_string`, `string_array` and `symbol_array`
@@ -7977,6 +8252,7 @@ f() {
         }
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_empty_word_and_symbol_arrays_still_bill_one_operand_1353() {
         // The childless spelling, and the whole reason #1353 gates the
@@ -7999,6 +8275,7 @@ f() {
         }
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_interpolated_array_elements_are_not_double_counted_1353() {
         // `bare_string` and `bare_symbol` are two aliases of a single
@@ -8031,6 +8308,7 @@ f() {
         }
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_suffixed_numeric_literals_bill_one_operand_1359() {
         // #1359, the wrapper/leaf double count one arm below #1353's.
@@ -8165,6 +8443,7 @@ f() {
         }
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_numeric_suffixes_stay_distinct_operands_1359() {
         // The reason #1359 keeps the *wrapper* and gates the leaf
@@ -8205,6 +8484,7 @@ f() {
     /// `n1`/`n2`. A classification change that moved one store without the
     /// other (e.g. a kind landing in both the operator and operand arms)
     /// would break this even though the snapshot stayed green.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_operators_and_operands() {
         let source = "proc f { a b } {
@@ -8253,6 +8533,7 @@ f() {
     /// the operand count and #1354 dropped the proc-body `braced_word`
     /// from both. Mirrors `tcl_inert_quoted_word_counts_as_operand`
     /// (#277).
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_inert_quoted_word_counts_as_operand() {
         let source = "proc f {} {\n    set s \"hello world\"\n}\n";
@@ -8290,6 +8571,7 @@ f() {
     /// `braced_word`). If the guard regressed (wrapper classified
     /// `Operand`), the wrapper string would add a 7th operand. This is the
     /// branch that had no test before.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_interpolated_quoted_word_no_double_count() {
         let source = "proc f {x y} {\n    set s \"$x is $y\"\n}\n";
@@ -8332,6 +8614,7 @@ f() {
     /// `contains`, `matches`, `eq`, `ne`), and the keyword logical operator
     /// (`and`). Pins every operator-family arm in `get_op_type` plus the
     /// lesson-4 dedupe invariant.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_bitwise_ternary_string_ops() {
         let source = "proc f { a b } {
@@ -8386,6 +8669,7 @@ f() {
     /// (it text-collides with the proc arg `x`, so `u_operands` would stay
     /// 4 but `total_operands()` would rise to 5 — hence the total, not just
     /// the unique count, is asserted).
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_array_reference_bills_the_reference_and_the_index() {
         // The iRules twin of
@@ -8401,6 +8685,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_bare_variable_operand() {
         let source = "proc f {x} {\n    return $x\n}\n";
@@ -8424,6 +8709,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_braced_word_delimiter_is_not_an_operator() {
         // Regression: issue #1314. The iRules twin of
@@ -8462,6 +8748,7 @@ f() {
     /// the same token across `Display` and JSON. The space-separated forms
     /// (`estimated program length` / `purity ratio`) were the only outliers,
     /// mirroring the `dump` fix in #562.
+    #[cfg(feature = "cpp")]
     #[test]
     fn display_halstead_labels_use_underscore_keys() {
         check_metrics::<CppParser>("int a = 42;", "foo.cpp", |metric| {
@@ -8491,6 +8778,7 @@ f() {
     /// n1 for a file whose only `@` was in NSString literals and billed
     /// the same byte in both streams. Boxing (`@42`) keeps its `@`: there
     /// the token is a child of the `at_expression`, not of the literal.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_nsstring_literal_is_one_operand() {
         // expected: [n1, N1, n2, N2]. Before the guard the first two rows
@@ -8519,6 +8807,7 @@ f() {
     /// assignment. Pins every field and enforces the lesson-4 invariants
     /// `unique_operators == n1` / `unique_operands == n2` via the
     /// independent `--ops` store.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_operators_and_operands() {
         let source = "@implementation Foo
@@ -8582,6 +8871,7 @@ f() {
     /// Both #1316 fixtures are plain C, which every C-family grammar
     /// parses to the same shape, so one source proves the same thing
     /// about each of the four clones.
+    #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
     const C_FAMILY_CHAR_REPEATS: &str =
         "char a = 'x';\nchar b = 'x';\nchar c = 'y';\nchar d = '\\n';\nint e = 'ab';\n";
 
@@ -8589,6 +8879,7 @@ f() {
     /// opens on a distinct delimiter kind (`'`, `L'`, `u'`, `U'`, `u8'`),
     /// and operands key on source text, so the five are five vocabulary
     /// entries rather than one.
+    #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
     const C_FAMILY_CHAR_PREFIXES: &str =
         "char a = 'x';\nchar b = L'x';\nchar c = u'x';\nchar d = U'x';\nchar e = u8'x';\n";
 
@@ -8604,6 +8895,7 @@ f() {
     /// rather than a second classification — `ops_inner` reads the keys
     /// of the same `HalsteadMaps` — which is worth knowing before
     /// reading it as independent corroboration of the count.
+    #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
     #[track_caller]
     fn assert_char_literal_operands<T: crate::MetricSuite>(file: &str, label: &str) {
         // `char` x4 and `int` are text-keyed primitive operators, so
@@ -8651,6 +8943,7 @@ f() {
     ///
     /// Mozcpp owns no file extension, so no integration snapshot ever
     /// reaches its clone; its row is the whole coverage that arm has.
+    #[cfg(all(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
     #[test]
     fn c_family_char_literals_are_operands() {
         assert_char_literal_operands::<CParser>("chars.c", "c");
@@ -8664,6 +8957,7 @@ f() {
     /// operator. The wrapper is in no operand arm, so the boxed form
     /// bills exactly the literal it wraps and stays distinct from a bare
     /// one (#1316).
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_boxed_char_literal_is_one_operand() {
         let source = "char a = 'x';\nid b = @'y';\n";
@@ -8698,8 +8992,10 @@ f() {
     /// Both loops are non-vacuous by assertion, since a fixture that
     /// stopped containing a character literal would otherwise make this
     /// test pass having checked nothing.
+    #[cfg(all(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
     #[test]
     fn c_family_char_literal_internals_stay_unclassified() {
+        #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
         fn check<L: LanguageInfo + Getter>(char_literal: u16, label: &str) {
             let mut literals = 0_usize;
             let mut children = 0_usize;
@@ -8768,6 +9064,7 @@ f() {
     ///
     /// Plain C++ that the mozcpp fork parses identically, so one source
     /// proves the same thing about both clones.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const CPP_THIS_RECEIVER_PARITY: &str = "struct S {
          int x;
          int m1() { return this->x; }
@@ -8795,6 +9092,7 @@ f() {
     /// `for_each_node_with_chain` rejects outright. That spelling is
     /// already an operand through `TypeIdentifier`, so the construct is
     /// unaffected by this arm either way.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const CPP_THIS_POSITIONS: &str = "struct S {
          int x;
          void g(S*);
@@ -8816,6 +9114,7 @@ f() {
     /// under, which the counts alone cannot see: billing the enclosing
     /// `field_expression` instead of the `this` leaf would hold `n2` at
     /// 6 while the vocabulary silently became `this->x`.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     #[track_caller]
     fn assert_this_receiver_parity<T: crate::MetricSuite>(file: &str, label: &str) {
         // Operators, keyed by kind_id except the text-keyed primitives:
@@ -8853,6 +9152,7 @@ f() {
     /// extension, so no integration snapshot reaches its clone; this row
     /// and `cpp_and_mozcpp_agree_on_this` in `tests/parity/` are the
     /// whole coverage that arm has.
+    #[cfg(all(feature = "cpp", feature = "mozcpp"))]
     #[test]
     fn cpp_this_is_an_operand() {
         assert_this_receiver_parity::<CppParser>("this.cpp", "cpp");
@@ -8875,8 +9175,10 @@ f() {
     /// samples one position per container kind and is deliberately not
     /// exhaustive (see `CPP_THIS_POSITIONS`), so a name promising "every
     /// position" would claim more than it checks.
+    #[cfg(all(feature = "cpp", feature = "mozcpp"))]
     #[test]
     fn cpp_this_is_an_operand_regardless_of_position() {
+        #[cfg(any(feature = "cpp", feature = "mozcpp"))]
         fn check<L: LanguageInfo + Getter>(label: &str) {
             let mut seen = 0_usize;
             for_each_node_with_chain::<L>(CPP_THIS_POSITIONS.as_bytes(), |node, chain| {
@@ -8933,8 +9235,10 @@ f() {
     ///   time, and no `field_expression` / `pointer_expression` /
     ///   `lambda_capture_specifier` / `argument_list` wrapper bills the
     ///   same source text from above.
+    #[cfg(all(feature = "cpp", feature = "mozcpp"))]
     #[test]
     fn cpp_this_is_a_childless_unaliased_leaf() {
+        #[cfg(any(feature = "cpp", feature = "mozcpp"))]
         fn check<L: LanguageInfo + Getter>(this: u16, label: &str) {
             let mut seen = 0_usize;
             for source in [CPP_THIS_RECEIVER_PARITY, CPP_THIS_POSITIONS] {

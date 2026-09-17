@@ -213,6 +213,7 @@ mod tests {
 
     /// `def foo(x): return x` → leaves: `def`, `foo`, `(`, `x`, `)`,
     /// `:`, `return`, `x` = 8 tokens, hand-counted.
+    #[cfg(feature = "python")]
     #[test]
     fn python_tokens_exact_count() {
         check_metrics::<PythonParser>("def foo(x): return x", "foo.py", |metric| {
@@ -222,6 +223,7 @@ mod tests {
     }
 
     /// Adding a Python comment must not change the token count.
+    #[cfg(feature = "python")]
     #[test]
     fn python_tokens_comments_excluded() {
         check_metrics::<PythonParser>(
@@ -234,6 +236,7 @@ mod tests {
     }
 
     /// Blank lines and indentation must not change the token count.
+    #[cfg(feature = "python")]
     #[test]
     fn python_tokens_whitespace_excluded() {
         check_metrics::<PythonParser>(
@@ -248,6 +251,7 @@ mod tests {
     /// Tokens must exceed Halstead `N1 + N2` for code containing
     /// punctuation Halstead skips. Guards against accidental Halstead
     /// reuse.
+    #[cfg(feature = "python")]
     #[test]
     fn python_tokens_distinct_from_halstead() {
         check_tokens_and_halstead::<PythonParser>(
@@ -274,6 +278,7 @@ mod tests {
     /// Asserting the exact `tokens_max` is what catches an attribution
     /// regression — a broken implementation that credited all 12
     /// tokens to one scope would still pass `max <= sum`.
+    #[cfg(feature = "python")]
     #[test]
     fn python_tokens_nested_attribution() {
         check_metrics::<PythonParser>(
@@ -289,6 +294,7 @@ mod tests {
 
     /// C++ `/* … */` block comments must not contribute.
     /// Same fixture with and without comment yields the same count.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_tokens_block_comments_excluded() {
         check_metrics::<CppParser>(
@@ -308,6 +314,7 @@ mod tests {
     /// C++ `// …` line comments must not contribute, matching the Python
     /// hand-counted style.  Leaves outside the comment:
     /// `int`, `x`, `=`, `1`, `;` = 5.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_tokens_line_comments_excluded() {
         check_metrics::<CppParser>("int x = 1; // a one-line comment\n", "foo.cpp", |m| {
@@ -320,6 +327,7 @@ mod tests {
 
     /// Whitespace and blank lines must not contribute to the token count
     /// (mirrors `python_tokens_whitespace_excluded`).
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_tokens_whitespace_excluded() {
         check_metrics::<CppParser>("\n\nint foo(int x) {\n    return x;\n}\n", "foo.cpp", |m| {
@@ -332,6 +340,7 @@ mod tests {
     /// semicolons), so `tokens_sum` must exceed `N1 + N2` for a fixture
     /// with significant punctuation.  Mirrors
     /// `python_tokens_distinct_from_halstead`.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_tokens_distinct_from_halstead() {
         check_tokens_and_halstead::<CppParser>(
@@ -360,6 +369,7 @@ mod tests {
     /// regression: a broken implementation that credited every leaf to one
     /// scope would raise `tokens_max` to 27 while still passing
     /// `max <= sum`, mirroring the Python sibling's exact-max guard.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_tokens_nested_attribution() {
         check_metrics::<CppParser>(
@@ -374,6 +384,7 @@ mod tests {
     }
 
     /// Java `// …` line comments must not contribute.
+    #[cfg(feature = "java")]
     #[test]
     fn java_tokens_line_comments_excluded() {
         check_metrics::<JavaParser>(
@@ -389,6 +400,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_tokens_line_comments_excluded() {
         // Groovy mirror — `// …` line comments must not contribute.
@@ -407,6 +419,7 @@ mod tests {
     /// JS-family `<!-- -->` Annex-B `html_comment` leaves must not
     /// contribute tokens — they classify as comments now (#697). The
     /// count must match the comment-free source exactly.
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_tokens_html_comment_excluded() {
         check_metrics::<JavascriptParser>("<!-- hi -->\nlet x = 1;\n", "foo.js", |m| {
@@ -421,6 +434,7 @@ mod tests {
     /// Groovy `/** … */` `groovydoc_comment` leaves must not contribute
     /// tokens (#697 — `is_comment` previously missed this kind even
     /// though `Loc` counted it).
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_tokens_groovydoc_excluded() {
         check_metrics::<GroovyParser>(
@@ -445,6 +459,7 @@ mod tests {
     /// would have misattributed a regression; they are linear now, but
     /// isolating the metric under test is still what makes the reading
     /// mean something.
+    #[cfg(feature = "rust")]
     fn tokens_of(source: &str) -> u64 {
         metrics_verbatim(
             crate::LANG::Rust,
@@ -455,6 +470,7 @@ mod tests {
         .tokens_sum()
     }
 
+    #[cfg(feature = "rust")]
     fn nested_parens(depth: usize) -> String {
         format!(
             "fn f() -> i32 {{ {}1{} }}\n",
@@ -486,6 +502,7 @@ mod tests {
     /// llvm-cov` and on shared Windows / macOS runners; the equivalent
     /// assertion in `cognitive` produced false failures in four
     /// separate environments before it was retired.
+    #[cfg(feature = "rust")]
     #[test]
     fn tokens_count_holds_at_depth() {
         let shallow = tokens_of(&nested_parens(1));
@@ -502,6 +519,7 @@ mod tests {
     /// `rust_tokens_doc_comments_excluded` already covers the latter at
     /// depth 1. What this adds is the anchored differential below: a
     /// count that would not survive an `in_comment` wired to a constant.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_tokens_comment_excluded_at_depth() {
         let deep_block = format!(
@@ -531,6 +549,7 @@ mod tests {
     /// not themselves comment kinds (`//`, `outer_doc_comment_marker`,
     /// `doc_comment`), so excluding only the comment node is not enough
     /// — every leaf beneath it must be filtered too.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_tokens_doc_comments_excluded() {
         check_metrics::<RustParser>(
@@ -554,6 +573,7 @@ mod tests {
     // metric is registered but never fires. `check_metrics` takes a
     // `fn` pointer so each test inlines its assertion directly.
 
+    #[cfg(feature = "python")]
     #[test]
     fn smoke_python() {
         check_metrics::<PythonParser>("x = 1\n", "foo.py", |m| {
@@ -561,6 +581,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn smoke_rust() {
         check_metrics::<RustParser>("fn f() { let x = 1; }", "foo.rs", |m| {
@@ -568,6 +589,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn smoke_cpp() {
         check_metrics::<CppParser>("int x = 1;", "foo.cpp", |m| {
@@ -575,6 +597,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn smoke_java() {
         check_metrics::<JavaParser>("class A { int x = 1; }", "A.java", |m| {
@@ -582,6 +605,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn smoke_csharp() {
         check_metrics::<CsharpParser>("class A { int X = 1; }", "A.cs", |m| {
@@ -589,6 +613,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn smoke_javascript() {
         check_metrics::<JavascriptParser>("let x = 1;", "foo.js", |m| {
@@ -596,6 +621,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn smoke_mozjs() {
         check_metrics::<MozjsParser>("let x = 1;", "foo.js", |m| {
@@ -603,6 +629,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn smoke_typescript() {
         check_metrics::<TypescriptParser>("const x: number = 1;", "foo.ts", |m| {
@@ -610,6 +637,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn smoke_tsx() {
         check_metrics::<TsxParser>("const x: number = 1;", "foo.tsx", |m| {
@@ -617,6 +645,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn smoke_go() {
         check_metrics::<GoParser>("package main\nfunc f() {}", "foo.go", |m| {
@@ -624,6 +653,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn smoke_kotlin() {
         check_metrics::<KotlinParser>("fun f(): Int = 1", "foo.kt", |m| {
@@ -631,6 +661,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn smoke_lua() {
         check_metrics::<LuaParser>("local x = 1", "foo.lua", |m| {
@@ -638,6 +669,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn smoke_bash() {
         check_metrics::<BashParser>("x=1", "foo.sh", |m| {
@@ -645,6 +677,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn smoke_tcl() {
         check_metrics::<TclParser>("set x 1", "foo.tcl", |m| {
@@ -652,6 +685,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn smoke_perl() {
         check_metrics::<PerlParser>("my $x = 1;", "foo.pl", |m| {
@@ -659,6 +693,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn smoke_php() {
         check_metrics::<PhpParser>("<?php $x = 1;", "foo.php", |m| {
@@ -666,6 +701,12 @@ mod tests {
         });
     }
 
+    #[cfg(any(
+        feature = "c",
+        feature = "c-family-helpers",
+        feature = "cpp",
+        feature = "mozcpp"
+    ))]
     #[test]
     fn smoke_preproc() {
         check_metrics::<PreprocParser>("#define FOO 1\n", "foo.h", |m| {
@@ -673,6 +714,12 @@ mod tests {
         });
     }
 
+    #[cfg(any(
+        feature = "c",
+        feature = "c-family-helpers",
+        feature = "cpp",
+        feature = "mozcpp"
+    ))]
     #[test]
     fn smoke_ccomment() {
         // Ccomment's grammar parses bare C source; non-comment text
@@ -682,6 +729,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn smoke_c() {
         check_metrics::<CParser>("int x = 1;\n", "foo.c", |m| {
@@ -689,6 +737,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "objc")]
     #[test]
     fn smoke_objc() {
         check_metrics::<ObjcParser>("int x = 1;\n", "foo.m", |m| {
@@ -696,6 +745,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn smoke_elixir() {
         check_metrics::<ElixirParser>("defmodule Foo do\n  :ok\nend\n", "foo.ex", |m| {
@@ -703,6 +753,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn smoke_ruby() {
         check_metrics::<RubyParser>("def foo\n  a = 1\nend\n", "foo.rb", |m| {
@@ -710,6 +761,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "irules")]
     #[test]
     fn smoke_irules() {
         check_metrics::<IrulesParser>("when X {\n    set x 1\n}\n", "foo.irule", |m| {

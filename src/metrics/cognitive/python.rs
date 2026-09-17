@@ -256,6 +256,7 @@ mod tests {
     // drive the helper directly and assert each clause's map slot
     // field-by-field — which is what the `Nesting` parameter now makes
     // checkable at the call site too.
+    #[cfg(feature = "python")]
     #[test]
     fn python_comprehension_clauses_carry_inherited_depth_and_lambda() {
         // Both fixtures have three clauses and differ only in which kind

@@ -610,9 +610,10 @@ mod typescript;
     clippy::too_many_lines
 )]
 mod tests {
+    #[cfg(feature = "csharp")]
+    use crate::test_support::assert_csharp_fixture_spells;
     use crate::test_support::{
-        assert_csharp_fixture_spells, ast_has_kind_id, check_func_space_only,
-        check_metrics_only_shim, child_space,
+        ast_has_kind_id, check_func_space_only, check_metrics_only_shim, child_space,
     };
 
     use super::*;
@@ -664,6 +665,7 @@ mod tests {
     /// see `cyclomatic_python_lambda_divisor_excludes_spaceless_closure`.)
     /// Before #512 the divisor was 4 (every space, base 1 each) and the
     /// averages were two-thirds of these values (`6 / 4 == 1.5`).
+    #[cfg(feature = "csharp")]
     #[test]
     fn cyclomatic_average_is_per_function_512() {
         check_cyclomatic_and_nom::<CsharpParser>(
@@ -703,6 +705,7 @@ mod tests {
     /// `nom.total()` is `0.0` here (Nom was never computed) yet the
     /// average is still the correct per-function `6 / 2 == 3.0` — proof
     /// the divisor does not read `nom`.
+    #[cfg(feature = "csharp")]
     #[test]
     fn cyclomatic_average_per_function_without_nom_512() {
         let space = crate::analyze(
@@ -736,6 +739,7 @@ mod tests {
     /// that matches the spaces contributing to `cyclomatic_sum`. The
     /// behaviour is intentional, not a bug — pinning it so a future change
     /// to lambda space-handling is a deliberate, visible decision.
+    #[cfg(feature = "python")]
     #[test]
     fn cyclomatic_python_lambda_divisor_excludes_spaceless_closure() {
         check_cyclomatic_and_nom::<PythonParser>(
@@ -763,6 +767,7 @@ mod tests {
     ///
     /// Expected: unit(1) + fn(1) + if(1) = 3. No contribution from
     /// `else`.
+    #[cfg(feature = "python")]
     #[test]
     fn python_if_else_does_not_overcount_229() {
         check_metrics::<PythonParser>(
@@ -804,6 +809,7 @@ mod tests {
     /// per `if` and per `elif`, never the bare `else`.
     ///
     /// Expected: unit(1) + fn(1) + if(1) + elif(1) + elif(1) = 5.
+    #[cfg(feature = "python")]
     #[test]
     fn python_if_elif_else_chain_229() {
         check_metrics::<PythonParser>(
@@ -831,6 +837,7 @@ mod tests {
     /// distinct decision point.
     ///
     /// Expected: unit(1) + fn(1) + for(1) + else(1) = 4.
+    #[cfg(feature = "python")]
     #[test]
     fn python_for_else_still_counts_229() {
         check_metrics::<PythonParser>(
@@ -856,6 +863,7 @@ mod tests {
     /// completion of the loop.
     ///
     /// Expected: unit(1) + fn(1) + while(1) + else(1) = 4.
+    #[cfg(feature = "python")]
     #[test]
     fn python_while_else_still_counts_229() {
         check_metrics::<PythonParser>(
@@ -880,6 +888,7 @@ mod tests {
     /// alongside the `except` arm.
     ///
     /// Expected: unit(1) + fn(1) + except(1) + try/else(1) = 4.
+    #[cfg(feature = "python")]
     #[test]
     fn python_try_except_else_counts_229() {
         check_metrics::<PythonParser>(
@@ -906,6 +915,7 @@ mod tests {
     /// `using` sibling and textbook McCabe. Regression test for #418.
     ///
     /// Expected: unit(1) + fn(1) = 2; the `with` adds nothing.
+    #[cfg(feature = "python")]
     #[test]
     fn python_with_is_not_a_decision_point_418() {
         check_metrics::<PythonParser>(
@@ -928,6 +938,7 @@ mod tests {
     /// #418.
     ///
     /// Expected: unit(1) + fn(1) = 2.
+    #[cfg(feature = "python")]
     #[test]
     fn python_with_multiple_managers_is_not_a_decision_point_418() {
         check_metrics::<PythonParser>(
@@ -948,6 +959,7 @@ mod tests {
     /// it too. Companion to #418.
     ///
     /// Expected: unit(1) + fn(1) = 2; neither `async` nor `with` counts.
+    #[cfg(feature = "python")]
     #[test]
     fn python_async_with_is_not_a_decision_point_418() {
         check_metrics::<PythonParser>(
@@ -968,6 +980,7 @@ mod tests {
     /// over-broad fix. Companion to #418.
     ///
     /// Expected: unit(1) + fn(1) + if(1) = 3; the `with` adds nothing.
+    #[cfg(feature = "python")]
     #[test]
     fn python_with_body_branch_still_counts_418() {
         check_metrics::<PythonParser>(
@@ -986,6 +999,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_simple_function() {
         check_metrics::<PythonParser>(
@@ -1025,6 +1039,7 @@ mod tests {
     /// `match_statement` contributes one modified decision. A bare
     /// `case _:` (no guard) is skipped, mirroring Rust's `MatchArm`
     /// bare-wildcard filter. Regression test for #212.
+    #[cfg(feature = "python")]
     #[test]
     fn python_match_two_arm_wildcard() {
         check_metrics::<PythonParser>(
@@ -1070,6 +1085,7 @@ mod tests {
     /// Python contributes a decision) — long-standing behaviour
     /// shared with regular `if` statements. Companion to the
     /// `python_match_case_guarded_wildcard_counts` test in `abc.rs`.
+    #[cfg(feature = "python")]
     #[test]
     fn python_match_guarded_wildcard_counts() {
         check_metrics::<PythonParser>(
@@ -1114,6 +1130,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_1_level_nesting() {
         check_metrics::<PythonParser>(
@@ -1147,6 +1164,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_1_level_nesting() {
         check_metrics::<RustParser>(
@@ -1187,6 +1205,7 @@ mod tests {
     /// Modified CCN: a match with N arms counts as 1 decision, not N.
     /// Bare `_ =>` wildcard arm does not count toward standard CCN (same
     /// as C-family `default:`).
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_match_modified() {
         check_metrics::<RustParser>(
@@ -1227,14 +1246,17 @@ mod tests {
     // counting on (the default) each adds +1 to both standard and
     // modified; with counting off they add nothing. The two runs must
     // therefore differ by exactly N on both sub-metrics.
+    #[cfg(feature = "rust")]
     const RUST_TRY_FIXTURE: &str = "fn f(s: &str) -> Result<i64, std::num::ParseIntError> {
              let a: i64 = s.parse()?;
              let b: i64 = s.parse()?;
              let c: i64 = s.parse()?;
              Ok(a + b + c)
          }";
+    #[cfg(feature = "rust")]
     const RUST_TRY_COUNT: u64 = 3;
 
+    #[cfg(feature = "rust")]
     fn rust_cyclomatic_with_try(count_try: bool) -> super::Stats {
         let func_space = crate::analyze(
             crate::Source::new(crate::LANG::Rust, RUST_TRY_FIXTURE.as_bytes())
@@ -1245,6 +1267,7 @@ mod tests {
         func_space.metrics.cyclomatic.clone()
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_try_toggle_differs_by_exactly_n() {
         let with = rust_cyclomatic_with_try(true);
@@ -1266,6 +1289,7 @@ mod tests {
         assert_ne!(with.cyclomatic_sum(), without.cyclomatic_sum());
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_try_default_counts() {
         // The default (no options) must keep counting `?`, preserving
@@ -1305,6 +1329,7 @@ mod tests {
     /// `compute` that delegated with `false` *and* a
     /// `compute_with_options` that ignored the flag, so the count is
     /// pinned against the opted-out run as well.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_compute_delegates_with_try_counting_on() {
         use crate::traits::ParserTrait;
@@ -1343,6 +1368,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_switch() {
         check_metrics::<CParser>(
@@ -1389,6 +1415,7 @@ mod tests {
     }
 
     /// Modified CCN: 3 case arms in one switch collapse to 1 decision.
+    #[cfg(feature = "c")]
     #[test]
     fn c_switch_modified() {
         check_metrics::<CParser>(
@@ -1427,6 +1454,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_real_function() {
         check_metrics::<CParser>(
@@ -1468,6 +1496,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_unit_before() {
         check_metrics::<CParser>(
@@ -1522,6 +1551,7 @@ mod tests {
     /// Test to handle the case of min and max when merge happen before the final value of one module are set.
     /// In this case the min value should be 3 because the unit space has 2 branches and a complexity of 3
     /// while the function sumOfPrimes has a complexity of 4.
+    #[cfg(feature = "c")]
     #[test]
     fn c_unit_after() {
         check_metrics::<CParser>(
@@ -1574,6 +1604,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_simple_class() {
         check_metrics::<JavaParser>(
@@ -1621,6 +1652,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_real_class() {
         check_metrics::<JavaParser>(
@@ -1684,6 +1716,7 @@ mod tests {
     }
 
     /// Modified CCN: Java switch with 2 cases counts as 1 (not 2).
+    #[cfg(feature = "java")]
     #[test]
     fn java_switch_modified() {
         check_metrics::<JavaParser>(
@@ -1728,6 +1761,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_simple_class() {
         check_metrics::<CsharpParser>(
@@ -1773,6 +1807,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_real_class() {
         check_metrics::<CsharpParser>(
@@ -1834,6 +1869,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_anonymous_method() {
         check_metrics::<CsharpParser>(
@@ -1871,6 +1907,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_switch_expression_arms() {
         // Each non-default arm of a switch_expression contributes +1.
@@ -1920,6 +1957,7 @@ mod tests {
     /// Regression #282: the bare discard arm `_ =>` in a C# switch
     /// expression must NOT contribute to standard CCN, mirroring the
     /// C-family `default:` rule.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_switch_expression_discard_arm_not_counted() {
         check_metrics::<CsharpParser>(
@@ -1942,6 +1980,7 @@ mod tests {
 
     /// Regression #282: `var _` is also a discard pattern and must be
     /// excluded from standard CCN.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_switch_expression_var_underscore_not_counted() {
         check_metrics::<CsharpParser>(
@@ -1975,6 +2014,7 @@ mod tests {
     /// of the `default:` exclusion, the `WhenClause` arm scores the
     /// guard — so this test would still fail if #282's exclusion were
     /// reintroduced, at sum 5 / max 3 against the asserted 6 / 4.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_switch_expression_guarded_discard_still_counts() {
         check_metrics::<CsharpParser>(
@@ -2003,6 +2043,7 @@ mod tests {
     /// standard decision. Locks in the
     /// `DeclarationPattern → _ => return NotDiscard` catch-all in
     /// `csharp_switch_expression_arm_is_bare_discard`.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_switch_expression_typed_discard_still_counts() {
         check_metrics::<CsharpParser>(
@@ -2035,6 +2076,7 @@ mod tests {
     /// the guard has scored a decision of its own since #1422, so the
     /// arm is worth 2. Reintroducing #303's exclusion would read sum 5 /
     /// max 3 against the asserted 6 / 4.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_switch_expression_guarded_var_underscore_still_counts() {
         check_metrics::<CsharpParser>(
@@ -2081,6 +2123,7 @@ mod tests {
     /// leaves every assertion below satisfied and the construct under
     /// test gone; the anchor's count of 7 — six arms plus the one jump —
     /// fails by name instead.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_goto_case_is_not_a_switch_arm() {
         let src = "class A {
@@ -2118,6 +2161,7 @@ mod tests {
     }
 
     /// Modified CCN: C# switch statement with 2 cases counts as 1.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_switch_modified() {
         check_metrics::<CsharpParser>(
@@ -2160,6 +2204,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_null_coalescing_and_conditional_access() {
         // Each `??` and `?.` is +1 cyclomatic.
@@ -2194,6 +2239,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_simple_function() {
         check_metrics::<JavascriptParser>(
@@ -2230,6 +2276,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_switch() {
         check_metrics::<JavascriptParser>(
@@ -2275,6 +2322,7 @@ mod tests {
     }
 
     /// Modified CCN: JS switch with 3 cases collapses to 1.
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_switch_modified() {
         check_metrics::<JavascriptParser>(
@@ -2312,6 +2360,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_simple_function() {
         check_metrics::<GoParser>(
@@ -2343,6 +2392,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_if_else() {
         check_metrics::<GoParser>(
@@ -2379,6 +2429,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_else_if_chain() {
         check_metrics::<GoParser>(
@@ -2418,6 +2469,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_for_loop() {
         check_metrics::<GoParser>(
@@ -2451,6 +2503,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_for_range() {
         check_metrics::<GoParser>(
@@ -2487,6 +2540,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_switch() {
         check_metrics::<GoParser>(
@@ -2524,6 +2578,7 @@ mod tests {
     }
 
     /// Modified CCN: Go switch with 3 cases collapses to 1.
+    #[cfg(feature = "go")]
     #[test]
     fn go_switch_modified() {
         check_metrics::<GoParser>(
@@ -2565,6 +2620,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_type_switch() {
         check_metrics::<GoParser>(
@@ -2600,6 +2656,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_select() {
         check_metrics::<GoParser>(
@@ -2636,6 +2693,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_logical_operators() {
         check_metrics::<GoParser>(
@@ -2669,6 +2727,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_defer_and_go_do_not_count() {
         check_metrics::<GoParser>(
@@ -2707,6 +2766,7 @@ mod tests {
     // https://github.com/sebastianbergmann/php-code-coverage/issues/607
     // An anonymous class declaration is not considered when computing the Cyclomatic Complexity metric for Java
     // Only the complexity of the anonymous class content is considered for the computation
+    #[cfg(feature = "java")]
     #[test]
     fn java_anonymous_class() {
         check_metrics::<JavaParser>(
@@ -2772,6 +2832,7 @@ mod tests {
     /// the dedicated `JavaCode` impl already counts. Adding
     /// `Java::DoStatement` would double-count — see issue #284. This
     /// test pins the correct keyword-driven count.
+    #[cfg(feature = "java")]
     #[test]
     fn java_do_statement_counts_in_cyclomatic() {
         check_metrics::<JavaParser>(
@@ -2819,6 +2880,7 @@ mod tests {
     /// just like inside a classic `ForStatement`. Pinning this
     /// prevents reintroducing the double-count from issue #284's
     /// incorrect fix proposal.
+    #[cfg(feature = "java")]
     #[test]
     fn java_enhanced_for_statement_counts_in_cyclomatic() {
         check_metrics::<JavaParser>(
@@ -2859,6 +2921,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_simple_class() {
         check_metrics::<GroovyParser>(
@@ -2889,6 +2952,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_nested_control_flow() {
         check_metrics::<GroovyParser>(
@@ -2907,6 +2971,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_switch_with_cases() {
         check_metrics::<GroovyParser>(
@@ -2933,6 +2998,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_try_catch() {
         check_metrics::<GroovyParser>(
@@ -2951,6 +3017,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_closure_body_short_circuit() {
         // Top-level `def pred = { … }` collapses the closure into the
@@ -2967,6 +3034,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_assert_adds_branch() {
         // Groovy `assert` is a runtime check that branches on its
@@ -2989,6 +3057,7 @@ mod tests {
     /// by the dedicated `GroovyCode` impl. Adding `Groovy::DoStatement`
     /// would double-count (issue #284). This test pins the correct
     /// keyword-driven count.
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_do_statement_counts_in_cyclomatic() {
         check_metrics::<GroovyParser>(
@@ -3015,6 +3084,7 @@ mod tests {
     /// inside a classic `ForStatement`. Pinning this prevents
     /// reintroducing the double-count from issue #284's incorrect fix
     /// proposal.
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_enhanced_for_statement_counts_in_cyclomatic() {
         check_metrics::<GroovyParser>(
@@ -3034,6 +3104,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_safe_navigation_cyclomatic() {
         // Issue #452: Groovy's safe-navigation `?.` (QMARKDOT) is a
@@ -3050,6 +3121,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_safe_subscript_cyclomatic() {
         // Issue #1471: `?[` short-circuits on a null receiver exactly as
@@ -3069,6 +3141,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_safe_chain_dot_cyclomatic() {
         // Issue #452: Groovy's `??.` (QMARKQMARKDOT, the spread-safe
@@ -3084,6 +3157,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_nested_control_flow() {
         check_metrics::<PerlParser>(
@@ -3119,6 +3193,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_postfix_conditionals() {
         check_metrics::<PerlParser>(
@@ -3151,6 +3226,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_unless_and_until() {
         check_metrics::<PerlParser>(
@@ -3187,6 +3263,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_logical_operators_and_ternary() {
         check_metrics::<PerlParser>(
@@ -3221,6 +3298,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_word_logical_operators() {
         check_metrics::<PerlParser>(
@@ -3253,6 +3331,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_compound_short_circuit_assignment_249() {
         // Regression for issue #249: `&&=`, `||=`, `//=` are each one
@@ -3296,6 +3375,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_foreach_loop() {
         check_metrics::<PerlParser>(
@@ -3326,6 +3406,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_else_does_not_count_but_elsif_does() {
         check_metrics::<PerlParser>(
@@ -3363,6 +3444,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_simple_function() {
         check_metrics::<TsxParser>(
@@ -3399,6 +3481,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_if_else_and_switch() {
         check_metrics::<TypescriptParser>(
@@ -3443,6 +3526,7 @@ mod tests {
     }
 
     /// Modified CCN: TypeScript switch with 3 cases collapses to 1.
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_switch_modified() {
         check_metrics::<TypescriptParser>(
@@ -3481,6 +3565,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_if_else_and_switch() {
         check_metrics::<MozjsParser>(
@@ -3525,6 +3610,7 @@ mod tests {
     }
 
     /// Modified CCN: MozJS switch with 2 cases collapses to 1.
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_switch_modified() {
         check_metrics::<MozjsParser>(
@@ -3561,6 +3647,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_cyclomatic_mixed() {
         check_metrics::<KotlinParser>(
@@ -3616,6 +3703,7 @@ mod tests {
     }
 
     /// Modified CCN: Kotlin when with 3 entries collapses to 1.
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_when_modified() {
         check_metrics::<KotlinParser>(
@@ -3660,6 +3748,7 @@ mod tests {
     /// Regression #282: the `else -> …` arm in a Kotlin `when`
     /// expression must NOT contribute to standard CCN, mirroring the
     /// C-family `default:` rule.
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_when_else_arm_not_counted() {
         check_metrics::<KotlinParser>(
@@ -3684,6 +3773,7 @@ mod tests {
     /// pins the single-explicit case) to confirm the count scales
     /// linearly with explicit arms and is not accidentally hard-coded
     /// to one.
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_when_multiple_explicit_arms_each_count() {
         check_metrics::<KotlinParser>(
@@ -3704,6 +3794,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_1_level_nesting() {
         // chunk: base=1; f: base=1 + for=1 + if=1 = 3; sum=4
@@ -3738,6 +3829,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_elseif_branches() {
         // chunk: base=1; classify: base=1 + if=1 + elseif=1 + elseif=1 = 4
@@ -3776,6 +3868,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_logical_operators() {
         // chunk: base=1; f: base=1 + if=1 + and=1 + or=1 = 4; sum=5
@@ -3808,6 +3901,7 @@ end",
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_nested_control_flow() {
         check_metrics::<BashParser>(
@@ -3834,6 +3928,7 @@ f() {
     /// Regression test for #107: case…esac must not double-count the container.
     /// Standard CCN counts only arms (matching C-family `switch` semantics).
     /// Modified CCN counts only the container.
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_case_modified() {
         check_metrics::<BashParser>(
@@ -3872,6 +3967,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_1_level_nesting() {
         // chunk: base=1; f: base=1 + while=1 + if=1 = 3; sum=4
@@ -3893,6 +3989,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_elseif_branch() {
         // if=1, elseif=1; else does NOT add a branch; sum=3 (chunk base=1)
@@ -3917,6 +4014,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_logical_operators() {
         check_metrics::<TclParser>(
@@ -3935,6 +4033,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_catch_branch() {
         // `catch` command adds +1 (conditional handler); `try` does NOT add a branch.
@@ -3955,6 +4054,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_try_no_branch() {
         // `try` is NOT a conditional construct; it does not add cyclomatic complexity.
@@ -3992,6 +4092,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_switch_cyclomatic() {
         // Tcl `switch` is a generic command; each non-`default` arm is a
@@ -4019,6 +4120,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_switch_cyclomatic_no_default_with_options() {
         // No `default` arm, and leading `switch` options (`-exact --`) precede
@@ -4042,6 +4144,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_switch_split_form_stays_uncounted() {
         // The split arm form (`switch $x a {…} b {…}`) passes each arm
@@ -4068,6 +4171,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_for_cyclomatic() {
         // Tcl `for` is a generic command — the grammar has no `for` rule —
@@ -4090,6 +4194,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_for_cyclomatic_name_gate() {
         // The detection reads the command's `name` field: a command whose
@@ -4111,6 +4216,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_qualified_for_resolves_to_the_builtin() {
         // `::for` is `for` through the global namespace, so it scores
@@ -4131,6 +4237,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_namespaced_for_is_not_the_builtin() {
         // Control: `ns::for` lives in `ns` and is not the core loop, so
@@ -4150,6 +4257,7 @@ f() {
         );
     }
 
+    #[cfg(all(feature = "irules", feature = "tcl"))]
     #[test]
     fn tcl_irules_for_parity() {
         // iRules models `for` as a dedicated kind counted by the kind
@@ -4187,6 +4295,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_try_on_error_cyclomatic() {
         // Tcl `try` is a dedicated kind whose single permitted `on error`
@@ -4214,6 +4323,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_try_finally_only_cyclomatic() {
         // A `try` with no handler has no decision point: `finally` is
@@ -4237,6 +4347,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_try_handlers_cyclomatic() {
         // iRules wraps each `try` handler in a dedicated `on_handler` /
@@ -4267,6 +4378,7 @@ f() {
         );
     }
 
+    #[cfg(all(feature = "irules", feature = "tcl"))]
     #[test]
     fn tcl_irules_try_parity() {
         // The same single-handler `try` must score identically in Tcl
@@ -4294,6 +4406,7 @@ f() {
         });
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_for_loop() {
         check_metrics::<MozjsParser>(
@@ -4314,6 +4427,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_logical_operators() {
         check_metrics::<MozjsParser>(
@@ -4333,6 +4447,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_nullish_coalescing_chain_226() {
         // `??` is short-circuit and must count as
@@ -4370,6 +4485,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_nullish_coalescing_with_if_226() {
         // TypeScript must count `??` as a
@@ -4407,6 +4523,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_nullish_coalescing_chain_226() {
         // TSX must count `??` the same as JS/TS.
@@ -4442,6 +4559,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_nullish_coalescing_chain_226() {
         // Mozjs must count `??` the same as JS.
@@ -4477,6 +4595,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_nullish_coalescing_assignment_231() {
         // `x ??= y` is `x = x ?? y` — one short-circuit decision edge,
@@ -4515,6 +4634,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_nullish_coalescing_assignment_231() {
         // TypeScript must count `??=` the same as JS.
@@ -4552,6 +4672,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_nullish_coalescing_assignment_231() {
         // TSX must count `??=` the same as JS/TS.
@@ -4589,6 +4710,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_nullish_coalescing_assignment_231() {
         // Mozjs must count `??=` the same as JS.
@@ -4626,6 +4748,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_short_circuit_assignments_248() {
         // `&&=`, `||=`, `??=` are each one short-circuit decision edge —
@@ -4666,6 +4789,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_short_circuit_assignments_248() {
         // TypeScript parallel of #248: `&&=` / `||=` / `??=` each +1.
@@ -4704,6 +4828,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_short_circuit_assignments_248() {
         // TSX parallel of #248: `&&=` / `||=` / `??=` each +1.
@@ -4742,6 +4867,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_short_circuit_assignments_248() {
         // Mozjs parallel of #248: `&&=` / `||=` / `??=` each +1.
@@ -4786,6 +4912,7 @@ f() {
     // cyclomatic ignored `?.` entirely. The four tests below mirror
     // the existing `nullish_coalescing_chain_226` pattern but for
     // `?.`: two `?.` in a chain add +2 on top of the function entry.
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_optional_chain_counted_in_cyclomatic_281() {
         check_metrics::<JavascriptParser>(
@@ -4801,6 +4928,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_optional_chain_counted_in_cyclomatic_281() {
         check_metrics::<MozjsParser>(
@@ -4815,6 +4943,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_optional_chain_counted_in_cyclomatic_281() {
         // TS exposes `?.` as both an `optional_chain` wrapper (over
@@ -4833,6 +4962,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_optional_chain_counted_in_cyclomatic_281() {
         check_metrics::<TsxParser>(
@@ -4851,6 +4981,7 @@ f() {
     // ensures the TS/TSX dispatch on `QMARKDOT` (not the wrapper)
     // counts both forms exactly once. Both forms emit the bare `?.`
     // token; the wrapper only appears around member expressions.
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_optional_chain_call_form_counted_281() {
         check_metrics::<TypescriptParser>(
@@ -4865,6 +4996,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_optional_chain_call_form_counted_281() {
         check_metrics::<TsxParser>(
@@ -4879,6 +5011,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_nullish_coalescing_assignment_231() {
         // C#'s `??=` is short-circuit (RHS evaluates only when LHS is null)
@@ -4921,6 +5054,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_while_loop() {
         check_metrics::<MozjsParser>(
@@ -4941,6 +5075,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_while_loop() {
         check_metrics::<BashParser>(
@@ -4962,6 +5097,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_case_statement() {
         check_metrics::<BashParser>(
@@ -4990,6 +5126,7 @@ f() {
     /// (1 base + 2 arms); with the fix it reports `2` (1 base + 1
     /// explicit arm), matching every other switch-bearing language
     /// in `tests/parity/cyclomatic_cross_language_parity.rs`.
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_case_bare_wildcard_excluded() {
         check_metrics::<BashParser>(
@@ -5016,6 +5153,7 @@ f() {
     /// A multi-value pattern containing `*` (`a|*)`) is NOT a bare
     /// wildcard — both alternations make it a non-default case. The
     /// arm still contributes one standard decision.
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_case_multi_value_with_star_counts() {
         check_metrics::<BashParser>(
@@ -5036,6 +5174,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_arithmetic_ternary_is_a_decision() {
         // Regression for #1268: the arithmetic ternary is the only ternary
@@ -5065,6 +5204,7 @@ g() {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_ternary_expression_alias_is_unreachable() {
         // Drift marker for the defensive `TernaryExpression2` arm (lesson
@@ -5093,6 +5233,7 @@ g() {
         assert!(!ast_has_kind_id(&parser, Bash::TernaryExpression2 as u16));
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_nested_arithmetic_ternary_counts_each_occurrence() {
         // Each ternary is its own decision point (#1268).
@@ -5110,6 +5251,7 @@ h() {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_simple_function() {
         check_metrics::<BashParser>(
@@ -5127,6 +5269,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_for_loop() {
         check_metrics::<KotlinParser>(
@@ -5147,6 +5290,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_while_loop() {
         check_metrics::<KotlinParser>(
@@ -5167,6 +5311,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_logical_operators() {
         check_metrics::<KotlinParser>(
@@ -5183,6 +5328,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_elvis_operator_239() {
         // Regression for issue #239: Kotlin's Elvis operator `?:` is a
@@ -5222,6 +5368,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_safe_navigation_436() {
         // Issue #436: Kotlin's safe-navigation `?.` is a short-circuit
@@ -5243,6 +5390,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_for_loop() {
         check_metrics::<TypescriptParser>(
@@ -5263,6 +5411,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_while_loop() {
         check_metrics::<TypescriptParser>(
@@ -5283,6 +5432,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_logical_operators() {
         check_metrics::<TypescriptParser>(
@@ -5299,6 +5449,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_try_catch() {
         check_metrics::<TypescriptParser>(
@@ -5319,6 +5470,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_for_loop() {
         check_metrics::<TsxParser>(
@@ -5339,6 +5491,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_while_loop() {
         check_metrics::<TsxParser>(
@@ -5359,6 +5512,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_logical_operators() {
         check_metrics::<TsxParser>(
@@ -5375,6 +5529,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_try_catch() {
         check_metrics::<TsxParser>(
@@ -5395,6 +5550,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_switch() {
         check_metrics::<TsxParser>(
@@ -5420,6 +5576,7 @@ f() {
     }
 
     /// Modified CCN: TSX switch with 2 cases collapses to 1.
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_switch_modified() {
         check_metrics::<TsxParser>(
@@ -5442,6 +5599,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_1_level_nesting() {
         // Mirrors java_simple_class' if-inside-method shape:
@@ -5488,6 +5646,7 @@ f() {
     // Three func spaces (Unit + defmodule Class + def Function) each
     // seed one entry: standard = 3 entries + 2 counted stabs = 5;
     // modified = 3 entries + 1 case Call = 4.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_case_arms() {
         check_metrics::<ElixirParser>(
@@ -5508,6 +5667,7 @@ f() {
     // 3 entries + case + the guard = 5. The guard is the #1454 arm: it
     // is a second way the arm can fail, and no container collapses it,
     // so it counts in both tiers where the arm counts only in standard.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_case_guarded_wildcard_counts() {
         check_metrics::<ElixirParser>(
@@ -5524,6 +5684,7 @@ f() {
     // the bare `_` is the default arm, matching Rust's bare-`_`-only
     // MatchArm rule (issue #1272). standard = 3 entries + `1 ->` +
     // `_x ->` = 5; modified = 3 entries + case Call = 4.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_case_named_discard_counts() {
         check_metrics::<ElixirParser>(
@@ -5541,6 +5702,7 @@ f() {
     // (issue #1272, grammar-dispatch §8: anchor the exclusion to the
     // owning construct). standard = 3 entries + `true ->` +
     // `false ->` = 5; modified = 3 entries + case Call = 4.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_case_true_pattern_counts() {
         check_metrics::<ElixirParser>(
@@ -5557,6 +5719,7 @@ f() {
     // decision point — Elixir does not expose `if`/`unless` as a
     // distinct kind_id, so this is the only operator-driven path the
     // metric can see.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_logical_operators() {
         check_metrics::<ElixirParser>(
@@ -5574,6 +5737,7 @@ f() {
     // Call contributes once to modified CCN, while each rescue/catch
     // arm's matched pattern (a `stab_clause`) contributes once to
     // standard CCN. This mirrors C-family `try`/`catch` semantics.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_try_rescue() {
         check_metrics::<ElixirParser>(
@@ -5592,6 +5756,7 @@ f() {
     // metric inspects the source text of the call's target field to
     // identify it. Single-branch keyword Calls (`if`/`unless`/`for`/
     // `while`) contribute to both standard and modified CCN.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_if_else_counts() {
         check_metrics::<ElixirParser>(
@@ -5610,6 +5775,7 @@ f() {
     // form — the `else` keyword is a do-block keyword argument, not
     // an extra `stab_clause`, so its presence does not change the
     // cyclomatic count.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_if_without_else_counts() {
         check_metrics::<ElixirParser>(
@@ -5625,6 +5791,7 @@ f() {
 
     // `unless x do ... end` is the negated `if`; it surfaces as
     // `Call(target=unless)` and is treated identically to `if`.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_unless_counts() {
         check_metrics::<ElixirParser>(
@@ -5640,6 +5807,7 @@ f() {
     // `for x <- list, do: ...` is Elixir's comprehension generator —
     // a `Call(target=for)`. Counts once for both standard and
     // modified, mirroring `if`/`unless`.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_for_comprehension_counts() {
         check_metrics::<ElixirParser>(
@@ -5665,6 +5833,7 @@ f() {
     // `Call`, so it adds no modified-CCN container decision.
     // Standard = 4 entries (Unit, defmodule, def, anon-fn) + 1 counted
     // branch (`_ ->`) = 5; modified = 4 entries = 4.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_anonymous_fn_arms_count() {
         check_metrics::<ElixirParser>(
@@ -5688,6 +5857,7 @@ f() {
     // `_ ->` (2 counted arms there: the bare `_ ->` is free but the
     // container's arms 1 and 2 count). Standard = 4 entries (Unit,
     // defmodule, def, anon-fn) + 2 branches = 6; modified = 4.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_multi_clause_fn_catchall_composition() {
         check_metrics::<ElixirParser>(
@@ -5705,6 +5875,7 @@ f() {
     // `cond`'s `do_block`, so the cond-default exclusion must not fire
     // (issue #1272). Standard = 4 entries (Unit, defmodule, def,
     // anon-fn) + 1 branch (the `true ->` clause) = 5; modified = 4.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_fn_true_clause_counts() {
         check_metrics::<ElixirParser>(
@@ -5725,6 +5896,7 @@ f() {
     // `elixir_enum_reduce_is_zero`). Before the fix the head clause
     // added a spurious +1, reporting 2. Standard = 4 entries (Unit,
     // defmodule, def, anon-fn) + 0 branches = 4; modified = 4.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_single_clause_anonymous_fn_is_not_a_branch() {
         check_metrics::<ElixirParser>(
@@ -5746,6 +5918,7 @@ f() {
     // anyway (#1272). Standard = 4 entries (Unit, defmodule, def,
     // anon-fn) + 1 branch = 5; modified = 4 entries, the `fn` itself
     // being no container Call.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_zero_arity_multi_clause_fn_counts_second_clause() {
         check_metrics::<ElixirParser>(
@@ -5768,6 +5941,7 @@ f() {
     // default, the analogue of `if`/`elif`/`else`'s free `else`
     // (issue #1272). The `cond` Call is a multi-arm container
     // (modified CCN, once).
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_cond_arms() {
         check_metrics::<ElixirParser>(
@@ -5786,6 +5960,7 @@ f() {
     // exclusion targets only the designated-default clause, not the
     // container's last arm (issue #1272). standard = 3 entries +
     // 2 stabs = 5; modified = 3 entries + 1 cond Call = 4.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_cond_without_default_counts_all_arms() {
         check_metrics::<ElixirParser>(
@@ -5806,6 +5981,7 @@ f() {
     // family sets the precedent (issue #1272). standard = 3 entries +
     // 1 counted stab (`x > 5 ->`; the shadowing `true ->` is free)
     // = 4; modified = 3 entries + 1 cond Call = 4.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_cond_shadowing_true_arm_also_excluded() {
         check_metrics::<ElixirParser>(
@@ -5825,6 +6001,7 @@ f() {
     // and the inner bare `_ ->` is free (case default).
     // standard: 3 entries + outer `x > 1 ->` + inner `true ->` = 5;
     // modified: 3 entries + cond Call + case Call = 5.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_nested_case_inside_cond_keeps_exclusions_scoped() {
         check_metrics::<ElixirParser>(
@@ -5843,6 +6020,7 @@ f() {
     // branch, when present, contains `stab_clause`s that count for
     // standard. The `with` Call itself is a multi-arm container Call
     // that contributes once to modified CCN.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_with_else_only_counts_else_arms() {
         check_metrics::<ElixirParser>(
@@ -5857,6 +6035,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_match_expression() {
         // Each `match_conditional_expression` arm (+1) but the default arm
@@ -5899,6 +6078,7 @@ f() {
     }
 
     /// Modified CCN: PHP switch with 3 cases collapses to 1.
+    #[cfg(feature = "php")]
     #[test]
     fn php_switch_modified() {
         check_metrics::<PhpParser>(
@@ -5927,6 +6107,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_null_coalescing() {
         // `??` and `??=` are each one short-circuit decision (#231).
@@ -5967,6 +6148,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_nullsafe_operator_436() {
         // Issue #436: PHP's nullsafe operator `?->` is a short-circuit
@@ -5994,6 +6176,7 @@ f() {
 
     /// Modified CCN: nested switches contribute one decision each, not one
     /// total — the outer container does not absorb the inner one.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_nested_switch_modified() {
         check_metrics::<CppParser>(
@@ -6037,6 +6220,7 @@ f() {
 
     /// Modified CCN: nested Rust matches each contribute one container.
     /// Bare `_ =>` arms are skipped.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_nested_match_modified() {
         check_metrics::<RustParser>(
@@ -6079,6 +6263,7 @@ f() {
 
     /// Pin the empty-switch edge case: standard counts no arms (0) while
     /// modified still counts the container (+1) per Lizard's `-m`.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_empty_switch_modified() {
         check_metrics::<CppParser>("void f() { switch (x) {} }", "foo.c", |metric| {
@@ -6108,6 +6293,7 @@ f() {
 
     /// Two nested `for` loops contribute +1 each on top of the function and
     /// unit decisions.  No condition expressions, so `&&` / `||` do not fire.
+    #[cfg(feature = "c")]
     #[test]
     fn c_nested_loops() {
         check_metrics::<CParser>(
@@ -6156,6 +6342,7 @@ f() {
     /// statement node would double-count — see the macro doc comment
     /// and issue #284. This test pins the correct keyword-driven
     /// count.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_do_statement_counts_in_cyclomatic() {
         check_metrics::<CppParser>(
@@ -6202,6 +6389,7 @@ f() {
     /// inside a classic `ForStatement`. Pinning this prevents
     /// reintroducing the double-count from issue #284's incorrect fix
     /// proposal.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_for_range_loop_counts_in_cyclomatic() {
         check_metrics::<CppParser>(
@@ -6245,6 +6433,7 @@ f() {
     /// add +1; `switch` adds only to the modified count. C has no
     /// `catch`, so the hand-written `Cyclomatic for CCode` impl omits
     /// the exception arm the C++ macro carries.
+    #[cfg(feature = "c")]
     #[test]
     fn c_grammar_decision_kinds_count_in_cyclomatic() {
         check_metrics::<CParser>(
@@ -6276,6 +6465,7 @@ f() {
     /// `?:` ternary is matched by `Cpp::ConditionalExpression` in the
     /// C-family macro and contributes +1 standard *and* +1 modified.
     /// Two nested ternaries in one expression therefore add 2 to each.
+    #[cfg(feature = "c")]
     #[test]
     fn c_ternary_chain() {
         check_metrics::<CParser>(
@@ -6314,6 +6504,7 @@ f() {
 
     /// Short-circuit `&&` / `||` chains each contribute +1 — every binary
     /// operator token in the chain is a separate decision (Lizard parity).
+    #[cfg(feature = "c")]
     #[test]
     fn c_short_circuit_chain() {
         check_metrics::<CParser>(
@@ -6356,6 +6547,7 @@ f() {
     /// Switch with intentional fall-through: every `case` adds +1 standard
     /// regardless of whether the arm `break`s.  Modified collapses all three
     /// arms into one switch container.
+    #[cfg(feature = "c")]
     #[test]
     fn c_switch_fallthrough() {
         check_metrics::<CParser>(
@@ -6410,6 +6602,7 @@ f() {
     /// Lizard, which also does not count `goto`.  This test pins that
     /// decision so a future change that adds `Cpp::GotoStatement` to the
     /// macro fires here first.
+    #[cfg(feature = "c")]
     #[test]
     fn c_goto_not_counted() {
         check_metrics::<CParser>(
@@ -6456,6 +6649,7 @@ f() {
     /// the values we expect from a known fixture, bypassing the JSON
     /// serializer.  Modified must never exceed standard for non-degenerate
     /// inputs (a switch with at least one arm).
+    #[cfg(feature = "rust")]
     #[test]
     fn cyclomatic_modified_accessors() {
         check_metrics::<RustParser>(
@@ -6483,6 +6677,7 @@ f() {
     }
 
     /// Bare `_ =>` wildcard is not counted (matches C-family `default:`).
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_wildcard_only_match() {
         check_metrics::<RustParser>(
@@ -6519,6 +6714,7 @@ f() {
     }
 
     /// Wildcard arm plus explicit arms: only explicit arms count.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_wildcard_plus_explicit_arms() {
         check_metrics::<RustParser>(
@@ -6558,6 +6754,7 @@ f() {
     }
 
     /// `Some(_)` is NOT a bare wildcard — still counts.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_some_wildcard_still_counts() {
         check_metrics::<RustParser>(
@@ -6595,6 +6792,7 @@ f() {
     }
 
     /// Tuple pattern `(_, x)` is NOT a bare wildcard — still counts.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_tuple_wildcard_still_counts() {
         check_metrics::<RustParser>(
@@ -6633,6 +6831,7 @@ f() {
 
     /// `_ if guard` is NOT a bare wildcard — still counts.
     /// The `if` keyword inside the guard also contributes +1 standard/modified.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_guarded_wildcard_still_counts() {
         check_metrics::<RustParser>(
@@ -6672,6 +6871,7 @@ f() {
 
     /// Regression #107: empty case…esac has no arms, so standard adds 0 and
     /// modified adds 1 (the container).
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_case_empty() {
         check_metrics::<BashParser>(
@@ -6709,6 +6909,7 @@ f() {
 
     /// Regression #107: nested case…esac — each container contributes to
     /// modified independently, and each arm contributes to standard.
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_nested_case() {
         check_metrics::<BashParser>(
@@ -6752,6 +6953,7 @@ f() {
     }
 
     /// Nested matches with wildcards: only bare `_` skipped at each level.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_nested_match_with_wildcards() {
         check_metrics::<RustParser>(
@@ -6792,6 +6994,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_nested_branches() {
         // expected: unit(1) + method(1 + `if` + `while`) = 1 + 3 = 4
@@ -6806,6 +7009,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_case_when_arms() {
         // Each `when` arm adds standard CCN; the `case` container is
@@ -6823,6 +7027,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_case_match_default_only_arm_not_counted() {
         // Regression for #977: a `case … in` whose only arm is the bare
@@ -6842,6 +7047,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_case_match_in_arms_and_guard_counted() {
         // Regression for #977: a non-wildcard `in 1` arm and a guarded
@@ -6871,6 +7077,7 @@ f() {
     /// function is just its base 1. Per-language snapshot suites pin each
     /// history but cannot catch the cross-language disagreement this
     /// guards (lesson 11; #106 was exactly a wildcard-counting drift).
+    #[cfg(all(feature = "python", feature = "ruby", feature = "rust"))]
     #[test]
     fn cyclomatic_bare_wildcard_default_arm_cross_language() {
         check_metrics::<RubyParser>(
@@ -6890,6 +7097,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_ternary_conditional() {
         // Ruby's `cond ? a : b` parses as `Conditional` and counts as a
@@ -6905,6 +7113,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_and_or_keywords() {
         // Word-form `and` / `or` are distinct grammar kinds from
@@ -6937,6 +7146,7 @@ f() {
     /// language asserts the literal 3.0 in its own closure so a future
     /// drift in any single language fails THIS test (and only this
     /// test), making cross-language disagreement visible at a glance.
+    #[cfg(all(feature = "java", feature = "ruby", feature = "rust"))]
     #[test]
     fn cyclomatic_if_elseif_else_chain_cross_language() {
         check_metrics::<RubyParser>(
@@ -6985,8 +7195,10 @@ f() {
     /// modified assertion a mutation that drops
     /// `stats.cyclomatic_modified += 1.` from any shared arm (or
     /// drops the `Switch` arm entirely) would pass.
+    #[cfg(all(feature = "groovy", feature = "java"))]
     #[test]
     fn cyclomatic_java_groovy_parity_300() {
+        #[cfg(any(feature = "groovy", feature = "java"))]
         const JAVA_SRC: &str = "class C {\n\
             int decide(int x, int y, int[] xs) {\n\
                 int r = 0;\n\
@@ -6999,6 +7211,7 @@ f() {
                 return r;\n\
             }\n\
         }\n";
+        #[cfg(any(feature = "groovy", feature = "java"))]
         const GROOVY_SRC: &str = "class C {\n\
             int decide(int x, int y, int[] xs) {\n\
                 int r = 0\n\
@@ -7036,6 +7249,7 @@ f() {
     /// statement is grammar-distinct and not in this macro's arm).
     /// Dropping `[Assert]` from the Groovy invocation would fail this
     /// test.
+    #[cfg(feature = "groovy")]
     #[test]
     fn cyclomatic_groovy_assert_arm_300() {
         check_metrics::<GroovyParser>("void check(int x) { assert x > 0 }", "foo.groovy", |m| {
@@ -7062,6 +7276,7 @@ f() {
     /// `elvis_expression` node with a real `QMARKCOLON` token, so the
     /// `impl_cyclomatic_java_like!(GroovyCode, Groovy, [Assert,
     /// QMARKCOLON])` invocation picks it up directly.
+    #[cfg(feature = "groovy")]
     #[test]
     fn cyclomatic_groovy_elvis_chain_246() {
         check_metrics::<GroovyParser>(
@@ -7080,6 +7295,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_rescue_modifier() {
         // Postfix `x rescue y` parses as a `RescueModifier` node that
@@ -7097,6 +7313,7 @@ f() {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_safe_navigation_cyclomatic() {
         // Issue #452: Ruby's safe-navigation `&.` (AMPDOT) is a
@@ -7116,6 +7333,7 @@ f() {
     /// Nested control flow inside a `when` handler (the iRules floor case,
     /// mirroring `rust_1_level_nesting`). unit(1) + handler(base 1 + while 1
     /// + if 1 = 3) = sum 4, max 3.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_1_level_nesting() {
         check_metrics::<IrulesParser>(
@@ -7140,6 +7358,7 @@ f() {
     /// standard decision; the whole `switch` is one modified decision.
     /// standard: unit(1) + handler(base 1 + 2 arms) = 4; modified:
     /// unit(1) + handler(base 1 + switch 1) = 3. The `default` arm is free.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_switch() {
         check_metrics::<IrulesParser>(
@@ -7165,6 +7384,7 @@ f() {
     /// like `&&` / `||` (iRules-specific — Tcl's grammar has no keyword
     /// forms). unit(1) + handler(base 1 + if 1 + and 1 + or 1 = 4) = 5.
     /// Guards edge case #3 / the keyword-operator arms in the impl.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_and_or_keywords() {
         check_metrics::<IrulesParser>(
@@ -7190,6 +7410,7 @@ f() {
     /// case #4: if each string operator were wrongly counted as a branch the
     /// sum would be 6, so the divergence (4 vs 6) is unambiguous — it cannot
     /// be confused with the `if`/`||` simply being miscounted.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_string_ops_not_branches() {
         check_metrics::<IrulesParser>(
@@ -7210,6 +7431,7 @@ f() {
 
     /// A ternary `? :` in an `expr` is one decision; the bare `>` comparison
     /// is not. unit(1) + handler(base 1 + ternary 1 = 2) = 3.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_ternary() {
         check_metrics::<IrulesParser>(
@@ -7229,6 +7451,7 @@ f() {
     /// `dict for` iterates and is a loop decision; the non-looping
     /// `dict update` / `dict with` are excluded by the impl.
     /// unit(1) + handler(base 1 + dict_for 1 = 2) = 3.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_dict_for_loop() {
         check_metrics::<IrulesParser>(
@@ -7251,6 +7474,7 @@ f() {
     /// `method_definition` held by an `@implementation`. The
     /// `@implementation` opens a Class space (+1). Standard CCN =
     /// unit(1) + class(1) + method(1) + for(1) + if(1) = 5.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_nested_control() {
         check_metrics::<ObjcParser>(
@@ -7290,6 +7514,7 @@ f() {
     /// Objective-C `@try { } @catch { }`: the `catch_clause` node adds
     /// one decision point. Standard CCN = unit(1) + class(1) + method(1)
     /// + catch(1) = 4.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_try_catch() {
         check_metrics::<ObjcParser>(
@@ -7330,6 +7555,7 @@ f() {
     /// `for_statement` whose `for` keyword fires once, exactly like a
     /// classic `for`. Standard CCN = unit(1) + class(1) + method(1) +
     /// for(1) = 4.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_fast_enumeration() {
         check_metrics::<ObjcParser>(

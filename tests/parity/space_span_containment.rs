@@ -27,6 +27,31 @@ use super::ops_metrics_space_parity::{SpaceTree, fixture};
 
 /// Lines in `source`, counting the way an editor does: a trailing
 /// newline terminates the last line rather than opening an empty one.
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 fn line_count(source: &str) -> usize {
     source.lines().count()
 }
@@ -34,6 +59,31 @@ fn line_count(source: &str) -> usize {
 /// Asserts the containment invariant over one space subtree, returning
 /// the number of spaces visited so the caller can rule out a vacuous
 /// pass.
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 fn check_containment<T: SpaceTree>(
     lang: LANG,
     walk: &str,
@@ -69,6 +119,31 @@ fn check_containment<T: SpaceTree>(
 
 /// Asserts both invariants over both walks for one source, and returns
 /// the number of spaces the metrics walk produced.
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 fn check_source(lang: LANG, source: &str, ext: &str) -> usize {
     let name = format!("span.{ext}");
 
@@ -101,6 +176,31 @@ fn check_source(lang: LANG, source: &str, ext: &str) -> usize {
     visited
 }
 
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 #[test]
 fn every_space_lies_within_its_parent_in_every_language() {
     let mut checked = 0;
@@ -151,6 +251,31 @@ fn every_space_lies_within_its_parent_in_every_language() {
 /// An empty file is deliberately absent: it has no lines at all, so the
 /// `(1, line_count)` rule would demand the inverted `1..0`. That carve-out
 /// is pinned as a unit test beside `line_span` instead.
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 #[test]
 fn degenerate_sources_still_span_their_lines_in_every_language() {
     let mut checked = 0;

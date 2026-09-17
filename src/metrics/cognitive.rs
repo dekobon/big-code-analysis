@@ -709,6 +709,7 @@ mod tests {
     /// `else_clause` through the parent, Java through the preceding
     /// `else` token, which the chain answers by scanning the parent's
     /// children.
+    #[cfg(all(feature = "c", feature = "java"))]
     #[test]
     fn else_if_is_recognised_at_every_nesting_depth() {
         use crate::test_support::metrics_verbatim;
@@ -716,6 +717,7 @@ mod tests {
         // 1 for the `if`, plus 1 for each `else if` as a branch
         // extension. No nesting penalty: an `else if` continues the
         // chain rather than nesting inside it.
+        #[cfg(any(feature = "c", feature = "java"))]
         const CHAIN_COGNITIVE: u64 = 3;
 
         let chain = "if (a) { } else if (b) { } else if (c) { }";
@@ -750,6 +752,7 @@ mod tests {
         assert_eq!(stats.cognitive_min(), 0);
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_no_cognitive() {
         check_metrics::<PythonParser>("a = 42", "foo.py", |metric| {
@@ -768,6 +771,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_no_cognitive() {
         check_metrics::<RustParser>("let a = 42;", "foo.rs", |metric| {
@@ -786,6 +790,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_no_cognitive() {
         check_metrics::<CParser>("int a = 42;", "foo.c", |metric| {
@@ -804,6 +809,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_no_cognitive() {
         check_metrics::<MozjsParser>("var a = 42;", "foo.js", |metric| {
@@ -822,6 +828,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_no_cognitive() {
         check_metrics::<JavascriptParser>("var a = 42;", "foo.js", |metric| {
@@ -840,6 +847,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_simple_function() {
         check_metrics::<PythonParser>(
@@ -871,6 +879,7 @@ mod tests {
     /// `switch_statement` do. A 2-arm match with one explicit arm
     /// plus a wildcard contributes one cognitive decision point.
     /// Regression test for #212.
+    #[cfg(feature = "python")]
     #[test]
     fn python_match_two_arm_wildcard() {
         check_metrics::<PythonParser>(
@@ -902,6 +911,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_expression_statement() {
         // Boolean expressions containing `And` and `Or` operators were not
@@ -927,6 +937,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_tuple() {
         // Boolean expressions containing `And` and `Or` operators were not
@@ -952,6 +963,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_elif_function() {
         // Boolean expressions containing `And` and `Or` operators were not
@@ -980,6 +992,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_more_elifs_function() {
         // Boolean expressions containing `And` and `Or` operators were not
@@ -1010,6 +1023,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_if_elif_elif_else_chain() {
         // Regression for #274: `if/elif/elif/else` must score as a flat
@@ -1049,6 +1063,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_else_if_chain_matches_elif() {
         // Regression for #276: `else: if x:` (no `elif`) is semantically
@@ -1085,6 +1100,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_try_except_finally_finally_is_free() {
         // Regression for #416: a `finally` clause is structured cleanup that
@@ -1119,6 +1135,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_try_except_matches_try_except_finally() {
         // Companion to #416: try/except (no finally) scores the same as the
@@ -1150,6 +1167,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_comprehension_matches_explicit_loop() {
         // Regression for #417: a list comprehension's `for`/`if` clauses must
@@ -1186,6 +1204,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_comprehension_plain_no_filter() {
         // A comprehension with no `if` filter scores just the loop.
@@ -1202,6 +1221,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_comprehension_nested_for() {
         // Two `for` clauses are nested loops: the second nests under the
@@ -1219,6 +1239,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_comprehension_multiple_filters() {
         // Each `if` filter is an independent condition nested under the for.
@@ -1237,6 +1258,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_comprehension_variants_consistent() {
         // dict / set / generator comprehensions reuse the same for_in_clause /
@@ -1261,6 +1283,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_comprehension_nested_in_element() {
         // Regression for #421: a comprehension in another comprehension's
@@ -1297,6 +1320,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_comprehension_three_levels_nested() {
         // Three comprehensions nested through each other's element positions
@@ -1329,6 +1353,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_generator_in_comprehension_element() {
         // #421 edge case: a generator passed to a call (`sum(...)`) in a
@@ -1358,6 +1383,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_try_finally_no_except_is_free() {
         // #416: try/finally with no except clause scores 0 — neither the try
@@ -1389,6 +1415,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_constructs_inside_finally_still_count() {
         // #416 guard: making `finally` free must not make its body invisible.
@@ -1422,6 +1449,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_simple_function() {
         check_metrics::<RustParser>(
@@ -1451,6 +1479,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_simple_function() {
         check_metrics::<CParser>(
@@ -1480,6 +1509,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_simple_function() {
         check_metrics::<MozjsParser>(
@@ -1509,6 +1539,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_simple_function() {
         check_metrics::<JavascriptParser>(
@@ -1538,6 +1569,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_sequence_same_booleans() {
         check_metrics::<PythonParser>(
@@ -1562,6 +1594,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_sequence_same_booleans() {
         check_metrics::<RustParser>(
@@ -1616,6 +1649,7 @@ mod tests {
     // node rather than a `BinaryExpression`. Before #396 these
     // tokens were invisible to the cognitive boolean-sequence
     // counter (cyclomatic already counted them via AMPAMP).
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_let_chain_sequence_booleans() {
         // expected: +1 for the `if`, +1 for the chain of two `&&`
@@ -1647,6 +1681,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_let_chain_vs_nested_if_let() {
         // Companion to `rust_let_chain_sequence_booleans`. The nested
@@ -1681,6 +1716,7 @@ mod tests {
         );
     }
 
+    #[cfg(all(feature = "c", feature = "cpp"))]
     #[test]
     fn c_sequence_same_booleans() {
         check_metrics::<CParser>(
@@ -1730,6 +1766,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_sequence_same_booleans() {
         check_metrics::<MozjsParser>(
@@ -1779,6 +1816,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_not_booleans() {
         check_metrics::<RustParser>(
@@ -1857,6 +1895,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_not_does_not_affect_boolean_sequence_392() {
         // Regression test for issue #392: `!` does not affect cognitive
@@ -1920,6 +1959,7 @@ mod tests {
         );
     }
 
+    #[cfg(all(feature = "c", feature = "cpp"))]
     #[test]
     fn c_not_booleans() {
         // `!` does not break boolean sequences (issue #392): the inner
@@ -1972,6 +2012,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_not_booleans() {
         // `!` does not break boolean sequences (issue #392): inner `&&`
@@ -2025,6 +2066,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_sequence_different_booleans() {
         check_metrics::<PythonParser>(
@@ -2049,6 +2091,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_sequence_different_booleans() {
         check_metrics::<RustParser>(
@@ -2075,6 +2118,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_sequence_different_booleans() {
         check_metrics::<CParser>(
@@ -2101,6 +2145,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_sequence_different_booleans() {
         check_metrics::<MozjsParser>(
@@ -2127,6 +2172,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_formatted_sequence_different_booleans() {
         check_metrics::<PythonParser>(
@@ -2154,6 +2200,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_1_level_nesting() {
         check_metrics::<PythonParser>(
@@ -2179,6 +2226,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_1_level_nesting() {
         check_metrics::<RustParser>(
@@ -2241,6 +2289,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_1_level_nesting() {
         check_metrics::<CParser>(
@@ -2277,6 +2326,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_1_level_nesting() {
         check_metrics::<MozjsParser>(
@@ -2313,6 +2363,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_nesting() {
         check_metrics::<JavascriptParser>(
@@ -2343,6 +2394,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_2_level_nesting() {
         check_metrics::<PythonParser>(
@@ -2369,6 +2421,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_2_level_nesting() {
         check_metrics::<RustParser>(
@@ -2400,6 +2453,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_try_construct() {
         check_metrics::<PythonParser>(
@@ -2428,6 +2482,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_flat_try_except() {
         // Regression for #242: flat try/except at function top level
@@ -2462,6 +2517,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_except_inside_if() {
         // Regression for #242: try/except nested inside an `if` must
@@ -2497,6 +2553,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_except_inside_for() {
         // Regression for #242: try/except nested inside a `for` must
@@ -2528,6 +2585,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_multi_except_inside_if() {
         // Regression for #242: every clause in a multi-except chain
@@ -2566,6 +2624,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_try_construct() {
         check_metrics::<MozjsParser>(
@@ -2600,6 +2659,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_try_construct() {
         check_metrics::<JavascriptParser>(
@@ -2641,6 +2701,7 @@ mod tests {
     // bump that splits `for...of` into its own node kind would surface
     // here rather than silently scoring `for...of` loops as 0 cognitive.
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_for_of_loop() {
         check_metrics::<JavascriptParser>(
@@ -2671,6 +2732,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_for_of_loop() {
         check_metrics::<MozjsParser>(
@@ -2701,6 +2763,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_for_of_loop() {
         check_metrics::<TypescriptParser>(
@@ -2731,6 +2794,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_for_of_loop() {
         check_metrics::<TsxParser>(
@@ -2761,6 +2825,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_break_continue() {
         // Only labeled break and continue statements are considered
@@ -2802,6 +2867,7 @@ mod tests {
     // (LoopExpression) distinct from WhileExpression. The cognitive nesting
     // arm previously matched only For/While/Match, so `loop {}` silently
     // contributed neither a structural +1 nor a nesting bump.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_loop_single() {
         check_metrics::<RustParser>(
@@ -2834,6 +2900,7 @@ mod tests {
 
     // Regression for #389: nested `loop` blocks must accrue nesting just
     // like nested `while`/`for` would.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_loop_nested() {
         check_metrics::<RustParser>(
@@ -2866,6 +2933,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_nested_function_resets_nesting_and_adds_depth() {
         // Regression for #696: a method defined on a local struct declared
@@ -2901,6 +2969,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_goto() {
         check_metrics::<CParser>(
@@ -2931,6 +3000,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_switch() {
         check_metrics::<CParser>(
@@ -2968,6 +3038,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_ternary() {
         // Sonar's rule scores the ternary `?:` as +1 (and +nesting), matching
@@ -3003,6 +3074,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_try_catch_single() {
         check_metrics::<CppParser>(
@@ -3034,6 +3106,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_try_multiple_catches() {
         check_metrics::<CppParser>(
@@ -3069,6 +3142,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_try_catch_in_loop() {
         check_metrics::<CppParser>(
@@ -3102,6 +3176,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_range_based_for() {
         check_metrics::<CppParser>(
@@ -3135,6 +3210,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_nested_range_based_for() {
         check_metrics::<CppParser>(
@@ -3167,6 +3243,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_nested_for() {
         check_metrics::<CParser>(
@@ -3200,6 +3277,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_nested_while() {
         check_metrics::<CParser>(
@@ -3232,6 +3310,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_recursion() {
         // Sonar's rule scores each recursive call to the enclosing function
@@ -3267,6 +3346,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_goto_sibling_jump() {
         check_metrics::<CParser>(
@@ -3303,6 +3383,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_lambda_inside_function() {
         // Per `increase_nesting`, entering a lambda bumps the effective nesting
@@ -3349,6 +3430,7 @@ mod tests {
     /// `mozcpp`'s `LambdaExpression` arm had no cognitive test before
     /// this, so the whole arm measured zero-coverage even though the
     /// fork is expected to stay metric-equivalent to `cpp`.
+    #[cfg(feature = "mozcpp")]
     #[test]
     fn mozcpp_lambda_inside_function() {
         check_metrics::<MozcppParser>(
@@ -3369,6 +3451,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_switch_fall_through() {
         // A `case` without `break` (fall-through) does not add cognitive cost
@@ -3409,6 +3492,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_switch_in_loop() {
         check_metrics::<CParser>(
@@ -3448,6 +3532,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_macro_expanded_control_flow() {
         // Per the file-level comment in `cognitive.rs`, macro expansion is not
@@ -3483,6 +3568,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_switch() {
         check_metrics::<MozjsParser>(
@@ -3520,6 +3606,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_switch() {
         check_metrics::<JavascriptParser>(
@@ -3554,6 +3641,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_ternary_operator() {
         check_metrics::<PythonParser>(
@@ -3591,6 +3679,7 @@ mod tests {
     /// asserting on the arms — the one arm that can differ,
     /// `ExpressionList`, is discriminated by
     /// `python_boolean_in_expression_list_under_lambda` (#1090).
+    #[cfg(feature = "python")]
     #[test]
     fn python_boolean_in_lambda_scores_under_each_enclosing_statement() {
         use crate::test_support::metrics_verbatim;
@@ -3654,6 +3743,7 @@ mod tests {
     /// stays at 3 (#1090). Whether 1 or 2 is the *right* score is a
     /// separate question — this pins current behaviour, and the
     /// per-lambda surcharge itself is under review in #1150.
+    #[cfg(feature = "python")]
     #[test]
     fn python_boolean_in_expression_list_under_lambda() {
         use crate::test_support::metrics_verbatim;
@@ -3680,6 +3770,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_nested_functions_lambdas() {
         check_metrics::<PythonParser>(
@@ -3733,8 +3824,10 @@ mod tests {
     /// two levels the correct answer stays 2 while an unreset
     /// implementation gives 4 (Python, which also bumps depth) or 3
     /// (depth dropped as well).
+    #[cfg(all(feature = "java", feature = "python"))]
     #[test]
     fn python_nested_def_inside_conditional_scores_like_java() {
+        #[cfg(any(feature = "java", feature = "python"))]
         fn cognitive_of(space: &FuncSpace, name: &str) -> u64 {
             function_space(space, name).metrics.cognitive.cognitive()
         }
@@ -3780,6 +3873,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_real_function() {
         check_metrics::<PythonParser>(
@@ -3815,6 +3909,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_if_let_else_if_else() {
         check_metrics::<RustParser>(
@@ -3846,6 +3941,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_if_else_if_else() {
         check_metrics::<TypescriptParser>(
@@ -3879,6 +3975,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_no_cognitive() {
         check_metrics::<JavaParser>("int a = 42;", "foo.java", |metric| {
@@ -3897,6 +3994,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_single_branch_function() {
         check_metrics::<JavaParser>(
@@ -3925,6 +4023,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_multiple_branch_function() {
         check_metrics::<JavaParser>(
@@ -3959,6 +4058,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_compound_conditions() {
         check_metrics::<JavaParser>(
@@ -3990,6 +4090,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_switch_statement() {
         check_metrics::<JavaParser>(
@@ -4025,6 +4126,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_switch_expression() {
         check_metrics::<JavaParser>(
@@ -4055,6 +4157,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_not_booleans() {
         // `!` does not break boolean sequences (issue #392): pre-order
@@ -4087,6 +4190,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_enhanced_for_statement() {
         check_metrics::<JavaParser>(
@@ -4122,6 +4226,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_nested_enhanced_for_statement() {
         check_metrics::<JavaParser>(
@@ -4156,6 +4261,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_ternary() {
         // Java's ternary `?:` (grammar `ternary_expression`) is a
@@ -4188,6 +4294,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_nested_ternary() {
         // Nested ternaries inside an `if` block compound by nesting,
@@ -4223,6 +4330,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_nested_method_resets_nesting_and_adds_depth() {
         // Regression for #696: a local-class method declared two `if`s deep
@@ -4270,6 +4378,7 @@ mod tests {
     /// while `class R` scores 0 of its own. Both halves are asserted:
     /// checking only the new space would still pass if the class kept a
     /// duplicate count of the same two branches.
+    #[cfg(feature = "java")]
     #[test]
     fn java_record_compact_constructor_opens_function_space() {
         check_func_space::<JavaParser, _>(
@@ -4318,6 +4427,7 @@ mod tests {
     /// count as `f`'s enclosing function.
     /// expected: `f`'s `if` is +1 base +1 depth = 2. Without the `stops`
     /// entry the surcharge is 0 and it scores 1.
+    #[cfg(feature = "java")]
     #[test]
     fn java_record_compact_constructor_is_a_function_boundary() {
         check_func_space::<JavaParser, _>(
@@ -4370,6 +4480,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_labeled_break_continue() {
         // Per SonarSource Cognitive Complexity §B2 (issue #225), labeled
@@ -4411,6 +4522,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_unlabeled_break_continue_not_counted() {
         // Negative test for issue #225: plain `break;` / `continue;` are
@@ -4446,6 +4558,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_no_cognitive() {
         check_metrics::<CsharpParser>("int a = 42;", "foo.cs", |metric| {
@@ -4464,6 +4577,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_single_branch_function() {
         check_metrics::<CsharpParser>(
@@ -4484,6 +4598,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_multiple_branch_function() {
         check_metrics::<CsharpParser>(
@@ -4509,6 +4624,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_compound_conditions() {
         check_metrics::<CsharpParser>(
@@ -4532,6 +4648,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_switch_statement() {
         check_metrics::<CsharpParser>(
@@ -4560,6 +4677,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_switch_expression() {
         check_metrics::<CsharpParser>(
@@ -4581,6 +4699,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_not_booleans() {
         // `!` does not break boolean sequences (issue #392): pre-order
@@ -4604,6 +4723,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_ternary() {
         // C#'s ternary `?:` (grammar `conditional_expression`) is a
@@ -4635,6 +4755,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_nested_ternary() {
         // Nested ternaries inside an `if` compound by nesting (mirrors
@@ -4670,6 +4791,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_local_function_in_if_does_not_inherit_nesting() {
         // Regression for #696 (the acute C# case): a `local_function_statement`
@@ -4708,6 +4830,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_goto_statement() {
         // Per SonarSource Cognitive Complexity §B2 (issue #225), any `goto`
@@ -4743,6 +4866,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_goto_case_and_default() {
         // `goto case` and `goto default` inside a `switch` are also
@@ -4780,6 +4904,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_unlabeled_break_not_counted() {
         // Negative test for issue #225: C#'s grammar does not allow
@@ -4816,6 +4941,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_no_cognitive() {
         check_metrics::<PerlParser>("my $a = 42;", "foo.pl", |metric| {
@@ -4831,6 +4957,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_simple_function() {
         check_metrics::<PerlParser>(
@@ -4852,6 +4979,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_sequence_same_booleans() {
         check_metrics::<PerlParser>(
@@ -4875,6 +5003,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_sequence_different_booleans() {
         check_metrics::<PerlParser>(
@@ -4898,6 +5027,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_compound_short_circuit_assignment_249() {
         // Regression for issue #249: `&&=`, `||=`, `//=` are compound
@@ -4934,6 +5064,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_not_booleans() {
         // `!` does not break boolean sequences (issue #392): pre-order
@@ -4960,6 +5091,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_1_level_nesting() {
         check_metrics::<PerlParser>(
@@ -4985,6 +5117,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_2_level_nesting() {
         check_metrics::<PerlParser>(
@@ -5012,6 +5145,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_break_continue() {
         // Perl's `last`/`next` are loop-control statements; per Sonar's
@@ -5039,6 +5173,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_if_elsif_else() {
         check_metrics::<PerlParser>(
@@ -5066,6 +5201,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_function_definition_without_sub_depth() {
         // Regression: FunctionDefinitionWithoutSub must be a stop in
@@ -5094,6 +5230,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_goto_single_increment() {
         // Regression (#450): `goto LABEL;` parses as `goto_expression`
@@ -5116,6 +5253,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_labeled_loop_control() {
         // Regression (#450): the jump target of `last/next/redo LABEL` is
@@ -5146,6 +5284,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_bare_loop_control_zero() {
         // Bare `last;` / `next;` / `redo;` have no `Identifier` jump-target
@@ -5173,6 +5312,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_nested_if_for_with_booleans() {
         check_metrics::<TsxParser>(
@@ -5203,6 +5343,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_nested_if_with_boolean_sequence() {
         check_metrics::<TypescriptParser>(
@@ -5232,6 +5373,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_try_catch_with_nesting() {
         check_metrics::<TypescriptParser>(
@@ -5266,6 +5408,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_cognitive_control_flow() {
         check_metrics::<KotlinParser>(
@@ -5307,6 +5450,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_no_cognitive() {
         check_metrics::<KotlinParser>("fun main() { val x = 42 }", "foo.kt", |metric| {
@@ -5322,6 +5466,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_simple_if_with_boolean() {
         check_metrics::<KotlinParser>(
@@ -5341,6 +5486,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_nesting() {
         check_metrics::<KotlinParser>(
@@ -5368,6 +5514,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_when_expression() {
         check_metrics::<KotlinParser>(
@@ -5387,6 +5534,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_when_else_no_increment() {
         check_metrics::<KotlinParser>(
@@ -5412,6 +5560,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_labeled_break_continue() {
         // Regression (#450): tree-sitter-kotlin-ng has no break/continue
@@ -5444,6 +5593,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_labeled_nonjump_expression_not_counted() {
         // Regression (#450 follow-up): tree-sitter-kotlin-ng models ANY
@@ -5460,6 +5610,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_else_in_if_still_increments() {
         check_metrics::<KotlinParser>(
@@ -5485,6 +5636,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_else_if_chain() {
         check_metrics::<KotlinParser>(
@@ -5510,6 +5662,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_lambda_nesting() {
         check_metrics::<KotlinParser>(
@@ -5529,6 +5682,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_secondary_constructor_depth() {
         // Regression: SecondaryConstructor must be a stop in increment_function_depth so
@@ -5558,6 +5712,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_no_cognitive() {
         check_metrics::<GoParser>("package main\nvar x = 42", "foo.go", |metric| {
@@ -5576,6 +5731,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_simple_function() {
         check_metrics::<GoParser>(
@@ -5606,6 +5762,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_nesting() {
         check_metrics::<GoParser>(
@@ -5637,6 +5794,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_switch() {
         check_metrics::<GoParser>(
@@ -5669,6 +5827,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_goto() {
         check_metrics::<GoParser>(
@@ -5698,6 +5857,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_else_if_chain() {
         check_metrics::<GoParser>(
@@ -5729,6 +5889,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_labeled_break_continue() {
         check_metrics::<GoParser>(
@@ -5761,6 +5922,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_method_declaration() {
         // Coverage: MethodDeclaration is processed as a function boundary (nesting
@@ -5792,6 +5954,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_no_cognitive() {
         check_metrics::<BashParser>("a=42", "foo.sh", |metric| {
@@ -5810,6 +5973,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_simple_if() {
         check_metrics::<BashParser>(
@@ -5836,6 +6000,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_if_elif_else() {
         check_metrics::<BashParser>(
@@ -5866,6 +6031,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_nested_loops() {
         check_metrics::<BashParser>(
@@ -5894,6 +6060,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_until_loop() {
         // `until` parses to `Bash::WhileStatement`; this test pins that
@@ -5923,6 +6090,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_case() {
         // `case` adds +1 nesting; case arms do not contribute extra cognitive
@@ -5953,6 +6121,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_arithmetic_ternary_increases_nesting() {
         // Regression for #1268: Bash's only ternary form scored zero
@@ -5985,6 +6154,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_nested_arithmetic_ternary_charges_the_inner_one_twice() {
         // A ternary inside a ternary is +1 for the outer and +2 for the
@@ -6012,6 +6182,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_boolean_sequence() {
         // First if: a chain of `&&` is one boolean increment regardless of
@@ -6046,6 +6217,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_no_cognitive() {
         // No proc, no control flow → cognitive complexity is zero everywhere.
@@ -6056,6 +6228,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_simple_function() {
         // proc with one if and one &&: if(+1) + &&(+1) = 2.
@@ -6074,6 +6247,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_sequence_same_booleans() {
         // Sequences of the same boolean operator count as a single increment.
@@ -6097,6 +6271,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_sequence_different_booleans() {
         // Switching operator type increments again: `$a && $b || $c` → +2 (one &&, one ||).
@@ -6116,6 +6291,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_not_booleans() {
         // `!` does not contribute cognitive cost on its own (issue
@@ -6137,6 +6313,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_1_level_nesting() {
         // while(+1) then if at depth 1 (+2) = 3 for the proc.
@@ -6158,6 +6335,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_2_level_nesting() {
         // while(+1) + foreach at depth 1 (+2) + if at depth 2 (+3) = 6.
@@ -6181,6 +6359,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_catch_cognitive() {
         // `catch` is a conditional handler: +1 at nesting 0, then body at nesting 1.
@@ -6203,6 +6382,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_if_elseif_else() {
         // if(+1) + elseif(+1) + else(+1) = 3; nesting does not increase for elseif/else.
@@ -6226,6 +6406,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_not_booleans_nested() {
         // `$a && !($b && $c)`: `!` does not break boolean sequences
@@ -6246,6 +6427,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_not_booleans_double_nested() {
         // `!($a || $b) && !($c || $d)`: the two `||` sub-expressions and
@@ -6269,6 +6451,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_nested_procedure_cognitive() {
         // Inner proc is at depth=1; its `if` adds +1+1=2 instead of +1+0=1.
@@ -6291,6 +6474,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_ternary_cognitive() {
         // Ternary `? :` inside expr is a conditional expression: adds +1+depth.
@@ -6312,6 +6496,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_switch_cognitive() {
         // Tcl `switch` is a generic command, not a dedicated kind. As a
@@ -6335,6 +6520,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_switch_cognitive_nested() {
         // A `switch` nested inside an outer `switch` arm pays the nesting
@@ -6360,6 +6546,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_switch_split_form_adds_no_cognitive() {
         // The split arm form passes each arm body as its own sibling
@@ -6382,6 +6569,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_for_cognitive() {
         // Tcl `for` is a generic command — the grammar has no `for` rule —
@@ -6402,6 +6590,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_qualified_for_resolves_to_the_builtin() {
         // `::for` is `for` reached through the global namespace, so it
@@ -6424,6 +6613,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_namespaced_for_is_not_the_builtin() {
         // Control for the test above: only the *leading* qualifier names
@@ -6445,6 +6635,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_for_cognitive_nested() {
         // The `for` also nests its body: constructs inside it pay the
@@ -6466,6 +6657,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_for_cognitive_name_gate() {
         // The detection reads the command's `name` field: a command whose
@@ -6485,6 +6677,7 @@ mod tests {
         );
     }
 
+    #[cfg(all(feature = "irules", feature = "tcl"))]
     #[test]
     fn tcl_irules_for_parity() {
         // iRules models `for` as a dedicated kind counted by the kind
@@ -6519,6 +6712,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_try_on_error_cognitive() {
         // Tcl `try`'s `on error` handler is a conditional error path:
@@ -6543,6 +6737,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_try_finally_only_cognitive() {
         // A `try` with only a `finally` has no conditional path and must
@@ -6564,6 +6759,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_try_handler_nesting_cognitive() {
         // Only the handler body nests (issue #1266): the `try` body and
@@ -6599,6 +6795,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_try_trap_cognitive() {
         // iRules wraps each `try` handler in a dedicated `on_handler` /
@@ -6627,6 +6824,7 @@ mod tests {
         );
     }
 
+    #[cfg(all(feature = "irules", feature = "tcl"))]
     #[test]
     fn tcl_irules_try_parity() {
         // The same single-handler `try` must score identically in Tcl
@@ -6666,6 +6864,7 @@ mod tests {
     /// re-run the mistake #1266 fixed, where the handlers were read as
     /// `when`-style event handlers and opened function spaces of their
     /// own. Nothing else in the suite would go red.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_try_handler_kinds_appear_only_under_try() {
         use std::path::PathBuf;
@@ -6725,6 +6924,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_cognitive_no_cognitive() {
         // Top-level local assignment, no control flow → cognitive complexity is zero.
@@ -6744,6 +6944,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_cognitive_simple_function() {
         // Two `if … and …` statements at function scope: each contributes
@@ -6775,6 +6976,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_cognitive_sequence_same_booleans() {
         // Sequences of the same boolean operator count as a single increment.
@@ -6807,6 +7009,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_cognitive_not_booleans() {
         // `not a and not b`: `not` does not contribute cognitive cost
@@ -6836,6 +7039,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_cognitive_sequence_different_booleans() {
         // Switching operator type increments again: `a and b or c`
@@ -6864,6 +7068,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_cognitive_1_level_nesting() {
         // for at depth 0 (+1) + if at depth 1 (+2) = 3.
@@ -6893,6 +7098,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_cognitive_2_level_nesting() {
         // outer for (+1) + inner for at depth 1 (+2) + if at depth 2 (+3) = 6.
@@ -6924,6 +7130,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_cognitive_break_continue() {
         // Lua's `break` is always unlabeled (the grammar has no labeled
@@ -6956,6 +7163,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_cognitive_goto_counted() {
         // `goto label` is a genuinely unstructured jump and adds +1 per
@@ -6985,6 +7193,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_cognitive_elseif_nesting() {
         // Lua-specific: `elseif_statement` is a dedicated grammar node that
@@ -7020,6 +7229,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_switch_statement() {
         check_metrics::<TypescriptParser>(
@@ -7042,6 +7252,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_no_cognitive() {
         check_metrics::<TypescriptParser>(
@@ -7057,6 +7268,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_no_cognitive() {
         check_metrics::<TsxParser>(
@@ -7072,6 +7284,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_simple_if() {
         check_metrics::<TsxParser>(
@@ -7090,6 +7303,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_boolean_sequence() {
         check_metrics::<TsxParser>(
@@ -7105,6 +7319,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_2_level_nesting() {
         check_metrics::<TsxParser>(
@@ -7126,6 +7341,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_else_if_chain() {
         check_metrics::<TsxParser>(
@@ -7148,6 +7364,7 @@ end",
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn js_sibling_bool_sequences() {
         // (a&&b)||(c&&d) — the right-hand && is a *new* sequence (sibling, not nested),
@@ -7167,6 +7384,7 @@ end",
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn js_nested_bool_same_op() {
         // a||(b&&c&&d) — the inner && operators are nested inside ||, so they form
@@ -7184,6 +7402,7 @@ end",
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_sibling_bool_sequences() {
         // Python uses keyword boolean operators (`and`/`or`), routed through a
@@ -7204,6 +7423,7 @@ end",
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_nested_bool_same_op() {
         // a or (b and c and d) — the inner `and` operators are nested inside `or`,
@@ -7221,6 +7441,7 @@ end",
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_sibling_bool_sequences() {
         // Perl uses `compute_perl_booleans` (a separate function supporting five
@@ -7242,6 +7463,7 @@ end",
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_nested_bool_same_op() {
         // $a || ($b && $c && $d) — the inner `&&` operators are nested inside `||`,
@@ -7262,6 +7484,7 @@ end",
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_sibling_bool_sequences() {
         // (a&&b)||(c&&d) — the right-hand && is a sibling, not nested.
@@ -7279,6 +7502,7 @@ end",
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_nested_bool_same_op() {
         // a||(b&&c&&d) — the inner && operators are nested, forming one sequence.
@@ -7296,6 +7520,7 @@ end",
         );
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_sibling_bool_sequences() {
         // (a&&b)||(c&&d) — the right-hand && is a sibling, not nested.
@@ -7313,6 +7538,7 @@ end",
         );
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_nested_bool_same_op() {
         // a||(b&&c&&d) — the inner && operators are nested, forming one sequence.
@@ -7330,6 +7556,7 @@ end",
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_sibling_bool_sequences() {
         // (a&&b)||(c&&d) — the right-hand && is a sibling, not nested.
@@ -7347,6 +7574,7 @@ end",
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_nested_bool_same_op() {
         // a||(b&&c&&d) — the inner && operators are nested, forming one sequence.
@@ -7364,6 +7592,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_sibling_bool_sequences() {
         // (a&&b)||(c&&d) — the right-hand && is a sibling, not nested.
@@ -7381,6 +7610,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_nested_bool_same_op() {
         // a||(b&&c&&d) — the inner && operators are nested, forming one sequence.
@@ -7398,6 +7628,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_sibling_bool_sequences() {
         // (a&&b)||(c&&d) — the right-hand && is a sibling, not nested.
@@ -7415,6 +7646,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_nested_bool_same_op() {
         // a||(b&&c&&d) — the inner && operators are nested, forming one sequence.
@@ -7432,6 +7664,7 @@ end",
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_nullish_coalescing_chain_230() {
         // Regression for issue #230: `??` is a short-circuit operator and
@@ -7462,6 +7695,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_nullish_coalescing_with_if_230() {
         // Regression for issue #230: the example from the issue body.
@@ -7496,6 +7730,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_nullish_coalescing_chain_230() {
         // Regression for issue #230: TSX parity with JS/TS for `??`.
@@ -7523,6 +7758,7 @@ end",
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_nullish_coalescing_chain_230() {
         // Regression for issue #230: Mozjs parity with JS for `??`.
@@ -7550,6 +7786,7 @@ end",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_null_coalescing_cognitive_230() {
         // Regression for issue #230: C# `??` must form a boolean sequence
@@ -7586,6 +7823,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_null_coalescing_cognitive_230() {
         // Regression for issue #230: PHP `??` must form a boolean sequence
@@ -7629,6 +7867,7 @@ end",
     // `||` chains do. Each word-form gets its own test so a regression
     // that drops a single variant (e.g. only `Or`) is still caught.
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_word_form_and_forms_boolean_sequence_230() {
         check_metrics::<PhpParser>(
@@ -7647,6 +7886,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_word_form_or_forms_boolean_sequence_230() {
         check_metrics::<PhpParser>(
@@ -7665,6 +7905,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_word_form_xor_forms_boolean_sequence_230() {
         check_metrics::<PhpParser>(
@@ -7683,6 +7924,7 @@ end",
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_cognitive_else_if_chain() {
         // Regression for #115: else-if chains must not receive a nesting
@@ -7716,6 +7958,7 @@ end",
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_cognitive_nested_else_if() {
         // Regression for #115: else-if inside a loop must still respect
@@ -7751,6 +7994,7 @@ end",
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_cognitive_if_inside_else_block_is_not_else_if() {
         // Regression for #115: an `if` whose previous sibling is the block's
@@ -7786,6 +8030,7 @@ end",
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_sibling_bool_sequences() {
         // (a&&b)||(c&&d) — the right-hand && is a sibling, not nested.
@@ -7805,6 +8050,7 @@ end",
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_nested_bool_same_op() {
         // a||(b&&c&&d) — the inner && operators are nested, forming one sequence.
@@ -7824,6 +8070,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_no_cognitive() {
         check_metrics::<GroovyParser>("class A { int x = 42 }", "foo.groovy", |metric| {
@@ -7831,6 +8078,7 @@ end",
         });
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_single_branch_function() {
         check_metrics::<GroovyParser>(
@@ -7847,6 +8095,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_nested_if() {
         check_metrics::<GroovyParser>(
@@ -7865,6 +8114,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_else_if_chain() {
         // Regression for the #115 / #239 stub pattern: an `else if`
@@ -7889,6 +8139,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_else_if_chain_lower_than_nested_ifs() {
         // The `else if` chain in `groovy_else_if_chain` MUST score
@@ -7916,6 +8167,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_sequence_booleans_same_op() {
         // SonarSource B1: a chain of identical short-circuit ops counts as one.
@@ -7931,6 +8183,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_sequence_booleans_mixed_ops() {
         // A `&&` followed by `||` is two distinct sequences = +2.
@@ -7946,6 +8199,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_not_operator_negation() {
         // SonarSource: `!` negation flips a boolean sequence's polarity
@@ -7962,6 +8216,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_for_while_do_loops() {
         check_metrics::<GroovyParser>(
@@ -7980,6 +8235,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_enhanced_for() {
         check_metrics::<GroovyParser>(
@@ -7995,6 +8251,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_try_catch_nesting() {
         check_metrics::<GroovyParser>(
@@ -8013,6 +8270,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_ternary_expression() {
         check_metrics::<GroovyParser>(
@@ -8027,6 +8285,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_elvis_chain_246() {
         // Regression for issue #246: Groovy's Elvis operator `?:` is
@@ -8050,6 +8309,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_elvis_inside_if_246() {
         // Regression for issue #246: Elvis chain inside an `if` body.
@@ -8070,6 +8330,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_labeled_break_continue() {
         // SonarSource B2: labeled break/continue each add +1.
@@ -8093,6 +8354,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_multiple_branch_function() {
         // Sibling `if` statements at the same nesting level each
@@ -8119,6 +8381,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_unlabeled_break_continue_not_counted() {
         // SonarSource B2: plain `break` / `continue` are NOT
@@ -8141,6 +8404,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_cognitive_closure_body_counts_lambda_nesting() {
         // #519: control flow inside a Groovy closure must pay the same
@@ -8168,6 +8432,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_nested_method_resets_nesting_and_adds_depth() {
         // Regression for #696: a local-class method declared two `if`s deep
@@ -8202,6 +8467,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_cognitive_top_level_typed_method_parity() {
         // Regression for the upstream grammar defect
@@ -8232,6 +8498,7 @@ end",
         });
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_cognitive_nested_else_if() {
         // Regression for the #115 stub pattern at deeper nesting:
@@ -8258,6 +8525,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_cognitive_if_inside_else_block_is_not_else_if() {
         // Regression for #115 — an inner `if` whose previous sibling
@@ -8283,6 +8551,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_nested_ternary() {
         // Nested ternaries inside an `if` compound by nesting — same
@@ -8306,6 +8575,7 @@ end",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_cognitive_else_if_chain() {
         // Regression for #115: else-if chains must not receive a nesting
@@ -8339,6 +8609,7 @@ end",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_cognitive_nested_else_if() {
         // Regression for #115: else-if inside a loop must still respect
@@ -8374,6 +8645,7 @@ end",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_cognitive_if_inside_else_block_is_not_else_if() {
         // Regression for #115: an `if` whose previous sibling is the block's
@@ -8409,6 +8681,7 @@ end",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_sibling_bool_sequences() {
         // (a&&b)||(c&&d) — the right-hand && is a sibling, not nested.
@@ -8428,6 +8701,7 @@ end",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_nested_bool_same_op() {
         // a||(b&&c&&d) — the inner && operators are nested, forming one sequence.
@@ -8447,6 +8721,7 @@ end",
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_sibling_bool_sequences() {
         // (a&&b)||(c&&d) — the right-hand && is a sibling, not nested.
@@ -8463,6 +8738,7 @@ end",
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_nested_bool_same_op() {
         // a||(b&&c&&d) — the inner && operators are nested, forming one sequence.
@@ -8479,6 +8755,7 @@ end",
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_elvis_chain_239() {
         // Regression for issue #239: Kotlin's Elvis operator `?:` is a
@@ -8509,6 +8786,7 @@ end",
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_elvis_inside_if_239() {
         // Regression for issue #239: Elvis chain inside an `if` body.
@@ -8542,6 +8820,7 @@ end",
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_sibling_bool_sequences() {
         // (a&&b)||(c&&d) — the right-hand && is a sibling, not nested.
@@ -8560,6 +8839,7 @@ end",
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_nested_bool_same_op() {
         // a||(b&&c&&d) — the inner && operators are nested, forming one sequence.
@@ -8578,6 +8858,7 @@ end",
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_sibling_bool_sequences() {
         // ($a && $b) || ($c && $d) — the right-hand && is a sibling, not nested.
@@ -8597,6 +8878,7 @@ end",
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_nested_bool_same_op() {
         // $a || ($b && $c && $d) — the inner && operators are nested, one sequence.
@@ -8616,6 +8898,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_sibling_bool_sequences() {
         // (a and b) or (c and d) — the right-hand `and` is a sibling, not nested.
@@ -8635,6 +8918,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_nested_bool_same_op() {
         // a or (b and c and d) — the inner `and` operators are nested, one sequence.
@@ -8654,6 +8938,7 @@ end",
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_sibling_bool_sequences() {
         // [[ a ]] && [[ b ]] || [[ c ]] && [[ d ]] — bash is left-associative so this
@@ -8674,6 +8959,7 @@ end",
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_nested_bool_same_op() {
         // [[ a ]] || [[ b ]] && [[ c ]] && [[ d ]] — bash left-associativity gives
@@ -8695,6 +8981,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_no_cognitive() {
         check_metrics::<PhpParser>("<?php $a = 42;", "foo.php", |metric| {
@@ -8704,6 +8991,7 @@ end",
         });
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_simple_function() {
         // Single `if` inside a function: +1.
@@ -8723,6 +9011,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_nested_function_resets_nesting_775() {
         // Regression for #775 (the #696 gap): a PHP named function defined
@@ -8763,6 +9052,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_top_level_function_unchanged_775() {
         // Regression guard paired with `php_nested_function_resets_nesting_775`:
@@ -8788,6 +9078,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_if_elseif_else() {
         // PHP exposes `elseif` as a dedicated `else_if_clause` node, scored
@@ -8833,6 +9124,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_two_word_else_if_529() {
         // PHP's two-word `else if` parses as an `else_clause` wrapping a
@@ -8882,6 +9174,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_two_word_else_if_chain_nesting_529() {
         // A genuinely nested `if` inside a two-word `else if` arm must still
@@ -8925,6 +9218,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_alternative_syntax_elseif_529() {
         // PHP's alternative (colon) syntax `if …: … elseif …: … else: …
@@ -8967,6 +9261,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_ternary() {
         // PHP's ternary `?:` (grammar `conditional_expression`) is a
@@ -8999,6 +9294,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_nested_ternary() {
         // Nested ternaries inside an `if` compound by nesting (mirrors
@@ -9033,6 +9329,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_sequence_same_booleans() {
         // Sequence of same-operator booleans collapses: a chain of `&&`
@@ -9052,6 +9349,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_sequence_different_booleans() {
         // Mix of `&&` and `||` — each operator switch costs +1.
@@ -9070,6 +9368,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_not_booleans() {
         // `!` does not break boolean sequences (issue #392): pre-order
@@ -9090,6 +9389,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_1_level_nesting() {
         // if-inside-loop: outer for (+1) + inner if at depth 1 (+2) = +3.
@@ -9113,6 +9413,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_2_level_nesting() {
         // for + while + if = +1 +2 +3 = +6.
@@ -9138,6 +9439,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_break_continue() {
         // PHP `break` and `continue` are not cognitive drivers in this
@@ -9165,6 +9467,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_goto_counted() {
         // `goto label;` is a genuinely unstructured jump and adds +1 per
@@ -9189,6 +9492,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_numeric_break_not_counted() {
         // PHP has no labeled break/continue; only the numeric level form
@@ -9221,6 +9525,7 @@ end",
     // ----- Elixir -----
 
     // No control flow → cognitive complexity is 0.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_empty_function() {
         check_metrics::<ElixirParser>(
@@ -9246,6 +9551,7 @@ end",
 
     // `if cond do … end`: single-branch construct → +1 nesting at depth
     // 0 inside `def` body → cognitive 1.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_simple_if() {
         check_metrics::<ElixirParser>(
@@ -9260,6 +9566,7 @@ end",
 
     // `if cond do … else … end`: +1 nesting for `if`, +1 for `else` token
     // (matches Java/Kotlin) → cognitive 2.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_if_else() {
         check_metrics::<ElixirParser>(
@@ -9276,6 +9583,7 @@ end",
     // `case x do … end` with three arms: only the container Call earns
     // a nesting bump (matches Java's `SwitchBlock` rule). Individual
     // `stab_clause` arms add no extra cost. Expected cognitive 1.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_case_arms_count_once() {
         check_metrics::<ElixirParser>(
@@ -9291,6 +9599,7 @@ end",
 
     // `cond do … end` is structurally identical to `case` for our
     // purposes: container Call earns +1 nesting; arms add nothing.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_cond_counts_once() {
         check_metrics::<ElixirParser>(
@@ -9306,6 +9615,7 @@ end",
 
     // Nested `if` inside another `if`: outer +1, inner +2 (nested
     // depth 1) → cognitive 3.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_nested_if_amplifies() {
         check_metrics::<ElixirParser>(
@@ -9323,6 +9633,7 @@ end",
     // NOT bump nesting (matches Java / C#'s "try is a wrapper" rule);
     // each `rescue` / `catch` block bumps +1 nesting at depth 0. The
     // single `stab_clause` inside each block adds no extra cost.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_try_rescue_catch() {
         check_metrics::<ElixirParser>(
@@ -9339,6 +9650,7 @@ end",
     // Short-circuit booleans: `x && y || z` is two operator types in
     // sequence — `&&` once, `||` once → +2. The `if` container that
     // surrounds them adds +1 → total cognitive 3.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_boolean_sequence() {
         check_metrics::<ElixirParser>(
@@ -9357,6 +9669,7 @@ end",
     // cognitive complexity. The anonymous function body inside
     // contributes +1 lambda nesting, but its only operation is a
     // function call (no control flow) → cognitive 0.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_enum_reduce_is_zero() {
         check_metrics::<ElixirParser>(
@@ -9376,6 +9689,7 @@ end",
     // scope reasons (documented). The body's lone Call earns nothing,
     // so cognitive stays at 0. This test pins the documented omission
     // so any future recursion work has to update it deliberately.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_recursion_is_zero_documented_limitation() {
         check_metrics::<ElixirParser>(
@@ -9388,6 +9702,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_match_cognitive() {
         // `match` is treated like `switch`: a single nesting bump for the
@@ -9411,6 +9726,7 @@ end",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_no_cognitive() {
         check_metrics::<RubyParser>("a = 42\n", "foo.rb", |metric| {
@@ -9419,6 +9735,7 @@ end",
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_simple_function() {
         // A function body with no branching scores zero cognitive.
@@ -9428,6 +9745,7 @@ end",
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_1_level_nesting() {
         // Single `if` inside a function: +1.
@@ -9437,6 +9755,7 @@ end",
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_2_level_nesting() {
         // expected: outer `if` (+1) + inner `if` (+2, nested) = 3.
@@ -9450,6 +9769,7 @@ end",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_sequence_same_booleans() {
         // `a && b && c`: same operator collapses to a single boolean
@@ -9464,6 +9784,7 @@ end",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_sequence_different_booleans() {
         // `a && b || c`: alternating operators add per change.
@@ -9477,6 +9798,7 @@ end",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_not_booleans() {
         // `!a` (Unary) is the not-operator: it doesn't add cognitive
@@ -9491,6 +9813,7 @@ end",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_break_next() {
         // Ruby has no labeled loops, so `break`/`next` are always
@@ -9507,6 +9830,7 @@ end",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_redo_retry_counted() {
         // `redo` (restart the current loop iteration) and `retry` (re-run a
@@ -9524,6 +9848,7 @@ end",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_else_if_chain() {
         // `elsif` extends the parent branch (no extra nesting). An
@@ -9554,6 +9879,7 @@ end",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_case_else_no_extra_increment() {
         // #451: the `else` arm of a `case/when` is the default arm of a
@@ -9582,6 +9908,7 @@ end",
         });
     }
 
+    #[cfg(all(feature = "java", feature = "kotlin", feature = "ruby"))]
     #[test]
     fn ruby_case_else_matches_kotlin_when_and_java_switch() {
         // #451 cross-language parity (lesson #11): the catch-all arm of a
@@ -9608,6 +9935,7 @@ end",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_if_else_still_counts() {
         // #451 over-suppression guard: the `else` of an `if`/`elsif` chain
@@ -9628,6 +9956,7 @@ end",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_stabby_and_keyword_lambda_nesting_parity() {
         // A stabby lambda parses as a `Lambda` node CONTAINING its own
@@ -9649,6 +9978,7 @@ end",
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_if_inside_stabby_lambda_inside_method() {
         // expected: the method boundary resets nesting for its contents
@@ -9668,6 +9998,7 @@ end",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_do_block_spelling_matches_brace_spelling() {
         // The lambda-nesting arm is gated on `Block | DoBlock`, and the
@@ -9703,6 +10034,7 @@ end",
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_labeled_break_continue() {
         // Per SonarSource Cognitive Complexity §B2 (issue #435), a labeled
@@ -9741,6 +10073,7 @@ end",
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_unlabeled_break_continue_not_counted() {
         // Negative test for issue #435: plain `break;` / `continue;` are
@@ -9774,6 +10107,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_labeled_break_continue() {
         // TS parity with JS for labeled jumps (issue #435): labeled
@@ -9820,6 +10154,7 @@ end",
     /// a definition nested in *conditionals*, the `stops` entry on one
     /// nested in another *function*. Both are covered below, plus the two
     /// shapes the fix must leave alone.
+    #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
     fn check_js_function_boundary<T: MetricSuite>(filename: &str) {
         fn score(space: &FuncSpace, name: &str) -> u64 {
             function_space(space, name).metrics.cognitive.cognitive()
@@ -9969,26 +10304,31 @@ end",
     // One `#[test]` per language instantiating `js_cognitive!`: the macro
     // body is shared but each grammar's `kind_id`s are its own, so a
     // per-language enum drift is invisible from a single language's run.
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_function_boundary_covers_methods_and_function_expressions_1159() {
         check_js_function_boundary::<JavascriptParser>("foo.js");
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_function_boundary_covers_methods_and_function_expressions_1159() {
         check_js_function_boundary::<MozjsParser>("foo.js");
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_function_boundary_covers_methods_and_function_expressions_1159() {
         check_js_function_boundary::<TypescriptParser>("foo.ts");
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_function_boundary_covers_methods_and_function_expressions_1159() {
         check_js_function_boundary::<TsxParser>("foo.tsx");
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_compound_short_circuit_assignment_236() {
         // Regression for issue #236: `&&=`, `||=`, `??=` are compound
@@ -10022,6 +10362,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_compound_short_circuit_assignment_236() {
         // Regression for issue #236: TS parity with JS for `&&=`,
@@ -10052,6 +10393,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_compound_short_circuit_assignment_236() {
         // Regression for issue #236: TSX parity with JS/TS for `&&=`,
@@ -10082,6 +10424,7 @@ end",
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_compound_short_circuit_assignment_236() {
         // Regression for issue #236: Mozjs (SpiderMonkey-flavoured JS)
@@ -10113,6 +10456,7 @@ end",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_compound_short_circuit_assignment_236() {
         // Regression for issue #236: C#'s grammar only provides `??=`
@@ -10148,6 +10492,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_compound_short_circuit_assignment_236() {
         // Regression for issue #236: PHP's only compound short-circuit
@@ -10182,6 +10527,7 @@ end",
     }
 
     /// A handler with no control flow has zero cognitive complexity.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_no_cognitive() {
         check_metrics::<IrulesParser>("when X { set a 1 }\n", "foo.irule", |metric| {
@@ -10190,6 +10536,7 @@ end",
     }
 
     /// A single `if` adds one.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_simple_function() {
         check_metrics::<IrulesParser>(
@@ -10203,6 +10550,7 @@ end",
 
     /// A run of the *same* boolean operator (`$a && $b && $c`) is one
     /// sequence: `if` (1) + boolean sequence (1) = 2.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_sequence_same_booleans() {
         check_metrics::<IrulesParser>(
@@ -10216,6 +10564,7 @@ end",
 
     /// Switching operator (`$a && $b || $c`) starts a new sequence: `if` (1)
     /// + `&&` sequence (1) + `||` sequence (1) = 3.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_sequence_different_booleans() {
         check_metrics::<IrulesParser>(
@@ -10229,6 +10578,7 @@ end",
 
     /// Unary negation (`!`) does not itself add cognitive cost; only the
     /// boolean sequence does: `if` (1) + `&&` sequence (1) = 2.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_not_booleans() {
         check_metrics::<IrulesParser>(
@@ -10241,6 +10591,7 @@ end",
     }
 
     /// One level of nesting: `while` (1) + `if` (1 + nesting 1 = 2) = 3.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_1_level_nesting() {
         check_metrics::<IrulesParser>(
@@ -10253,6 +10604,7 @@ end",
     }
 
     /// Two levels: `while` (1) + `if` (2) + `foreach` (1 + nesting 2 = 3) = 6.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_2_level_nesting() {
         check_metrics::<IrulesParser>(
@@ -10271,6 +10623,7 @@ end",
     /// predicate that treated `elseif` like a fresh nested `if` would push
     /// the chain's score up toward the nested value, so the strict `<`
     /// assertion catches the regression that #115 found in Java/C#.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_else_if_chain() {
         use std::cell::Cell;
@@ -10302,6 +10655,7 @@ end",
 
     /// A `switch` nested in an `if`: `if` (1) + `switch` (1 + nesting 1 = 2)
     /// = 3. Confirms `switch` participates in nesting like other branches.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_switch_nesting() {
         check_metrics::<IrulesParser>(
@@ -10320,6 +10674,7 @@ end",
     ///
     /// The `Catch` arm had no test before this: the whole arm measured
     /// zero-coverage while every other iRules branch kind was exercised.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_catch_nesting() {
         check_metrics::<IrulesParser>("when X { catch { foo } }\n", "foo.irule", |metric| {
@@ -10336,6 +10691,7 @@ end",
 
     /// Objective-C straight-line method body has zero cognitive
     /// complexity.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_no_cognitive() {
         check_metrics::<ObjcParser>(
@@ -10364,6 +10720,7 @@ end",
 
     /// Objective-C single `if` at method top level: +1, no nesting
     /// surcharge.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_simple_if() {
         check_metrics::<ObjcParser>(
@@ -10395,6 +10752,7 @@ end",
     /// one for the first `&&` and zero for each additional same-operator
     /// link in the sequence, so the whole `if (a && b && c)` is +1 (if)
     /// + 1 (one boolean sequence) = 2.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_sequence_same_booleans() {
         check_metrics::<ObjcParser>(
@@ -10424,6 +10782,7 @@ end",
 
     /// Objective-C nesting surcharge: an `if` nested inside a `for`
     /// scores `for` (+1) + `if` (+1 base +1 nesting) = 3.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_nested() {
         check_metrics::<ObjcParser>(
@@ -10453,6 +10812,7 @@ end",
         );
     }
 
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_block_nesting() {
         // A decision inside an ObjC block `^{ … }` picks up the lambda
@@ -10492,6 +10852,7 @@ end",
     /// This guards the `is_else_if` predicate (a regression that failed
     /// to recognise the else-if extension would inflate the chain to the
     /// nested score).
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_else_if_chain() {
         use std::cell::Cell;
@@ -10568,6 +10929,7 @@ end",
     /// parity and totals the same either way. A mutant writing
     /// `function_depth = 0` in place of `lambda = 0` leaves `lambda 2,
     /// function_depth 1` here and charges the `if` 4 rather than 2.
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_function_depth_and_lambda_are_distinguishable() {
         // expected: `inner` takes the boundary, so `conditional` and
@@ -10589,6 +10951,7 @@ end",
     /// The `ArrowFunction` arm's own `lambda += 1`, pinned separately:
     /// with no `function_declaration` between the arrow and the `if`,
     /// nothing resets lambda, so the arrow's level reaches the `if`.
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_arrow_contributes_lambda_nesting() {
         // expected: 1 for the `if`, +1 for the enclosing arrow level.
@@ -10635,6 +10998,7 @@ end",
     /// that fix did not touch. #1084 moved that predicate onto the
     /// walker's ancestor chain, and the harness now measures the `if`
     /// shape under the same linear bound as this one.
+    #[cfg(feature = "c")]
     #[test]
     fn cognitive_nesting_is_inherited_at_depth() {
         // Restricted to `Cognitive` — which pulls in `Nom` as a declared
@@ -10680,6 +11044,7 @@ end",
     /// `cognitive/nested-fn` probe in the benchmark harness
     /// (`cargo bench -p big-code-analysis-bench --bench scaling`),
     /// which asserts the complexity class.
+    #[cfg(feature = "rust")]
     #[test]
     fn cognitive_function_depth_is_inherited_at_depth() {
         fn cognitive_of(source: &str) -> u64 {

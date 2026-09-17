@@ -20,6 +20,7 @@
 
 use super::*;
 
+#[cfg(any(feature = "c-family-helpers", feature = "cpp"))]
 fn parse(source: &str) -> PreprocParser {
     PreprocParser::new(source.as_bytes().to_vec(), &PathBuf::from("test.h"), None)
 }
@@ -28,6 +29,7 @@ fn parse(source: &str) -> PreprocParser {
 /// implementations called `unwrap()` on `position`/`rposition` of the
 /// trimmed slice, which returns `None` for an all-whitespace or empty
 /// payload.
+#[cfg(feature = "c-family-helpers")]
 #[test]
 fn preprocess_empty_include_does_not_panic() {
     let parser = parse("#include \"\"\n");
@@ -42,6 +44,7 @@ fn preprocess_empty_include_does_not_panic() {
 
 /// Whitespace-only include strings (`#include "   "`) must not panic —
 /// `position` returns `None` because no non-whitespace byte exists.
+#[cfg(feature = "c-family-helpers")]
 #[test]
 fn preprocess_whitespace_only_include_does_not_panic() {
     let parser = parse("#include \"   \"\n");
@@ -56,6 +59,7 @@ fn preprocess_whitespace_only_include_does_not_panic() {
 
 /// A well-formed include is still recorded with surrounding whitespace
 /// stripped.
+#[cfg(feature = "c-family-helpers")]
 #[test]
 fn preprocess_valid_include_is_recorded() {
     let parser = parse("#include \"  foo.h  \"\n");
@@ -69,6 +73,7 @@ fn preprocess_valid_include_is_recorded() {
 }
 
 /// `#define` of a normal identifier records the macro name.
+#[cfg(feature = "c-family-helpers")]
 #[test]
 fn preprocess_define_records_macro() {
     let parser = parse("#define FOO 1\n");
@@ -81,6 +86,7 @@ fn preprocess_define_records_macro() {
     assert!(pf.macros.contains("FOO"));
 }
 
+#[cfg(feature = "c-family-helpers")]
 fn macros_of(source: &str) -> HashSet<String> {
     let parser = parse(source);
     let mut results = PreprocResults::default();
@@ -97,6 +103,7 @@ fn macros_of(source: &str) -> HashSet<String> {
 /// FOO from the macro set — the pre-fix code shared a `Define | Undef`
 /// arm that inserted the identifier for both, leaving `#undef FOO`
 /// recording FOO as *defined*.
+#[cfg(feature = "c-family-helpers")]
 #[test]
 fn preprocess_undef_removes_defined_macro() {
     let macros = macros_of("#define FOO 1\n#undef FOO\n");
@@ -108,6 +115,7 @@ fn preprocess_undef_removes_defined_macro() {
 
 /// `#undef` of a macro that was never defined is a no-op (and must not
 /// leave the name recorded as defined).
+#[cfg(feature = "c-family-helpers")]
 #[test]
 fn preprocess_undef_of_never_defined_is_noop() {
     let macros = macros_of("#undef NEVER_DEFINED\n");
@@ -123,6 +131,7 @@ fn preprocess_undef_of_never_defined_is_noop() {
 /// last) so a missing or reversed sort flips the result — a `define`
 /// … `undef` … `define` sequence ends on a `define` either way and would
 /// not exercise the ordering at all.
+#[cfg(feature = "c-family-helpers")]
 #[test]
 fn preprocess_define_after_undef_reintroduces_in_source_order() {
     let macros = macros_of("#undef FOO\n#define FOO 1\n");
@@ -133,6 +142,7 @@ fn preprocess_define_after_undef_reintroduces_in_source_order() {
 }
 
 /// `#undef` removes only the named macro; unrelated defines survive.
+#[cfg(feature = "c-family-helpers")]
 #[test]
 fn preprocess_undef_leaves_other_macros() {
     let macros = macros_of("#define FOO 1\n#define BAR 2\n#undef FOO\n");
@@ -145,6 +155,7 @@ fn preprocess_undef_leaves_other_macros() {
 /// they never pollute the recorded macro set, while an ordinary macro on
 /// an adjacent line is still recorded. Pins the `is_specials` guard that
 /// the #736 refactor moved out of the inline walk and into the helper.
+#[cfg(feature = "c-family-helpers")]
 #[test]
 fn preprocess_define_of_special_token_is_skipped() {
     let macros = macros_of("#define size_t unsigned\n#define APP_FLAG 1\n");
@@ -914,6 +925,7 @@ fn parsing_a_cpp_file_never_owns_the_macro_set() {
 /// End-to-end: a truncated `#include "` with no closing quote must not
 /// panic the preprocessor pass (issue #432). The file entry is still
 /// inserted with no recorded include.
+#[cfg(feature = "c-family-helpers")]
 #[test]
 fn preprocess_truncated_include_does_not_panic() {
     let parser = parse("#include \"\n");

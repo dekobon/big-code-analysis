@@ -541,6 +541,7 @@ mod tests {
         assert_eq!(stats.nexits_min(), 0);
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_no_exit() {
         check_metrics::<PythonParser>("a = 42", "foo.py", |metric| {
@@ -559,6 +560,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_no_exit() {
         check_metrics::<RustParser>("let a = 42;", "foo.rs", |metric| {
@@ -577,6 +579,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_question_mark() {
         check_metrics::<RustParser>("let _ = a? + b? + c?;", "foo.rs", |metric| {
@@ -602,6 +605,7 @@ mod tests {
     // return type was getting one extra exit on top of its real
     // `return` / `?` exits. The fix drops the spurious clause; this
     // test pins exit == 1 for a function with one explicit return.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_explicit_return_with_return_type() {
         check_metrics::<RustParser>("fn foo() -> i32 { return 1; }", "foo.rs", |metric| {
@@ -623,6 +627,7 @@ mod tests {
     // Regression for #243: an implicit final-expression return must
     // NOT count as an exit — matching every other language's
     // convention (Java, C++, Go, etc. don't count implicit returns).
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_implicit_return_not_counted() {
         check_metrics::<RustParser>("fn foo() -> i32 { 0 }", "foo.rs", |metric| {
@@ -644,6 +649,7 @@ mod tests {
     // Regression for #243: a function with both an explicit return on
     // one branch and an implicit final expression should count only
     // the explicit return.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_mixed_explicit_and_implicit_return() {
         check_metrics::<RustParser>(
@@ -669,6 +675,7 @@ mod tests {
     // Regression for #243: `?` inside a function body is the only
     // implicit-exit form that does count, and the function having an
     // explicit `Result` return type must not double it.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_question_mark_in_function() {
         check_metrics::<RustParser>(
@@ -693,6 +700,7 @@ mod tests {
 
     // Regression for #243: a unit-returning function with no
     // explicit `return` or `?` must report 0 exits.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_unit_return_no_exit() {
         check_metrics::<RustParser>("fn foo() { let _x = 1; }", "foo.rs", |metric| {
@@ -711,6 +719,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_no_exit() {
         check_metrics::<CParser>("int a = 42;", "foo.c", |metric| {
@@ -731,6 +740,7 @@ mod tests {
 
     /// Multiple `return` statements across `if` / `else` branches.  Every
     /// `Cpp::ReturnStatement` adds +1 — there is no early-out collapse.
+    #[cfg(feature = "c")]
     #[test]
     fn c_multiple_returns_in_branches() {
         check_metrics::<CParser>(
@@ -771,6 +781,7 @@ mod tests {
     /// function node and two `return`s, so a metric-count assertion alone
     /// does not distinguish the two grammars — only the error-free parse
     /// does. C has no `throw`, so `return` is the sole exit kind.
+    #[cfg(feature = "c")]
     #[test]
     fn c_keyword_identifiers_parse_and_returns_count() {
         use std::path::PathBuf;
@@ -797,6 +808,7 @@ mod tests {
     /// `return` statements inside `try` and `catch` blocks both count;
     /// the impl matches `Cpp::ReturnStatement` regardless of enclosing
     /// scope.  C++-only: bare C has no `try`/`catch`.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_return_in_try_catch() {
         check_metrics::<CppParser>(
@@ -833,6 +845,7 @@ mod tests {
 
     /// Early `return` inside a loop body is counted separately from the
     /// trailing return — every reachable `return` is an exit.
+    #[cfg(feature = "c")]
     #[test]
     fn c_early_return_in_loop() {
         check_metrics::<CParser>(
@@ -866,6 +879,7 @@ mod tests {
 
     /// `void` function with no explicit `return` — exit count is 0.
     /// The implicit fall-through return is intentionally not modelled.
+    #[cfg(feature = "c")]
     #[test]
     fn c_void_no_explicit_return() {
         check_metrics::<CParser>(
@@ -892,6 +906,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_no_exit() {
         check_metrics::<JavascriptParser>("var a = 42;", "foo.js", |metric| {
@@ -910,6 +925,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_simple_function() {
         check_metrics::<JavascriptParser>(
@@ -937,6 +953,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_nested_functions() {
         check_metrics::<JavascriptParser>(
@@ -964,6 +981,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_simple_function() {
         check_metrics::<PythonParser>(
@@ -988,6 +1006,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_more_functions() {
         check_metrics::<PythonParser>(
@@ -1015,6 +1034,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_nested_functions() {
         check_metrics::<PythonParser>(
@@ -1042,6 +1062,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_no_exit() {
         check_metrics::<JavaParser>("int a = 42;", "foo.java", |metric| {
@@ -1060,6 +1081,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_simple_function() {
         check_metrics::<JavaParser>(
@@ -1086,6 +1108,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_no_return() {
         check_metrics::<GoParser>(
@@ -1112,6 +1135,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_single_return() {
         check_metrics::<GoParser>(
@@ -1136,6 +1160,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_multiple_returns() {
         check_metrics::<GoParser>(
@@ -1167,6 +1192,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_naked_return() {
         check_metrics::<GoParser>(
@@ -1193,6 +1219,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_multivalue_return() {
         check_metrics::<GoParser>(
@@ -1218,6 +1245,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_panic_counts_as_exit() {
         check_metrics::<GoParser>(
@@ -1244,6 +1272,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_panic_and_return_both_count() {
         check_metrics::<GoParser>(
@@ -1272,6 +1301,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_package_qualified_panic_is_not_exit() {
         check_metrics::<GoParser>(
@@ -1299,6 +1329,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_split_function() {
         check_metrics::<JavaParser>(
@@ -1328,6 +1359,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_no_exit() {
         check_metrics::<CsharpParser>("int a = 42;", "foo.cs", |metric| {
@@ -1345,6 +1377,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_simple_function() {
         check_metrics::<CsharpParser>(
@@ -1370,6 +1403,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_split_function() {
         check_metrics::<CsharpParser>(
@@ -1398,6 +1432,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_yield_and_throw() {
         check_metrics::<CsharpParser>(
@@ -1429,6 +1464,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_no_exit() {
         check_metrics::<PerlParser>(
@@ -1452,6 +1488,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_no_function_no_exit() {
         check_metrics::<PerlParser>("my $x = 1;\nprint $x;\n", "foo.pl", |metric| {
@@ -1466,6 +1503,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_multiple_returns() {
         check_metrics::<PerlParser>(
@@ -1498,6 +1536,7 @@ mod tests {
     /// spelling of each is the same builtin reached past an override
     /// and keeps its qualifier in the bareword text, so it is matched
     /// by name alongside the bare one.
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_die_and_exit_are_exits() {
         check_metrics::<PerlParser>(
@@ -1524,6 +1563,7 @@ mod tests {
     /// Carp helpers are library functions rather than builtins, and
     /// `$obj->die` parses as a `method_invocation` whose callee is a
     /// plain `identifier` — none of them is an exit.
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_lookalike_call_is_not_exit() {
         check_metrics::<PerlParser>(
@@ -1541,6 +1581,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_function_with_returns() {
         check_metrics::<TsxParser>(
@@ -1570,6 +1611,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_no_exit() {
         check_metrics::<TypescriptParser>("const x: number = 42;", "foo.ts", |metric| {
@@ -1587,6 +1629,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_function_with_returns() {
         check_metrics::<TypescriptParser>(
@@ -1613,6 +1656,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_no_exit() {
         check_metrics::<MozjsParser>("var a = 42;", "foo.js", |metric| {
@@ -1630,6 +1674,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_function_with_returns() {
         check_metrics::<MozjsParser>(
@@ -1656,6 +1701,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_exit_return_and_throw() {
         check_metrics::<KotlinParser>(
@@ -1682,6 +1728,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_no_exit() {
         check_metrics::<LuaParser>(
@@ -1705,6 +1752,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_return() {
         check_metrics::<LuaParser>(
@@ -1731,6 +1779,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_error_counts_as_exit() {
         check_metrics::<LuaParser>(
@@ -1756,6 +1805,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_os_exit_counts_as_exit() {
         check_metrics::<LuaParser>(
@@ -1781,6 +1831,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_error_and_return_both_count() {
         check_metrics::<LuaParser>(
@@ -1808,6 +1859,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_user_call_is_not_exit() {
         check_metrics::<LuaParser>(
@@ -1834,6 +1886,7 @@ end",
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_no_exit() {
         check_metrics::<BashParser>("echo \"no exits\"", "foo.sh", |metric| {
@@ -1851,6 +1904,7 @@ end",
         });
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_explicit_return() {
         check_metrics::<BashParser>(
@@ -1877,6 +1931,7 @@ end",
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_explicit_exit() {
         check_metrics::<BashParser>(
@@ -1900,6 +1955,7 @@ end",
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_multiple_exits() {
         check_metrics::<BashParser>(
@@ -1926,6 +1982,7 @@ end",
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_returnish_names_are_not_exits() {
         // `returncode=1` is a `variable_assignment`, not a Command. The
@@ -1955,6 +2012,7 @@ end",
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_no_exit() {
         check_metrics::<TclParser>(
@@ -1978,6 +2036,7 @@ end",
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_return() {
         check_metrics::<TclParser>(
@@ -1993,6 +2052,7 @@ end",
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_multiple_returns() {
         check_metrics::<TclParser>(
@@ -2015,6 +2075,7 @@ end",
     /// `error`, the 8.6 `throw`, and `exit` all parse as generic
     /// commands told apart by their leading word, the same seam
     /// `return` uses (#1270).
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_error_and_throw_are_exits() {
         check_metrics::<TclParser>(
@@ -2046,6 +2107,7 @@ end",
     /// `::return` *is* `return`, so all four must count; the leading word
     /// is the only seam these have, and an unstripped qualifier made each
     /// read as an ordinary call (#1381 review).
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_qualified_exits_are_exits() {
         check_metrics::<TclParser>(
@@ -2071,6 +2133,7 @@ end",
 
     /// Control for the test above: only the *leading* qualifier resolves
     /// to the core command, so a proc in `ns` is not an exit.
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_namespaced_return_is_not_an_exit() {
         check_metrics::<TclParser>(
@@ -2084,6 +2147,7 @@ end",
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_error_in_argument_position_is_not_exit() {
         check_metrics::<TclParser>(
@@ -2099,6 +2163,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_multiple_returns() {
         check_metrics::<TypescriptParser>(
@@ -2119,6 +2184,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_nested_functions() {
         check_metrics::<TypescriptParser>(
@@ -2138,6 +2204,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_no_exit() {
         check_metrics::<TsxParser>(
@@ -2153,6 +2220,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_multiple_returns() {
         check_metrics::<TsxParser>(
@@ -2173,6 +2241,7 @@ end",
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_multiple_returns() {
         check_metrics::<KotlinParser>(
@@ -2193,6 +2262,7 @@ end",
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_no_exit() {
         check_metrics::<KotlinParser>(
@@ -2208,6 +2278,7 @@ end",
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_nested_functions() {
         check_metrics::<MozjsParser>(
@@ -2227,6 +2298,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_no_exit() {
         check_metrics::<PhpParser>("<?php $a = 42;", "foo.php", |metric| {
@@ -2244,6 +2316,7 @@ end",
         });
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_yield_throw() {
         // Generator yields and a throw expression in statement position both
@@ -2273,6 +2346,7 @@ end",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_exit_statement() {
         // `exit_statement` covers both `exit;` (bare) and `exit(N);` (with
@@ -2305,6 +2379,7 @@ end",
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_no_exit() {
         // Plain function returning a value has no early-exit calls. The
@@ -2331,6 +2406,7 @@ end",
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_raise_throw_exit() {
         // `raise`/`throw`/`exit` are recognised by inspecting the `target`
@@ -2355,6 +2431,7 @@ end",
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_reraise_counts() {
         // `reraise` is the Elixir variant of `raise` that re-throws an
@@ -2369,6 +2446,7 @@ end",
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_lookalike_call_is_not_exit() {
         // Only the exact identifiers `throw`/`raise`/`reraise`/`exit` are
@@ -2383,6 +2461,7 @@ end",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_no_exit() {
         // Function body without any `return` produces zero exits.
@@ -2391,6 +2470,7 @@ end",
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_multiple_returns() {
         // Four explicit `return` statements (no modifier sugar) — one
@@ -2404,6 +2484,7 @@ end",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_explicit_returns() {
         // Each `return` (statement or modifier-wrapped) contributes one
@@ -2424,6 +2505,7 @@ end",
     /// matches `panic` (#1270). Both the paren-less command form
     /// (`raise ArgumentError, "m"`) and the parenthesised form
     /// (`exit(1)`) parse as `call`, so both count.
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_raise_and_exit_are_exits() {
         check_metrics::<RubyParser>(
@@ -2441,6 +2523,7 @@ end",
     /// `Kernel#exit!`, the immediate process exit. Both count. A bare
     /// `exit!` counts too, unlike a bare `exit`: the `!` cannot name a
     /// local, so the grammar emits a `call` rather than an `identifier`.
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_kernel_qualified_and_bang_exits_count() {
         check_metrics::<RubyParser>(
@@ -2458,6 +2541,7 @@ end",
     /// the same bare-callee gate Go uses to keep `foo.panic()` out. A
     /// symbol or hash key spelling the builtin parses as
     /// `simple_symbol` / `hash_key_symbol` and is likewise not a call.
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_receiver_call_is_not_exit() {
         check_metrics::<RubyParser>(
@@ -2475,6 +2559,7 @@ end",
     /// Pinning the exclusion here keeps a future "just match bare
     /// identifiers too" change from silently counting every variable
     /// read.
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_bare_raise_identifier_is_not_exit() {
         check_metrics::<RubyParser>(
@@ -2488,6 +2573,7 @@ end",
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_return_and_raise() {
         // `raise` exits the function (stack unwinds)
@@ -2516,6 +2602,7 @@ end",
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_return_and_throw() {
         // `throw` is a function exit.
@@ -2542,6 +2629,7 @@ end",
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_return_and_throw() {
         // Same shape as plain JavaScript.
@@ -2568,6 +2656,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_return_and_throw() {
         check_metrics::<TypescriptParser>(
@@ -2593,6 +2682,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_return_and_throw() {
         check_metrics::<TsxParser>(
@@ -2618,6 +2708,7 @@ end",
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_return_and_throw() {
         // `throw` exits the method.
@@ -2656,6 +2747,7 @@ end",
     /// aggregate `nexits_sum` is 2 either way, so checking only the new
     /// space would pass against the unfixed code as long as the space
     /// existed at all.
+    #[cfg(feature = "java")]
     #[test]
     fn java_record_compact_constructor_owns_its_exits() {
         check_func_space::<JavaParser, _>(
@@ -2686,6 +2778,7 @@ end",
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_yield_in_switch_expression() {
         // Java-14+ switch-expression `yield` is an explicit exit. Each
@@ -2706,6 +2799,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_no_exit() {
         // No functions at all — `nexits.sum` is 0.
@@ -2714,6 +2808,7 @@ end",
         });
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_simple_function() {
         // One explicit return in a top-level function.
@@ -2728,6 +2823,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_return_and_throw() {
         check_metrics::<GroovyParser>(
@@ -2744,6 +2840,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_yield_in_switch_expression() {
         // Groovy inherits Java-14+ switch-expression `yield`. Each
@@ -2764,6 +2861,7 @@ end",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_implicit_return_not_counted() {
         // Groovy allows implicit return of the last expression in a
@@ -2775,6 +2873,7 @@ end",
         });
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_return_and_throw() {
         // `throw` exits the function.
@@ -2801,6 +2900,7 @@ end",
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_yield_counts_as_exit() {
         // Generator suspension via `yield` hands control back to the
@@ -2830,6 +2930,7 @@ end",
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_yield_counts_as_exit() {
         // `function*` generator: each `yield` is an exit edge, same as
@@ -2858,6 +2959,7 @@ end",
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_yield_counts_as_exit() {
         // Same shape as plain JavaScript.
@@ -2885,6 +2987,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_yield_counts_as_exit() {
         check_metrics::<TypescriptParser>(
@@ -2911,6 +3014,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_yield_counts_as_exit() {
         check_metrics::<TsxParser>(
@@ -2937,6 +3041,7 @@ end",
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_yield_forms_count_as_exit() {
         // tree-sitter-python emits a single `Python::Yield` node kind for
@@ -2966,6 +3071,7 @@ end",
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_yield_delegate_counts_as_exit() {
         // Delegating yield (`yield*`) parses as the same
@@ -2996,6 +3102,7 @@ end",
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_yield_delegate_counts_as_exit() {
         check_metrics::<MozjsParser>(
@@ -3022,6 +3129,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_yield_delegate_counts_as_exit() {
         check_metrics::<TypescriptParser>(
@@ -3048,6 +3156,7 @@ end",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_yield_delegate_counts_as_exit() {
         check_metrics::<TsxParser>(
@@ -3076,6 +3185,7 @@ end",
 
     /// A handler with no `return` has zero exits (iRules has no `return`
     /// keyword node; `return` is a generic command matched by name).
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_no_exit() {
         check_metrics::<IrulesParser>(
@@ -3092,6 +3202,7 @@ end",
     }
 
     /// A `return` command contributes one exit.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_return() {
         check_metrics::<IrulesParser>(
@@ -3111,6 +3222,7 @@ end",
 
     /// A multi-value `return` (`return [list ...]`) is a single command and
     /// counts once, not once per returned value.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_multi_value_return_counts_once() {
         check_metrics::<IrulesParser>(
@@ -3129,6 +3241,7 @@ end",
     /// parses to the same `command` + name-word shape (#1270),
     /// re-derived against the iRules grammar rather than assumed from
     /// Tcl's.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_error_is_an_exit() {
         check_metrics::<IrulesParser>(
@@ -3155,6 +3268,7 @@ end",
     /// through `tcl_command_name`, so the `::` strip needs pinning on
     /// that second path too — the sibling sweep grammar-dispatch.md
     /// requires (#1381 review).
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_qualified_exits_are_exits() {
         check_metrics::<IrulesParser>(
@@ -3173,6 +3287,7 @@ end",
     }
 
     /// Control: `ns::return` is a proc in `ns`, not the core command.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_namespaced_return_is_not_an_exit() {
         check_metrics::<IrulesParser>(
@@ -3187,6 +3302,7 @@ end",
         );
     }
 
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_throw_and_argument_position_error_are_not_exits() {
         check_metrics::<IrulesParser>(
@@ -3204,6 +3320,7 @@ end",
 
     /// Objective-C method with no `return` and no `@throw` has zero exit
     /// points.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_no_exit() {
         check_metrics::<ObjcParser>(
@@ -3230,6 +3347,7 @@ end",
 
     /// Objective-C exit set is `return_statement` + `@throw`
     /// (`throw_statement`): a method with one of each counts 2.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_return_and_throw() {
         check_metrics::<ObjcParser>(

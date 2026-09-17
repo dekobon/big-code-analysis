@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use big_code_analysis::{Ast, AstNode, LANG, MetricsOptions, Source, tree_sitter};
 
 /// Recursive `kind` finder used by the [`AstCallback`] test below.
+#[cfg(feature = "rust")]
 fn ast_node_contains_kind(node: &AstNode, kind: &str) -> bool {
     node.r#type == kind
         || node
@@ -21,6 +22,7 @@ fn ast_node_contains_kind(node: &AstNode, kind: &str) -> bool {
 }
 
 /// Visit every node in `tree` in pre-order, root first.
+#[cfg(feature = "rust")]
 fn walk_preorder<F: FnMut(tree_sitter::Node<'_>)>(tree: &tree_sitter::Tree, mut visit: F) {
     let mut cursor = tree.walk();
     'walk: loop {
@@ -39,6 +41,7 @@ fn walk_preorder<F: FnMut(tree_sitter::Node<'_>)>(tree: &tree_sitter::Tree, mut 
     }
 }
 
+#[cfg(feature = "rust")]
 #[test]
 fn count_nodes_by_kind() {
     let ast = Ast::parse(Source::new(
@@ -56,6 +59,7 @@ fn count_nodes_by_kind() {
     assert_eq!(counts.get("for_expression").copied().unwrap_or(0), 1);
 }
 
+#[cfg(feature = "rust")]
 #[test]
 fn find_unsafe_blocks() {
     let ast = Ast::parse(Source::new(
@@ -89,12 +93,14 @@ fn find_unsafe_blocks() {
     assert_eq!((start_row, end_row), (0, 0));
 }
 
+#[cfg(feature = "rust")]
 #[test]
 fn detect_parse_error_on_root() {
     let ast = Ast::parse(Source::new(LANG::Rust, b"fn broken(")).expect("rust feature enabled");
     assert!(ast.as_tree_sitter().root_node().has_error());
 }
 
+#[cfg(feature = "rust")]
 #[test]
 fn enumerate_parse_error_lines() {
     let ast = Ast::parse(Source::new(LANG::Rust, b"fn broken(")).expect("rust feature enabled");
@@ -116,6 +122,7 @@ fn enumerate_parse_error_lines() {
     );
 }
 
+#[cfg(feature = "rust")]
 #[test]
 fn metrics_plus_symbol_table_one_parse() {
     let ast = Ast::parse(Source::new(
@@ -143,6 +150,7 @@ fn metrics_plus_symbol_table_one_parse() {
     assert_eq!(functions, ["outer", "inner", "alone"]);
 }
 
+#[cfg(feature = "rust")]
 #[test]
 fn ast_dump_produces_serializable_tree() {
     use big_code_analysis::{Ast, AstCfg, AstPayload, Source};

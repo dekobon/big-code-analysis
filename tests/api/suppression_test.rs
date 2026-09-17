@@ -12,15 +12,19 @@ use big_code_analysis::{
     FuncSpace, LANG, Metric, MetricsOptions, Source, SuppressionScope, analyze,
 };
 
-fn analyze_lang(source: &str, path: &str) -> FuncSpace {
-    let ext = path.rsplit('.').next().unwrap_or("");
-    let lang = match ext {
-        "py" => LANG::Python,
-        "cpp" | "cc" | "hpp" | "h" => LANG::Cpp,
-        "rs" => LANG::Rust,
-        "js" => LANG::Javascript,
-        other => panic!("unsupported test extension {other:?}"),
-    };
+// `lang` is a parameter rather than something derived from `path`'s
+// extension, as it was until #1472. A language picked out of a string is
+// invisible to `check-test-lang-gates.py`, so every test here read as
+// needing no grammar in particular and none of them was gated — which is
+// 21 panics on any single-language build. Naming it at the call site is
+// also what tells a reader which grammar a fixture exercises.
+#[cfg(any(
+    feature = "cpp",
+    feature = "javascript",
+    feature = "python",
+    feature = "rust"
+))]
+fn analyze_lang(lang: LANG, source: &str, path: &str) -> FuncSpace {
     analyze(
         Source::new(lang, source.as_bytes()).with_name(Some(path.to_owned())),
         MetricsOptions::default(),
@@ -31,6 +35,7 @@ fn analyze_lang(source: &str, path: &str) -> FuncSpace {
 /// Recursively locate the first non-Unit space whose name matches
 /// `name`. Tests use this to assert markers attached to the correct
 /// function rather than leaking up to the file-level space.
+#[cfg(any(feature = "cpp", feature = "python", feature = "rust"))]
 fn find_function<'a>(space: &'a FuncSpace, name: &str) -> Option<&'a FuncSpace> {
     if space.name.as_deref() == Some(name) {
         return Some(space);
@@ -38,6 +43,7 @@ fn find_function<'a>(space: &'a FuncSpace, name: &str) -> Option<&'a FuncSpace> 
     space.spaces.iter().find_map(|s| find_function(s, name))
 }
 
+#[cfg(feature = "python")]
 #[test]
 fn python_native_function_scoped_marker_attaches_to_enclosing_function() {
     // Python is a non-C-family language: comments are `#`, distinct
@@ -53,7 +59,7 @@ def noisy(x):
         return 1
     return 0
 "#;
-    let space = analyze_lang(src, "fixture.py");
+    let space = analyze_lang(LANG::Python, src, "fixture.py");
     let noisy = find_function(&space, "noisy").expect("noisy function should be present");
     assert!(
         noisy.suppressed.covers(Metric::Cyclomatic),
@@ -71,6 +77,7 @@ def noisy(x):
     );
 }
 
+#[cfg(feature = "cpp")]
 #[test]
 fn cpp_native_function_scoped_marker_attaches_to_enclosing_function() {
     // C++ exercises the `//`-comment path; the marker is identical to
@@ -84,7 +91,7 @@ int noisy(int x) {
     return 0;
 }
 "#;
-    let space = analyze_lang(src, "fixture.cpp");
+    let space = analyze_lang(LANG::Cpp, src, "fixture.cpp");
     let noisy = find_function(&space, "noisy").expect("noisy function should be present");
     assert!(noisy.suppressed.covers(Metric::Cognitive));
     assert!(noisy.suppressed.covers(Metric::Cyclomatic));
@@ -103,6 +110,7 @@ int noisy(int x) {
     );
 }
 
+#[cfg(feature = "rust")]
 #[test]
 fn rust_block_comment_marker_attaches() {
     // Rust block-comment form `/* bca: suppress */` exercises a different
@@ -114,11 +122,12 @@ fn noisy(x: i32) -> i32 {
     if x > 0 { 1 } else { 0 }
 }
 "#;
-    let space = analyze_lang(src, "fixture.rs");
+    let space = analyze_lang(LANG::Rust, src, "fixture.rs");
     let noisy = find_function(&space, "noisy").expect("noisy function should be present");
     assert!(noisy.suppressed.is_all(), "expected All scope on noisy");
 }
 
+#[cfg(feature = "python")]
 #[test]
 fn native_file_scoped_marker_lands_on_unit_space() {
     let src = r#"
@@ -127,7 +136,7 @@ fn native_file_scoped_marker_lands_on_unit_space() {
 def fine():
     return 1
 "#;
-    let space = analyze_lang(src, "fixture.py");
+    let space = analyze_lang(LANG::Python, src, "fixture.py");
     assert!(space.suppressed.covers(Metric::Loc));
     assert!(space.suppressed.covers(Metric::Halstead));
     assert!(!space.suppressed.covers(Metric::Cyclomatic));
@@ -138,6 +147,7 @@ def fine():
     assert!(fine.suppressed.is_empty());
 }
 
+#[cfg(feature = "python")]
 #[test]
 fn lizard_function_marker_recognized_on_python() {
     // Lizard's `#lizard forgives` is verbatim Python-comment-shaped, so
@@ -149,7 +159,7 @@ def noisy(x):
         return 1
     return 0
 "#;
-    let space = analyze_lang(src, "fixture.py");
+    let space = analyze_lang(LANG::Python, src, "fixture.py");
     let noisy = find_function(&space, "noisy").expect("noisy function should be present");
     assert!(
         noisy.suppressed.is_all(),
@@ -157,6 +167,7 @@ def noisy(x):
     );
 }
 
+#[cfg(feature = "cpp")]
 #[test]
 fn lizard_file_marker_recognized_on_cpp() {
     // Lizard's `#lizard forgive global` placed in a C++ comment.
@@ -165,10 +176,11 @@ fn lizard_file_marker_recognized_on_cpp() {
 
 int fine() { return 1; }
 "#;
-    let space = analyze_lang(src, "fixture.cpp");
+    let space = analyze_lang(LANG::Cpp, src, "fixture.cpp");
     assert!(space.suppressed.is_all());
 }
 
+#[cfg(feature = "rust")]
 #[test]
 fn nested_function_marker_lands_on_inner_function() {
     // The innermost containing function wins. Without that rule, a
@@ -184,7 +196,7 @@ fn outer() -> i32 {
     inner()
 }
 "#;
-    let space = analyze_lang(src, "fixture.rs");
+    let space = analyze_lang(LANG::Rust, src, "fixture.rs");
     let outer = find_function(&space, "outer").expect("outer should be present");
     let inner = find_function(&space, "inner").expect("inner should be present");
     assert!(inner.suppressed.covers(Metric::Cyclomatic));
@@ -202,6 +214,7 @@ fn outer() -> i32 {
     );
 }
 
+#[cfg(feature = "python")]
 #[test]
 fn empty_scope_serializes_elided() {
     // Function spaces without markers must round-trip through JSON
@@ -212,7 +225,7 @@ fn empty_scope_serializes_elided() {
 def fine():
     return 1
 "#;
-    let space = analyze_lang(src, "fixture.py");
+    let space = analyze_lang(LANG::Python, src, "fixture.py");
     let json = serde_json::to_string(&space).expect("serialize");
     assert!(
         !json.contains("\"suppressed\""),
@@ -220,6 +233,7 @@ def fine():
     );
 }
 
+#[cfg(feature = "python")]
 #[test]
 fn populated_scope_serializes_with_metrics_list() {
     // When a marker fires, the JSON output should expose the scope so
@@ -231,7 +245,7 @@ fn populated_scope_serializes_with_metrics_list() {
     let src = r#"
 # bca: suppress-file(loc)
 "#;
-    let space = analyze_lang(src, "fixture.py");
+    let space = analyze_lang(LANG::Python, src, "fixture.py");
     let json = serde_json::to_string(&space).expect("serialize");
     let value: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
     let suppressed = value
@@ -254,6 +268,7 @@ fn populated_scope_serializes_with_metrics_list() {
     );
 }
 
+#[cfg(feature = "python")]
 #[test]
 fn unknown_metric_in_marker_has_no_effect() {
     // Typos must not silently widen scope. At the library boundary an
@@ -269,7 +284,7 @@ def fine():
     # bca: suppress(no_such_metric)
     return 1
 "#;
-    let space = analyze_lang(src, "fixture.py");
+    let space = analyze_lang(LANG::Python, src, "fixture.py");
     let fine = find_function(&space, "fine").expect("function fine should exist");
     assert!(
         fine.suppressed.is_empty(),
@@ -278,6 +293,7 @@ def fine():
     );
 }
 
+#[cfg(feature = "python")]
 #[test]
 fn unknown_metric_beside_a_known_one_keeps_the_known_one() {
     // Since #1168 an unrecognized name costs its own name only. The
@@ -293,7 +309,7 @@ def fine(x):
         return 1
     return 0
 "#;
-    let space = analyze_lang(src, "fixture.py");
+    let space = analyze_lang(LANG::Python, src, "fixture.py");
     let fine = find_function(&space, "fine").expect("function fine should exist");
     assert!(
         fine.suppressed.covers(Metric::Cyclomatic),
@@ -302,6 +318,7 @@ def fine(x):
     );
 }
 
+#[cfg(feature = "python")]
 #[test]
 fn suppress_file_marker_accepts_a_trailing_rationale() {
     // `suppress-file` takes a rationale on the same terms as the
@@ -314,7 +331,7 @@ fn suppress_file_marker_accepts_a_trailing_rationale() {
 def fine():
     return 1
 "#;
-    let space = analyze_lang(src, "fixture.py");
+    let space = analyze_lang(LANG::Python, src, "fixture.py");
     assert!(
         space.suppressed.covers(Metric::Loc) && space.suppressed.covers(Metric::Halstead),
         "file-scoped marker with a rationale must attach both metrics; got {:?}",
@@ -322,6 +339,7 @@ def fine():
     );
 }
 
+#[cfg(feature = "python")]
 #[test]
 fn unknown_verb_in_marker_has_no_effect() {
     // Parallel to `unknown_metric_in_marker_has_no_effect`, but
@@ -338,7 +356,7 @@ def fine():
     # bca: allow(cyclomatic)
     return 1
 "#;
-    let space = analyze_lang(src, "fixture.py");
+    let space = analyze_lang(LANG::Python, src, "fixture.py");
     let fine = find_function(&space, "fine").expect("function fine should exist");
     assert!(
         fine.suppressed.is_empty(),
@@ -347,6 +365,7 @@ def fine():
     );
 }
 
+#[cfg(feature = "python")]
 #[test]
 fn marker_outside_any_function_is_silently_ignored() {
     // A function-scoped marker that lies outside every function body
@@ -358,12 +377,13 @@ fn marker_outside_any_function_is_silently_ignored() {
 def fine():
     return 1
 "#;
-    let space = analyze_lang(src, "fixture.py");
+    let space = analyze_lang(LANG::Python, src, "fixture.py");
     assert!(space.suppressed.is_empty());
     let fine = find_function(&space, "fine").expect("function fine should exist");
     assert!(fine.suppressed.is_empty());
 }
 
+#[cfg(feature = "rust")]
 #[test]
 fn multiple_markers_union_on_same_function() {
     // Stacking markers should union the metric lists, so an author
@@ -376,12 +396,13 @@ fn busy() -> i32 {
     if true { 1 } else { 0 }
 }
 "#;
-    let space = analyze_lang(src, "fixture.rs");
+    let space = analyze_lang(LANG::Rust, src, "fixture.rs");
     let busy = find_function(&space, "busy").expect("busy should be present");
     assert!(busy.suppressed.covers(Metric::Cyclomatic));
     assert!(busy.suppressed.covers(Metric::Cognitive));
 }
 
+#[cfg(feature = "cpp")]
 #[test]
 fn suppression_attaches_to_correct_sibling_on_same_line() {
     // Regression for issue #289. Two single-line C functions share
@@ -394,7 +415,7 @@ fn suppression_attaches_to_correct_sibling_on_same_line() {
     let src = "int a() { return 1; } int b() { \
         /* bca: suppress(cyclomatic) */ \
         return 2; }\n";
-    let space = analyze_lang(src, "fixture.cpp");
+    let space = analyze_lang(LANG::Cpp, src, "fixture.cpp");
     let a = find_function(&space, "a").expect("function a should be present");
     let b = find_function(&space, "b").expect("function b should be present");
     assert!(
@@ -417,6 +438,7 @@ fn suppression_attaches_to_correct_sibling_on_same_line() {
     );
 }
 
+#[cfg(feature = "cpp")]
 #[test]
 fn suppression_after_function_open_brace_attaches_to_function() {
     // The marker sits on the same line as the opening brace but
@@ -427,7 +449,7 @@ fn suppression_after_function_open_brace_attaches_to_function() {
         if (x > 0) { return 1; }\n\
         return 0;\n\
         }\n";
-    let space = analyze_lang(src, "fixture.cpp");
+    let space = analyze_lang(LANG::Cpp, src, "fixture.cpp");
     let noisy = find_function(&space, "noisy").expect("noisy should be present");
     assert!(
         noisy.suppressed.covers(Metric::Cognitive),
@@ -440,6 +462,7 @@ fn suppression_after_function_open_brace_attaches_to_function() {
     );
 }
 
+#[cfg(feature = "cpp")]
 #[test]
 fn suppression_at_start_of_function_body() {
     // A marker as the first statement of the body — distinct from the
@@ -451,7 +474,7 @@ fn suppression_at_start_of_function_body() {
         if (x > 0) { return 1; }\n\
         return 0;\n\
         }\n";
-    let space = analyze_lang(src, "fixture.cpp");
+    let space = analyze_lang(LANG::Cpp, src, "fixture.cpp");
     let noisy = find_function(&space, "noisy").expect("noisy should be present");
     assert!(
         noisy.suppressed.covers(Metric::Cyclomatic),
@@ -460,6 +483,7 @@ fn suppression_at_start_of_function_body() {
     );
 }
 
+#[cfg(feature = "python")]
 #[test]
 fn function_marker_at_class_scope_is_silently_dropped() {
     // A function-scoped `bca: suppress` marker sitting at class scope
@@ -481,7 +505,7 @@ class Holder:
             return 1
         return 0
 "#;
-    let space = analyze_lang(src, "fixture.py");
+    let space = analyze_lang(LANG::Python, src, "fixture.py");
     let holder = find_function(&space, "Holder").expect("class Holder should be present");
     assert!(
         holder.suppressed.is_empty(),
@@ -512,6 +536,7 @@ fn default_scope_does_not_cover_any_metric() {
     }
 }
 
+#[cfg(feature = "javascript")]
 #[test]
 fn deeply_nested_function_suppression_does_not_overflow_stack() {
     // Regression test for issues #292 and #308.
@@ -557,7 +582,7 @@ fn deeply_nested_function_suppression_does_not_overflow_stack() {
         src.push_str("}\n");
     }
 
-    let space = analyze_lang(&src, "deeply_nested.js");
+    let space = analyze_lang(LANG::Javascript, &src, "deeply_nested.js");
 
     // Iterative walk so the assertion path itself never recurses; a
     // recursive search would defeat the point of the test by

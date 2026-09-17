@@ -1128,20 +1128,24 @@ mod tests {
     use std::fmt::Write as _;
     use std::path::PathBuf;
 
+    #[cfg(feature = "bash")]
     fn parse(source: &str) -> BashParser {
         BashParser::new(source.as_bytes().to_vec(), &PathBuf::from("test.sh"), None)
     }
 
+    #[cfg(feature = "bash")]
     fn count_strings(source: &str) -> usize {
         count(&parse(source), &["string".to_string()]).0
     }
 
     // `count`'s filter parser accepts a numeric string as a `kind_id` match
     // (parser.rs `filters`), so `has_kind` reuses the same primitive.
+    #[cfg(feature = "bash")]
     fn has_kind(source: &str, kind_id: u16) -> bool {
         count(&parse(source), &[kind_id.to_string()]).0 > 0
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_is_string_excludes_word_tokens() {
         // `echo hello world` produces three Word nodes — none of them are
@@ -1154,6 +1158,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_is_string_matches_quoted_literals() {
         // Regular double-quoted string -> `string` (Bash::String).
@@ -1164,6 +1169,7 @@ mod tests {
         assert_eq!(count_strings("echo $'ansi-c'\n"), 1);
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_is_string_matches_translated_string() {
         // tree-sitter-bash only emits a visible `translated_string` node
@@ -1180,6 +1186,7 @@ mod tests {
         assert_eq!(count_strings(src), 2);
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_is_string_matches_heredoc_bodies() {
         // Plain heredoc body.
@@ -1200,14 +1207,17 @@ mod tests {
 
     // ===== PHP `is_string` regression tests (issue #288) =====
 
+    #[cfg(feature = "php")]
     fn parse_php(source: &str) -> PhpParser {
         PhpParser::new(source.as_bytes().to_vec(), &PathBuf::from("test.php"), None)
     }
 
+    #[cfg(feature = "php")]
     fn count_php_strings(source: &str) -> usize {
         count(&parse_php(source), &["string".to_string()]).0
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_is_string_matches_single_quoted_literal() {
         // `Php::String` is the named single-quoted literal. Inert
@@ -1216,6 +1226,7 @@ mod tests {
         assert_eq!(count_php_strings("<?php $x = 'single';"), 1);
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_is_string_matches_encapsed_heredoc_nowdoc_shell() {
         // `EncapsedString` (double-quoted), `Heredoc`, `Nowdoc`, and
@@ -1241,6 +1252,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_is_string_matches_string_alias_kinds() {
         // Regression for #288. Before the fix, only `Php::String`
@@ -1265,6 +1277,31 @@ mod tests {
     // *and* simultaneously match `is_string`. A non-zero result proves
     // both that the alias appears in the parse and that the checker
     // accepts it. Pre-fix this would be zero for the alias kinds.
+    #[cfg(any(
+        feature = "bash",
+        feature = "c",
+        feature = "c-family-helpers",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "elixir",
+        feature = "go",
+        feature = "groovy",
+        feature = "irules",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "lua",
+        feature = "mozcpp",
+        feature = "mozjs",
+        feature = "objc",
+        feature = "perl",
+        feature = "php",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+        feature = "tcl",
+        feature = "typescript",
+    ))]
     fn count_string_matches_for_kind<P: ParserTrait, F: Fn(&Node) -> bool>(
         parser: &P,
         target: u16,
@@ -1285,6 +1322,7 @@ mod tests {
         hits
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_is_string_matches_string2_alias() {
         // `Javascript::String2` (kind_id 221) aliases to `"string"`
@@ -1311,6 +1349,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_is_string_matches_string2_alias() {
         // Parallel coverage for the MozJS dialect; same `String2`
@@ -1327,6 +1366,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_is_string_excludes_type_keyword_alias_1261() {
         // TypeScript's only anonymous `"string"` alias, `String2`
@@ -1362,6 +1402,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_is_string_matches_literal_alias_not_type_keyword_1261() {
         // TSX uniquely carries two anonymous `"string"` aliases:
@@ -1402,6 +1443,14 @@ mod tests {
     // `target`. Used by the `is_else_if` tests below to fish a
     // specific node out of the parse tree without depending on the
     // `count` helper above.
+    #[cfg(any(
+        feature = "c",
+        feature = "cpp",
+        feature = "groovy",
+        feature = "mozcpp",
+        feature = "python",
+        feature = "rust",
+    ))]
     fn find_first_kind<P: ParserTrait>(parser: &P, target: u16) -> Option<Node<'_>> {
         let mut stack = vec![parser.root()];
         while let Some(node) = stack.pop() {
@@ -1423,6 +1472,7 @@ mod tests {
     /// `rust_outer_attr_marks_test` — not the inner scan. Pins the key
     /// invariant of the helper split: a `mod_item`'s outer attributes are
     /// never skipped in favour of only its inner attributes.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_outer_attr_on_mod_is_test_only() {
         let src = "#[cfg(test)]\nmod tests {\n    fn t() {}\n}\n";
@@ -1445,6 +1495,7 @@ mod tests {
     /// attribute nested in the module body. The outer sibling scan finds
     /// nothing; `rust_inner_attr_marks_test` descends via the `body`
     /// field and catches it.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_inner_attr_in_mod_is_test_only() {
         let src = "mod tests {\n    #![cfg(test)]\n    fn t() {}\n}\n";
@@ -1462,6 +1513,7 @@ mod tests {
     }
 
     /// A plain, unattributed item is not test-only — neither scan matches.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_plain_item_is_not_test_only() {
         let src = "fn foo() {}\n";
@@ -1495,6 +1547,7 @@ mod tests {
     /// The counted `marked` / `unmarked` totals are what stop it from
     /// passing vacuously — two readings that both answered `false`
     /// everywhere would agree perfectly.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_outer_attr_scans_agree() {
         // One attribute run longer than the file's actual code, so the
@@ -1658,6 +1711,7 @@ mod tests {
     /// one byte past the item, say, or a run start taken as the run end
     /// — is a *silently wrong prune* in production, because the walker
     /// never asks again (#1446).
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_should_skip_subtree_matches_the_backward_reading() {
         let source = "#[cfg(test)]\nmod tests {\nfn a() {}\n}\n\
@@ -1813,6 +1867,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_is_else_if_recognises_else_followed_by_if() {
         // Direct assertion that `GroovyCode::is_else_if` returns true
@@ -1846,6 +1901,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_is_else_if_false_for_standalone_if() {
         // A bare `if` (no `else` preceding it) must NOT register as
@@ -1857,6 +1913,7 @@ mod tests {
         assert!(!GroovyCode::is_else_if(&node, Ancestors::unknown()));
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_is_call_excludes_constructors() {
         // Regression for #430. `GroovyCode::is_call` previously matched
@@ -1915,6 +1972,7 @@ mod tests {
     // exactly what justifies keeping the unsuffixed arm defensively
     // (the grammar-dispatch §2 technique, applied to an alias-mapped
     // rule rather than a hidden one).
+    #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp"))]
     #[track_caller]
     fn assert_call_kinds_are_aliased<P: ParserTrait>(
         parser: &P,
@@ -1939,6 +1997,7 @@ mod tests {
     // `function_declarator`, the `sizeof(int)` operand, and the `(int)x`
     // cast. Six differs from the C++ fixture's five, so a test that
     // reaches for the wrong parser cannot pass on the right number.
+    #[cfg(feature = "c")]
     const C_CALL_SHAPES: &str = "int f(int);\n\
                                  int main(void) {\n\
                                  f(1);\n\
@@ -1957,6 +2016,7 @@ mod tests {
     // from the fixture — the grammar emits it as a plain `call_expression`,
     // so it *is* counted, and including it here would blur what the five
     // is pinning.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const CPP_CALL_SHAPES: &str = "struct T { T(int); int m(); };\n\
                                    namespace ns { int f(); }\n\
                                    int main() {\n\
@@ -1979,6 +2039,7 @@ mod tests {
     /// `alias(…, $.call_expression)` — it is absent from `node-types.json`
     /// and never reaches `kind_id()`. Matching it alone left `is_call`
     /// dead: `bca count -t call` reported 0 on ordinary C (#1254).
+    #[cfg(feature = "c")]
     #[test]
     fn c_is_call_matches_the_aliased_call_expression() {
         let parser = CParser::new(
@@ -2016,6 +2077,7 @@ mod tests {
     /// C++ counterpart of [`c_is_call_matches_the_aliased_call_expression`].
     /// Member, qualified and function-pointer calls all arrive as the same
     /// aliased `CallExpression2`; object construction does not (#1254).
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_is_call_matches_the_aliased_call_expression() {
         let parser = CppParser::new(
@@ -2054,6 +2116,7 @@ mod tests {
     /// extension-owning sibling instead: the Mozilla fork inherits
     /// upstream C++'s aliasing, so the same source must yield the same
     /// calls (grammar-dispatch, "sweep the rest").
+    #[cfg(all(feature = "cpp", feature = "mozcpp"))]
     #[test]
     fn mozcpp_is_call_agrees_with_cpp() {
         let source = CPP_CALL_SHAPES.as_bytes().to_vec();
@@ -2087,6 +2150,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     fn parse_python(src: &str) -> PythonParser {
         PythonParser::new(src.as_bytes().to_vec(), &PathBuf::from("test.py"), None)
     }
@@ -2094,6 +2158,7 @@ mod tests {
     // Walk the AST and return every node whose `kind_id` equals `target`,
     // in DFS pre-order. Used by the Python `is_else_if` tests below to
     // distinguish the outer if from the inner one in an `else: if` chain.
+    #[cfg(feature = "python")]
     fn find_all_kinds<P: ParserTrait>(parser: &P, target: u16) -> Vec<Node<'_>> {
         let mut out = Vec::new();
         let mut stack = vec![parser.root()];
@@ -2110,6 +2175,7 @@ mod tests {
         out
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_is_else_if_recognises_if_inside_else_clause() {
         // `else: if b:` chains parse as `else_clause → block → if_statement`
@@ -2132,6 +2198,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_is_else_if_false_for_standalone_if() {
         // A bare `if` whose parent is the module / function body must
@@ -2142,6 +2209,7 @@ mod tests {
         assert!(!PythonCode::is_else_if(&node, Ancestors::unknown()));
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_is_else_if_false_for_outer_if_with_elif_alternative() {
         // `elif` parses as an `ElifClause`, not an `IfStatement`, so the
@@ -2159,6 +2227,7 @@ mod tests {
     // `else_clause`'s `block` wrapper, or `None` if no such node exists.
     // Used by tests below instead of relying on `find_all_kinds`'s DFS
     // pre-order to land at `ifs[1]`.
+    #[cfg(feature = "python")]
     fn find_python_if_inside_else_block(parser: &PythonParser) -> Option<Node<'_>> {
         find_all_kinds(parser, Python::IfStatement as u16)
             .into_iter()
@@ -2171,6 +2240,7 @@ mod tests {
             })
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_is_else_if_false_when_else_body_has_siblings() {
         // `else: if b:` followed by another statement at the same indent
@@ -2201,6 +2271,7 @@ mod tests {
     // (function, class, if/for bodies, lambda); if a bump ever emits one,
     // the guard flips red and forces a positive assertion to be added —
     // mirroring the `Php::String3` hidden-supertype guard above.
+    #[cfg(feature = "python")]
     #[test]
     fn python_hidden_block_and_lambda_aliases_stay_unseen() {
         let src = "def f(a, b):\n    if a:\n        return b\n    for x in b:\n        print(x)\n\nclass C:\n    def m(self):\n        pass\n\ng = lambda x: x + 1\n";
@@ -2239,6 +2310,7 @@ mod tests {
     // emitted `Lambda` and that the predicate is not vacuously true (it
     // rejects the enclosing `FunctionDefinition`). The unseen `Lambda2`
     // half of the set is covered by the drift guard above.
+    #[cfg(feature = "python")]
     #[test]
     fn python_is_lambda_matches_live_lambda_and_agrees_with_is_closure() {
         use crate::lang_helpers::python::python_is_lambda;
@@ -2278,6 +2350,7 @@ mod tests {
     /// changed both signatures to take `Ancestors`, which is exactly the
     /// kind of edit that can quietly invert a one-line predicate, so pin
     /// the contract directly.
+    #[cfg(all(feature = "c-family-helpers", feature = "elixir"))]
     #[test]
     fn languages_without_else_if_chains_answer_false() {
         // The `Checker` default, via the two grammars that do not
@@ -2334,6 +2407,25 @@ mod tests {
     // their dedicated `impl_js_family_is_string!` macro and have
     // their own alias-aware tests above; they are intentionally
     // not duplicated here.
+    #[cfg(any(
+        feature = "bash",
+        feature = "c-family-helpers",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "elixir",
+        feature = "go",
+        feature = "groovy",
+        feature = "irules",
+        feature = "java",
+        feature = "kotlin",
+        feature = "lua",
+        feature = "perl",
+        feature = "php",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+        feature = "tcl",
+    ))]
     fn count_with_parser<P: ParserTrait>(parser: &P) -> usize {
         count(parser, &["string".to_string()]).0
     }
@@ -2343,6 +2435,25 @@ mod tests {
     // failures unambiguous: a presence failure means the fixture no
     // longer produces the variant (likely grammar drift); a match
     // failure means a macro invocation dropped the variant.
+    #[cfg(any(
+        feature = "bash",
+        feature = "c-family-helpers",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "elixir",
+        feature = "go",
+        feature = "groovy",
+        feature = "irules",
+        feature = "java",
+        feature = "kotlin",
+        feature = "lua",
+        feature = "perl",
+        feature = "php",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+        feature = "tcl",
+    ))]
     fn assert_variant_is_string<P: ParserTrait, F: Fn(&Node) -> bool>(
         parser: &P,
         target: u16,
@@ -2367,6 +2478,25 @@ mod tests {
     // exercise. The macro feeds `stringify!` for both the language
     // and variant labels so test failures keep the same "Lang::Variant"
     // wording the helper already emits.
+    #[cfg(all(
+        feature = "bash",
+        feature = "c-family-helpers",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "elixir",
+        feature = "go",
+        feature = "groovy",
+        feature = "irules",
+        feature = "java",
+        feature = "kotlin",
+        feature = "lua",
+        feature = "perl",
+        feature = "php",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+        feature = "tcl",
+    ))]
     macro_rules! assert_variants_is_string {
         ($parser:expr, $lang:ident, $code:ident, [$($variant:ident),+ $(,)?]) => {
             $(
@@ -2385,6 +2515,25 @@ mod tests {
     // filter yields zero matches. Used by the negative test, which
     // walks every language consolidated under `impl_simple_is_string!`
     // with identical per-language shape (parse → count → assert_eq! 0).
+    #[cfg(all(
+        feature = "bash",
+        feature = "c-family-helpers",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "elixir",
+        feature = "go",
+        feature = "groovy",
+        feature = "irules",
+        feature = "java",
+        feature = "kotlin",
+        feature = "lua",
+        feature = "perl",
+        feature = "php",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+        feature = "tcl",
+    ))]
     macro_rules! assert_no_string_matches {
         ($parser_ty:ident, $path:expr, $src:expr, $lang:literal $(,)?) => {{
             let parser = $parser_ty::new($src.to_vec(), $path, None);
@@ -2392,6 +2541,25 @@ mod tests {
         }};
     }
 
+    #[cfg(all(
+        feature = "bash",
+        feature = "c-family-helpers",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "elixir",
+        feature = "go",
+        feature = "groovy",
+        feature = "irules",
+        feature = "java",
+        feature = "kotlin",
+        feature = "lua",
+        feature = "perl",
+        feature = "php",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+        feature = "tcl",
+    ))]
     #[test]
     fn simple_is_string_macro_recognises_each_language() {
         use crate::langs::{
@@ -2656,6 +2824,25 @@ mod tests {
         assert_variants_is_string!(&parser, Groovy, GroovyCode, [StringLiteral]);
     }
 
+    #[cfg(all(
+        feature = "bash",
+        feature = "c-family-helpers",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "elixir",
+        feature = "go",
+        feature = "groovy",
+        feature = "irules",
+        feature = "java",
+        feature = "kotlin",
+        feature = "lua",
+        feature = "perl",
+        feature = "php",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+        feature = "tcl",
+    ))]
     #[test]
     fn simple_is_string_macro_rejects_non_string_nodes() {
         // Pure-identifier source must produce zero string matches.
@@ -2714,6 +2901,7 @@ mod tests {
         assert_no_string_matches!(GroovyParser, &path, b"def m() { def x = y }\n", "Groovy");
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_parses_using_declaration() {
         // Drift marker for the JS-base-grammar bump 0.23.1 -> 0.25.0
@@ -2731,6 +2919,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_rune_literal_is_not_a_string() {
         // #699 verdict: Go `RuneLiteral` is an operand in `get_op_type`
@@ -2758,6 +2947,7 @@ mod tests {
         );
     }
 
+    #[cfg(all(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
     #[test]
     fn c_family_char_literal_is_not_a_string() {
         // The C-family half of the #699 verdict `go_rune_literal_is_not_a_string`
@@ -2777,6 +2967,7 @@ mod tests {
         // `char_literal` at all.
         use crate::langs::{CParser, CppParser, MozcppParser, ObjcParser};
 
+        #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
         fn check<P: ParserTrait, F: Fn(&Node) -> bool + Copy>(
             source: &[u8],
             file: &str,
@@ -2843,6 +3034,12 @@ mod tests {
     /// into the closure column. The counters keep a fixture honest: both
     /// answers have to occur, for both predicates, or the parity holds
     /// only over nodes the predicates never classify.
+    #[cfg(any(
+        feature = "javascript",
+        feature = "mozjs",
+        feature = "ruby",
+        feature = "typescript"
+    ))]
     fn assert_func_parity<L: crate::traits::LanguageInfo + Checker>(
         label: &str,
         code: &[u8],
@@ -2886,6 +3083,7 @@ mod tests {
     /// These are the predicates with the longest ancestor lookup: an
     /// upward walk, its `is_else_if` filter, and a `has_sibling`
     /// adjacency check.
+    #[cfg(all(feature = "javascript", feature = "mozjs", feature = "typescript"))]
     #[test]
     fn js_func_and_closure_agree_between_known_and_climbing() {
         // One of each shape the walk distinguishes: an arrow bound to a
@@ -2928,6 +3126,7 @@ mod tests {
     /// the only node here whose answer depends on the parent lookup —
     /// every other block's parent is a `Call`, which the arm accepts
     /// whether the lookup is right or wrong.
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_block_closure_agrees_between_known_and_climbing() {
         let code = concat!(

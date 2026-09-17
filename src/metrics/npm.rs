@@ -573,6 +573,7 @@ mod tests {
     // operators read as absent from both, so both must be pinned.
     check_metrics_only_shim!(check_metrics_with_npa, Npm, Npa);
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_constructors() {
         check_metrics::<JavaParser>(
@@ -604,6 +605,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_no_methods() {
         check_metrics::<GroovyParser>("class A { int x = 1 }", "foo.groovy", |metric| {
@@ -611,6 +613,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_public_methods() {
         check_metrics::<GroovyParser>(
@@ -627,6 +630,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_interface_methods_implicitly_public() {
         // Asserting only the body-walker `interface_*_sum` totals
@@ -653,6 +657,7 @@ mod tests {
 
     // Regression for issue #280: Groovy mirrors Java's enum / record /
     // annotation method counting.
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_enum_counts_methods() {
         check_metrics::<GroovyParser>(
@@ -669,6 +674,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     #[ignore = "dekobon Groovy grammar v1 does not support annotation type elements with `default` values; the trailing `default \"\"`/`default 0` make the body fail to parse"]
     fn groovy_annotation_type_counts_elements() {
@@ -696,6 +702,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_constructors() {
         check_metrics::<GroovyParser>(
@@ -714,6 +721,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_no_methods_in_unit_scope() {
         check_metrics::<GroovyParser>("int x = 1", "foo.groovy", |metric| {
@@ -721,6 +729,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_multiple_classes_methods() {
         check_metrics::<GroovyParser>(
@@ -734,6 +743,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_methods_returning_primitive_types() {
         // Mirror of `java_methods_returning_primitive_types`. Each
@@ -757,6 +767,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_methods_with_generic_types() {
         // Methods with generic parameter/return types.
@@ -774,6 +785,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_method_modifiers() {
         // Modifier ordering doesn't matter — what matters is
@@ -799,6 +811,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     #[ignore = "dekobon Groovy grammar v1 does not yet support inner classes inside class bodies"]
     fn groovy_nested_inner_classes() {
@@ -823,6 +836,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     #[ignore = "dekobon Groovy grammar v1 does not yet support anonymous inner classes (`new T() { … }`)"]
     fn groovy_anonymous_inner_class() {
@@ -845,6 +859,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_interfaces_and_class() {
         // Mixed interfaces + class. Interface methods are
@@ -884,6 +899,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_methods_returning_primitive_types() {
         check_metrics::<JavaParser>(
@@ -927,6 +943,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_methods_returning_arrays() {
         check_metrics::<JavaParser>(
@@ -970,6 +987,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_methods_returning_objects() {
         check_metrics::<JavaParser>(
@@ -1009,6 +1027,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_methods_with_generic_types() {
         check_metrics::<JavaParser>(
@@ -1046,6 +1065,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_method_modifiers() {
         check_metrics::<JavaParser>(
@@ -1085,6 +1105,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_classes() {
         check_metrics::<JavaParser>(
@@ -1120,6 +1141,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_nested_inner_classes() {
         check_metrics::<JavaParser>(
@@ -1154,6 +1176,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_local_inner_classes() {
         check_metrics::<JavaParser>(
@@ -1190,6 +1213,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_anonymous_inner_classes() {
         check_metrics::<JavaParser>(
@@ -1233,6 +1257,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_interface() {
         check_metrics::<JavaParser>(
@@ -1266,6 +1291,7 @@ mod tests {
     // Regression for issue #280: Java enum bodies hold methods after
     // the constants. The Npm body walker recognises
     // `EnumBodyDeclarations` and treats it like `ClassBody`.
+    #[cfg(feature = "java")]
     #[test]
     fn java_enum_counts_methods() {
         check_metrics::<JavaParser>(
@@ -1284,6 +1310,7 @@ mod tests {
 
     // Regression for issue #280: Java records can declare methods in
     // their explicit body; they share `ClassBody`'s walker.
+    #[cfg(feature = "java")]
     #[test]
     fn java_record_counts_methods() {
         check_metrics::<JavaParser>(
@@ -1313,6 +1340,7 @@ mod tests {
     /// `half` is the control that keeps the two sums apart — without a
     /// non-public member, `class_nm_sum == class_npm_sum` and a bug that
     /// counted every member as public would still pass.
+    #[cfg(feature = "java")]
     #[test]
     fn java_record_counts_a_compact_constructor_as_a_method() {
         check_metrics::<JavaParser>(
@@ -1333,6 +1361,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_annotation_type_counts_elements() {
         // Asserting only the body-walker counts (`interface_nm_sum`,
@@ -1358,6 +1387,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_interfaces_and_class() {
         check_metrics::<JavaParser>(
@@ -1400,6 +1430,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_constructors() {
         check_metrics::<CsharpParser>(
@@ -1413,6 +1444,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_methods_returning_primitive_types() {
         check_metrics::<CsharpParser>(
@@ -1427,6 +1459,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_methods_returning_arrays() {
         check_metrics::<CsharpParser>(
@@ -1440,6 +1473,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_methods_returning_objects() {
         check_metrics::<CsharpParser>(
@@ -1454,6 +1488,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_methods_with_generic_types() {
         check_metrics::<CsharpParser>(
@@ -1467,6 +1502,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_method_modifiers() {
         check_metrics::<CsharpParser>(
@@ -1483,6 +1519,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_classes() {
         check_metrics::<CsharpParser>(
@@ -1500,6 +1537,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_nested_inner_classes() {
         check_metrics::<CsharpParser>(
@@ -1516,6 +1554,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_property_accessors() {
         // EC7 — each property accessor (get/set/init) counts as a method.
@@ -1536,6 +1575,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_narrowed_accessor_visibility() {
         // #783 — a C# accessor inherits the member's visibility unless it
@@ -1572,6 +1612,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_local_functions() {
         // Local functions inside a method body are nested function spaces;
@@ -1597,6 +1638,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_interface() {
         // EC14 — interface methods default to public.
@@ -1611,6 +1653,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_interfaces_and_class() {
         check_metrics::<CsharpParser>(
@@ -1625,6 +1668,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_no_class_methods() {
         check_metrics::<PhpParser>(
@@ -1634,6 +1678,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_one_public_method() {
         check_metrics::<PhpParser>(
@@ -1643,6 +1688,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_one_private_method() {
         check_metrics::<PhpParser>(
@@ -1652,6 +1698,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_one_protected_method() {
         check_metrics::<PhpParser>(
@@ -1661,6 +1708,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_mixed_visibility_methods() {
         check_metrics::<PhpParser>(
@@ -1676,6 +1724,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_static_public_method() {
         check_metrics::<PhpParser>(
@@ -1685,6 +1734,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_abstract_method() {
         check_metrics::<PhpParser>(
@@ -1694,6 +1744,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_final_public_method() {
         check_metrics::<PhpParser>(
@@ -1703,6 +1754,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_interface_methods() {
         // Interface methods are implicitly public.
@@ -1717,6 +1769,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_enum_methods() {
         // Enum can declare public methods (PHP 8.1+).
@@ -1737,6 +1790,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_trait_methods() {
         check_metrics::<PhpParser>(
@@ -1750,6 +1804,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_no_explicit_visibility_method_excluded() {
         // Methods without explicit visibility (which PHP treats as public)
@@ -1763,6 +1818,7 @@ mod tests {
 
     // --- Kotlin NPM tests -------------------------------------------------
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_empty_class_no_methods() {
         check_metrics::<KotlinParser>("class C {}", "foo.kt", |metric| {
@@ -1773,6 +1829,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_public_methods_default() {
         // Kotlin default visibility is public — no modifier means public.
@@ -1791,6 +1848,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_private_method() {
         check_metrics::<KotlinParser>(
@@ -1808,6 +1866,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_protected_internal_methods() {
         check_metrics::<KotlinParser>(
@@ -1825,6 +1884,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_secondary_constructor_counts() {
         // Secondary constructors are explicit `secondary_constructor`
@@ -1845,6 +1905,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_companion_object_methods() {
         // Companion object methods fold into the enclosing class (static
@@ -1866,6 +1927,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_data_class_methods() {
         // `data class` compiler-generated members are NOT counted —
@@ -1884,6 +1946,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_object_singleton_methods() {
         check_metrics::<KotlinParser>(
@@ -1900,6 +1963,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_interface_methods() {
         check_func_space::<KotlinParser, _>(
@@ -1919,6 +1983,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_interface_with_default_method() {
         check_func_space::<KotlinParser, _>(
@@ -1939,6 +2004,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_override_fun_counts() {
         check_metrics::<KotlinParser>(
@@ -1961,6 +2027,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_nested_class_methods() {
         check_metrics::<KotlinParser>(
@@ -1980,6 +2047,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_inner_class_methods() {
         check_metrics::<KotlinParser>(
@@ -1998,6 +2066,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_top_level_function_excluded() {
         // Top-level `fun` belongs to `Unit`, not any class.
@@ -2015,6 +2084,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_extension_function_excluded() {
         // Extension functions parse as top-level `function_declaration`
@@ -2033,6 +2103,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_class_in_interface() {
         // Interface with nested class — methods count to the right
@@ -2063,6 +2134,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_interface_in_class() {
         // Class with nested interface — methods count to the right
@@ -2093,6 +2165,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_init_block_not_a_method() {
         // `init` blocks are anonymous initializers — they are not
@@ -2126,6 +2199,7 @@ class C {
     // `construct_signature`) count as implicitly-public interface
     // methods.
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_empty_class_no_methods() {
         check_metrics::<TypescriptParser>("class C {}", "foo.ts", |metric| {
@@ -2135,6 +2209,7 @@ class C {
         });
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_default_public_methods() {
         check_metrics::<TypescriptParser>(
@@ -2152,6 +2227,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_method_visibility() {
         check_metrics::<TypescriptParser>(
@@ -2171,6 +2247,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_static_methods() {
         check_metrics::<TypescriptParser>(
@@ -2189,6 +2266,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_constructor_counts_as_method() {
         // The constructor is a `method_definition` — one method.
@@ -2206,6 +2284,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_getter_setter_each_count_once() {
         // `get x()` and `set x(v)` are distinct `method_definition`
@@ -2225,6 +2304,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_arrow_field_counts_as_method() {
         // `foo = () => {}` is a class method.
@@ -2244,6 +2324,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_method_overload_counts_once() {
         // Only the implementation `method_definition` counts; the two
@@ -2263,6 +2344,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_abstract_class_methods() {
         // Abstract method signatures count; concrete methods count; both
@@ -2286,6 +2368,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_interface_methods() {
         // Interface method signatures are implicitly public.
@@ -2307,6 +2390,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_generic_class_methods() {
         check_metrics::<TypescriptParser>(
@@ -2324,6 +2408,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_multiple_classes_and_interface() {
         check_func_space::<TypescriptParser, _>(
@@ -2347,6 +2432,7 @@ class C {
 
     // TSX parity
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_empty_class_no_methods() {
         check_metrics::<TsxParser>("class C {}", "foo.tsx", |metric| {
@@ -2356,6 +2442,7 @@ class C {
         });
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_default_public_methods() {
         check_metrics::<TsxParser>(
@@ -2372,6 +2459,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_method_visibility() {
         check_metrics::<TsxParser>(
@@ -2389,6 +2477,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_static_methods() {
         check_metrics::<TsxParser>(
@@ -2405,6 +2494,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_constructor_counts_as_method() {
         check_metrics::<TsxParser>(
@@ -2421,6 +2511,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_getter_setter_each_count_once() {
         check_metrics::<TsxParser>(
@@ -2438,6 +2529,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_arrow_field_counts_as_method() {
         check_metrics::<TsxParser>(
@@ -2454,6 +2546,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_method_overload_counts_once() {
         check_metrics::<TsxParser>(
@@ -2471,6 +2564,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_abstract_class_methods() {
         check_metrics::<TsxParser>(
@@ -2489,6 +2583,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_interface_methods() {
         check_func_space::<TsxParser, _>(
@@ -2507,6 +2602,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_generic_class_methods() {
         check_metrics::<TsxParser>(
@@ -2520,6 +2616,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_multiple_classes_and_interface() {
         check_func_space::<TsxParser, _>(
@@ -2549,6 +2646,7 @@ class C {
     // The argument-form (`private :foo`, `private def x`) is a `call`
     // node and does NOT change the body-wide flag.
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_no_class_methods() {
         check_metrics::<RubyParser>("def foo\n  1\nend\n", "foo.rb", |metric| {
@@ -2558,6 +2656,7 @@ class C {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_one_public_method() {
         // No visibility keyword → default public.
@@ -2572,6 +2671,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_one_private_method() {
         // Bare `private` flips visibility for `f`.
@@ -2586,6 +2686,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_one_protected_method() {
         check_metrics::<RubyParser>(
@@ -2599,6 +2700,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_mixed_visibility_methods() {
         // `a` is public (default). `b` is private. `c` is public again
@@ -2615,6 +2717,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_singleton_method_is_counted() {
         // `def self.x` and plain `def x` both count; default is public.
@@ -2629,6 +2732,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_singleton_class_methods() {
         // `class << self` opens a separate class space whose methods
@@ -2644,6 +2748,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_argument_form_visibility_does_not_flip() {
         // `private :y` is a `call` node (argument form). It does NOT
@@ -2666,6 +2771,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_visibility_call_wrapping_def_counts_the_method() {
         // `private def hidden; end` parses as a `private` call whose sole
@@ -2688,6 +2794,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_visibility_call_wrapping_def_reads_the_keyword_not_the_flag() {
         // Seeds the body-wide flag to `private` first, so the assertion
@@ -2708,6 +2815,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_bare_private_leaves_singleton_methods_public() {
         // Ruby's `private` sets the default for instance methods only;
@@ -2726,6 +2834,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_symbol_argument_promotes_under_a_private_flag() {
         // The demotion pass must be able to move a method *back* to
@@ -2747,6 +2856,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_class_method_keywords_scope_to_singletons() {
         // `private_class_method` is the only keyword that reaches a
@@ -2770,6 +2880,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_symbol_argument_does_not_cross_the_singleton_boundary() {
         // An instance method and a singleton method may share a name.
@@ -2788,6 +2899,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_class_method_symbol_does_not_cross_the_singleton_boundary() {
         // The mirror of the test above: `private_class_method :s` names
@@ -2805,6 +2917,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_symbol_argument_reads_non_identifier_method_names() {
         // Ruby method names are not all `identifier`s: `val=` is a
@@ -2827,6 +2940,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_parenthesised_bare_keyword_flips_the_flag() {
         // `private()` is the explicit-parens spelling of the bare
@@ -2846,6 +2960,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_visibility_call_with_unresolvable_arguments_changes_nothing() {
         // A splat (`private *SYMS`), a bare identifier (`private foo`)
@@ -2866,6 +2981,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_protected_wrapping_call_is_not_public() {
         // `protected` is a third state: `Npm` counts *public* methods,
@@ -2888,6 +3004,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_class_method_keyword_governs_a_wrapped_def() {
         // The wrapping form of the class-method keyword, plus
@@ -2909,6 +3026,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_private_in_a_singleton_class_body_demotes() {
         // The one place a bare `private` legitimately demotes a class
@@ -2970,6 +3088,7 @@ class C {
     // three remain deletion-anchored only; adding the same call to them
     // is cheap and welcome if you are already in the file.
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_initialize_is_not_a_public_method() {
         // The issue's own fixture. Ruby reports `[:value]` for
@@ -2988,6 +3107,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_every_automatically_private_name_is_demoted() {
         // All five names in one body, so no member of
@@ -3009,6 +3129,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_public_symbol_republishes_initialize() {
         // `public :initialize` is legal and does exactly what it says
@@ -3031,6 +3152,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_public_keyword_wrapping_initialize_wins() {
         // `public def initialize` is public in Ruby, so a keyword that
@@ -3060,6 +3182,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_a_class_method_keyword_does_not_republish_initialize() {
         // The one shape where a visibility keyword wraps an
@@ -3095,6 +3218,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_public_marker_does_not_republish_initialize() {
         // The body-wide flag is *not* a keyword naming the declaration,
@@ -3123,6 +3247,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_an_already_private_auto_private_name_is_not_flipped() {
         // Both spellings of "already private" in one body: `initialize`
@@ -3153,6 +3278,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_singleton_initialize_stays_public() {
         // `def self.initialize` defines a method on the class object,
@@ -3172,6 +3298,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_initialize_in_a_singleton_class_body_stays_public() {
         // The other spelling of the same exemption, and the one the
@@ -3198,6 +3325,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_visibility_call_on_another_object_is_ignored() {
         // A receiver other than `self` puts the call on a different
@@ -3221,6 +3349,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_visibility_call_on_self_is_honoured() {
         // The receiver gate above must still let `self.private :a`
@@ -3238,6 +3367,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_symbol_array_argument_names_every_element() {
         // `private %i[g h]` is one argument naming two methods. Reading
@@ -3255,6 +3385,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_interpolated_symbol_names_nothing() {
         // `:"get_#{suffix}"` is a `delimited_symbol` carrying a
@@ -3279,6 +3410,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_visibility_does_not_leak_into_a_nested_class() {
         // Each class body opens its own `body_statement`, so the flag a
@@ -3306,6 +3438,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_multiple_classes() {
         check_metrics::<RubyParser>(
@@ -3320,6 +3453,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_module_methods_not_counted() {
         // `Module` is `Namespace`, not `Class` — its methods do not
@@ -3335,6 +3469,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_class_with_inheritance() {
         // Inheritance does not change method counts.
@@ -3349,6 +3484,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_visibility_resets_between_classes() {
         // Each class body starts in default-public state regardless of
@@ -3365,6 +3501,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_empty_class_no_methods() {
         check_metrics::<RubyParser>("class Empty\nend\n", "foo.rb", |metric| {
@@ -3386,6 +3523,7 @@ class C {
 
     // --- Python NPM ---------------------------------------------------
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_empty_class_no_methods() {
         check_metrics::<PythonParser>("class C:\n    pass\n", "foo.py", |metric| {
@@ -3395,6 +3533,7 @@ class C {
         });
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_class_methods_count() {
         // 3 `def`s inside the class body → 3 methods, all public.
@@ -3415,6 +3554,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_decorated_methods_count() {
         // `@property`, `@staticmethod`, `@classmethod`, custom
@@ -3439,6 +3579,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_async_method_counts() {
         // `async def m` parses as a FunctionDefinition with an Async
@@ -3453,6 +3594,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_nested_class_methods_independent() {
         // Outer.method belongs to Outer; Inner.inner_method belongs
@@ -3472,6 +3614,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_module_level_function_is_not_method() {
         // `def f()` outside any class is a top-level function, not a
@@ -3487,6 +3630,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_dunder_methods_count() {
         // `__init__`, `__repr__`, `__eq__` are dunder methods — public
@@ -3508,6 +3652,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_empty_unit_no_methods() {
         check_metrics::<RustParser>("", "empty.rs", |metric| {
@@ -3519,6 +3664,7 @@ class C {
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_impl_methods_count() {
         // 3 `fn`s in `impl Foo` body. `pub new` and `pub process` are
@@ -3539,6 +3685,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_pub_self_is_private() {
         // Regression for #460. `pub(self)` / `pub(in self)` restrict to
@@ -3567,6 +3714,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_trait_methods_count() {
         // `fn draw(&self);` (signature only) + `fn area(&self) -> f64
@@ -3592,6 +3740,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_module_level_function_not_method() {
         // Top-level `fn` is NOT a method. The npa/npm metric on a
@@ -3604,6 +3753,7 @@ class C {
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_multiple_impls_methods_aggregate() {
         // Two `impl Foo` blocks contribute 1 + 1 = 2 methods.
@@ -3620,6 +3770,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_trait_impl_block_counts_methods() {
         // `impl Drawable for Foo` is also an `impl_item` — its methods
@@ -3647,6 +3798,7 @@ class C {
 
     // ----- Go -----
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_empty_unit_no_methods() {
         // No receiver methods → npm stays disabled, class_nm_sum = 0.
@@ -3656,6 +3808,7 @@ class C {
         });
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_method_declarations_count() {
         // Two `func (r Foo) ...` methods on the same receiver type →
@@ -3675,6 +3828,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_free_function_is_not_method() {
         // `func g() {}` has no receiver → NOT a method. class_nm_sum
@@ -3690,6 +3844,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_methods_on_different_receivers_aggregate_at_unit() {
         // Go's flat space model cannot group methods by receiver, so
@@ -3710,6 +3865,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_interface_methods_count_as_interface_nm() {
         // `interface { Read() error; Close() error }` declares two
@@ -3738,6 +3894,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_interface_methods_respect_export() {
         // Go's lexical export rule applies to interface method names
@@ -3757,6 +3914,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_pointer_receiver_methods_count() {
         // Pointer-receiver methods (`func (r *Foo) M() {}`) parse as
@@ -3775,6 +3933,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_npm_excludes_unexported() {
         // Mixed exported / unexported methods (issue #458). `Greet`
@@ -3801,6 +3960,7 @@ class C {
 
     // Issue #275: Elixir `def` is public, `defp` is private. All
     // count toward `class_nm`; only the public ones bump `class_npm`.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_npm_def_is_public_defp_is_private() {
         check_metrics::<ElixirParser>(
@@ -3814,6 +3974,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_npm_defmacro_counts_as_public() {
         check_metrics::<ElixirParser>(
@@ -3827,6 +3988,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_npm_multiple_def_clauses_each_count() {
         // Pattern-match clauses each form their own method head.
@@ -3840,6 +4002,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_npm_nested_defmodule_each_class() {
         check_metrics::<ElixirParser>(
@@ -3853,6 +4016,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_npm_user_macro_not_classified_as_method() {
         // User-defined `custom_def` is a defmacro (counts) but its
@@ -3872,6 +4036,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_npm_quoted_defs_do_not_inflate_method_count() {
         // Companion to `wmc::tests::elixir_wmc_quoted_defs_do_not_inflate_method_count`
@@ -3909,6 +4074,7 @@ class C {
     /// reading of "is this a class space?" would show up: if the
     /// quote-template rule were ever extended to class macros, these
     /// counts would move.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_npm_counts_a_quoted_defmodule_as_a_class() {
         check_metrics::<ElixirParser>(
@@ -3925,6 +4091,7 @@ class C {
 
     // ----- Objective-C -----
 
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_npm() {
         // ObjC has no method-privacy keyword: methods declared in
@@ -3954,6 +4121,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_npm_protocol() {
         // A `@protocol`'s methods after an `@optional` / `@required`
@@ -3976,6 +4144,7 @@ class C {
 
     // ----- C++ -----
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_empty_unit_no_methods() {
         // No code → no class spaces → npm = 0.
@@ -3986,6 +4155,7 @@ class C {
         });
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_class_methods_count() {
         // Two member functions (one defined inline, one declared only).
@@ -4004,6 +4174,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_constructors_and_destructors_count() {
         // Constructors and destructors are parsed as `declaration`
@@ -4025,6 +4196,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_template_methods_count() {
         // `template<typename T> T foo(T x);` parses as
@@ -4044,6 +4216,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_struct_methods_default_public() {
         // `struct` defaults to public visibility. All three methods
@@ -4063,6 +4236,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_free_function_is_not_method() {
         // Top-level function — not inside any class — does not count
@@ -4075,6 +4249,7 @@ class C {
         });
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_mixed_visibility_methods() {
         // `class` defaults to private. Public section gets 1 method,
@@ -4095,6 +4270,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_multiple_classes_aggregate_at_unit() {
         // File-level rollup: Foo has 2 methods, Bar has 1. Unit
@@ -4116,6 +4292,7 @@ class C {
     // fork gets no integration-snapshot coverage and its clone of the
     // `TemplateDeclaration` arm can only be pinned against its
     // extension-owning sibling (grammar-dispatch, "sweep the rest").
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const TEMPLATE_METHOD_WITH_BODY: &str = "class C {\n\
          public:\n\
              template<typename T> T get() { return T{}; }\n\
@@ -4138,6 +4315,7 @@ class C {
     // member, so `class_na`/`class_npa` are 1/1 rather than the
     // default 0 that a leak into `Npa` would be indistinguishable
     // from.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const CONVERSION_OPERATORS_WITHOUT_BODIES: &str = "class C {\n\
          public:\n\
              operator float();\n\
@@ -4171,6 +4349,7 @@ class C {
     // alone leaves the recursion one level short. Verified by
     // perturbation.) An empty `Nested` would leave that descent
     // untested in either direction.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const NON_METHOD_TEMPLATE_PAYLOADS: &str = "class C {\n\
          public:\n\
              template<typename T> class Nested { void hidden() {} };\n\
@@ -4180,6 +4359,7 @@ class C {
              template<typename T> T real() { return T{}; }\n\
          };";
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_template_method_with_inline_body_counts() {
         // A templated member *with a body* parses as
@@ -4199,6 +4379,7 @@ class C {
         });
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_template_method_with_inline_body_respects_visibility() {
         // Deliberately asymmetric — 2 public, 1 private. A template arm
@@ -4222,6 +4403,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_template_conversion_operator_with_body_counts() {
         // A conversion operator's declarator is an `operator_cast`, so
@@ -4246,6 +4428,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_conversion_operators_without_bodies_count_as_methods() {
         check_metrics_with_npa::<CppParser>(
@@ -4263,6 +4446,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "mozcpp")]
     #[test]
     fn mozcpp_conversion_operators_without_bodies_count_as_methods() {
         check_metrics_with_npa::<MozcppParser>(
@@ -4316,6 +4500,7 @@ class C {
     // - the `private:` section makes public and total differ on both
     //   metrics, so neither pair can be reached by an arm that ignores
     //   `current_is_public`.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const FUNCTION_POINTER_MEMBERS: &str = "class F {\n\
          public:\n\
              int (*fp)(int);\n\
@@ -4348,6 +4533,7 @@ class C {
     // values are 2/1 rather than the 1/1/1/1 an all-public version
     // would give — which an arm ignoring `current_is_public` would
     // satisfy on both metrics at once.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const METHOD_RETURNING_FUNCTION_POINTER: &str = "class F {\n\
          public:\n\
              int (*getFp(int))(int);\n\
@@ -4357,6 +4543,7 @@ class C {
              int (*privFp)(int);\n\
          };";
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_function_pointer_members_are_attributes_not_methods() {
         check_metrics_with_npa::<CppParser>(FUNCTION_POINTER_MEMBERS, "foo.cpp", |metric| {
@@ -4378,6 +4565,7 @@ class C {
         });
     }
 
+    #[cfg(feature = "mozcpp")]
     #[test]
     fn mozcpp_function_pointer_members_are_attributes_not_methods() {
         check_metrics_with_npa::<MozcppParser>(FUNCTION_POINTER_MEMBERS, "foo.cpp", |metric| {
@@ -4388,6 +4576,7 @@ class C {
         });
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_method_returning_a_function_pointer_stays_a_method() {
         check_metrics_with_npa::<CppParser>(
@@ -4402,6 +4591,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "mozcpp")]
     #[test]
     fn mozcpp_method_returning_a_function_pointer_stays_a_method() {
         check_metrics_with_npa::<MozcppParser>(
@@ -4416,6 +4606,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_non_method_template_payloads_are_not_counted() {
         check_metrics_with_nom_wmc::<CppParser>(
@@ -4443,6 +4634,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "mozcpp")]
     #[test]
     fn mozcpp_template_method_with_inline_body_counts() {
         check_metrics_with_nom_wmc::<MozcppParser>(
@@ -4457,6 +4649,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "mozcpp")]
     #[test]
     fn mozcpp_non_method_template_payloads_are_not_counted() {
         check_metrics_with_nom_wmc::<MozcppParser>(
@@ -4472,6 +4665,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_empty_unit_no_methods() {
         check_metrics::<JavascriptParser>("", "empty.js", |metric| {
@@ -4481,6 +4675,7 @@ class C {
         });
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_class_methods_count() {
         // `method_definition` direct children of `class_body` cover
@@ -4502,6 +4697,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_arrow_field_is_method() {
         // `class Foo { x = () => {} }` is a method written as a field
@@ -4519,6 +4715,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_free_function_is_not_method() {
         // Top-level functions and arrow functions outside a class
@@ -4535,6 +4732,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_multiple_classes_aggregate_at_unit() {
         // File-level rollup: Foo has 2 methods, Bar has 1. Unit
@@ -4550,6 +4748,7 @@ class C {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_class_methods_count() {
         // Mozjs shares JS's class vocabulary.
@@ -4576,6 +4775,12 @@ class C {
     // `!is_nan()` proves the guard fires; the `== 0.0` checks pin the
     // chosen convention. Exercised across the explicit-visibility OO
     // languages (Java, C#, Kotlin, PHP).
+    #[cfg(all(
+        feature = "csharp",
+        feature = "java",
+        feature = "kotlin",
+        feature = "php"
+    ))]
     #[test]
     fn empty_class_coa_is_zero_not_nan() {
         let assert_zero = |metric: crate::CodeMetrics| {
@@ -4595,6 +4800,7 @@ class C {
     // existing all-public guard explicitly excludes the empty case
     // (`!= 0`), so without the divisor guard `interface_coa` returned
     // 0.0 / 0.0 = NaN. The defined value is 0.0.
+    #[cfg(all(feature = "csharp", feature = "java"))]
     #[test]
     fn empty_interface_coa_is_zero_not_nan() {
         let assert_zero = |metric: crate::CodeMetrics| {
@@ -4609,6 +4815,7 @@ class C {
     // Rounds out `npm`'s public surface — the `Display` impl and the
     // per-space `class_npm` / `class_nm` / `interface_*` accessors —
     // mirroring the `Display` tests the sibling metrics carry.
+    #[cfg(feature = "java")]
     #[test]
     fn stats_display_and_per_space_accessors() {
         check_func_space::<JavaParser, _>(

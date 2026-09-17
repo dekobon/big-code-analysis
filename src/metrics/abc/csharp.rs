@@ -778,6 +778,7 @@ mod tests {
     /// way to reach its `false` arm, and the walker does hand out short
     /// chains at the root. Pinning it keeps a future "simplify the
     /// climb" from turning a missing ancestor into a counted `const`.
+    #[cfg(feature = "csharp")]
     #[test]
     fn const_predicate_fails_closed_on_a_truncated_chain() {
         let source = b"class A { const int x = 1; }";

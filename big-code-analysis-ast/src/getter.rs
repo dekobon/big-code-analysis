@@ -1049,6 +1049,7 @@ mod node_text_tests {
 
     /// A node whose span lies inside the buffer it was parsed from
     /// yields its exact source text.
+    #[cfg(feature = "rust")]
     #[test]
     fn in_bounds_span_returns_text() {
         let src = "fn x() {}";
@@ -1060,6 +1061,7 @@ mod node_text_tests {
     /// Reslicing a node against a *shorter* buffer (the stale-span hazard
     /// the guard exists for) must degrade to `None`, not panic. A direct
     /// `&code[start..end]` would panic here — this is the revert check.
+    #[cfg(feature = "rust")]
     #[test]
     fn out_of_bounds_span_returns_none_not_panic() {
         let src = "fn x() {}";
@@ -1075,6 +1077,7 @@ mod node_text_tests {
     /// precondition: `Ast::parse` accepts arbitrary bytes. A span whose
     /// bytes are not valid UTF-8 must yield `None`, not a panic and not
     /// lossy replacement characters.
+    #[cfg(feature = "rust")]
     #[test]
     fn non_utf8_span_returns_none() {
         let mut src = b"fn ".to_vec();
@@ -1102,6 +1105,12 @@ mod ancestor_tests {
     /// `pair` or `variable_declarator` holding it, and Elixir skips
     /// naming a `def` that sits inside a `quote` template. #1088 moved
     /// both onto the chain.
+    #[cfg(any(
+        feature = "elixir",
+        feature = "javascript",
+        feature = "mozjs",
+        feature = "typescript",
+    ))]
     fn assert_name_parity<L: LanguageInfo + Getter>(
         label: &str,
         code: &[u8],
@@ -1135,6 +1144,12 @@ mod ancestor_tests {
         }
     }
 
+    #[cfg(all(
+        feature = "elixir",
+        feature = "javascript",
+        feature = "mozjs",
+        feature = "typescript",
+    ))]
     #[test]
     fn func_space_name_agrees_between_known_and_climbing() {
         // `outer` and `keyed` are only reachable through the parent:

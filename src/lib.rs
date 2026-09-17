@@ -123,7 +123,6 @@
 // root `Cargo.toml` for why this is a per-root attribute and not a
 // Cargo lint (#1227).
 #![cfg_attr(not(test), warn(clippy::unwrap_used))]
-
 // The parse and classification layer lives in `big-code-analysis-ast`
 // (#1376). Its public names — the generated token enums, the `*Code` /
 // `*Parser` tags, `Node`, `Ancestors`, `Checker`, `Getter`, the language
@@ -131,6 +130,16 @@
 // through `use crate::*`, so the whole crate root is glob-imported here
 // at `pub(crate)`. Only the explicit `pub use` lines further down widen
 // the published surface.
+
+// The import half of the `allow(dead_code)` carve-out above, and for
+// the same reason: per-language test gating (#1472) makes "is this
+// import live" a function of the enabled feature set, which no `cfg` on
+// the import itself can express. Partial builds only — `all-languages`
+// is on by default and under `--all-features`, so the build CI gates on
+// and the one a contributor runs still police every unused import. See
+// `.claude/rules/testing.md`, "Why the import lint is off on a partial
+// build".
+#![cfg_attr(not(feature = "all-languages"), allow(unused_imports))]
 #[doc(hidden)]
 pub(crate) use big_code_analysis_ast::*;
 

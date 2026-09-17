@@ -389,6 +389,31 @@ mod tests {
     /// runtime accessor and the actual dependency graph cannot silently
     /// disagree (#727). Feature-independent: the version literals and the
     /// manifest pins both exist regardless of the enabled language set.
+    #[cfg(any(
+        feature = "bash",
+        feature = "c",
+        feature = "c-family-helpers",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "elixir",
+        feature = "go",
+        feature = "groovy",
+        feature = "irules",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "lua",
+        feature = "mozcpp",
+        feature = "mozjs",
+        feature = "objc",
+        feature = "perl",
+        feature = "php",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+        feature = "tcl",
+        feature = "typescript",
+    ))]
     #[test]
     fn grammar_version_matches_cargo_toml_pin() {
         // CARGO_MANIFEST_DIR is this crate's dir, one level below the
@@ -655,6 +680,7 @@ mod tests {
     // only by explicit `--language mozcpp` / manifest / API selection.
     // Pin this so a future `mk_langs!` reorder cannot silently hand a
     // C-family extension to the fork (the failure mode #720 guards).
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     #[test]
     fn cpp_extension_dispatch_defaults_to_upstream() {
         assert_eq!(get_from_ext("cpp"), Some(LANG::Cpp));
@@ -717,6 +743,7 @@ mod tests {
 
     // `Hash` (+ `Eq`) lets `LANG` key a `HashMap` / populate a
     // `HashSet` — the headline use case from issue #508.
+    #[cfg(any(feature = "cpp", feature = "python", feature = "rust"))]
     #[test]
     fn lang_is_usable_as_hash_key() {
         use std::collections::{HashMap, HashSet};
@@ -737,6 +764,7 @@ mod tests {
     // can distinguish "X is disabled" from "Y is disabled" in a
     // mixed batch. Verifies the `Display` impl mentions the
     // language name as documented in `src/error.rs`.
+    #[cfg(feature = "rust")]
     #[test]
     fn language_disabled_display_includes_language_name() {
         let err = MetricsError::LanguageDisabled(LANG::Rust);

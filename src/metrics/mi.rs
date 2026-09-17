@@ -200,6 +200,7 @@ mod tests {
     // defaults.
     check_metrics_only_shim!(check_metrics, Mi);
 
+    #[cfg(feature = "python")]
     #[test]
     fn mi_empty_file() {
         check_metrics::<PythonParser>("", "empty.py", |metric| {
@@ -210,6 +211,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn check_mi_metrics() {
         // This test checks that MI metric is computed correctly, so it verifies
@@ -285,6 +287,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_mi_smoke() {
         // Rust now derives MI from the populated Loc / Cyclomatic /
@@ -306,6 +309,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_mi_smoke() {
         // Go uses the default `Mi::compute`; once Loc / Cyclomatic /
@@ -323,6 +327,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_mi_smoke() {
         // Elixir uses the default `Mi::compute`; with Loc / Cyclomatic
@@ -340,6 +345,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_mi_smoke() {
         // C++ uses the default `Mi::compute`; Loc / Cyclomatic /
@@ -358,6 +364,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_mi_smoke() {
         // JavaScript uses the default `Mi::compute`; Loc / Cyclomatic
@@ -375,6 +382,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_mi_smoke() {
         // Mozjs shares JavaScript's MI cascade; this is a parity pin.
@@ -397,6 +405,7 @@ mod tests {
     /// capped at exactly 100, not the ~209 the raw ratio would give
     /// (issue #461). Here `cloc = 2`, `sloc = 1` => raw 200%. Reverting
     /// the `.clamp(0.0, 100.0)` in `Mi::compute` makes this fail.
+    #[cfg(feature = "python")]
     #[test]
     fn mi_comments_percentage_clamped() {
         // cloc = 2 (degenerate), sloc = 1 (single non-unit row) => raw

@@ -36,6 +36,31 @@
 use big_code_analysis::{LANG, MetricsOptions, Source, analyze};
 
 /// Cognitive max for the single function in `source`.
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 fn cognitive_max(lang: LANG, source: &str, ext: &str) -> f64 {
     let name = format!("parity.{ext}");
     let space = analyze(
@@ -52,6 +77,31 @@ fn cognitive_max(lang: LANG, source: &str, ext: &str) -> f64 {
 ///
 /// Every `Some` row spells the same shape: a function whose whole body
 /// is a two-arm switch — one explicit arm plus a fallback.
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 fn fixture(lang: LANG) -> Option<(&'static str, &'static str)> {
     // Exhaustive per-language dispatch table: one arm per LANG variant
     // is the point of this function, so a new language cannot be added
@@ -170,6 +220,31 @@ fn fixture(lang: LANG) -> Option<(&'static str, &'static str)> {
     Some(row)
 }
 
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 #[test]
 fn two_arm_wildcard_switch_cognitive_parity() {
     // expected: a two-arm switch/match with one explicit arm plus a
@@ -234,6 +309,13 @@ fn two_arm_wildcard_switch_cognitive_parity() {
 ///
 /// Python is deliberately absent: a `def` is a statement and a lambda
 /// body is a single expression, so the shape is unconstructible.
+#[cfg(any(
+    feature = "cpp",
+    feature = "csharp",
+    feature = "java",
+    feature = "php",
+    feature = "rust",
+))]
 #[test]
 fn a_function_declared_inside_a_closure_scores_the_same_as_outside() {
     /// The innermost `g`'s own cognitive score.

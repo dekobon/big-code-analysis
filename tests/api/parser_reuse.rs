@@ -33,6 +33,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use big_code_analysis::{Ast, LANG, Source, tree_sitter};
 
+#[cfg(any(feature = "rust", feature = "typescript"))]
 const RUST_SRC: &str = r#"
 fn classify(n: i32) -> &'static str {
     if n < 0 {
@@ -53,6 +54,7 @@ impl Point {
 }
 "#;
 
+#[cfg(any(feature = "rust", feature = "typescript"))]
 const TS_SRC: &str = r"
 function classify(n: number): string {
     if (n < 0) {
@@ -74,12 +76,14 @@ class Point {
 /// Rust source the grammar cannot parse cleanly. Error recovery is
 /// what leaves the most state behind on a parser, so this is the
 /// worst thing to have parsed just before the file under test.
+#[cfg(feature = "rust")]
 const BROKEN_SRC: &str = "fn oops( { let ] = ; if while }} impl for 42";
 
 /// Parses `code` on a parser built for this one call, bypassing the
 /// thread-local slot entirely. This is the oracle every assertion
 /// below compares against — comparing two `Ast::parse` results to
 /// each other would pass even if both were wrong.
+#[cfg(any(feature = "rust", feature = "typescript"))]
 fn reference_sexp(lang: LANG, code: &str) -> String {
     let language = lang
         .tree_sitter_language()
@@ -96,6 +100,7 @@ fn reference_sexp(lang: LANG, code: &str) -> String {
 
 /// Parses `code` through the public seam, which routes to the
 /// thread-local parser.
+#[cfg(any(feature = "rust", feature = "typescript"))]
 fn cached_sexp(lang: LANG, code: &str) -> String {
     let ast = Ast::parse(Source::new(lang, code.as_bytes())).expect("language feature enabled");
     ast.as_tree_sitter().root_node().to_sexp()
@@ -104,6 +109,7 @@ fn cached_sexp(lang: LANG, code: &str) -> String {
 /// The fixture a language is exercised with. Single source of truth:
 /// the reference tree and the tree under test must come from the same
 /// bytes, and selecting them at two separate sites is how they drift.
+#[cfg(any(feature = "rust", feature = "typescript"))]
 fn fixture(lang: LANG) -> &'static str {
     if lang == LANG::Rust { RUST_SRC } else { TS_SRC }
 }
@@ -112,6 +118,7 @@ fn fixture(lang: LANG) -> &'static str {
 /// grammar that failed to bind would yield a tiny ERROR tree, and
 /// every "identical to the reference" assertion would still hold if
 /// the reference were equally broken.
+#[cfg(any(feature = "rust", feature = "typescript"))]
 fn assert_parsed_cleanly(sexp: &str, what: LANG) {
     assert!(
         !sexp.contains("ERROR") && !sexp.contains("MISSING"),
@@ -128,6 +135,7 @@ fn assert_parsed_cleanly(sexp: &str, what: LANG) {
     );
 }
 
+#[cfg(all(feature = "rust", feature = "typescript"))]
 #[test]
 fn cached_parser_matches_a_fresh_parser_per_language() {
     for lang in [LANG::Rust, LANG::Typescript] {
@@ -145,6 +153,7 @@ fn cached_parser_matches_a_fresh_parser_per_language() {
 /// `set_language` were skipped when the slot already held a parser,
 /// the second language in each pair would be parsed under the first
 /// language's grammar.
+#[cfg(all(feature = "rust", feature = "typescript"))]
 #[test]
 fn alternating_languages_on_one_thread_stay_correct() {
     let rust_reference = reference_sexp(LANG::Rust, fixture(LANG::Rust));
@@ -175,6 +184,7 @@ fn alternating_languages_on_one_thread_stay_correct() {
 
 /// The test that would catch parse state surviving between files:
 /// a failed parse must not colour the next one.
+#[cfg(feature = "rust")]
 #[test]
 fn parse_state_does_not_survive_between_files() {
     let reference = reference_sexp(LANG::Rust, fixture(LANG::Rust));
@@ -204,6 +214,7 @@ fn parse_state_does_not_survive_between_files() {
 /// takes the build-a-parser branch while later ones take the reuse
 /// branch. Both are exercised here, on threads that interleave
 /// languages so no thread can rely on another's binding.
+#[cfg(all(feature = "rust", feature = "typescript"))]
 #[test]
 fn threads_are_isolated_and_trees_outlive_their_thread() {
     let rust_reference = reference_sexp(LANG::Rust, fixture(LANG::Rust));
@@ -262,15 +273,18 @@ fn threads_are_isolated_and_trees_outlive_their_thread() {
 thread_local! {
     /// Parses from its destructor, which runs during thread teardown
     /// — possibly after the parser slot has already been destroyed.
+    #[cfg(feature = "rust")]
     static TEARDOWN_PROBE: ParseOnDrop = const { ParseOnDrop };
 }
 
 /// Set by `ParseOnDrop::drop`, checked after the thread is joined.
+#[cfg(feature = "rust")]
 static TEARDOWN_PARSE_OK: AtomicBool = AtomicBool::new(false);
 
 struct ParseOnDrop;
 
 impl Drop for ParseOnDrop {
+    #[cfg(feature = "rust")]
     fn drop(&mut self) {
         // Must not panic. Whether this takes the "slot already
         // destroyed" fallback or still finds a live slot depends on
@@ -292,6 +306,7 @@ impl Drop for ParseOnDrop {
 
 /// A parse issued while thread-locals are being destroyed must not
 /// panic, however the platform orders the destructors.
+#[cfg(feature = "rust")]
 #[test]
 fn parsing_during_thread_local_teardown_does_not_panic() {
     std::thread::spawn(|| {

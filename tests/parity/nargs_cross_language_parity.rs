@@ -31,6 +31,31 @@
 use big_code_analysis::{LANG, MetricsOptions, Source, analyze};
 
 /// `function_args` file-level sum for the single function in `source`.
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 fn function_args_sum(lang: LANG, source: &str, ext: &str) -> f64 {
     let name = format!("parity.{ext}");
     let space = analyze(
@@ -46,6 +71,31 @@ fn function_args_sum(lang: LANG, source: &str, ext: &str) -> f64 {
 ///
 /// Every `Some` row declares the same three parameters `a`, `b`, `c`.
 /// The extension only names the parsed unit; it reaches no metric.
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 fn fixture(lang: LANG) -> Option<(&'static str, &'static str)> {
     // Exhaustive per-language dispatch table: one arm per LANG variant
     // is the point of this function, so a new language cannot be added
@@ -101,6 +151,31 @@ fn fixture(lang: LANG) -> Option<(&'static str, &'static str)> {
     Some(row)
 }
 
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 #[test]
 fn three_parameter_function_parity() {
     // expected: three formal parameters, hand-derived from each fixture

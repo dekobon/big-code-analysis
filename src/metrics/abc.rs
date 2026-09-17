@@ -454,10 +454,28 @@ implement_metric_trait!(Abc, PreprocCode, CcommentCode);
     clippy::too_many_lines
 )]
 mod tests {
+    #[cfg(feature = "csharp")]
+    use crate::test_support::assert_csharp_fixture_spells;
     use crate::test_support::{
-        assert_csharp_fixture_spells, assert_fixture_spells, ast_has_kind_id,
-        check_func_space_only_shim, check_metrics_only_shim, child_space, metrics_verbatim,
+        assert_fixture_spells, ast_has_kind_id, check_func_space_only_shim,
+        check_metrics_only_shim, child_space, metrics_verbatim,
     };
+    // Hand-written, not derived. A trait is used through its methods, so
+    // nothing in a test body names `ParserTrait` and
+    // `check-test-lang-gates.py` derives no gate for an import at all,
+    // so an ungated one stays compiled into builds that never call
+    // `<Lang>Parser::new`. These seven are the languages that do; a new
+    // `XParser::new` test in this module needs its feature added here,
+    // and the leg that lacks it says so as an unused import.
+    #[cfg(any(
+        feature = "csharp",
+        feature = "groovy",
+        feature = "kotlin",
+        feature = "php",
+        feature = "ruby",
+        feature = "rust",
+        feature = "typescript",
+    ))]
     use crate::traits::ParserTrait;
 
     use super::*;
@@ -475,6 +493,17 @@ mod tests {
     /// a reference value; this can. Restricted rather than
     /// `MetricsOptions::default()` per `metrics_verbatim`'s own doc
     /// (#1127).
+    #[cfg(any(
+        feature = "c",
+        feature = "cpp",
+        feature = "go",
+        feature = "javascript",
+        feature = "mozcpp",
+        feature = "mozjs",
+        feature = "objc",
+        feature = "perl",
+        feature = "typescript",
+    ))]
     fn abc_conditions(lang: LANG, src: &str) -> u64 {
         metrics_verbatim(
             lang,
@@ -489,6 +518,15 @@ mod tests {
     // named above there. `conditions()` is that one space's own count,
     // so it pairs with `cyclomatic()` and never `cyclomatic_sum()`,
     // which folds in a base of 1 per nested space.
+    #[cfg(any(
+        feature = "cpp",
+        feature = "csharp",
+        feature = "groovy",
+        feature = "java",
+        feature = "perl",
+        feature = "php",
+        feature = "typescript",
+    ))]
     fn assert_deepest_conditions_match_cyclomatic(space: &crate::FuncSpace, expected: u64) {
         let mut deepest = space;
         while let Some(child) = deepest.spaces.last() {
@@ -505,6 +543,7 @@ mod tests {
     // and so inspects exactly one member, which is the shape #1383's
     // over-count hid behind — a merged root total cannot tell a
     // relational method scoring 2 from the constant control scoring 2.
+    #[cfg(any(feature = "csharp", feature = "elixir"))]
     fn assert_every_member_scores(
         container: &crate::FuncSpace,
         members: usize,
@@ -542,6 +581,16 @@ mod tests {
     // decision count — an `else` arm, or a comparison nested inside
     // another comparison, is an ABC condition with no cyclomatic
     // decision behind it (#1421).
+    #[cfg(any(
+        feature = "csharp",
+        feature = "elixir",
+        feature = "groovy",
+        feature = "java",
+        feature = "kotlin",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+    ))]
     #[track_caller]
     fn assert_members_score(container: &crate::FuncSpace, expected: &[(&str, u64, u64)]) {
         assert_eq!(
@@ -580,6 +629,7 @@ mod tests {
     // The `EQ` arm of `java_count_token_assignment`: a plain `=` counts
     // unless `java_eq_initializes_final_binding` finds it initialising a
     // `final` binding, whether the declaration is a local or a field.
+    #[cfg(feature = "java")]
     #[test]
     fn java_eq_arm_counts_outside_final_declarations() {
         check_metrics::<JavaParser>(
@@ -593,6 +643,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_eq_arm_skips_final_initializers() {
         check_metrics::<JavaParser>(
@@ -612,6 +663,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_final_initializer_does_not_suppress_the_assignments_inside_it() {
         // The sentinel stack the structural predicate replaced stayed
@@ -652,6 +704,7 @@ mod tests {
     }
 
     // Constant declarations are not counted as assignments
+    #[cfg(feature = "java")]
     #[test]
     fn java_constant_declarations() {
         check_metrics::<JavaParser>(
@@ -705,6 +758,7 @@ mod tests {
     // According to this definition, boolean expressions that are evaluated to make a decision are considered as conditions
     // Variables, method invocations and true or false values used inside
     // variable declarations and assignment expressions are not counted as conditions
+    #[cfg(feature = "java")]
     #[test]
     fn java_declarations_with_conditions() {
         check_metrics::<JavaParser>(
@@ -754,6 +808,7 @@ mod tests {
     }
 
     // Conditions can be found in assignment expressions
+    #[cfg(feature = "java")]
     #[test]
     fn java_assignments_with_conditions() {
         check_metrics::<JavaParser>(
@@ -803,6 +858,7 @@ mod tests {
     }
 
     // Conditions can be found in method arguments
+    #[cfg(feature = "java")]
     #[test]
     fn java_methods_arguments_with_conditions() {
         check_metrics::<JavaParser>(
@@ -848,6 +904,7 @@ mod tests {
     // "A unary conditional expression is an implicit condition that uses no relational operators."
     // Source: Fitzpatrick, Jerry (1997). "Applying the ABC metric to C, C++ and Java". C++ Report.
     // https://www.softwarerenovation.com/Articles.aspx (page 5)
+    #[cfg(feature = "java")]
     #[test]
     fn java_if_single_conditions() {
         check_metrics::<JavaParser>(
@@ -904,6 +961,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_if_multiple_conditions() {
         check_metrics::<JavaParser>(
@@ -950,6 +1008,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_while_and_do_while_conditions() {
         check_metrics::<JavaParser>(
@@ -996,6 +1055,7 @@ mod tests {
     // According to this definition, unary conditional expressions are counted also in function return values.
     // Source: https://dx42.github.io/gmetrics/metrics/AbcMetric.html
     // Examples: https://github.com/dx42/gmetrics/blob/master/src/test/groovy/org/gmetrics/metric/abc/AbcMetric_MethodTest.groovy
+    #[cfg(feature = "java")]
     #[test]
     fn java_return_with_conditions() {
         check_metrics::<JavaParser>(
@@ -1048,6 +1108,7 @@ mod tests {
 
     // Variables, method invocations, and true or false values
     // inside return statements are not counted as conditions
+    #[cfg(feature = "java")]
     #[test]
     fn java_return_without_conditions() {
         check_metrics::<JavaParser>(
@@ -1099,6 +1160,7 @@ mod tests {
 
     // Variables, method invocations, and true or false values
     // in lambda expression return values are not counted as conditions
+    #[cfg(feature = "java")]
     #[test]
     fn java_lambda_expressions_return_with_conditions() {
         check_metrics::<JavaParser>(
@@ -1144,6 +1206,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_for_with_variable_declaration() {
         check_metrics::<JavaParser>(
@@ -1183,6 +1246,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_for_without_variable_declaration() {
         check_metrics::<JavaParser>(
@@ -1238,6 +1302,7 @@ mod tests {
     // unary conditions that are present. Java and Groovy were the only
     // two impls disagreeing, and the field-addressed walker now reports
     // zero the way the C family, the JS family, PHP, C# and Go all do.
+    #[cfg(feature = "java")]
     #[test]
     fn java_empty_for_condition_counts_nothing() {
         check_metrics::<JavaParser>(
@@ -1267,6 +1332,7 @@ mod tests {
     // the header shifted every index and the condition went unread —
     // the same failure #1181 removed from `java_walk_ternary`. Reading
     // the `condition` field cannot shift.
+    #[cfg(feature = "java")]
     #[test]
     fn java_for_condition_survives_a_header_comment() {
         check_metrics::<JavaParser>(
@@ -1286,6 +1352,7 @@ mod tests {
 
     // Variables, method invocations, and true or false values
     // in ternary expression return values are not counted as conditions
+    #[cfg(feature = "java")]
     #[test]
     fn java_ternary_conditions() {
         check_metrics::<JavaParser>(
@@ -1328,6 +1395,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_assignments_only() {
         check_metrics::<BashParser>(
@@ -1363,6 +1431,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_commands_only() {
         check_metrics::<BashParser>(
@@ -1397,6 +1466,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_control_flow_counts_conditions() {
         // Regression for #696: Bash control-flow branches are ABC
@@ -1430,6 +1500,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_conditions_mix() {
         // Exercises every condition path: `==` and `!=` inside `[[ ]]`,
@@ -1484,6 +1555,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_redirection_is_not_a_condition() {
         // `>` and `<` spell an I/O redirection as well as a comparison, and
@@ -1505,6 +1577,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_comparison_inside_an_arithmetic_or_test_context_is_a_condition() {
         // The positive control for the gate above: the same tokens under a
@@ -1521,6 +1594,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_arithmetic_ternary_is_a_condition() {
         // The ABC half of #1268. Cyclomatic and cognitive both count Bash's
@@ -1537,6 +1611,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_magnitude() {
         // Combined assignments + branches + conditions. The single `if`
@@ -1578,6 +1653,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_malformed_parenthesized_no_panic() {
         check_metrics::<JavaParser>("class A { void m() { if (( }) }", "foo.java", |metric| {
@@ -1591,6 +1667,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_bool_returning_terminal_kinds_count() {
         // Companion to `csharp_bool_returning_terminal_kinds_count`
@@ -1646,6 +1723,7 @@ mod tests {
     // tokens under separate `type_arguments`. Pre-fix this file scored
     // 4 conditions — two per `type_parameters` bracket pair; expected 0,
     // the file contains no conditional construct at all.
+    #[cfg(feature = "java")]
     #[test]
     fn java_generic_declarations_are_not_conditions() {
         check_metrics::<JavaParser>(
@@ -1681,6 +1759,7 @@ mod tests {
     // ternary is deliberate — with one of each, aiming the gate at the
     // wrong one of the two productions still totals 2 and the test
     // cannot see the difference.
+    #[cfg(feature = "java")]
     #[test]
     fn java_generic_wildcard_is_not_a_condition() {
         check_metrics::<JavaParser>(
@@ -1702,6 +1781,7 @@ mod tests {
     // method's own space the ABC condition count must equal the
     // cyclomatic decision count (`cyclomatic()` minus the per-space
     // base of 1). Both are 2, one per `if`.
+    #[cfg(feature = "java")]
     #[test]
     fn java_comparison_operators_still_count_alongside_generics() {
         check_func_space::<JavaParser, _>(
@@ -1717,6 +1797,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_constructor_delegation_is_a_branch() {
         // Regression for #1279: `super(…)` / `this(…)` parse as
@@ -1737,6 +1818,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_constructor_delegation_does_not_double_count_arguments() {
         // The delegation node does not wrap a `method_invocation` for the
@@ -1754,6 +1836,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_constructor_initializer_is_a_branch() {
         // C# spells the same delegation as a `constructor_initializer`
@@ -1771,6 +1854,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_primary_constructor_base_call_is_a_branch() {
         // The C# 12 primary-constructor superclass call invokes the base
@@ -1841,6 +1925,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_base_list_gate_excludes_other_argument_lists() {
         // The `base_list` parent gate on the `ArgumentList` arm is
@@ -1907,6 +1992,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_base_call_and_constructor_initializer_do_not_double_count() {
         // A class can spell *both* delegations at once: the primary
@@ -1945,6 +2031,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_constructor_delegation_is_a_branch() {
         // Kotlin's secondary-constructor delegation is a
@@ -1962,6 +2049,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_primary_constructor_superclass_call_is_a_branch() {
         // Kotlin's *primary*-constructor superclass call is a
@@ -1993,6 +2081,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_annotation_arguments_are_not_a_branch() {
         // The parent gate on that arm is load-bearing, not decoration:
@@ -2046,6 +2135,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_constructor_delegation_is_a_branch() {
         // Groovy already counted this shape before #1279; the assertion
@@ -2084,6 +2174,7 @@ mod tests {
     // reason `assert_kotlin_class_members` couples its pair: a branch
     // total added without the census reads as coverage and is not.
 
+    #[cfg(any(feature = "groovy", feature = "java", feature = "kotlin"))]
     fn assert_enum_branches<P: MetricSuite>(
         src: &str,
         path: &str,
@@ -2096,6 +2187,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_enum_constant_with_arguments_is_a_branch() {
         // `@SuppressWarnings("x") B` is the discriminating case for the
@@ -2136,6 +2228,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_enum_entry_with_arguments_is_a_branch() {
         // Kotlin needs a defaulted primary-constructor parameter to spell
@@ -2162,6 +2255,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_enum_constant_with_arguments_is_a_branch() {
         // Groovy's enum has no annotated-constant case to cover: the
@@ -2189,6 +2283,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_no_abc() {
         // Comment-only file has no executable code → all-zero ABC.
@@ -2203,6 +2298,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_single_assignment() {
         // `int x = 1` is a local-variable declaration whose `=` counts
@@ -2214,6 +2310,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_assignments() {
         check_metrics::<GroovyParser>(
@@ -2237,6 +2334,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_branches() {
         check_metrics::<GroovyParser>(
@@ -2253,6 +2351,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_conditions_in_if() {
         check_metrics::<GroovyParser>(
@@ -2269,6 +2368,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_branches_with_juxt_call() {
         // Groovy's parens-less call form `println foo` must be counted
@@ -2286,6 +2386,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_try_catch_conditions() {
         // Each `try` and `catch` keyword token contributes +1 to
@@ -2306,6 +2407,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_ternary_conditions() {
         check_metrics::<GroovyParser>(
@@ -2320,6 +2422,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_constant_excluded_from_assignments() {
         // `final` declarations are not counted as assignments
@@ -2338,6 +2441,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_malformed_parenthesized_no_panic() {
         // Regression: malformed Groovy input must not panic the ABC
@@ -2351,6 +2455,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_bool_returning_terminal_kinds_count() {
         // Companion to `csharp_bool_returning_terminal_kinds_count`
@@ -2393,6 +2498,7 @@ mod tests {
     // The class-level `type_parameters` and its bound's nested
     // `type_arguments` mirror the Java fixture; pre-fix this file scored
     // 2 conditions, expected 0.
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_generic_declarations_are_not_conditions() {
         check_metrics::<GroovyParser>(
@@ -2412,6 +2518,7 @@ mod tests {
     // including its choice of a non-zero expected total and its
     // two-wildcards-one-ternary shape; the dekobon grammar emits the
     // same `wildcard` node. Pre-fix: 4.
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_generic_wildcard_is_not_a_condition() {
         check_metrics::<GroovyParser>(
@@ -2440,6 +2547,7 @@ mod tests {
     // The body carries a ternary over a comparison for the same
     // non-vacuity reason as the wildcard tests: expected 2, pre-fix 4
     // (the `<U>` bracket pair), 0 if the fixture stops parsing.
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_method_type_parameters_are_not_conditions() {
         check_metrics::<GroovyParser>(
@@ -2457,6 +2565,7 @@ mod tests {
     // `java_comparison_operators_still_count_alongside_generics`: the
     // narrowed arm keeps counting real comparisons, pinned against the
     // cyclomatic decision count on the method's own space (§8).
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_elvis_counts_one_condition_per_token() {
         // `a ?: c` is a short-circuit decision Groovy cyclomatic already
@@ -2478,6 +2587,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_comparison_operators_still_count_alongside_generics() {
         check_func_space::<GroovyParser, _>(
@@ -2493,6 +2603,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_if_multiple_conditions() {
         // Mirrors `java_if_multiple_conditions`: `&&` / `||` chains
@@ -2519,6 +2630,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_while_and_do_while_conditions() {
         // Covers the WhileStatement and DoStatement arms in
@@ -2546,6 +2658,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_if_while_boolean_literal_condition() {
         // Regression for the Groovy half of #371-class bugs: the
@@ -2582,6 +2695,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_return_unary_boolean_literal() {
         // Companion to `groovy_if_while_boolean_literal_condition`:
@@ -2618,6 +2732,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_short_circuit_with_boolean_literal_operand() {
         // Companion to `groovy_if_while_boolean_literal_condition`:
@@ -2655,6 +2770,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_methods_arguments_with_conditions() {
         // Mirror of `java_methods_arguments_with_conditions`: a
@@ -2681,6 +2797,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_return_with_conditions() {
         // Mirror of `java_return_with_conditions`: a parenthesised
@@ -2706,6 +2823,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_for_with_variable_declaration() {
         // Classical `for (int i = 0; cond; i++)` form. The init
@@ -2736,6 +2854,7 @@ mod tests {
     /// contributes there, so it stayed uncovered. A bare-identifier
     /// condition has no comparison token, so the count can only come
     /// from the walker.
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_for_with_bare_identifier_condition() {
         check_metrics::<GroovyParser>(
@@ -2760,6 +2879,7 @@ mod tests {
     /// path — the condition moved from child(4) to child(3) — and the
     /// pair is kept as a shape guard now that the walker reads the
     /// `condition` field and cannot see the difference.
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_for_with_empty_initializer_counts_the_condition() {
         check_metrics::<GroovyParser>(
@@ -2784,6 +2904,7 @@ mod tests {
     /// child(4) as a vacuously-true condition, so `for (;;)` scored
     /// one. An omitted test is not a decision, and every other impl
     /// scores it zero. See `java_empty_for_condition_counts_nothing`.
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_empty_for_condition_counts_nothing() {
         check_metrics::<GroovyParser>("void f() { for (;;) { break } }", "foo.groovy", |metric| {
@@ -2803,6 +2924,7 @@ mod tests {
     /// The cascade's other defect, shared with Java: a comment in the
     /// header shifted every child index, so the condition went unread.
     /// Reading the `condition` field cannot shift.
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_for_condition_survives_a_header_comment() {
         check_metrics::<GroovyParser>(
@@ -2823,6 +2945,7 @@ mod tests {
     /// `!`-prefixed one through `csharp_inspect_container`. Every other
     /// C# `for` test uses a comparison (`i < n`), which the `LT` token
     /// arm counts without entering the walker.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_for_with_negated_condition() {
         check_metrics::<CsharpParser>(
@@ -2843,6 +2966,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_eq_arm_counts_outside_final_declarations() {
         // Bare reassignment of an already-declared variable: the `=`
@@ -2861,6 +2985,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_final_field_initializer_does_not_suppress_the_closure_body() {
         // The Groovy spelling of
@@ -2883,6 +3008,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_final_local_is_an_error_at_the_pinned_grammar() {
         // `groovy_eq_initializes_final_binding` lists
@@ -2913,6 +3039,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_const_initializer_shapes() {
         // `csharp_eq_initializes_const_binding` reads the `const`
@@ -2937,6 +3064,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_constant_declarations() {
         check_metrics::<CsharpParser>(
@@ -2958,6 +3086,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_declarations_with_conditions() {
         check_metrics::<CsharpParser>(
@@ -2972,6 +3101,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_assignments_with_conditions() {
         check_metrics::<CsharpParser>(
@@ -2992,6 +3122,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_methods_arguments_with_conditions() {
         check_metrics::<CsharpParser>(
@@ -3006,6 +3137,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_if_single_conditions() {
         check_metrics::<CsharpParser>(
@@ -3021,6 +3153,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_if_multiple_conditions() {
         check_metrics::<CsharpParser>(
@@ -3035,6 +3168,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_while_and_do_while_conditions() {
         check_metrics::<CsharpParser>(
@@ -3049,6 +3183,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_return_with_conditions() {
         check_metrics::<CsharpParser>(
@@ -3072,6 +3207,7 @@ mod tests {
     // gated `SwitchExpressionArm` arm is what lifts this from 0 to 2. The
     // bare `_ =>` discard arm is excluded (the `default:` analogue),
     // mirroring the cyclomatic gate (lesson 11).
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_switch_expression_arm_counts_condition() {
         check_metrics::<CsharpParser>(
@@ -3096,6 +3232,7 @@ mod tests {
     // asserted in each callback rather than compared across closures; the
     // matching constant is what enforces parity. This guards against the
     // C# fix drifting away from the Java arrow-case treatment.
+    #[cfg(all(feature = "csharp", feature = "java"))]
     #[test]
     fn csharp_java_switch_arm_abc_parity() {
         // C# switch expression: two arms, no fallback → 2 conditions.
@@ -3137,6 +3274,7 @@ mod tests {
     // policy). The cyclomatic side is pinned separately in
     // `java_csharp_cpp_switch_default_cyclomatic_parity` below, where
     // the per-space `cyclomatic()` decision count is isolated.
+    #[cfg(feature = "java")]
     #[test]
     fn java_switch_default_not_a_condition() {
         // Classic statement `default:`.
@@ -3168,6 +3306,7 @@ mod tests {
     // cases → 2), so it would catch a fix that over-eagerly dropped a
     // real case (e.g. treating the trailing case as a fallthrough).
     // expected: case 1 (+1) + case 2 (+1) = 2.
+    #[cfg(feature = "java")]
     #[test]
     fn java_switch_without_default_counts_all_cases() {
         check_metrics::<JavaParser>(
@@ -3182,6 +3321,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_switch_default_not_a_condition() {
         check_metrics::<CsharpParser>(
@@ -3223,6 +3363,7 @@ mod tests {
     /// assertion below satisfied and the construct under test gone; the
     /// anchor's count of 7 — six arms plus the one jump — fails by name
     /// instead.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_goto_case_is_not_a_condition() {
         let src = "class A {
@@ -3253,6 +3394,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_switch_default_not_a_condition() {
         // C++ (and plain C, which shares this grammar) already excluded
@@ -3266,6 +3408,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_abc() {
         // ObjC ABC reuses the C/C++ walker with two additions: a message
@@ -3302,6 +3445,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_abc_conditions() {
         // Exercises the condition-slot arms shared with C/C++: a `while`
@@ -3331,6 +3475,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_abc_message_send_unary_condition() {
         // A negated boolean passed as a message-send argument is a unary
@@ -3354,6 +3499,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_message_send_is_a_bool_terminal_in_condition_slots() {
         // `[obj ok]` is Objective-C's call, so in a condition slot it is
@@ -3398,6 +3544,7 @@ mod tests {
         assert!(cases.iter().any(|&(_, c, _)| c == 2));
     }
 
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_message_send_condition_agrees_with_c_call() {
         // The intra-ObjC parity C++ cannot express: a message send and a
@@ -3420,6 +3567,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_switch_default_not_a_condition() {
         check_metrics::<GroovyParser>(
@@ -3433,6 +3581,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn js_switch_default_not_a_condition() {
         check_metrics::<JavascriptParser>(
@@ -3444,6 +3593,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn ts_switch_default_not_a_condition() {
         check_metrics::<TypescriptParser>(
@@ -3462,6 +3612,7 @@ mod tests {
     // (the `default` excluded). `check_metrics` takes a non-capturing
     // `fn` pointer, so the shared expected value is asserted in each
     // callback; the matching constant is what enforces parity.
+    #[cfg(all(feature = "cpp", feature = "csharp", feature = "java"))]
     #[test]
     fn java_csharp_cpp_switch_default_abc_parity() {
         check_metrics::<JavaParser>(
@@ -3497,6 +3648,7 @@ mod tests {
     // `conditions()` for the same switch. Both must be 2 — the two case
     // arms — with the `default` excluded from each. Revert-verified: pre-
     // #469 ABC `conditions()` was 3 here while cyclomatic stayed at 2.
+    #[cfg(all(feature = "cpp", feature = "csharp", feature = "java"))]
     #[test]
     fn java_csharp_cpp_switch_default_cyclomatic_parity() {
         check_func_space::<JavaParser, _>(
@@ -3533,6 +3685,7 @@ mod tests {
     // `default` excluded. Revert-verified: re-adding `DefaultStatement` to
     // the PHP ABC condition arm makes `conditions()` 3 here while cyclomatic
     // stays at 2, failing the invariant.
+    #[cfg(feature = "php")]
     #[test]
     fn php_switch_default_not_a_condition() {
         check_func_space::<PhpParser, _>(
@@ -3555,6 +3708,7 @@ mod tests {
     // (`cyclomatic() - 1`) — both 2 for the two non-default match arms.
     // Revert-verified: re-adding `MatchDefaultExpression` to the PHP ABC
     // condition arm makes `conditions()` 3 here while cyclomatic stays at 2.
+    #[cfg(feature = "php")]
     #[test]
     fn php_match_default_not_a_condition() {
         check_func_space::<PhpParser, _>(
@@ -3571,6 +3725,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_if_bare_identifier_condition() {
         check_metrics::<CsharpParser>(
@@ -3592,6 +3747,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_while_bare_identifier_condition() {
         check_metrics::<CsharpParser>(
@@ -3610,6 +3766,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_do_while_bare_identifier_condition() {
         check_metrics::<CsharpParser>(
@@ -3629,6 +3786,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_if_unary_not_condition() {
         // Two cases share one test:
@@ -3669,6 +3827,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_if_double_parenthesized_condition() {
         // Audit-tests follow-up: with only the
@@ -3702,6 +3861,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_bool_returning_terminal_kinds_count() {
         // Regression for issue #372 (lesson #19): before the fix,
@@ -3747,6 +3907,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_if_method_call_condition() {
         check_metrics::<CsharpParser>(
@@ -3767,6 +3928,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_if_while_boolean_literal_condition() {
         // Regression for #371: the tree-sitter-c-sharp grammar wraps a
@@ -3807,6 +3969,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_short_circuit_with_boolean_literal_operand() {
         // Regression for #371 (companion to
@@ -3849,6 +4012,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_return_without_conditions() {
         check_metrics::<CsharpParser>(
@@ -3861,6 +4025,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_lambda_expressions_return_with_conditions() {
         check_metrics::<CsharpParser>(
@@ -3875,6 +4040,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_for_with_variable_declaration() {
         check_metrics::<CsharpParser>(
@@ -3890,6 +4056,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_for_without_variable_declaration() {
         check_metrics::<CsharpParser>(
@@ -3906,6 +4073,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_for_identifier_condition() {
         check_metrics::<CsharpParser>(
@@ -3945,6 +4113,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_for_invocation_condition() {
         check_metrics::<CsharpParser>(
@@ -3991,6 +4160,7 @@ mod tests {
     // attribute one condition; without it, `for (; true ;)` would
     // contribute 0 (the bug fixed by this commit also affected this
     // shape).
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_for_boolean_literal_condition() {
         check_metrics::<CsharpParser>(
@@ -4013,6 +4183,7 @@ mod tests {
     // Regression coverage for #279: an empty for-loop condition such as
     // `for (; ;) {}` must contribute 0 to conditions — there is no
     // condition node to count.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_for_empty_condition() {
         check_metrics::<CsharpParser>(
@@ -4050,6 +4221,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_ternary_conditions() {
         check_metrics::<CsharpParser>(
@@ -4063,6 +4235,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_malformed_parenthesized_no_panic() {
         check_metrics::<CsharpParser>("class A { void M() { if (( }) }", "foo.cs", |metric| {
@@ -4072,6 +4245,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_function_pointer_type_no_double_count() {
         // EC1 extension — `<` and `>` are also parameter-list delimiters
@@ -4095,6 +4269,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_generic_type_args_no_double_count() {
         // EC1 — `<` and `>` inside TypeArgumentList must not count as
@@ -4127,6 +4302,7 @@ mod tests {
     // survive), 0 if the fixture stops parsing. Each is one higher than
     // before #1461, which added the `is` test as a count no gate on the
     // `<` / `>` token can reach.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_operator_declaration_is_not_a_condition() {
         check_func_space::<CsharpParser, _>(
@@ -4187,6 +4363,7 @@ mod tests {
     // inside `binary_expression` parents, which must keep scoring one
     // condition each. Without it the gate could be satisfied by refusing
     // to count these tokens at all.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_comparison_operator_overloads_are_not_conditions() {
         let src = "class V {
@@ -4261,6 +4438,7 @@ mod tests {
     // asks that such an entry be kept *and* have its unreachability
     // asserted, so that a pin promoting the symbol changes behaviour
     // loudly rather than invisibly.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_preproc_equality_counts_through_the_binary_expression_alias() {
         let src = "class P {
@@ -4324,6 +4502,7 @@ mod tests {
     //
     // `c` is the constant-pattern control and reads 2 in both rows: it is
     // what the relational methods are supposed to agree with.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_relational_pattern_does_not_double_count_its_arm() {
         let src = "class A {
@@ -4364,6 +4543,7 @@ mod tests {
     // however many relational operands it carries — which is exactly
     // what would regress if a later fix re-derived the gate from the
     // operand instead of the parent.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_is_pattern_and_combinators_score_one_decision() {
         let src = "class A {
@@ -4412,6 +4592,7 @@ mod tests {
     // The four probes stay because they are four different enclosings —
     // a declarator, a bare `return`, an argument, a type test — and the
     // point was never that the pattern is special in one of them.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_relational_pattern_scores_one_wherever_it_is_written() {
         let src = "class A {
@@ -4486,6 +4667,7 @@ mod tests {
     // 2 rather than leaving the assertion satisfied by something else;
     // `assert_csharp_fixture_spells` pins both guards by kind against
     // the same decay.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_switch_arm_guard_operator_still_counts() {
         let src = "class A {
@@ -4563,6 +4745,7 @@ mod tests {
     // closing it. The remaining one is the slot's standing policy of
     // leaving a `binary_expression` to its operators, and `cmp` pays it
     // too — it just happens to break even there.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_switch_arm_guard_scores_one_condition_however_spelled() {
         let src = "class A {
@@ -4639,6 +4822,7 @@ mod tests {
     // already-correct `is_pattern_expression` twins, so a regression
     // that reintroduced the asymmetry fails on the pair rather than on
     // an absolute number.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_bare_is_type_test_scores_one_condition() {
         let src = "class A {
@@ -4703,6 +4887,7 @@ mod tests {
     // that only `conditions` moved — the suffix is not a decision in any
     // language, so a fix that moved both together would be a different
     // bug.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_null_forgiving_operand_scores_like_its_operand() {
         let src = "class A {
@@ -4771,6 +4956,7 @@ mod tests {
     // whenever one is written there. That is #1455, which predates
     // #1463 and is a separate change; what this test adds is that the
     // new arm does not join it.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_null_forgiving_operand_survives_an_interposed_comment() {
         let src = "class A {
@@ -4827,6 +5013,7 @@ mod tests {
     // here, the `SwitchExpressionArm` node there), so a guard rule
     // written against one shape could be dead for the other and every
     // expression-form fixture would still read correct.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_statement_switch_section_guard_counts() {
         let src = "class A {
@@ -4887,6 +5074,7 @@ mod tests {
     // `CatchFilterClause` seed in `csharp_inspect_container`; only a
     // second pair of parentheses produces a `parenthesized_expression`
     // there.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_catch_filter_guard_scores_one_condition_however_spelled() {
         let src = "class A {
@@ -4937,6 +5125,7 @@ mod tests {
     // the guard that makes it conditional. `bare` is the control that
     // keeps the exclusion itself pinned: drop the guard and the arm goes
     // back to costing nothing.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_guarded_discard_arm_scores_arm_and_guard() {
         let src = "class A {
@@ -4975,6 +5164,7 @@ mod tests {
     // literals themselves are pinned by
     // `csharp_switch_arm_guard_scores_one_condition_however_spelled` and
     // its catch-filter sibling.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_guard_keeps_its_condition_across_a_comment() {
         let src = "class A {
@@ -5013,6 +5203,7 @@ mod tests {
     // `csharp_bool_terminal_kinds!()` — so it reads one above `single`'s
     // lone comparison rather than collapsing to the same number, and
     // cyclomatic agrees because it counts the `&&`.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_compound_guard_keeps_its_sub_structure() {
         let src = "class A {
@@ -5045,6 +5236,7 @@ mod tests {
     // genuine ternary, 0 if the fixture stops parsing. Asserting 0 on a
     // nullable-only body would have been vacuous — an unparsable file
     // scores 0 too.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_nullable_type_syntax_is_not_a_condition() {
         check_metrics::<CsharpParser>(
@@ -5076,6 +5268,7 @@ mod tests {
     // `??`, which #1459 added to close the gap this comment used to
     // record as out of scope for #1275 — so a flipped `QMARK` polarity
     // now reads 1 rather than 0, and the discrimination is unchanged.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_conditional_access_still_counts_as_a_condition() {
         let src = "class A {
@@ -5110,6 +5303,7 @@ mod tests {
     // `plain` is the control that keeps this from being an assertion
     // about `return` or about the method shape: same body without the
     // operator, 0 conditions and 1 decision.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_null_coalescing_is_a_condition() {
         let src = "class A {
@@ -5139,6 +5333,7 @@ mod tests {
     // the Java `<` / `>` sibling is: C# cyclomatic scores this method 1
     // decision, and the divergence is the pre-existing unary-condition
     // rule, not the `?` gate.
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_ternary_still_counts_alongside_nullable_types() {
         check_metrics::<CsharpParser>(
@@ -5154,6 +5349,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_aliased_invocation_expression_branches() {
         // Regression for issue #94 (lesson #2): the C# grammar emits three
@@ -5178,6 +5374,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_zero_abc() {
         check_metrics::<PhpParser>("<?php\n", "foo.php", |metric| {
@@ -5188,6 +5385,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_simple_assignment() {
         check_metrics::<PhpParser>(
@@ -5201,6 +5399,7 @@ function f(): void {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_augmented_assignment() {
         check_metrics::<PhpParser>(
@@ -5217,6 +5416,7 @@ function f(int $x): int {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_const_excluded() {
         // Constant declarations and enum cases are NOT counted as
@@ -5236,6 +5436,7 @@ enum Color {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_function_call() {
         check_metrics::<PhpParser>(
@@ -5249,6 +5450,7 @@ function f(): void {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_method_call() {
         check_metrics::<PhpParser>(
@@ -5262,6 +5464,7 @@ function f($obj): void {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_static_call() {
         check_metrics::<PhpParser>(
@@ -5275,6 +5478,7 @@ function f(): void {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_nullsafe_call() {
         check_metrics::<PhpParser>(
@@ -5288,6 +5492,7 @@ function f($obj): void {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_object_creation() {
         check_metrics::<PhpParser>(
@@ -5301,6 +5506,7 @@ function f(): void {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_comparison_eq() {
         check_metrics::<PhpParser>(
@@ -5313,6 +5519,7 @@ function f(int $a, int $b): bool {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_comparison_strict() {
         check_metrics::<PhpParser>(
@@ -5325,6 +5532,7 @@ function f(int $a, int $b): bool {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_spaceship() {
         check_metrics::<PhpParser>(
@@ -5337,6 +5545,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_instanceof() {
         check_metrics::<PhpParser>(
@@ -5349,6 +5558,7 @@ function f($x): bool {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_complex_function() {
         // One snippet exercising A, B, C buckets together.
@@ -5367,6 +5577,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_if_boolean_literal_condition() {
         check_metrics::<PhpParser>(
@@ -5385,6 +5596,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_methods_arguments_with_conditions() {
         check_metrics::<PhpParser>(
@@ -5402,6 +5614,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_return_with_conditions() {
         check_metrics::<PhpParser>(
@@ -5419,6 +5632,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_name2_hidden_rule_drift_marker() {
         // Drift marker (findings.md round-2 #3): `Php::Name2` maps
@@ -5437,6 +5651,7 @@ function f(int $a, int $b): int {
         assert!(!ast_has_kind_id(&parser, Php::Name2 as u16));
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_scoped_property_access_condition_counts() {
         // Regression for findings.md round-2 #1 (PHP):
@@ -5460,6 +5675,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_named_argument_unary_conditional_counts() {
         // Regression for the code-review finding: PHP 8 named-argument
@@ -5479,6 +5695,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_low_precedence_keyword_logical_ops_trigger_walker() {
         // Regression: pre-fix, `$a or $b` reported 0 conditions
@@ -5499,6 +5716,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_if_multiple_conditions() {
         check_metrics::<PhpParser>(
@@ -5516,6 +5734,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_while_and_do_while_conditions() {
         check_metrics::<PhpParser>(
@@ -5532,6 +5751,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_short_circuit_with_boolean_literal_operand() {
         check_metrics::<PhpParser>(
@@ -5550,6 +5770,7 @@ function f(int $a, int $b): int {
     // does emit the token, but the `conditional_expression` node is
     // what carries the tally's +1 — so the arm keeps that increment and
     // adds the operand slots.
+    #[cfg(feature = "php")]
     #[test]
     fn php_ternary_operand_slots_count_as_unary_conditions() {
         // ternary (1) + condition `$a` (1) + `!$b` (1) + `!$c` (1) = 4.
@@ -5586,6 +5807,7 @@ function f(int $a, int $b): int {
     // grammar names `body` (not `consequence`) and marks optional. The
     // alternative lands at child(3), so addressing the slot by field
     // name rather than a fixed child(4) is what keeps `!$b` counted.
+    #[cfg(feature = "php")]
     #[test]
     fn php_elided_ternary_body_still_walks_the_alternative() {
         // ternary (1) + condition `$a` (1) + `!$b` (1) = 3.
@@ -5603,6 +5825,7 @@ function f(int $a, int $b): int {
     // fixture below is a shape only the new arm can classify — a
     // comparison-shaped condition proves nothing here, because the `<`
     // token arm counts it either way (grammar-dispatch §11).
+    #[cfg(feature = "php")]
     #[test]
     fn php_for_condition_slot_counts_unary_conditions() {
         // Bare variable: the whole condition, no operator token.
@@ -5647,6 +5870,7 @@ function f(int $a, int $b): int {
 
     // --- Kotlin ABC tests -------------------------------------------------
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_empty_class() {
         check_metrics::<KotlinParser>("class C {}", "foo.kt", |metric| {
@@ -5657,6 +5881,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_val_declarations_are_not_assignments() {
         // `val` introduces an immutable binding — the `=` initialising it
@@ -5676,6 +5901,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_var_declarations_count_assignment() {
         // `var` initialisers count as assignments (mutable binding).
@@ -5692,6 +5918,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_val_then_assignments_count() {
         // Regression for #455: a `val` initialiser must not suppress the
@@ -5714,6 +5941,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_var_then_assignments_count() {
         // Companion to the #455 regression: a `var` declaration leaves a
@@ -5736,6 +5964,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_augmented_assignments_count() {
         // Augmented operators (+=, -=, etc.) and ++/-- always count.
@@ -5758,6 +5987,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_branches_call_expression() {
         check_metrics::<KotlinParser>(
@@ -5774,6 +6004,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_object_construction_branch() {
         // Kotlin's object construction is just `Foo()` — a `CallExpression`.
@@ -5788,6 +6019,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_comparisons_count_conditions() {
         check_metrics::<KotlinParser>(
@@ -5814,6 +6046,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_identity_equality_conditions() {
         // `===` / `!==` are referential equality in Kotlin; they count too.
@@ -5829,6 +6062,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_else_branch_counts() {
         check_metrics::<KotlinParser>(
@@ -5844,6 +6078,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_when_entries_count() {
         check_metrics::<KotlinParser>(
@@ -5869,6 +6104,7 @@ function f(int $a, int $b): int {
     // is `else ->` must not count that arm. Revert-verified — gating the
     // `WhenEntry` arm on `!kotlin_when_entry_is_else` is what drops this
     // from 3 to 2 (issue #456, lesson 11). Mirrors the cyclomatic gate.
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_when_else_not_a_condition() {
         check_metrics::<KotlinParser>(
@@ -5891,6 +6127,7 @@ function f(int $a, int $b): int {
     // score can stand in for: a `when` that grew a subject scores its
     // entries the pre-#1421 way with every other row still satisfied.
     // Each fixture is one class, so the members are `spaces[0]`'s.
+    #[cfg(feature = "kotlin")]
     #[track_caller]
     fn assert_kotlin_class_members(
         src: &str,
@@ -5932,6 +6169,7 @@ function f(int $a, int $b): int {
     // measured numbers would notice a fixture that grew one — a
     // subject-ful `when (x) { … }` scores its entries the old way and
     // `two` would read 4 again with every other row still satisfied.
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_subjectless_when_arm_counts_its_condition_once() {
         let src = "class K {
@@ -6017,6 +6255,7 @@ function f(int $a, int $b): int {
     // `Any`, and `(a as? Boolean)!!` back to a `Boolean`. The kind
     // anchors are what stop a later edit from trimming a spelling out
     // and turning its member into a silent copy of `bare`.
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_condition_slot_peels_null_assertions_and_casts() {
         let src = "class K {
@@ -6102,6 +6341,7 @@ function f(int $a, int $b): int {
     // `if` (`x == (y > 5)`) and ABC has always scored it 2 against the
     // same 1 decision. A comparison nested inside a comparison is two
     // comparisons; only one of them is a branch.
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_subjectful_when_arms_keep_the_per_entry_count() {
         let src = "class K {
@@ -6153,6 +6393,7 @@ function f(int $a, int $b): int {
     // The `block_comment` census is the fixture anchor: delete either
     // comment and the members still read 1, because a plain `when (x)`
     // and a plain `when {` both do. The count fails by name instead.
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_when_subject_scan_clears_a_comment_before_the_brace() {
         let src = "class K {
@@ -6185,6 +6426,7 @@ function f(int $a, int $b): int {
     // parenthesised operand is not in a slot the walker calls boolean and
     // `paren` drops to 0. `notted` cannot stand in for it — a `!`
     // operator proves boolean content on its own.
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_subjectless_when_condition_wrappers_count_once() {
         let src = "class K {
@@ -6246,6 +6488,7 @@ function f(int $a, int $b): int {
     //
     // `subjAlts` is the subject-ful control, unchanged and at parity: its
     // alternatives are constants carrying no token to count.
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_subjectless_when_multi_alternative_entry() {
         let src = "class K {
@@ -6295,6 +6538,7 @@ function f(int $a, int $b): int {
     // the arm does. `kotlin_is_and_in_score_outside_a_boolean_slot` is
     // the half this fixture cannot see, every member of it being inside
     // a slot.
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_is_and_in_expressions_are_unary_conditions() {
         let src = "class K {
@@ -6345,6 +6589,7 @@ function f(int $a, int $b): int {
     // statement of the bug. `andAmp` holds the pair level against the
     // `&&` spelling, which never regressed and would otherwise be the
     // only form under test.
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_infix_boolean_functions_are_unary_conditions() {
         let src = "class K {
@@ -6378,6 +6623,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_catch_block_counts() {
         check_metrics::<KotlinParser>(
@@ -6399,6 +6645,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_elvis_and_safe_cast() {
         // `?:` (elvis) and `as?` (safe cast) are condition-like.
@@ -6416,6 +6663,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_generic_brackets_not_conditions() {
         // `<` / `>` used as type-parameter brackets must not be counted.
@@ -6439,6 +6687,7 @@ function f(int $a, int $b): int {
     // separates every mis-aim: 3 pre-fix, 1 once the arm allows
     // `BinaryExpression`, 0 if it allows the wrong parent or the
     // fixture stops parsing.
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_super_type_argument_is_not_a_condition() {
         check_metrics::<KotlinParser>(
@@ -6463,6 +6712,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_class_with_methods_and_branches() {
         check_metrics::<KotlinParser>(
@@ -6485,6 +6735,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_object_singleton_abc() {
         check_metrics::<KotlinParser>(
@@ -6511,6 +6762,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_interface_abc() {
         // Pure-abstract interface with no bodies — all-zero.
@@ -6529,6 +6781,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_nested_class_abc() {
         check_metrics::<KotlinParser>(
@@ -6550,6 +6803,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_data_class_abc() {
         // `data class` with primary-constructor `val`s — no assignments
@@ -6566,6 +6820,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_primary_constructor_default_value_not_assignment() {
         // Regression: default values on primary-constructor `val`
@@ -6580,6 +6835,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_unary_conditions_in_chain() {
         // Fitzpatrick Rule 9 (issue #557): each bare boolean operand of a
@@ -6598,6 +6854,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_comparison_operands_add_nothing() {
         // Isolation check: comparison operands of a `&&` chain are nested
@@ -6615,6 +6872,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_negated_operand_is_unary_condition() {
         // A `!`-negated operand is still a unary condition: `a && !b`
@@ -6645,6 +6903,7 @@ function f(int $a, int $b): int {
     // which is what both lines scored before #1459. The bare `a && b`
     // control is `kotlin_unary_conditions_in_chain`'s shape at 2, so a
     // regression cannot be read as the chain itself changing.
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_chain_operands_peel_null_assertions_and_casts() {
         // Anchored per row, because the assertion alone cannot tell the
@@ -6687,6 +6946,7 @@ function f(int $a, int $b): int {
         }
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_bare_if_predicate_is_one_condition() {
         // Issue #773: a bare-boolean `if` predicate (`if (flag)`) is one
@@ -6703,6 +6963,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_bare_while_predicate_is_one_condition() {
         // Issue #773: the bare predicate of a `while` loop counts one
@@ -6716,6 +6977,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_bare_do_while_predicate_is_one_condition() {
         // Issue #773: the bare predicate of a `do`/`while` loop counts one
@@ -6729,6 +6991,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_comparison_predicate_not_double_counted() {
         // Double-count guard (#773): a comparison predicate (`if (a == b)`)
@@ -6744,6 +7007,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_short_circuit_predicate_not_double_counted() {
         // Double-count guard (#773): an `&&`/`||` predicate is counted by
@@ -6759,6 +7023,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_parenthesised_bare_predicate_is_one_condition() {
         // A parenthesised bare predicate (`if ((flag))`) is unwrapped by
@@ -6784,6 +7049,7 @@ function f(int $a, int $b): int {
     //   and `<`/`>` (outside `type_arguments` / `type_parameters`) count
     //   as conditions.
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_assignments_basic() {
         check_metrics::<TypescriptParser>(
@@ -6803,6 +7069,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_const_excluded_from_assignments() {
         check_metrics::<TypescriptParser>(
@@ -6829,6 +7096,7 @@ function f(int $a, int $b): int {
     // languages. The replacement is structural — see
     // `impl_js_family_const_binding!` in `src/metrics/abc/js_family.rs`.
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_asi_const_does_not_suppress_later_assignments() {
         check_metrics::<TypescriptParser>(
@@ -6847,6 +7115,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_semicolon_const_does_not_suppress_later_assignments() {
         // The semicolon-terminated spelling of the fixture above, which
@@ -6865,6 +7134,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_as_const_does_not_suppress_later_assignments() {
         // The sentinel stack was also reachable from the other side: the
@@ -6885,6 +7155,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_const_declarator_shapes_stay_suppressed() {
         // Shapes the sentinel stack handled implicitly, which the
@@ -6920,6 +7191,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_const_initializer_value_assignments_still_count() {
         // TypeScript half of
@@ -6933,6 +7205,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_branches_function_calls() {
         check_metrics::<TypescriptParser>(
@@ -6951,6 +7224,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_conditions_comparison_operators() {
         check_metrics::<TypescriptParser>(
@@ -6974,6 +7248,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_conditions_control_flow_arms() {
         check_metrics::<TypescriptParser>(
@@ -6998,6 +7273,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_conditions_switch_case() {
         check_metrics::<TypescriptParser>(
@@ -7021,6 +7297,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_ternary_and_nullish() {
         check_metrics::<TypescriptParser>(
@@ -7042,6 +7319,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_instanceof_counts_as_condition() {
         check_metrics::<TypescriptParser>(
@@ -7058,6 +7336,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_generic_lt_gt_not_a_condition() {
         // `<T>` in `class C<T>` and `Array<number>` should not contribute
@@ -7107,6 +7386,7 @@ function f(int $a, int $b): int {
     // genuinely reports a `binary_expression`. It is a wrong-dialect
     // input rather than a defect in this arm, and no allowlist can
     // distinguish it; see the same caveat on Kotlin's arm.
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_comparison_operators_still_count_alongside_generics() {
         check_func_space::<TypescriptParser, _>(
@@ -7135,6 +7415,7 @@ function f(int $a, int $b): int {
     // fixture stops parsing. Any partial gate — one that named some of
     // the type-syntax parents in a denylist instead — lands between 3
     // and 7 and is equally visible.
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_optional_type_syntax_is_not_a_condition() {
         check_metrics::<TypescriptParser>(
@@ -7161,6 +7442,7 @@ function f(int $a, int $b): int {
     // The real ternary below keeps the expectation off zero: 3 pre-fix,
     // 2 with the conditional type excluded, 1 if the ternary is
     // swallowed too.
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_conditional_type_is_not_a_condition() {
         check_metrics::<TypescriptParser>(
@@ -7189,6 +7471,7 @@ function f(int $a, int $b): int {
     // satisfy the positive assertion on its own, leaving it true no
     // matter what id the ternary's `?` came back as — decoration rather
     // than the non-vacuity guard it is here for.
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_ternary_qmark_alias_stays_unreachable() {
         let parser = TypescriptParser::new(
@@ -7202,6 +7485,7 @@ function f(int $a, int $b): int {
         assert!(!ast_has_kind_id(&parser, Typescript::QMARK2 as u16));
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_abstract_class_abc() {
         // Abstract methods have no body — they contribute nothing.
@@ -7222,6 +7506,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_interface_abc_zero() {
         check_metrics::<TypescriptParser>(
@@ -7240,6 +7525,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_arrow_field_contributes_abc() {
         // Arrow function class members are function spaces; their
@@ -7262,6 +7548,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_parameter_property_init_not_assignment() {
         // Parameter properties don't introduce a `=` token themselves;
@@ -7287,6 +7574,7 @@ function f(int $a, int $b): int {
 
     // TSX parity
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_assignments_basic() {
         check_metrics::<TsxParser>(
@@ -7306,6 +7594,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_const_excluded_from_assignments() {
         check_metrics::<TsxParser>(
@@ -7323,6 +7612,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_branches_function_calls() {
         check_metrics::<TsxParser>(
@@ -7340,6 +7630,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_conditions_comparison_operators() {
         check_metrics::<TsxParser>(
@@ -7356,6 +7647,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_conditions_control_flow_arms() {
         check_metrics::<TsxParser>(
@@ -7377,6 +7669,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_conditions_switch_case() {
         check_metrics::<TsxParser>(
@@ -7397,6 +7690,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_ternary_and_nullish() {
         check_metrics::<TsxParser>(
@@ -7414,6 +7708,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_instanceof_counts_as_condition() {
         check_metrics::<TsxParser>(
@@ -7426,6 +7721,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_generic_lt_gt_not_a_condition() {
         check_metrics::<TsxParser>(
@@ -7451,6 +7747,7 @@ function f(int $a, int $b): int {
     // number: 8 pre-fix, 1 once it allows `BinaryExpression`, 0 if it
     // allows the wrong parent or the fixture stops parsing. Asserting 0
     // on a JSX-only body would not have separated those last two.
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_jsx_elements_are_not_conditions() {
         check_metrics::<TsxParser>(
@@ -7477,6 +7774,7 @@ function f(int $a, int $b): int {
     // own fixture — a passing TypeScript test says nothing about the
     // macro's other expansion. Four type-syntax `?` plus one `>` and one
     // ternary: 6 pre-fix, 2 after, 1 if the allowlist is misaimed.
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_optional_type_syntax_is_not_a_condition() {
         check_metrics::<TsxParser>(
@@ -7497,6 +7795,7 @@ function f(int $a, int $b): int {
     // without this one, which reads as the TSX expansion being fine
     // rather than untested. `conditional_type` is in the tsx grammar's
     // `?` set exactly as it is in typescript's.
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_conditional_type_is_not_a_condition() {
         check_metrics::<TsxParser>(
@@ -7513,6 +7812,7 @@ function f(int $a, int $b): int {
     // — the tsx grammar declares the same `_ternary_qmark` external and
     // maps it back onto `anon_sym_QMARK` at its own id. Same
     // single-`?` fixture rule; see that test for why.
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_ternary_qmark_alias_stays_unreachable() {
         let parser = TsxParser::new(
@@ -7526,6 +7826,7 @@ function f(int $a, int $b): int {
         assert!(!ast_has_kind_id(&parser, Tsx::QMARK2 as u16));
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_abstract_class_abc() {
         check_metrics::<TsxParser>(
@@ -7545,6 +7846,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_interface_abc_zero() {
         check_metrics::<TsxParser>(
@@ -7559,6 +7861,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_arrow_field_contributes_abc() {
         check_metrics::<TsxParser>(
@@ -7577,6 +7880,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_asi_const_does_not_suppress_later_assignments() {
         // TSX half of the #1277 cluster; see
@@ -7597,6 +7901,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_const_declarator_shapes_stay_suppressed() {
         // TSX half of `typescript_const_declarator_shapes_stay_suppressed`.
@@ -7616,6 +7921,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_parameter_property_init_not_assignment() {
         // Parameter properties contribute no `=`; the body's `let z = 0`
@@ -7642,6 +7948,7 @@ function f(int $a, int $b): int {
     // `else` / `elsif` / `when` / `then` / `?` / `rescue` clause is
     // one condition.
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_zero_abc() {
         check_metrics::<RubyParser>("\n", "foo.rb", |metric| {
@@ -7652,6 +7959,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_simple_assignment() {
         check_metrics::<RubyParser>("def f\n  a = 1\n  b = 2\nend\n", "foo.rb", |metric| {
@@ -7662,6 +7970,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_augmented_assignment() {
         // `+=`, `-=`, `*=` are `operator_assignment` nodes — each is
@@ -7677,6 +7986,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_logical_augmented_assignment() {
         // `||=` and `&&=` are also `operator_assignment` nodes.
@@ -7686,6 +7996,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_method_call_branch() {
         // Each method invocation is one branch.
@@ -7699,6 +8010,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_super_and_yield_branches() {
         // `super` and `yield` both count as branches (control-pass).
@@ -7709,6 +8021,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_attr_macro_is_branch() {
         // `attr_accessor` is a `Call3` node and registers as a branch
@@ -7719,6 +8032,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_comparison_conditions() {
         // Each comparison operator is one condition.
@@ -7732,6 +8046,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_superclass_clause_is_not_a_condition() {
         // Regression for #1280: a superclass clause spells its `<` with the
@@ -7751,6 +8066,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_operator_method_name_is_not_a_condition() {
         // The `<` naming an operator method parents under `operator`, which
@@ -7764,6 +8080,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_every_comparison_operator_method_name_is_not_a_condition() {
         // The sibling half of #1280. `<` is not special: every comparison
@@ -7800,6 +8117,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_case_match_in_arms_are_conditions() {
         // Regression for #977: each non-wildcard `case … in` arm is one
@@ -7816,6 +8134,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_case_match_guarded_wildcard_is_a_condition() {
         // Regression for #977: a guarded wildcard arm `in _ if x` is not a
@@ -7834,6 +8153,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_case_match_bare_wildcard_is_not_a_condition() {
         // Regression for #977: a `case … in` whose only arm is the bare
@@ -7850,6 +8170,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_bare_predicate_control_flow_counts_one_condition() {
         // Regression for #696: idiomatic Ruby bare predicates
@@ -7868,6 +8189,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_bare_predicate_does_not_double_count_comparison_or_chain() {
         // `if a == b` counts only the `==` comparison (the condition field
@@ -7885,6 +8207,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_spaceship_and_case_equality() {
         // `<=>` and `===` are comparison operators (conditions).
@@ -7898,6 +8221,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_ternary_condition() {
         // The `?` ternary marker is one condition; the inner `==` is
@@ -7917,6 +8241,7 @@ function f(int $a, int $b): int {
     // Every expectation below is the value its C++ sibling
     // (`cpp_ternary_operand_slots_count_as_unary_conditions`) already
     // asserts for the same expression, so the two read as one table.
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_ternary_operand_slots_count_as_unary_conditions() {
         // `?` (1) + condition `a` (1) + `!b` (1) + `!c` (1) = 4.
@@ -7975,6 +8300,7 @@ function f(int $a, int $b): int {
     // A parenthesised *branch* is the input that separates them: the
     // unwrap reaches a bare terminal, so only the seed decides whether
     // it counts. `?` (1) + condition `a` (1) = 2 in both directions.
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_ternary_branch_operands_are_not_double_counted() {
         check_metrics::<RubyParser>("def f\n  x = a ? (b) : c\nend\n", "foo.rb", |metric| {
@@ -8005,6 +8331,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_case_when_arms() {
         // Each `when` named clause and the `else` clause count as one
@@ -8021,6 +8348,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_elsif_and_else() {
         // `elsif` and `else` named clauses are conditions; their inner
@@ -8036,6 +8364,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_rescue_clause_condition() {
         // The `rescue` named clause is one condition; the `rescue`
@@ -8053,6 +8382,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_class_complex_function() {
         // Mixed: assignment(=), branch(call), conditions(`>` and `==`).
@@ -8073,6 +8403,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_unary_conditions_in_chain() {
         // Fitzpatrick Rule 9 (issue #557): each bare boolean operand of a
@@ -8088,6 +8419,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_keyword_and_or_chain_counts_operands() {
         // The keyword forms `and` / `or` get the same Rule 9 treatment as
@@ -8101,6 +8433,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_negated_operand_is_unary_condition() {
         // A `!`-negated operand unwraps the `unary` node to the inner
@@ -8114,6 +8447,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_comparison_operands_add_nothing() {
         // Isolation for Rule 9 (issue #557): when the `&&` operands are
@@ -8144,6 +8478,7 @@ function f(int $a, int $b): int {
 
     // --- Python ABC ---------------------------------------------------
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_empty_module_zero() {
         check_metrics::<PythonParser>("", "empty.py", |metric| {
@@ -8154,6 +8489,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_plain_assignments_count() {
         // Three plain `=` assignments → A=3. No branches, no conditions.
@@ -8165,6 +8501,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_typed_assignment_counts_bare_annotation_does_not() {
         // `x: int = 1` carries an `=`, so it counts.
@@ -8176,6 +8513,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_augmented_assignments_count() {
         // Each augmented op counts once.
@@ -8186,6 +8524,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_walrus_counts_as_assignment() {
         // `x := 10` is a `NamedExpression` (PEP 572). It binds a value
@@ -8199,6 +8538,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_calls_are_branches() {
         // `foo()`, `bar()`, `Baz()` (constructor) all parse as `Call`
@@ -8214,6 +8554,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_comparisons_count_conditions() {
         // `x > 0`, `x == y`, `x is None` are each a single
@@ -8230,6 +8571,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_chained_comparison_counts_once() {
         // tree-sitter-python collapses `0 < x < 10` into a single
@@ -8240,6 +8582,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_number_truthy_condition_counts() {
         // Regression for #772: Python treats every non-zero number as
@@ -8262,6 +8605,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_boolean_operators_not_counted_directly() {
         // Python's `and` / `or` are not counted as conditions on
@@ -8287,6 +8631,7 @@ function f(int $a, int $b): int {
     /// counts as one condition, matching Java's `!x` rule. Closes
     /// the parity gap noted in #214: without this, `if not flag:`
     /// reported 0 conditions while the Java equivalent reports 1.
+    #[cfg(feature = "python")]
     #[test]
     fn python_unary_not_counts_as_condition() {
         check_metrics::<PythonParser>(
@@ -8304,6 +8649,7 @@ function f(int $a, int $b): int {
     /// `return not flag` — the unary `not` is the entire return
     /// expression. Without `NotOperator` counted, this reports zero
     /// conditions; with it, one. Java's `return !flag;` is one.
+    #[cfg(feature = "python")]
     #[test]
     fn python_return_unary_not_counts() {
         check_metrics::<PythonParser>("def f(flag):\n    return not flag\n", "foo.py", |metric| {
@@ -8315,6 +8661,7 @@ function f(int $a, int $b): int {
     /// `foo(not ready, value)` — the unary `not` inside an argument
     /// list still contributes. Mirrors Java's
     /// `java_count_unary_conditions` walk over argument lists.
+    #[cfg(feature = "python")]
     #[test]
     fn python_unary_not_in_argument_list_counts() {
         check_metrics::<PythonParser>(
@@ -8335,6 +8682,7 @@ function f(int $a, int $b): int {
     /// ComparisonOperator))`; both the unary and the comparison
     /// contribute one condition (mirrors Java's `!(x > 0)` = 2
     /// conditions).
+    #[cfg(feature = "python")]
     #[test]
     fn python_unary_not_with_comparison_counts_each_once() {
         check_metrics::<PythonParser>(
@@ -8355,6 +8703,7 @@ function f(int $a, int $b): int {
     /// counted by the Rule 9 walker (issue #403). Total: 2.
     /// `NotOperator` is intentionally not walked-into a second
     /// time — the walker skips it to avoid double-counting.
+    #[cfg(feature = "python")]
     #[test]
     fn python_unary_not_with_boolean_combinator_counts_each() {
         check_metrics::<PythonParser>(
@@ -8368,6 +8717,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_control_flow_arms_count_conditions() {
         // `elif`, `else`, `except`, `finally`, `case` each contribute
@@ -8385,6 +8735,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_ternary_counts_as_condition() {
         // `a if c else b` is `ConditionalExpression` → 1 condition.
@@ -8405,6 +8756,7 @@ function f(int $a, int $b): int {
     // `python_inspect_container`'s `ConditionalExpression` boolean-
     // context seed was unreachable, no call site having passed that
     // parent.
+    #[cfg(feature = "python")]
     #[test]
     fn python_ternary_condition_slot_counts_as_a_unary_condition() {
         // ternary (1) + condition `c()` (1) = 2. `c()` is a `Call`, a
@@ -8470,6 +8822,7 @@ function f(int $a, int $b): int {
     // Both fixtures below are 2 today and 4 under such a copy, so a
     // later "make Python consistent with the others" change cannot land
     // silently.
+    #[cfg(feature = "python")]
     #[test]
     fn python_ternary_branch_operands_are_not_double_counted() {
         // ternary (1) + condition `a` (1) = 2. The two parenthesised
@@ -8497,6 +8850,7 @@ function f(int $a, int $b): int {
     // index after them. `python_count_ternary_condition` therefore
     // anchors on the `if` keyword and skips comments after it; both
     // halves are needed and each fixture below fails without one.
+    #[cfg(feature = "python")]
     #[test]
     fn python_ternary_condition_survives_an_interposed_comment() {
         // Comment before the keyword: `child(2)` is the `if` token here,
@@ -8520,6 +8874,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_try_except_finally_count_conditions() {
         // ExceptClause + FinallyClause → 2 conditions.
@@ -8533,6 +8888,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_match_case_counts_conditions() {
         // Each non-wildcard `CaseClause` → 1 condition. The bare
@@ -8550,6 +8906,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_match_case_guarded_wildcard_counts() {
         // `case _ if g:` is NOT a bare wildcard — the guard
@@ -8569,6 +8926,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_complex_function_abc() {
         // Mixed-shape regression: assignments, calls, conditions all in
@@ -8594,6 +8952,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_if_multiple_conditions() {
         // Fitzpatrick Rule 9 walker on `and` / `or` (issue #403).
@@ -8619,6 +8978,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_while_conditions() {
         // Python has no `do { ... } while(cond);` construct, so this
@@ -8639,6 +8999,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_short_circuit_with_boolean_literal_operand() {
         // `a and True` reports 2 conditions: one identifier, one
@@ -8650,6 +9011,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_await_expression_condition_counts() {
         // Regression for findings.md round-2 #2 (Python):
@@ -8670,6 +9032,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_if_call_terminal_condition_counts_once() {
         // Pins the Phase-2B behaviour for Python's `Call` terminal-bool
@@ -8686,6 +9049,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_if_boolean_literal_condition() {
         // Phase 2B (issue #403): bare-boolean conditions count once.
@@ -8708,6 +9072,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_methods_arguments_with_conditions() {
         // `m(not a, not b)` reports 2 conditions — both `NotOperator`
@@ -8727,6 +9092,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_return_with_conditions() {
         // Phase 2B (issue #403). Python uses the pre-existing top-
@@ -8749,6 +9115,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_empty_unit_zero() {
         // No code at all → A=B=C=0. Establishes the trait is wired up
@@ -8761,6 +9128,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_assignments_let_init_plain_and_compound() {
         // `let mut x = 0` is a `let_declaration` carrying an `=`
@@ -8781,6 +9149,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_let_without_initializer_does_not_count() {
         // `let a;` is a `let_declaration` with NO `=` and no `value`
@@ -8801,6 +9170,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_let_initializers_immutable_and_mutable_count() {
         // Issue #393: `let a = 1;`, `let b = 2;`, `let c = a + b;`,
@@ -8819,6 +9189,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_calls_are_branches() {
         // Free function call + method call (parses as call_expression
@@ -8838,6 +9209,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_try_operator_is_branch() {
         // `?` parses as `try_expression` and counts as one branch
@@ -8854,6 +9226,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_comparisons_count_conditions() {
         // `<`, `>`, `<=`, `>=`, `==`, `!=` each count once. Six
@@ -8868,6 +9241,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_generic_brackets_not_conditions() {
         // `<` / `>` in `Vec<i32>` are TypeArguments delimiters, not
@@ -8883,6 +9257,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_if_let_counts_as_condition() {
         // `if let Some(v) = opt { ... }` introduces a `let_condition`
@@ -8898,6 +9273,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_while_let_counts_as_condition() {
         // `while let Some(y) = it.next() { ... }` is also a
@@ -8914,6 +9290,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_match_arms_count_conditions_wildcard_excluded() {
         // Three arms: `0 => 1`, `n if n > 0 => n`, `_ => -1`. The
@@ -8932,6 +9309,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_else_counts_as_condition() {
         // `if a > b { ... } else { ... }` → `a > b` is one condition,
@@ -8946,6 +9324,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_let_chain2_hidden_rule_drift_marker() {
         // Drift marker (findings.md round-2 #3): `Rust::LetChain2`
@@ -8969,6 +9348,7 @@ function f(int $a, int $b): int {
         assert!(!ast_has_kind_id(&parser, Rust::LetChain2 as u16));
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_scoped_identifier_condition_counts() {
         // Regression for findings.md round-2 #1 (Rust):
@@ -8985,6 +9365,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_await_expression_condition_counts() {
         // Regression for findings.md round-2 #2 (Rust):
@@ -9006,6 +9387,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_complex_function_abc() {
         // Mixed-shape regression: assignments, calls, conditions, `?`,
@@ -9049,6 +9431,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_let_chain_bare_identifier_operand_counts() {
         // Regression: pre-fix, `if a && let Some(_z) = y { }` reported
@@ -9071,6 +9454,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_if_multiple_conditions() {
         // Fitzpatrick Rule 7 / Listing 2 (issue #403): every operand of
@@ -9094,6 +9478,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_while_conditions() {
         // Rust has no `do { ... } while(cond);` construct, so this
@@ -9113,6 +9498,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_if_boolean_literal_condition() {
         // Phase 2B (issue #403): a condition whose entire body is a
@@ -9133,6 +9519,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_methods_arguments_with_conditions() {
         // Phase 2B (issue #403): unary-conditional arguments to a
@@ -9155,6 +9542,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_return_with_conditions() {
         // Phase 2B (issue #403). Mirrors `java_return_with_conditions`
@@ -9191,6 +9579,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_short_circuit_with_boolean_literal_operand() {
         // `if a && true` reports 2 conditions: one for the identifier
@@ -9208,6 +9597,7 @@ function f(int $a, int $b): int {
 
     // ----- Go -----
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_empty_unit_zero() {
         // Package declaration only — no Fitzpatrick events. Confirms the
@@ -9220,6 +9610,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_assignments_count_plain_compound_short_var_and_incdec() {
         // `x := 0` (short var decl), `x = 5` and `x = 7` (plain `=`),
@@ -9242,6 +9633,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_var_declarations_count_only_when_initialized() {
         // Regression for #1278: a `var` declaration with an initializer is
@@ -9262,6 +9654,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_grouped_var_block_counts_each_initialized_spec() {
         // A grouped `var ( … )` block is one `var_declaration` holding one
@@ -9280,6 +9673,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_calls_are_branches() {
         // Three calls: free function `g()`, method call `r.Inc()`, and
@@ -9299,6 +9693,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_comparisons_count_conditions() {
         // `<`, `>`, `<=`, `>=`, `==`, `!=` each count once. Six
@@ -9313,6 +9708,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_generic_brackets_not_conditions() {
         // Generic instantiation `Min[int](a, b)` puts `int` inside
@@ -9329,6 +9725,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_switch_arms_count_conditions_default_excluded() {
         // Four arms: `case 1:`, `case 2:`, `case 3:`, `default:`. The
@@ -9346,6 +9743,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_type_switch_arms_count_conditions() {
         // Type switch: `case int:`, `case string:`, `default:`. Two
@@ -9360,6 +9758,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_select_arms_count_conditions() {
         // `select { case <-ch: ...; case ch <- 1: ...; default: ... }`.
@@ -9374,6 +9773,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_else_counts_as_condition() {
         // `if a > b { ... } else { ... }` → `a > b` is one condition,
@@ -9388,6 +9788,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_complex_function_abc() {
         // Mixed shape, verified by hand:
@@ -9422,6 +9823,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_if_multiple_conditions() {
         // Fitzpatrick Rule 7 walker fan-out (issue #403). Mirrors
@@ -9442,6 +9844,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_for_with_conditions() {
         // Go has no `while` or `do { … } while(…);` — the `for` loop
@@ -9462,6 +9865,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_for_bare_condition_counts() {
         // Regression for findings.md #1: `for true {}` / `for !ready {}`
@@ -9503,6 +9907,7 @@ function f(int $a, int $b): int {
     // field. Letting the `for_clause` fall through — which the arm's
     // own comment used to call harmless — scored a bare three-clause
     // condition zero while `for a {}` scored one.
+    #[cfg(feature = "go")]
     #[test]
     fn go_three_clause_for_condition_counts() {
         // Bare identifier in the three-clause header: no comparison
@@ -9555,6 +9960,7 @@ function f(int $a, int $b): int {
     // children — the #1181 failure), and the body of a bare `for {}`,
     // which IS child(1) and would otherwise be offered to
     // `go_count_condition` as though it were a condition.
+    #[cfg(feature = "go")]
     #[test]
     fn go_for_header_slot_skips_comments_and_the_body() {
         // Each pair is (source, expected conditions). The commented
@@ -9587,6 +9993,7 @@ function f(int $a, int $b): int {
         assert!(cases.iter().any(|&(_, n)| n == 0));
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_if_init_statement_condition_counts() {
         // Regression for the code-review finding: Go's
@@ -9610,6 +10017,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_if_boolean_literal_condition() {
         check_metrics::<GoParser>(
@@ -9626,6 +10034,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_methods_arguments_with_conditions() {
         check_metrics::<GoParser>(
@@ -9643,6 +10052,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_return_with_conditions() {
         check_metrics::<GoParser>(
@@ -9664,6 +10074,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_short_circuit_with_boolean_literal_operand() {
         // `a && true` reports 2 conditions: one identifier, one
@@ -9685,6 +10096,7 @@ function f(int $a, int $b): int {
     // zero. Uses a bare expression rather than a `defmodule` wrapper
     // (which would itself be a Call → 1 branch). Confirms the
     // ElixirCode Abc trait is wired up and the metric emits.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_empty_unit_zero() {
         check_metrics::<ElixirParser>(":ok\n", "foo.ex", |metric| {
@@ -9701,6 +10113,7 @@ function f(int $a, int $b): int {
     // directives (`alias`, `import`, `require`, `use`) are NOT
     // runtime dispatch and therefore do NOT inflate `branches`,
     // matching Cognitive's treatment.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_defmodule_is_zero_branches() {
         check_metrics::<ElixirParser>("defmodule Foo do\nend\n", "foo.ex", |metric| {
@@ -9715,6 +10128,7 @@ function f(int $a, int $b): int {
     // `defmodule` and `def` are declarative-Call wrappers and are
     // filtered out of branches; the assertion focuses on assignments
     // so we only pin that vector.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_pattern_match_is_assignment() {
         check_metrics::<ElixirParser>(
@@ -9734,6 +10148,7 @@ function f(int $a, int $b): int {
     // pipeline Call tree, contributing additional Call branches.
     // The headline assertion confirms (a) `|>` is detected and (b)
     // pipeline steps are not silently dropped.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_pipeline_each_step_is_branch() {
         check_metrics::<ElixirParser>(
@@ -9754,6 +10169,7 @@ function f(int $a, int $b): int {
 
     // Comparison operators all count as conditions. Six comparisons
     // (`==`, `!=`, `<`, `>`, `<=`, `>=`) → C = 6.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_comparisons_are_conditions() {
         check_metrics::<ElixirParser>(
@@ -9767,6 +10183,7 @@ function f(int $a, int $b): int {
     }
 
     // Strict-equality operators `===` / `!==` count as conditions too.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_strict_equality_is_condition() {
         check_metrics::<ElixirParser>(
@@ -9795,6 +10212,7 @@ function f(int $a, int $b): int {
     // `in` rides the `<` / `>` `binary_operator` gate rather than
     // standing alone — it has the same three grammar positions — and
     // `elixir_operator_identifier_is_not_a_condition` pins that gate.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_membership_is_a_condition_by_use() {
         check_func_space::<ElixirParser, _>(
@@ -9836,6 +10254,7 @@ function f(int $a, int $b): int {
     // Was 2, on a flat `+1` for the `when` token laid on top of the `>`:
     // the §5 double count a whole-branch review of the #1454 batch
     // found.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_guard_when_is_condition() {
         check_metrics::<ElixirParser>(
@@ -9853,6 +10272,7 @@ function f(int $a, int $b): int {
     // Keyword-shaped Calls (`case`, `cond`, `if`, `with`) each count
     // as one condition AND one branch. `case` here adds 1 condition
     // (the keyword Call) + 1 branch (the Call itself).
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_case_is_condition_and_branch() {
         check_metrics::<ElixirParser>(
@@ -9867,6 +10287,7 @@ function f(int $a, int $b): int {
     }
 
     // `cond` is structurally identical to `case` for Abc.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_cond_is_condition() {
         check_metrics::<ElixirParser>(
@@ -9883,6 +10304,7 @@ function f(int $a, int $b): int {
     // `for` is a comprehension/loop, NOT in the issue's condition
     // list. It is still a Call so it contributes one branch, but no
     // condition.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_for_is_branch_not_condition() {
         check_metrics::<ElixirParser>(
@@ -9901,6 +10323,7 @@ function f(int $a, int $b): int {
     // - Branches: `defmodule` and `def` are declarative and excluded;
     //   `if` Call + `side_effect()` Call → 2 Calls, plus 0 `|>` → B = 2.
     // - Conditions: `if` keyword → 1, `x > 0` → 1 → C = 2.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_mixed_abc() {
         check_metrics::<ElixirParser>(
@@ -9915,6 +10338,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_unary_conditions_in_chain() {
         // Fitzpatrick Rule 9 (issue #557): each bare boolean operand of a
@@ -9947,6 +10371,7 @@ function f(int $a, int $b): int {
     // a `&&` operand is an ABC condition with no cyclomatic decision
     // behind it, so both members legitimately sit one above their
     // decision count (`base 1 + if + &&` = 3).
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_keyword_not_negates_like_bang() {
         check_func_space::<ElixirParser, _>(
@@ -9958,6 +10383,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_comparison_operands_add_nothing() {
         // Isolation check: comparison operands of a `&&` chain are nested
@@ -9973,6 +10399,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_keyword_and_or_chain_counts_operands() {
         // The keyword forms `and` / `or` get the same Rule 9 treatment as
@@ -9996,6 +10423,7 @@ function f(int $a, int $b): int {
     // is not a `Call` node — verified by AST dump: `binary_operator`
     // wrapping `identifier`, `=`, `sigil`), C = 0 (no comparison, no
     // guard, no keyword Call).
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_sigil_delimiter_choice_is_abc_invariant() {
         for src in ["x = ~s<hi>\n", "x = ~s(hi)\n"] {
@@ -10011,6 +10439,7 @@ function f(int $a, int $b): int {
     // comparison and must keep counting even with a `<`-delimited
     // sigil in the same unit. expected: A = 2 (`x =`, `y =`), C = 1
     // (only `a < b`; the sigil's `<` / `>` delimiters are guarded).
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_lt_comparison_still_counts_beside_sigil() {
         check_metrics::<ElixirParser>("x = ~s<hi>\ny = a < b\n", "foo.ex", |metric| {
@@ -10033,6 +10462,7 @@ function f(int $a, int $b): int {
     // control: a qualified call whose name is not an operator was
     // always 0, so a guard that merely stopped counting `<` everywhere
     // would pass this row and fail the two below it.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_operator_identifier_is_not_a_condition() {
         check_func_space::<ElixirParser, _>(
@@ -10070,6 +10500,7 @@ function f(int $a, int $b): int {
 
     // ----- C++ -----
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_empty_unit_zero() {
         // No code → A=B=C=0. Wires up the trait and exercises the
@@ -10082,6 +10513,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_plain_and_compound_assignments_count() {
         // `int x = 0` is an `init_declarator` carrying an `=` token
@@ -10101,6 +10533,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_increment_and_decrement_count_as_assignment() {
         // `x++` / `--x` / prefix and postfix forms each parse as
@@ -10117,6 +10550,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_init_declarators_count_as_assignments() {
         // Issue #393 regression: `int a=1;`, `int b=2;`, `int c=a+b;`,
@@ -10133,6 +10567,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_declaration_without_initializer_does_not_count() {
         // `int a;` parses as a plain declarator inside `declaration`,
@@ -10146,6 +10581,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_init_declarator_brace_paren_init_does_not_count() {
         // `init_declarator` has two grammar forms: `declarator = value`
@@ -10166,6 +10602,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_calls_are_branches() {
         // Free call + member-fn call (parses as `call_expression` with
@@ -10184,6 +10621,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_comparisons_count_conditions() {
         // `<`, `>`, `<=`, `>=`, `==`, `!=`, and the C++20 spaceship
@@ -10209,6 +10647,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_short_circuit_ops_not_counted_directly() {
         // `&&` and `||` do NOT count on their own (see the
@@ -10233,6 +10672,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_generic_brackets_not_conditions() {
         // `<` / `>` in `std::vector<int>` are `template_argument_list`
@@ -10248,6 +10688,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_else_and_ternary_count_conditions() {
         // `if (cond) ... else ...` + ternary `cond ? a : b`. The
@@ -10271,6 +10712,7 @@ function f(int $a, int $b): int {
     // Fitzpatrick Rule 9 unary conditions, exactly as `java_walk_ternary`
     // has always counted them. Before the fix the C family scored
     // `a ? !b : !c` as 1 — the `?` token alone — against Java's 4.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_ternary_operand_slots_count_as_unary_conditions() {
         // `?` (1) + condition `a` (1) + `!b` (1) + `!c` (1) = 4.
@@ -10311,6 +10753,7 @@ function f(int $a, int $b): int {
     // lands at child(3) rather than child(4). Addressing the operand
     // slots by grammar field name — never by index — is what keeps `!b`
     // counted here; a fixed `child(4)` reads `None` and scores 2.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_elided_ternary_consequence_still_walks_the_alternative() {
         // `?` (1) + condition `a` (1) + `!b` (1) = 3.
@@ -10328,8 +10771,10 @@ function f(int $a, int $b): int {
     // The expected value is *derived from the C++ run*, not hardcoded,
     // so the four languages cannot silently drift apart if the C++
     // expectation ever legitimately moves.
+    #[cfg(all(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
     #[test]
     fn c_family_ternary_operand_slots_agree_with_cpp() {
+        #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
         const SRC: &str = "void f() { x = a ? !b : !c; }\n";
         let conditions = abc_conditions;
 
@@ -10361,6 +10806,7 @@ function f(int $a, int $b): int {
     // had. Every fixture is a shape only that walker can classify —
     // a comparison-shaped condition proves nothing, the `<` token arm
     // counts it either way (grammar-dispatch §11).
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_for_condition_slot_counts_unary_conditions() {
         // Bare identifier: the whole condition, no operator token.
@@ -10401,8 +10847,10 @@ function f(int $a, int $b): int {
     // integration-snapshot coverage at all, making this its only guard.
     // The expected value is derived from the C++ run rather than
     // hardcoded, so the four cannot silently drift apart.
+    #[cfg(all(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
     #[test]
     fn c_family_for_condition_slot_agrees_with_cpp() {
+        #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
         const SRC: &str = "void f(int a) { for (; !a; ) {} }\n";
         let conditions = abc_conditions;
 
@@ -10427,6 +10875,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_switch_cases_count_default_excluded() {
         // `case 1`, `case 2` → 2 conditions. `default` is intentionally
@@ -10450,6 +10899,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_try_catch_count_conditions() {
         // `try` and `catch` each add one condition (Fitzpatrick's rule;
@@ -10465,6 +10915,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_complex_function_abc() {
         // Mixed-shape regression: assignments, calls, conditions,
@@ -10512,6 +10963,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_if_multiple_conditions() {
         // Fitzpatrick Rule 9 walker (issue #403): each operand of a
@@ -10530,6 +10982,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_while_and_do_while_conditions() {
         // Exercise both the WhileStatement and DoStatement arms via
@@ -10547,6 +11000,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_if_constexpr_condition_counts() {
         // Regression for the code-review finding: C++ `if constexpr
@@ -10569,6 +11023,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_cast_expression_in_logical_chain_counts() {
         // Regression for findings.md round-2 #1 (C++):
@@ -10589,6 +11044,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_qualified_identifier_condition_counts() {
         // Regression for findings.md #3 (C++): tree-sitter-cpp emits
@@ -10610,6 +11066,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_if_boolean_literal_condition() {
         check_metrics::<CppParser>(
@@ -10627,6 +11084,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_methods_arguments_with_conditions() {
         check_metrics::<CppParser>(
@@ -10643,6 +11101,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_return_with_conditions() {
         check_metrics::<CppParser>(
@@ -10667,6 +11126,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_short_circuit_with_boolean_literal_operand() {
         // `a && true` reports 2 conditions: one for the identifier
@@ -10681,6 +11141,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_empty_unit_zero() {
         // No code → A=B=C=0. Wires up the trait and exercises the
@@ -10693,6 +11154,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_plain_and_compound_assignments_count() {
         // `let` / `var` declarations behave like TypeScript: only a
@@ -10711,6 +11173,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_const_initializer_not_assignment() {
         // `const PI = 3.14` must NOT count as an assignment — its `=`
@@ -10728,6 +11191,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_asi_const_does_not_suppress_later_assignments() {
         // The issue #1277 reproducer verbatim. JavaScript half of the
@@ -10748,6 +11212,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_nested_arrow_const_does_not_leak() {
         // The ASI leak beside a nested space: the arrow body opens its
@@ -10770,6 +11235,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_non_declarator_equals_still_count() {
         // An `=` that does not belong to a `const` declarator is always
@@ -10789,6 +11255,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_const_initializer_value_assignments_still_count() {
         // An `=` inside a `const` initializer's *value* is an
@@ -10808,6 +11275,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_const_declarator_shapes_stay_suppressed() {
         // JavaScript half of
@@ -10828,6 +11296,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_increment_and_decrement_count_as_assignment() {
         // `x++` (post) and `--x` (pre) both update an lvalue and so
@@ -10844,6 +11313,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_calls_are_branches() {
         // `g(1)` is a `call_expression` → B = 1. `new Foo(2)` is a
@@ -10859,6 +11329,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_comparisons_count_conditions() {
         // `==`, `===`, `!=`, `!==`, `<`, `>`, `<=`, `>=` each count
@@ -10884,6 +11355,7 @@ function f(int $a, int $b): int {
     // `tsx_jsx_elements_are_not_conditions` covers scored seven
     // conditions in a `.js` file too. Same fixture minus the type
     // annotations, same discriminating numbers: 8 pre-fix, 1 after.
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_jsx_elements_are_not_conditions() {
         check_metrics::<JavascriptParser>(
@@ -10904,6 +11376,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_number_truthy_condition_counts() {
         // Regression for #772: JS treats every non-zero number as
@@ -10925,6 +11398,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_number_truthy_condition_counts() {
         // Regression for #772: TS shares the JS truthy semantics. The
@@ -10943,6 +11417,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_nullish_coalescing_counts_condition() {
         // `a ?? b` is one nullish-coalescing operator → C = 1.
@@ -10956,6 +11431,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_else_ternary_case_default_try_catch() {
         // `else`, `?` (ternary), `case`, `try`, `catch` all count.
@@ -10982,6 +11458,7 @@ function f(int $a, int $b): int {
     // Issue #1102, JS-family half. See
     // `cpp_ternary_operand_slots_count_as_unary_conditions` for the
     // rule; the two families were behind Java by the same three units.
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_ternary_operand_slots_count_as_unary_conditions() {
         // `?` (1) + condition `a` (1) + `!b` (1) + `!c` (1) = 4.
@@ -11018,6 +11495,7 @@ function f(int $a, int $b): int {
     // macro body than JavaScript's `js_abc_compute!`, so wiring one and
     // not the other is a live failure mode; TSX and Mozjs are clones of
     // these two.
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_ternary_operand_slots_count_as_unary_conditions() {
         check_metrics::<TypescriptParser>(
@@ -11037,6 +11515,7 @@ function f(int $a, int $b): int {
     // The JS grammar marks the `condition` field on both the expression
     // and the `;` closing it, so `child_by_field_name` is the only
     // addressing that lands on the expression for every header shape.
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_for_condition_slot_counts_unary_conditions() {
         // Bare identifier: no operator token anywhere in the header.
@@ -11081,9 +11560,12 @@ function f(int $a, int $b): int {
     // wiring one and not the other is a live failure mode; TSX and
     // Mozjs are the clones of those two. The expected values are
     // derived from the JavaScript run rather than hardcoded.
+    #[cfg(all(feature = "javascript", feature = "mozjs", feature = "typescript"))]
     #[test]
     fn js_family_for_condition_slot_agrees_with_javascript() {
+        #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
         const BARE: &str = "function f(a) { for (; a; ) {} }\n";
+        #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
         const EMPTY: &str = "function f() { for (;;) { break; } }\n";
         let conditions = abc_conditions;
 
@@ -11103,6 +11585,7 @@ function f(int $a, int $b): int {
         }
     }
 
+    #[cfg(all(feature = "javascript", feature = "mozjs", feature = "typescript"))]
     #[test]
     fn js_family_ternary_operand_slots_agree_with_javascript() {
         // `a ? !b : !c` is the one shape that tells the ternary walker
@@ -11112,6 +11595,7 @@ function f(int $a, int $b): int {
         // compiles, passes every condition-slot test, and drops only the
         // two branch operands. TypeScript alone pinned those before; the
         // other three expansions now do too.
+        #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
         const SRC: &str = "function f(a, b, c) { x = a ? !b : !c; }\n";
         let javascript = abc_conditions(LANG::Javascript, SRC);
         // expected: 4 — the `?`, the `a` condition slot and both negated
@@ -11129,6 +11613,7 @@ function f(int $a, int $b): int {
         }
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_instanceof_counts_condition() {
         // `x instanceof Foo` is a binary expression whose operator is
@@ -11143,6 +11628,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_complex_function_abc() {
         // Mixed-shape regression. Verified by hand:
@@ -11185,6 +11671,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_asi_const_does_not_suppress_later_assignments() {
         // Mozjs half of the #1277 cluster; the fork carries its own
@@ -11203,6 +11690,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_const_declarator_shapes_stay_suppressed() {
         // Mozjs half of
@@ -11223,6 +11711,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_complex_function_abc() {
         // Mozjs shares JavaScript's expression / statement vocabulary;
@@ -11258,6 +11747,7 @@ function f(int $a, int $b): int {
 
     // ----- JS / TS / Tsx / Mozjs Phase-2B condition slots -----
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_await_expression_condition_counts() {
         // Regression for findings.md round-2 #2 (JS):
@@ -11278,6 +11768,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_member_expression_condition_counts() {
         // Regression for findings.md #3 (JS-family): tree-sitter-
@@ -11302,6 +11793,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_if_boolean_literal_condition() {
         check_metrics::<JavascriptParser>(
@@ -11319,6 +11811,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_methods_arguments_with_conditions() {
         check_metrics::<JavascriptParser>(
@@ -11335,6 +11828,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_return_with_conditions() {
         check_metrics::<JavascriptParser>(
@@ -11351,6 +11845,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_if_boolean_literal_condition() {
         check_metrics::<TypescriptParser>(
@@ -11368,6 +11863,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_methods_arguments_with_conditions() {
         check_metrics::<TypescriptParser>(
@@ -11384,6 +11880,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_return_with_conditions() {
         check_metrics::<TypescriptParser>(
@@ -11398,6 +11895,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_if_boolean_literal_condition() {
         check_metrics::<TsxParser>(
@@ -11415,6 +11913,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_methods_arguments_with_conditions() {
         check_metrics::<TsxParser>(
@@ -11431,6 +11930,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_return_with_conditions() {
         check_metrics::<TsxParser>(
@@ -11445,6 +11945,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_jsx_elements_are_not_conditions() {
         // #1297 in the second expansion of `js_abc_compute!`. The
@@ -11473,6 +11974,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_if_boolean_literal_condition() {
         check_metrics::<MozjsParser>(
@@ -11490,6 +11992,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_methods_arguments_with_conditions() {
         check_metrics::<MozjsParser>(
@@ -11506,6 +12009,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_return_with_conditions() {
         check_metrics::<MozjsParser>(
@@ -11522,6 +12026,7 @@ function f(int $a, int $b): int {
 
     // ----- JS / TS / Tsx / Mozjs unary-conditional walker -----
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_if_multiple_conditions() {
         check_metrics::<JavascriptParser>(
@@ -11538,6 +12043,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_while_and_do_while_conditions() {
         check_metrics::<JavascriptParser>(
@@ -11553,6 +12059,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_short_circuit_with_boolean_literal_operand() {
         check_metrics::<JavascriptParser>(
@@ -11565,6 +12072,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_if_multiple_conditions() {
         check_metrics::<TypescriptParser>(
@@ -11581,6 +12089,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_while_and_do_while_conditions() {
         check_metrics::<TypescriptParser>(
@@ -11596,6 +12105,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_short_circuit_with_boolean_literal_operand() {
         check_metrics::<TypescriptParser>(
@@ -11608,6 +12118,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_if_multiple_conditions() {
         check_metrics::<TsxParser>(
@@ -11624,6 +12135,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_while_and_do_while_conditions() {
         check_metrics::<TsxParser>(
@@ -11639,6 +12151,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_short_circuit_with_boolean_literal_operand() {
         check_metrics::<TsxParser>(
@@ -11651,6 +12164,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_if_multiple_conditions() {
         check_metrics::<MozjsParser>(
@@ -11667,6 +12181,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_while_and_do_while_conditions() {
         check_metrics::<MozjsParser>(
@@ -11682,6 +12197,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_short_circuit_with_boolean_literal_operand() {
         check_metrics::<MozjsParser>(
@@ -11696,6 +12212,7 @@ function f(int $a, int $b): int {
 
     // ---------- Perl ABC tests ----------
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_empty_unit_zero() {
         // Empty source produces zero ABC magnitude — pins the trait
@@ -11708,6 +12225,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_plain_and_compound_assignments_count() {
         // `my $x = 0` parses as a `binary_expression` with an `=`
@@ -11729,6 +12247,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_calls_are_branches() {
         // `foo()` parses as `call_expression_with_args_with_brackets`
@@ -11751,6 +12270,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_method_invocation_counts_as_branch() {
         // `$obj->method(...)` parses as `method_invocation`. Any
@@ -11785,6 +12305,7 @@ function f(int $a, int $b): int {
     // fixture stops parsing. The assertion is also the grammar-dispatch
     // §8 pin — `cyclomatic()` is 3 on this space, so decisions is 2 and
     // the two counts agree exactly.
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_readline_angle_brackets_are_not_conditions() {
         check_func_space::<PerlParser, _>(
@@ -11810,6 +12331,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_numeric_and_string_comparisons_count_conditions() {
         // Numeric ops `==`, `!=`, `<`, `>`, `<=`, `>=`, `<=>` and
@@ -11848,6 +12370,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_short_circuit_not_counted_directly_ternary_counts() {
         // `&&`, `||`, `//`, low-precedence `and`, `or`, `xor` are
@@ -11900,6 +12423,7 @@ function f(int $a, int $b): int {
     // what carries the tally's +1. tree-sitter-perl names the branch
     // fields `true` / `false` rather than the C-family `consequence` /
     // `alternative`, so a copied C-family gate would match nothing.
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_ternary_operand_slots_count_as_unary_conditions() {
         // ternary (1) + condition `$a` (1) + `!$b` (1) + `!$c` (1) = 4.
@@ -11929,6 +12453,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_elsif_and_else_count_conditions() {
         // `if (… == …) { … } elsif (… < …) { … } else { … }` →
@@ -11958,6 +12483,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_regex_match_operators_count_conditions() {
         // `=~` and `!~` are pattern-match operators; we count both
@@ -11976,6 +12502,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_complex_function_abc() {
         // Mixed program exercising every category. Computed
@@ -12017,6 +12544,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_if_multiple_conditions() {
         // Fitzpatrick Rule 9 walker (issue #403): each operand of a
@@ -12039,6 +12567,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_while_and_until_conditions() {
         // Perl has no `do { ... } while(cond);` shape in this grammar
@@ -12059,6 +12588,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_for_header_condition_slot_counts_unary_conditions() {
         // The Perl half of #1276. The C-style `for` header's condition
@@ -12101,6 +12631,7 @@ function f(int $a, int $b): int {
         }
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_short_circuit_counts_scalar_variable_operands() {
         // `$a && $b` reports 2 conditions — one walker count per
@@ -12121,6 +12652,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_array_in_binary_operand_descends_to_scalar_context_value() {
         // Regression test for the code-review findings on the
@@ -12156,6 +12688,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_if_scalar_variable_condition() {
         // Renamed from the cross-language
@@ -12178,6 +12711,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_methods_arguments_with_conditions() {
         // `call(!$a, !$b)` — argument list walker counts each
@@ -12201,6 +12735,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_return_with_conditions() {
         // `return !$a` reports 1 condition via the walker (unary
@@ -12226,6 +12761,7 @@ function f(int $a, int $b): int {
 
     // ---------- Lua ABC tests ----------
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_empty_unit_zero() {
         check_metrics::<LuaParser>("", "empty.lua", |metric| {
@@ -12236,6 +12772,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_assignments_count_locals_and_plain() {
         // `local x = 0` wraps an `assignment_statement` under a
@@ -12261,6 +12798,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_calls_are_branches() {
         // `print(x)`, `obj.m(x)`, `obj:m(x)`, `f(g(1))` — every
@@ -12283,6 +12821,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_comparisons_count_logical_ops_do_not() {
         // Each comparison token contributes one condition; `and` /
@@ -12330,6 +12869,7 @@ function f(int $a, int $b): int {
     // passing on the `a < b` alone. The coverage that the attributes
     // are reaching the arm is the revert test: removing the gate makes
     // this the only failing test in the suite.
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_variable_attributes_are_not_conditions() {
         check_metrics::<LuaParser>(
@@ -12346,6 +12886,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_elseif_and_else_count_conditions() {
         // Each elseif / else arm of the if contributes one
@@ -12372,6 +12913,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_complex_function_abc() {
         // Combines every category to pin the metric.
@@ -12401,6 +12943,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_if_multiple_conditions() {
         // Fitzpatrick Rule 9 walker (issue #403). Lua's `and` / `or`
@@ -12420,6 +12963,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_while_conditions() {
         // Lua has no `do { ... } while(cond);` — `while cond do …
@@ -12437,6 +12981,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_short_circuit_with_boolean_literal_operand() {
         // `a and true` reports 2 conditions: one Identifier, one
@@ -12447,6 +12992,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_number_truthy_condition_counts() {
         // Regression for findings.md #2: Lua treats every non-nil,
@@ -12475,6 +13021,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_if_boolean_literal_condition() {
         check_metrics::<LuaParser>(
@@ -12492,6 +13039,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_methods_arguments_with_conditions() {
         // `m(not a, not b)` — argument list walker counts each
@@ -12508,6 +13056,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_return_with_conditions() {
         // `return not (z >= 0)` → walker on `not` unwraps the paren
@@ -12537,6 +13086,7 @@ function f(int $a, int $b): int {
 
     // ---------- Tcl ABC tests ----------
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_empty_unit_zero() {
         check_metrics::<TclParser>("", "empty.tcl", |metric| {
@@ -12547,6 +13097,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_set_command_counts_assignment() {
         // `set` has its own grammar production; each invocation is
@@ -12570,6 +13121,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_incr_append_lappend_count_assignment() {
         // Variable-mutation commands (`incr`, `append`, `lappend`)
@@ -12594,6 +13146,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_qualified_mutator_commands_count_assignment() {
         // `::incr` is `incr` through the global namespace. Anchored on
@@ -12616,6 +13169,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_namespaced_mutator_command_stays_a_branch() {
         // Control: only the *leading* qualifier names the core command,
@@ -12633,6 +13187,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_computed_command_name_is_not_an_assignment() {
         // A command whose leading word is computed (`$cmd args`) names no
@@ -12660,6 +13215,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_generic_commands_are_branches() {
         // Anything that isn't `set` or a known mutator command
@@ -12682,6 +13238,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_comparisons_count_logical_ops_do_not() {
         // `expr` predicates expose comparison / logical tokens at
@@ -12717,6 +13274,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_ternary_counts_condition() {
         // The `ternary_expr` node is one condition and its condition
@@ -12746,6 +13304,7 @@ function f(int $a, int $b): int {
     /// so `($a) ? !$b : !$c` shifts every operand right by one and
     /// `child(0)` / `child(2)` / `child(4)` land on `(`, `)` and `?`.
     /// Without this case the whole fixed-index revert passes.
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_parenthesised_ternary_condition_matches_the_bare_form() {
         let conditions = |source: &str| {
@@ -12776,6 +13335,7 @@ function f(int $a, int $b): int {
     /// neither form counted. Found in review, not by the tests: the
     /// parenthesised fixtures added with #1180 covered the ternary
     /// *condition* slot only.
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_parenthesised_negated_operands_match_the_bare_form() {
         let conditions = |source: &str| {
@@ -12811,6 +13371,7 @@ function f(int $a, int $b): int {
         }
     }
 
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_abc_parenthesised_negated_operands_match_the_bare_form() {
         let conditions = |source: &str| {
@@ -12830,6 +13391,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_bare_truthy_and_negated_predicates_count_one_condition() {
         // The headline #1180 fix, on the Tcl side: both were 0 before.
@@ -12848,6 +13410,7 @@ function f(int $a, int $b): int {
         assert_eq!(conditions("proc f {a} {\n while {!$a} { puts x }\n}"), 1);
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_bare_truthy_elseif_predicate_counts_one_condition() {
         // The `Tcl::Elseif` arm routes its predicate through
@@ -12872,6 +13435,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_elseif_and_else_count_conditions() {
         // `if` / `elseif` / `else` clause productions each
@@ -12900,6 +13464,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_if_multiple_conditions() {
         // Fitzpatrick Rule 9 walker (issue #403). Tcl's `expr` slot
@@ -12926,6 +13491,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_while_conditions() {
         // Tcl has no `do { ... } while(cond);` — `while {…} {…}` is
@@ -12947,6 +13513,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_short_circuit_with_boolean_literal_operand() {
         // `$a && 1` reports 2 conditions: a VariableSubstitution
@@ -12968,6 +13535,7 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_complex_function_abc() {
         // Mixed program covering every category. Tcl's grammar
@@ -13013,6 +13581,7 @@ function f(int $a, int $b): int {
     }
 
     /// The dedicated `set name value` production counts as one assignment.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_abc_set_assignment() {
         check_metrics::<IrulesParser>("when X {\n    set x 1\n}\n", "foo.irule", |metric| {
@@ -13025,6 +13594,7 @@ function f(int $a, int $b): int {
     /// Mutator commands (`incr` / `append` / `lappend`) count as
     /// assignments, not branches — iRules has no assignment operators, so
     /// mutation is always a command invocation.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_abc_mutator_commands() {
         check_metrics::<IrulesParser>(
@@ -13041,6 +13611,7 @@ function f(int $a, int $b): int {
     /// the leading word in `irules_command_is_assignment` rather than
     /// through `tcl_command_name`, so this pins the strip on that second
     /// path (#1381 review).
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_abc_qualified_mutator_commands() {
         check_metrics::<IrulesParser>(
@@ -13054,6 +13625,7 @@ function f(int $a, int $b): int {
     }
 
     /// Control: `ns::incr` is a proc in `ns`, so it stays a branch.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_abc_namespaced_mutator_command_stays_a_branch() {
         check_metrics::<IrulesParser>("when X {\n    ns::incr x\n}\n", "foo.irule", |metric| {
@@ -13063,6 +13635,7 @@ function f(int $a, int $b): int {
     }
 
     /// Generic (non-mutator) commands count as branches.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_abc_branch_commands() {
         check_metrics::<IrulesParser>(
@@ -13078,6 +13651,7 @@ function f(int $a, int $b): int {
 
     /// A numeric comparison (`==`) is one condition; the `log` inside the
     /// `if` body is one branch.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_abc_comparison_condition() {
         check_metrics::<IrulesParser>(
@@ -13093,6 +13667,7 @@ function f(int $a, int $b): int {
     /// A word-form string comparator (`contains`) is a condition just like
     /// `==` — iRules-specific (Tcl has only `eq`/`ne`/`in`/`ni`). If
     /// `contains` were dropped from the condition set this would report 0.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_abc_string_op_condition() {
         check_metrics::<IrulesParser>(
@@ -13107,6 +13682,7 @@ function f(int $a, int $b): int {
 
     /// Each `elseif` / `else` clause is one condition; the three `set`s are
     /// assignments. The leading `if` is not itself a condition.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_abc_elseif_else_conditions() {
         check_metrics::<IrulesParser>(
@@ -13125,6 +13701,7 @@ function f(int $a, int $b): int {
 
     /// A ternary contributes its own condition plus the `>` comparison in
     /// its test: conditions 2; the `set` is one assignment.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_abc_ternary_condition() {
         check_metrics::<IrulesParser>(
@@ -13141,6 +13718,7 @@ function f(int $a, int $b): int {
     /// but each negated bare operand (`!$a`, `!$b`) in the chain is. Guards
     /// the `irules_count_unary_conditions` / `irules_inspect_container`
     /// walker — conditions 2.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_abc_negated_operands_in_chain() {
         check_metrics::<IrulesParser>(
@@ -13162,6 +13740,7 @@ function f(int $a, int $b): int {
     /// deviation table said so. Now the `if` node routes its `expr`
     /// predicate and the count matches C++'s `if (a)`, which is also 1.
     /// The `log` command remains the single branch.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_abc_bare_truthy_counts_one_condition() {
         check_metrics::<IrulesParser>(
@@ -13179,6 +13758,7 @@ function f(int $a, int $b): int {
     /// context, so the terminal operand was never counted. Distinct from
     /// `irules_abc_negated_operands_in_chain`, whose `&&` supplied the
     /// seed the bare form lacked.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_abc_negated_bare_truthy_counts_one_condition() {
         check_metrics::<IrulesParser>(
@@ -13198,6 +13778,7 @@ function f(int $a, int $b): int {
     /// truthy condition, and one per negated branch — the same value
     /// Java, C#, Groovy, the C family, the JS family, PHP, Perl, Ruby
     /// and Python report for the identical expression.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_abc_ternary_routes_its_operand_slots() {
         check_metrics::<IrulesParser>(
@@ -13212,6 +13793,7 @@ function f(int $a, int $b): int {
     /// The #1161 control: a ternary whose condition is a *comparison*
     /// must not move. The `>` already supplied its condition and the
     /// branches are unnegated, so routing the slots adds nothing.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_abc_comparison_ternary_is_unchanged_by_slot_routing() {
         check_metrics::<IrulesParser>(
@@ -13230,6 +13812,7 @@ function f(int $a, int $b): int {
     /// fixed-index reading of the slots would shift right by one and
     /// mis-assign every operand. This is the input that discriminates
     /// the token-relative location the fix uses.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_abc_parenthesised_ternary_condition_matches_the_bare_form() {
         // `check_metrics` takes a bare `fn`, so it cannot carry the
@@ -13278,6 +13861,7 @@ function f(int $a, int $b): int {
     // the guarded members and their control sit at different values,
     // which is the comparison these tests exist to make.
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_match_guard_scores_one_condition_however_spelled() {
         let src = "fn is_even(n: i32) -> bool {
@@ -13333,6 +13917,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_pattern_switch_guard_scores_one_condition_however_spelled() {
         let src = "class T {
@@ -13379,6 +13964,7 @@ function f(int $a, int $b): int {
         });
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_case_guard_scores_one_condition_however_spelled() {
         let src = "def is_even(n):
@@ -13460,6 +14046,7 @@ def none(x):
     // change deliberately leaves where it found it. The test is here so
     // that a later `IfClause` arm added without the field read fails
     // loudly rather than moving comprehensions silently.
+    #[cfg(feature = "python")]
     #[test]
     fn python_comprehension_if_clause_is_not_a_case_guard() {
         let src = "def m(xs):
@@ -13475,6 +14062,7 @@ def none(x):
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_in_clause_guard_scores_one_condition_however_spelled() {
         let src = "def is_even(x)
@@ -13579,6 +14167,7 @@ end
     // §5 double count with the `>` token arm. A whole-branch review of
     // the batch found it; all three rows now read 2, level with the
     // sibling fixtures above and with their own decision counts.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_guard_is_a_decision_however_spelled() {
         let src = "defmodule T do
@@ -13669,6 +14258,7 @@ end
     // stand in for it — deleting the `in` arm leaves `membership` and
     // `nonmembership` alone failing, deleting the `not` recognition
     // leaves `negated` alone failing.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_guard_scores_one_however_spelled() {
         let src = "defmodule T do
@@ -13768,6 +14358,7 @@ end
     // `left` (`clause` / `clause_or`). `single` is the control the
     // repeated rows must sit *above*, which is the comparison that
     // failed before.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_repeated_guard_matches_the_or_chain() {
         let src = "defmodule T do
@@ -13849,6 +14440,7 @@ end
     // Both members carry the same `@spec`; only `guarded` carries a real
     // head guard, so the difference between the two rows is the guard
     // and nothing else.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_typespec_when_is_not_a_guard() {
         let src = "defmodule T do
@@ -13925,6 +14517,7 @@ end
     // module's rows to the two guards and nothing else, and the guard
     // bodies are calls (`is_integer/1`, `is_atom/1`) rather than
     // comparisons so neither can supply a condition of its own.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_defguard_head_is_a_guard() {
         let src = "defmodule T do
@@ -14019,6 +14612,7 @@ end
     //   must stay at 0. It is the reason those three count the node and
     //   not the token.
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_is_tests_score_outside_a_boolean_slot() {
         let src = "class A {
@@ -14058,6 +14652,7 @@ end
         });
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_instanceof_scores_outside_a_boolean_slot() {
         let src = "class A {
@@ -14098,6 +14693,7 @@ end
     // belonged in the terminal set — that set holds operands — but it
     // is a relational operator, and `LTEQGT` is already a condition
     // token in Ruby, PHP, C++ and Mozcpp. Groovy was the outlier at 0.
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_relational_productions_score_outside_a_boolean_slot() {
         let src = "class A {
@@ -14149,6 +14745,7 @@ end
         });
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_is_and_in_score_outside_a_boolean_slot() {
         let src = "class K {
@@ -14182,6 +14779,7 @@ end
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_test_pattern_scores_outside_a_boolean_slot() {
         let src = "def out_in(a)
@@ -14245,6 +14843,7 @@ end
     // genuinely both binds a name and decides a branch. Without this
     // row a later reader has no way to tell the intent from an
     // oversight.
+    #[cfg(feature = "python")]
     #[test]
     fn python_walrus_is_a_unary_condition() {
         let src = "def in_slot(g):
@@ -14299,6 +14898,7 @@ def ctrl(g):
     // serde's one changed snapshot is `if cfg!(no_underscore_consts)`,
     // not a `matches!` — so asserting only `matches!` would leave the
     // measured case uncovered.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_macro_invocation_is_a_unary_condition() {
         let src = "fn in_slot(x: Option<u8>) -> u8 { if matches!(x, Some(_)) { 1 } else { 0 } }

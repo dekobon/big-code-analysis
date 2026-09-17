@@ -29,6 +29,7 @@ fn in_memory_analyze_buffer() {
 }
 
 /// `walking-funcspace.md` — "Recursive walk".
+#[cfg(feature = "rust")]
 fn hotspots(space: &FuncSpace, threshold: u64, out: &mut Vec<String>) {
     if space.kind == SpaceKind::Function
         && space.metrics.cognitive.cognitive_sum() > threshold
@@ -44,6 +45,7 @@ fn hotspots(space: &FuncSpace, threshold: u64, out: &mut Vec<String>) {
     }
 }
 
+#[cfg(feature = "rust")]
 #[test]
 fn walking_funcspace_hotspots() {
     let source = b"\
@@ -64,6 +66,7 @@ fn hard(x: i32) -> i32 {
 }
 
 /// `reuse-tree.md` — "Working example".
+#[cfg(feature = "rust")]
 #[test]
 fn reuse_tree_working_example() {
     use big_code_analysis::{Ast, tree_sitter};

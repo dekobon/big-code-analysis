@@ -106,6 +106,7 @@ mod mozcpp_metrics {
     /// ordinary C++ is measured. (Complements `tests/parity/cpp_mozcpp_parity.rs`,
     /// here via a class so the `npm`/`npa`/`wmc` class arms are part of the
     /// comparison.)
+    #[cfg(all(feature = "cpp", feature = "mozcpp"))]
     #[test]
     fn mozcpp_matches_cpp_on_plain_class() {
         let src = "class Widget {
@@ -161,6 +162,7 @@ mod mozcpp_metrics {
     /// (251 vs 340), `cast_expression` (343 vs 432) — so id-based matching
     /// silently miscounts them for Mozcpp. Reverting either helper to
     /// `kind_id().into()` against `Cpp` makes this test fail.
+    #[cfg(all(feature = "cpp", feature = "mozcpp"))]
     #[test]
     fn mozcpp_matches_cpp_on_conditions() {
         // Operands span every divergent-id boolean terminal: `o->ready`

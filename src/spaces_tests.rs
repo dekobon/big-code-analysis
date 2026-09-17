@@ -44,6 +44,7 @@ fn space_kind_non_exhaustive_serde_roundtrip_unchanged() {
 /// at the predicate call sites in
 /// `big-code-analysis-ast/src/checker.rs` and
 /// `big-code-analysis-ast/src/getter.rs` — see issue #285.
+#[cfg(feature = "cpp")]
 #[test]
 fn cpp_function_definition_is_classified_as_function() {
     use crate::Cpp;
@@ -90,6 +91,7 @@ fn cpp_function_definition_is_classified_as_function() {
     );
 }
 
+#[cfg(feature = "cpp")]
 #[test]
 fn cpp_scope_resolution_operator() {
     check_func_space::<CppParser, _>(
@@ -111,6 +113,7 @@ fn cpp_scope_resolution_operator() {
 /// happens for parts of DeepSpeech's KenLM and OpenFst sources), the
 /// top-level `FuncSpace` must still be a `Unit` spanning the whole
 /// file, with `blank >= 0` and `sloc >= ploc`.
+#[cfg(feature = "cpp")]
 #[test]
 fn cpp_error_root_yields_unit_top_level_space() {
     // This snippet (a chunk of kenlm/lm/model.hh shape) is rejected by
@@ -190,6 +193,29 @@ fn cpp_error_root_yields_unit_top_level_space() {
 /// wrapper path. Issue #220 tracks finding additional per-grammar
 /// fixtures that surface ERROR roots so each language can have
 /// both a contract test and a wrapper-exercising test.
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 fn assert_top_level_space_is_unit_contract<P: MetricSuite>(source: &str, filename: &str) {
     let path = std::path::PathBuf::from(filename);
     let parser = P::new(source.as_bytes().to_vec(), &path, None);
@@ -227,6 +253,7 @@ fn assert_top_level_space_is_unit_contract<P: MetricSuite>(source: &str, filenam
 /// the contract-only path. Use this for languages where a fixture
 /// is known to make the grammar return ERROR (currently: Lua, C++
 /// via mozcpp).
+#[cfg(feature = "lua")]
 fn assert_partial_input_yields_synthetic_unit_wrapper<P: MetricSuite>(
     source: &str,
     filename: &str,
@@ -240,6 +267,7 @@ fn assert_partial_input_yields_synthetic_unit_wrapper<P: MetricSuite>(
     assert_top_level_space_is_unit_contract::<P>(source, filename);
 }
 
+#[cfg(feature = "python")]
 #[test]
 fn python_top_level_space_is_unit_contract() {
     assert_top_level_space_is_unit_contract::<crate::PythonParser>(
@@ -248,6 +276,7 @@ fn python_top_level_space_is_unit_contract() {
     );
 }
 
+#[cfg(feature = "javascript")]
 #[test]
 fn javascript_top_level_space_is_unit_contract() {
     assert_top_level_space_is_unit_contract::<crate::JavascriptParser>(
@@ -256,6 +285,7 @@ fn javascript_top_level_space_is_unit_contract() {
     );
 }
 
+#[cfg(feature = "mozjs")]
 #[test]
 fn mozjs_top_level_space_is_unit_contract() {
     assert_top_level_space_is_unit_contract::<crate::MozjsParser>(
@@ -264,6 +294,7 @@ fn mozjs_top_level_space_is_unit_contract() {
     );
 }
 
+#[cfg(feature = "typescript")]
 #[test]
 fn typescript_top_level_space_is_unit_contract() {
     assert_top_level_space_is_unit_contract::<crate::TypescriptParser>(
@@ -272,6 +303,7 @@ fn typescript_top_level_space_is_unit_contract() {
     );
 }
 
+#[cfg(feature = "typescript")]
 #[test]
 fn tsx_top_level_space_is_unit_contract() {
     assert_top_level_space_is_unit_contract::<crate::TsxParser>(
@@ -280,6 +312,7 @@ fn tsx_top_level_space_is_unit_contract() {
     );
 }
 
+#[cfg(feature = "java")]
 #[test]
 fn java_top_level_space_is_unit_contract() {
     assert_top_level_space_is_unit_contract::<crate::JavaParser>(
@@ -288,6 +321,7 @@ fn java_top_level_space_is_unit_contract() {
     );
 }
 
+#[cfg(feature = "kotlin")]
 #[test]
 fn kotlin_top_level_space_is_unit_contract() {
     assert_top_level_space_is_unit_contract::<crate::KotlinParser>(
@@ -296,6 +330,7 @@ fn kotlin_top_level_space_is_unit_contract() {
     );
 }
 
+#[cfg(feature = "go")]
 #[test]
 fn go_top_level_space_is_unit_contract() {
     assert_top_level_space_is_unit_contract::<crate::GoParser>(
@@ -304,6 +339,7 @@ fn go_top_level_space_is_unit_contract() {
     );
 }
 
+#[cfg(feature = "rust")]
 #[test]
 fn rust_top_level_space_is_unit_contract() {
     assert_top_level_space_is_unit_contract::<crate::RustParser>(
@@ -312,6 +348,7 @@ fn rust_top_level_space_is_unit_contract() {
     );
 }
 
+#[cfg(feature = "csharp")]
 #[test]
 fn csharp_top_level_space_is_unit_contract() {
     assert_top_level_space_is_unit_contract::<crate::CsharpParser>(
@@ -325,6 +362,7 @@ fn csharp_top_level_space_is_unit_contract() {
 /// `Class` (matching Java/PHP/Groovy) rather than letting it fall
 /// through to `SpaceKind::Unknown`. The enum is the only declared
 /// space, so it appears as a direct child of the top-level Unit.
+#[cfg(feature = "csharp")]
 #[test]
 fn csharp_enum_space_kind_is_class() {
     let src = "enum Color { Red, Green, Blue }\n";
@@ -342,6 +380,7 @@ fn csharp_enum_space_kind_is_class() {
     assert_eq!(enum_space.name.as_deref(), Some("Color"));
 }
 
+#[cfg(feature = "bash")]
 #[test]
 fn bash_top_level_space_is_unit_contract() {
     assert_top_level_space_is_unit_contract::<crate::BashParser>(
@@ -357,6 +396,7 @@ fn bash_top_level_space_is_unit_contract() {
 /// The 16 sibling `*_top_level_space_is_unit_contract` tests
 /// only pin the public-API contract; only this and the C++ test
 /// actually trigger the wrapper code path. See #220.
+#[cfg(feature = "lua")]
 #[test]
 fn lua_partial_input_yields_synthetic_unit_wrapper() {
     assert_partial_input_yields_synthetic_unit_wrapper::<crate::LuaParser>(
@@ -365,6 +405,7 @@ fn lua_partial_input_yields_synthetic_unit_wrapper() {
     );
 }
 
+#[cfg(feature = "tcl")]
 #[test]
 fn tcl_top_level_space_is_unit_contract() {
     assert_top_level_space_is_unit_contract::<crate::TclParser>(
@@ -377,6 +418,7 @@ fn tcl_top_level_space_is_unit_contract() {
 /// mid-body) must still yield a `Unit` top-level space. Like Tcl, the
 /// grammar keeps `source_file` as the root with an inner `ERROR`, so
 /// this pins the contract rather than the synthetic-Unit wrapper path.
+#[cfg(feature = "irules")]
 #[test]
 fn irules_top_level_space_is_unit_contract() {
     assert_top_level_space_is_unit_contract::<crate::IrulesParser>(
@@ -385,6 +427,7 @@ fn irules_top_level_space_is_unit_contract() {
     );
 }
 
+#[cfg(feature = "perl")]
 #[test]
 fn perl_top_level_space_is_unit_contract() {
     assert_top_level_space_is_unit_contract::<crate::PerlParser>(
@@ -393,6 +436,7 @@ fn perl_top_level_space_is_unit_contract() {
     );
 }
 
+#[cfg(feature = "php")]
 #[test]
 fn php_top_level_space_is_unit_contract() {
     assert_top_level_space_is_unit_contract::<crate::PhpParser>(
@@ -401,6 +445,7 @@ fn php_top_level_space_is_unit_contract() {
     );
 }
 
+#[cfg(feature = "elixir")]
 #[test]
 fn elixir_top_level_space_is_unit_contract() {
     assert_top_level_space_is_unit_contract::<crate::ElixirParser>(
@@ -416,6 +461,7 @@ fn elixir_top_level_space_is_unit_contract() {
 // tree-sitter-elixir grammar wraps the head in an `Arguments`
 // node, so every promoted Class / Function space was labelled
 // `<anonymous>` despite the source carrying a name.
+#[cfg(feature = "elixir")]
 #[test]
 fn elixir_func_space_names_resolve_through_arguments_wrapper() {
     let src = "defmodule Foo.Bar do\n  def hello(x), do: x\n  defp helper, do: :ok\n  defmodule Inner do\n    def i, do: 1\n  end\nend\n";
@@ -463,6 +509,12 @@ fn elixir_func_space_names_resolve_through_arguments_wrapper() {
 /// `ParserTrait` API, so the lesson-9 contract must hold for them
 /// too — a grammar bump promoting an inner construct to root would
 /// otherwise produce a non-`Unit` file-level space.
+#[cfg(any(
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "mozcpp"
+))]
 #[test]
 fn preproc_top_level_space_is_unit_contract() {
     assert_top_level_space_is_unit_contract::<crate::PreprocParser>(
@@ -471,6 +523,12 @@ fn preproc_top_level_space_is_unit_contract() {
     );
 }
 
+#[cfg(any(
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "mozcpp"
+))]
 #[test]
 fn ccomment_top_level_space_is_unit_contract() {
     assert_top_level_space_is_unit_contract::<crate::CcommentParser>(
@@ -484,6 +542,7 @@ fn ccomment_top_level_space_is_unit_contract() {
 /// path is unreachable today. The test pins the contract so a
 /// future grammar bump that starts promoting an inner kind to
 /// root would fail here.
+#[cfg(feature = "ruby")]
 #[test]
 fn ruby_top_level_space_is_unit_contract() {
     // Truncated method definition (missing `end`) plus an
@@ -511,6 +570,7 @@ fn ruby_top_level_space_is_unit_contract() {
 /// string the caller passed, byte-for-byte. This is the
 /// post-#254 contract: callers analysing in-memory snippets no
 /// longer need a `Path` to identify the resulting `FuncSpace`.
+#[cfg(feature = "cpp")]
 #[test]
 fn analyze_in_memory_snippet_carries_caller_supplied_name() {
     use crate::{Source, analyze};
@@ -529,6 +589,7 @@ fn analyze_in_memory_snippet_carries_caller_supplied_name() {
 /// `analyze` with `Source::name = None` leaves the top-level
 /// `FuncSpace::name` as `None`. The pre-#254 entry points always
 /// forced a `Some(...)`; the new API lets callers opt out.
+#[cfg(feature = "cpp")]
 #[test]
 fn analyze_without_name_leaves_top_level_name_none() {
     use crate::{Source, analyze};
@@ -1322,6 +1383,7 @@ mod exclude_tests_non_rust {
     use crate::{CppParser, MetricsOptions, ParserTrait};
     use std::path::PathBuf;
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_ignores_exclude_tests_flag() {
         let source = "\
@@ -1361,12 +1423,14 @@ int helper() { return 2; }
 mod with_only {
     use crate::{LANG, Metric, MetricSet, MetricsOptions, Source, analyze};
 
+    #[cfg(feature = "rust")]
     const SOURCE: &str = "\
 fn prod(x: i32) -> i32 {
     if x > 0 { x + 1 } else { x - 1 }
 }
 ";
 
+    #[cfg(feature = "rust")]
     fn analyse(metrics: &[Metric]) -> crate::FuncSpace {
         let opts = MetricsOptions::default().with_only(metrics);
         analyze(
@@ -1381,6 +1445,7 @@ fn prod(x: i32) -> i32 {
     // (cognitive / cyclomatic / halstead / ...) at their default
     // values. The dependent-metric anchors guard against the
     // walker silently running them anyway.
+    #[cfg(feature = "rust")]
     #[test]
     fn loc_only_skips_other_metrics() {
         let full = analyze(
@@ -1412,6 +1477,7 @@ fn prod(x: i32) -> i32 {
     // (Loc + Cyclomatic + Halstead) — otherwise the MI formula
     // would compute against zero inputs and return a meaningless
     // score.
+    #[cfg(feature = "rust")]
     #[test]
     fn mi_auto_pulls_dependencies() {
         let pruned = analyse(&[Metric::Mi]);
@@ -1450,6 +1516,7 @@ fn prod(x: i32) -> i32 {
     }
 
     // `with_only(&[Metric::Wmc])` auto-adds Cyclomatic + Nom.
+    #[cfg(feature = "rust")]
     #[test]
     fn wmc_auto_pulls_dependencies() {
         let pruned = analyse(&[Metric::Wmc]);
@@ -1480,6 +1547,7 @@ fn prod(x: i32) -> i32 {
     // function with one `if` branch and one argument, so the
     // function count is exactly 1 and each average equals its
     // own sum.
+    #[cfg(feature = "rust")]
     #[test]
     fn cognitive_only_pulls_nom_and_average_is_finite() {
         let pruned = analyse(&[Metric::Cognitive]);
@@ -1503,6 +1571,7 @@ fn prod(x: i32) -> i32 {
         assert_eq!(avg, 2.0);
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn exit_only_pulls_nom_and_average_is_finite() {
         let pruned = analyse(&[Metric::Nexits]);
@@ -1524,6 +1593,7 @@ fn prod(x: i32) -> i32 {
         assert_eq!(avg, 0.0);
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn nargs_only_pulls_nom_and_average_is_finite() {
         let pruned = analyse(&[Metric::Nargs]);
@@ -1545,6 +1615,7 @@ fn prod(x: i32) -> i32 {
 
     // `MetricsOptions::default()` selects every metric (#257's
     // default-preservation contract).
+    #[cfg(feature = "rust")]
     #[test]
     fn default_options_select_every_metric() {
         let full = analyze(
@@ -1560,6 +1631,7 @@ fn prod(x: i32) -> i32 {
     // `metrics` object rather than the full payload so a future
     // additive change (new metric, new sub-field) doesn't shift
     // unrelated tests.
+    #[cfg(feature = "rust")]
     #[test]
     fn unselected_metrics_are_skipped_in_json() {
         let pruned = analyse(&[Metric::Loc]);
@@ -1605,6 +1677,7 @@ fn prod(x: i32) -> i32 {
     // keyword scan, and `defmodule` / `def` promote to Class /
     // Function spaces whose kind would be lost if the lazy gate
     // skipped a node it shouldn't.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_loc_deselected_preserves_kinds_and_metrics() {
         use crate::SpaceKind;
@@ -1694,6 +1767,7 @@ end
     // Empty slice = nothing selected. Every metric must be
     // elided from JSON output; the space tree is still
     // produced.
+    #[cfg(feature = "rust")]
     #[test]
     fn empty_slice_selects_nothing() {
         let pruned = analyse(&[]);
@@ -1713,6 +1787,7 @@ end
     // `empty().with(Mi)` would otherwise compute the MI formula
     // against zero-valued Loc / Cyclomatic / Halstead inputs and
     // emit a meaningless score with no error.
+    #[cfg(feature = "rust")]
     #[test]
     fn with_metric_set_resolves_dependency_closure() {
         let unresolved = MetricSet::empty().with(Metric::Mi);
@@ -1765,6 +1840,7 @@ end
 
     // An already-resolved set passes through `with_metric_set`
     // unchanged (idempotence at the builder level).
+    #[cfg(feature = "rust")]
     #[test]
     fn with_metric_set_passes_resolved_set_unchanged() {
         let resolved = MetricSet::from_slice_with_deps(&[Metric::Mi]);
@@ -1810,6 +1886,8 @@ mod metric_selection_parity {
     // multi-clause `if` (cognitive, cyclomatic, abc, halstead, tokens),
     // an early `return` (nexits), parameters (nargs), and a comment
     // (loc). It is the fixture the non-vacuity assertion below leans on.
+    // test-lang-gates: hand-written(rust) — a source fixture for
+    //     this grammar, and its text is a string
     #[cfg(feature = "rust")]
     const RUST: &str = "\
 pub struct Counter {
@@ -1838,6 +1916,8 @@ fn choose(a: u32, b: u32) -> u32 {
 }
 ";
 
+    // test-lang-gates: hand-written(java) — a source fixture for
+    //     this grammar, and its text is a string
     #[cfg(feature = "java")]
     const JAVA: &str = "\
 public class Shape {
@@ -1853,6 +1933,8 @@ public class Shape {
 }
 ";
 
+    // test-lang-gates: hand-written(python) — a source fixture for
+    //     this grammar, and its text is a string
     #[cfg(feature = "python")]
     const PYTHON: &str = "\
 class Bag:
@@ -1940,6 +2022,9 @@ class Bag:
         out
     }
 
+    // test-lang-gates: hand-written(rust) — the one grammar that
+    //     makes the fixture list non-empty, so the non-vacuity
+    //     assertion cannot fire on a minimal build
     #[test]
     // Gated on the language whose fixture makes the non-vacuity
     // assertion satisfiable for all thirteen metrics.
@@ -2004,6 +2089,10 @@ class Bag:
 // here are feature-independent but live in the same cohesive module; the
 // canonical all-features test run (and the minimal-langs leg, which
 // enables `rust`) still exercises every one.
+// test-lang-gates: hand-written(rust) — `from_path` picks the grammar
+//     from the file extension, so the language is a `"foo.rs"` string
+//     literal and nothing in these bodies names it. The one `LANG`
+//     mention is the `assert_eq!` checking the detection worked.
 #[cfg(feature = "rust")]
 mod from_path_tests {
     use crate::{Ast, FromPathError, LANG, MetricsOptions, SpaceKind};
@@ -2101,6 +2190,7 @@ mod from_path_tests {
 /// cognitive, cyclomatic, halstead, loc, nom, tokens, mi — each
 /// `writeln!`-separated, with `mi` last and no trailing newline. Pin
 /// that contract so a future reorder or stray newline is caught.
+#[cfg(feature = "cpp")]
 #[test]
 fn code_metrics_display_concatenates_reported_submetrics_in_order() {
     use crate::{Source, analyze};
@@ -2177,6 +2267,7 @@ fn ast_debug_reports_language_and_name_non_exhaustively() {
 /// names *and* kinds for an `@interface`, an `@implementation` + its
 /// method, and a free function, so an ObjC naming regression cannot
 /// hide behind a vacuous metric assertion (#724; lessons 2 & 31).
+#[cfg(feature = "objc")]
 #[test]
 fn objc_func_space_tree_carries_names_and_kinds() {
     use crate::ObjcParser;
@@ -2358,11 +2449,29 @@ mod nameless_construct_spaces {
     use crate::test_support::space_verbatim;
     use crate::{FuncSpace, LANG, MetricsOptions, SpaceKind};
 
+    #[cfg(any(
+        feature = "groovy",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "mozjs",
+        feature = "ruby",
+        feature = "typescript",
+    ))]
     fn analyse(lang: LANG, source: &str) -> FuncSpace {
         space_verbatim(lang, source.as_bytes(), MetricsOptions::default())
     }
 
     /// The `(name, kind)` of every descendant space, in preorder.
+    #[cfg(any(
+        feature = "groovy",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "mozjs",
+        feature = "ruby",
+        feature = "typescript",
+    ))]
     fn shape(space: &FuncSpace) -> Vec<(Option<&str>, SpaceKind)> {
         let mut out = vec![(space.name.as_deref(), space.kind)];
         for child in &space.spaces {
@@ -2371,6 +2480,15 @@ mod nameless_construct_spaces {
         out
     }
 
+    #[cfg(any(
+        feature = "groovy",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "mozjs",
+        feature = "ruby",
+        feature = "typescript",
+    ))]
     fn child<'a>(space: &'a FuncSpace, name: &str) -> &'a FuncSpace {
         fn find<'a>(s: &'a FuncSpace, name: &str) -> Option<&'a FuncSpace> {
             if s.name.as_deref() == Some(name) {

@@ -376,6 +376,7 @@ mod tests {
 
     use super::*;
 
+    #[cfg(any(feature = "cpp", feature = "rust", feature = "tcl"))]
     fn build_ast<P: ParserTrait>(code: &[u8], filename: &str) -> AstNode {
         let path = PathBuf::from(filename);
         let parser = P::new(code.to_vec(), &path, None);
@@ -390,6 +391,7 @@ mod tests {
             .expect("parser should produce a root AST node")
     }
 
+    #[cfg(feature = "rust")]
     fn build_ast_with_span<P: ParserTrait>(code: &[u8], filename: &str) -> AstNode {
         let path = PathBuf::from(filename);
         let parser = P::new(code.to_vec(), &path, None);
@@ -404,6 +406,7 @@ mod tests {
             .expect("parser should produce a root AST node")
     }
 
+    #[cfg(any(feature = "cpp", feature = "rust"))]
     fn find_first<'a>(node: &'a AstNode, kind: &str) -> Option<&'a AstNode> {
         if node.r#type == kind {
             return Some(node);
@@ -411,16 +414,19 @@ mod tests {
         node.children.iter().find_map(|c| find_first(c, kind))
     }
 
+    #[cfg(any(feature = "cpp", feature = "rust"))]
     fn find_child<'a>(parent: &'a AstNode, field: &str) -> Option<&'a AstNode> {
         parent.children.iter().find(|c| c.field_name == Some(field))
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn root_has_no_field_name() {
         let root = build_ast::<crate::RustParser>(b"fn main() {}", "test.rs");
         assert_eq!(root.field_name, None);
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_assignment_carries_left_and_right_field_names() {
         // `assignment_expression` in the Rust grammar names its operands
@@ -450,6 +456,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_function_carries_name_and_body_field_names() {
         // `function_item` names children `name`, `parameters`, `body`.
@@ -471,6 +478,7 @@ mod tests {
         assert_eq!(body_child.r#type, "block");
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_assignment_carries_left_and_right_field_names() {
         // Cross-language confirmation: the C/C++ grammar uses the same
@@ -489,6 +497,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn serialized_json_includes_field_name_key() {
         // Regression for the Serialize derive: every node must serialize
@@ -513,6 +522,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn serialized_json_uses_snake_case_keys() {
         // The serialized AST shape uses snake_case keys (#535). This
@@ -537,6 +547,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn span_serializes_as_named_object() {
         // The span is a flat named object preserving the 1-based
@@ -619,6 +630,7 @@ mod tests {
 
     /// The deepest `children` chain in a tree, measured iteratively so a
     /// pathological input cannot overflow the measurement itself.
+    #[cfg(feature = "tcl")]
     fn ast_depth(root: &AstNode) -> usize {
         let mut deepest = 0;
         let mut stack = vec![(root, 1usize)];

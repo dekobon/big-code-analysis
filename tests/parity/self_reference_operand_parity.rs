@@ -55,6 +55,31 @@ use big_code_analysis::{Ast, LANG, MetricsOptions, Source, analyze};
 /// which is the drift these rows exist to catch.
 ///
 /// [`Ops::operands`]: big_code_analysis::Ops::operands
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 fn receiver_stripped(lang: LANG) -> Option<&'static str> {
     match lang {
         // `return self.x` -> `return x`. Parses clean; N2 5 -> 4.
@@ -67,6 +92,31 @@ fn receiver_stripped(lang: LANG) -> Option<&'static str> {
 }
 
 /// Total operand occurrences (`N2`) for `source` under `lang`.
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 fn total_operands(lang: LANG, source: &str, name: &str) -> u64 {
     analyze(
         Source::new(lang, source.as_bytes()).with_name(Some(name.to_owned())),
@@ -92,6 +142,31 @@ fn total_operands(lang: LANG, source: &str, name: &str) -> u64 {
 /// says so at its row. They still earn their place — each is a guard
 /// against a grammar bump promoting the keyword to a kind of its own
 /// and the language falling out of the majority unnoticed.
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 fn fixture(lang: LANG) -> Option<(&'static str, &'static str, &'static [&'static str])> {
     // Exhaustive per-language dispatch table: one arm per LANG variant
     // is the point of this function, so a new language cannot be added
@@ -220,6 +295,31 @@ fn fixture(lang: LANG) -> Option<(&'static str, &'static str, &'static [&'static
     Some(row)
 }
 
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 #[test]
 fn every_language_bills_a_self_reference_as_an_operand() {
     let mut checked = 0;

@@ -802,6 +802,7 @@ mod tests {
 
     use super::*;
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn get_text_span_non_utf8_uses_replacement_char() {
         // Regression: `String::from_utf8(...).unwrap()` panicked on non-UTF-8
@@ -820,6 +821,21 @@ mod tests {
 
     /// Collects all AstNode entries whose type matches `target_kind`,
     /// recursively walking the tree.
+    #[cfg(any(
+        feature = "bash",
+        feature = "cpp",
+        feature = "go",
+        feature = "groovy",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "mozjs",
+        feature = "perl",
+        feature = "php",
+        feature = "python",
+        feature = "rust",
+        feature = "typescript",
+    ))]
     fn collect_nodes_by_kind<'a>(node: &'a AstNode, target_kind: &str, out: &mut Vec<&'a AstNode>) {
         if node.r#type == target_kind {
             out.push(node);
@@ -830,6 +846,21 @@ mod tests {
     }
 
     /// Builds an AST from source code using the given parser type.
+    #[cfg(any(
+        feature = "bash",
+        feature = "cpp",
+        feature = "go",
+        feature = "groovy",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "mozjs",
+        feature = "perl",
+        feature = "php",
+        feature = "python",
+        feature = "rust",
+        feature = "typescript",
+    ))]
     fn build_ast<P: ParserTrait>(code: &[u8], filename: &str) -> AstNode {
         let path = PathBuf::from(filename);
         let parser = P::new(code.to_vec(), &path, None);
@@ -845,6 +876,7 @@ mod tests {
 
     /// Asserts that every `"string"` node in the AST is flattened:
     /// non-empty text value and no children.
+    #[cfg(any(feature = "javascript", feature = "php", feature = "typescript"))]
     fn assert_strings_flattened(root: &AstNode) {
         let mut strings = Vec::new();
         collect_nodes_by_kind(root, "string", &mut strings);
@@ -869,6 +901,7 @@ mod tests {
     // Regression tests for #119: String2 (and String3) variants must be
     // flattened the same way as String. These exercises string literals in
     // multiple grammatical positions to cover aliased kind_ids.
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_string_nodes_all_flattened() {
         // Strings in expression, property key, and import positions
@@ -883,6 +916,7 @@ mod tests {
         assert_strings_flattened(&root);
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_string_nodes_all_flattened() {
         let code = br#"
@@ -895,6 +929,7 @@ mod tests {
         assert_strings_flattened(&root);
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_string_nodes_all_flattened() {
         // TSX has String, String2, and String3 — exercise JSX attribute
@@ -908,6 +943,7 @@ mod tests {
         assert_strings_flattened(&root);
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_string_like_nodes_all_flattened() {
         // Regression: issue #288. PHP `string`, `encapsed_string`,
@@ -958,6 +994,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_string_literal_preserved_verbatim() {
         // Regression for the `impl Alterator for GroovyCode` arms:
@@ -1001,6 +1038,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_multiline_string_fragment_preserves_newlines() {
         // The `StringLiteral`/`MultilineStringFragment` arms route
@@ -1026,6 +1064,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_raw_string_literal_flattened() {
         // Regression for issue #391: `Rust::RawStringLiteral` was missing
@@ -1069,6 +1108,7 @@ mod tests {
         assert_eq!(strings[0].value, "\"world\"");
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_raw_string_literal_flattened() {
         // Regression for issue #398: `Cpp::RawStringLiteral` was missing
@@ -1115,6 +1155,18 @@ mod tests {
     /// Asserts that every node of kind `target_kind` in the AST is
     /// flattened (no children) and carries non-empty verbatim text.
     /// Shared by the #699 per-language string-flattening regressions.
+    #[cfg(any(
+        feature = "bash",
+        feature = "cpp",
+        feature = "go",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "mozjs",
+        feature = "perl",
+        feature = "python",
+        feature = "typescript",
+    ))]
     fn assert_kind_flattened(root: &AstNode, target_kind: &str) {
         let mut nodes = Vec::new();
         collect_nodes_by_kind(root, target_kind, &mut nodes);
@@ -1142,6 +1194,7 @@ mod tests {
     // node as a string — a 3-way (alterator / is_string / get_op_type)
     // dump asymmetry. Each test pins that the dump now collapses the kind.
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_template_string_flattened() {
         // #699: `is_string` matches `TemplateString`; the alterator now
@@ -1153,6 +1206,7 @@ mod tests {
         assert_kind_flattened(&root, "template_string");
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_template_string_flattened() {
         let code = br#"const a = 1; const b = `bare`; const c = `pre ${a} post`;"#;
@@ -1160,6 +1214,7 @@ mod tests {
         assert_kind_flattened(&root, "template_string");
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_template_string_flattened() {
         let code = br#"const a = 1; const b = `bare`; const c = `pre ${a} post`;"#;
@@ -1167,6 +1222,7 @@ mod tests {
         assert_kind_flattened(&root, "template_string");
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_template_string_flattened() {
         // The MozJS arm's comment previously claimed `TemplateString`
@@ -1176,6 +1232,7 @@ mod tests {
         assert_kind_flattened(&root, "template_string");
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_concatenated_string_flattened() {
         // #699: `is_string` matches `concatenated_string` (`"a" "b"`);
@@ -1186,6 +1243,7 @@ mod tests {
         assert_kind_flattened(&root, "concatenated_string");
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_string_and_concatenated_string_flattened() {
         // #699: Python had no alterator override, so `string` (incl.
@@ -1198,6 +1256,7 @@ mod tests {
         assert_kind_flattened(&root, "concatenated_string");
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_string_literals_flattened() {
         // #699: Java had no alterator override, so `string_literal` kept
@@ -1222,6 +1281,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_string_literals_flattened() {
         // #699: Kotlin had no alterator override. `string_literal` (incl.
@@ -1233,6 +1293,7 @@ mod tests {
         assert_kind_flattened(&root, "multiline_string_literal");
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_rune_literal_flattened_but_not_a_string_kind() {
         // #699 verdict: Go `rune_literal` is operand + flattened but
@@ -1245,6 +1306,7 @@ mod tests {
         assert_kind_flattened(&root, "rune_literal");
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_heredoc_body_flattened() {
         // #761: `Checker::is_string` matches Bash `heredoc_body`
@@ -1267,6 +1329,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_heredoc_body_statement_flattened() {
         // #761: `Checker::is_string` matches Perl `heredoc_body_statement`

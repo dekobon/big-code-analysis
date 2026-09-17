@@ -209,6 +209,31 @@ impl SpaceTree for Ops {
 /// reader sees *which* space diverged and what its neighbours were —
 /// the failure mode here is a missing subtree, which a pairwise
 /// recursion reports as a confusing count mismatch at the parent.
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 fn render<T: SpaceTree>(node: &T, depth: usize, out: &mut String) {
     use std::fmt::Write as _;
 
@@ -224,6 +249,31 @@ fn render<T: SpaceTree>(node: &T, depth: usize, out: &mut String) {
     }
 }
 
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 fn rendered<T: SpaceTree>(node: &T) -> String {
     let mut out = String::new();
     render(node, 0, &mut out);
@@ -233,6 +283,31 @@ fn rendered<T: SpaceTree>(node: &T) -> String {
 /// First line that differs between the two renderings, for a failure
 /// message that names the diverging space instead of dumping a diff the
 /// reader has to align by eye.
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 fn first_divergence(metrics: &str, ops: &str) -> String {
     let mut metrics_lines = metrics.lines();
     let mut ops_lines = ops.lines();
@@ -247,6 +322,31 @@ fn first_divergence(metrics: &str, ops: &str) -> String {
     }
 }
 
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 #[test]
 fn ops_and_metrics_agree_on_the_space_tree() {
     let mut checked = 0;

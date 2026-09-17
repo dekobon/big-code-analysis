@@ -35,6 +35,7 @@ use crate::{FuncSpace, LANG, MetricsOptions, SpaceKind};
 /// silently if the walk stopped one link too early.
 ///
 /// The last row expects no name at all; its comment says why.
+#[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
 const SHARED_SHAPES: &[(&str, Option<&str>)] = &[
     ("int (*fp(int a, int b))(int c) { return 0; }", Some("fp")),
     (
@@ -89,6 +90,7 @@ const SHARED_SHAPES: &[(&str, Option<&str>)] = &[
 /// conversion operator's declarator field is the type it converts
 /// *to*, so [`super::innermost_declarator`] deliberately cuts the
 /// chain there and returns `None`.
+#[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
 const CPP_ONLY_SHAPES: &[(&str, Option<&str>)] = &[
     ("struct S { ~S() { } };", Some("~S")),
     ("void Foo::bar(int a) { }", Some("Foo::bar")),
@@ -136,8 +138,10 @@ const CPP_ONLY_SHAPES: &[(&str, Option<&str>)] = &[
 /// line, so the asserted span is `(2, 2)` — a value a
 /// default-constructed or off-by-one span does not also satisfy,
 /// unlike the `(1, 1)` a bare one-line fixture would produce.
+#[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
 const FIXTURE_LINE: usize = 2;
 
+#[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
 fn pad(source: &str) -> String {
     format!("// leading\n{source}\n// trailing\n")
 }
@@ -150,6 +154,7 @@ fn pad(source: &str) -> String {
 /// *exactly one* function space, which is `get_space_kind` and
 /// `is_func_space` agreeing with the name — `.claude/rules/
 /// grammar-dispatch.md` §6.
+#[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
 fn function_spaces(space: &FuncSpace, found: &mut Vec<(Option<String>, usize, usize)>) {
     if space.kind == SpaceKind::Function {
         found.push((space.name.clone(), space.start_line, space.end_line));
@@ -159,6 +164,7 @@ fn function_spaces(space: &FuncSpace, found: &mut Vec<(Option<String>, usize, us
     }
 }
 
+#[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
 fn check(lang: LANG, shapes: &[(&str, Option<&str>)], failures: &mut Vec<String>) {
     for (source, expected) in shapes {
         let root = space_verbatim(lang, pad(source).as_bytes(), MetricsOptions::default());
@@ -179,6 +185,7 @@ fn check(lang: LANG, shapes: &[(&str, Option<&str>)], failures: &mut Vec<String>
 /// Shared so the failure formatting exists once: it is by
 /// construction unreachable while the suite is green, so a second
 /// copy is coverage the tests can never earn.
+#[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
 #[track_caller]
 fn assert_all_matched(failures: &[String], checked: usize, what: &str) {
     assert!(
@@ -198,6 +205,7 @@ fn assert_all_matched(failures: &[String], checked: usize, what: &str) {
 /// declarator wraps for the three macro rows (#1213). "Same walk"
 /// rather than "same node" is why this is not named for the
 /// innermost declarator alone.
+#[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
 #[test]
 fn the_declarator_walk_names_the_function_space() {
     let mut failures = Vec::new();
@@ -289,6 +297,7 @@ fn the_table_reports_a_name_that_does_not_match() {
 /// [`super::innermost_declarator`], which measured this exact shape
 /// as one of the two corpus spaces #1208 un-named. This pins what
 /// the walk does there, not a claim that it is the right answer.
+#[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
 #[test]
 fn a_macro_where_an_attribute_belongs_divides_the_grammars() {
     const SOURCE: &str = "int *f() TF_ATTRIBUTE_NOINLINE { return 0; }";
@@ -333,6 +342,7 @@ fn a_macro_where_an_attribute_belongs_divides_the_grammars() {
 /// its own, and every rule the walk follows is void inside an
 /// `ERROR`. Teach the walk to unwrap one and this is a row to
 /// update, not a row to delete.
+#[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
 #[test]
 fn a_parenthesised_macro_takes_the_name_of_the_function_it_annotates() {
     const SOURCE: &str = "int *f() TF_LOCKS_EXCLUDED(mu_) { return 0; }";

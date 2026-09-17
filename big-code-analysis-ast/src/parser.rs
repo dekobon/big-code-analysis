@@ -260,10 +260,12 @@ mod tests {
     use crate::traits::ParserTrait;
     use std::path::PathBuf;
 
+    #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "python"))]
     fn parse_python(source: &str) -> PythonParser {
         PythonParser::new(source.as_bytes().to_vec(), &PathBuf::from("t.py"), None)
     }
 
+    #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "python"))]
     fn count_kind(source: &str, filter: &str) -> usize {
         count(&parse_python(source), &[filter.to_string()]).0
     }
@@ -273,6 +275,7 @@ mod tests {
     // not a numeric `kind_id` must match `node.kind()` exactly, not via
     // substring containment.
 
+    #[cfg(all(feature = "c", feature = "cpp", feature = "mozcpp", feature = "python"))]
     #[test]
     fn get_filters_exact_match_hits_named_kind() {
         // Python's `if`/`elif`/`else` clauses each appear as their own
@@ -282,6 +285,7 @@ mod tests {
         assert_eq!(count_kind(src, "if_statement"), 1);
     }
 
+    #[cfg(all(feature = "c", feature = "cpp", feature = "mozcpp", feature = "python"))]
     #[test]
     fn get_filters_no_substring_match() {
         // Filter `expression` must not match `expression_statement`,
@@ -299,6 +303,7 @@ mod tests {
         assert_eq!(count_kind(src, "assignment"), 2);
     }
 
+    #[cfg(all(feature = "c", feature = "cpp", feature = "mozcpp", feature = "python"))]
     #[test]
     fn get_filters_unknown_kind_returns_empty() {
         // A filter that names no real node kind matches nothing — the
@@ -309,6 +314,7 @@ mod tests {
         assert_eq!(count_kind(src, "definitely_not_a_python_kind"), 0);
     }
 
+    #[cfg(all(feature = "c", feature = "cpp", feature = "mozcpp", feature = "python"))]
     #[test]
     fn get_filters_empty_request_matches_every_node() {
         // Requesting nothing means "match everything": `filters` falls

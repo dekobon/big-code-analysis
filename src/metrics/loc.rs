@@ -1100,6 +1100,7 @@ mod tests {
     /// values would happen to match what an error tree produces — a parse
     /// regression in tree-sitter-perl could otherwise leave such tests
     /// silently green.
+    #[cfg(feature = "perl")]
     #[cfg(test)]
     fn assert_perl_parses_cleanly(source: &str) {
         use crate::traits::ParserTrait;
@@ -1116,6 +1117,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_sloc() {
         check_metrics::<PythonParser>(
@@ -1158,6 +1160,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_blank() {
         check_metrics::<PythonParser>(
@@ -1201,6 +1204,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_blank() {
         check_metrics::<RustParser>(
@@ -1276,6 +1280,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_blank() {
         check_metrics::<CParser>(
@@ -1320,6 +1325,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_no_zero_blank() {
         // Checks that the blank metric is not equal to 0 when there are some
@@ -1369,6 +1375,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_no_blank() {
         // Checks that the blank metric is equal to 0 when there are no blank
@@ -1417,6 +1424,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_no_zero_blank_more_comments() {
         // Checks that the blank metric is not equal to 0 when there are more
@@ -1466,6 +1474,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_no_zero_blank() {
         // Checks that the blank metric is not equal to 0 when there are some
@@ -1516,6 +1525,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_no_zero_blank() {
         // Checks that the blank metric is not equal to 0 when there are some
@@ -1566,6 +1576,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_no_zero_blank() {
         // Checks that the blank metric is not equal to 0 when there are some
@@ -1616,6 +1627,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_code_line_start_block_blank() {
         // Checks that the blank metric is equal to 1 when there are
@@ -1667,6 +1679,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_block_comment_blank() {
         // Checks that the blank metric is equal to 1 when there are
@@ -1719,6 +1732,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_code_line_block_one_line_blank() {
         // Checks that the blank metric is equal to 1 when there are
@@ -1768,6 +1782,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_code_line_end_block_blank() {
         // Checks that the blank metric is equal to 1 when there are
@@ -1819,6 +1834,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_cloc() {
         check_metrics::<PythonParser>(
@@ -1861,6 +1877,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_cloc() {
         check_metrics::<RustParser>(
@@ -1909,6 +1926,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_cloc() {
         check_metrics::<CParser>(
@@ -1954,6 +1972,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_lloc() {
         check_metrics::<PythonParser>(
@@ -1994,6 +2013,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_lloc() {
         check_metrics::<RustParser>(
@@ -2077,6 +2097,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "c")]
     #[test]
     fn c_lloc() {
         check_metrics::<CParser>(
@@ -2116,6 +2137,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_lloc() {
         check_metrics::<CppParser>(
@@ -2158,6 +2180,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_return_lloc() {
         check_metrics::<CppParser>(
@@ -2198,6 +2221,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_for_lloc() {
         check_metrics::<CppParser>(
@@ -2240,6 +2264,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_while_lloc() {
         check_metrics::<CppParser>(
@@ -2282,6 +2307,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_string_on_new_line() {
         // More lines of the same instruction were counted as blank lines
@@ -2322,6 +2348,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_multiline_string_assignment_ploc() {
         // Regression test for issue #415: interior rows of a multi-line,
@@ -2371,6 +2398,7 @@ ORDER BY name
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_multiline_string_argument_ploc() {
         // Regression test for issue #415: a multi-line string passed as a call
@@ -2391,6 +2419,7 @@ line two
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_single_line_string_assignment_ploc() {
         // Single-line, non-docstring string: behaviour must be unchanged by
@@ -2404,6 +2433,7 @@ line two
         });
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_multiline_docstring_still_cloc() {
         // The fix for issue #415 must leave docstring classification unchanged:
@@ -2424,6 +2454,7 @@ line two
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_no_field_expression_lloc() {
         check_metrics::<RustParser>(
@@ -2466,6 +2497,7 @@ line two
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_no_parenthesized_expression_lloc() {
         check_metrics::<RustParser>("let a = (42 + 0);", "foo.rs", |metric| {
@@ -2500,6 +2532,7 @@ line two
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_no_array_expression_lloc() {
         check_metrics::<RustParser>("let a = [0; 42];", "foo.rs", |metric| {
@@ -2534,6 +2567,7 @@ line two
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_no_tuple_expression_lloc() {
         check_metrics::<RustParser>("let a = (0, 42);", "foo.rs", |metric| {
@@ -2568,6 +2602,7 @@ line two
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_no_unit_expression_lloc() {
         check_metrics::<RustParser>("let a = ();", "foo.rs", |metric| {
@@ -2602,6 +2637,7 @@ line two
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_call_function_lloc() {
         check_metrics::<RustParser>(
@@ -2642,6 +2678,7 @@ line two
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_macro_invocation_lloc() {
         check_metrics::<RustParser>(
@@ -2682,6 +2719,7 @@ line two
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_function_in_loop_lloc() {
         check_metrics::<RustParser>(
@@ -2722,6 +2760,7 @@ line two
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_function_in_if_lloc() {
         check_metrics::<RustParser>(
@@ -2761,6 +2800,7 @@ line two
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_function_in_return_lloc() {
         check_metrics::<RustParser>(
@@ -2800,6 +2840,7 @@ line two
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_closure_expression_lloc() {
         check_metrics::<RustParser>(
@@ -2840,6 +2881,7 @@ line two
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_general_loc() {
         check_metrics::<PythonParser>(
@@ -2883,6 +2925,7 @@ line two
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_real_loc() {
         check_metrics::<PythonParser>(
@@ -2936,6 +2979,7 @@ line two
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_real_loc() {
         check_metrics::<JavascriptParser>(
@@ -2978,6 +3022,7 @@ line two
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_real_loc() {
         check_metrics::<MozjsParser>(
@@ -3020,6 +3065,7 @@ line two
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_blank_and_comment_loc() {
         check_metrics::<MozjsParser>(
@@ -3062,6 +3108,7 @@ line two
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_namespace_loc() {
         check_metrics::<CppParser>(
@@ -3100,6 +3147,7 @@ line two
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_comments() {
         check_metrics::<JavaParser>(
@@ -3143,6 +3191,7 @@ line two
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_blank() {
         check_metrics::<JavaParser>(
@@ -3184,6 +3233,7 @@ line two
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_sloc() {
         check_metrics::<JavaParser>(
@@ -3224,6 +3274,7 @@ line two
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_module_sloc() {
         check_metrics::<JavaParser>(
@@ -3264,6 +3315,7 @@ line two
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_single_ploc() {
         check_metrics::<JavaParser>("int x = 1;", "foo.java", |metric| {
@@ -3298,6 +3350,7 @@ line two
         });
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_simple_ploc() {
         check_metrics::<JavaParser>(
@@ -3338,6 +3391,7 @@ line two
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_multi_ploc() {
         check_metrics::<JavaParser>(
@@ -3379,6 +3433,7 @@ line two
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_single_statement_lloc() {
         check_metrics::<JavaParser>("int max = 10;", "foo.java", |metric| {
@@ -3413,6 +3468,7 @@ line two
         });
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_for_lloc() {
         check_metrics::<JavaParser>(
@@ -3453,6 +3509,7 @@ line two
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_foreach_lloc() {
         check_metrics::<JavaParser>(
@@ -3495,6 +3552,7 @@ line two
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_while_lloc() {
         check_metrics::<JavaParser>(
@@ -3538,6 +3596,7 @@ line two
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_do_while_lloc() {
         check_metrics::<JavaParser>(
@@ -3581,6 +3640,7 @@ line two
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_switch_lloc() {
         check_metrics::<JavaParser>(
@@ -3634,6 +3694,7 @@ line two
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_continue_lloc() {
         check_metrics::<JavaParser>(
@@ -3677,6 +3738,7 @@ line two
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_try_lloc() {
         check_metrics::<JavaParser>(
@@ -3721,6 +3783,7 @@ line two
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_class_loc() {
         check_metrics::<JavaParser>(
@@ -3768,6 +3831,7 @@ line two
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_expressions_lloc() {
         check_metrics::<JavaParser>(
@@ -3817,6 +3881,7 @@ line two
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_statement_inline_loc() {
         check_metrics::<JavaParser>(
@@ -3855,6 +3920,7 @@ line two
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_general_loc() {
         check_metrics::<JavaParser>(
@@ -3903,6 +3969,7 @@ line two
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_main_class_loc() {
         check_metrics::<JavaParser>(
@@ -3952,6 +4019,7 @@ line two
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_general_loc() {
         check_metrics::<GoParser>(
@@ -4001,6 +4069,7 @@ line two
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_for_clause_does_not_double_count_lloc() {
         // Bare `for` body has only a return; the `for_statement` itself is the
@@ -4023,6 +4092,7 @@ line two
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_blank() {
         check_metrics::<GoParser>(
@@ -4068,6 +4138,7 @@ line two
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_cloc_line_comments() {
         check_metrics::<GoParser>(
@@ -4114,6 +4185,7 @@ line two
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_cloc_block_comments() {
         check_metrics::<GoParser>(
@@ -4159,6 +4231,7 @@ line two
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_lloc_if_for_switch() {
         check_metrics::<GoParser>(
@@ -4208,6 +4281,7 @@ line two
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_lloc_go_defer() {
         check_metrics::<GoParser>(
@@ -4252,6 +4326,7 @@ line two
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_lloc_var_const_declarations() {
         check_metrics::<GoParser>(
@@ -4300,6 +4375,7 @@ line two
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_lloc_select() {
         check_metrics::<GoParser>(
@@ -4348,6 +4424,7 @@ line two
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_sloc_multiline_function() {
         check_metrics::<GoParser>(
@@ -4394,6 +4471,7 @@ line two
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_code_comment_same_line() {
         check_metrics::<GoParser>(
@@ -4440,6 +4518,7 @@ line two
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_grammar_smoke() {
         // Pin the contract that tree-sitter-perl 1.1.2 cleanly parses every
@@ -4493,6 +4572,7 @@ END
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_blank() {
         check_metrics::<PerlParser>(
@@ -4533,6 +4613,7 @@ my $b = 43;
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_no_zero_blank() {
         // Blank line interleaved with code that carries trailing comments —
@@ -4555,6 +4636,7 @@ my $e = 5;",
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_blank_zero_sanity() {
         // Sanity check: blank must report 0, never go negative, when the
@@ -4578,6 +4660,7 @@ my $b = 2;",
     /// both tallies. This pinned `ploc 3` until #1137: the `#` token
     /// inside the `comments` node reached the PLOC catch-all, which also
     /// reclassified row 0 from comment-only to code-and-comment.
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_cloc_line_comments() {
         check_metrics::<PerlParser>(
@@ -4614,6 +4697,7 @@ my $b = 2;",
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_cloc_pod_block() {
         check_metrics::<PerlParser>(
@@ -4653,6 +4737,7 @@ my $y = 2;",
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_lloc_simple_statements() {
         check_metrics::<PerlParser>(
@@ -4689,6 +4774,7 @@ my $c = 3;",
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_lloc_compound_statements() {
         check_metrics::<PerlParser>(
@@ -4728,6 +4814,7 @@ while ($n > 0) {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_lloc_postfix_form_counts_once() {
         // `do_thing() if cond;` is one logical line — wrapped in
@@ -4744,6 +4831,7 @@ while ($n > 0) {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_lloc_use_statement() {
         check_metrics::<PerlParser>(
@@ -4780,6 +4868,7 @@ my $x = 1;",
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_lloc_for_loop() {
         check_metrics::<PerlParser>(
@@ -4794,6 +4883,7 @@ my $x = 1;",
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_lloc_loop_control_statement() {
         check_metrics::<PerlParser>(
@@ -4808,6 +4898,7 @@ my $x = 1;",
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_lloc_no_double_count_inside_single_line_statement() {
         // SEMI inside a single_line_statement (postfix form) is a child of
@@ -4823,6 +4914,7 @@ my $x = 1;",
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_lloc_function_definition_not_counted() {
         // `sub f { ... }` itself is a function space, not an LLOC; only its
@@ -4838,6 +4930,7 @@ my $x = 1;",
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_lloc_anonymous_function() {
         // `my $f = sub { return 1; };` — the assignment is one LLOC at the
@@ -4848,6 +4941,7 @@ my $x = 1;",
         });
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_multiline_string_assignment_ploc() {
         // Regression test for issue #778: interior rows of a multi-line string
@@ -5112,6 +5206,7 @@ line3\";",
         }
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_lloc_unless_until() {
         check_metrics::<PerlParser>(
@@ -5130,6 +5225,7 @@ until ($n == 0) {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_lloc_heredoc_body_not_counted() {
         // Heredoc body content is data, not code: the body lines should not
@@ -5159,6 +5255,7 @@ my $x = 1;",
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_lloc_package_and_require() {
         check_metrics::<PerlParser>(
@@ -5195,6 +5292,7 @@ my $x = 1;",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_blank() {
         check_metrics::<LuaParser>(
@@ -5213,6 +5311,7 @@ local y = 2",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_no_zero_blank() {
         // Blank line interleaved with code that carries trailing comments —
@@ -5235,6 +5334,7 @@ local e = 5",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_blank_zero_sanity() {
         // Sanity check: blank must report 0, never go negative, when the
@@ -5253,6 +5353,7 @@ local y = 2",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_cloc() {
         check_metrics::<LuaParser>(
@@ -5274,6 +5375,7 @@ local x = 1
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_lloc() {
         check_metrics::<LuaParser>(
@@ -5296,6 +5398,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_no_string_lloc() {
         // Long strings spanning multiple lines must not inflate lloc.
@@ -5320,6 +5423,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_no_functiondefinition_lloc() {
         // Anonymous function definition is an expression, not a statement.
@@ -5340,6 +5444,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_no_elseif_lloc() {
         // elseif_statement must not add lloc; only if_statement does.
@@ -5365,6 +5470,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_no_else_lloc() {
         // else_statement must not add lloc.
@@ -5388,6 +5494,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_functiondeclaration_lloc() {
         // Named function declaration counts as one lloc.
@@ -5407,6 +5514,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_local_function_lloc() {
         // local function declaration is also a function_declaration node → one lloc.
@@ -5426,6 +5534,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_for_numeric_lloc() {
         check_metrics::<LuaParser>(
@@ -5444,6 +5553,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_for_generic_lloc() {
         check_metrics::<LuaParser>(
@@ -5462,6 +5572,7 @@ end",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_repeat_lloc() {
         check_metrics::<LuaParser>(
@@ -5481,6 +5592,7 @@ until i >= 10",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_local_decl_lloc() {
         check_metrics::<LuaParser>(
@@ -5498,6 +5610,7 @@ local y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_function_call_lloc() {
         // Standalone function calls have no expression_statement wrapper in Lua.
@@ -5517,6 +5630,7 @@ local x = 1",
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_toplevel_assignment_lloc() {
         // Bare `x = 1` at chunk level: parent is Chunk, not VariableDeclaration,
@@ -5536,6 +5650,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_basic_loc() {
         check_metrics::<TsxParser>(
@@ -5582,6 +5697,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_basic_loc() {
         check_metrics::<TypescriptParser>(
@@ -5626,6 +5742,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_comments() {
         check_metrics::<CsharpParser>(
@@ -5647,6 +5764,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_blank() {
         check_metrics::<CsharpParser>(
@@ -5666,6 +5784,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_sloc() {
         check_metrics::<CsharpParser>(
@@ -5684,6 +5803,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_module_sloc() {
         check_metrics::<CsharpParser>(
@@ -5702,6 +5822,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_single_ploc() {
         check_metrics::<CsharpParser>("int x = 1;", "foo.cs", |metric| {
@@ -5714,6 +5835,7 @@ y, z = 2, 3",
         });
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_simple_ploc() {
         check_metrics::<CsharpParser>(
@@ -5732,6 +5854,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_multi_ploc() {
         check_metrics::<CsharpParser>(
@@ -5751,6 +5874,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_single_statement_lloc() {
         check_metrics::<CsharpParser>("int max = 10;", "foo.cs", |metric| {
@@ -5763,6 +5887,7 @@ y, z = 2, 3",
         });
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_for_lloc() {
         check_metrics::<CsharpParser>(
@@ -5781,6 +5906,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_foreach_lloc() {
         check_metrics::<CsharpParser>(
@@ -5799,6 +5925,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_while_lloc() {
         check_metrics::<CsharpParser>(
@@ -5818,6 +5945,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_do_while_lloc() {
         check_metrics::<CsharpParser>(
@@ -5837,6 +5965,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_switch_lloc() {
         check_metrics::<CsharpParser>(
@@ -5858,6 +5987,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_continue_lloc() {
         check_metrics::<CsharpParser>(
@@ -5877,6 +6007,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_try_lloc() {
         check_metrics::<CsharpParser>(
@@ -5899,6 +6030,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_class_loc() {
         check_metrics::<CsharpParser>(
@@ -5920,6 +6052,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_expressions_lloc() {
         check_metrics::<CsharpParser>(
@@ -5939,6 +6072,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_statement_inline_loc() {
         check_metrics::<CsharpParser>(
@@ -5955,6 +6089,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_general_loc() {
         check_metrics::<CsharpParser>(
@@ -5981,6 +6116,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_using_lloc() {
         // EC11 — `using_directive` does not bump LLOC; `using_statement`
@@ -6011,6 +6147,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_loc_basic() {
         check_metrics::<KotlinParser>(
@@ -6055,6 +6192,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_loc_bare_expression() {
         check_metrics::<KotlinParser>(
@@ -6099,6 +6237,7 @@ y, z = 2, 3",
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_loc() {
         check_metrics::<BashParser>(
@@ -6125,6 +6264,7 @@ f",
     // CRLF regression tests: metrics must be identical regardless of line ending style.
     // These also serve as canaries for tree-sitter row-counting behaviour with \r bytes.
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_cloc_crlf_matches_lf() {
         check_metrics::<PythonParser>("# comment\nx = 1", "foo.py", |m| {
@@ -6150,6 +6290,7 @@ f",
         });
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_blank_crlf_matches_lf() {
         check_metrics::<PythonParser>("# comment\n\nx = 1", "foo.py", |m| {
@@ -6164,6 +6305,7 @@ f",
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_cloc_crlf_matches_lf() {
         check_metrics::<RustParser>(
@@ -6194,6 +6336,7 @@ f",
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_blank() {
         check_metrics::<TclParser>("set x 1\n\nset y 2", "foo.tcl", |metric| {
@@ -6206,6 +6349,7 @@ f",
         });
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_no_zero_blank() {
         // Blank line interleaved with code that carries trailing comments —
@@ -6228,6 +6372,7 @@ f",
     /// #1135: the `LF` token terminating the comment row landed in the
     /// `_` catch-all and inserted that row into PLOC, which also drove
     /// `cloc + ploc` past `sloc`.
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_cloc() {
         check_metrics::<TclParser>("# This is a comment\nset x 1", "foo.tcl", |metric| {
@@ -6240,6 +6385,7 @@ f",
         });
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_lloc() {
         check_metrics::<TclParser>(
@@ -6262,6 +6408,7 @@ f",
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_no_command_substitution_lloc() {
         // `string toupper` inside [...] is a sub-expression; only `puts` is top-level.
@@ -6275,6 +6422,7 @@ f",
         });
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_procedure_lloc() {
         check_metrics::<TclParser>("proc foo {} {\n    puts hello\n}", "foo.tcl", |metric| {
@@ -6287,6 +6435,7 @@ f",
         });
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_if_lloc() {
         check_metrics::<TclParser>("if {1} {\n    puts hello\n}", "foo.tcl", |metric| {
@@ -6299,6 +6448,7 @@ f",
         });
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_elseif_lloc() {
         // if=1 lloc, elseif=1 lloc, else adds 0 lloc
@@ -6322,6 +6472,7 @@ f",
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_while_lloc() {
         check_metrics::<TclParser>(
@@ -6338,6 +6489,7 @@ f",
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_foreach_lloc() {
         check_metrics::<TclParser>(
@@ -6354,6 +6506,7 @@ f",
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_set_lloc() {
         check_metrics::<TclParser>("set x 42", "foo.tcl", |metric| {
@@ -6366,6 +6519,7 @@ f",
         });
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_global_lloc() {
         check_metrics::<TclParser>("global x", "foo.tcl", |metric| {
@@ -6378,6 +6532,7 @@ f",
         });
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_try_catch_lloc() {
         // try=1 lloc; catch command=1 lloc; commands inside bodies count separately
@@ -6402,6 +6557,7 @@ try {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_namespace_lloc() {
         check_metrics::<TclParser>(
@@ -6418,6 +6574,7 @@ try {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_regexp_lloc() {
         check_metrics::<TclParser>("regexp {^[0-9]+$} $x", "foo.tcl", |metric| {
@@ -6430,6 +6587,7 @@ try {
         });
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_expr_cmd_lloc() {
         check_metrics::<TclParser>("expr {1 + 2}", "foo.tcl", |metric| {
@@ -6442,6 +6600,7 @@ try {
         });
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_no_expr_cmd_substitution_lloc() {
         // `expr` inside [...] is a sub-expression, not a statement; only `set` counts.
@@ -6455,6 +6614,7 @@ try {
         });
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_nested_commands_lloc() {
         // Commands inside proc body are recursively parsed; verify each counts.
@@ -6475,6 +6635,7 @@ try {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_command_lloc() {
         check_metrics::<TclParser>("puts hello", "foo.tcl", |metric| {
@@ -6487,6 +6648,7 @@ try {
         });
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_no_else_lloc() {
         // `else` block does not add a logical line.
@@ -6504,6 +6666,7 @@ try {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_no_finally_lloc() {
         // `finally` block, like `else`, does not add a logical line.
@@ -6521,6 +6684,7 @@ try {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_multiline_block() {
         check_metrics::<TclParser>(
@@ -6542,6 +6706,7 @@ try {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_no_string_lloc() {
         // Multi-line double-quoted strings must not inflate lloc — only the
@@ -6570,6 +6735,7 @@ try {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_multiline_quoted_word_credits_every_row_to_ploc() {
         // Regression test for #1260. A Tcl `quoted_word` carries no child
@@ -6603,6 +6769,7 @@ try {
         });
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_braced_word_body_blank_rows_stay_blank() {
         // The #1260 arm deliberately stops at `quoted_word`. Tcl spells a
@@ -6628,6 +6795,7 @@ try {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_blank() {
         check_metrics::<JavascriptParser>(
@@ -6650,6 +6818,7 @@ try {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_cloc() {
         check_metrics::<JavascriptParser>(
@@ -6671,6 +6840,7 @@ try {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_cloc_html_comment() {
         // The Annex-B `<!-- -->` `html_comment` must count as CLOC, not
@@ -6692,6 +6862,7 @@ function f() {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_blank() {
         check_metrics::<MozjsParser>(
@@ -6712,6 +6883,7 @@ function f() {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_cloc() {
         check_metrics::<MozjsParser>(
@@ -6732,6 +6904,7 @@ function f() {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_no_zero_blank() {
         // Blank line interleaved with code that carries trailing comments —
@@ -6754,6 +6927,7 @@ function f() {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_arrow_function_loc() {
         check_metrics::<MozjsParser>(
@@ -6773,6 +6947,7 @@ function f() {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_multiple_functions_loc() {
         check_metrics::<MozjsParser>(
@@ -6794,6 +6969,7 @@ function f() {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_nested_function_loc() {
         check_metrics::<MozjsParser>(
@@ -6815,6 +6991,7 @@ function f() {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_if_lloc() {
         check_metrics::<MozjsParser>(
@@ -6849,8 +7026,22 @@ function f() {
     // invariant — every brace block now contributes 0 lloc, as it always
     // had elsewhere. Pre-#777 the JS variants reported lloc 6 (three brace
     // blocks over-counted) against C's and Rust's 3.
+    #[cfg(all(
+        feature = "cpp",
+        feature = "javascript",
+        feature = "mozjs",
+        feature = "rust",
+        feature = "typescript",
+    ))]
     #[test]
     fn js_family_if_lloc_matches_c_and_rust() {
+        #[cfg(any(
+            feature = "cpp",
+            feature = "javascript",
+            feature = "mozjs",
+            feature = "rust",
+            feature = "typescript",
+        ))]
         const JS_SRC: &str = "function f(x) {
             if (x > 0) {
                 return 1;
@@ -6858,6 +7049,13 @@ function f() {
                 return -1;
             }
         }";
+        #[cfg(any(
+            feature = "cpp",
+            feature = "javascript",
+            feature = "mozjs",
+            feature = "rust",
+            feature = "typescript",
+        ))]
         const C_SRC: &str = "int f(int x) {
             if (x > 0) {
                 return 1;
@@ -6865,6 +7063,13 @@ function f() {
                 return -1;
             }
         }";
+        #[cfg(any(
+            feature = "cpp",
+            feature = "javascript",
+            feature = "mozjs",
+            feature = "rust",
+            feature = "typescript",
+        ))]
         const RUST_SRC: &str = "fn f(x: i32) -> i32 {
             if x > 0 {
                 return 1;
@@ -6875,6 +7080,13 @@ function f() {
 
         // The logical-statement count is grammar-independent: one `if`
         // plus two `return`s, regardless of brace style or language.
+        #[cfg(any(
+            feature = "cpp",
+            feature = "javascript",
+            feature = "mozjs",
+            feature = "rust",
+            feature = "typescript",
+        ))]
         const EXPECTED_LLOC: usize = 3;
 
         check_metrics::<CppParser>(C_SRC, "f.c", |m| {
@@ -6897,6 +7109,7 @@ function f() {
         });
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_for_lloc() {
         check_metrics::<MozjsParser>(
@@ -6919,6 +7132,7 @@ function f() {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_blank() {
         check_metrics::<BashParser>(
@@ -6941,6 +7155,7 @@ function f() {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_cloc() {
         check_metrics::<BashParser>(
@@ -6961,6 +7176,7 @@ function f() {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_no_zero_blank() {
         // Blank line interleaved with code that carries trailing comments —
@@ -6983,6 +7199,7 @@ function f() {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_comment_before_code_line_reclassified() {
         // Regression for #547: a standalone `#` comment sitting on a line
@@ -7038,6 +7255,7 @@ function f() {
         });
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_if_lloc() {
         check_metrics::<BashParser>(
@@ -7060,6 +7278,7 @@ function f() {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_for_lloc() {
         check_metrics::<BashParser>(
@@ -7080,6 +7299,7 @@ function f() {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_while_lloc() {
         check_metrics::<BashParser>(
@@ -7120,6 +7340,7 @@ function f() {
     /// Both halves need a row: a table of standalone assignments alone
     /// passes with the parent gate deleted, and a table of wrapped ones
     /// alone passes with the alias never added.
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_assignment_counts_one_logical_line_per_statement() {
         for (source, lloc) in [
@@ -7138,6 +7359,7 @@ function f() {
         }
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_case_lloc() {
         check_metrics::<BashParser>(
@@ -7160,6 +7382,7 @@ function f() {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_multiple_functions_loc() {
         check_metrics::<BashParser>(
@@ -7181,6 +7404,7 @@ function f() {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_nested_function_loc() {
         check_metrics::<BashParser>(
@@ -7203,6 +7427,7 @@ function f() {
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_heredoc_loc() {
         // expected: six physical rows (`f() {`, `cat <<EOF`, `line1`,
@@ -7230,6 +7455,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_multiline_literals_credit_every_row_to_ploc() {
         // Regression test for #1260. Bash routed no string kind to a
@@ -7488,6 +7714,7 @@ EOF
         }
     }
 
+    #[cfg(feature = "bash")]
     #[test]
     fn bash_literal_that_owns_its_opening_row_still_credits_it() {
         // The other branch of `add_multiline_string_ploc`'s parent gate,
@@ -7556,6 +7783,7 @@ EOF
         });
     }
 
+    #[cfg(all(feature = "bash", feature = "tcl"))]
     #[test]
     fn a_multiline_literal_credits_no_row_past_its_own_span() {
         // The #1260 arms insert a *range* of rows, so the row after the
@@ -7590,6 +7818,7 @@ EOF
         });
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_loc_blank() {
         check_metrics::<KotlinParser>(
@@ -7611,6 +7840,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_loc_cloc() {
         check_metrics::<KotlinParser>(
@@ -7632,6 +7862,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_loc_no_zero_blank() {
         // Checks that the blank metric is not equal to 0 when there are some
@@ -7687,6 +7918,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_loc_blank_zero_sanity() {
         // Sanity: when the source has no blank lines, blank() must be 0.
@@ -7710,6 +7942,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_loc_if_lloc() {
         check_metrics::<KotlinParser>(
@@ -7733,6 +7966,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_loc_for_lloc() {
         check_metrics::<KotlinParser>(
@@ -7755,6 +7989,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_loc_when_lloc() {
         check_metrics::<KotlinParser>(
@@ -7777,6 +8012,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_loc_lambda_lloc() {
         check_metrics::<KotlinParser>(
@@ -7796,6 +8032,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_loc_class_loc() {
         check_metrics::<KotlinParser>(
@@ -7816,6 +8053,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_loc_multiple_functions_loc() {
         check_metrics::<KotlinParser>(
@@ -7837,6 +8075,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_loc_while_lloc() {
         check_metrics::<KotlinParser>(
@@ -7859,6 +8098,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_blank() {
         check_metrics::<TypescriptParser>(
@@ -7879,6 +8119,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_cloc() {
         check_metrics::<TypescriptParser>(
@@ -7900,6 +8141,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_no_zero_blank() {
         // Blank line interleaved with code that carries trailing comments —
@@ -7922,6 +8164,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_if_lloc() {
         check_metrics::<TypescriptParser>(
@@ -7944,6 +8187,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_for_lloc() {
         check_metrics::<TypescriptParser>(
@@ -7966,6 +8210,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_while_lloc() {
         check_metrics::<TypescriptParser>(
@@ -7988,6 +8233,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_switch_lloc() {
         check_metrics::<TypescriptParser>(
@@ -8010,6 +8256,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_class_loc() {
         check_metrics::<TypescriptParser>(
@@ -8030,6 +8277,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_arrow_function_loc() {
         check_metrics::<TypescriptParser>(
@@ -8049,6 +8297,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_interface_loc() {
         check_metrics::<TypescriptParser>(
@@ -8071,6 +8320,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_multiple_functions_loc() {
         check_metrics::<TypescriptParser>(
@@ -8095,6 +8345,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_try_catch_lloc() {
         check_metrics::<TypescriptParser>(
@@ -8117,6 +8368,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_nested_functions_loc() {
         check_metrics::<TypescriptParser>(
@@ -8138,6 +8390,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_generic_function_loc() {
         check_metrics::<TypescriptParser>(
@@ -8159,6 +8412,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_blank() {
         check_metrics::<TsxParser>(
@@ -8179,6 +8433,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_cloc() {
         check_metrics::<TsxParser>(
@@ -8200,6 +8455,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_no_zero_blank() {
         // Blank line interleaved with code that carries trailing comments —
@@ -8222,6 +8478,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_if_lloc() {
         check_metrics::<TsxParser>(
@@ -8244,6 +8501,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_for_lloc() {
         check_metrics::<TsxParser>(
@@ -8266,6 +8524,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_while_lloc() {
         check_metrics::<TsxParser>(
@@ -8288,6 +8547,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_switch_lloc() {
         check_metrics::<TsxParser>(
@@ -8310,6 +8570,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_class_loc() {
         check_metrics::<TsxParser>(
@@ -8330,6 +8591,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_arrow_function_loc() {
         check_metrics::<TsxParser>(
@@ -8349,6 +8611,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_multiple_functions_loc() {
         check_metrics::<TsxParser>(
@@ -8373,6 +8636,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_try_catch_lloc() {
         check_metrics::<TsxParser>(
@@ -8395,6 +8659,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_nested_functions_loc() {
         check_metrics::<TsxParser>(
@@ -8416,6 +8681,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_interface_loc() {
         check_metrics::<TsxParser>(
@@ -8438,6 +8704,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_generic_function_loc() {
         check_metrics::<TsxParser>(
@@ -8459,6 +8726,7 @@ EOF
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_blank() {
         check_metrics::<PhpParser>(
@@ -8481,6 +8749,7 @@ $b = 2;
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_no_zero_blank() {
         // Blank line interleaved with code that carries trailing comments —
@@ -8503,6 +8772,7 @@ $c = 3; // trailing
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_cloc_double_slash() {
         check_metrics::<PhpParser>(
@@ -8522,6 +8792,7 @@ $a = 1; // trailing",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_cloc_hash() {
         check_metrics::<PhpParser>(
@@ -8541,6 +8812,7 @@ $a = 1;",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_cloc_block() {
         check_metrics::<PhpParser>(
@@ -8562,6 +8834,7 @@ $a = 1;",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_lloc() {
         // Three statements: assignment, if (with body), echo.
@@ -8583,6 +8856,7 @@ if ($a > 0) {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_no_parenthesized_expression_lloc() {
         // Parenthesized expression should not add an extra LLOC over the
@@ -8602,6 +8876,7 @@ $a = (1 + 2);",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_no_compound_statement_lloc() {
         // Block wrappers (`{ … }`) are not LLOC themselves.
@@ -8622,6 +8897,7 @@ function f(): void {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_no_colon_block_lloc() {
         // Alternative syntax (`if: … endif;`) uses ColonBlock instead of
@@ -8643,6 +8919,7 @@ endif;",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_no_else_clause_lloc() {
         // ElseClause and ElseIfClause are sub-parts of IfStatement.
@@ -8667,6 +8944,7 @@ if ($x) {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_no_case_statement_lloc() {
         // CaseStatement / DefaultStatement are switch arms, not separate
@@ -8695,6 +8973,7 @@ switch ($x) {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_no_match_arm_lloc() {
         // MatchConditionalExpression / MatchDefaultExpression are arms;
@@ -8718,6 +8997,7 @@ $a = match ($x) {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_no_throw_in_expression_lloc() {
         // PHP 8 `throw` as expression: only the surrounding statement
@@ -8737,6 +9017,7 @@ $x = $y ?? throw new \\Exception('nope');",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_no_closure_in_assignment_lloc() {
         // Anonymous function as RHS does not add an LLOC; only the
@@ -8759,6 +9040,7 @@ $f = function (): int {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_for_lloc() {
         // The for_statement contributes 1 LLOC; init/cond/update are NOT
@@ -8780,6 +9062,7 @@ for ($i = 0; $i < 10; $i++) {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_foreach_lloc() {
         check_metrics::<PhpParser>(
@@ -8799,6 +9082,7 @@ foreach ($items as $k => $v) {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_try_lloc() {
         check_metrics::<PhpParser>(
@@ -8822,6 +9106,7 @@ try {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_class_loc() {
         check_metrics::<PhpParser>(
@@ -8845,6 +9130,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_namespace_use_lloc() {
         check_metrics::<PhpParser>(
@@ -8865,6 +9151,7 @@ $a = 1;",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_general_loc() {
         check_metrics::<PhpParser>(
@@ -8895,6 +9182,7 @@ class Bar {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_match_in_expression_lloc() {
         // Match inside another expression (e.g. assignment RHS) — the
@@ -8914,6 +9202,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_html_island_ploc() {
         // Embedded HTML between PHP tags ("text interpolation"). HTML
@@ -8938,6 +9227,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_short_echo_tag_ploc() {
         // `<?=` is the same `php_tag` kind as `<?php` per
@@ -9308,6 +9598,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_blank() {
         // Two blank lines separate three top-level expressions.
@@ -9351,6 +9642,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_no_zero_blank() {
         // Blank line interleaved with code that carries trailing comments —
@@ -9367,6 +9659,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_blank_zero_sanity() {
         // Sanity check: blank must report 0, never go negative, when the
@@ -9380,6 +9673,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_cloc() {
         // Mix of standalone comments and a comment on the same line as
@@ -9393,6 +9687,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_lloc() {
         // Two statements at the top level of the module body — the
@@ -9408,6 +9703,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_no_nested_call_lloc() {
         // Calls nested inside another call's arguments are NOT direct
@@ -9422,6 +9718,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_no_binary_operator_inside_call_lloc() {
         // Binary operators inside call arguments are sub-expressions,
@@ -9438,6 +9735,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_stab_clause_counts_lloc() {
         // Each `stab_clause` arm in a `case do ... end` is a direct
@@ -9452,6 +9750,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_no_comment_lloc() {
         // Comments are direct children of a statement container but
@@ -9467,6 +9766,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_no_do_token_lloc() {
         // The `do` and `end` keyword tokens are unnamed leaves inside a
@@ -9480,6 +9780,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         });
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_no_keyword_pair_lloc() {
         // `key: value` keyword pairs inside an argument list (`def f,
@@ -9495,6 +9796,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_no_string_content_lloc() {
         // `quoted_content` chunks inside a heredoc / regular string are
@@ -9511,6 +9813,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_multiline_string_forms_credit_every_row_to_ploc() {
         // Regression test for #1260. `quoted_content` — the literal text of
@@ -9552,6 +9855,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         });
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_module_attribute_docstring_rows_are_ploc_not_cloc() {
         // #1260 had to choose a bucket for `@doc` / `@moduledoc` heredoc
@@ -9580,6 +9884,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_rescue_arm_counts_lloc() {
         // Each rescue arm's body has a single expression (e.g. `:bad`)
@@ -9597,6 +9902,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_no_arg_punctuation_lloc() {
         // Function-call arguments (`a, b` inside `def add(a, b)`) are
@@ -9612,6 +9918,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_no_list_element_lloc() {
         // List literal elements live under a `list` node, not a
@@ -9626,6 +9933,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_no_map_field_lloc() {
         // Map `pair`s live under `map`, not a statement container.
@@ -9638,6 +9946,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_anonymous_fn_body_lloc() {
         // `lloc()` on the Unit space returns the aggregate (own +
@@ -9656,6 +9965,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_blank() {
         // The parser's root span starts at the first non-blank line, so
@@ -9666,6 +9976,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_no_zero_blank() {
         // Mirrors `rust_no_zero_blank`: the blank counter must stay
@@ -9682,6 +9993,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_cloc() {
         // 3 comment lines.
@@ -9694,6 +10006,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_lloc() {
         // expected: 3 logical lines = `def` (Method) + `if` (If) +
@@ -9708,6 +10021,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_no_call_lloc() {
         // expected: 1 logical line (the surrounding `def`). The bare
@@ -9723,6 +10037,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_no_assignment_lloc() {
         // Same rationale as `ruby_no_call_lloc`. expected: 1 lloc
@@ -9736,6 +10051,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_modifier_lloc() {
         // Postfix modifier forms each count as one logical line. A
@@ -9752,6 +10068,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_class_lloc() {
         // expected: 1 class + 1 module + 2 methods = 4.
@@ -9764,6 +10081,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_begin_rescue_lloc() {
         // expected: 1 def + 1 begin = 2. Rescue clauses are part of
@@ -9778,6 +10096,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_nested_defs_lloc() {
         // Each `Method` declaration contributes one logical line.
@@ -9791,6 +10110,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_no_block_body_lloc() {
         // A top-level `[1,2,3].each do |x| puts x end` produces zero
@@ -9807,6 +10127,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_no_lambda_body_lloc() {
         // `add = ->(a, b) { a + b }` produces zero logical lines for
@@ -9818,6 +10139,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_heredoc_lloc_and_blank() {
         // A `<<~TXT` heredoc contributes: SLOC = every line in the file
@@ -9838,6 +10160,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_semicolon_multistatement_lloc_undercount() {
         // Documented limitation: Ruby has no `expression_statement`
@@ -9855,6 +10178,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_ploc_skips_comments_and_blanks() {
         // PLOC counts physical instruction lines: code-bearing lines
@@ -9874,6 +10198,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
     // (`typescript_nested_functions_loc`, `tsx_nested_functions_loc`).
     // -----------------------------------------------------------------
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_nested_def_lloc() {
         // Nested `def`: the inner function declaration plus the outer
@@ -9893,6 +10218,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_lambda_in_def_lloc() {
         // `lambda x: x + 1` is an expression, not a Python `function_definition`,
@@ -9912,6 +10238,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_match_statement_lloc() {
         // `match` (PEP 634) is a control-flow statement that must add one
@@ -9930,6 +10257,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_match_lloc_matches_if_else() {
         // Parity with the equivalent two-branch `if`/`else`: both have the
@@ -9951,6 +10279,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_type_alias_lloc() {
         // A `type` alias (PEP 695) is a leaf statement, counted like an
@@ -9963,6 +10292,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         });
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_local_class_in_method_lloc() {
         // A `class` declared inside a method body produces its own function
@@ -9982,6 +10312,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_lambda_in_method_lloc() {
         // Java lambdas are expressions; the two LLOC come from the
@@ -10001,6 +10332,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_blank() {
         // Blank lines + simple statements. Newlines act as the
@@ -10013,6 +10345,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         });
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_no_zero_blank() {
         // A single line with no blanks: blank() == 0.
@@ -10022,6 +10355,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         });
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_cloc_line_comments() {
         check_metrics::<GroovyParser>(
@@ -10037,6 +10371,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_cloc_block_comment() {
         check_metrics::<GroovyParser>(
@@ -10052,6 +10387,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_cloc_groovydoc_comment() {
         // Groovy `/** … */` `groovydoc_comment` counts as CLOC. The
@@ -10070,6 +10406,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_simple_lloc() {
         // One LLOC per simple expression statement.
@@ -10084,6 +10421,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_no_local_variable_declaration_in_for_lloc() {
         // The variable declaration inside a classic `for` init slot
@@ -10101,6 +10439,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_lambda_in_method_lloc() {
         // Closures contain a statement list — the dekobon grammar wraps
@@ -10123,6 +10462,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_try_lloc() {
         // try-statement counts as one LLOC; the catch body's
@@ -10143,6 +10483,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_class_loc() {
         // Source-file-level totals across multiple methods.
@@ -10169,6 +10510,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_partial_parse_recovers_unit() {
         // Malformed input parses with ERROR but still emits a Unit
@@ -10181,6 +10523,7 @@ class A {
         });
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_sloc() {
         // Mirrors `java_sloc`: basic per-line count across a mix of
@@ -10199,6 +10542,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_single_ploc() {
         // Mirrors `java_single_ploc`: one non-blank, non-comment
@@ -10209,6 +10553,7 @@ class A {
         });
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_multi_ploc() {
         // Multiple statements on separate lines all contribute to
@@ -10226,6 +10571,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_single_statement_lloc() {
         // A single expression statement contributes one LLOC.
@@ -10235,6 +10581,7 @@ class A {
         });
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_for_lloc() {
         // The classical `for` statement itself counts as one LLOC;
@@ -10253,6 +10600,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_foreach_lloc() {
         // `for (item in list)` parses as `enhanced_for_statement` —
@@ -10269,6 +10617,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_while_lloc() {
         // `while` itself is one LLOC; each body statement adds
@@ -10287,6 +10636,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_do_while_lloc() {
         // `do…while` is one LLOC plus its body. Mirrors
@@ -10304,6 +10654,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_continue_lloc() {
         // `continue` is an LLOC. Same gating as `java_continue_lloc`.
@@ -10322,6 +10673,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_expressions_lloc() {
         // A bag of expression statements: each independent
@@ -10340,6 +10692,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_throw_lloc() {
         // `throw` is one LLOC via the `ThrowStatement` arm.
@@ -10352,6 +10705,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_general_loc() {
         // Comprehensive mix: class + method + control flow.
@@ -10384,6 +10738,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_local_function_in_method_lloc() {
         // C# local functions (`int Inner(int x) { ... }` inside `Bar()`)
@@ -10403,6 +10758,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_lambda_in_method_lloc() {
         // C# lambdas are expressions: the two LLOC come from the
@@ -10421,6 +10777,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_lambda_in_function_lloc() {
         // C++11 lambdas are expressions. The outer function `bar()` produces
@@ -10444,6 +10801,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_nested_function_lloc() {
         // Nested function_declaration: 4 LLOC = outer's `return inner();`,
@@ -10463,6 +10821,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_arrow_function_lloc() {
         // The arrow function `(x) => x + 1` is an expression: the LLOC
@@ -10481,6 +10840,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_lambda_literal_in_fun_lloc() {
         // A lambda literal (`{ x -> x + 1 }`) assigned to a `val` plus the
@@ -10499,6 +10859,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_local_fun_in_fun_lloc() {
         // Kotlin's local `fun inner(...)` is also a function_declaration,
@@ -10518,6 +10879,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_object_expression_in_fun_lloc() {
         // An `object : Runnable { ... }` expression with an overridden
@@ -10537,6 +10899,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_function_literal_initializer_lloc() {
         // `inner := func(x int) int { return x + 1 }` — the function
@@ -10557,6 +10920,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_anonymous_function_in_function_lloc() {
         // Anonymous function `function ($x) { return $x + 1; }`: outer
@@ -10576,6 +10940,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_arrow_function_in_function_lloc() {
         // The `fn ($x) => $x + 1` arrow function is an expression; the
@@ -10594,6 +10959,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_nested_local_function_lloc() {
         // Two nested `local function` declarations: outer + inner both
@@ -10613,6 +10979,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "lua")]
     #[test]
     fn lua_function_expression_in_local_decl_lloc() {
         // `local f = function (x) return x + 1 end` — the function
@@ -10633,6 +11000,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "tcl")]
     #[test]
     fn tcl_apply_closure_lloc() {
         // `apply $f 2` is a regular Tcl command, not a separate function
@@ -10655,6 +11023,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_anonymous_sub_in_sub_lloc() {
         // Anonymous sub `sub { ... }` opens its own function space; the
@@ -10680,6 +11049,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_named_sub_in_sub_lloc() {
         // Perl `sub` declarations are not LLOC (see
@@ -10710,6 +11080,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_fn_inside_def_lloc() {
         // `fn x -> x + 1 end` inside a `def`: defmodule + def +
@@ -10740,6 +11111,7 @@ class A {
     /// spans are larger; `sloc_min` must be the small leaf, not the class
     /// or unit span. Verified against the pre-fix code by reverting the
     /// merge/compute_minmax change (it reports the unit span instead).
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_nested_min_max_propagates() {
         check_metrics::<RustParser>(
@@ -10770,6 +11142,7 @@ class A {
     /// `java_class_loc` snapshot above showed the bug directly: a class
     /// with methods reported `sloc_min == sloc` (the unit span). Here we
     /// assert the smallest method propagates.
+    #[cfg(feature = "java")]
     #[test]
     fn java_nested_min_max_propagates() {
         check_metrics::<JavaParser>(
@@ -10789,6 +11162,7 @@ class A {
     /// Python sibling of `rust_nested_min_max_propagates` (#437). Python
     /// nesting is class -> method, mirroring the worked example in the
     /// issue (file -> class C -> method m).
+    #[cfg(feature = "python")]
     #[test]
     fn python_nested_min_max_propagates() {
         check_metrics::<PythonParser>(
@@ -10853,6 +11227,12 @@ class A {
     /// instead of unioning would report `ploc`/`cloc` of 2 against an
     /// `sloc` of 1 — an impossible reading that also drives `blank`
     /// negative.
+    #[cfg(all(
+        feature = "cpp",
+        feature = "javascript",
+        feature = "python",
+        feature = "rust"
+    ))]
     #[test]
     fn sibling_spaces_sharing_a_line_count_it_once() {
         check_metrics::<RustParser>(
@@ -10907,6 +11287,7 @@ class A {
     /// `sloc == 1`, the `cloc > sloc` state that pushes MI's
     /// comments_percentage above 100% (the failure mode of issue #461,
     /// here across the space merge rather than within one space).
+    #[cfg(all(feature = "cpp", feature = "rust"))]
     #[test]
     fn sibling_spaces_sharing_a_comment_line_count_it_once() {
         check_metrics::<CppParser>(
@@ -10943,6 +11324,7 @@ class A {
     /// agree whenever the sets happen to be disjoint, and the point of
     /// #1109 is the repeated fold. The body row belongs to every level's
     /// span, so a merge that accumulated would report `ploc == 15`.
+    #[cfg(feature = "rust")]
     #[test]
     fn a_row_folded_through_nested_spaces_counts_once() {
         const DEPTH: usize = 15;
@@ -10967,6 +11349,7 @@ class A {
     /// the MI comments_percentage above 100% (issue #461). Reverting
     /// the per-line de-dup in `add_code_comment_line` makes the
     /// `cloc == 1` assertions fail with `2`.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cloc_multiple_block_comments_one_line_cpp() {
         check_metrics::<CppParser>(
@@ -10989,6 +11372,7 @@ class A {
     /// Sibling-language coverage: `add_cloc_lines` is shared across
     /// every block-comment language, so the Rust path must behave
     /// identically to C++ (issue #461).
+    #[cfg(feature = "rust")]
     #[test]
     fn cloc_multiple_block_comments_one_line_rust() {
         check_metrics::<RustParser>(
@@ -11008,6 +11392,7 @@ class A {
     /// must still contribute one comment line per physical line it
     /// spans. The de-dup keys on the start row only, so the three
     /// independent continuation lines are unaffected (issue #461).
+    #[cfg(feature = "cpp")]
     #[test]
     fn cloc_multiline_block_comment_counts_each_line() {
         check_metrics::<CppParser>(
@@ -11031,6 +11416,7 @@ class A {
     /// violating `cloc <= sloc`. Reverting the per-line set in
     /// `add_only_comment_lines` makes the `cloc == 1` assertion fail
     /// with `2` (verified by reverting to `only_comment_lines += …`).
+    #[cfg(feature = "cpp")]
     #[test]
     fn cloc_multiple_standalone_block_comments_one_line_cpp() {
         check_metrics::<CppParser>("/*a*/ /*b*/", "foo.cpp", |metric| {
@@ -11050,6 +11436,7 @@ class A {
     /// Sibling-language coverage: the standalone de-dup lives in the
     /// shared `add_only_comment_lines` helper, so Rust must match C++
     /// (issue #461 follow-up).
+    #[cfg(feature = "rust")]
     #[test]
     fn cloc_multiple_standalone_block_comments_one_line_rust() {
         check_metrics::<RustParser>("/*a*/ /*b*/", "foo.rs", |metric| {
@@ -11072,6 +11459,7 @@ class A {
     /// summed `code_comment_lines` (and double-counted a boundary line)
     /// rather than reading the per-line set. Three standalone comments
     /// share line 1, so the whole file has exactly one comment line.
+    #[cfg(feature = "cpp")]
     #[test]
     fn cloc_standalone_comments_then_code_no_double_count() {
         check_metrics::<CppParser>("/*a*/ /*b*/ /*c*/\nint x = 1;\n", "foo.cpp", |metric| {
@@ -11088,6 +11476,7 @@ class A {
         });
     }
 
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_multiline_quoted_word_credits_every_row_to_ploc() {
         // Regression test for #1260, the dialect half of the Tcl fix: a
@@ -11128,6 +11517,7 @@ class A {
     /// Also the dialect's half of the #1260 carve-out: the handler body is
     /// a `braced_word`, which the grammar parses as a script, so its blank
     /// rows stay blank — only `quoted_word` is routed to PLOC.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_blank() {
         check_metrics::<IrulesParser>(
@@ -11145,6 +11535,7 @@ class A {
 
     /// A handler body with no blank lines reports zero BLANK. lloc 3 =
     /// handler + `set` + `log` command.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_no_zero_blank() {
         check_metrics::<IrulesParser>(
@@ -11167,6 +11558,7 @@ class A {
     /// them this test passed all the way through #1135, which credited
     /// each of the three comment rows to PLOC as well (`ploc == 4`,
     /// `cloc + ploc == 7` against `sloc == 4`).
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_cloc() {
         check_metrics::<IrulesParser>(
@@ -11184,6 +11576,7 @@ class A {
     /// LLOC counts each statement once: handler header, `if`, `set`, and the
     /// generic `log` command = 4. The `switch_arm` headers are not counted
     /// (their bodies' commands are), verified in `irules_switch_lloc`.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_lloc() {
         check_metrics::<IrulesParser>(
@@ -11200,6 +11593,7 @@ class A {
     /// handler + `set`; the inner `expr` is NOT counted. Removing the
     /// `CommandSubstitution` guard would push lloc to 3 — this is the loc
     /// gating-decision regression test.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_no_command_substitution_lloc() {
         check_metrics::<IrulesParser>(
@@ -11214,6 +11608,7 @@ class A {
     /// `switch` counts once; each arm's *body* command counts, but the
     /// `switch_arm` pattern/body pair itself is not a logical line. lloc 4 =
     /// handler + `switch` + two `set`s (one per arm body).
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_switch_lloc() {
         check_metrics::<IrulesParser>(
@@ -11227,6 +11622,7 @@ class A {
 
     /// A `proc` definition and its `return` command are each one logical
     /// line: lloc 2.
+    #[cfg(feature = "irules")]
     #[test]
     fn irules_proc_lloc() {
         check_metrics::<IrulesParser>(
@@ -11240,6 +11636,7 @@ class A {
 
     /// Objective-C blank-line accounting: two code lines separated by
     /// blank lines.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_blank() {
         check_metrics::<ObjcParser>(
@@ -11283,6 +11680,7 @@ class A {
 
     /// Objective-C comment accounting: a block comment and a line
     /// comment each contribute to `cloc`.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_cloc() {
         check_metrics::<ObjcParser>(
@@ -11323,6 +11721,7 @@ class A {
     /// Objective-C logical-line accounting: a method whose body has three
     /// statements. The `method_definition` opens a function space but is
     /// not itself a logical line; each statement adds one.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_lloc() {
         check_metrics::<ObjcParser>(
@@ -11372,6 +11771,7 @@ class A {
     /// line and must NOT add a second one (mirrors the C / C++ gate).
     /// Reverting the `count_specific_ancestors` gate would push lloc from
     /// 2 to 3.
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_no_declaration_in_for_header_lloc() {
         check_metrics::<ObjcParser>(
@@ -11417,6 +11817,7 @@ class A {
         );
     }
 
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_at_directives_lloc() {
         // The only ObjC-specific LLOC work the impl does beyond the C
@@ -11475,6 +11876,7 @@ class A {
     ///
     /// Goes through `metrics_verbatim` rather than `check_metrics`
     /// because the #1051 cases end at EOF; see that helper for why.
+    #[cfg(feature = "rust")]
     fn rust_loc(source: &[u8]) -> Stats {
         metrics_verbatim(crate::LANG::Rust, source, crate::MetricsOptions::default()).loc
     }
@@ -11485,6 +11887,7 @@ class A {
     /// (debug: the subtraction; release: a hash-table capacity overflow in
     /// `add_only_comment_lines`). On any later row release did not crash —
     /// it silently reported one `cloc` too few.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_doc_comment_at_eof_does_not_underflow() {
         // `end == start == 0` — underflowed at the subtraction itself.
@@ -11521,6 +11924,7 @@ class A {
     /// EOF. The `DocComment` adjustment exists only to discount the newline
     /// the scanner consumes; at EOF there is none to discount, so the two
     /// shapes are indistinguishable for LOC purposes.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_doc_comment_at_eof_matches_plain_comment() {
         let plain = rust_loc(b"// x");
@@ -11544,6 +11948,7 @@ class A {
     /// whenever the scanner consumed a newline, and that row must still be
     /// excluded — otherwise the guard would silently become a no-op and
     /// inflate CLOC for every doc-commented Rust file.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_doc_comment_with_trailing_newline_still_discounts_the_row() {
         // expected: one rendered comment row, not two.
@@ -11564,6 +11969,7 @@ class A {
     /// owed. A lone trailing `\r` at EOF is the opposite case. Without this,
     /// a future grammar bump that stops consuming the newline would leave
     /// every LF test passing while the discount silently became dead code.
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_doc_comment_crlf_still_discounts_the_row() {
         // Newline consumed despite the `\r`: discount applies.
@@ -11598,6 +12004,31 @@ class A {
     /// `mi != 0` assertion is unreachable with `ploc == 0`. They get
     /// their own check in
     /// `no_op_loc_grammars_still_count_their_unterminated_row`.
+    #[cfg(any(
+        feature = "bash",
+        feature = "c",
+        feature = "c-family-helpers",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "elixir",
+        feature = "go",
+        feature = "groovy",
+        feature = "irules",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "lua",
+        feature = "mozcpp",
+        feature = "mozjs",
+        feature = "objc",
+        feature = "perl",
+        feature = "php",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+        feature = "tcl",
+        feature = "typescript",
+    ))]
     const UNTERMINATED_ONE_LINERS: &[(crate::LANG, &[u8])] = &[
         (crate::LANG::Rust, b"fn main() {}"),
         (crate::LANG::C, b"int main(void) { return 0; }"),
@@ -11634,6 +12065,30 @@ class A {
     /// re-appends a trailing newline, which makes this entire input class
     /// unreachable and the test vacuous (the same blind spot that hid
     /// #1051).
+    #[cfg(all(
+        feature = "bash",
+        feature = "c",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "elixir",
+        feature = "go",
+        feature = "groovy",
+        feature = "irules",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "lua",
+        feature = "mozcpp",
+        feature = "mozjs",
+        feature = "objc",
+        feature = "perl",
+        feature = "php",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+        feature = "tcl",
+        feature = "typescript",
+    ))]
     #[test]
     fn unterminated_one_line_file_reports_one_source_line() {
         for (lang, source) in UNTERMINATED_ONE_LINERS {
@@ -11667,6 +12122,12 @@ class A {
     /// Before #1067 an unterminated one-liner measured `0` rows here too.
     /// Kept apart from [`UNTERMINATED_ONE_LINERS`] only because the
     /// `mi != 0` half of the sweep below cannot hold with `ploc == 0`.
+    #[cfg(any(
+        feature = "c",
+        feature = "c-family-helpers",
+        feature = "cpp",
+        feature = "mozcpp"
+    ))]
     #[test]
     fn no_op_loc_grammars_still_count_their_unterminated_row() {
         for (lang, source) in [
@@ -11834,6 +12295,30 @@ class A {
     /// is swept separately — it cannot ride this test, whose closing
     /// `assert_ne!` requires a non-zero MI — in
     /// [`whitespace_only_input_is_uniform_across_grammars`].
+    #[cfg(all(
+        feature = "bash",
+        feature = "c",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "elixir",
+        feature = "go",
+        feature = "groovy",
+        feature = "irules",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "lua",
+        feature = "mozcpp",
+        feature = "mozjs",
+        feature = "objc",
+        feature = "perl",
+        feature = "php",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+        feature = "tcl",
+        feature = "typescript",
+    ))]
     #[test]
     fn trailing_newline_does_not_change_loc_or_mi() {
         for (lang, source) in UNTERMINATED_ONE_LINERS {
@@ -11896,6 +12381,7 @@ class A {
     /// The second #1067 symptom: `b"fn f(){}\n/// x"` reported `sloc == 1`
     /// with `ploc == 1` *and* `cloc == 1`, so `cloc + ploc > sloc`. The
     /// file has two rows; only the missing one made the sums disagree.
+    #[cfg(feature = "rust")]
     #[test]
     fn unterminated_trailing_comment_upholds_the_cloc_ploc_invariant() {
         // expected: row 0 is code, row 1 is comment-only, nothing blank.
@@ -11909,6 +12395,7 @@ class A {
     /// Degenerate inputs, pinned so the end-column rule in
     /// `Node::end_line` cannot drift into fabricating rows for files
     /// that have none.
+    #[cfg(feature = "rust")]
     #[test]
     fn degenerate_inputs_report_their_real_row_count() {
         // No bytes, no rows.
@@ -11939,6 +12426,31 @@ class A {
     /// only the language, and must not omit `Preproc`/`Ccomment` — their
     /// synthetic Unit root is anchored like any other, so they carry a
     /// real span and answer the #1087/#1247 question too.
+    #[cfg(any(
+        feature = "bash",
+        feature = "c",
+        feature = "c-family-helpers",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "elixir",
+        feature = "go",
+        feature = "groovy",
+        feature = "irules",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "lua",
+        feature = "mozcpp",
+        feature = "mozjs",
+        feature = "objc",
+        feature = "perl",
+        feature = "php",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+        feature = "tcl",
+        feature = "typescript",
+    ))]
     fn all_loc_grammars() -> impl Iterator<Item = crate::LANG> {
         UNTERMINATED_ONE_LINERS
             .iter()
@@ -11964,6 +12476,36 @@ class A {
     ///
     /// The unterminated side is unchanged and was always uniform: every
     /// grammar reports the row, as one blank line.
+    #[cfg(all(
+        feature = "bash",
+        feature = "c",
+        any(
+            feature = "c",
+            feature = "c-family-helpers",
+            feature = "cpp",
+            feature = "mozcpp"
+        ),
+        feature = "cpp",
+        feature = "csharp",
+        feature = "elixir",
+        feature = "go",
+        feature = "groovy",
+        feature = "irules",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "lua",
+        feature = "mozcpp",
+        feature = "mozjs",
+        feature = "objc",
+        feature = "perl",
+        feature = "php",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+        feature = "tcl",
+        feature = "typescript",
+    ))]
     #[test]
     fn whitespace_only_input_is_uniform_across_grammars() {
         // Spaces and tabs both, so a grammar that lexes one as extra and
@@ -12021,8 +12563,10 @@ class A {
     ///
     /// `space_verbatim`, not `check_metrics`: the shim trims leading and
     /// trailing newlines, which deletes this test's entire subject.
+    #[cfg(all(feature = "c", feature = "python", feature = "rust", feature = "tcl"))]
     #[test]
     fn leading_blank_rows_count_in_the_units_sloc_and_blank() {
+        #[cfg(any(feature = "c", feature = "python", feature = "rust", feature = "tcl"))]
         const LEADING_BLANKS: u64 = 3;
         for (lang, body, ploc) in [
             (crate::LANG::Rust, &b"fn a() {}\n"[..], 1),
@@ -12055,6 +12599,7 @@ class A {
     /// comment on line 1 flipped a byte-identical file from `sloc 1` to
     /// `sloc 4`, because comments are in the tree and blank rows are not.
     /// A fix that reached past the unit would move one of these.
+    #[cfg(feature = "rust")]
     #[test]
     fn interior_blanks_and_leading_comments_are_unmoved_by_the_anchor() {
         // expected: rows 1 and 3 are code, row 2 is blank.
@@ -12085,6 +12630,7 @@ class A {
     /// entire separation between "the file starts at line 1" and "every
     /// space starts at line 1". Asserted on the nested space's `sloc` as
     /// well as its span, because only the `sloc` half is new.
+    #[cfg(feature = "rust")]
     #[test]
     fn the_unit_anchor_does_not_reach_nested_spaces() {
         let space = space_verbatim(
@@ -12111,6 +12657,7 @@ class A {
     /// token, and no pruned subtree can overlap them. Pinned rather than
     /// argued, since the failure mode is a silent `saturating_sub` clamp
     /// to 0 rather than a panic (#722, #1247, #1417).
+    #[cfg(feature = "rust")]
     #[test]
     fn exclude_tests_pruning_composes_with_the_unit_anchor() {
         // Rows 1-3 blank, 4 `fn a`, 5 blank, 6 `#[test]`, 7-9 `fn t`.
@@ -12305,6 +12852,7 @@ class A {
     /// a row it does not occupy. The old unconditional `+ 1` credited that
     /// row, inflating the last sub of every Perl file by one line — here,
     /// reporting a 3-row `sub` as 4.
+    #[cfg(feature = "perl")]
     #[test]
     fn perl_last_sub_does_not_absorb_the_trailing_newline() {
         // Two identical 3-row subs; only the second hits the quirk.
@@ -12598,6 +13146,7 @@ class A {
     ///
     /// Uses [`metrics_verbatim`] so the fixtures reach the parser
     /// byte-for-byte; `check_metrics` rewrites the trailing newline.
+    #[cfg(all(feature = "irules", feature = "tcl"))]
     #[test]
     fn tcl_family_does_not_count_terminator_rows_as_code() {
         for lang in [crate::LANG::Tcl, crate::LANG::Irules] {
@@ -12655,6 +13204,30 @@ class A {
     /// comment node reaching a PLOC catch-all, which any one spelling of
     /// a comment exposes. The block and doc entries are there because
     /// those nodes have child tokens the line form does not.
+    #[cfg(any(
+        feature = "bash",
+        feature = "c",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "elixir",
+        feature = "go",
+        feature = "groovy",
+        feature = "irules",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "lua",
+        feature = "mozcpp",
+        feature = "mozjs",
+        feature = "objc",
+        feature = "perl",
+        feature = "php",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+        feature = "tcl",
+        feature = "typescript",
+    ))]
     fn comment_spellings(lang: crate::LANG) -> &'static [&'static str] {
         use crate::LANG::*;
         match lang {
@@ -12683,6 +13256,30 @@ class A {
     /// fixtures carry no comment row at all. Since the failure mode is
     /// structural rather than language-specific, the sweep is per
     /// language rather than a sample.
+    #[cfg(all(
+        feature = "bash",
+        feature = "c",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "elixir",
+        feature = "go",
+        feature = "groovy",
+        feature = "irules",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "lua",
+        feature = "mozcpp",
+        feature = "mozjs",
+        feature = "objc",
+        feature = "perl",
+        feature = "php",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+        feature = "tcl",
+        feature = "typescript",
+    ))]
     #[test]
     fn a_comment_row_is_never_counted_as_code() {
         for (lang, code) in UNTERMINATED_ONE_LINERS {
@@ -12726,6 +13323,7 @@ class A {
     /// carrying two declarators, so it counts once, not twice. The fifth row
     /// is a `using_declaration` — the grammar's third executable declaration
     /// kind, which TypeScript and TSX do not have.
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_declaration_lloc() {
         check_metrics::<JavascriptParser>(
@@ -12751,6 +13349,7 @@ class A {
     /// `StatementBlock` stops the ancestor walk (#1283).
     ///
     /// expected: for-statement 1 + body declaration 1 + for-of 1 + for-in 1 = 4
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_for_header_declaration_not_double_counted() {
         check_metrics::<JavascriptParser>(
@@ -12773,6 +13372,7 @@ class A {
     /// is reached (#1283).
     ///
     /// expected: 4 export statements + the `const c = 4;` in `f`'s body = 5
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_exported_declaration_counts_once() {
         check_metrics::<JavascriptParser>(
@@ -12795,6 +13395,7 @@ class A {
     /// carrying two declarators, so it counts once, not twice. The fifth row
     /// is a `using_declaration` — the grammar's third executable declaration
     /// kind, which TypeScript and TSX do not have.
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_declaration_lloc() {
         check_metrics::<MozjsParser>(
@@ -12820,6 +13421,7 @@ class A {
     /// `StatementBlock` stops the ancestor walk (#1283).
     ///
     /// expected: for-statement 1 + body declaration 1 + for-of 1 + for-in 1 = 4
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_for_header_declaration_not_double_counted() {
         check_metrics::<MozjsParser>(
@@ -12842,6 +13444,7 @@ class A {
     /// is reached (#1283).
     ///
     /// expected: 4 export statements + the `const c = 4;` in `f`'s body = 5
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_exported_declaration_counts_once() {
         check_metrics::<MozjsParser>(
@@ -12862,6 +13465,7 @@ class A {
     /// Rust's `let` (#1283 — before the fix a declarations-only file
     /// reported `lloc 0`). The fourth row is one `variable_declaration`
     /// carrying two declarators, so it counts once, not twice.
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_declaration_lloc() {
         check_metrics::<TypescriptParser>(
@@ -12887,6 +13491,7 @@ class A {
     /// `StatementBlock` stops the ancestor walk (#1283).
     ///
     /// expected: for-statement 1 + body declaration 1 + for-of 1 + for-in 1 = 4
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_for_header_declaration_not_double_counted() {
         check_metrics::<TypescriptParser>(
@@ -12914,6 +13519,7 @@ class A {
     /// `ambient_declaration` sits between the export and the declaration: the
     /// carve-out walks the ancestor chain rather than checking the parent, so
     /// it still sees the enclosing `ExportStatement`.
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_exported_declaration_counts_once() {
         check_metrics::<TypescriptParser>(
@@ -12934,6 +13540,7 @@ class A {
     /// Rust's `let` (#1283 — before the fix a declarations-only file
     /// reported `lloc 0`). The fourth row is one `variable_declaration`
     /// carrying two declarators, so it counts once, not twice.
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_declaration_lloc() {
         check_metrics::<TsxParser>(
@@ -12959,6 +13566,7 @@ class A {
     /// `StatementBlock` stops the ancestor walk (#1283).
     ///
     /// expected: for-statement 1 + body declaration 1 + for-of 1 + for-in 1 = 4
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_for_header_declaration_not_double_counted() {
         check_metrics::<TsxParser>(
@@ -12986,6 +13594,7 @@ class A {
     /// `ambient_declaration` sits between the export and the declaration: the
     /// carve-out walks the ancestor chain rather than checking the parent, so
     /// it still sees the enclosing `ExportStatement`.
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_exported_declaration_counts_once() {
         check_metrics::<TsxParser>(
@@ -13011,9 +13620,12 @@ class A {
     ///
     /// expected: for 1 + body declaration 1 = 2; for 1 + switch 1 +
     /// case declaration 1 = 3.
+    #[cfg(all(feature = "javascript", feature = "mozjs", feature = "typescript"))]
     #[test]
     fn js_family_braceless_for_body_declaration_counts() {
+        #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
         const BODY: &str = "for (var i = 0; i < 3; i++) var s = i;\n";
+        #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
         const NESTED: &str = "for (let i = 0; i < 2; i++) switch (i) { case 0: let y = 1; }\n";
         check_metrics::<JavascriptParser>(BODY, "foo.js", |m| assert_eq!(m.loc.lloc(), 2));
         check_metrics::<MozjsParser>(BODY, "foo.js", |m| assert_eq!(m.loc.lloc(), 2));
@@ -13033,6 +13645,7 @@ class A {
     /// reported one LLOC per `declare const`).
     ///
     /// expected: 0 — every row is ambient.
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_ambient_declarations_are_not_logical_lines() {
         const SRC: &str = "declare const VERSION: string;\ndeclare let mutable: number;\ndeclare namespace NS { const inner: number; }\ndeclare module \"m\" { let y: string; }\n";

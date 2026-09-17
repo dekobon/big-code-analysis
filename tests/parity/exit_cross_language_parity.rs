@@ -67,6 +67,31 @@
 use big_code_analysis::{LANG, MetricsOptions, Source, analyze};
 
 /// Exit-count file-level sum for the single function in `source`.
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 fn nexits_sum(lang: LANG, source: &str, ext: &str) -> f64 {
     let name = format!("parity.{ext}");
     let space = analyze(
@@ -83,6 +108,31 @@ fn nexits_sum(lang: LANG, source: &str, ext: &str) -> f64 {
 /// Every `Some` row spells exactly two counted exits: a plain `return`
 /// plus the language's abrupt-exit construct, or two `return`s where
 /// that is the only modelled exit.
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 fn fixture(lang: LANG) -> Option<(&'static str, &'static str)> {
     // Exhaustive per-language dispatch table: one arm per LANG variant
     // is the point of this function, so a new language cannot be added
@@ -230,6 +280,31 @@ fn fixture(lang: LANG) -> Option<(&'static str, &'static str)> {
     Some(row)
 }
 
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
 #[test]
 fn return_plus_abrupt_exit_parity() {
     // expected: every fixture has exactly two counted exits — one

@@ -486,6 +486,7 @@ mod tests {
     // member, so they need Npm too.
     check_metrics_only_shim!(check_wmc_and_npm, Wmc, Npm);
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_single_class() {
         check_metrics::<JavaParser>(
@@ -546,6 +547,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_single_class() {
         // WMC = sum of method cyclomatic complexities for the class.
@@ -578,6 +580,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_empty_class() {
         check_metrics::<GroovyParser>("class Empty {}", "foo.groovy", |metric| {
@@ -585,6 +588,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_class_with_single_method() {
         check_metrics::<GroovyParser>(
@@ -601,6 +605,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_multiple_classes() {
         check_metrics::<GroovyParser>(
@@ -618,6 +623,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_class_with_branching_methods() {
         check_metrics::<GroovyParser>(
@@ -642,6 +648,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_interface_wmc_is_zero() {
         // Interfaces declare method signatures with no body — wmc = 0.
@@ -657,6 +664,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_static_nested_class() {
         // Mirrors `java_static_nested_class`: nested classes get
@@ -677,6 +685,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     #[ignore = "dekobon Groovy grammar v1 does not yet support inner classes inside class bodies"]
     fn groovy_nested_inner_classes_wmc() {
@@ -700,6 +709,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_local_inner_class() {
         // A class declared inside a method body. WMC counts its method
@@ -727,6 +737,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     #[ignore = "dekobon Groovy grammar v1 does not yet support anonymous inner classes (`new T() { … }`)"]
     fn groovy_anonymous_inner_class_wmc() {
@@ -755,6 +766,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_lambda_expression_wmc() {
         // Lambdas inside a method body don't form their own class
@@ -777,6 +789,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_single_interface_wmc() {
         // Default methods inside an interface contribute to WMC.
@@ -800,6 +813,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     #[ignore = "dekobon Groovy grammar v1 does not yet support inner classes inside interface bodies"]
     fn groovy_class_in_interface() {
@@ -825,6 +839,7 @@ mod tests {
 
     // Regression for issue #280: Groovy enum bodies fold method-level
     // cyclomatic into `class_wmc_sum` just like Java.
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_enum_wmc_aggregates_method_complexity() {
         check_metrics::<GroovyParser>(
@@ -849,6 +864,7 @@ mod tests {
     // declarations. The structural assertion is what distinguishes a
     // working fix from a vacuous one (see the Java sibling for the
     // rationale).
+    #[cfg(feature = "groovy")]
     #[test]
     #[ignore = "dekobon Groovy grammar v1 does not support annotation type elements with `default` values"]
     fn groovy_annotation_type_opens_interface_space_with_zero_wmc() {
@@ -867,6 +883,7 @@ mod tests {
 
     // Constructors are considered as methods
     // Reference: https://pdepend.org/documentation/software-metrics/weighted-method-count.html
+    #[cfg(feature = "java")]
     #[test]
     fn java_multiple_classes() {
         check_metrics::<JavaParser>(
@@ -909,6 +926,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_static_nested_class() {
         check_metrics::<JavaParser>(
@@ -936,6 +954,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_nested_inner_classes() {
         check_metrics::<JavaParser>(
@@ -1005,6 +1024,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_local_inner_class() {
         check_metrics::<JavaParser>(
@@ -1053,6 +1073,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_anonymous_inner_class() {
         check_metrics::<JavaParser>(
@@ -1088,6 +1109,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_nested_anonymous_inner_classes() {
         check_metrics::<JavaParser>(
@@ -1137,6 +1159,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_lambda_expression() {
         check_metrics::<JavaParser>(
@@ -1173,6 +1196,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_single_interface() {
         check_metrics::<JavaParser>(
@@ -1202,6 +1226,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_multiple_interfaces() {
         check_metrics::<JavaParser>(
@@ -1233,6 +1258,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_nested_inner_interfaces() {
         check_metrics::<JavaParser>(
@@ -1268,6 +1294,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_class_in_interface() {
         check_metrics::<JavaParser>(
@@ -1303,6 +1330,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_interface_in_class() {
         check_metrics::<JavaParser>(
@@ -1341,6 +1369,7 @@ mod tests {
     // Regression for issue #280: Java `EnumDeclaration` opens a class
     // space, so method-level cyclomatic complexity inside the enum
     // body folds into `class_wmc_sum`.
+    #[cfg(feature = "java")]
     #[test]
     fn java_enum_wmc_aggregates_method_complexity() {
         check_metrics::<JavaParser>(
@@ -1364,6 +1393,7 @@ mod tests {
     // Regression for issue #280: Java `RecordDeclaration` is treated as
     // a class space; methods inside its explicit body contribute to
     // WMC.
+    #[cfg(feature = "java")]
     #[test]
     fn java_record_wmc_aggregates_method_complexity() {
         check_metrics::<JavaParser>(
@@ -1389,6 +1419,7 @@ mod tests {
     /// compactly and normally, but an alternative constructor delegating
     /// with `this(…)` is legal alongside a compact one — and each must
     /// open its own space even though both are named `R`.
+    #[cfg(feature = "java")]
     #[test]
     fn java_record_compact_and_alternative_constructors_open_two_spaces() {
         check_func_space::<JavaParser, _>(
@@ -1427,6 +1458,7 @@ mod tests {
     /// that change can make this fail. It is here to state the boundary
     /// of the change, not to cover a line — the `RecordDeclaration` arm
     /// itself is covered by #280's tests.
+    #[cfg(feature = "java")]
     #[test]
     fn java_record_without_constructor_opens_only_its_methods() {
         check_func_space::<JavaParser, _>(
@@ -1461,6 +1493,7 @@ mod tests {
     // omit the annotation type space, and `0 == 0` would still hold);
     // the structural check on `space.kind` is what catches that
     // regression.
+    #[cfg(feature = "java")]
     #[test]
     fn java_annotation_type_opens_interface_space_with_zero_wmc() {
         check_func_space::<JavaParser, _>(
@@ -1478,6 +1511,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_single_class() {
         check_metrics::<CsharpParser>(
@@ -1508,6 +1542,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_multiple_classes() {
         check_metrics::<CsharpParser>(
@@ -1531,6 +1566,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_static_nested_class() {
         check_metrics::<CsharpParser>(
@@ -1550,6 +1586,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_nested_inner_classes() {
         check_metrics::<CsharpParser>(
@@ -1572,6 +1609,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_local_inner_class() {
         // C# uses local functions instead of Java's local classes.
@@ -1594,6 +1632,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_anonymous_inner_class() {
         check_metrics::<CsharpParser>(
@@ -1613,6 +1652,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_nested_anonymous_inner_classes() {
         check_metrics::<CsharpParser>(
@@ -1634,6 +1674,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_lambda_expression() {
         check_metrics::<CsharpParser>(
@@ -1651,6 +1692,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_indexer_wmc() {
         // A bodied indexer folds its accessor complexities into the
@@ -1675,6 +1717,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_expression_bodied_indexer_wmc() {
         // The accessor-less expression-bodied form (`this[int i] => _d[i];`)
@@ -1697,6 +1740,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_property_wmc() {
         // A bodied property folds its accessor complexities into the
@@ -1719,6 +1763,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_expression_bodied_property_wmc() {
         // The accessor-less expression-bodied form (`int W => _w;`) has no
@@ -1740,6 +1785,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_single_interface() {
         check_metrics::<CsharpParser>(
@@ -1756,6 +1802,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_multiple_interfaces() {
         check_metrics::<CsharpParser>(
@@ -1770,6 +1817,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_nested_inner_interfaces() {
         check_metrics::<CsharpParser>(
@@ -1788,6 +1836,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_class_in_interface() {
         check_metrics::<CsharpParser>(
@@ -1806,6 +1855,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_interface_in_class() {
         check_metrics::<CsharpParser>(
@@ -1828,6 +1878,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_no_classes() {
         check_metrics::<PhpParser>(
@@ -1837,6 +1888,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_one_class_simple() {
         check_metrics::<PhpParser>(
@@ -1850,6 +1902,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_one_class_with_loops() {
         check_metrics::<PhpParser>(
@@ -1868,6 +1921,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_one_class_with_branches() {
         check_metrics::<PhpParser>(
@@ -1888,6 +1942,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_class_with_methods_only() {
         check_metrics::<PhpParser>(
@@ -1902,6 +1957,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_multiple_classes() {
         check_metrics::<PhpParser>(
@@ -1922,6 +1978,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_anonymous_class() {
         check_metrics::<PhpParser>(
@@ -1937,6 +1994,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_class_with_static_methods() {
         check_metrics::<PhpParser>(
@@ -1953,6 +2011,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_interface_wmc() {
         check_metrics::<PhpParser>(
@@ -1966,6 +2025,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_trait_wmc() {
         check_metrics::<PhpParser>(
@@ -1981,6 +2041,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_enum_with_methods() {
         check_metrics::<PhpParser>(
@@ -2000,6 +2061,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_class_inside_namespace() {
         check_metrics::<PhpParser>(
@@ -2016,6 +2078,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_class_complex() {
         check_metrics::<PhpParser>(
@@ -2048,6 +2111,7 @@ mod tests {
     // function cyclomatic complexity accumulates into the enclosing
     // class/interface bucket, mirroring the Java impl.
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_empty_class() {
         // Empty class — no methods, WMC = 0.
@@ -2058,6 +2122,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_single_class() {
         // wmc = 1 (method base) + 1 (if) + 1 (explicit when arm; `else`
@@ -2083,6 +2148,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_multiple_classes() {
         // A: constructor 1 + setA 1 + getA 1 = 3
@@ -2108,6 +2174,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_nested_class() {
         // Outer: 0 methods. Nested: m(): +1
@@ -2126,6 +2193,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_inner_class() {
         // `inner class` differs semantically (captures outer reference) but
@@ -2146,6 +2214,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_data_class() {
         // `data class` synthesizes copy/equals/hashCode/toString at
@@ -2164,6 +2233,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_object_singleton() {
         // `object` declarations are singletons; the getter routes them to
@@ -2184,6 +2254,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_companion_object() {
         // A `companion object` opens its own Class space, exactly like a
@@ -2209,6 +2280,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_companion_object_opens_class_space() {
         // Structural guard for #431: a named `companion object` must open
@@ -2247,6 +2319,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_object_literal_opens_class_space() {
         // Structural guard for #463: an anonymous `object : T { ... }`
@@ -2321,6 +2394,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_anonymous_class_opens_space() {
         // #463: a Java anonymous class (`new Runnable() { ... }`) opens its
@@ -2376,6 +2450,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_lambda_opens_no_class_space() {
         // Guard against mis-detection (#463): a Java lambda is a
@@ -2410,6 +2485,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_anonymous_class_models_body_as_closure() {
         // #463 upstream-grammar note: the pinned dekobon Groovy grammar
@@ -2464,6 +2540,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_interface_simple() {
         // Interface methods all contribute to the interface bucket.
@@ -2481,6 +2558,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_interface_with_default_method() {
         // Default method with control flow counts its full cyclomatic.
@@ -2500,6 +2578,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_override_function() {
         // `override fun` is structurally just a `function_declaration` with
@@ -2520,6 +2599,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_secondary_constructor() {
         // Secondary constructors are explicit `secondary_constructor`
@@ -2544,6 +2624,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_init_block() {
         // An `init` block opens a function space since #1184, so its
@@ -2573,6 +2654,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_top_level_function_excluded() {
         // Top-level `fun` and `val` belong to the `Unit` space, not a class
@@ -2591,6 +2673,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_extension_function_excluded() {
         // Extension functions look syntactically like methods but the
@@ -2610,6 +2693,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_generic_class() {
         // Generic class with two methods.
@@ -2627,6 +2711,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_class_in_interface() {
         // Nested class inside an interface: the inner class is a class
@@ -2648,6 +2733,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_interface_in_class() {
         // Inverse of the prior test.
@@ -2674,6 +2760,7 @@ mod tests {
     // methods. Interface method signatures have no bodies and add zero
     // (matching Java's abstract-method rule).
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_class_wmc_single_method() {
         check_metrics::<TypescriptParser>(
@@ -2688,6 +2775,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_class_wmc_two_methods() {
         check_metrics::<TypescriptParser>(
@@ -2706,6 +2794,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_class_wmc_with_branches() {
         check_metrics::<TypescriptParser>(
@@ -2727,6 +2816,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_class_wmc_arrow_field() {
         // Arrow-function class fields contribute their cyclomatic to
@@ -2746,6 +2836,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_class_wmc_with_loops() {
         check_metrics::<TypescriptParser>(
@@ -2766,6 +2857,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_abstract_class_wmc() {
         // Abstract method signatures have no body — contribute 0.
@@ -2782,6 +2874,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_interface_wmc_zero() {
         // Interface method signatures have no bodies → 0 WMC.
@@ -2799,6 +2892,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_constructor_wmc() {
         // Constructor counts as a method; its cyclomatic adds to the
@@ -2822,6 +2916,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_getter_setter_wmc() {
         // Getter and setter each contribute 1 (base).
@@ -2839,6 +2934,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_multiple_classes_wmc_independent() {
         check_metrics::<TypescriptParser>(
@@ -2858,6 +2954,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_class_wmc_with_ternary_and_logical() {
         check_metrics::<TypescriptParser>(
@@ -2876,6 +2973,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_generic_class_wmc() {
         check_metrics::<TypescriptParser>(
@@ -2894,6 +2992,7 @@ mod tests {
 
     // TSX parity
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_class_wmc_single_method() {
         check_metrics::<TsxParser>(
@@ -2906,6 +3005,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_class_wmc_two_methods() {
         check_metrics::<TsxParser>(
@@ -2924,6 +3024,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_class_wmc_with_branches() {
         check_metrics::<TsxParser>(
@@ -2942,6 +3043,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_class_wmc_arrow_field() {
         check_metrics::<TsxParser>(
@@ -2959,6 +3061,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_class_wmc_with_loops() {
         check_metrics::<TsxParser>(
@@ -2977,6 +3080,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_abstract_class_wmc() {
         check_metrics::<TsxParser>(
@@ -2992,6 +3096,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_interface_wmc_zero() {
         check_metrics::<TsxParser>(
@@ -3005,6 +3110,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_constructor_wmc() {
         check_metrics::<TsxParser>(
@@ -3023,6 +3129,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_getter_setter_wmc() {
         check_metrics::<TsxParser>(
@@ -3039,6 +3146,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_multiple_classes_wmc_independent() {
         check_metrics::<TsxParser>(
@@ -3057,6 +3165,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_class_wmc_with_ternary_and_logical() {
         check_metrics::<TsxParser>(
@@ -3073,6 +3182,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_generic_class_wmc() {
         check_metrics::<TsxParser>(
@@ -3096,6 +3206,7 @@ mod tests {
     // and does not contribute to WMC. Method cyclomatic complexities
     // accumulate into the enclosing class via `class_interface_compute`.
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_no_classes() {
         // File with only a top-level method — no class space, WMC = 0.
@@ -3106,6 +3217,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_empty_class() {
         // Class with no methods → wmc = 0.
@@ -3115,6 +3227,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_one_class_simple() {
         // Two methods, each with cyclomatic = 1 (the method base) → wmc = 2.
@@ -3128,6 +3241,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_one_class_with_branch() {
         // One method with cyclomatic 1 (base) + 1 (if) = 2.
@@ -3141,6 +3255,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_one_class_with_loop() {
         // One method with cyclomatic 1 (base) + 1 (while) = 2.
@@ -3154,6 +3269,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_singleton_method_included() {
         // Mix of regular and singleton (`def self.x`) methods, both
@@ -3168,6 +3284,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_singleton_class_methods_included() {
         // Methods inside `class << self` belong to the enclosing class
@@ -3184,6 +3301,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_multiple_classes() {
         // Each class contributes its method-cyclomatic sum to the rollup.
@@ -3198,6 +3316,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_module_only() {
         // Module is a `Namespace` space — does NOT contribute to WMC even
@@ -3212,6 +3331,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_class_with_inheritance() {
         // `class A < B` inherits — irrelevant to WMC, which depends only on
@@ -3226,6 +3346,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_class_with_visibility_keywords() {
         // Visibility keywords do NOT affect WMC — every method body
@@ -3240,6 +3361,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_class_complex() {
         // Class with two methods whose cyclomatic sums combine.
@@ -3267,6 +3389,7 @@ mod tests {
 
     // --- Python WMC ---------------------------------------------------
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_empty_class_zero_wmc() {
         check_metrics::<PythonParser>("class C:\n    pass\n", "foo.py", |metric| {
@@ -3276,6 +3399,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_single_method_wmc_one() {
         // Single straight-line method → cyclomatic 1 → WMC 1.
@@ -3289,6 +3413,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_method_with_if_adds_to_wmc() {
         // Cyclomatic: 1 (base) + 1 (if) = 2. WMC = 2.
@@ -3302,6 +3427,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_multiple_methods_wmc_sums() {
         // method1 cyclomatic 1, method2 cyclomatic 2 (if), method3
@@ -3327,6 +3453,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_top_level_function_does_not_contribute_to_class_wmc() {
         // Top-level function lives in the module/unit space, not in a
@@ -3341,6 +3468,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_multiple_classes_wmc_independent() {
         // Each class accumulates its own methods' cyclomatic. The
@@ -3363,6 +3491,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_empty_unit_zero_wmc() {
         check_metrics::<RustParser>("", "empty.rs", |metric| {
@@ -3372,6 +3501,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_single_impl_method_wmc_one() {
         // Single straight-line method → cyclomatic 1 → WMC 1.
@@ -3385,6 +3515,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_method_with_if_adds_to_wmc() {
         // Cyclomatic: 1 (base) + 1 (if) = 2. WMC = 2.
@@ -3403,6 +3534,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_multiple_methods_wmc_sums() {
         // m1 cyclomatic 1, m2 cyclomatic 2 (if), m3 cyclomatic 3 (if
@@ -3425,6 +3557,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_multiple_impls_wmc_aggregate() {
         // Two `impl` blocks for Foo, each contributing 1 method with
@@ -3441,6 +3574,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_trait_default_method_contributes_to_interface_wmc() {
         // A trait method with a default body — `area` is a function
@@ -3458,6 +3592,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_top_level_function_does_not_contribute_to_class_wmc() {
         // Free `fn f()` opens a Function space but no class/trait
@@ -3476,6 +3611,7 @@ mod tests {
 
     // ----- Go -----
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_wmc_is_zero_documented_limitation() {
         // Go's flat space model does not expose per-receiver class
@@ -3509,6 +3645,7 @@ mod tests {
     // them to Function spaces inside the surrounding `defmodule`
     // Class. WMC then aggregates cyclomatic per method into the
     // class via the shared `class_interface_compute` aggregator.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_wmc_aggregates_def_methods() {
         check_metrics::<ElixirParser>(
@@ -3532,6 +3669,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_wmc_def_plus_defp_counts_both() {
         check_metrics::<ElixirParser>(
@@ -3545,6 +3683,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_wmc_defmacro_counts() {
         check_metrics::<ElixirParser>(
@@ -3557,6 +3696,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_wmc_multiple_clauses_each_a_method() {
         // Each `def f(...)` head is a Call with its own Function
@@ -3571,6 +3711,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_wmc_nested_defmodule_isolates() {
         check_metrics::<ElixirParser>(
@@ -3583,6 +3724,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_wmc_user_macro_not_classified_as_method() {
         // A user-defined `defmacro custom_def`, then invoking
@@ -3605,6 +3747,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_wmc_quoted_defs_do_not_inflate_method_count() {
         // Regression test for #310: previously, every `def` lexically
@@ -3630,6 +3773,7 @@ mod tests {
 
     // ----- Objective-C -----
 
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_wmc() {
         // `@implementation` is a Class space; each `method_definition`
@@ -3673,6 +3817,7 @@ mod tests {
     // so the expectation cannot hold for the wrong reason: 3 is the
     // pre-fix value (`helper`'s cyclomatic 2 plus `m`'s 1), 1 is
     // correct, and 0 would mean the roll-up dropped `m` as well.
+    #[cfg(feature = "objc")]
     const OBJC_HELPER_IN_IMPLEMENTATION: &str = "@implementation Foo\n\
          static int helper(int x) { if (x) { return 1; } return 0; }\n\
          - (void)m { }\n\
@@ -3680,6 +3825,7 @@ mod tests {
 
     // `m` branches, so the expectation (2) differs from the pre-fix
     // value (4), from the method count (1), and from zero.
+    #[cfg(feature = "objc")]
     const OBJC_HELPER_AND_BRANCHING_METHOD: &str = "@implementation Foo\n\
          static int helper(int x) { if (x) { return 1; } return 0; }\n\
          - (int)m:(int)x { if (x) { return 1; } return 0; }\n\
@@ -3688,6 +3834,7 @@ mod tests {
     // A category `@implementation Foo (Cat)` parses as the same
     // `class_implementation` node with a `category` field, so its
     // members nest identically.
+    #[cfg(feature = "objc")]
     const OBJC_HELPER_IN_CATEGORY: &str = "@implementation Foo (Cat)\n\
          static int helper(int x) { if (x) { return 1; } return 0; }\n\
          - (int)m:(int)x { if (x) { return 1; } return 0; }\n\
@@ -3699,6 +3846,7 @@ mod tests {
     // `method_declaration`s, so a correct `interface_wmc_sum` is 0; the
     // `@implementation` in the same fixture keeps a non-zero
     // `class_wmc_sum` so the pair cannot pass by everything being zero.
+    #[cfg(feature = "objc")]
     const OBJC_HELPER_IN_INTERFACE: &str = "@interface Foo : NSObject\n\
          static int helper(int x) { if (x) { return 1; } return 0; }\n\
          - (int)m:(int)x;\n\
@@ -3707,6 +3855,7 @@ mod tests {
          - (int)m:(int)x { if (x) { return 1; } return 0; }\n\
          @end\n";
 
+    #[cfg(feature = "objc")]
     const OBJC_HELPER_IN_PROTOCOL: &str = "@protocol Proto\n\
          static int helper(int x) { if (x) { return 1; } return 0; }\n\
          - (int)m:(int)x;\n\
@@ -3720,6 +3869,7 @@ mod tests {
     // `implementation_definition`; inside `@interface` it is the
     // `preproc_if` — a kind shared with a file-scope `#if`. Keying on
     // the node's own kind covers both.
+    #[cfg(feature = "objc")]
     const OBJC_HELPER_BEHIND_PREPROC: &str = "@interface Foo : NSObject\n\
          #if FOO\n\
          static int declared(int x) { if (x) { return 1; } return 0; }\n\
@@ -3736,12 +3886,14 @@ mod tests {
     // The reverse direction: a C function at file scope, which no
     // container ever weighted, alongside a class that has one branching
     // method.
+    #[cfg(feature = "objc")]
     const OBJC_FILE_SCOPE_FUNCTION: &str = "\
          static int loose(int x) { if (x) { return 1; } return 0; }\n\
          @implementation Foo\n\
          - (int)m:(int)x { if (x) { return 1; } return 0; }\n\
          @end\n";
 
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_static_helper_in_implementation_is_not_weighted_into_the_class() {
         check_wmc_and_npm::<ObjcParser>(OBJC_HELPER_IN_IMPLEMENTATION, "foo.m", |metric| {
@@ -3759,6 +3911,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_static_helper_keeps_its_own_function_space() {
         // Where the excluded complexity lands. The space tree is built
@@ -3778,6 +3931,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_static_helper_leaves_a_branching_method_its_weight() {
         check_wmc_and_npm::<ObjcParser>(OBJC_HELPER_AND_BRANCHING_METHOD, "foo.m", |metric| {
@@ -3787,6 +3941,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_static_helper_in_a_category_is_not_weighted_into_the_class() {
         check_wmc_and_npm::<ObjcParser>(OBJC_HELPER_IN_CATEGORY, "foo.m", |metric| {
@@ -3796,6 +3951,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_static_helper_in_an_interface_is_not_weighted_into_the_interface() {
         check_wmc_and_npm::<ObjcParser>(OBJC_HELPER_IN_INTERFACE, "foo.m", |metric| {
@@ -3808,6 +3964,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_static_helper_in_a_protocol_is_not_weighted_into_the_protocol() {
         check_wmc_and_npm::<ObjcParser>(OBJC_HELPER_IN_PROTOCOL, "foo.m", |metric| {
@@ -3818,6 +3975,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_static_helper_behind_a_preprocessor_conditional_is_not_weighted() {
         check_wmc_and_npm::<ObjcParser>(OBJC_HELPER_BEHIND_PREPROC, "foo.m", |metric| {
@@ -3831,6 +3989,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_file_scope_function_is_unaffected() {
         check_wmc_and_npm::<ObjcParser>(OBJC_FILE_SCOPE_FUNCTION, "foo.m", |metric| {
@@ -3854,6 +4013,7 @@ mod tests {
 
     // ----- C++ -----
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_empty_unit_zero_wmc() {
         // No code → no class spaces → wmc = 0. Wires up the trait.
@@ -3864,6 +4024,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_single_method_wmc_one() {
         // One method with no control flow → cyclomatic = 1 → wmc = 1.
@@ -3873,6 +4034,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_method_with_if_adds_to_wmc() {
         // One method with one `if` → cyclomatic = 2 → wmc = 2.
@@ -3892,6 +4054,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_struct_wmc_maps_to_class() {
         // `struct` opens a `SpaceKind::Struct` space — the C++ Wmc
@@ -3913,6 +4076,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_free_function_does_not_contribute_to_class_wmc() {
         // A top-level function is not inside any class — its
@@ -3931,6 +4095,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_multiple_methods_wmc_sums() {
         // Two methods, one with `if` (cyclomatic 2), one without
@@ -3949,6 +4114,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_multiple_classes_wmc_aggregate() {
         // File-level rollup: Foo has wmc 1, Bar has wmc 1. Unit
@@ -3977,6 +4143,7 @@ mod tests {
     // so the expectation cannot hold for the wrong reason: 3 is the
     // pre-fix value (`amigo`'s cyclomatic 2 plus `mine`'s 1), 1 is
     // correct, and 0 would mean the roll-up dropped `mine` as well.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const INLINE_FRIEND: &str = "class R {\n\
          public:\n\
              friend void amigo() { if (1) { } }\n\
@@ -3988,6 +4155,7 @@ mod tests {
     // function_definition` shape as a named one. `dump` is deliberately
     // a *branching* method so the expectation (2) differs from both the
     // pre-fix value (4) and the method count (1).
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const INLINE_FRIEND_OPERATOR: &str = "class R {\n\
          public:\n\
              friend std::ostream& operator<<(std::ostream& o, const R& r) {\n\
@@ -4004,6 +4172,7 @@ mod tests {
     // way and one parent check covers both shapes. This is the friend
     // from #1258's `NON_METHOD_TEMPLATE_PAYLOADS`, whose `npm` side
     // that issue fixed and whose `wmc` side this one does.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const TEMPLATED_INLINE_FRIEND: &str = "class R {\n\
          public:\n\
              template<typename T> friend void amigo(T t) { if (t) { } }\n\
@@ -4014,6 +4183,7 @@ mod tests {
     // declaration, and a befriended class. All parse as
     // `friend_declaration > declaration` (or bare tokens), open no
     // function space, and so never reach the predicate at all.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const FRIEND_WITHOUT_BODY: &str = "class R {\n\
          public:\n\
              friend void amigo();\n\
@@ -4026,6 +4196,7 @@ mod tests {
     // (2, from `hidden`) and `Outer` keeps its own (1, from
     // `outer_m`), so the file sum is 3 — never 5, which is what
     // folding `amigo` into `Inner` produced.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const NESTED_CLASS_FRIEND: &str = "class Outer {\n\
          public:\n\
              class Inner {\n\
@@ -4036,6 +4207,7 @@ mod tests {
              void outer_m() { }\n\
          };";
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_inline_friend_is_not_weighted_into_the_class() {
         check_wmc_and_npm::<CppParser>(INLINE_FRIEND, "foo.cpp", |metric| {
@@ -4055,6 +4227,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_inline_friend_keeps_its_own_function_space() {
         // Where the excluded complexity lands. The space tree is built
@@ -4074,6 +4247,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_inline_friend_operator_is_not_weighted_into_the_class() {
         check_wmc_and_npm::<CppParser>(INLINE_FRIEND_OPERATOR, "foo.cpp", |metric| {
@@ -4083,6 +4257,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_templated_inline_friend_is_not_weighted_into_the_class() {
         check_wmc_and_npm::<CppParser>(TEMPLATED_INLINE_FRIEND, "foo.cpp", |metric| {
@@ -4092,6 +4267,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_friend_declared_without_a_body_leaves_wmc_alone() {
         check_wmc_and_npm::<CppParser>(FRIEND_WITHOUT_BODY, "foo.cpp", |metric| {
@@ -4104,6 +4280,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_friend_of_a_nested_class_is_weighted_into_neither() {
         check_wmc_and_npm::<CppParser>(NESTED_CLASS_FRIEND, "foo.cpp", |metric| {
@@ -4119,6 +4296,7 @@ mod tests {
     // it and its `Checker` clone would drift silently. These mirror the
     // C++ cases above over the same fixtures.
 
+    #[cfg(feature = "mozcpp")]
     #[test]
     fn mozcpp_inline_friend_is_not_weighted_into_the_class() {
         check_wmc_and_npm::<MozcppParser>(INLINE_FRIEND, "foo.cpp", |metric| {
@@ -4130,6 +4308,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "mozcpp")]
     #[test]
     fn mozcpp_inline_friend_operator_is_not_weighted_into_the_class() {
         check_wmc_and_npm::<MozcppParser>(INLINE_FRIEND_OPERATOR, "foo.cpp", |metric| {
@@ -4139,6 +4318,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "mozcpp")]
     #[test]
     fn mozcpp_templated_inline_friend_is_not_weighted_into_the_class() {
         check_wmc_and_npm::<MozcppParser>(TEMPLATED_INLINE_FRIEND, "foo.cpp", |metric| {
@@ -4148,6 +4328,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "mozcpp")]
     #[test]
     fn mozcpp_friend_declared_without_a_body_leaves_wmc_alone() {
         check_wmc_and_npm::<MozcppParser>(FRIEND_WITHOUT_BODY, "foo.cpp", |metric| {
@@ -4157,6 +4338,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "mozcpp")]
     #[test]
     fn mozcpp_friend_of_a_nested_class_is_weighted_into_neither() {
         check_wmc_and_npm::<MozcppParser>(NESTED_CLASS_FRIEND, "foo.cpp", |metric| {
@@ -4166,6 +4348,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_empty_unit_zero_wmc() {
         check_metrics::<JavascriptParser>("", "empty.js", |metric| {
@@ -4174,6 +4357,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_single_method_wmc_one() {
         // Class with a single straight-line method has wmc = 1 (the
@@ -4184,6 +4368,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_method_with_if_adds_to_wmc() {
         // Method body with an `if` has cyclomatic = 2 → class_wmc = 2.
@@ -4197,6 +4382,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_free_function_does_not_contribute_to_class_wmc() {
         // Top-level functions are not class methods; their
@@ -4212,6 +4398,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_multiple_classes_wmc_aggregate() {
         // File-level rollup: Foo has wmc 1, Bar has wmc 1. Unit
@@ -4226,6 +4413,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_single_method_wmc_one() {
         check_metrics::<MozjsParser>("class Foo { a() { return 1; } }", "foo.js", |metric| {
@@ -4240,6 +4428,7 @@ mod tests {
     // (base 1) sum to exactly 2 with no double-attribution and no
     // negative intermediate. Mirrors `java_local_inner_class`, kept
     // minimal to pin the `u64` accessor's non-negativity.
+    #[cfg(feature = "java")]
     #[test]
     fn java_method_with_nested_class_wmc_is_non_negative_integer() {
         check_metrics::<JavaParser>(
@@ -4261,6 +4450,7 @@ mod tests {
     // Rounds out `wmc`'s public surface — the `Display` impl and the
     // per-space `class_wmc` / `interface_wmc` accessors — mirroring the
     // `Display` tests the sibling metrics (nom, nargs, halstead) carry.
+    #[cfg(feature = "java")]
     #[test]
     fn stats_display_and_per_space_accessors() {
         check_func_space::<JavaParser, _>(

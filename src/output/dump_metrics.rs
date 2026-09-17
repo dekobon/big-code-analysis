@@ -308,6 +308,7 @@ mod tests {
         String::from_utf8(buf.into_inner()).expect("utf-8 dump")
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn fields_after_a_nested_metric_object_resume_the_group_rail() {
         // `cyclomatic.modified` is the one metric group that nests
@@ -423,6 +424,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn selection_mask_omits_unselected_metric_groups() {
         // `with_only(&[Loc])` must restrict the dump to the loc group:
@@ -445,6 +447,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn last_emitted_metric_group_uses_closing_connector() {
         // The genuinely-last emitted metric group must carry the closing
@@ -536,6 +539,7 @@ mod tests {
     /// the dump — i.e. the root `Unit`'s, which is emitted before any child
     /// space. `{val}` Display renders whole f64s without a decimal point, so
     /// callers can compare against `"0"`.
+    #[cfg(feature = "rust")]
     fn root_block_field(out: &str, block: &str, field: &str) -> String {
         let body = &out[out
             .find(&format!("{block}\n"))
@@ -549,6 +553,7 @@ mod tests {
     /// matching the JSON serializer and `Display`), not the space's IMMEDIATE
     /// counts — which are 0 at any parent whose functions all live in a nested
     /// module/impl, and would not sum to the aggregate `total`.
+    #[cfg(feature = "rust")]
     #[test]
     fn dump_nom_and_nargs_use_subtree_aggregates_at_parent_space() {
         // The one function (with args) is nested in `mod m`, so the root Unit's
@@ -583,6 +588,7 @@ mod tests {
     /// underscore key that matches the JSON/CSV key name, so a user can grep
     /// the same token across `dump` and JSON. The space-separated forms
     /// (`estimated program length` / `purity ratio`) were the only outliers.
+    #[cfg(feature = "cpp")]
     #[test]
     fn dump_halstead_labels_use_underscore_keys() {
         let space = analyze(

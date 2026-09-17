@@ -1474,11 +1474,13 @@ mod tests {
     use std::path::PathBuf;
 
     /// Collect markers from a Rust snippet via the public collector.
+    #[cfg(feature = "rust")]
     fn rust_markers(src: &str) -> Vec<SuppressionMarker> {
         let parser = RustParser::new(src.as_bytes().to_vec(), &PathBuf::from("t.rs"), None);
         suppression_markers(&parser)
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn collector_function_scoped_native_marker_attributes_enclosing_fn() {
         // The marker sits inside `do_thing`'s body, so the audit must
@@ -1495,6 +1497,7 @@ mod tests {
         assert_eq!(m.function.as_deref(), Some("do_thing"));
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn collector_metric_list_scope_is_preserved() {
         let src = "fn f() {\n    // bca: suppress(cyclomatic, cognitive)\n}\n";
@@ -1508,6 +1511,7 @@ mod tests {
         assert_eq!(metrics.len(), 2);
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn collector_file_scoped_marker_has_no_enclosing_fn() {
         // A `suppress-file` marker is whole-file by definition; the
@@ -1520,6 +1524,7 @@ mod tests {
         assert_eq!(markers[0].function, None);
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn collector_nested_fn_attributes_innermost() {
         // The marker is inside the inner function; attribution must pick
@@ -1530,6 +1535,7 @@ mod tests {
         assert_eq!(markers[0].function.as_deref(), Some("inner"));
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn collector_marker_outside_any_fn_has_no_enclosing_fn() {
         // A function-scoped marker with no enclosing function silences
@@ -1542,6 +1548,7 @@ mod tests {
         assert_eq!(markers[0].function, None);
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn collector_recognizes_lizard_dialect() {
         let src = "fn f() {\n    // #lizard forgives\n}\n";
@@ -1551,6 +1558,7 @@ mod tests {
         assert_eq!(markers[0].function.as_deref(), Some("f"));
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn collector_markers_sorted_by_line() {
         let src = "fn a() {\n    // bca: suppress\n}\nfn b() {\n    // bca: suppress\n}\n";
@@ -1561,6 +1569,7 @@ mod tests {
         assert_eq!(markers[1].function.as_deref(), Some("b"));
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn collector_python_hash_marker() {
         let src = "def helper():\n    # bca: suppress\n    pass\n";
@@ -1571,6 +1580,7 @@ mod tests {
         assert_eq!(markers[0].function.as_deref(), Some("helper"));
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn collector_cpp_attributes_enclosing_function() {
         // Cross-language coverage: C++ functions are detected and the
@@ -1583,6 +1593,7 @@ mod tests {
         assert_eq!(markers[0].function.as_deref(), Some("compute"));
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn collector_elixir_requires_code_aware_func_predicate() {
         // Elixir is the language whose `Checker::is_func` returns `false`
@@ -1600,6 +1611,7 @@ mod tests {
         assert_eq!(markers[0].function.as_deref(), Some("parse_long"));
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn collector_empty_source_yields_no_markers() {
         assert!(rust_markers("").is_empty());
@@ -1625,6 +1637,7 @@ mod tests {
     ///
     /// Without this, every comment the collector's tests feed it parses
     /// successfully, and the reject arm is never taken.
+    #[cfg(feature = "rust")]
     #[test]
     fn collector_skips_comments_that_are_not_valid_markers() {
         let src = "// an ordinary comment\n\
@@ -1661,6 +1674,7 @@ mod tests {
     /// part of the marker adjacent to the missing newline, so a future
     /// parser that indexed past the `)` unconditionally would fail here
     /// and nowhere else.
+    #[cfg(feature = "rust")]
     #[test]
     fn rationale_marker_at_eof_without_trailing_newline() {
         let space = crate::test_support::space_verbatim(
@@ -1681,6 +1695,7 @@ mod tests {
     /// list. Pinned because the pre-#1168 parser reached the same answer
     /// for the opposite reason: it trimmed the `\r` off a body that had
     /// nothing after the `)` at all.
+    #[cfg(feature = "rust")]
     #[test]
     fn rationale_marker_survives_crlf_line_endings() {
         let space = crate::test_support::space_verbatim(
@@ -1703,6 +1718,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn collector_lists_a_marker_whose_list_was_partly_unusable() {
         // The audit reports the suppression that is *in force*. Since

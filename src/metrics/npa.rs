@@ -625,6 +625,7 @@ mod tests {
     check_metrics_only_shim!(check_metrics, Npa);
     check_func_space_only_shim!(check_func_space, Npa);
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_single_attributes() {
         check_metrics::<JavaParser>(
@@ -668,6 +669,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_multiple_attributes() {
         check_metrics::<JavaParser>(
@@ -711,6 +713,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_initialized_attributes() {
         check_metrics::<JavaParser>(
@@ -754,6 +757,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_array_attributes() {
         check_metrics::<JavaParser>(
@@ -797,6 +801,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_object_attributes() {
         check_metrics::<JavaParser>(
@@ -836,6 +841,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_no_attributes() {
         check_metrics::<GroovyParser>("class A { void foo() {} }", "foo.groovy", |metric| {
@@ -844,6 +850,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_public_attributes() {
         check_metrics::<GroovyParser>(
@@ -861,6 +868,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_def_attributes_not_public() {
         // `def field` at class scope is a FieldDeclaration whose
@@ -880,6 +888,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_interface_attributes() {
         // Structural `assert_child_space_kind` guards against an
@@ -901,6 +910,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_no_attributes_in_unit_scope() {
         check_metrics::<GroovyParser>("int x = 1", "foo.groovy", |metric| {
@@ -908,6 +918,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_multiple_classes() {
         check_metrics::<GroovyParser>(
@@ -921,6 +932,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_initialized_attributes() {
         // Mirror of `java_initialized_attributes`: each
@@ -942,6 +954,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_object_attributes() {
         // Object-typed attributes (boxed primitives, user types,
@@ -960,6 +973,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_attribute_modifiers() {
         // Multiple modifier orderings (public/static/final/transient/
@@ -983,6 +997,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     #[ignore = "dekobon Groovy grammar v1 does not yet support inner classes inside class bodies (https://github.com/dekobon/tree-sitter-groovy SPECIFICATION.md §4 — 'Field declarations, static initialisers, and inner classes land later')"]
     fn groovy_nested_inner_classes() {
@@ -1007,6 +1022,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_array_attributes() {
         // Array-typed attributes. Mirrors `java_array_attributes`.
@@ -1024,6 +1040,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_anonymous_inner_class() {
         // Object-creation expression containing a `class_body` —
@@ -1050,6 +1067,7 @@ mod tests {
     // annotation handling. Record support in the dekobon Groovy grammar
     // lags behind groovyc, but the grammar exposes `record_declaration`
     // and the `Npa` body walker treats it identically.
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_enum_counts_explicit_public_fields() {
         check_metrics::<GroovyParser>(
@@ -1066,6 +1084,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "groovy")]
     #[test]
     fn groovy_annotation_type_counts_constants_as_implicit_public() {
         // The dekobon Groovy grammar parses `@interface` like Java
@@ -1089,6 +1108,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_generic_attributes() {
         check_metrics::<JavaParser>(
@@ -1126,6 +1146,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_attribute_modifiers() {
         check_metrics::<JavaParser>(
@@ -1169,6 +1190,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_classes() {
         check_metrics::<JavaParser>(
@@ -1204,6 +1226,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_nested_inner_classes() {
         check_metrics::<JavaParser>(
@@ -1238,6 +1261,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_local_inner_classes() {
         check_metrics::<JavaParser>(
@@ -1277,6 +1301,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_anonymous_inner_classes() {
         check_metrics::<JavaParser>(
@@ -1319,6 +1344,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_interface() {
         check_metrics::<JavaParser>(
@@ -1352,6 +1378,7 @@ mod tests {
     // Regression for issue #280: Java `EnumDeclaration` must be
     // classified as a class space so `Npa` walks its body and counts
     // explicit public fields declared after the enum constants.
+    #[cfg(feature = "java")]
     #[test]
     fn java_enum_counts_explicit_public_fields() {
         check_metrics::<JavaParser>(
@@ -1376,6 +1403,7 @@ mod tests {
     // implicit public final fields at the bytecode level but are NOT
     // counted here, matching the C# precedent (only explicit body
     // members count).
+    #[cfg(feature = "java")]
     #[test]
     fn java_record_counts_explicit_body_fields() {
         check_metrics::<JavaParser>(
@@ -1393,6 +1421,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "java")]
     #[test]
     fn java_annotation_type_counts_constants_as_implicit_public() {
         // Asserting only `interface_na_sum` / `interface_npa_sum`
@@ -1417,6 +1446,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_no_class_attributes() {
         check_metrics::<PhpParser>(
@@ -1426,6 +1456,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_single_attributes() {
         check_metrics::<CsharpParser>(
@@ -1457,6 +1488,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_multiple_attributes() {
         check_metrics::<CsharpParser>(
@@ -1479,6 +1511,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_initialized_attributes() {
         check_metrics::<CsharpParser>(
@@ -1499,6 +1532,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_array_attributes() {
         check_metrics::<CsharpParser>(
@@ -1517,6 +1551,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_object_attributes() {
         check_metrics::<CsharpParser>(
@@ -1536,6 +1571,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_generic_attributes() {
         check_metrics::<CsharpParser>(
@@ -1554,6 +1590,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_attribute_modifiers() {
         check_metrics::<CsharpParser>(
@@ -1578,6 +1615,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_classes() {
         check_metrics::<CsharpParser>(
@@ -1600,6 +1638,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_nested_inner_classes() {
         check_metrics::<CsharpParser>(
@@ -1621,6 +1660,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_struct_attributes() {
         // C#-only: structs declare fields like classes; visibility rule
@@ -1641,6 +1681,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_record_attributes() {
         // C#-only: records can declare body fields just like classes.
@@ -1660,6 +1701,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_interface() {
         // EC14 — interface members default to public; all fields count.
@@ -1685,6 +1727,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_interface_explicit_modifiers() {
         // #780 — C# 8+ permits explicit `private`/`protected` on interface
@@ -1710,6 +1753,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "csharp")]
     #[test]
     fn csharp_interface_multi_declarator_modifier() {
         // The visibility modifier applies to every declarator of a field, so
@@ -1731,6 +1775,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_one_public_attribute() {
         check_metrics::<PhpParser>(
@@ -1740,6 +1785,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_one_private_attribute() {
         check_metrics::<PhpParser>(
@@ -1749,6 +1795,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_one_protected_attribute() {
         check_metrics::<PhpParser>(
@@ -1758,6 +1805,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_mixed_visibility_attributes() {
         check_metrics::<PhpParser>(
@@ -1773,6 +1821,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_static_public_attribute() {
         check_metrics::<PhpParser>(
@@ -1782,6 +1831,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_readonly_public_attribute() {
         check_metrics::<PhpParser>(
@@ -1791,6 +1841,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_multiple_attributes_per_declaration() {
         // A single property_declaration can declare several
@@ -1802,6 +1853,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_interface_constants() {
         // Interface constants are implicitly public.
@@ -1816,6 +1868,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_enum_cases_not_counted() {
         // #781: enum cases are sum-type tags, not data fields, so they
@@ -1839,6 +1892,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_enum_const_not_counted() {
         // #781: a PHP enum body may declare `const`s alongside its
@@ -1861,6 +1915,7 @@ mod tests {
         );
     }
 
+    #[cfg(all(feature = "java", feature = "php"))]
     #[test]
     fn php_enum_npa_matches_java_enum_npa() {
         // #781 cross-language parity: an enum whose only members are
@@ -1893,6 +1948,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_trait_attributes() {
         check_metrics::<PhpParser>(
@@ -1906,6 +1962,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_no_explicit_visibility_excluded() {
         // PHP 8.x deprecates implicit-public for properties; we follow
@@ -1922,6 +1979,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_anonymous_class_attributes() {
         // Anonymous classes have their own DeclarationList space and
@@ -1939,6 +1997,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "php")]
     #[test]
     fn php_property_promotion_excluded() {
         // Constructor property promotion (PHP 8.0+) declares both a
@@ -1967,6 +2026,7 @@ mod tests {
     // enclosing class. Top-level properties belong to the `Unit` space
     // and are excluded.
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_empty_class_no_attributes() {
         check_metrics::<KotlinParser>("class C {}", "foo.kt", |metric| {
@@ -1977,6 +2037,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_public_val_var_default() {
         // Kotlin's default visibility is public — no modifier means public.
@@ -1995,6 +2056,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_private_val_var() {
         // Private properties contribute to total `na` but not to `npa`.
@@ -2014,6 +2076,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_protected_internal_excluded_from_public() {
         check_metrics::<KotlinParser>(
@@ -2031,6 +2094,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_primary_constructor_parameter_property() {
         // `val`/`var` on primary constructor parameters declares both a
@@ -2050,6 +2114,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_primary_constructor_private_param_property() {
         check_metrics::<KotlinParser>(
@@ -2063,6 +2128,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_secondary_constructor_does_not_add_attrs() {
         // Secondary constructors are methods, not attribute declarations.
@@ -2080,6 +2146,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_companion_object_attributes() {
         // Companion-object properties fold into the enclosing class as
@@ -2103,6 +2170,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_data_class_attributes() {
         // `data class` parameters are the canonical positional attributes.
@@ -2117,6 +2185,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_object_singleton_attributes() {
         check_metrics::<KotlinParser>(
@@ -2135,6 +2204,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_interface_attributes() {
         // Interface members are implicitly public; all properties count
@@ -2159,6 +2229,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_nested_class_attributes() {
         // Each class space has its own attribute count; nested class
@@ -2181,6 +2252,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_inner_class_attributes() {
         check_metrics::<KotlinParser>(
@@ -2199,6 +2271,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_top_level_properties_excluded() {
         // Top-level `val` belongs to `Unit`, not a class — must not
@@ -2216,6 +2289,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_multiple_classes_attributes() {
         check_metrics::<KotlinParser>(
@@ -2237,6 +2311,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_class_with_methods_no_attrs() {
         // Methods are not attributes.
@@ -2265,6 +2340,7 @@ mod tests {
     // attributes. Interface property signatures count as implicitly
     // public attributes.
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_empty_class_no_attributes() {
         check_metrics::<TypescriptParser>("class C {}", "foo.ts", |metric| {
@@ -2274,6 +2350,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_default_public_fields() {
         // No accessibility modifier means public.
@@ -2292,6 +2369,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_visibility_modifiers() {
         // Public / private / protected. Default public.
@@ -2312,6 +2390,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_static_fields() {
         // `static` is orthogonal to visibility — the field still counts.
@@ -2331,6 +2410,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_parameter_properties() {
         // Constructor parameter properties are class attributes.
@@ -2349,6 +2429,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_readonly_constructor_param_property() {
         // A bare `readonly` constructor parameter is a public parameter
@@ -2373,6 +2454,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_readonly_field() {
         // `readonly` is a non-visibility modifier — the field still counts
@@ -2391,6 +2473,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_abstract_class_attributes() {
         // `abstract_class_declaration` opens its own class space; fields
@@ -2412,6 +2495,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_arrow_field_is_method_not_attribute() {
         // A field whose initializer is an arrow function is counted by
@@ -2430,6 +2514,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_interface_property_signatures() {
         // Interface property signatures count as implicitly-public
@@ -2455,6 +2540,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_generic_class_attributes() {
         // Type parameters on the class do not contribute attributes.
@@ -2473,6 +2559,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_getters_setters_not_attributes() {
         // `get x()` / `set x(v)` are method_definitions, not attributes.
@@ -2492,6 +2579,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_multiple_classes_and_interface() {
         check_func_space::<TypescriptParser, _>(
@@ -2515,6 +2603,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn typescript_nested_class_attributes_independent() {
         // Each class space tracks its own attributes; the outer class's
@@ -2544,6 +2633,7 @@ mod tests {
     // TSX parity tests — mirror the TS rules to confirm the shared helper
     // expansion behaves identically on the TSX grammar.
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_empty_class_no_attributes() {
         check_metrics::<TsxParser>("class C {}", "foo.tsx", |metric| {
@@ -2553,6 +2643,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_default_public_fields() {
         check_metrics::<TsxParser>(
@@ -2569,6 +2660,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_visibility_modifiers() {
         check_metrics::<TsxParser>(
@@ -2586,6 +2678,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_parameter_properties() {
         check_metrics::<TsxParser>(
@@ -2601,6 +2694,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_readonly_constructor_param_property() {
         // TSX sibling of `typescript_readonly_constructor_param_property`
@@ -2620,6 +2714,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_abstract_class_attributes() {
         check_metrics::<TsxParser>(
@@ -2637,6 +2732,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_interface_property_signatures() {
         check_func_space::<TsxParser, _>(
@@ -2656,6 +2752,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_arrow_field_is_method_not_attribute() {
         check_metrics::<TsxParser>(
@@ -2672,6 +2769,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_static_fields() {
         check_metrics::<TsxParser>(
@@ -2688,6 +2786,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_readonly_field() {
         check_metrics::<TsxParser>(
@@ -2704,6 +2803,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_generic_class_attributes() {
         check_metrics::<TsxParser>("class Box<T> { value: T; }", "foo.tsx", |metric| {
@@ -2713,6 +2813,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_getters_setters_not_attributes() {
         check_metrics::<TsxParser>(
@@ -2730,6 +2831,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "typescript")]
     #[test]
     fn tsx_multiple_classes_and_interface() {
         check_func_space::<TsxParser, _>(
@@ -2760,6 +2862,7 @@ mod tests {
     // introduce attributes. Visibility flows from keyword markers as
     // in `Npm`.
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_no_class_attributes() {
         check_metrics::<RubyParser>(
@@ -2773,6 +2876,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_instance_variable_attribute() {
         // Bare `@x = …` at class scope is one public attribute.
@@ -2783,6 +2887,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_class_variable_attribute() {
         // `@@y = …` at class scope is one attribute.
@@ -2793,6 +2898,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_attr_accessor_counts_symbols() {
         // `attr_accessor :x, :y, :z` declares three attributes.
@@ -2807,6 +2913,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_attr_reader_and_writer() {
         check_metrics::<RubyParser>(
@@ -2820,6 +2927,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_mixed_attributes_and_assignments() {
         check_metrics::<RubyParser>(
@@ -2833,6 +2941,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_private_attributes() {
         // Bare `private` flips visibility for the subsequent attr.
@@ -2847,6 +2956,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_visibility_public_resets_private() {
         // `private` then `public` returns to default-public.
@@ -2861,6 +2971,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_method_scope_assignments_excluded() {
         // `@x = 1` inside a method does NOT count — it's a method-local
@@ -2877,6 +2988,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_module_attributes_not_counted() {
         // `module M` is a `Namespace` space — its attr_* macros and
@@ -2892,6 +3004,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_inheritance_attributes() {
         // Inheritance does not change the attribute count for this class.
@@ -2906,6 +3019,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_constant_assignments_excluded() {
         // `CONST = …` at class scope binds a constant, not an
@@ -2923,6 +3037,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_multiple_classes_attribute_rollup() {
         check_metrics::<RubyParser>(
@@ -2937,6 +3052,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_visibility_call_wrapping_attr_macro_counts_symbols() {
         // `private attr_accessor :b` nests the `attr_accessor` call
@@ -2956,6 +3072,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_wrapped_attr_macro_reads_the_keyword_not_the_flag() {
         // Seeds the body-wide flag to `private` first, so the assertion
@@ -2976,6 +3093,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_parenthesised_bare_keyword_flips_the_attribute_flag() {
         // `private()` is the explicit-parens spelling of the bare
@@ -2996,6 +3114,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_attr_macro_counts_symbol_array_elements() {
         // `attr_writer %i[e f]` passes one argument naming two
@@ -3014,6 +3133,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_attr_macro_on_another_object_declares_nothing() {
         // `Other.attr_accessor :b` adds an attribute to `Other`, not
@@ -3037,6 +3157,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_hash_key_symbol_declares_no_attribute() {
         // Pins the defensive `HashKeySymbol` arm in
@@ -3062,6 +3183,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_hidden_call_alias_is_not_emitted() {
         // The Ruby `Npm` / `Npa` walkers dispatch on
@@ -3083,6 +3205,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ruby")]
     #[test]
     fn ruby_visibility_call_without_a_wrapped_macro_declares_nothing() {
         // The visibility-call arm must not invent attributes out of the
@@ -3116,6 +3239,7 @@ mod tests {
 
     // --- Python NPA ---------------------------------------------------
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_empty_class_no_attributes() {
         check_metrics::<PythonParser>("class C:\n    pass\n", "foo.py", |metric| {
@@ -3126,6 +3250,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_class_level_assignments_are_attributes() {
         // Two class-level `=` assignments → 2 attributes, all public
@@ -3137,6 +3262,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_bare_type_annotation_not_attribute() {
         // `x: int` is a bare annotation (declares a type, binds
@@ -3151,6 +3277,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_self_attributes_in_init() {
         // `self.x` and `self.y` assigned in `__init__` → 2 instance
@@ -3166,6 +3293,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_self_attributes_in_nested_control_flow() {
         // `self.z = 1` and `self.z = 2` in if/else now count once —
@@ -3191,6 +3319,7 @@ mod tests {
     /// (rather than identifier-name dedup) would NOT collapse them.
     /// This pins the rule to the attribute *name*, not the
     /// assignment text.
+    #[cfg(feature = "python")]
     #[test]
     fn python_defensive_reinit_self_attribute_counts_once() {
         check_metrics::<PythonParser>(
@@ -3206,6 +3335,7 @@ mod tests {
 
     /// Distinct attribute names still accumulate normally — the
     /// dedup is per-name, not per-method.
+    #[cfg(feature = "python")]
     #[test]
     fn python_distinct_self_attributes_count_independently() {
         check_metrics::<PythonParser>(
@@ -3224,6 +3354,7 @@ mod tests {
     /// The dedup helper must see both forms and treat them as the
     /// same attribute. Regression guard for the review finding on
     /// #215: ensure annotated assignments aren't missed.
+    #[cfg(feature = "python")]
     #[test]
     fn python_self_attribute_annotated_assignment_dedupes() {
         check_metrics::<PythonParser>(
@@ -3236,6 +3367,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_class_level_and_self_attrs_combine() {
         // 1 class-level + 2 instance = 3 total attributes.
@@ -3249,6 +3381,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_self_attrs_isolated_per_class() {
         // Nested class `Inner` opens its own class space; its
@@ -3271,6 +3404,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_decorated_methods_do_not_inflate_attrs() {
         // `@property` / `@staticmethod` wrap a `FunctionDefinition` in
@@ -3292,6 +3426,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn python_module_level_assignments_not_attributes() {
         // `x = 1` at module scope is not a class attribute.
@@ -3307,6 +3442,7 @@ mod tests {
     /// the class. Only `self.name` — whose receiver is the `self` alias
     /// — counts. The prior structural-only check treated every
     /// `obj.x = …` as an instance attribute, reporting 3.
+    #[cfg(feature = "python")]
     #[test]
     fn python_foreign_object_writes_not_attributes() {
         check_metrics::<PythonParser>(
@@ -3329,6 +3465,7 @@ mod tests {
     /// `self.a, self.b = 1, 2` is a `pattern_list`, not a single
     /// `Attribute`; the prior code bailed on non-Attribute targets and
     /// missed both `a` and `b`, reporting 1 (only `self.c`).
+    #[cfg(feature = "python")]
     #[test]
     fn python_self_attribute_unpacking_counts_each() {
         check_metrics::<PythonParser>(
@@ -3351,6 +3488,7 @@ mod tests {
     /// shared `python_walk_target_elements` recursion descends into the
     /// nested pattern so `b` and `c` are counted, not just `a` (review
     /// follow-up to #412 (b); a flat iteration reports 1).
+    #[cfg(feature = "python")]
     #[test]
     fn python_self_attribute_nested_unpacking_counts_each() {
         check_metrics::<PythonParser>(
@@ -3370,6 +3508,7 @@ mod tests {
     /// `tuple_pattern` inside the target. Each bound name — including the
     /// nested `b` and `c` — contributes one attribute (review follow-up to
     /// #412 (c); a flat iteration reports 1).
+    #[cfg(feature = "python")]
     #[test]
     fn python_class_level_nested_unpacking_counts_each() {
         check_metrics::<PythonParser>(
@@ -3391,6 +3530,7 @@ mod tests {
     /// unparenthesized `p, q = …` form uses. Matching only the hidden
     /// supertype aliases (168 / 167) dropped these entirely; both bound
     /// names must be counted (#419 hidden-alias discipline).
+    #[cfg(feature = "python")]
     #[test]
     fn python_class_level_parenthesized_unpacking_counts_each() {
         check_metrics::<PythonParser>(
@@ -3409,6 +3549,7 @@ mod tests {
     /// #412 (b) edge: unpacking that mixes a self attribute with a
     /// foreign / local target (`self.a, x = …`) counts only the self
     /// attribute.
+    #[cfg(feature = "python")]
     #[test]
     fn python_self_attribute_unpacking_skips_non_self_targets() {
         check_metrics::<PythonParser>(
@@ -3428,6 +3569,7 @@ mod tests {
     /// attribute per name. `a = b = 3` (chained) binds two; `p, q = 1,
     /// 2` (unpacking) binds two; with `x = 1` that is five names. The
     /// prior code counted one per `=` statement, reporting 3.
+    #[cfg(feature = "python")]
     #[test]
     fn python_class_level_multi_target_counts_each_name() {
         check_metrics::<PythonParser>(
@@ -3445,6 +3587,7 @@ mod tests {
     /// #412 (b)/(c): a chained instance assignment `self.a = self.b = 1`
     /// binds both `a` and `b` on `self`. The nested `Assignment` in the
     /// value is visited by the subtree walk, so both are counted.
+    #[cfg(feature = "python")]
     #[test]
     fn python_chained_self_assignment_counts_each() {
         check_metrics::<PythonParser>(
@@ -3461,6 +3604,7 @@ mod tests {
     /// #412 (a): a classmethod binds class attributes through the `cls`
     /// alias; `cls.registry = …` counts, while a foreign `other.thing =
     /// …` write in the same body does not.
+    #[cfg(feature = "python")]
     #[test]
     fn python_classmethod_cls_attribute_counts() {
         check_metrics::<PythonParser>(
@@ -3483,6 +3627,7 @@ mod tests {
     /// on `self.f`; it does NOT introduce a new attribute of the class.
     /// The receiver of the outer Attribute is itself an Attribute
     /// (`self.f`), not the `self` Identifier, so it is rejected.
+    #[cfg(feature = "python")]
     #[test]
     fn python_nested_self_attribute_not_counted() {
         check_metrics::<PythonParser>(
@@ -3499,6 +3644,7 @@ mod tests {
     /// `self.x = 2` name the same attribute; the instance binding
     /// shadows the class default, so `x` counts once. The class-level
     /// and instance passes share one dedup set.
+    #[cfg(feature = "python")]
     #[test]
     fn python_class_default_and_self_attr_dedupe() {
         check_metrics::<PythonParser>(
@@ -3512,6 +3658,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_empty_unit_no_attributes() {
         check_metrics::<RustParser>("", "empty.rs", |metric| {
@@ -3523,6 +3670,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_struct_fields_are_attributes() {
         // 3 named fields → class_na = 3. `pub a` and `pub c` are public
@@ -3538,6 +3686,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_pub_self_field_is_private() {
         // Regression for #460. A `pub(self)` / `pub(in self)` field
@@ -3565,6 +3714,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_pub_self_assoc_const_is_private() {
         // Regression for #460 on the associated-const path. `pub(self)`
@@ -3587,6 +3737,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_pub_self_tuple_field_is_private() {
         // Regression for #460 on the tuple-struct positional path.
@@ -3606,6 +3757,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_tuple_struct_fields_are_attributes() {
         // Tuple-struct field counting is positional. `Bar(pub i32,
@@ -3617,6 +3769,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_unit_struct_has_no_attributes() {
         // `struct Empty;` is a unit struct (no fields). 0 attributes.
@@ -3626,6 +3779,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_empty_struct_body_has_no_attributes() {
         // `struct Empty {}` is named-field with zero fields.
@@ -3635,6 +3789,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_impl_associated_consts_are_attributes() {
         // `const X` and `pub const Y` and `static Z` and `pub static W`
@@ -3658,6 +3813,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_trait_consts_and_associated_types_are_attributes() {
         // `const DEFAULT_COLOR` + `type Item` → 2 interface attributes,
@@ -3678,6 +3834,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_multiple_impls_aggregate() {
         // Two `impl Foo` blocks each have one associated const. The
@@ -3695,6 +3852,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rust")]
     #[test]
     fn rust_module_level_consts_not_attributes() {
         // `const PI: f64 = 3.14;` at file scope is a free-standing
@@ -3713,6 +3871,7 @@ mod tests {
 
     // ----- Go -----
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_empty_unit_no_attributes() {
         // Package-only file declares no struct → npa stays disabled,
@@ -3723,6 +3882,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_empty_struct_has_no_attributes() {
         // `type Empty struct{}` has an empty FieldDeclarationList →
@@ -3733,6 +3893,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_struct_fields_are_attributes() {
         // Three named fields: `X int`, `y string`, `Z float64` → 3
@@ -3749,6 +3910,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_grouped_struct_fields_each_count() {
         // `X, Y int` declares two field names in one
@@ -3766,6 +3928,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_embedded_type_counts_as_attribute() {
         // `io.Reader` and `*Foo` are embedded types — field
@@ -3785,6 +3948,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_multiple_structs_aggregate_at_unit() {
         // Two structs declared at file scope each contribute their
@@ -3803,6 +3967,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_top_level_var_const_not_attributes() {
         // Package-level `var` and `const` declarations are NOT
@@ -3818,6 +3983,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "go")]
     #[test]
     fn go_npa_excludes_unexported() {
         // Issue #458: mixed exported / unexported fields exercising a
@@ -3847,6 +4013,7 @@ mod tests {
     // Issue #275: `defstruct` is Elixir's closest analog to a class
     // field-set declaration. We count its field arguments as
     // (public) attributes.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_npa_defstruct_keyword_list() {
         check_metrics::<ElixirParser>(
@@ -3860,6 +4027,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_npa_defstruct_atom_list() {
         check_metrics::<ElixirParser>(
@@ -3872,6 +4040,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_npa_defstruct_bracketed_keyword_list() {
         check_metrics::<ElixirParser>(
@@ -3884,6 +4053,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_npa_defstruct_single_field() {
         check_metrics::<ElixirParser>(
@@ -3896,6 +4066,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_npa_no_defstruct_is_zero() {
         check_metrics::<ElixirParser>(
@@ -3917,6 +4088,7 @@ mod tests {
     /// `is_func_space_with_code` gate that used to precede the
     /// `defmodule` keyword check could not change the outcome, because
     /// `elixir_is_class_macro` is exactly `defmodule`.
+    #[cfg(feature = "elixir")]
     #[test]
     fn elixir_npa_counts_a_quoted_defmodule_as_a_class() {
         check_metrics::<ElixirParser>(
@@ -3933,6 +4105,7 @@ mod tests {
 
     // ----- Objective-C -----
 
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_npa() {
         // `@property` is always a public attribute. Instance variables
@@ -3968,6 +4141,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "objc")]
     #[test]
     fn objc_npa_protocol() {
         // A `@protocol`'s `@property` after an `@optional` / `@required`
@@ -3989,6 +4163,7 @@ mod tests {
 
     // ----- C++ -----
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_empty_unit_no_attributes() {
         // No code → no class spaces → npa = 0. Establishes the trait
@@ -4000,6 +4175,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_empty_class_no_attributes() {
         // `class Foo {};` has no fields. Marked as class space (npa
@@ -4011,6 +4187,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_class_public_attributes() {
         // `class` defaults to private. `public:` flips visibility →
@@ -4028,6 +4205,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_class_private_default_visibility() {
         // No access specifier → `class` keeps its default private
@@ -4040,6 +4218,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_struct_default_public_visibility() {
         // `struct` defaults to public — opposite of `class`. The same
@@ -4051,6 +4230,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_mixed_visibility_sections() {
         // Public section: 1 field. Protected section (bucketed with
@@ -4071,6 +4251,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_methods_not_counted_as_attributes() {
         // Inline-defined methods (`function_definition`) and
@@ -4094,6 +4275,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_pointer_array_fields_count() {
         // `int* p;` wraps the `field_identifier` inside
@@ -4116,6 +4298,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn cpp_multiple_classes_aggregate_at_unit() {
         // Two classes in one file. Each contributes to its own
@@ -4134,6 +4317,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_empty_unit_no_attributes() {
         // Wires up the trait and ensures no spurious attribute counts
@@ -4145,6 +4329,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_empty_class_no_attributes() {
         // A class with no body and no fields has zero attributes.
@@ -4155,6 +4340,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_class_fields_count() {
         // ES2022 class fields: `class Foo { x = 1; y; static z = 2; }`.
@@ -4172,6 +4358,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_arrow_field_is_method_not_attribute() {
         // `class Foo { x = () => {} }` declares a method, not an
@@ -4189,6 +4376,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_methods_not_counted_as_attributes() {
         // `method_definition` direct children of `class_body` are
@@ -4205,6 +4393,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "javascript")]
     #[test]
     fn javascript_multiple_classes_aggregate_at_unit() {
         // Two classes contribute their attribute counts to the
@@ -4221,6 +4410,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mozjs")]
     #[test]
     fn mozjs_class_fields_count() {
         // Mozjs shares JS's class vocabulary. Same expectation as the
@@ -4243,6 +4433,12 @@ mod tests {
     // `!is_nan()` proves the guard fires; the `== 0.0` checks pin the
     // chosen convention. Exercised across the explicit-visibility OO
     // languages (Java, C#, Kotlin, PHP).
+    #[cfg(all(
+        feature = "csharp",
+        feature = "java",
+        feature = "kotlin",
+        feature = "php"
+    ))]
     #[test]
     fn empty_class_cda_is_zero_not_nan() {
         let assert_zero = |metric: crate::CodeMetrics| {
@@ -4262,6 +4458,7 @@ mod tests {
     // existing all-public guard explicitly excludes the empty case
     // (`!= 0`), so without the divisor guard `interface_cda` returned
     // 0.0 / 0.0 = NaN. The defined value is 0.0.
+    #[cfg(all(feature = "csharp", feature = "java"))]
     #[test]
     fn empty_interface_cda_is_zero_not_nan() {
         let assert_zero = |metric: crate::CodeMetrics| {
@@ -4276,6 +4473,7 @@ mod tests {
     // Rounds out `npa`'s public surface — the `Display` impl and the
     // per-space `class_npa` / `class_na` / `interface_*` accessors —
     // mirroring the `Display` tests the sibling metrics carry.
+    #[cfg(feature = "java")]
     #[test]
     fn stats_display_and_per_space_accessors() {
         check_func_space::<JavaParser, _>(

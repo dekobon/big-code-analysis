@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 
 use big_code_analysis::{CSV_HEADER, LANG, MetricsOptions, Source, analyze, write_csv};
 
+#[cfg(any(feature = "cpp", feature = "python", feature = "rust"))]
 fn render_csv(lang: LANG, source: &[u8], path: &Path) -> String {
     let name = path.to_str().map(str::to_owned);
     let space = analyze(
@@ -31,6 +32,7 @@ fn render_csv(lang: LANG, source: &[u8], path: &Path) -> String {
 /// fields *outside* of any quoted strings. The csv crate handles
 /// quoting; this smoke check just confirms we never emit a malformed
 /// row.
+#[cfg(any(feature = "cpp", feature = "python", feature = "rust"))]
 fn assert_well_formed(csv_text: &str) {
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(false)
@@ -50,6 +52,7 @@ fn assert_well_formed(csv_text: &str) {
     assert!(rows >= 2, "expected header + at least one data row");
 }
 
+#[cfg(feature = "rust")]
 #[test]
 fn csv_rust_function_and_impl() {
     let source = r"
@@ -73,6 +76,7 @@ impl Counter {
     insta::assert_snapshot!("csv_rust_counter", out);
 }
 
+#[cfg(feature = "python")]
 #[test]
 fn csv_python_class() {
     let source = r#"
@@ -92,6 +96,7 @@ class Greeter:
     insta::assert_snapshot!("csv_python_greeter", out);
 }
 
+#[cfg(feature = "cpp")]
 #[test]
 fn csv_cpp_namespace_and_class() {
     let source = r"
@@ -112,6 +117,7 @@ private:
     insta::assert_snapshot!("csv_cpp_widget", out);
 }
 
+#[cfg(feature = "rust")]
 #[test]
 fn csv_header_row_is_documented_constant() {
     // Cheap regression: if anyone reorders columns in csv.rs the

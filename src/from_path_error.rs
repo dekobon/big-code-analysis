@@ -85,6 +85,7 @@ mod tests {
     // `source` chaining contract, which is what `?`-propagating callers
     // and `anyhow`-style reporters rely on.
 
+    #[cfg(feature = "rust")]
     #[test]
     fn from_path_error_display_covers_every_variant() {
         let io = FromPathError::Io(IoError::new(ErrorKind::PermissionDenied, "denied"));
@@ -134,6 +135,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "cpp")]
     #[test]
     fn metrics_error_converts_into_parse_variant() {
         let converted: FromPathError = MetricsError::LanguageDisabled(LANG::Cpp).into();
