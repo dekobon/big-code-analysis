@@ -227,10 +227,6 @@ def dead_spans(source: str) -> list[tuple[int, int]]:
     return spans
 
 
-def _in_any_span(idx: int, spans: list[tuple[int, int]]) -> bool:
-    return any(start <= idx < end for start, end in spans)
-
-
 # ---------------------------------------------------------------------------
 # Subject discovery
 # ---------------------------------------------------------------------------
@@ -249,22 +245,45 @@ class Subject:
     is_test_fn: bool
     #: Some ``cfg`` in the run also requires the bare ``test`` predicate.
     is_cfg_test: bool
+    #: Enclosing ``mod`` names, outermost first.
+    module_path: tuple[str, ...] = ()
+    #: An enclosing ``mod`` carries the bare ``test`` predicate.
+    in_cfg_test_scope: bool = False
 
     @property
     def carries_tests(self) -> bool:
         """Whether a build can be asked whether this subject is present.
 
-        A ``#[cfg(test)] mod`` is a container of tests and a ``#[test]
-        fn`` is one. A bare helper ``fn`` gated on a union carries no
-        test name, so ``nextest`` has nothing to report about it — its
-        absence under a disjoint feature set is a pure compile-time
-        property, which the leg's ``cargo clippy --all-targets`` already
-        covers (an unused helper is ``dead_code``, a missing one is
-        ``E0425``).
+        A ``mod`` in a test scope is a container of tests and a
+        ``#[test] fn`` is one. A bare helper ``fn`` gated on a union
+        carries no test name, so ``nextest`` has nothing to report about
+        it — its absence under a disjoint feature set is a pure
+        compile-time property, which the leg's
+        ``cargo clippy --all-targets`` already covers (an unused helper
+        is ``dead_code``, a missing one is ``E0425``).
+
+        The scope, not the subject's own attribute (#1472). A
+        union-gated ``mod`` nested inside an already-``#[cfg(test)]``
+        parent has no ``test`` of its own, and reading only the
+        attribute classified it "compile-time only" and never checked it
+        — a false pass in exactly the #1220 shape this gate exists to
+        catch.
+
+        "Scope" here means *in this file*. The commonest spelling in
+        this repo puts the marker on a `#[cfg(test)] #[path = "…"] mod
+        x;` line in the parent module, which a single-file scan cannot
+        see — every such module redundantly repeats `#[cfg(test)]` at
+        its own top, which is the only reason they are classified
+        correctly today.
         """
-        return (self.kind == "mod" and self.is_cfg_test) or (
+        return (self.kind == "mod" and (self.is_cfg_test or self.in_cfg_test_scope)) or (
             self.kind == "fn" and self.is_test_fn
         )
+
+    @property
+    def qualified_name(self) -> str:
+        """``a::b::name`` — what a nextest test path actually contains."""
+        return "::".join((*self.module_path, self.name))
 
     def describe(self) -> str:
         return f"{self.path}:{self.line}  {self.kind} {self.name}"
@@ -320,22 +339,31 @@ def scan_source(source: str, path: str) -> list[Subject]:
     attribute and its item are legal Rust and do not break the run.
     """
     spans = dead_spans(source)
-    lines = source.splitlines()
-    # Start-of-line character offsets, so a `#[` inside a fixture string
-    # can be told from a real attribute.
-    offsets: list[int] = []
-    pos = 0
-    for line in lines:
-        offsets.append(pos)
-        pos += len(line) + 1
-
+    masked = list(source)
+    for start, end in spans:
+        for i in range(start, min(end, len(masked))):
+            if masked[i] != "\n":
+                masked[i] = " "
+    # `split("\n")`, not `splitlines()`: the latter also breaks on
+    # `\x0b`, `\x0c`, `\u2028` and friends, and masking turns those
+    # into spaces — so the masked text would yield *fewer* lines than
+    # the raw one and every later index would be off by the
+    # difference, ending in an `IndexError` traceback rather than a
+    # diagnosable error.
+    masked_lines = "".join(masked).split("\n")
+    lines = source.split("\n")
     subjects: list[Subject] = []
     attrs: list[str] = []
     pending: list[str] = []  # partial multi-line attribute
+    # Enclosing `mod`s as (name, brace depth on entry, in a test scope).
+    stack: list[tuple[str, int, bool]] = []
+    # A `mod` seen but not yet opened, for the brace-on-a-later-line
+    # spelling.
+    opening: tuple[str, int, bool] | None = None
+    depth = 0
     index = 0
     while index < len(lines):
-        raw = lines[index]
-        stripped = raw.strip()
+        stripped = lines[index].strip()
         line_no = index + 1
         index += 1
 
@@ -350,9 +378,17 @@ def scan_source(source: str, path: str) -> list[Subject]:
         if not stripped or stripped.startswith("//"):
             continue
 
+        masked_line = masked_lines[line_no - 1]
+        masked_stripped = masked_line.strip()
+
         if stripped.startswith("#[") or stripped.startswith("#!["):
-            hash_idx = offsets[line_no - 1] + (len(raw) - len(raw.lstrip()))
-            if _in_any_span(hash_idx, spans):
+            # The masked copy answers "is this inside a string or a
+            # comment" in O(1). `_in_any_span` is a linear scan of every
+            # dead span in the file, and tracking module nesting made
+            # this loop visit every code line rather than only the ones
+            # an attribute precedes — which cost 4.7x on a whole-tree
+            # scan, paid once per CI leg.
+            if not masked_stripped.startswith("#"):
                 continue
             if stripped.count("[") > stripped.count("]"):
                 pending = [stripped]
@@ -360,28 +396,72 @@ def scan_source(source: str, path: str) -> list[Subject]:
                 attrs.append(stripped)
             continue
 
-        if attrs:
-            item = ITEM_RE.match(stripped)
-            code_idx = offsets[line_no - 1] + (len(raw) - len(raw.lstrip()))
-            if item is not None and not _in_any_span(code_idx, spans):
-                features: set[str] = set()
-                for attr in attrs:
-                    features.update(union_features(attr))
-                if features:
-                    subjects.append(
-                        Subject(
-                            path=path,
-                            line=line_no,
-                            kind=item.group(1),
-                            name=item.group(2),
-                            features=frozenset(features),
-                            is_test_fn=any(
-                                TEST_ATTR_RE.search(a) for a in attrs
-                            ),
-                            is_cfg_test=any(_cfg_requires_test(a) for a in attrs),
-                        )
+        item = ITEM_RE.match(masked_stripped)
+        entry_depth = depth
+
+        if attrs and item is not None:
+            features: set[str] = set()
+            for attr in attrs:
+                features.update(union_features(attr))
+            if features:
+                own_cfg_test = any(_cfg_requires_test(a) for a in attrs)
+                subjects.append(
+                    Subject(
+                        path=path,
+                        line=line_no,
+                        kind=item.group(1),
+                        name=item.group(2),
+                        features=frozenset(features),
+                        is_test_fn=any(TEST_ATTR_RE.search(a) for a in attrs),
+                        is_cfg_test=own_cfg_test,
+                        module_path=tuple(name for name, _, _ in stack),
+                        in_cfg_test_scope=any(scope for _, _, scope in stack),
                     )
-            attrs = []
+                )
+        if attrs:
+            enters_test_scope = any(_cfg_requires_test(a) for a in attrs)
+        else:
+            enters_test_scope = False
+        attrs = []
+
+        # `mod foo;` declares a module in another file and opens nothing.
+        # Reading it as pending leaves it waiting for the next `{` in the
+        # file, which is routinely an `impl` or `struct` — and since
+        # neither matches `ITEM_RE` nor carries a `;`, nothing below
+        # clears it. Every subject inside that block then reports a
+        # `qualified_name` prefixed with a module it is not in, and
+        # `subject_matcher` matches no nextest test at all: a silent
+        # pass, the outcome this scanner exists to prevent.
+        brace_at = masked_stripped.find("{")
+        semicolon_at = masked_stripped.find(";")
+        declares_only = semicolon_at != -1 and (
+            brace_at == -1 or semicolon_at < brace_at
+        )
+
+        if item is not None and item.group(1) == "mod" and not declares_only:
+            opening = (
+                item.group(2),
+                entry_depth,
+                enters_test_scope or any(s for _, _, s in stack),
+            )
+        elif item is not None or ";" in masked_stripped:
+            # Another item, or the `;` of a `mod foo;` declaration: the
+            # pending `mod` never opened a block.
+            opening = None
+
+        depth += masked_line.count("{") - masked_line.count("}")
+
+        # Pushed when the brace actually arrives, which is not always the
+        # header line. Requiring it there re-created the very false pass
+        # this scanner exists to remove — a `mod outer` with its `{`
+        # below it left everything inside classified as outside a test
+        # scope, and truncated the qualified path back to the bare-name
+        # over-match.
+        if opening is not None and depth > opening[1]:
+            stack.append(opening)
+            opening = None
+        while stack and depth <= stack[-1][1]:
+            stack.pop()
     return subjects
 
 
@@ -519,11 +599,18 @@ def subject_matcher(subject: Subject) -> re.Pattern[str]:
     """Match a nextest test name belonging to ``subject``.
 
     Test names are ``::``-separated module paths, so the subject is a
-    whole path segment — anchoring on the separators keeps
+    whole run of path segments — anchoring on the separators keeps
     ``a_type_declared_inside_a_function`` from matching
     ``a_type_declared_inside_a_function_reaches_the_root_rollup``.
+
+    The *qualified* name, not the bare one (#1472). Admitting a nested
+    ``mod`` as a checkable subject means a subject can be called
+    ``tests``, and a bare-name match for that hits every ``::tests::``
+    path in the crate — failing every disjoint leg. The enclosing module
+    names are what make it specific again.
     """
-    return re.compile(rf"(?:^|::){re.escape(subject.name)}(?:::|$)")
+    qualified = "::".join(re.escape(part) for part in subject.qualified_name.split("::"))
+    return re.compile(rf"(?:^|::){qualified}(?:::|$)")
 
 
 # ---------------------------------------------------------------------------

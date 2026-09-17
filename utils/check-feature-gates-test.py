@@ -287,6 +287,152 @@ class SubjectMatcherTest(unittest.TestCase):
         self.assertTrue(matcher.search("a_type::inner"))
         self.assertFalse(matcher.search("metrics::a_type_declared_inside"))
 
+    def test_a_nested_subject_matches_on_its_whole_path(self) -> None:
+        """A bare `tests` would match every `::tests::` path in the crate."""
+        subject = _nested_mod_subject()
+        matcher = gate.subject_matcher(subject)
+        self.assertEqual(subject.qualified_name, "outer::tests")
+        self.assertTrue(matcher.search("metrics::outer::tests::a_case"))
+        self.assertFalse(matcher.search("metrics::halstead::tests::a_case"))
+
+
+NESTED_IN_TEST_SCOPE = """
+#[cfg(test)]
+mod outer {
+    #[cfg(any(feature = "php", feature = "groovy"))]
+    mod tests {
+        #[test]
+        fn a_case() {}
+    }
+}
+"""
+
+
+def _nested_mod_subject():
+    subjects = gate.scan_source(NESTED_IN_TEST_SCOPE, "x.rs")
+    return next(s for s in subjects if s.kind == "mod")
+
+
+class NestedSubjectTest(unittest.TestCase):
+    """#1472 item 3: a union-gated `mod` under a `#[cfg(test)]` parent.
+
+    It carries no `test` predicate of its own, so reading only its own
+    attribute classified it "compile-time only" and never compared it
+    against the build — a false pass in exactly the #1220 shape this
+    gate exists to catch.
+    """
+
+    def test_it_is_checkable_despite_carrying_no_test_predicate(self) -> None:
+        subject = _nested_mod_subject()
+        self.assertFalse(subject.is_cfg_test, "it has no `test` of its own")
+        self.assertTrue(subject.in_cfg_test_scope)
+        self.assertTrue(subject.carries_tests)
+
+    def test_a_mod_whose_brace_is_on_the_next_line_still_opens_a_scope(
+        self,
+    ) -> None:
+        """Requiring the brace on the header line re-creates the bug.
+
+        rustfmt keeps it there today, so nothing in this tree reaches
+        the other spelling — which is exactly why it needs a fixture:
+        the failure is silent, and it is the same false pass this whole
+        change removes.
+        """
+        subject = _nested_mod_subject_in(
+            """
+#[cfg(test)]
+mod outer
+{
+    #[cfg(any(feature = "php", feature = "groovy"))]
+    mod tests { }
+}
+"""
+        )
+        self.assertTrue(subject.in_cfg_test_scope)
+        self.assertTrue(subject.carries_tests)
+        self.assertEqual(subject.qualified_name, "outer::tests")
+
+    def test_a_mod_declaration_opens_no_scope(self) -> None:
+        """`mod outer;` has no body, so it must not swallow what follows."""
+        subjects = gate.scan_source(
+            """
+#[cfg(test)]
+mod outer;
+
+#[cfg(any(feature = "php", feature = "groovy"))]
+fn helper() {}
+""",
+            "y.rs",
+        )
+        (helper,) = subjects
+        self.assertEqual(helper.qualified_name, "helper")
+        self.assertFalse(helper.in_cfg_test_scope)
+
+    def test_a_mod_declaration_is_not_opened_by_a_later_impl_block(
+        self,
+    ) -> None:
+        """The clearing `elif` needs an item or a `;` to fire.
+
+        `impl` and `struct` are neither, so a pending `mod foo;` waited
+        for their `{` and claimed the whole block. Every subject inside
+        then reported `foo::…`, which `subject_matcher` cannot match
+        against any nextest name — a silent pass.
+        """
+        subjects = gate.scan_source(
+            """
+#[cfg(test)]
+mod outer;
+
+impl Holder {
+    #[test]
+    #[cfg(any(feature = "php", feature = "groovy"))]
+    fn a_union_gated_test() {}
+}
+""",
+            "y.rs",
+        )
+        (test_fn,) = subjects
+        self.assertEqual(test_fn.qualified_name, "a_union_gated_test")
+
+    def test_an_exotic_line_separator_does_not_desynchronise_the_scan(
+        self,
+    ) -> None:
+        """`splitlines()` breaks on more characters than `\n`.
+
+        Masking turns a form feed inside a string into a space, so a
+        scanner splitting the masked text with `splitlines()` gets fewer
+        lines than the raw one and indexes off the end — an `IndexError`
+        traceback rather than a finding.
+        """
+        subjects = gate.scan_source(
+            '#[cfg(any(feature = "php"))]\n'
+            'const F: &str = "a\x0cb";\n'
+            "#[test]\n"
+            '#[cfg(any(feature = "php", feature = "groovy"))]\n'
+            "fn after_the_form_feed() {}\n",
+            "z.rs",
+        )
+        self.assertIn(
+            "after_the_form_feed", [subject.name for subject in subjects]
+        )
+
+    def test_a_non_test_scope_mod_is_still_compile_time_only(self) -> None:
+        # Without a test scope there is no test name for nextest to
+        # report, so the clippy run owns it as it always did.
+        subject = _nested_mod_subject_in(
+            """
+mod outer {
+    #[cfg(any(feature = "php", feature = "groovy"))]
+    mod inner {}
+}
+"""
+        )
+        self.assertFalse(subject.carries_tests)
+
+
+def _nested_mod_subject_in(source: str):
+    return next(s for s in gate.scan_source(source, "x.rs") if s.kind == "mod")
+
 
 class MainTest(unittest.TestCase):
     """Both directions, with the build stubbed out.
