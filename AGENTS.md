@@ -82,7 +82,7 @@ and `cargo run -p big-code-analysis-web --`.
   `check-grammar-marker-sync.py`, `check-enums-codegen-drift.sh`,
   `check-grammar-crate.py`, `check-grammars-crates.sh`,
   `check-excluded-manifests.py`, `check-ruff-lockstep.py`,
-  `check-publish-metadata.py`,
+  `check-publish-metadata.py`, `check-test-lang-gates.py`,
   `verify-name-only-churn.py`, and each
   gate's `*-test.py` self-tests.
   Each resolves the repository root from its own location
@@ -295,7 +295,13 @@ modified, deleted, **and** newly added pages, the last of which
 `git diff` alone cannot see, #1249), the diagnostic-prefix gate
 (`make check-diagnostic-prefix`, which blocks a capitalised
 `Warning:` / `Error:` / `Note:` string literal — see "Rust
-conventions"), the safety-doc pin gate
+conventions"), the per-language test gate
+(`make check-test-lang-gates`, which fails on a test that would be
+compiled into a build lacking a grammar it names — #1472 — and, in the
+other direction, on a gate *wider* than the item it guards, which keeps
+a test out of builds it could have run in and which nothing else can
+see — #1478),
+the safety-doc pin gate
 (`make check-safety-doc-pin`, which fails when the `tree-sitter`
 version cited by the `unsafe` soundness argument in
 `big-code-analysis-py/src/node.rs` is not the version
@@ -471,6 +477,19 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace --all-features
 If `pre-commit` is installed, also run `pre-commit run --all-files`. The
 project's `.pre-commit-config.yaml` runs clippy, `cargo +nightly udeps`,
 and the test suite.
+
+**The per-language membership comparison** (`make
+check-test-lang-gates-compare COMPARE_REF=origin/main`) is the one gate above
+that is not in `make pre-commit`, because it needs a base revision to
+mean anything. The gates that are in it compare a `cfg` marker against the
+derivation; when the two agree and are both wrong, only the previous
+revision says so. This scans the tree at `REF` as well and fails on a
+test that still exists but stopped being compiled by some
+single-language build — the silent direction, since a gate too narrow
+just drops the test and every leg stays green. It runs no cargo, so it
+costs a couple of seconds; the `lint` CI job runs it per pull request
+against the base branch head — `base.sha` rather than `git merge-base`,
+since that job checks out shallow (#1478).
 
 **The ancestor-chain audit** (`make chain-audit`) re-runs the library
 tests with `--cfg chain_audit`, which restores the exact

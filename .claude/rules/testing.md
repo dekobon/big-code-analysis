@@ -461,6 +461,189 @@ it, and then the counts varied (0 / 2 / 3). A feature-gate check run
 without `-p` proves nothing, and proves it while looking green; confirm
 real isolation by watching the *filtered-out* count differ across sets.
 
+## Every test that names a language carries that language's gate
+
+The rule above is about a *fixture table*. The same requirement applies
+one level down, to every individual test, and for a blunter reason:
+`mk_langs!` generates each `*Parser` alias, `*Code` tag and `LANG`
+variant unconditionally, so `check_metrics::<PythonParser>(…)` compiles
+with `python` off and then panics inside `Tree::new`. Until #1472,
+about 2,950 tests named a grammar without gating on it — 2,804 in
+`src/`, 104 in `big-code-analysis-ast/src/`, 33 under `tests/`, plus 229
+helpers and fixture tables. Approximate because the figure moves with
+the derivation rules themselves: each refinement that stops reading
+something as a use lowers it, and this section has already quoted a
+higher number taken before the comparison rules landed. A
+partial-feature build failed in the thousands.
+
+`make check-test-lang-gates` derives and enforces it across all three of
+those roots: for every item in a test scope it collects the languages
+the body reaches — directly, and through same-module helpers that
+hardcode a parser — and fails when the item's `cfg` would still admit it
+into a build lacking one. A test needs
+`all(…)` of what it names; a helper, a `const` fixture table or an
+import needs `any(…)` of its users. `--fix` writes the markers and
+`--show` prints the derivation.
+
+Four things the derivation cannot see, so write those by hand and say
+why in a comment:
+
+- **A language chosen from a string.** A helper that maps a path
+  extension or a filename glob onto a `LANG` hides it — the corpus tests
+  and `suppression_test.rs`'s `analyze_lang` both did. Prefer passing
+  the `LANG` explicitly where you can; that is a better call site
+  anyway.
+- **A trait used through its methods.** Nothing names `ParserTrait` in a
+  body that calls `SomeParser::new`, so its import falls back to the
+  module's whole union, so it carries no derived gate at all.
+- **Anything `pub`.** Its users are in other files, which this
+  single-file scanner does not see; `src/test_support.rs` is the whole
+  story.
+- **Which grammar a re-export serves.** Same reason, one step further
+  out — a scoped `#[allow(unused_imports)]` beats a hand-copied union of
+  seven files' gates.
+
+Say so with a marker the gate reads, not prose alone:
+
+```rust
+// test-lang-gates: hand-written(cpp) — the corpus walk picks a
+//     language per file from its extension, so the glob list decides
+//     it and nothing in the body names it
+#[cfg(feature = "cpp")]
+```
+
+Because the gate checks the *other* direction too (#1478). A gate wider
+than the item needs keeps it out of builds it could have run in, and
+that is the failure nothing else can see: too wide panics on the leg
+that lacks the grammar, too narrow just drops the test and the leg still
+looks green. Sixteen gates in this tree are wider than their bodies
+justify, every one for a reason above; the marker is how you say which,
+and a gate that grows a feature nobody can account for fails the gate.
+
+A marker that stops being load-bearing fails too. Narrow the gate and
+the feature it named is no longer over-declared, so the marker now
+claims a reason that does not apply — and sixteen accepted gates only
+read as a census while every one of them is still doing something. The
+gate names the stale entry; drop the feature, or the whole marker when
+it names nothing else.
+
+Two things follow for anyone editing a marker by hand:
+
+- **A comparison is not a use.** `lang == LANG::Go` asks which variant a
+  value is; the enum is generated unconditionally, so it parses nothing
+  and needs no grammar. Counting one as a requirement is what conjoined
+  `feature = "go"` onto `container_scope_tests.rs` and dropped the
+  positive half of the #1197 contract from every build without Go. This
+  covers *every* alternative of a `matches!`, not only the leading one:
+  the call has no arms and drives no table, so `matches!(lang,
+  LANG::Ccomment | LANG::Preproc)` written to **skip** two languages is
+  not a requirement for either. Reading the later arms as uses is what
+  gated two `every_*_in_every_language` parity sweeps down to the one
+  `c-family-helpers` that leaked out of that exclusion — they ran in
+  four builds instead of twenty-three, and `--compare` was the only
+  check that could see it.
+- **A sweep still needs the parsers it hardcodes.** `is_enabled`
+  filtering earns a row set only `any(…)`, because the loop skips what
+  is missing. A parser named through a *type parameter*
+  (`check_metrics::<PythonParser>`) cannot be skipped by any runtime
+  filter, so it is required even inside a sweep — otherwise the
+  exemption is a way round the whole gate. It propagates through
+  helpers exactly as `needs` does: a sweep whose only fixed-parser call
+  sits one hop away pins that parser just the same.
+
+  **The pin covers a parser named as a *type*, and nothing else.** A
+  `LANG::Rust` literal handed to `analyze` inside a sweep is not pinned,
+  because the gate cannot tell one that sits in the iterated row table —
+  which the `is_enabled` filter does skip — from one outside the loop,
+  which it does not. Every sweep in the tree today filters per language,
+  so nothing is currently wrong; but a sweep that mentions `is_enabled`
+  anywhere and *also* parses a hard-coded `LANG` outside the loop would
+  pass this gate and panic (#1480). Write the fixed-parser call as
+  `check_metrics::<RustParser>` and it is pinned correctly.
+- **A sweep over the whole enum needs `any(<every language>)`**, when it
+  carries both halves of the rule above — an `is_enabled()` row filter
+  *and* a non-vacuity assertion. Those two together mean it *fails*
+  rather than skips with no language enabled, so it has to be absent
+  then. Do not try to read a narrower set off the body: the fixtures
+  come from a `LANG`-parameterised helper whose arms are deliberately
+  not attributed to callers, so the body names almost nothing and
+  whatever leaks through becomes the whole gate. A full-enum sweep
+  *without* that guard is a different animal — `Display`, `FromStr` and
+  slug round-trips walk the same enum over variants that exist without
+  their grammars, and gating those stops them running on the
+  `--no-default-features` leg that is exactly where they belong.
+
+### Why the import lint is off on a partial build
+
+Both library roots and the five integration-test crate roots carry:
+
+```rust
+#![cfg_attr(not(feature = "all-languages"), allow(unused_imports))]
+```
+
+Per-language gating makes "is this import live" a function of the
+enabled feature set. A `use` that every test in a module needs under
+`--all-features` is used by none of them once their grammars are gated
+out, and `unused_imports` cannot express that. Nor can a `cfg` on the
+import itself: a trait is reached through its methods and so is named
+nowhere, a glob binds an unknowable set, and a macro is invoked from
+item position. A derived union is wrong in both directions — too wide
+and the import is unused, too narrow and it vanishes from under a test
+that still compiles.
+
+The scoping is what keeps it honest. `all-languages` is on by default
+and under `--all-features`, so the build CI gates on and the one a
+contributor runs both report an unused import exactly as before; only
+the single-language legs, where the answer cannot mean anything, go
+quiet.
+
+Dead *items* are relaxed only in the two library roots, which already
+carried an `allow(dead_code)` on the same condition before #1472. The
+test crates do not, so every helper, `const`, macro and test in
+`tests/` still needs its own gate.
+
+### The direction that needs history
+
+Both checks above compare a marker against the derivation. When the two
+agree and are *both* wrong there is nothing left to compare against —
+the marker faithfully mirrors a derivation that is itself too wide, and
+no amount of re-reading either one says so.
+
+`--compare <ref>` is the answer, and it needs no cargo: it scans the
+tree at `ref` as well (`git archive` into a scratch directory), computes
+which single-language builds compile each test in each, and fails on a
+test that still exists but stopped being built somewhere. The probe set
+comes from the language table, so a new language extends it for free.
+
+CI runs it per pull request against the base branch head — the PR's
+`base.sha`, not `git merge-base`, because the job checks out shallow and
+cannot compute one. The difference shows on a PR that is behind: if
+`main` widens a gate meanwhile, this reports it against a PR that never
+touched it, and the label is then the right answer. It is deliberately
+not in `make pre-commit`, which has no base revision to be meaningful
+against; by hand it is
+`make check-test-lang-gates-compare COMPARE_REF=origin/main`.
+
+A test that was *deleted* or renamed reads as one name gone and another
+arrived, and is not reported — a deliberate removal is not a gate
+narrowing under it.
+
+A *deliberate* narrowing looks identical, though, and does happen: the
+gate really was too wide and the test does not need that grammar. Say so
+with the `gate-narrowing-intended` label on the pull request, not with
+an in-source marker. A marker would be permanently stale the moment the
+branch lands — the comparison is relative to a moving base — and would
+then sit in the tree as a hole nothing can detect, which is the failure
+mode this whole gate exists to prevent.
+
+The step reads that label **live**, not from the event payload, so
+applying it after the failing run — which is when you find out you need
+it — takes effect on the next run, and re-running the failed job works
+too. Reading it from `github.event.pull_request.labels` did not: that
+payload is a snapshot from when the run was queued, and a re-run replays
+the same stale copy, so the documented remedy could never take effect at
+all (measured on #1479).
+
 ## Assert a whole-run invariant in the run, not in a fixture list
 
 When a change establishes an invariant that holds at the end of *every*

@@ -123,6 +123,55 @@ for historical reference.
 
 ### Changed
 
+- Every test that names a per-language grammar now carries that
+  language's Cargo feature as a `cfg` marker, so a partial-feature build
+  drops it rather than compiling it and panicking (#1472, #1413). The
+  `*Parser` aliases, `*Code` tags and `LANG` variants `mk_langs!`
+  generates are unconditional — only the grammar lookup behind them is
+  gated — so `check_metrics::<PythonParser>(…)` built cleanly without
+  `python` and then failed inside `ParserTrait::new`, whose own doc says
+  to check `LANG::is_enabled` first. Almost none did: measured across
+  `src/`, `big-code-analysis-ast/src/` and `tests/`, 3,025 tests named a
+  grammar without gating on it, 2,840 of them in `src/` alone. A
+  partial-feature build was therefore useless for verifying anything —
+  the failures buried any real signal. The markers are
+  derived rather than hand-written, by the new
+  `utils/check-test-lang-gates.py`, which also keeps them accurate: it
+  reads the language table out of the `mk_langs!` invocation, collects
+  the languages each test item reaches, and fails when an item's `cfg`
+  would still admit it into a build lacking one. It is wired into
+  `make pre-commit` and `make ci`, and `--fix` writes the markers. The
+  `feature-matrix` CI legs now run the suite instead of only compiling
+  it — every target but the corpus-dependent ones, whose fixtures live in
+  the `tests/repositories/` submodules that job does not check out. No
+  test changed its name, its assertions, or whether it runs under
+  `--all-features`.
+
+  The gate checks both directions (#1478). A marker *narrower* than the
+  languages an item names lets it compile into a build that panics; one
+  *wider* keeps it out of builds it could have run in, which nothing else
+  can see — too wide panics on the leg that lacks the grammar, too narrow
+  just drops the test and the leg still looks green. Sixteen gates in
+  the tree are deliberately wider than their bodies justify (a corpus
+  walk picking a language per file, a non-vacuity anchor, a `mod`
+  declaration); each says so with a
+  `// test-lang-gates: hand-written(…) — why` marker, and a gate that
+  grows a feature nobody can account for now fails — as does a marker
+  that stops being load-bearing. Two derivation rules came with it: a
+  `LANG` being *compared* is an identity test rather than a parse, and a
+  sweep still requires the parsers it names through a type parameter,
+  which no runtime `is_enabled` filter can skip, including through a
+  helper.
+
+  Both of those compare a marker against the derivation, so neither can
+  see a derivation that is itself wrong. `--compare <ref>` closes that:
+  it scans the tree at `ref` too, computes which single-language builds
+  compile each test in each, and fails on a test that still exists but
+  stopped being built somewhere. No cargo and no second build — the same
+  source scan, run twice. CI runs it per pull request against the merge
+  base; by hand it is
+  `make check-test-lang-gates-compare COMPARE_REF=origin/main`.
+
 - `metrics::halstead::HalsteadType` is renamed **`TokenRole`** and moves
   to `big_code_analysis_ast::token_role`. It answers whether a node acts
   as an operator or an operand, which the grammar decides and any
