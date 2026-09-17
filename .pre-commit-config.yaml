@@ -429,6 +429,33 @@ repos:
         entry: python3 -m unittest -q utils/check-feature-gates-test.py
         pass_filenames: false
 
+      # Per-language test gating (#1472). The companion to the gate
+      # above and the opposite question: that one asks whether a
+      # declared union still excludes what it claims to, this one
+      # derives the marker an item needs from the languages it names and
+      # reports the ones missing it. Unlike its sibling this is a pure
+      # source scan with no cargo call, so it runs here in full rather
+      # than only in CI.
+      - id: check-test-lang-gates
+        name: check-test-lang-gates
+        language: system
+        # `Cargo.toml` is in the list because `IMPLIES_C_FAMILY_HELPERS`
+        # is a hand-copy of the sub-crate's feature table — a new
+        # `c-family-helpers` enabler has to retrigger this.
+        files: '^(src/.*\.rs|big-code-analysis-ast/src/.*\.rs|tests/(?!repositories/).*\.rs|(big-code-analysis-ast/)?Cargo\.toml|utils/check-test-lang-gates\.py)$'
+        entry: python3 utils/check-test-lang-gates.py
+        pass_filenames: false
+
+      # Self-tests for the test-language gate. Same hazard as every
+      # other scanner here: one that stops matching reports a clean
+      # tree.
+      - id: check-test-lang-gates-test
+        name: check-test-lang-gates-test
+        language: system
+        files: '^utils/check-test-lang-gates(-test)?\.py$'
+        entry: python3 -m unittest -q utils/check-test-lang-gates-test.py
+        pass_filenames: false
+
       # Safety-doc pin gate — the module doc of
       # big-code-analysis-py/src/node.rs is the canonical soundness
       # argument for this workspace's only sanctioned `unsafe` block,
