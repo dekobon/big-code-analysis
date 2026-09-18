@@ -1292,7 +1292,7 @@ mod tests {
             "    }\n",
             "}\n",
         );
-        let parser = PhpParser::new(src.as_bytes().to_vec(), &PathBuf::from("t.php"), None);
+        let parser = parse_php(src);
         // Confirm the keyword is in the parse first, or the zero below
         // would hold for a fixture that simply never produces it.
         assert!(
