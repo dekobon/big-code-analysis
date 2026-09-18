@@ -772,6 +772,32 @@ pub fn csharp_member_has_accessors(node: &Node) -> bool {
     csharp_accessor_count(node) > 0
 }
 
+/// Whether `node` is one of the six keywords the C# grammar aliases to
+/// `modifier` in parameter position — `this`, `scoped`, `ref`, `out`,
+/// `in`, `readonly` — rather than an ordinary declaration modifier.
+///
+/// `_parameter_type_with_modifiers` aliases those bare tokens to
+/// `$.modifier`, so there the node is a **childless** `modifier`. Every
+/// other `modifier` (`public`, `static`, `async`, a field's `readonly`)
+/// is the real rule: a wrapper around a keyword leaf that the getter
+/// already classifies on its own. Child-presence is therefore the whole
+/// distinction, and it is the grammar's shape rather than an inference
+/// about a broken parse — contrast [`Checker::is_bare_param`], which
+/// refuses the same test precisely because there it would be a guess.
+///
+/// Shared by [`CsharpCode::get_op_type_with_code`], which decides the
+/// keyword's Halstead role from its text, and
+/// [`CsharpCode::is_primitive`], which routes the operator half through
+/// the lexeme-keyed map so the alias and the bare token are one
+/// operator (#1418).
+///
+/// [`CsharpCode::get_op_type_with_code`]: crate::Getter::get_op_type_with_code
+/// [`CsharpCode::is_primitive`]: Checker::is_primitive
+#[must_use]
+pub(crate) fn csharp_is_aliased_parameter_modifier(node: &Node) -> bool {
+    node.kind_id() == Csharp::Modifier as u16 && node.child_count() == 0
+}
+
 /// Whether `param` is C's `(void)` marker — the spelling for an empty
 /// parameter list — rather than a parameter.
 ///
