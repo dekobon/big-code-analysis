@@ -75,36 +75,38 @@ use big_code_analysis::{Ast, LANG, MetricsOptions, Source, analyze};
     feature = "typescript",
 ))]
 fn fixture(lang: LANG) -> Option<(&'static str, &'static str, &'static [&'static str], u64)> {
+    // The JSX fixture, named once rather than spelled in each of the
+    // three rows that use it. Their claim is that the vendored Mozilla
+    // fork, upstream JavaScript and the TSX dialect measure the *same*
+    // source identically, so a delta is a fork or dialect divergence;
+    // three literal copies would leave that a convention an edit to one
+    // row could break in silence. Only the extension differs per row,
+    // and it is cosmetic — `Source::new` is given the `LANG`, so the
+    // name reaches nothing but the file-level space. Local to this
+    // function so it inherits the gate above rather than restating it.
+    //
+    // `<br />` is the element #1395 is about: before the fix it billed
+    // one bracket operator where the source spells two.
+    const JSX_SOURCE: &str =
+        "const e = <div className=\"a\"><span>hi</span></div>;\nconst b = <br />;\n";
+    // The complete deduplicated operator vocabulary, byte-
+    // lexicographically sorted as `Ast::ops` returns it (#1091).
+    const JSX_OPERATORS: &[&str] = &["/>", ";", "<", "</", "=", ">", "const"];
+    // N1: line 1 is `const`, `=` x2, `<` x2, `>` x4, `</` x2 and `;`;
+    // line 2 is `const`, `=`, `<`, `/>` and `;`.
+    const JSX_N1: u64 = 17;
+
     let row = match lang {
-        // The JSX row carries all four delimiter tokens: `<` and `>`
-        // for the open tags, `</` for the closers and `/>` for the
+        // The JSX rows carry all four delimiter tokens: `<` and `>` for
+        // the open tags, `</` for the closers and `/>` for the
         // self-closing element. The last two were in neither arm of
-        // `impl_js_family_get_op_type!` until #1395, so `<br />` billed
-        // one bracket where the source spells two.
-        //
-        // expected N1 = 17: line 1 is `const`, `=` x2, `<` x2, `>` x4,
-        // `</` x2 and `;`; line 2 is `const`, `=`, `<`, `/>` and `;`.
-        LANG::Tsx => (
-            "const e = <div className=\"a\"><span>hi</span></div>;\nconst b = <br />;\n",
-            "tsx",
-            ["/>", ";", "<", "</", "=", ">", "const"].as_slice(),
-            17,
-        ),
-        LANG::Javascript => (
-            "const e = <div className=\"a\"><span>hi</span></div>;\nconst b = <br />;\n",
-            "js",
-            ["/>", ";", "<", "</", "=", ">", "const"].as_slice(),
-            17,
-        ),
-        // The vendored Mozilla fork shares the macro, so it shares the
-        // fix; a delta between it and upstream JavaScript here would be
-        // a fork divergence rather than a policy change.
-        LANG::Mozjs => (
-            "const e = <div className=\"a\"><span>hi</span></div>;\nconst b = <br />;\n",
-            "jsm",
-            ["/>", ";", "<", "</", "=", ">", "const"].as_slice(),
-            17,
-        ),
+        // `impl_js_family_get_op_type!` until #1395, and all three
+        // grammars reach that macro, so all three share the one
+        // `JSX_SOURCE` above. TypeScript is absent because it is the
+        // one grammar of the four with no JSX.
+        LANG::Tsx => (JSX_SOURCE, "tsx", JSX_OPERATORS, JSX_N1),
+        LANG::Javascript => (JSX_SOURCE, "js", JSX_OPERATORS, JSX_N1),
+        LANG::Mozjs => (JSX_SOURCE, "jsm", JSX_OPERATORS, JSX_N1),
         // Lua 5.4 brackets a variable attribute with the two bare
         // comparison tokens. `const` is the attribute *name*, an
         // operand, which is why it is absent from the operator list.
