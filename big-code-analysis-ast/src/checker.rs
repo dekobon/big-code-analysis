@@ -2177,9 +2177,10 @@ mod tests {
 
         // The `class` spelling of the primary-constructor base call is a
         // bare `argument_list` under the `base_list`, and preorder reaches
-        // `Sub`'s before the three that belong to `: this(a)`, `new Foo()`
-        // and `Helper(f)` — the parent assertion is what keeps this
-        // pointing at the construction rather than at one of those.
+        // `Sub`'s before the four that belong to `: this(a)`, `new Foo()`,
+        // `Helper(f)` and the record's `: Base(x)` — the parent assertion
+        // is what keeps this pointing at the construction rather than at
+        // one of those.
         let base_args =
             find_first_kind(&parser, Csharp::ArgumentList as u16).expect("argument_list");
         assert_eq!(
