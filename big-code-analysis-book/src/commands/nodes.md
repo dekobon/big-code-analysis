@@ -63,8 +63,10 @@ with a literal `call` node cannot be matched by name — use its numeric
 - `comment` — a comment of any of the language's forms.
 - `string` — a string *literal*. Type-annotation keywords that share the
   literal's node name (TypeScript's `: string`) are excluded.
-- `error` — a parse-error node. `-t ERROR` matches the same nodes by
-  name and is the spelling used above.
+- `error` — a node that *is or contains* a parse error, so a match
+  covers every ancestor of an `ERROR` node up to the root as well as the
+  node itself. `-t ERROR` is the narrower spelling used above: it
+  matches the error nodes alone, by name.
 
 ## Counting nodes {#counting-nodes}
 
