@@ -500,8 +500,8 @@ macro_rules! cpp_bool_terminal_kinds {
 // - The `Float2` rule keeps two neighbours out. `String2` (25) is the
 //   `string` *type* keyword of `function f(): string`, and `Null2` (55)
 //   the `null` type keyword PHP 8 allows in the same position; neither
-//   is a value. `is_string` does list `String2`, which is a separate
-//   question about `find string` rather than a precedent for this set.
+//   is a value. `Checker::is_string` withdrew `String2` for the same
+//   reason in #1474, so `find string` now agrees with this set.
 // - `ArrayCreationExpression` (355) covers both `[]` and `array()`.
 // - `Null` (377) is a falsy constant and counts for the reason `False`
 //   does — see `perl_bool_terminal_kinds!`.

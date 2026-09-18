@@ -683,9 +683,21 @@ impl Alterator for PhpCode {
         match Php::from(node.kind_id()) {
             // `String`/`String2`/`String3` are all aliased kind_ids
             // that the enum maps to `"string"`; flatten every alias to
-            // preserve source text and keep the alterator aligned with
-            // `Checker::is_string` and `Getter::get_op_type` (#288,
-            // same pattern as #119 for JS/TS).
+            // preserve source text (#288, same pattern as #119 for
+            // JS/TS).
+            //
+            // This is a dump-shape contract, not an `is_string` mirror:
+            // #1474 withdrew `String2` (the `string` *type* keyword)
+            // from `Checker::is_string` and #1293 suppressed it in
+            // `Getter::get_op_type`, while it stays listed here. Both
+            // are right — the question this arm answers is "does the
+            // dump keep this node's source text", and the keyword is a
+            // childless leaf, so listing it is a no-op versus
+            // `get_default` (pinned by the test below). Deleting it
+            // would be grammar-dispatch §6's narrow-by-deletion: a
+            // grammar revision that gave the alias children would then
+            // silently start splitting text this arm exists to keep
+            // whole.
             Php::String
             | Php::String2
             | Php::String3
@@ -949,15 +961,15 @@ mod tests {
         // Regression: issue #288. PHP `string`, `encapsed_string`,
         // `heredoc`, `nowdoc`, and `shell_command_expression` (backtick
         // form) must all flatten through the same `Alterator` arm.
-        // The wave-1 fix also added `String2`/`String3` enum aliases
-        // to the arm for defensive parity with `Checker::is_string`;
-        // the current `tree-sitter-php` grammar emits `String2` only
-        // as the `string` type keyword (a terminal) and never emits
-        // `String3` (a hidden supertype) as a concrete node, so the
-        // arm change is a no-op vs `get_default` for those aliases —
-        // but locking the structural contract here keeps the three
-        // sites aligned if future grammar revisions surface either id
-        // as an interior node.
+        // The wave-1 fix also added the `String2`/`String3` enum
+        // aliases to the arm. The current `tree-sitter-php` grammar
+        // emits `String2` only as the `string` type keyword (a
+        // childless terminal, and not a string to `Checker::is_string`
+        // since #1474) and never emits `String3` (a hidden supertype)
+        // as a concrete node, so the arm is a no-op vs `get_default`
+        // for both aliases — but locking the structural contract here
+        // keeps the dump's text preserved if a future grammar revision
+        // surfaces either id as an interior node.
         let code = br#"<?php
             $single = 'single';
             $double = "double";
