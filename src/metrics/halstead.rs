@@ -3555,6 +3555,30 @@ mod tests {
     static void I(ref int y) { D(out y); }
 }";
 
+    /// Each of the five operator keywords in *both* of its kind
+    /// spellings — the childless `modifier` of a parameter, and the
+    /// keyword's own token elsewhere: `ref` as a ref local, ref
+    /// initializer and ref argument (kind 28); `readonly` as the leaf
+    /// under a field's `modifier` wrapper (48); `in` as the `foreach`
+    /// separator and an `in` argument (55); `out` as an out argument
+    /// (56); `scoped` as a scoped ref local (93).
+    ///
+    /// Separate from [`CSHARP_PARAMETER_MODIFIERS`] because that fixture
+    /// pairs the two spellings for `out` alone, which left four of the
+    /// five bare kinds `CsharpCode::is_primitive` lists with no input
+    /// (#1418).
+    #[cfg(feature = "csharp")]
+    const CSHARP_MODIFIER_BOTH_SPELLINGS: &str = "class S {
+    static readonly int q = 0;
+    static void M(scoped ref int a, ref readonly int b, in int c, out int d) { d = q; }
+    static void N(int[] xs) {
+        ref int r = ref xs[0];
+        scoped ref int s = ref xs[1];
+        foreach (var e in xs) { }
+        M(ref r, in s, in s, out r);
+    }
+}";
+
     /// The six aliased parameter modifiers reach a Halstead half, and
     /// each reaches the same one its bare token reaches elsewhere
     /// (#1418).
@@ -3608,20 +3632,63 @@ mod tests {
             );
         }
 
-        // `ref` and `out` each occur under *both* kind spellings in
-        // this fixture, and the vocabulary is not deduplicated — it is
-        // the concatenation of the kind-keyed and lexeme-keyed operator
-        // maps. So a count above one here is the #453 shape: one
-        // keyword split across the two maps, counted twice in `n1`.
-        // This is what `CsharpCode::is_primitive` listing the five bare
-        // kinds buys, and the only assertion that can see it.
-        for keyword in ["ref", "out"] {
+        // The vocabulary is not deduplicated — it is the concatenation
+        // of the kind-keyed and the lexeme-keyed operator maps — so a
+        // keyword appearing twice is the #453 shape: one keyword split
+        // across the two maps and counted twice in `n1`. Keeping both
+        // spellings in one map is what `CsharpCode::is_primitive`
+        // listing the five bare kinds buys, and this is the only
+        // assertion that can see it.
+        //
+        // It needs a fixture carrying *both* spellings of each keyword,
+        // which `CSHARP_PARAMETER_MODIFIERS` does for `out` alone: its
+        // `ref`, `in`, `scoped` and `readonly` are all in parameter
+        // position, so for those the count can only ever be one and the
+        // assertion is dead. That left four of the five bare kinds with
+        // no input at all — dropping `Csharp::Ref`, `In`, `Readonly` or
+        // `Scoped` from `is_primitive` failed no test in the workspace.
+        let both_code = CSHARP_MODIFIER_BOTH_SPELLINGS.as_bytes();
+        let spellings = [
+            ("ref", Csharp::Ref as u16),
+            ("out", Csharp::Out as u16),
+            ("in", Csharp::In as u16),
+            ("scoped", Csharp::Scoped as u16),
+            ("readonly", Csharp::Readonly as u16),
+        ];
+        let (mut bare, mut aliased) = ([0_usize; 5], [0_usize; 5]);
+
+        for_each_node_with_chain::<CsharpCode>(both_code, |node, _| {
+            let text = &both_code[node.start_byte()..node.end_byte()];
+            let Some(index) = spellings.iter().position(|(kw, _)| kw.as_bytes() == text) else {
+                return;
+            };
+            if node.kind_id() == Csharp::Modifier as u16 && node.child_count() == 0 {
+                aliased[index] += 1;
+            } else if node.kind_id() == spellings[index].1 {
+                bare[index] += 1;
+            }
+        });
+
+        // Without this the count below is vacuous for any keyword the
+        // fixture stopped spelling both ways — the same decay that hid
+        // the four unguarded kinds in the first place.
+        for (index, (keyword, _)) in spellings.iter().enumerate() {
+            assert!(
+                bare[index] > 0 && aliased[index] > 0,
+                "fixture must spell `{keyword}` both ways; it has {} bare and {} aliased",
+                bare[index],
+                aliased[index]
+            );
+        }
+
+        let both = ops_of::<CsharpParser>(CSHARP_MODIFIER_BOTH_SPELLINGS, "both.cs");
+        for (keyword, _) in spellings {
             assert_eq!(
-                ops.operators.iter().filter(|o| *o == keyword).count(),
+                both.operators.iter().filter(|o| *o == keyword).count(),
                 1,
                 "`{keyword}` must be one operator across both of its kind spellings; \
                  operators were {:?}",
-                ops.operators
+                both.operators
             );
         }
     }
