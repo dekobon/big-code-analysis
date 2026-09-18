@@ -13,6 +13,21 @@
 // test here still needs its own gate. See `.claude/rules/testing.md`,
 // "Why the import lint is off on a partial build".
 #![cfg_attr(not(feature = "all-languages"), allow(unused_imports))]
+
+// Gated on the union of the languages whose fixture rows are `Some`, so
+// a build enabling only languages with no non-comparison bracket
+// construct drops the module rather than failing its non-vacuity guard
+// (`.claude/rules/testing.md`). TSX rides `feature = "typescript"`.
+#[cfg(any(
+    feature = "csharp",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozjs",
+    feature = "perl",
+    feature = "typescript",
+))]
+mod abc_halstead_bracket_parity;
 mod cognitive_cross_language_parity;
 mod cpp_mozcpp_parity;
 mod cyclomatic_cross_language_parity;
