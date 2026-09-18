@@ -999,16 +999,12 @@ pub trait Getter {
     /// `Checker::is_string_with_code` and `Alterator::keeps_children`
     /// ask, so the three classifiers answer one question about one set
     /// of bytes (grammar-dispatch §7). That was not so between #1318
-    /// and #1382: this one asked [`is_value_braced_word`] alone, and so
-    /// billed a `{}` for the *value slots of a script-taking command* —
-    /// `after`'s millisecond count, `time`'s iteration count, a braced
-    /// `proc` name, `namespace export`'s patterns, `namespace ensemble
-    /// create -map`'s dictionary, a `trap` handler's error code and
-    /// variable list — which the other two had called literals since
-    /// #1381. `after {100} {puts hi}` read `N1 2` against bare
-    /// `after 100 {puts hi}`'s `1`: the score moving with the author's
-    /// choice of delimiter, which is the property this whole rule
-    /// exists to remove.
+    /// and #1382: this call site asked [`is_value_braced_word`] alone
+    /// and billed a `{}` for the value slots of a script-taking
+    /// command, which the other two had called literals since #1381.
+    /// The exception, and what closing it moved, is recorded on
+    /// [`is_braced_script_word`], which owns the §7 story for all five
+    /// call sites.
     ///
     /// **It revises the operator only, and deliberately leaves the
     /// words inside a value alone.** Suppressing them too would make
