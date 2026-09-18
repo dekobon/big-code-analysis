@@ -61,17 +61,28 @@ impl Checker for PhpCode {
         )
     }
 
-    // `String` is the named single-quoted literal; `String2` and
-    // `String3` are aliased kind_ids that the language enum also
-    // maps to `"string"` (`String2` is the `string` type keyword
-    // and `String3` is the hidden `_string` supertype that covers
-    // any string literal). Include all three so generic
-    // string-filtering stays consistent with `get_op_type` and the
-    // `Alterator` text-preservation arm (issue #288).
+    // `String` (368) is the named single-quoted literal. `String2` (25)
+    // and `String3` (378) are aliased kind_ids the language enum also
+    // maps to `"string"`, and they are opposites:
+    //
+    // - `String2` is the `string` *type* keyword — `bca dump` finds it
+    //   only as the sole child of a `primitive_type` wrapper, in a
+    //   property type, a parameter type, a `?string`, a `string|int`
+    //   union and a return type. It is deliberately excluded so
+    //   `find string` / `count string` report literals, matching TS's
+    //   `String2` and TSX's `String3` (#1261) and the `Float2` keyword
+    //   that `php_bool_terminal_kinds!` already keeps out. #288 listed
+    //   it for kind-name identity and for parity with `get_op_type` and
+    //   the `Alterator`; #1293 then moved it into `get_op_type`'s
+    //   `primitive_type`-suppression arm, so that parity now argues the
+    //   other way (#1474). A `(string)` cast never reaches either
+    //   question — it is a childless `cast_type`.
+    // - `String3` is the hidden `_string` supertype covering any string
+    //   literal, kept as a defensive arm (lesson #34) and pinned
+    //   unreachable by `php_hidden_string_supertype_is_unreachable`.
     impl_simple_is_string!(
         Php,
         String,
-        String2,
         String3,
         EncapsedString,
         Heredoc,
