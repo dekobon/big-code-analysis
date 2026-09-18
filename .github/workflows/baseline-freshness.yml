@@ -100,6 +100,10 @@ jobs:
           # for a `make` or `diff-baseline` failure: those end the step
           # before this line.
           echo "stale=true" >> "${GITHUB_OUTPUT}"
+          # Deliberately red. Nothing in the tree is wrong, but a green
+          # scheduled run is invisible, and the filing step below is
+          # gated on `failure()` — turning this into `exit 0` would stop
+          # the issue being filed at all, silently.
           exit 1
 
       - name: Upload baselines and diff
@@ -124,6 +128,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # 200 rows of the widest shape `diff-baseline` renders is
+          # comfortably inside GitHub's 65 536-character body cap, and
+          # covers a routine quarter's drift whole.
+          DIFF_LINE_CAP: 200
         run: |
           set -euo pipefail
           {
@@ -148,7 +156,30 @@ jobs:
             echo
             echo "## Diff"
             echo
-            cat "${RUNNER_TEMP}/diff.md"
+            # Bounded, like the excerpts the sibling jobs paste. A
+            # GitHub issue body caps at 65 536 characters, and a diff
+            # that pairs nothing — what an `.bcaignore` edit or a
+            # baseline-anchor change produces — is one row per entry on
+            # each side: ~28 KB for today's 240 entries, twice that for
+            # a remove + add, and the file only grows. Over the cap
+            # `gh` fails with a 422, `set -e` ends the step, and the
+            # finding is lost, which is the one outcome this job exists
+            # to prevent. The artifact carries the whole diff.
+            total=$(wc -l < "${RUNNER_TEMP}/diff.md")
+            head -n "${DIFF_LINE_CAP}" "${RUNNER_TEMP}/diff.md"
+            if [ "$total" -gt "${DIFF_LINE_CAP}" ]; then
+              # `diff-baseline` renders each bucket inside a ```text
+              # fence, so a cut can land inside one. Close it, or the
+              # note below is swallowed by an unterminated block.
+              shown=$(head -n "${DIFF_LINE_CAP}" "${RUNNER_TEMP}/diff.md" \
+                | grep -c '^```' || true)
+              if [ $((shown % 2)) -ne 0 ]; then
+                echo '```'
+              fi
+              echo
+              echo "_Truncated to the first ${DIFF_LINE_CAP} of ${total}"
+              echo "lines; the \`baseline-freshness\` artifact has the rest._"
+            fi
           } > "${RUNNER_TEMP}/issue-body.md"
           existing=$(gh issue list --state open --label "self-scan" \
             --json number --jq '.[0].number // empty')
