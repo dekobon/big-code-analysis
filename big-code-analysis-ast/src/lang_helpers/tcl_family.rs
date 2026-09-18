@@ -59,7 +59,8 @@ use crate::node::{Cursor, Node};
 /// that shape they parse as generic commands. Their last argument is
 /// the handler script. The pattern and variable list before it are
 /// values, which only `Getter::is_braced_literal_slot` tells apart —
-/// the `{}` operator this table decides still bills them as blocks.
+/// and since #1382 every classifier reads that answer, so their braces
+/// quote rather than open.
 ///
 /// `after cancel {…}` and `after info {…}` are the one place the slot
 /// column knowingly over-reports: those arguments identify a *pending*
