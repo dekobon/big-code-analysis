@@ -130,3 +130,23 @@ fn braced_word_counts_once_in_both_dialects() {
         &["v", "w", "{a b}", "\"a b\"", "$q", "u", "1"],
     );
 }
+
+// Same gating rationale as above: a parity claim needs both dialects.
+#[cfg(all(feature = "tcl", feature = "irules"))]
+#[test]
+fn braced_value_of_an_unmodelled_command_counts_once_in_both_dialects() {
+    // The test above reaches only `braced_word_simple`, the literal kind
+    // the grammars reserve for the commands they model — `set` here. The
+    // *other* path to a braced literal is `braced_word`, the same kind a
+    // script body uses, which is what every command outside that handful
+    // gets (#1318, #1382). `lappend` is one, and both dialects must bill
+    // its value the same way: once per word inside, never the word plus
+    // its parts.
+    //
+    // That asymmetry with `set v {a b}` above — one operand there, one
+    // per word here — is the documented contract, not a defect: see
+    // `Getter::braced_word_op_type`. What this pins is that the two
+    // dialects agree on whichever answer it is, which is the half a
+    // fix landing in one getter and not its clone would break.
+    assert_each_operand_once_in_both_dialects("lappend q {a b}\n", &["lappend", "q", "a", "b"]);
+}

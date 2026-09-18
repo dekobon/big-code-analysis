@@ -7133,9 +7133,16 @@ f() {
     /// nothing else, so a mutant that suppressed a value word's
     /// *contents* — the tidier-looking rule, which collapses an
     /// `oo::class create C {…}` body into a single operand — fails
-    /// here rather than passing as an improvement.
+    /// here rather than passing as an improvement. #1382 keeps to the
+    /// same discipline: it withdraws further `{}` operators and moves
+    /// no operand column in this table.
+    ///
+    /// The trailing rows are #1382's, and each is a *pair*: a braced
+    /// value slot beside the bare spelling of the same argument, which
+    /// must score alike. Before #1382 they did not — the braced
+    /// spelling billed one extra `{}`.
     #[cfg(any(feature = "irules", feature = "tcl"))]
-    const BRACED_WORD_VALUE_CASES: [BracedWordValueCase; 16] = [
+    const BRACED_WORD_VALUE_CASES: [BracedWordValueCase; 23] = [
         // The rule reaches the opener and *only* the opener. A `;`
         // separating two commands is a direct child of the
         // `braced_word` — `_terminator` is a hidden rule, so it is
@@ -7286,6 +7293,67 @@ f() {
             counts: [1, 1, 5, 5],
             operands: &["c", "puts", "$c", "a", "b"],
         },
+        // #1382's headline, and the pair that names the defect: `after`
+        // is a script-taking command, but only from its *second*
+        // argument — the first is a millisecond count. Both spellings
+        // of that count are one operand and no operator; before #1382
+        // the braced one billed a `{}` for a block the line does not
+        // contain, reading N1 2 against the bare form's 1. The `{}`
+        // both rows do report is the `{puts hi}` script, which is real.
+        BracedWordValueCase {
+            source: "after {100} {puts hi}\n",
+            counts: [1, 1, 4, 4],
+            operands: &["after", "100", "puts", "hi"],
+        },
+        BracedWordValueCase {
+            source: "after 100 {puts hi}\n",
+            counts: [1, 1, 4, 4],
+            operands: &["after", "100", "puts", "hi"],
+        },
+        // The same pair for `time script ?count?`, whose value slot is
+        // the *last* rather than the first — so a rule that hard-coded
+        // "argument 0 is the value" passes the `after` pair and fails
+        // here. The script argument keeps its `{}` in both rows, which
+        // is what makes the operator column a 1 and not a 0.
+        BracedWordValueCase {
+            source: "time {puts hi} {3}\n",
+            counts: [1, 1, 4, 4],
+            operands: &["time", "puts", "hi", "3"],
+        },
+        BracedWordValueCase {
+            source: "time {puts hi} 3\n",
+            counts: [1, 1, 4, 4],
+            operands: &["time", "puts", "hi", "3"],
+        },
+        // A braced `proc` *name*, the one value slot the grammar names
+        // as a field rather than by position. `{my proc}` is an
+        // identifier containing a space, not a body, and billed a
+        // fourth `{}` before #1382. The three operators left are the
+        // `proc` keyword and the two braces of the parameter list and
+        // the body — and note the interior words survive, `proc` being
+        // an operand here and an operator one column over.
+        BracedWordValueCase {
+            source: "proc {my proc} {} {}\n",
+            counts: [2, 3, 3, 3],
+            operands: &["my", "proc", "{}"],
+        },
+        // The two `namespace` subcommands that take values throughout,
+        // both of them Tcl 8.6 standard-library spellings. Their braced
+        // argument is a pattern list and a dictionary; neither is
+        // evaluated, and each billed a `{}` before #1382 — n1 2 / N1 2
+        // against the 1 / 1 here. The `namespace` keyword is the
+        // operator that remains, which is what keeps these two rows
+        // from reading `effort` 0.0.
+        BracedWordValueCase {
+            source: "namespace export {a b}\n",
+            counts: [1, 1, 3, 3],
+            operands: &["export", "a", "b"],
+        },
+        BracedWordValueCase {
+            source: "namespace ensemble create -map {a b}\n",
+            counts: [1, 1, 5, 5],
+            operands: &["ensemble", "create", "-map", "a", "b"],
+        },
     ];
 
     /// Regression for #1318. `braced_word` carries both a block and a
@@ -7306,7 +7374,7 @@ f() {
     #[test]
     fn tcl_braced_word_role_follows_the_enclosing_command_1318() {
         check_braced_word_value_cases::<TclParser>(&BRACED_WORD_VALUE_CASES, "foo.tcl");
-        let tcl_only: [BracedWordValueCase; 5] = [
+        let tcl_only: [BracedWordValueCase; 7] = [
             // `switch` arm bodies. The grammar flattens `pat body pat
             // body` into a `command` named after the first pattern, so
             // the bodies read as arguments of a command called `a` —
@@ -7371,6 +7439,41 @@ f() {
                 counts: [2, 5, 8, 10],
                 operands: &["for", "i", "0", "$i", "<", "3", "incr", "puts"],
             },
+            // #1382's guard rows: an arm *pattern* spelled like a
+            // command whose value slots the rule now withdraws. An arm
+            // list parses as commands, so the pattern becomes a real
+            // command name and the arm *body* lands in one of that
+            // command's value slots — where only `Getter::is_switch_arm`
+            // keeps it a block. Both rows are `switch` bodies that must
+            // keep their `{}`, and both were measured with the guard
+            // short-circuited to `false`.
+            //
+            // This one is the positional half: `after`'s slot 0 is the
+            // millisecond count, so without the guard `{ puts B }` reads
+            // as that value and the row drops to N1 1.
+            BracedWordValueCase {
+                source: "switch $v { after { puts B } }\n",
+                counts: [1, 2, 5, 5],
+                operands: &["switch", "$v", "after", "puts", "B"],
+            },
+            // …and this is the field-keyed half. `proc` needs three
+            // words, so the arm patterns must be written one per line
+            // for the grammar to build a `procedure` at all — on one
+            // line it recovers into an `ERROR` and no rule fires. Here
+            // it swallows two arms, taking `{ puts A }` as its `name`
+            // field and `{ puts B }` as its body; without the guard the
+            // name's brace goes and the row reads N1 5. The `namespace`
+            // arm is the third spelling of the same hazard and is not
+            // discriminating: its subcommand slot holds the braced body
+            // itself rather than a `simple_word`, so no layout resolves
+            // and the construct-wide script answer stands either way.
+            // `proc` and `namespace` are operators here and `after` an
+            // operand, which is the three patterns' whole difference.
+            BracedWordValueCase {
+                source: "switch $v {\n    proc { puts A }\n    after { puts B }\n    namespace { puts C }\n}\n",
+                counts: [3, 6, 7, 9],
+                operands: &["switch", "$v", "after", "puts", "A", "B", "C"],
+            },
         ];
         check_braced_word_value_cases::<TclParser>(&tcl_only, "foo.tcl");
     }
@@ -7383,7 +7486,7 @@ f() {
     #[test]
     fn irules_braced_word_role_follows_the_enclosing_command_1318() {
         check_braced_word_value_cases::<IrulesParser>(&BRACED_WORD_VALUE_CASES, "foo.irule");
-        let irules_only: [BracedWordValueCase; 3] = [
+        let irules_only: [BracedWordValueCase; 4] = [
             // A `when` handler body is a modelled slot, so the literal
             // inside it is classified independently of the block that
             // holds it.
@@ -7420,6 +7523,18 @@ f() {
                     "local0.",
                     "oops",
                 ],
+            },
+            // #1382 inside a modelled handler slot: the `when` body is
+            // a block and keeps its `{}`, and the `after` delay nested
+            // in it is a value and does not. Before #1382 this read
+            // N1 4. The shared table's `after` pair already runs for
+            // this dialect; what this row adds is that the rule reaches
+            // a command nested inside a handler, where the `{}` billed
+            // for the handler could otherwise mask a withdrawal.
+            BracedWordValueCase {
+                source: "when HTTP_REQUEST {\n    after {100} {puts hi}\n}\n",
+                counts: [2, 3, 5, 5],
+                operands: &["HTTP_REQUEST", "after", "100", "puts", "hi"],
             },
         ];
         check_braced_word_value_cases::<IrulesParser>(&irules_only, "foo.irule");

@@ -586,11 +586,22 @@ tokens involved the same way they spell real operators:
   `after`, `time`, and Tcl's `for` and `switch` take scripts and keep
   their `{}` operator, as does every construct the grammar models with
   a node of its own (`proc`, `if`, `while`, `foreach`, `catch`, `try`,
-  `namespace`, an iRules `when` handler) — except a defaulted `proc`
-  parameter (`proc p {a {b {x y}}}`), which holds data the interpreter
-  assigns rather than a script it runs. Every other command —
+  `namespace`, an iRules `when` handler). Every other command —
   `lappend`, `puts`, `list`, and any user-defined proc — is taken to
   receive a value, so its braces score no operator.
+
+  Recognising the command is only half of it, because most of those
+  signatures mix the two roles. A braced word in a slot the command's
+  documented syntax reserves for a *value* scores no operator either,
+  however script-like the command around it: `after`'s delay
+  (`after {100} {puts hi}` scores the one `{}` its script earns, the
+  same as `after 100 {puts hi}`), `time`'s iteration count, a braced
+  `proc` name (`proc {my proc} {} {}`), a defaulted `proc` parameter
+  (`proc p {a {b {x y}}}`), `namespace export`'s pattern list,
+  `namespace ensemble create -map`'s dictionary, and a `trap` or `on`
+  handler's error code and variable list. The slots come from the Tcl
+  8.6 manual pages and are recorded in
+  `big-code-analysis-ast/src/lang_helpers/tcl_family.rs`.
 
   This decides the *operator* only. The words inside a braced argument
   are counted either way, because an unrecognised command is as likely
@@ -602,11 +613,22 @@ tokens involved the same way they spell real operators:
   has no operator left, and because Halstead's difficulty multiplies
   by the operator count, its `effort` reads `0.0` rather than slightly
   low. A `proc` keeps its own `proc` keyword and body brace, so this
-  reaches top-level script fragments, not functions. The remaining
-  asymmetry is that a braced value scores one operand where the
-  grammar names the command (`set x {a b}`) and one per word where
-  only the command name would (`lappend x {a b}`); closing that needs
-  a signal neither grammar gives.
+  reaches top-level script fragments, not functions.
+
+  The consequence for the operand column is an asymmetry, and it is
+  the contract rather than an open defect: a braced value scores one
+  operand where the grammar names the command (`set x {a b}` → the
+  operand `{a b}`) and one per word where only the command name would
+  (`lappend x {a b}` → the operands `a` and `b`). Both ways of
+  removing it were weighed and neither is available. Deciding from the
+  *contents* — no substitution, no nested block, therefore a list —
+  was built and measured: on a file holding an `oo::class` body, a
+  `tcltest -body` and an `apply` lambda it took n2 from 25 to 15 and
+  N2 from 32 to 15, each of those three collapsing into a single
+  operand. And listing the value-taking commands instead needs an
+  *open* set where the script-taking one is closed — every user proc
+  belongs to it — so the list would be incomplete by construction and
+  would make three behaviours where there are two.
 - **A string-interpolation opener is not an operator.** `"{$x}"` in
   PHP, `"#{x}"` in Ruby and Elixir, `"${x}"` in Kotlin and Groovy and
   `$"{x}"` in C# all count the interpolated expression's own operators
