@@ -196,6 +196,22 @@ for historical reference.
 
 ### Fixed
 
+- **PHP's `string` *type* keyword counted as a string literal**
+  (#1474). `Checker::is_string` listed `Php::String2`, the anonymous
+  `string` token the grammar emits as the sole child of a
+  `primitive_type` wrapper, so `bca find --type string` and `bca count
+  --type string` reported a hit for every `: string` return type,
+  `string $param`, `?string`, `string|int` union and typed property
+  alongside the literals — 24 hits rather than 12 on the integration
+  corpus's `strings.php`, 27 rather than 8 on `classes.php`. The
+  keyword is now excluded and both commands report literals only,
+  matching the narrowing #1261 made for TypeScript's `String2` and
+  TSX's `String3` and the `float` keyword PHP's own ABC terminal set
+  already kept out. No metric moves: that filter is the only consumer
+  of the predicate, and `Getter::get_op_type` has suppressed the
+  keyword under its `primitive_type` wrapper since #1293. String
+  *literals* whose contents spell `string` are unaffected.
+
 - **`make worktree-setup` reinstalled a stale build of the Python
   bindings.** Their version is dynamic — maturin reads it from the
   workspace `Cargo.toml` — and the extension compiles the root and ast
