@@ -454,7 +454,40 @@ pub trait Checker {
     fn is_closure<'a>(_: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         false
     }
-    /// Whether `node` is a call expression.
+    /// Whether `node` is a *call site* — a function, method or command
+    /// invocation a reader would navigate to.
+    ///
+    /// This is the predicate behind the `call` filter that
+    /// [`ParserTrait::filters`](crate::traits::ParserTrait::filters)
+    /// builds, so it decides what `bca find --type call` and
+    /// `bca count --type call` report.
+    ///
+    /// It is deliberately narrower than the ABC `branches` axis, which
+    /// applies Fitzpatrick's *"function invocation or object creation"*
+    /// rule. Object construction (`new T(…)`) and constructor
+    /// delegation — C#'s `: base(x)` / `: this(a)` and a C# 12 primary
+    /// constructor's `: Base(x)`, Java's `super(…)` / `this(…)`,
+    /// Kotlin's `constructor_invocation` — are ABC branches and are
+    /// **not** call sites here: a constructor is not a function the
+    /// `find` result should point a reader at. The languages whose
+    /// `branches` axis consequently exceeds their `is_call` set are C#,
+    /// Java, Groovy, Kotlin, C++, Mozcpp, JavaScript, MozJS,
+    /// TypeScript, TSX, PHP, Ruby (`super` / `yield` count as branches)
+    /// and Rust (`?` does).
+    ///
+    /// The relation is not a plain superset everywhere. Tcl and iRules
+    /// bill a mutator command (`set`, `incr`, `lappend`) as an ABC
+    /// *assignment* rather than a branch while `is_call` still counts
+    /// it, and Elixir excludes its definition and directive `Call`s
+    /// (`def`, `defmodule`, `alias`, `import`, …) from `branches` while
+    /// counting each `|>` pipeline step. Only the
+    /// languages with no separate construction syntax — C, Objective-C,
+    /// Go, Python, Lua, Bash, Perl — have the two sets coincide.
+    ///
+    /// The two predicates classify the same nodes through parallel
+    /// `matches!()` tables, so they drift silently; the divergence is
+    /// pinned by `groovy_is_call_excludes_constructors` (#430) and
+    /// `csharp_is_call_excludes_constructors` in this file's tests.
     #[inline]
     #[must_use]
     fn is_call(_: &Node) -> bool {
@@ -1548,6 +1581,7 @@ mod tests {
     #[cfg(any(
         feature = "c",
         feature = "cpp",
+        feature = "csharp",
         feature = "groovy",
         feature = "mozcpp",
         feature = "python",
@@ -2054,6 +2088,98 @@ mod tests {
         );
         let chain = find_first_kind(&parser, Groovy::CommandChain as u16).expect("command_chain");
         assert!(GroovyCode::is_call(&chain), "command_chain must be a call");
+    }
+
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_is_call_excludes_constructors() {
+        // The C# half of the `is_call` contract documented on the
+        // `Checker::is_call` trait method (#1456), mirroring the #430 test
+        // above. C# spells four call-shaped constructs that ABC counts
+        // as branches and this filter must not count as call sites:
+        //
+        //   * `new Foo()`                  -> object_creation_expression
+        //   * `: this(a)`                  -> constructor_initializer
+        //   * `class Sub(int x) : Base(x)` -> base_list > argument_list
+        //   * `record R(int x) : Base(x)`  -> base_list >
+        //                                     primary_constructor_base_type
+        //
+        // paired with one genuine call, `Helper(f)`. The fixture scores
+        // `abc.branches` 5 and `call` 1, so widening `is_call` to any of
+        // the four moves the count asserted here.
+        use crate::langs::{CsharpCode, CsharpParser};
+
+        let src = "class Sub(int x) : Base(x) {
+                       public Sub(int a, int b) : this(a) { }
+                       void M() { var f = new Foo(); Helper(f); }
+                   }
+                   record R(int x) : Base(x);";
+        let parser = CsharpParser::new(src.as_bytes().to_vec(), &PathBuf::from("test.cs"), None);
+        assert_eq!(
+            count(&parser, &["call".to_string()]).0,
+            1,
+            "is_call must count `Helper(f)` only, not the four constructions"
+        );
+
+        let call = find_first_kind(&parser, Csharp::InvocationExpression3 as u16)
+            .expect("invocation_expression");
+        assert!(
+            CsharpCode::is_call(&call),
+            "an invocation_expression is a call"
+        );
+        // §2 drift markers for the other two members of
+        // `csharp_invocation_expr_kinds!()`. All three render to
+        // `"invocation_expression"`, and at the 0.23.5 pin every
+        // spelling probed with `bca dump` — plain, `this.`-qualified,
+        // `base.`-qualified, inside a query clause, a lambda body, an
+        // attribute argument, an interpolation, a `when` guard and a
+        // constant pattern — emits only the aliased id. The claim these
+        // pin is therefore about *this* fixture; a grammar bump that
+        // starts spelling an ordinary call with either id fails the
+        // count above as well, since neither is `find_first_kind`'s
+        // target here.
+        for (id, name) in [
+            (Csharp::InvocationExpression, "InvocationExpression"),
+            (Csharp::InvocationExpression2, "InvocationExpression2"),
+        ] {
+            assert!(
+                !ast_has_kind_id(&parser, id as u16),
+                "{name} is unobserved at this grammar pin; its arm is defensive"
+            );
+        }
+
+        for (id, what) in [
+            (Csharp::ObjectCreationExpression as u16, "`new Foo()`"),
+            (Csharp::ConstructorInitializer as u16, "`: this(a)`"),
+            (
+                Csharp::PrimaryConstructorBaseType as u16,
+                "a record's `: Base(x)`",
+            ),
+        ] {
+            let node = find_first_kind(&parser, id)
+                .unwrap_or_else(|| panic!("fixture must contain {what}"));
+            assert!(
+                !CsharpCode::is_call(&node),
+                "{what} is an ABC branch, not a call site"
+            );
+        }
+
+        // The `class` spelling of the primary-constructor base call is a
+        // bare `argument_list` under the `base_list`, and preorder reaches
+        // `Sub`'s before the three that belong to `: this(a)`, `new Foo()`
+        // and `Helper(f)` — the parent assertion is what keeps this
+        // pointing at the construction rather than at one of those.
+        let base_args =
+            find_first_kind(&parser, Csharp::ArgumentList as u16).expect("argument_list");
+        assert_eq!(
+            base_args.parent().map(|p| p.kind_id()),
+            Some(Csharp::BaseList2 as u16),
+            "the first argument_list must be `class Sub(int x) : Base(x)`'s"
+        );
+        assert!(
+            !CsharpCode::is_call(&base_args),
+            "a class's primary-constructor base call is an ABC branch, not a call site"
+        );
     }
 
     // ===== C-family `is_call` regression tests (issue #1254) =====
