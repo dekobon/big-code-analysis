@@ -25,8 +25,10 @@ classifiers = [
   "Topic :: Software Development :: Quality Assurance",
   "Typing :: Typed",
 ]
-# Version is read from the Rust workspace's Cargo.toml at build time
-# by maturin (see [tool.maturin].version below).
+# Version is read at build time by maturin from this crate's
+# `Cargo.toml`, which inherits it from the workspace root
+# (`version.workspace = true`) — so it lives outside this directory,
+# which is why `[tool.uv].cache-keys` below watches `../Cargo.toml`.
 dynamic = ["version"]
 
 [project.urls]
@@ -44,6 +46,26 @@ Changelog = "https://github.com/dekobon/big-code-analysis/blob/main/CHANGELOG.md
 # matrices the project will never serve.
 [tool.uv]
 environments = ["sys_platform != 'emscripten' and python_full_version < '3.15'"]
+# What invalidates uv's cached build of this package. uv's default watches
+# only `pyproject.toml` / `setup.*`, but the version here is dynamic — maturin
+# reads it from the *workspace* `Cargo.toml` — and the extension compiles the
+# root and ast crates one directory up. Under the default a version bump or a
+# Rust change never invalidated the cache, so `uv sync` (and so
+# `make worktree-setup`) reinstalled a stale build over a current one: 2.2.1
+# replaced by a cached 2.1.1. This is uv's own `maturin` template — the
+# manifest, the lockfile, the Rust sources — pointed at where this workspace
+# member actually keeps them. Setting the key replaces the default, which is
+# why `pyproject.toml` is listed again.
+cache-keys = [
+  { file = "pyproject.toml" },
+  { file = "Cargo.toml" },
+  { file = "src/**/*.rs" },
+  { file = "../Cargo.toml" },
+  { file = "../Cargo.lock" },
+  { file = "../src/**/*.rs" },
+  { file = "../big-code-analysis-ast/Cargo.toml" },
+  { file = "../big-code-analysis-ast/src/**/*.rs" },
+]
 
 [project.optional-dependencies]
 # Test/lint dependencies. The canonical install path is
