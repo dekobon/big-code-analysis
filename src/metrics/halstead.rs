@@ -4249,6 +4249,66 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_readline_closer_alias_never_reaches_kind_id() {
+        // Drift marker for `Perl::GT2` (#1395). The grammar closes
+        // `<FH>` / `<$fh>` with `token.immediate('>')`, which the
+        // generated parser gives its own symbol — hence the `GT2`
+        // variant sitting next to `FileHandle` in the enum — but whose
+        // `public_symbol_map` entry collapses it onto `GT` before
+        // `kind_id()`, exactly like `LPAREN2` in #768 and Ruby's
+        // `SLASH2` in #1312. Nothing in `getter/perl.rs` names it, and
+        // nothing should: `compute_halstead` keys a non-primitive
+        // operator on `kind_id()`, so two live kinds both rendering
+        // `">"` would split one `>` across two `n1` entries. If a bump
+        // ever starts emitting it, the repair is to route `>` through
+        // the lexeme-keyed map, not to list both — and this test is
+        // what says so.
+        //
+        // The same collapse makes the `GT2` arm in `getter/cpp.rs` and
+        // `getter/mozcpp.rs` a defensive arm rather than a live one:
+        // tree-sitter-cpp maps its `>>`-closing `GT2` the same way, so
+        // `vector<vector<int>>` reports two `GT`s.
+        let path = PathBuf::from("foo.pl");
+        for source in ["my $l = <FH>;\n", "my $l = <$fh>;\n", "my $b = $x > $y;\n"] {
+            let parser = PerlParser::new(source.as_bytes().to_vec(), &path, None);
+            assert!(
+                !ast_has_kind_id(&parser, Perl::GT2 as u16),
+                "Perl::GT2 must stay collapsed to Perl::GT for `{source}`"
+            );
+            // Positive control: the id the operator arm fires on is
+            // present, so the assertion above cannot pass merely
+            // because the fixture grew no `>` at all.
+            assert!(
+                ast_has_kind_id(&parser, Perl::GT as u16),
+                "Perl::GT must be the `>` kind for `{source}`"
+            );
+        }
+    }
+
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_readline_brackets_are_operators() {
+        // #1395: a readline's `<` / `>` delimit syntax, not a literal,
+        // so under the policy on `Getter::get_op_type` they are
+        // ordinary operators — even though ABC's `conditions` excludes
+        // them (#1297). `<STDIN>` is the one spelling that cannot show
+        // this: the grammar lexes it as a single `standard_input`
+        // token, so there are no brackets to classify.
+        //
+        // expected: operators `sub`, `{}`, `my`, `$` × 2 (one per
+        // `scalar_variable`), `=`, `<`, `>`, `;` × 2, `return` →
+        // n1 = 9, N1 = 11. Operands `r`, `$l` × 2, `FH` →
+        // n2 = 3, N2 = 4.
+        check_metrics::<PerlParser>("sub r { my $l = <FH>; return $l; }\n", "foo.pl", |metric| {
+            assert_eq!(metric.halstead.unique_operators(), 9);
+            assert_eq!(metric.halstead.total_operators(), 11);
+            assert_eq!(metric.halstead.unique_operands(), 3);
+            assert_eq!(metric.halstead.total_operands(), 4);
+        });
+    }
+
     /// Every (name wrapper, contained operand) pairing tree-sitter-perl's
     /// node-types.json admits, and the single source of truth for both
     /// halves of #1355's guard: its parent set is the distinct first

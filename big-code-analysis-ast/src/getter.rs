@@ -79,6 +79,15 @@ macro_rules! get_operator {
 //     the bare `?.` token under the `optional_chain` wrapper (issue
 //     #281); `PredefinedType` is the TS type keyword set (`string`,
 //     `number`, `boolean`, …).
+//   * JavaScript / MozJS / TSX: `LTSLASH`, `SLASHGT` — the JSX closing
+//     and self-closing tag delimiters, which these grammars spell as
+//     their own two-character tokens rather than as a `<` / `>` pair.
+//     Until #1395 neither was in either arm, so a JSX element billed
+//     its opening `<` and its `>`s but nothing for `</`, and `<br />`
+//     reported one bracket operator where the source spells two. They
+//     are extras rather than members of the shared arm because
+//     TypeScript is the one grammar of the four with no JSX and
+//     therefore no such variants to name.
 //
 // `$operand_extras` per language:
 //   * JavaScript / MozJS / TSX: `Identifier2`, `String2` — anonymous
@@ -417,6 +426,37 @@ pub trait Getter {
     }
 
     /// Classifies `node` as a Halstead operator, operand, or neither.
+    ///
+    /// **Punctuation and delimiters are vocabulary, so they classify as
+    /// operators whatever grammatical role they serve.** Halstead
+    /// counts the alphabet a program is written in and has no notion of
+    /// a decision, so a `<` is the same vocabulary entry whether it
+    /// opens a JSX tag, brackets a Lua `<const>` attribute, names a C#
+    /// `operator <` overload, disambiguates a Kotlin `super<A>`, or
+    /// delimits a Perl `<FH>` readline. Every impl here already bills
+    /// `(`, `{`, `[`, `,`, `;`, `.` and `:` on exactly that reading.
+    ///
+    /// A *decision* metric gates the same token by role, and is
+    /// supposed to disagree: ABC's `conditions` counts a `<` only under
+    /// a `binary_expression` (#1274, #1275, #1280, #1297), so each of
+    /// the five constructs above scores zero there while `bca ops`
+    /// still reports the bracket. #1395 settled that the two answers
+    /// are both correct rather than a drift to be reconciled;
+    /// `tests/parity/abc_halstead_bracket_parity.rs` fails if a later
+    /// consistency pass flips either side.
+    ///
+    /// The one suppression that reading admits is **a literal's own
+    /// delimiter, where the enclosing literal node is itself the
+    /// operand**. There the punctuation is not vocabulary in its own
+    /// right — the wrapper already contributes the literal, so counting
+    /// its quotes fabricates an arithmetic or comparison operator the
+    /// source never spelled, and the score moves with the author's
+    /// choice of delimiter. Five arms do this, each guarded on the
+    /// delimiter's *parent* being that literal: Elixir's sigil (#1256),
+    /// the JS family's regex (#1314), Perl's regex (#1312), Ruby's
+    /// subshell (#1360) and Groovy's slashy string. A bracket
+    /// delimiting *syntax* has no such wrapper operand, so nothing
+    /// would absorb its contribution and it stays an operator.
     ///
     /// `ancestors` is the chain the walker descended through. Six
     /// impls read a parent from it to disambiguate a token whose role
