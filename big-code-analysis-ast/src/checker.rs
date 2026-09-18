@@ -1254,21 +1254,65 @@ mod tests {
 
     #[cfg(feature = "php")]
     #[test]
-    fn php_is_string_matches_string_alias_kinds() {
-        // Regression for #288. Before the fix, only `Php::String`
-        // (kind_id 368, the named single-quoted literal) matched
-        // `is_string`. The `Php::String2` (anonymous `string` type
-        // keyword, kind_id 25) and `Php::String3` (the hidden `_string`
-        // supertype, kind_id 378) alias kinds — both of which the
-        // language enum maps to `"string"` — were missed. A function
-        // with a `: string` return type produces a `Php::String2`
-        // anonymous-keyword node, so we exercise it here. The named
-        // `Php::String` literal in the body matches too.
-        let src = "<?php function f(): string { return 'x'; }";
-        // Two string-matching nodes: the `string` return-type keyword
-        // (Php::String2) and the `'x'` literal (Php::String). Pre-fix
-        // only the literal matched (count would be 1).
-        assert_eq!(count_php_strings(src), 2);
+    fn php_is_string_excludes_type_keyword_alias_1474() {
+        // `Php::String2` (kind_id 25) is the `string` *type* keyword,
+        // not a literal: `bca dump` finds it only as the sole child of
+        // a `primitive_type` wrapper. #288 listed it in `is_string` for
+        // kind-name identity and for parity with `get_op_type` and the
+        // `Alterator`; #1293 moved it into `get_op_type`'s
+        // `primitive_type`-suppression arm, so #1474 withdrew it here
+        // too — the same reversal #1261 made for TS's `String2` and
+        // TSX's `String3`. On the repo's PHP corpus this took
+        // `find -t string` from 24 hits to 12 on `strings.php` and from
+        // 27 to 8 on `classes.php`.
+        //
+        // The fixture carries every position the keyword appears in —
+        // property type, plain parameter, `?string`, a `string|int`
+        // union and the return type — so a narrowing that misses one
+        // spelling is not mistaken for the fix. The literals anchor the
+        // other direction: without them this test would also pass if
+        // `is_string` were emptied out entirely. The `(string)` cast is
+        // a deliberate negative control — a childless `cast_type`, so
+        // the exact count below would be 5 rather than 4 if anything
+        // ever started classifying it as a literal. Keep it in the
+        // fixture.
+        let src = concat!(
+            "<?php\n",
+            "class C {\n",
+            "    private string $prop = 'p';\n",
+            "    public function f(string $a, ?string $b, string|int $c): string {\n",
+            "        $d = \"y\";\n",
+            "        $e = <<<EOT\n",
+            "        body\n",
+            "        EOT;\n",
+            "        $g = <<<'EOT'\n",
+            "        lit\n",
+            "        EOT;\n",
+            "        return (string) $a;\n",
+            "    }\n",
+            "}\n",
+        );
+        let parser = PhpParser::new(src.as_bytes().to_vec(), &PathBuf::from("t.php"), None);
+        // Confirm the keyword is in the parse first, or the zero below
+        // would hold for a fixture that simply never produces it.
+        assert!(
+            ast_has_kind_id(&parser, Php::String2 as u16),
+            "expected Php::String2 (type-keyword `string`) in the parse",
+        );
+        assert_eq!(
+            count_string_matches_for_kind(&parser, Php::String2 as u16, PhpCode::is_string),
+            0,
+            "Php::String2 (type keyword) must not match is_string",
+        );
+        assert!(
+            count_string_matches_for_kind(&parser, Php::String as u16, PhpCode::is_string) > 0,
+            "the `'p'` literal must still match is_string",
+        );
+        // End-to-end through the filter chain `bca find` / `bca count`
+        // actually use (`is_string_with_code`, `parser.rs`), not just
+        // the predicate: `'p'`, `"y"`, the heredoc and the nowdoc — the
+        // four literals, and none of the five keywords.
+        assert_eq!(count_php_strings(src), 4);
     }
 
     // ===== JS-family `is_string` regression tests (issue #283) =====
@@ -2748,16 +2792,19 @@ mod tests {
             [QuotedWord, BracedWordSimple, BracedWord]
         );
 
-        // ---- Php (7 variants): String, String2, String3,
-        // EncapsedString, Heredoc, Nowdoc, ShellCommandExpression ----
-        // String2 is the `string` type-keyword (`: string` return
-        // type, exercised here). String3 is the hidden `_string`
-        // supertype (kind_id => "_string" — name starts with `_`),
-        // which tree-sitter does NOT emit as a concrete node — see
-        // its empirical absence asserted below.
+        // ---- Php (6 variants): String, String3, EncapsedString,
+        // Heredoc, Nowdoc, ShellCommandExpression ----
+        // The `: string` return type in the fixture produces a
+        // `String2` — the `string` *type* keyword, which is NOT a
+        // variant here: #1474 withdrew it, and
+        // `php_is_string_excludes_type_keyword_alias_1474` pins its
+        // absence. String3 is the hidden `_string` supertype (kind_id
+        // => "_string" — name starts with `_`), which tree-sitter does
+        // NOT emit as a concrete node — see its empirical absence
+        // asserted below.
         let src = b"<?php function f(): string { $a = 'single'; $b = \"double\"; $c = <<<EOT\nbody\nEOT;\n$d = <<<'EOT'\nnow\nEOT;\n$e = `ls`; return $a; }\n".to_vec();
         let parser = PhpParser::new(src, &path, None);
-        assert_variants_is_string!(&parser, Php, PhpCode, [String, String2]);
+        assert_variants_is_string!(&parser, Php, PhpCode, [String]);
         // `Php::String3` is the hidden `_string` supertype — never
         // surfaces as a concrete kind_id in observed parses; the
         // checker still lists it so future grammar revisions that

@@ -1461,6 +1461,13 @@ TS does not. The drift predates #299 — the four pre-refactor impls had
 the same asymmetry — but the macro consolidation made the parity table
 legible enough for a reviewer to spot it.
 
+That paragraph describes the state at #313, and both languages later
+resolved the disagreement the *other* way: #1261 dropped the type keyword
+from TS's `is_string` (and TSX's `String3`) rather than adding it to
+`operand_extras`, and #1474 did the same for PHP's `String2`. A keyword
+is not a literal in either predicate, which is the resolution to reach
+for when the cross-walk turns one of these up.
+
 ---
 
 ## 36. `serde_json::to_value` re-sorts JSON object keys via `BTreeMap`
