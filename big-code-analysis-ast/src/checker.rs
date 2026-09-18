@@ -475,14 +475,27 @@ pub trait Checker {
     /// TypeScript, TSX, PHP, Ruby (`super` / `yield` count as branches)
     /// and Rust (`?` does).
     ///
-    /// The relation is not a plain superset everywhere. Tcl and iRules
-    /// bill a mutator command (`set`, `incr`, `lappend`) as an ABC
-    /// *assignment* rather than a branch while `is_call` still counts
-    /// it, and Elixir excludes its definition and directive `Call`s
-    /// (`def`, `defmodule`, `alias`, `import`, …) from `branches` while
-    /// counting each `|>` pipeline step. Only the languages with no
-    /// separate construction syntax — C, Objective-C, Go, Python, Lua,
-    /// Bash, Perl — have the two sets coincide.
+    /// The relation is not a plain superset everywhere. Four languages
+    /// depart from it, each in its own direction:
+    ///
+    /// * Tcl and iRules bill a mutator command (`incr`, `append`,
+    ///   `lappend`) as an ABC *assignment* rather than a branch while
+    ///   `is_call` still counts it. `set` is not one of those: it has a
+    ///   grammar production of its own (`Tcl::Set` / `Irules::Set`)
+    ///   rather than being a `command`, so it is an ABC assignment that
+    ///   `is_call` never matches either.
+    /// * Elixir excludes its definition and directive `Call`s (`def`,
+    ///   `defmodule`, `alias`, `import`, …) from `branches` while
+    ///   counting each `|>` pipeline step.
+    /// * Perl counts a bareword call only at the outermost dispatch
+    ///   site: in `print shift;` the wrapper
+    ///   `call_expression_with_spaced_args` is the branch and the
+    ///   `print` bareword it holds is skipped, so that bareword is an
+    ///   `is_call` match with no branch behind it.
+    ///
+    /// The two sets coincide only in C, Objective-C, Go, Python, Lua
+    /// and Bash, which have neither a separate construction syntax nor
+    /// a gated branch arm.
     // `is_call` and each language's ABC branch arm classify the same
     // nodes through parallel `matches!()` tables, so they drift
     // silently; the divergence is pinned by
