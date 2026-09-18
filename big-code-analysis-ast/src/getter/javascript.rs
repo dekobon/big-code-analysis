@@ -51,9 +51,12 @@ impl Getter for JavascriptCode {
         bound_name.map_or(Some("<anonymous>"), |name| node_text(code, &name))
     }
 
+    // JSX closing / self-closing tag delimiters. See the macro's
+    // `$op_extras` note: they are per-language extras because
+    // TypeScript, which shares this macro, has no JSX (#1395).
     impl_js_family_get_op_type!(
         Javascript,
-        op_extras: [OptionalChain],
+        op_extras: [OptionalChain, LTSLASH, SLASHGT],
         operand_extras: [Identifier2, String2],
     );
 
