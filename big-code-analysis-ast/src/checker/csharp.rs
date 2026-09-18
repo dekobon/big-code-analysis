@@ -124,6 +124,12 @@ impl Checker for CsharpCode {
         // renders exactly one text through `get_operator_id_as_str` and
         // no other kind renders that text, so the vocabulary entry only
         // changes which map holds it.
+        //
+        // The shared predicate also admits the sixth alias, the `this`
+        // receiver, which `get_op_type_with_code` bills as an operand.
+        // That is not a disagreement between the two: `compute_halstead`
+        // consults this method only under its `Operator` arm, so the
+        // answer is never read for a receiver.
         matches!(
             node.kind_id().into(),
             Csharp::PredefinedType
