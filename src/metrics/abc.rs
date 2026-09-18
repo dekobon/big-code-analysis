@@ -2061,12 +2061,15 @@ mod tests {
         //
         // `class Plain : Marker` is the negative case: a delegation
         // specifier with no argument list is a plain `user_type`, so it
-        // must stay at zero. It buys discrimination — with it present,
-        // broadening the arm to bare `DelegationSpecifier` fails here;
-        // without it, only `kotlin_constructor_delegation_is_a_branch`
-        // catches that — and since the per-space assertions below name it,
-        // trimming it from the fixture now fails in `child_space` instead
-        // of passing silently as it did while this test read only the sum.
+        // must stay at zero. Broadening the arm to bare
+        // `DelegationSpecifier` fails here at `branches_sum` (5 against
+        // 3), though not on `Plain`'s account alone: `class Classic :
+        // Base` below is argument-less too, so deleting `Plain` still
+        // leaves the broadening failing, at 4. What `Plain` buys is the
+        // case stated outright rather than riding on the contrast fixture,
+        // and since the per-space assertions below name it, trimming it
+        // from the fixture fails in `child_space` instead of passing
+        // silently as it did while this test read only the sum.
         //
         // `class Classic` carries the secondary spelling of the same call
         // alongside, which is what makes the per-space assertions below a
