@@ -201,9 +201,9 @@ impl Getter for CsharpCode {
         if !crate::checker::csharp_is_aliased_parameter_modifier(node) {
             return Self::get_op_type(node, ancestors);
         }
-        match code.get(node.start_byte()..node.end_byte()) {
-            Some(b"this") => TokenRole::Operand,
-            Some(b"ref" | b"out" | b"in" | b"scoped" | b"readonly") => TokenRole::Operator,
+        match node_text(code, node) {
+            Some("this") => TokenRole::Operand,
+            Some("ref" | "out" | "in" | "scoped" | "readonly") => TokenRole::Operator,
             // The alias set is closed at the pinned grammar, so this is
             // defensive: a bump that adds a spelling leaves it
             // unclassified rather than billing it as whichever arm
