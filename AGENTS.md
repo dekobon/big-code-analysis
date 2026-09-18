@@ -437,7 +437,11 @@ warns on stderr when a covered offender has measured past its record
 the worst entry and the count. Refresh in the same commit, exactly as
 for an increase. The warning covers only offenders still above their
 limits: one that stopped breaching altogether produces no violation and
-so leaves an entry that only a full regeneration finds.
+so leaves an entry that only a full regeneration finds. That
+regeneration is the quarterly `baseline-freshness.yml` job below, which
+closes the other half — but it reports a stale file a quarter late and
+under someone else's name, so it is a backstop for this duty, not a
+substitute for it.
 
 The same rule governs **merges**. `.bca-baseline.toml` is marked
 `-merge` in `.gitattributes`, so git leaves it wholly conflicted rather
@@ -537,6 +541,20 @@ workspace-excluded and therefore invisible to `cargo clippy --workspace`
 (the #164 / #1228 blind spot). Bound any run with `-runs=N`, never
 `-max_total_time`, or the result cannot be reproduced on another machine.
 See [`docs/development/fuzzing.md`](docs/development/fuzzing.md).
+
+**Baseline freshness** is the fourth
+(`.github/workflows/baseline-freshness.yml`, #1473). It regenerates
+`.bca-baseline.toml` with `make self-scan-write-baseline-headroom` and
+diffs the result against the committed file with `bca diff-baseline`,
+filing one `self-scan`-labelled issue when the two disagree — and
+commenting on that issue rather than opening a second, because a stale
+baseline survives every quarter until someone commits a refresh. It
+exists for the one thing no gated run can see: an entry whose offender
+stopped breaching its threshold produces no violation, so the
+`--baseline` stderr warning above never reaches it. Nothing here needs
+running by hand; the refresh duty in "Baseline-refresh discipline" is
+what keeps the job quiet. See
+[`docs/development/baseline_freshness.md`](docs/development/baseline_freshness.md).
 
 For snapshot test changes, run `cargo insta test --review` and accept or
 reject each snapshot rather than blindly updating files.
