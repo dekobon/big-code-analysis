@@ -772,18 +772,27 @@ pub fn csharp_member_has_accessors(node: &Node) -> bool {
     csharp_accessor_count(node) > 0
 }
 
-/// Whether `node` is one of the six keywords the C# grammar aliases to
-/// `modifier` in parameter position — `this`, `scoped`, `ref`, `out`,
-/// `in`, `readonly` — rather than an ordinary declaration modifier.
+/// Whether `node` is a bare keyword token the C# grammar *aliased* to
+/// `modifier`, rather than the `modifier` rule itself.
 ///
-/// `_parameter_type_with_modifiers` aliases those bare tokens to
-/// `$.modifier`, so there the node is a **childless** `modifier`. Every
-/// other `modifier` (`public`, `static`, `async`, a field's `readonly`)
-/// is the real rule: a wrapper around a keyword leaf that the getter
-/// already classifies on its own. Child-presence is therefore the whole
-/// distinction, and it is the grammar's shape rather than an inference
-/// about a broken parse — contrast [`Checker::is_bare_param`], which
-/// refuses the same test precisely because there it would be a guess.
+/// The rule is `choice('public', 'static', 'async', 'readonly', …)`, so
+/// a real `modifier` wraps one keyword leaf that the getter already
+/// classifies on its own. Two other rules alias a bare token onto the
+/// same named kind, and those nodes are **childless**:
+///
+/// - `_parameter_type_with_modifiers` — `this`, `scoped`, `ref`, `out`,
+///   `in`, `readonly` in parameter position, the six #1418 bills.
+/// - `_lambda_expression_init` and `anonymous_method_expression` —
+///   `static` and `async` on a lambda or `delegate { … }`. These reach
+///   [`CsharpCode::get_op_type_with_code`]'s fallthrough and stay
+///   unclassified, exactly as they were before #1418; billing them is a
+///   separate decision, since the *declaration* spelling of the same two
+///   keywords is billed through its leaf.
+///
+/// Child-presence is therefore what separates an alias from the rule,
+/// and it is the grammar's shape rather than an inference about a broken
+/// parse — contrast [`Checker::is_bare_param`], which refuses the same
+/// test precisely because there it would be a guess.
 ///
 /// Shared by [`CsharpCode::get_op_type_with_code`], which decides the
 /// keyword's Halstead role from its text, and
@@ -794,7 +803,7 @@ pub fn csharp_member_has_accessors(node: &Node) -> bool {
 /// [`CsharpCode::get_op_type_with_code`]: crate::Getter::get_op_type_with_code
 /// [`CsharpCode::is_primitive`]: Checker::is_primitive
 #[must_use]
-pub(crate) fn csharp_is_aliased_parameter_modifier(node: &Node) -> bool {
+pub(crate) fn csharp_is_aliased_modifier(node: &Node) -> bool {
     node.kind_id() == Csharp::Modifier as u16 && node.child_count() == 0
 }
 

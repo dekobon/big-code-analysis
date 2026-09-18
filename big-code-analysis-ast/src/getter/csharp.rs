@@ -162,12 +162,14 @@ impl Getter for CsharpCode {
     // extension receiver, a `ref` parameter and an `out` parameter each
     // contributed to neither Halstead half.
     //
-    // A blanket `Modifier` arm is not available: every *other*
-    // `modifier` is the real rule — a wrapper around a `public` /
-    // `static` / `async` / field-`readonly` keyword leaf this match
-    // already classifies — so listing the wrapper too would bill those
-    // twice (grammar-dispatch section 5). The gate is child-presence,
-    // which section 6 prescribes over deleting either side.
+    // A blanket `Modifier` arm is not available: the `modifier` *rule*
+    // is a wrapper around a `public` / `static` / `async` /
+    // field-`readonly` keyword leaf this match already classifies, so
+    // listing the wrapper too would bill those twice (grammar-dispatch
+    // section 5). The gate is child-presence, which section 6 prescribes
+    // over deleting either side, and which
+    // `csharp_is_aliased_modifier` reads as "aliased bare token" rather
+    // than "parameter modifier" — see its doc for the second alias site.
     //
     // `Checker::is_bare_param` deliberately refuses to infer from
     // `child_count() == 0`, and this is the case that refusal excludes
@@ -198,16 +200,23 @@ impl Getter for CsharpCode {
         code: &[u8],
         ancestors: Ancestors<'a, '_>,
     ) -> TokenRole {
-        if !crate::checker::csharp_is_aliased_parameter_modifier(node) {
+        if !crate::checker::csharp_is_aliased_modifier(node) {
             return Self::get_op_type(node, ancestors);
         }
         match node_text(code, node) {
             Some("this") => TokenRole::Operand,
             Some("ref" | "out" | "in" | "scoped" | "readonly") => TokenRole::Operator,
-            // The alias set is closed at the pinned grammar, so this is
-            // defensive: a bump that adds a spelling leaves it
-            // unclassified rather than billing it as whichever arm
-            // happened to be last.
+            // Live, not merely defensive: `_lambda_expression_init` and
+            // `anonymous_method_expression` alias a bare `static` /
+            // `async` onto `modifier` too, so `static (int x) => x`
+            // arrives here. Leaving those unclassified is what they
+            // already were before #1418, and closing that gap is a
+            // decision about lambdas rather than about parameters — the
+            // *declaration* spelling of both keywords is billed through
+            // its leaf, so they are unbilled only in this one position.
+            // A grammar bump that adds a seventh parameter spelling
+            // lands here as well, unclassified rather than billed as
+            // whichever arm happened to be last.
             _ => TokenRole::Unknown,
         }
     }

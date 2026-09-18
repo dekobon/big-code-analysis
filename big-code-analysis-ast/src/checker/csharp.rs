@@ -125,11 +125,16 @@ impl Checker for CsharpCode {
         // no other kind renders that text, so the vocabulary entry only
         // changes which map holds it.
         //
-        // The shared predicate also admits the sixth alias, the `this`
-        // receiver, which `get_op_type_with_code` bills as an operand.
-        // That is not a disagreement between the two: `compute_halstead`
-        // consults this method only under its `Operator` arm, so the
-        // answer is never read for a receiver.
+        // The shared predicate is wider than those five, and deliberately
+        // so: it holds for every aliased `modifier`, including the `this`
+        // receiver that `get_op_type_with_code` bills as an operand and
+        // the `static` / `async` of a lambda that it leaves unclassified.
+        // Neither is a disagreement between the two methods, because
+        // `compute_halstead` consults this one only under its `Operator`
+        // arm — so the answer is never read for anything the getter did
+        // not call an operator. Widening the getter later (billing a
+        // lambda's `static`) therefore needs no change here, and gets the
+        // lexeme key it would want.
         matches!(
             node.kind_id().into(),
             Csharp::PredefinedType
@@ -138,6 +143,6 @@ impl Checker for CsharpCode {
                 | Csharp::In
                 | Csharp::Readonly
                 | Csharp::Scoped
-        ) || csharp_is_aliased_parameter_modifier(node)
+        ) || csharp_is_aliased_modifier(node)
     }
 }
