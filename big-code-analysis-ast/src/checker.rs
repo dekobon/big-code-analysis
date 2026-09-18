@@ -480,14 +480,14 @@ pub trait Checker {
     /// *assignment* rather than a branch while `is_call` still counts
     /// it, and Elixir excludes its definition and directive `Call`s
     /// (`def`, `defmodule`, `alias`, `import`, …) from `branches` while
-    /// counting each `|>` pipeline step. Only the
-    /// languages with no separate construction syntax — C, Objective-C,
-    /// Go, Python, Lua, Bash, Perl — have the two sets coincide.
-    ///
-    /// The two predicates classify the same nodes through parallel
-    /// `matches!()` tables, so they drift silently; the divergence is
-    /// pinned by `groovy_is_call_excludes_constructors` (#430) and
-    /// `csharp_is_call_excludes_constructors` in this file's tests.
+    /// counting each `|>` pipeline step. Only the languages with no
+    /// separate construction syntax — C, Objective-C, Go, Python, Lua,
+    /// Bash, Perl — have the two sets coincide.
+    // `is_call` and each language's ABC branch arm classify the same
+    // nodes through parallel `matches!()` tables, so they drift
+    // silently; the divergence is pinned by
+    // `groovy_is_call_excludes_constructors` (#430) and
+    // `csharp_is_call_excludes_constructors` in this file's tests.
     #[inline]
     #[must_use]
     fn is_call(_: &Node) -> bool {
@@ -2107,8 +2107,6 @@ mod tests {
         // paired with one genuine call, `Helper(f)`. The fixture scores
         // `abc.branches` 5 and `call` 1, so widening `is_call` to any of
         // the four moves the count asserted here.
-        use crate::langs::{CsharpCode, CsharpParser};
-
         let src = "class Sub(int x) : Base(x) {
                        public Sub(int a, int b) : this(a) { }
                        void M() { var f = new Foo(); Helper(f); }
