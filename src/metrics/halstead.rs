@@ -3629,16 +3629,25 @@ mod tests {
     /// Pins the grammar shape the #1418 arm gates on, in both
     /// directions.
     ///
-    /// The arm reads `modifier` nodes with no children as aliased
-    /// parameter keywords and leaves the rest to their classified
-    /// keyword leaf. That is a claim about two populations, and a
-    /// grammar bump can break either: giving the alias a token child
-    /// would double-count it, and flattening a declaration modifier to
-    /// a childless node would bill `public` / `static` as an unknown
-    /// keyword. Both are checked here, so neither can move quietly.
+    /// The arm reads `modifier` nodes with no children as aliased bare
+    /// keywords and leaves the rest to their classified keyword leaf.
+    /// That is a claim about two populations, and a grammar bump can
+    /// break either: giving an alias a token child would double-count
+    /// it, and flattening a declaration modifier to a childless node
+    /// would bill `public` / `static` as an unknown keyword. Both are
+    /// checked here, so neither can move quietly.
+    ///
+    /// Childlessness says "aliased", *not* "parameter modifier" —
+    /// `_lambda_expression_init` and `anonymous_method_expression` alias
+    /// a bare `static` / `async` onto the same kind, which the second
+    /// walk below pins so the distinction cannot be forgotten. Their
+    /// `Unknown` is today's behaviour rather than a contract: it is what
+    /// they were before #1418, and billing them is a decision about
+    /// lambdas. It is asserted only so making that decision has to come
+    /// through this test.
     #[cfg(feature = "csharp")]
     #[test]
-    fn csharp_parameter_modifier_is_a_childless_alias() {
+    fn csharp_aliased_modifier_is_childless() {
         let code = CSHARP_PARAMETER_MODIFIERS.as_bytes();
         let (mut aliased, mut declaration) = (0_usize, 0_usize);
 
@@ -3651,10 +3660,19 @@ mod tests {
 
             if node.child_count() == 0 {
                 aliased += 1;
-                let (correct, expected) = if text == b"this" {
-                    (matches!(role, TokenRole::Operand), "an operand")
-                } else {
-                    (matches!(role, TokenRole::Operator), "an operator")
+                // Spelled out rather than `this`-versus-everything-else,
+                // because "everything else is an operator" is false of
+                // the kind at large — a lambda's aliased `static` is
+                // neither, and the second walk below owns it.
+                let (correct, expected) = match text {
+                    b"this" => (matches!(role, TokenRole::Operand), "an operand"),
+                    b"scoped" | b"ref" | b"out" | b"in" | b"readonly" => {
+                        (matches!(role, TokenRole::Operator), "an operator")
+                    }
+                    other => panic!(
+                        "`{}` is not one of the six parameter spellings this fixture carries",
+                        String::from_utf8_lossy(other)
+                    ),
                 };
                 assert!(
                     correct,
@@ -3716,6 +3734,47 @@ mod tests {
         // carrying one population cannot pass having checked nothing.
         assert_eq!(aliased, 8, "fixture lost an aliased parameter modifier");
         assert_eq!(declaration, 8, "fixture lost a declaration modifier");
+
+        // The second alias site. `static (int x) => …` and `async
+        // delegate (int y) { … }` put a bare keyword under the same
+        // childless `modifier`, so `csharp_is_aliased_modifier` holds
+        // for a node that is not in a parameter at all — which is why
+        // the getter dispatches on the text and not on the kind.
+        let lambda = "static class L {
+    static void M() {
+        var a = static (int x) => x + 1;
+        var b = async delegate (int y) { return y; };
+    }
+}"
+        .as_bytes();
+        let mut lambda_aliases = 0_usize;
+
+        for_each_node_with_chain::<CsharpCode>(lambda, |node, chain| {
+            if node.kind_id() != Csharp::Modifier as u16 || node.child_count() != 0 {
+                return;
+            }
+            lambda_aliases += 1;
+            let text = &lambda[node.start_byte()..node.end_byte()];
+            assert!(
+                matches!(text, b"static" | b"async"),
+                "`{}` is not a lambda modifier the grammar aliases",
+                String::from_utf8_lossy(text)
+            );
+            assert!(
+                matches!(
+                    CsharpCode::get_op_type_with_code(node, lambda, Ancestors::known(chain)),
+                    TokenRole::Unknown
+                ),
+                "`{}` on a lambda is unbilled today, as it was before #1418; billing it is a \
+                 deliberate change and belongs in this assertion, not around it",
+                String::from_utf8_lossy(text)
+            );
+        });
+
+        assert_eq!(
+            lambda_aliases, 2,
+            "fixture lost a lambda / anonymous-method modifier alias"
+        );
     }
 
     #[cfg(feature = "go")]
