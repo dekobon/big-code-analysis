@@ -54,8 +54,9 @@ variants), `child(i)` / `named_child(i)`,
 `walk()` is a lazy pre-order iterator over a node and its
 descendants; `descendants_by_kind(kinds)` collects the matches in one
 pass; and `ast.find(filters)` searches the whole tree, accepting the
-same vocabulary as [`bca count`](../commands/nodes.md#counting-nodes) (`function`,
-`call`, `comment`, `string`, an exact kind, …):
+same vocabulary as [`bca count`](../commands/nodes.md#semantic-filters)
+(`all`, `function`, `call`, `comment`, `string`, `error`, an exact kind,
+or a numeric `kind_id`):
 
 ```python
 # Every function name in the file, the lazy way.

@@ -264,6 +264,14 @@ fn csharp_count_token_assignment<'a>(
 // carries no numeric-suffix aliases, and it does not wrap an
 // `InvocationExpression` for the delegation itself, so no double count
 // arises; calls in its argument list are separate nodes counted on their own.
+//
+// This set is deliberately wider than `CsharpCode::is_call`, which answers
+// `bca find --type call` and stops at the invocation kinds. Fitzpatrick's
+// rule is "function invocation or object creation", so the three
+// construction kinds below are branches; a `find` result that pointed at a
+// constructor would not be a call site a reader navigates to. The contract
+// and the full per-language survey live on the `Checker::is_call` trait
+// doc; `csharp_is_call_excludes_constructors` pins the C# half (#1456).
 fn csharp_count_token_branch<'a>(
     node: &Node<'a>,
     ancestors: Ancestors<'a, '_>,
@@ -326,6 +334,32 @@ fn csharp_count_token_branch<'a>(
         // `base_list`. `BaseList` and `BaseList2` both render to
         // `"base_list"` and only the second is observed here; both are
         // listed per `.claude/rules/grammar-dispatch.md` §1.
+        //
+        // Where the branch lands is decided by the space tree, not here,
+        // and the two delegation spellings land differently. The
+        // `base_list` is a direct child of the class declaration — outside
+        // every member, and a sibling of the primary constructor's
+        // `parameter_list` rather than inside it — and a primary
+        // constructor has no declaration node of its own for
+        // `CsharpCode::is_func_space` to promote
+        // (`big-code-analysis-ast/src/getter/csharp.rs` lists only
+        // `MethodDeclaration | ConstructorDeclaration | …` as
+        // `SpaceKind::Function`). So `class Sub(int x) : Base(x)` bills its
+        // branch to the **class** space, while `class C : Base { C(int x) :
+        // base(x) {} }` bills the same call to the constructor's *function*
+        // space. File-level `branches_sum` agrees between the two
+        // spellings, so nothing is wrong at the aggregate, but per-function
+        // `branches_max` / `branches_average` and a per-space
+        // `bca check --threshold abc=N` see them differently: a codebase
+        // migrating to primary constructors shifts weight off its function
+        // rows and onto its class rows with no behaviour change. That is
+        // the intended reading — there is no function to attribute the call
+        // to — and it is pinned by
+        // `csharp_primary_constructor_base_call_is_a_branch` and
+        // `csharp_base_call_and_constructor_initializer_do_not_double_count`
+        // in `src/metrics/abc.rs`. Kotlin's `ConstructorInvocation` under a
+        // `delegation_specifier` (`src/metrics/abc/kotlin.rs`) has the
+        // identical shape and the identical attribution (#1456).
         PrimaryConstructorBaseType | ArgumentList => ancestors
             .parent(node)
             .is_some_and(|parent| matches!(parent.kind_id().into(), BaseList | BaseList2)),

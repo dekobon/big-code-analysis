@@ -68,6 +68,15 @@ impl Checker for CsharpCode {
         )
     }
 
+    // Invocations only, by the contract on `Checker::is_call`: C#'s three
+    // other call-shaped constructs — `new T(…)`, the `: base(x)` /
+    // `: this(a)` constructor initializer, and the C# 12 primary
+    // constructor's `: Base(x)` — are object construction and constructor
+    // delegation, which ABC's Fitzpatrick branch rule counts and this
+    // filter deliberately does not. The matching arm on the other side of
+    // that split is `csharp_count_token_branch` in
+    // `src/metrics/abc/csharp.rs`; `csharp_is_call_excludes_constructors`
+    // (`checker.rs` tests) pins the exclusion (#1456).
     fn is_call(node: &Node) -> bool {
         // The C# grammar emits three aliased `kind_id`s for
         // `invocation_expression`; matching only the unsuffixed variant

@@ -33,6 +33,39 @@ bca find -t ERROR -I "*.ext" /path/to/your/file/or/directory
   `*.js`, `*.rs`). Each `-I` takes exactly one value, so a following
   positional path is never swallowed.
 
+## Semantic filters {#semantic-filters}
+
+Six `-t/--type` values are not node-type names but *semantic* filters,
+resolved per language so that one spelling works across every grammar.
+They take precedence over an identically named node type, so a grammar
+with a literal `call` node cannot be matched by name — use its numeric
+`kind_id` for that.
+
+- `all` — every node, named and anonymous. `bca count -t all` therefore
+  always reports 100%.
+- `function` — a *named* function, method or other callable
+  declaration. Anonymous ones are excluded where the language
+  distinguishes them: in the JavaScript family an arrow function or
+  function expression bound to a name (`const add = (a, b) => …`) is a
+  `function` match, while the same expression passed inline as a
+  callback (`xs.map(x => x * 2)`) is a closure and is not.
+- `call` — a *call site*: a function, method or command invocation a
+  reader would navigate to. Object construction (`new T(…)`) and
+  constructor delegation (C#'s `: base(x)` and a C# 12 primary
+  constructor's `: Base(x)`, Java's `super(…)`, Kotlin's superclass
+  call) are deliberately **excluded**. They are counted by the
+  [ABC](../metrics.md#abc) `branches` axis, whose Fitzpatrick rule is
+  "function invocation or object creation" — a wider question than "where
+  is this called". Expect `abc.branches` to exceed a file's `call` count
+  in C#, Java, Groovy, Kotlin, C++, JavaScript, TypeScript, PHP, Ruby
+  and Rust; see
+  [Where a constructor call lands](../metrics.md#abc-constructor-attribution).
+- `comment` — a comment of any of the language's forms.
+- `string` — a string *literal*. Type-annotation keywords that share the
+  literal's node name (TypeScript's `: string`) are excluded.
+- `error` — a parse-error node. `-t ERROR` matches the same nodes by
+  name and is the spelling used above.
+
 ## Counting nodes {#counting-nodes}
 
 Count occurrences of one or more node types with the `count` command:

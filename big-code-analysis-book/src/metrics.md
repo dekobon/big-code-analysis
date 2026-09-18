@@ -157,6 +157,38 @@ application would over-count.
 | Java, Groovy, C#, TypeScript, TSX | A `?` used as type syntax is not a ternary | In each of these grammars the ternary `?` and the type-syntax `?` are the *same* anonymous token, so the ternary rule above is gated on the token's parent. Java and Groovy exclude the wildcard bound `List<? extends T>` (#1274); C# excludes the nullable type `int? x` and the constraint `where T : class?`; TypeScript and TSX exclude optional parameters, properties, methods, class fields and tuple elements, and conditional types (`T extends U ? X : Y`, which the type checker resolves and erases before runtime, so it is no more a branch than the `<` / `>` already excluded) (#1275). Safe navigation is untouched: C#'s `a?.b` shares the same token and still counts, while the other languages spell theirs as a distinct one. |
 | C#, Java, Groovy, Kotlin, Ruby, Elixir | A relational operator scores by use; a value-bearing operand scores in a boolean slot | Five of these grammars spell at least one relational construct as its own production rather than as a binary expression with an operator token: C#'s `x is int` and `x is null`, Java's and Groovy's `x instanceof T`, Groovy's `a in l`, Kotlin's `a is T` and `a in 1..2`, and Ruby's one-line `a in Integer`. Having no token to count, each was reached only through the language's terminal-operand set, which the walker consults inside an `if` / `while` / ternary / `&&`-operand slot and nowhere else — so `var b = x == 1;` scored 1 while `var b = x is int;` scored 0. Fitzpatrick's Rule 5 counts a relational operator wherever it appears, so each now counts wherever it appears and has left the operand set; being in both would score it twice. Groovy's spaceship `<=>` counts on the same rule, as it already did in Ruby, PHP, C++ and Mozcpp, although its result is an integer rather than a boolean — what Rule 5 measures is the comparison, not its type. Elixir reached the same 0 by the other route: its membership and type tests (`a in [1, 2]`, `rescue e in RuntimeError`) *do* carry an operator token, and simply had no arm matching it. They count by use on the same rule, gated on the token's parent so that an operator merely *named* (`&in/2`) stays excluded alongside `<` and `>`. The converse still holds for a construct whose *value* fills the slot: a cast, a Go type assertion, a Rust `matches!` / `cfg!` macro and a Python walrus are all operands and count only where a slot reads them as a predicate (#1461). |
 
+#### Where a constructor call lands {#abc-constructor-attribution}
+
+Fitzpatrick's branch rule is "function invocation **or object
+creation**", so object construction and constructor delegation count as
+branches even though they are not call sites — they do not appear in
+`bca find --type call`, which reports invocations only. See
+[Semantic filters](commands/nodes.md#semantic-filters).
+
+Which *space* a constructor call is charged to depends on how it is
+spelled, and C# 12 and Kotlin both let you spell it two ways:
+
+```csharp
+class Sub(int x) : Base(x) { }            // charged to the class space
+class Classic : Base {
+    public Classic(int x) : base(x) { }   // charged to the constructor
+}
+```
+
+A primary constructor has no body. Its superclass call sits in the class
+header — C#'s `base_list`, Kotlin's `delegation_specifiers` — outside
+every member, so no function space encloses it and the branch belongs to
+the class. The classic spelling puts the same call inside a constructor
+declaration, which does open a function space.
+
+File-level `abc.branches` is identical either way, so nothing shifts at
+the aggregate. Per-function figures do: `branches_max`,
+`branches_average`, and a per-space `bca check --threshold abc=N` all see
+the primary-constructor form on a class row and never on a function row.
+A codebase migrating to primary constructors will therefore see its
+per-function ABC distribution move without any behaviour change. That is
+the intended reading — there is no function to attribute the call to.
+
 #### Worked example
 
 Consider this C function:
