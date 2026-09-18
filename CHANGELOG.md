@@ -196,6 +196,17 @@ for historical reference.
 
 ### Fixed
 
+- **`make worktree-setup` reinstalled a stale build of the Python
+  bindings.** Their version is dynamic — maturin reads it from the
+  workspace `Cargo.toml` — and the extension compiles the root and ast
+  crates one directory up, but uv's default cache key watches only
+  `pyproject.toml`. So a version bump or a Rust change never invalidated
+  the cached build, and `uv sync` replaced a current 2.2.1 install with
+  a cached 2.1.1. `big-code-analysis-py/pyproject.toml` now sets
+  `[tool.uv].cache-keys` to the manifests, the lockfile and the Rust
+  sources the build reads. `make pre-commit` was unaffected: `py-test`
+  rebuilds with `maturin develop` before testing.
+
 - **A relational operator scored an ABC condition only inside a boolean
   slot** (#1461). `var b = x == 1;` reported `abc.conditions` 1 while
   `var b = x is int;` reported 0, and the same asymmetry held for
