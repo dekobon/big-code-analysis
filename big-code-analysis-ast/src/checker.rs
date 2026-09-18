@@ -1268,14 +1268,13 @@ mod tests {
         //
         // The fixture carries every position the keyword appears in —
         // property type, plain parameter, `?string`, a `string|int`
-        // union and the return type — so a narrowing that misses one
-        // spelling is not mistaken for the fix. The literals anchor the
-        // other direction: without them this test would also pass if
-        // `is_string` were emptied out entirely. The `(string)` cast is
-        // a deliberate negative control — a childless `cast_type`, so
-        // the exact count below would be 5 rather than 4 if anything
-        // ever started classifying it as a literal. Keep it in the
-        // fixture.
+        // union and the return type. Today's predicate is a `kind_id`
+        // `matches!`, so it cannot tell those five apart; they are here
+        // against a future ancestor-sensitive `is_string_with_code`
+        // override of the kind Tcl already carries (#1381), which could
+        // suppress one position and not another. The literals anchor
+        // the other direction: without them this test would also pass
+        // if `is_string` were emptied out entirely.
         let src = concat!(
             "<?php\n",
             "class C {\n",
@@ -1293,16 +1292,40 @@ mod tests {
             "}\n",
         );
         let parser = parse_php(src);
-        // Confirm the keyword is in the parse first, or the zero below
-        // would hold for a fixture that simply never produces it.
-        assert!(
-            ast_has_kind_id(&parser, Php::String2 as u16),
-            "expected Php::String2 (type-keyword `string`) in the parse",
+        // Pin the keyword spellings by *count*, not with a boolean
+        // `ast_has_kind_id`. The zero below holds for one spelling
+        // exactly as for five, so a fixture trimmed to a single
+        // `string` keyword would keep every assertion here green while
+        // the paragraph above claimed full coverage — measured, by
+        // stripping four of the five. The count also subsumes the
+        // "is the keyword in the parse at all" guard the boolean gave.
+        let keyword_nodes = parser
+            .root()
+            .preorder()
+            .filter(|n| n.kind_id() == Php::String2 as u16)
+            .count();
+        assert_eq!(
+            keyword_nodes, 5,
+            "fixture must keep all five `string` type-keyword positions: property, \
+             parameter, `?string`, `string|int` union, return type",
         );
         assert_eq!(
             count_string_matches_for_kind(&parser, Php::String2 as u16, PhpCode::is_string),
             0,
             "Php::String2 (type keyword) must not match is_string",
+        );
+        // The `(string)` cast is the negative control: a childless
+        // `cast_type`, a different kind_id, so the four below would be
+        // five if anything ever classified a cast as a literal. Pinned
+        // so the control cannot be trimmed out of the fixture silently.
+        assert_eq!(
+            parser
+                .root()
+                .preorder()
+                .filter(|n| n.kind_id() == Php::CastType as u16)
+                .count(),
+            1,
+            "fixture must keep the `(string)` cast negative control",
         );
         assert!(
             count_string_matches_for_kind(&parser, Php::String as u16, PhpCode::is_string) > 0,
