@@ -3536,6 +3536,188 @@ mod tests {
         );
     }
 
+    /// Every spelling of the six keywords `_parameter_type_with_modifiers`
+    /// aliases to `modifier`, plus two controls that were billed before
+    /// #1418: the bare `params` of a parameter array (kind 94, never
+    /// aliased) and the bare `out` of a call argument (kind 56).
+    ///
+    /// `D` is declared *and* called so the argument `out` has a caller
+    /// to sit in, which is what makes the two spellings of one keyword
+    /// meet in one file.
+    #[cfg(feature = "csharp")]
+    const CSHARP_PARAMETER_MODIFIERS: &str = "static class E {
+    static void A(this Foo f) { }
+    static void B(scoped ref Foo f) { }
+    static void C(ref readonly Foo f) { }
+    static void D(out int x) { x = 1; }
+    static void G(in Foo f) { }
+    static void H(params int[] xs) { }
+    static void I(ref int y) { D(out y); }
+}";
+
+    /// The six aliased parameter modifiers reach a Halstead half, and
+    /// each reaches the same one its bare token reaches elsewhere
+    /// (#1418).
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_parameter_modifiers_are_classified_1418() {
+        // Operators (n1 = 15, N1 = 48): class 1; {} 8 (the class body
+        // and seven method bodies); static 8 (the class and seven
+        // methods); void 7; () 8 (seven parameter lists and the call);
+        // int 3 (`out int x`, `int[]`, `ref int y`); [] 1; = 1; ; 2;
+        // scoped 1; ref 3; readonly 1; out 2 (the parameter and the
+        // argument); in 1; params 1.
+        //
+        // Operands (n2 = 15, N2 = 24): E 1; A/B/C/G/H/I 1 each; D 2
+        // (declaration and call); this 1; Foo 4; f 4; x 2; 1 1; xs 1;
+        // y 2.
+        //
+        // Before the fix this read (11, 41, 14, 23). The eight childless
+        // `modifier` nodes were billed nowhere, which cost seven
+        // operator occurrences and one operand occurrence, and emptied
+        // `scoped`, `ref`, `readonly` and `in` out of the operator
+        // vocabulary entirely — `out` survived only because the call
+        // argument spells it with the unaliased kind.
+        assert_halstead_counts::<CsharpParser>(
+            CSHARP_PARAMETER_MODIFIERS,
+            "foo.cs",
+            [15, 48, 15, 24],
+            "csharp parameter modifiers",
+        );
+
+        // The receiver is an operand, matching every other C# `this`
+        // (#1380). Both halves matter: an arm listing it twice would
+        // still put it among the operands.
+        assert_keywords_are_operands_only::<CsharpParser>(
+            CSHARP_PARAMETER_MODIFIERS,
+            "foo.cs",
+            &["this"],
+        );
+
+        let ops = ops_of::<CsharpParser>(CSHARP_PARAMETER_MODIFIERS, "foo.cs");
+        for keyword in ["ref", "out", "in", "scoped", "readonly", "params"] {
+            assert!(
+                ops.operators.iter().any(|o| o == keyword),
+                "`{keyword}` must be an operator; operators were {:?}",
+                ops.operators
+            );
+            assert!(
+                !ops.operands.iter().any(|o| o == keyword),
+                "`{keyword}` must not be an operand; operands were {:?}",
+                ops.operands
+            );
+        }
+
+        // `ref` and `out` each occur under *both* kind spellings in
+        // this fixture, and the vocabulary is not deduplicated — it is
+        // the concatenation of the kind-keyed and lexeme-keyed operator
+        // maps. So a count above one here is the #453 shape: one
+        // keyword split across the two maps, counted twice in `n1`.
+        // This is what `CsharpCode::is_primitive` listing the five bare
+        // kinds buys, and the only assertion that can see it.
+        for keyword in ["ref", "out"] {
+            assert_eq!(
+                ops.operators.iter().filter(|o| *o == keyword).count(),
+                1,
+                "`{keyword}` must be one operator across both of its kind spellings; \
+                 operators were {:?}",
+                ops.operators
+            );
+        }
+    }
+
+    /// Pins the grammar shape the #1418 arm gates on, in both
+    /// directions.
+    ///
+    /// The arm reads `modifier` nodes with no children as aliased
+    /// parameter keywords and leaves the rest to their classified
+    /// keyword leaf. That is a claim about two populations, and a
+    /// grammar bump can break either: giving the alias a token child
+    /// would double-count it, and flattening a declaration modifier to
+    /// a childless node would bill `public` / `static` as an unknown
+    /// keyword. Both are checked here, so neither can move quietly.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_parameter_modifier_is_a_childless_alias() {
+        let code = CSHARP_PARAMETER_MODIFIERS.as_bytes();
+        let (mut aliased, mut declaration) = (0_usize, 0_usize);
+
+        for_each_node_with_chain::<CsharpCode>(code, |node, chain| {
+            if node.kind_id() != Csharp::Modifier as u16 {
+                return;
+            }
+            let role = CsharpCode::get_op_type_with_code(node, code, Ancestors::known(chain));
+            let text = &code[node.start_byte()..node.end_byte()];
+
+            if node.child_count() == 0 {
+                aliased += 1;
+                let (correct, expected) = if text == b"this" {
+                    (matches!(role, TokenRole::Operand), "an operand")
+                } else {
+                    (matches!(role, TokenRole::Operator), "an operator")
+                };
+                assert!(
+                    correct,
+                    "`{}` is an aliased parameter modifier and must be {expected}",
+                    String::from_utf8_lossy(text)
+                );
+                // Grammar-dispatch section 5: nothing containing the
+                // token is classified, so billing the token cannot
+                // count the same source text twice. Every ancestor,
+                // not just `parameter` — `parameter_list` and the
+                // declaration above it contain it too.
+                for (depth, ancestor) in chain.iter().enumerate() {
+                    assert!(
+                        matches!(
+                            CsharpCode::get_op_type_with_code(
+                                ancestor,
+                                code,
+                                Ancestors::known(&chain[..depth])
+                            ),
+                            TokenRole::Unknown
+                        ),
+                        "`{}` contains an aliased modifier and is itself classified, so the \
+                         keyword now counts twice",
+                        ancestor.kind()
+                    );
+                }
+            } else {
+                declaration += 1;
+                assert_eq!(
+                    node.child_count(),
+                    1,
+                    "a declaration `modifier` wraps exactly one keyword leaf"
+                );
+                assert!(
+                    matches!(role, TokenRole::Unknown),
+                    "the `{}` wrapper must stay unclassified; its leaf carries the operator",
+                    String::from_utf8_lossy(text)
+                );
+                let leaf = node.child(0).expect("child_count is 1");
+                let mut leaf_chain = chain.to_vec();
+                leaf_chain.push(*node);
+                assert!(
+                    matches!(
+                        CsharpCode::get_op_type_with_code(
+                            &leaf,
+                            code,
+                            Ancestors::known(&leaf_chain)
+                        ),
+                        TokenRole::Operator
+                    ),
+                    "the leaf under a declaration `modifier` must carry the operator"
+                );
+            }
+        });
+
+        // Eight of each: `this`, `scoped`, `ref` x3, `readonly`, `out`,
+        // `in` in parameter position, and the `static` of the class and
+        // of its seven methods. Asserted so a fixture that stopped
+        // carrying one population cannot pass having checked nothing.
+        assert_eq!(aliased, 8, "fixture lost an aliased parameter modifier");
+        assert_eq!(declaration, 8, "fixture lost a declaration modifier");
+    }
+
     #[cfg(feature = "go")]
     #[test]
     fn go_operators_and_operands() {
