@@ -370,7 +370,12 @@ derive at least one assertion from an external source — the metric
 specification, a hand-computed value, or a reference implementation in
 another language module — never from the current code's output. Keep at
 least one hand-derived test per metric per language as an external
-anchor; snapshots are scaffolding around it, not a substitute.
+anchor; snapshots are scaffolding around it, not a substitute. The same
+holds wherever the expected value is *produced* rather than asserted: a
+gate checking generated artifacts against their generator, or a triage
+computed from the model it is meant to audit, can only confirm that
+model. Name the oracle outside it — prior human work, the previous
+revision, a fresh-context reviewer — before trusting a green result.
 
 `AGENTS.md` carries the enforceable form of this ("Anchor every
 `insta::assert_json_snapshot!` call", with the three acceptable anchor
@@ -395,6 +400,22 @@ of 5 — the comment forgot the outer `if`. The snapshot was correct; only
 the prose had drifted, and the mismatch was invisible until the bare
 snapshot gained an `assert_eq!(…, 5.0)` immediately above it. A comment
 can silently desync from reality; a literal value in source cannot.
+
+**A generated gate checked against its own generator** (#1478, PR #1479).
+`check-test-lang-gates.py` derived ~3,200 per-language `#[cfg]` markers,
+and its `over_gated` check compared each against that same derivation —
+so it could catch a hand edit and nothing else. Comparison rules that
+stopped at the first `(` of an `assert_eq!`, or read a variant's
+`.extensions()` receiver as a parse, gated 34 grammar-free tests onto
+languages they never touch; the check stayed green, and a triage run to
+confirm the branch ("3,001 lost builds, 0 suspicious") used the same
+derivation and certified every one. The defects were found by oracles
+outside the model: the 167 gates humans had written earlier, which the
+generator had to reproduce before generating anything; a comparison
+against the previous revision, which caught two parity sweeps gated on
+four of the twenty-three language features; and a fresh-context review.
+That comparison was also the one check a PR label switched off — on the
+very PR where the derivation's bugs were live.
 
 For grammar bumps, run `cargo insta test --accept` per file only after
 spot-checking that the diff is metric values shifting in a direction
