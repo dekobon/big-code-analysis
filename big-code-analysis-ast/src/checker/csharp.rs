@@ -108,6 +108,30 @@ impl Checker for CsharpCode {
         // because they share one `kind_id`. Returning `true` here routes
         // them through the lexeme-keyed `primitive_operators` map so
         // distinct keywords count as distinct operators (issue #286).
-        node.kind_id() == Csharp::PredefinedType as u16
+        //
+        // The five parameter-modifier keywords join it for the mirror
+        // reason (#1418). Each has *two* kind spellings for one
+        // operator: its own token, and the childless `modifier` the
+        // grammar aliases it to in parameter position. Keying only the
+        // alias by text would split one `ref` across the two maps and
+        // count it twice in `n1` — the #453 shape — while keying the
+        // alias by `kind_id` would instead collapse all five spellings
+        // into one operator that `bca ops` renders as the word
+        // `modifier`, which appears nowhere in the source. Text is the
+        // only key under which the two positions are the same operator.
+        //
+        // Listing the five bare kinds moves no existing count: each
+        // renders exactly one text through `get_operator_id_as_str` and
+        // no other kind renders that text, so the vocabulary entry only
+        // changes which map holds it.
+        matches!(
+            node.kind_id().into(),
+            Csharp::PredefinedType
+                | Csharp::Ref
+                | Csharp::Out
+                | Csharp::In
+                | Csharp::Readonly
+                | Csharp::Scoped
+        ) || csharp_is_aliased_parameter_modifier(node)
     }
 }

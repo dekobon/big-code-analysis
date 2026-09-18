@@ -45,6 +45,15 @@ pub(crate) fn groovy_has_explicit_public(declaration: &Node) -> bool {
 // C# uses individual `Modifier` nodes (not wrapped under a single
 // `modifiers` node like Java); detecting `public` requires scanning
 // every Modifier child of the declaration for a `public` keyword.
+//
+// The wrapper-plus-leaf shape this and the sibling below assume is the
+// only one that reaches them. `_parameter_type_with_modifiers` also
+// aliases six bare keywords to `modifier`, which makes those childless
+// (#1418), but that rule is reachable from `parameter` alone — no
+// visibility keyword is spellable in parameter position, and no
+// declaration node has a `parameter` child. Both helpers use
+// `first_child`, so a childless node would answer `false` rather than
+// mis-answer even if one did arrive.
 pub(crate) fn csharp_is_explicit_public(declaration: &Node) -> bool {
     declaration.children().any(|child| {
         matches!(child.kind_id().into(), Csharp::Modifier)
