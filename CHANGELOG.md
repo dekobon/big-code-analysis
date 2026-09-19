@@ -242,10 +242,13 @@ for historical reference.
   `after {100} {puts hi}` scored `N1` 2 against bare
   `after 100 {puts hi}`'s 1 — the score moving with the delimiter,
   which is what the rule exists to stop. All three classifiers now
-  read one predicate. **Metric drift:** `halstead.n1` / `N1` fall by
-  one per braced value slot in Tcl and iRules sources; no operand
-  count moves, and the script argument of the same command keeps its
-  `{}`. A clause whose argument list is longer than its signature
+  read one predicate. **Metric drift:** `halstead.N1` falls by one per
+  braced value slot in Tcl and iRules sources, and `n1` with it only
+  where such a slot held the space's sole `{}`: `after {100} {puts hi}`
+  keeps `n1` 1 because its script brace remains, while
+  `namespace export {a b}` drops from 2 to 1. No operand count moves,
+  and the script argument of the same command keeps its `{}`.
+  A clause whose argument list is longer than its signature
   admits — a top-level `try … trap … finally`, which the Tcl grammar
   parses as one five-argument `trap` command — is read as scripts
   throughout rather than by position.
