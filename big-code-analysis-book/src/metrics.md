@@ -583,7 +583,8 @@ tokens involved the same way they spell real operators:
   braced script body the same way: whether `{a b}` is a block or a
   quoted value depends on the command it is passed to, so the
   classifier reads that command's name. `eval {…}`, `uplevel`,
-  `after`, `time`, and Tcl's `for` and `switch` take scripts and keep
+  `after`, `time`, an `on` or `trap` handler clause written outside a
+  `try`, and Tcl's `for` and `switch` take scripts and keep
   their `{}` operator, as does every construct the grammar models with
   a node of its own (`proc`, `if`, `while`, `foreach`, `catch`, `try`,
   `namespace`, an iRules `when` handler). Every other command —
@@ -600,8 +601,14 @@ tokens involved the same way they spell real operators:
   (`proc p {a {b {x y}}}`), `namespace export`'s pattern list,
   `namespace ensemble create -map`'s dictionary, and a `trap` or `on`
   handler's error code and variable list. The slots come from the Tcl
-  8.6 manual pages and are recorded in
-  `big-code-analysis-ast/src/lang_helpers/tcl_family.rs`.
+  8.6 manual pages. The two `proc` cases are positions the grammar
+  names, so the classifier reads them off the tree; the rest are
+  recorded as per-command signatures in
+  `big-code-analysis-ast/src/lang_helpers/tcl_family.rs`. Where a
+  command's argument list does not match the signature — a top-level
+  `try … trap … finally` parses its whole tail as one `trap` command,
+  five arguments rather than three — no position in it is read, and
+  every brace stays a block.
 
   This decides the *operator* only. The words inside a braced argument
   are counted either way, because an unrecognised command is as likely

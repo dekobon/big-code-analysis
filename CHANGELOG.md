@@ -196,6 +196,38 @@ for historical reference.
 
 ### Fixed
 
+- **A Tcl or iRules braced *value* passed to a script-taking command
+  no longer reports a `{}` operator** (#1382). #1318 decided the role
+  of a braced word by the enclosing command's name, which is the whole
+  answer only for a command whose arguments are all scripts. Most are
+  not: `after ms ?script …?` starts with a millisecond count,
+  `time script ?count?` ends with an iteration count, `proc` can take
+  a braced *name*, the `namespace` subcommands other than
+  `eval` / `inscope` / `code` take values throughout, and an `on` or
+  `trap` clause leads with an error code and a variable list. #1381
+  already read those positions for `bca find --type string` and the
+  `Ast` dump; Halstead kept billing their braces as blocks, so
+  `after {100} {puts hi}` scored `N1` 2 against bare
+  `after 100 {puts hi}`'s 1 — the score moving with the delimiter,
+  which is what the rule exists to stop. All three classifiers now
+  read one predicate. **Metric drift:** `halstead.n1` / `N1` fall by
+  one per braced value slot in Tcl and iRules sources; no operand
+  count moves, and the script argument of the same command keeps its
+  `{}`. A clause whose argument list is longer than its signature
+  admits — a top-level `try … trap … finally`, which the Tcl grammar
+  parses as one five-argument `trap` command — is read as scripts
+  throughout rather than by position.
+
+  The remaining asymmetry is now documented as the contract rather
+  than tracked as a defect: a braced value scores one operand where
+  the grammar names the command (`set x {a b}`) and one per word where
+  only the command name would (`lappend x {a b}`). Closing it needs
+  either a contents heuristic — built, measured, and rejected for
+  collapsing an `oo::class` body, a `tcltest -body` and an `apply`
+  lambda from `n2` 25 to 15 — or a list of *value*-taking commands,
+  which is open where the script-taking list is closed, every user
+  proc belonging to it.
+
 - **PHP's `string` *type* keyword counted as a string literal**
   (#1474). `Checker::is_string` listed `Php::String2`, the anonymous
   `string` token the grammar emits as the sole child of a
@@ -1065,9 +1097,10 @@ for historical reference.
   `interp eval`, `apply` — are still reported; iRules models its
   handlers structurally and has no such gap. The reverse misses remain
   too: a braced value that `after cancel` or the separate-argument form
-  of `switch` takes, or that sits in a multi-line `try … trap` clause
-  the Tcl grammar leaves inside an error node, is still treated as a
-  script.
+  of `switch` takes, or that sits in a `try … trap` clause written
+  inside a `proc` or `namespace eval` body — which the Tcl grammar
+  recovers into an error node — is still treated as a script. The same
+  clause at the top level parses cleanly and *is* read by position.
 
 - **A `.mailmap` edit invalidates the persistent VCS history cache**
   (#1262). Author identities are canonicalised through the repository
