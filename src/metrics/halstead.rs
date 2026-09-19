@@ -7137,10 +7137,14 @@ f() {
     /// same discipline: it withdraws further `{}` operators and moves
     /// no operand column in this table.
     ///
-    /// The trailing rows are #1382's, and each is a *pair*: a braced
-    /// value slot beside the bare spelling of the same argument, which
-    /// must score alike. Before #1382 they did not — the braced
-    /// spelling billed one extra `{}`.
+    /// The trailing rows are #1382's. The first four are two *pairs*:
+    /// a braced value slot beside the bare spelling of the same
+    /// argument, which must score alike. Before #1382 they did not —
+    /// the braced spelling billed one extra `{}`. The four after them
+    /// carry no bare partner: each braces a value with a space in it
+    /// (`proc {my proc}`, `{a b}`, `{code msg}`), which is the whole
+    /// reason the braces are there. Their pre-#1382 counts are
+    /// recorded per row instead.
     #[cfg(any(feature = "irules", feature = "tcl"))]
     const BRACED_WORD_VALUE_CASES: [BracedWordValueCase; 24] = [
         // The rule reaches the opener and *only* the opener. A `;`
@@ -7313,8 +7317,17 @@ f() {
         // The same pair for `time script ?count?`, whose value slot is
         // the *last* rather than the first — so a rule that hard-coded
         // "argument 0 is the value" passes the `after` pair and fails
-        // here. The script argument keeps its `{}` in both rows, which
-        // is what makes the operator column a 1 and not a 0.
+        // this one. The script argument keeps its `{}` in both rows,
+        // which is what makes the operator column a 1 and not a 0.
+        //
+        // The *bare* row is the half that catches it, which is not the
+        // half it looks like. Measured by giving `time` `after`'s slot
+        // rule: `time {puts hi} 3` reads n1 0 / N1 0, its one block
+        // demoted to a value — while the braced row below is unmoved
+        // at [1, 1, 4, 4], because `{puts hi}` loses the `{}` that
+        // `{3}` gains and the operand texts are the same either way.
+        // Do not trim the bare spelling as redundant with the braced
+        // one; here it is the discriminating row of the two.
         BracedWordValueCase {
             source: "time {puts hi} {3}\n",
             counts: [1, 1, 4, 4],
