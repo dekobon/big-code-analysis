@@ -1432,9 +1432,21 @@ mod braced_slot_tests {
     /// `argument_slots_are_readable` is the only guard that can reject
     /// it. A four-argument spelling would be rejected twice over and
     /// this row would stop naming which guard it tests (#1382 review).
+    ///
+    /// The well-formed row is what keeps the empty one from passing
+    /// vacuously: `on` reaching the slot table at all is what makes the
+    /// error row's emptiness mean something, and dropping that row from
+    /// `SCRIPT_TAKING_COMMANDS` empties both. The siblings either side
+    /// of this test anchor the same way.
     #[test]
     #[cfg(feature = "tcl")]
     fn an_error_occupying_a_slot_withdraws_the_layout() {
+        assert_eq!(
+            value_slot_texts(b"on {code} {v} {puts j}\n"),
+            ["{code}", "{v}"],
+            "the fixture must spell two value slots before the error \
+             takes one of their places"
+        );
         assert!(
             value_slot_texts(b"on {code} ] {puts j}\n").is_empty(),
             "an ERROR token in the argument list makes every position \
