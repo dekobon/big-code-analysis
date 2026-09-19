@@ -803,15 +803,24 @@ pub trait Getter {
     /// `namespace`, `after` or `switch` builds one of these shapes around
     /// what are really arm bodies — [`is_switch_arm`] recognises it first.
     /// And an argument list whose own slot sequence is unreadable has no
-    /// positions worth trusting. The multi-line `try … trap` clause is out
-    /// of reach entirely: the Tcl grammar leaves it inside an `ERROR`
-    /// node, where no role signal survives.
+    /// positions worth trusting.
     ///
     /// That second guard is `tcl_family::argument_slots_are_readable`,
     /// which asks the *slots* rather than the owner — asking
     /// [`Node::has_error`] of the command withdrew every value slot of a
     /// command whose only error sat inside one of its script arguments.
-    /// Its doc carries the measurement.
+    /// Its doc carries the measurement. A list *longer* than the
+    /// signature admits is the second way to be unreadable, and
+    /// `tcl_family::ScriptSlots::LastOf` is where that one lives.
+    ///
+    /// A `try … trap` clause is out of reach only where the grammar
+    /// wraps it: inside a `proc` or a `namespace eval` body the Tcl
+    /// grammar recovers into an `ERROR` node and no role signal
+    /// survives, but at the top level the same clause parses as a plain
+    /// `trap` command whose slots this does read. An earlier revision
+    /// of this paragraph said "the multi-line `try … trap` clause" was
+    /// out of reach outright, which is where the `finally` defect
+    /// `LastOf` now guards hid (#1382 review).
     ///
     /// [`Node::has_error`]: crate::Node::has_error
     /// [`is_braced_script_word`]: Self::is_braced_script_word
@@ -1411,18 +1420,52 @@ mod braced_slot_tests {
     /// of the argument list *does* shift every argument after it, so the
     /// construct-wide answer is the right one there.
     ///
-    /// `on code varList script` reads its script from the last slot, and
-    /// the stray `]` takes a slot of its own — so `{v}` is no longer the
-    /// second of three and the layout cannot be trusted. Without this row
-    /// the guard could be deleted outright and the test above would still
-    /// pass.
+    /// `on code varList script` reads its slots by position, and the
+    /// stray `]` takes one of its own — so `{code}` is no longer
+    /// followed by the variable list the signature puts there and the
+    /// layout cannot be trusted. Without this row the guard could be
+    /// deleted outright and the test above would still pass.
+    ///
+    /// The fixture keeps the clause's three arguments deliberately: the
+    /// `]` replaces the variable list rather than joining it, so
+    /// `ScriptSlots::LastOf`'s arity rule still admits the list and
+    /// `argument_slots_are_readable` is the only guard that can reject
+    /// it. A four-argument spelling would be rejected twice over and
+    /// this row would stop naming which guard it tests (#1382 review).
     #[test]
     #[cfg(feature = "tcl")]
     fn an_error_occupying_a_slot_withdraws_the_layout() {
         assert!(
-            value_slot_texts(b"on {code} ] {v} {puts j}\n").is_empty(),
+            value_slot_texts(b"on {code} ] {puts j}\n").is_empty(),
             "an ERROR token in the argument list makes every position \
              unreadable"
+        );
+    }
+
+    /// The third way a layout stops being readable: the grammar groups
+    /// a *following* clause into this one, so the list is longer than
+    /// the signature admits (#1382 review).
+    ///
+    /// Tcl models neither `on` nor `trap` outside a `try`, so a
+    /// top-level `try … trap … finally` parses the whole tail as one
+    /// generic `trap` command — `p v b finally c`. Reading "the script
+    /// is the last argument" off that names the `finally` body and
+    /// calls the handler body a value, which withdraws the `{}` of a
+    /// real block and flattens it out of the dump. Both rows run the
+    /// same clause, so the second cannot pass by the fixture having
+    /// stopped spelling a value slot at all.
+    #[test]
+    #[cfg(feature = "tcl")]
+    fn a_handler_clause_of_the_wrong_arity_withdraws_the_layout() {
+        assert_eq!(
+            value_slot_texts(b"try {puts a} trap {p} {v} {puts b}\n"),
+            ["{p}", "{v}"],
+            "a three-argument `trap` clause spells two value slots"
+        );
+        assert!(
+            value_slot_texts(b"try {puts a} trap {p} {v} {puts b} finally {puts c}\n").is_empty(),
+            "a trailing `finally` joins the same generic `trap` command, \
+             so no position in its argument list is trustworthy"
         );
     }
 

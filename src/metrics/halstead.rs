@@ -7142,7 +7142,7 @@ f() {
     /// must score alike. Before #1382 they did not — the braced
     /// spelling billed one extra `{}`.
     #[cfg(any(feature = "irules", feature = "tcl"))]
-    const BRACED_WORD_VALUE_CASES: [BracedWordValueCase; 23] = [
+    const BRACED_WORD_VALUE_CASES: [BracedWordValueCase; 24] = [
         // The rule reaches the opener and *only* the opener. A `;`
         // separating two commands is a direct child of the
         // `braced_word` — `_terminator` is a hidden rule, so it is
@@ -7354,6 +7354,18 @@ f() {
             counts: [1, 1, 5, 5],
             operands: &["ensemble", "create", "-map", "a", "b"],
         },
+        // A `trap` clause written outside a `try`, which is how both
+        // grammars reach the generic-command path for it. This is the
+        // `ScriptSlots::LastOf` row — the pattern and the variable list
+        // are values and the handler is the script — and the only one
+        // whose slot is counted from the *end* of the list, so a rule
+        // that read `Only(2)` from the front would need the arity to
+        // pass it. Before #1382 all three braces billed: N1 3.
+        BracedWordValueCase {
+            source: "trap {POSIX} {code msg} {puts hi}\n",
+            counts: [1, 1, 6, 6],
+            operands: &["trap", "POSIX", "code", "msg", "puts", "hi"],
+        },
     ];
 
     /// Regression for #1318. `braced_word` carries both a block and a
@@ -7374,7 +7386,7 @@ f() {
     #[test]
     fn tcl_braced_word_role_follows_the_enclosing_command_1318() {
         check_braced_word_value_cases::<TclParser>(&BRACED_WORD_VALUE_CASES, "foo.tcl");
-        let tcl_only: [BracedWordValueCase; 7] = [
+        let tcl_only: [BracedWordValueCase; 8] = [
             // `switch` arm bodies. The grammar flattens `pat body pat
             // body` into a `command` named after the first pattern, so
             // the bodies read as arguments of a command called `a` —
@@ -7473,6 +7485,26 @@ f() {
                 source: "switch $v {\n    proc { puts A }\n    after { puts B }\n    namespace { puts C }\n}\n",
                 counts: [3, 6, 7, 9],
                 operands: &["switch", "$v", "after", "puts", "A", "B", "C"],
+            },
+            // The arity guard on `ScriptSlots::LastOf`, Tcl-only
+            // because the iRules grammar models `trap_handler` and so
+            // never reaches the generic-command path (#1382 review).
+            // Tcl models neither `on` nor `trap`, so the whole tail
+            // after the `try` body parses as *one* `trap` command with
+            // five arguments — `{p} {v} {puts b} finally {puts c}`.
+            // Reading "the script is the last argument" off that names
+            // the `finally` body and calls `{puts b}` a value, which
+            // dropped the `{}` of a block the line does contain and
+            // read N1 3. All five braces are blocks here, which is the
+            // answer a list the signature cannot explain has to get.
+            // The `trap` row in the shared table is the same clause at
+            // its documented arity, where two of the three braces
+            // really are values — so a guard stuck on "always script"
+            // fails there and one stuck on "always last" fails here.
+            BracedWordValueCase {
+                source: "try {puts a} trap {p} {v} {puts b} finally {puts c}\n",
+                counts: [2, 6, 8, 10],
+                operands: &["a", "b", "c", "finally", "p", "puts", "trap", "v"],
             },
         ];
         check_braced_word_value_cases::<TclParser>(&tcl_only, "foo.tcl");
