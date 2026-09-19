@@ -3536,6 +3536,314 @@ mod tests {
         );
     }
 
+    /// Every spelling of the six keywords `_parameter_type_with_modifiers`
+    /// aliases to `modifier`, plus two controls that were billed before
+    /// #1418: the bare `params` of a parameter array (kind 94, never
+    /// aliased) and the bare `out` of a call argument (kind 56).
+    ///
+    /// `D` is declared *and* called so the argument `out` has a caller
+    /// to sit in, which is what makes the two spellings of one keyword
+    /// meet in one file.
+    #[cfg(feature = "csharp")]
+    const CSHARP_PARAMETER_MODIFIERS: &str = "static class E {
+    static void A(this Foo f) { }
+    static void B(scoped ref Foo f) { }
+    static void C(ref readonly Foo f) { }
+    static void D(out int x) { x = 1; }
+    static void G(in Foo f) { }
+    static void H(params int[] xs) { }
+    static void I(ref int y) { D(out y); }
+}";
+
+    /// Each of the five operator keywords in *both* of its kind
+    /// spellings — the childless `modifier` of a parameter, and the
+    /// keyword's own token elsewhere: `ref` as a ref local, ref
+    /// initializer and ref argument (kind 28); `readonly` as the leaf
+    /// under a field's `modifier` wrapper (48); `in` as the `foreach`
+    /// separator and an `in` argument (55); `out` as an out argument
+    /// (56); `scoped` as a scoped ref local (93).
+    ///
+    /// Separate from [`CSHARP_PARAMETER_MODIFIERS`] because that fixture
+    /// pairs the two spellings for `out` alone, which left four of the
+    /// five bare kinds `CsharpCode::is_primitive` lists with no input
+    /// (#1418).
+    #[cfg(feature = "csharp")]
+    const CSHARP_MODIFIER_BOTH_SPELLINGS: &str = "class S {
+    static readonly int q = 0;
+    static void M(scoped ref int a, ref readonly int b, in int c, out int d) { d = q; }
+    static void N(int[] xs) {
+        ref int r = ref xs[0];
+        scoped ref int s = ref xs[1];
+        foreach (var e in xs) { }
+        M(ref r, in s, in s, out r);
+    }
+}";
+
+    /// The six aliased parameter modifiers reach a Halstead half, and
+    /// each reaches the same one its bare token reaches elsewhere
+    /// (#1418).
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_parameter_modifiers_are_classified_1418() {
+        // Operators (n1 = 15, N1 = 48): class 1; {} 8 (the class body
+        // and seven method bodies); static 8 (the class and seven
+        // methods); void 7; () 8 (seven parameter lists and the call);
+        // int 3 (`out int x`, `int[]`, `ref int y`); [] 1; = 1; ; 2;
+        // scoped 1; ref 3; readonly 1; out 2 (the parameter and the
+        // argument); in 1; params 1.
+        //
+        // Operands (n2 = 15, N2 = 24): E 1; A/B/C/G/H/I 1 each; D 2
+        // (declaration and call); this 1; Foo 4; f 4; x 2; 1 1; xs 1;
+        // y 2.
+        //
+        // Before the fix this read (11, 41, 14, 23). The eight childless
+        // `modifier` nodes were billed nowhere, which cost seven
+        // operator occurrences and one operand occurrence, and emptied
+        // `scoped`, `ref`, `readonly` and `in` out of the operator
+        // vocabulary entirely — `out` survived only because the call
+        // argument spells it with the unaliased kind.
+        assert_halstead_counts::<CsharpParser>(
+            CSHARP_PARAMETER_MODIFIERS,
+            "foo.cs",
+            [15, 48, 15, 24],
+            "csharp parameter modifiers",
+        );
+
+        // The receiver is an operand, matching every other C# `this`
+        // (#1380). Both halves matter: an arm listing it twice would
+        // still put it among the operands.
+        assert_keywords_are_operands_only::<CsharpParser>(
+            CSHARP_PARAMETER_MODIFIERS,
+            "foo.cs",
+            &["this"],
+        );
+
+        let ops = ops_of::<CsharpParser>(CSHARP_PARAMETER_MODIFIERS, "foo.cs");
+        for keyword in ["ref", "out", "in", "scoped", "readonly", "params"] {
+            assert!(
+                ops.operators.iter().any(|o| o == keyword),
+                "`{keyword}` must be an operator; operators were {:?}",
+                ops.operators
+            );
+            assert!(
+                !ops.operands.iter().any(|o| o == keyword),
+                "`{keyword}` must not be an operand; operands were {:?}",
+                ops.operands
+            );
+        }
+
+        // The vocabulary is not deduplicated — it is the concatenation
+        // of the kind-keyed and the lexeme-keyed operator maps — so a
+        // keyword appearing twice is the #453 shape: one keyword split
+        // across the two maps and counted twice in `n1`. Keeping both
+        // spellings in one map is what `CsharpCode::is_primitive`
+        // listing the five bare kinds buys, and this is the only
+        // assertion that can see it.
+        //
+        // It needs a fixture carrying *both* spellings of each keyword,
+        // which `CSHARP_PARAMETER_MODIFIERS` does for `out` alone: its
+        // `ref`, `in`, `scoped` and `readonly` are all in parameter
+        // position, so for those the count can only ever be one and the
+        // assertion is dead. That left four of the five bare kinds with
+        // no input at all — dropping `Csharp::Ref`, `In`, `Readonly` or
+        // `Scoped` from `is_primitive` failed no test in the workspace.
+        let both_code = CSHARP_MODIFIER_BOTH_SPELLINGS.as_bytes();
+        let spellings = [
+            ("ref", Csharp::Ref as u16),
+            ("out", Csharp::Out as u16),
+            ("in", Csharp::In as u16),
+            ("scoped", Csharp::Scoped as u16),
+            ("readonly", Csharp::Readonly as u16),
+        ];
+        let (mut bare, mut aliased) = ([0_usize; 5], [0_usize; 5]);
+
+        for_each_node_with_chain::<CsharpCode>(both_code, |node, _| {
+            let text = &both_code[node.start_byte()..node.end_byte()];
+            let Some(index) = spellings.iter().position(|(kw, _)| kw.as_bytes() == text) else {
+                return;
+            };
+            if node.kind_id() == Csharp::Modifier as u16 && node.child_count() == 0 {
+                aliased[index] += 1;
+            } else if node.kind_id() == spellings[index].1 {
+                bare[index] += 1;
+            }
+        });
+
+        // Without this the count below is vacuous for any keyword the
+        // fixture stopped spelling both ways — the same decay that hid
+        // the four unguarded kinds in the first place.
+        for (index, (keyword, _)) in spellings.iter().enumerate() {
+            assert!(
+                bare[index] > 0 && aliased[index] > 0,
+                "fixture must spell `{keyword}` both ways; it has {} bare and {} aliased",
+                bare[index],
+                aliased[index]
+            );
+        }
+
+        let both = ops_of::<CsharpParser>(CSHARP_MODIFIER_BOTH_SPELLINGS, "both.cs");
+        for (keyword, _) in spellings {
+            assert_eq!(
+                both.operators.iter().filter(|o| *o == keyword).count(),
+                1,
+                "`{keyword}` must be one operator across both of its kind spellings; \
+                 operators were {:?}",
+                both.operators
+            );
+        }
+    }
+
+    /// Pins the grammar shape the #1418 arm gates on, in both
+    /// directions.
+    ///
+    /// The arm reads `modifier` nodes with no children as aliased bare
+    /// keywords and leaves the rest to their classified keyword leaf.
+    /// That is a claim about two populations, and a grammar bump can
+    /// break either: giving an alias a token child would double-count
+    /// it, and flattening a declaration modifier to a childless node
+    /// would bill `public` / `static` as an unknown keyword. Both are
+    /// checked here, so neither can move quietly.
+    ///
+    /// Childlessness says "aliased", *not* "parameter modifier" —
+    /// `_lambda_expression_init` and `anonymous_method_expression` alias
+    /// a bare `static` / `async` onto the same kind, which the second
+    /// walk below pins so the distinction cannot be forgotten. Their
+    /// `Unknown` is today's behaviour rather than a contract: it is what
+    /// they were before #1418, and billing them is a decision about
+    /// lambdas. It is asserted only so making that decision has to come
+    /// through this test.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_aliased_modifier_is_childless() {
+        let code = CSHARP_PARAMETER_MODIFIERS.as_bytes();
+        let (mut aliased, mut declaration) = (0_usize, 0_usize);
+
+        for_each_node_with_chain::<CsharpCode>(code, |node, chain| {
+            if node.kind_id() != Csharp::Modifier as u16 {
+                return;
+            }
+            let role = CsharpCode::get_op_type_with_code(node, code, Ancestors::known(chain));
+            let text = &code[node.start_byte()..node.end_byte()];
+
+            if node.child_count() == 0 {
+                aliased += 1;
+                // Spelled out rather than `this`-versus-everything-else,
+                // because "everything else is an operator" is false of
+                // the kind at large — a lambda's aliased `static` is
+                // neither, and the second walk below owns it.
+                let (correct, expected) = match text {
+                    b"this" => (matches!(role, TokenRole::Operand), "an operand"),
+                    b"scoped" | b"ref" | b"out" | b"in" | b"readonly" => {
+                        (matches!(role, TokenRole::Operator), "an operator")
+                    }
+                    other => panic!(
+                        "`{}` is not one of the six parameter spellings this fixture carries",
+                        String::from_utf8_lossy(other)
+                    ),
+                };
+                assert!(
+                    correct,
+                    "`{}` is an aliased parameter modifier and must be {expected}",
+                    String::from_utf8_lossy(text)
+                );
+                // Grammar-dispatch section 5: nothing containing the
+                // token is classified, so billing the token cannot
+                // count the same source text twice. Every ancestor,
+                // not just `parameter` — `parameter_list` and the
+                // declaration above it contain it too.
+                for (depth, ancestor) in chain.iter().enumerate() {
+                    assert!(
+                        matches!(
+                            CsharpCode::get_op_type_with_code(
+                                ancestor,
+                                code,
+                                Ancestors::known(&chain[..depth])
+                            ),
+                            TokenRole::Unknown
+                        ),
+                        "`{}` contains an aliased modifier and is itself classified, so the \
+                         keyword now counts twice",
+                        ancestor.kind()
+                    );
+                }
+            } else {
+                declaration += 1;
+                assert_eq!(
+                    node.child_count(),
+                    1,
+                    "a declaration `modifier` wraps exactly one keyword leaf"
+                );
+                assert!(
+                    matches!(role, TokenRole::Unknown),
+                    "the `{}` wrapper must stay unclassified; its leaf carries the operator",
+                    String::from_utf8_lossy(text)
+                );
+                let leaf = node.child(0).expect("child_count is 1");
+                let mut leaf_chain = chain.to_vec();
+                leaf_chain.push(*node);
+                assert!(
+                    matches!(
+                        CsharpCode::get_op_type_with_code(
+                            &leaf,
+                            code,
+                            Ancestors::known(&leaf_chain)
+                        ),
+                        TokenRole::Operator
+                    ),
+                    "the leaf under a declaration `modifier` must carry the operator"
+                );
+            }
+        });
+
+        // Eight of each: `this`, `scoped`, `ref` x3, `readonly`, `out`,
+        // `in` in parameter position, and the `static` of the class and
+        // of its seven methods. Asserted so a fixture that stopped
+        // carrying one population cannot pass having checked nothing.
+        assert_eq!(aliased, 8, "fixture lost an aliased parameter modifier");
+        assert_eq!(declaration, 8, "fixture lost a declaration modifier");
+
+        // The second alias site. `static (int x) => …` and `async
+        // delegate (int y) { … }` put a bare keyword under the same
+        // childless `modifier`, so `csharp_is_aliased_modifier` holds
+        // for a node that is not in a parameter at all — which is why
+        // the getter dispatches on the text and not on the kind.
+        let lambda = "static class L {
+    static void M() {
+        var a = static (int x) => x + 1;
+        var b = async delegate (int y) { return y; };
+    }
+}"
+        .as_bytes();
+        let mut lambda_aliases = 0_usize;
+
+        for_each_node_with_chain::<CsharpCode>(lambda, |node, chain| {
+            if node.kind_id() != Csharp::Modifier as u16 || node.child_count() != 0 {
+                return;
+            }
+            lambda_aliases += 1;
+            let text = &lambda[node.start_byte()..node.end_byte()];
+            assert!(
+                matches!(text, b"static" | b"async"),
+                "`{}` is not a lambda modifier the grammar aliases",
+                String::from_utf8_lossy(text)
+            );
+            assert!(
+                matches!(
+                    CsharpCode::get_op_type_with_code(node, lambda, Ancestors::known(chain)),
+                    TokenRole::Unknown
+                ),
+                "`{}` on a lambda is unbilled today, as it was before #1418; billing it is a \
+                 deliberate change and belongs in this assertion, not around it",
+                String::from_utf8_lossy(text)
+            );
+        });
+
+        assert_eq!(
+            lambda_aliases, 2,
+            "fixture lost a lambda / anonymous-method modifier alias"
+        );
+    }
+
     #[cfg(feature = "go")]
     #[test]
     fn go_operators_and_operands() {
@@ -3939,6 +4247,66 @@ mod tests {
             ast_has_kind_id(&matcher, Perl::SLASH as u16),
             "Perl::SLASH must be the bare pattern delimiter kind"
         );
+    }
+
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_readline_closer_alias_never_reaches_kind_id() {
+        // Drift marker for `Perl::GT2` (#1395). The grammar closes
+        // `<FH>` / `<$fh>` with `token.immediate('>')`, which the
+        // generated parser gives its own symbol — hence the `GT2`
+        // variant sitting next to `FileHandle` in the enum — but whose
+        // `public_symbol_map` entry collapses it onto `GT` before
+        // `kind_id()`, exactly like `LPAREN2` in #768 and Ruby's
+        // `SLASH2` in #1312. Nothing in `getter/perl.rs` names it, and
+        // nothing should: `compute_halstead` keys a non-primitive
+        // operator on `kind_id()`, so two live kinds both rendering
+        // `">"` would split one `>` across two `n1` entries. If a bump
+        // ever starts emitting it, the repair is to route `>` through
+        // the lexeme-keyed map, not to list both — and this test is
+        // what says so.
+        //
+        // The same collapse makes the `GT2` arm in `getter/cpp.rs` and
+        // `getter/mozcpp.rs` a defensive arm rather than a live one:
+        // tree-sitter-cpp maps its `>>`-closing `GT2` the same way, so
+        // `vector<vector<int>>` reports two `GT`s.
+        let path = PathBuf::from("foo.pl");
+        for source in ["my $l = <FH>;\n", "my $l = <$fh>;\n", "my $b = $x > $y;\n"] {
+            let parser = PerlParser::new(source.as_bytes().to_vec(), &path, None);
+            assert!(
+                !ast_has_kind_id(&parser, Perl::GT2 as u16),
+                "Perl::GT2 must stay collapsed to Perl::GT for `{source}`"
+            );
+            // Positive control: the id the operator arm fires on is
+            // present, so the assertion above cannot pass merely
+            // because the fixture grew no `>` at all.
+            assert!(
+                ast_has_kind_id(&parser, Perl::GT as u16),
+                "Perl::GT must be the `>` kind for `{source}`"
+            );
+        }
+    }
+
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_readline_brackets_are_operators() {
+        // #1395: a readline's `<` / `>` delimit syntax, not a literal,
+        // so under the policy on `Getter::get_op_type` they are
+        // ordinary operators — even though ABC's `conditions` excludes
+        // them (#1297). `<STDIN>` is the one spelling that cannot show
+        // this: the grammar lexes it as a single `standard_input`
+        // token, so there are no brackets to classify.
+        //
+        // expected: operators `sub`, `{}`, `my`, `$` × 2 (one per
+        // `scalar_variable`), `=`, `<`, `>`, `;` × 2, `return` →
+        // n1 = 9, N1 = 11. Operands `r`, `$l` × 2, `FH` →
+        // n2 = 3, N2 = 4.
+        check_metrics::<PerlParser>("sub r { my $l = <FH>; return $l; }\n", "foo.pl", |metric| {
+            assert_eq!(metric.halstead.unique_operators(), 9);
+            assert_eq!(metric.halstead.total_operators(), 11);
+            assert_eq!(metric.halstead.unique_operands(), 3);
+            assert_eq!(metric.halstead.total_operands(), 4);
+        });
     }
 
     /// Every (name wrapper, contained operand) pairing tree-sitter-perl's
@@ -6765,9 +7133,20 @@ f() {
     /// nothing else, so a mutant that suppressed a value word's
     /// *contents* — the tidier-looking rule, which collapses an
     /// `oo::class create C {…}` body into a single operand — fails
-    /// here rather than passing as an improvement.
+    /// here rather than passing as an improvement. #1382 keeps to the
+    /// same discipline: it withdraws further `{}` operators and moves
+    /// no operand column in this table.
+    ///
+    /// The trailing rows are #1382's. The first four are two *pairs*:
+    /// a braced value slot beside the bare spelling of the same
+    /// argument, which must score alike. Before #1382 they did not —
+    /// the braced spelling billed one extra `{}`. The four after them
+    /// carry no bare partner: each braces a value with a space in it
+    /// (`proc {my proc}`, `{a b}`, `{code msg}`), which is the whole
+    /// reason the braces are there. Their pre-#1382 counts are
+    /// recorded per row instead.
     #[cfg(any(feature = "irules", feature = "tcl"))]
-    const BRACED_WORD_VALUE_CASES: [BracedWordValueCase; 16] = [
+    const BRACED_WORD_VALUE_CASES: [BracedWordValueCase; 24] = [
         // The rule reaches the opener and *only* the opener. A `;`
         // separating two commands is a direct child of the
         // `braced_word` — `_terminator` is a hidden rule, so it is
@@ -6918,6 +7297,88 @@ f() {
             counts: [1, 1, 5, 5],
             operands: &["c", "puts", "$c", "a", "b"],
         },
+        // #1382's headline, and the pair that names the defect: `after`
+        // is a script-taking command, but only from its *second*
+        // argument — the first is a millisecond count. Both spellings
+        // of that count are one operand and no operator; before #1382
+        // the braced one billed a `{}` for a block the line does not
+        // contain, reading N1 2 against the bare form's 1. The `{}`
+        // both rows do report is the `{puts hi}` script, which is real.
+        BracedWordValueCase {
+            source: "after {100} {puts hi}\n",
+            counts: [1, 1, 4, 4],
+            operands: &["after", "100", "puts", "hi"],
+        },
+        BracedWordValueCase {
+            source: "after 100 {puts hi}\n",
+            counts: [1, 1, 4, 4],
+            operands: &["after", "100", "puts", "hi"],
+        },
+        // The same pair for `time script ?count?`, whose value slot is
+        // the *last* rather than the first — so a rule that hard-coded
+        // "argument 0 is the value" passes the `after` pair and fails
+        // this one. The script argument keeps its `{}` in both rows,
+        // which is what makes the operator column a 1 and not a 0.
+        //
+        // The *bare* row is the half that catches it, which is not the
+        // half it looks like. Measured by giving `time` `after`'s slot
+        // rule: `time {puts hi} 3` reads n1 0 / N1 0, its one block
+        // demoted to a value — while the braced row below is unmoved
+        // at [1, 1, 4, 4], because `{puts hi}` loses the `{}` that
+        // `{3}` gains and the operand texts are the same either way.
+        // Do not trim the bare spelling as redundant with the braced
+        // one; here it is the discriminating row of the two.
+        BracedWordValueCase {
+            source: "time {puts hi} {3}\n",
+            counts: [1, 1, 4, 4],
+            operands: &["time", "puts", "hi", "3"],
+        },
+        BracedWordValueCase {
+            source: "time {puts hi} 3\n",
+            counts: [1, 1, 4, 4],
+            operands: &["time", "puts", "hi", "3"],
+        },
+        // A braced `proc` *name*, the one value slot the grammar names
+        // as a field rather than by position. `{my proc}` is an
+        // identifier containing a space, not a body, and billed a
+        // fourth `{}` before #1382. The three operators left are the
+        // `proc` keyword and the two braces of the parameter list and
+        // the body — and note the interior words survive, `proc` being
+        // an operand here and an operator one column over.
+        BracedWordValueCase {
+            source: "proc {my proc} {} {}\n",
+            counts: [2, 3, 3, 3],
+            operands: &["my", "proc", "{}"],
+        },
+        // The two `namespace` subcommands that take values throughout,
+        // both of them Tcl 8.6 standard-library spellings. Their braced
+        // argument is a pattern list and a dictionary; neither is
+        // evaluated, and each billed a `{}` before #1382 — n1 2 / N1 2
+        // against the 1 / 1 here. The `namespace` keyword is the
+        // operator that remains, which is what keeps these two rows
+        // from reading `effort` 0.0.
+        BracedWordValueCase {
+            source: "namespace export {a b}\n",
+            counts: [1, 1, 3, 3],
+            operands: &["export", "a", "b"],
+        },
+        BracedWordValueCase {
+            source: "namespace ensemble create -map {a b}\n",
+            counts: [1, 1, 5, 5],
+            operands: &["ensemble", "create", "-map", "a", "b"],
+        },
+        // A `trap` clause written outside a `try`, which is how both
+        // grammars reach the generic-command path for it. This is the
+        // `ScriptSlots::LastOf` row — the pattern and the variable list
+        // are values and the handler is the script — and the only one
+        // whose slot is counted from the *end* of the list, so a rule
+        // that read `Only(2)` from the front would need the arity to
+        // pass it. Before #1382 all three braces billed: N1 3.
+        BracedWordValueCase {
+            source: "trap {POSIX} {code msg} {puts hi}\n",
+            counts: [1, 1, 6, 6],
+            operands: &["trap", "POSIX", "code", "msg", "puts", "hi"],
+        },
     ];
 
     /// Regression for #1318. `braced_word` carries both a block and a
@@ -6938,7 +7399,7 @@ f() {
     #[test]
     fn tcl_braced_word_role_follows_the_enclosing_command_1318() {
         check_braced_word_value_cases::<TclParser>(&BRACED_WORD_VALUE_CASES, "foo.tcl");
-        let tcl_only: [BracedWordValueCase; 5] = [
+        let tcl_only: [BracedWordValueCase; 8] = [
             // `switch` arm bodies. The grammar flattens `pat body pat
             // body` into a `command` named after the first pattern, so
             // the bodies read as arguments of a command called `a` —
@@ -7003,6 +7464,61 @@ f() {
                 counts: [2, 5, 8, 10],
                 operands: &["for", "i", "0", "$i", "<", "3", "incr", "puts"],
             },
+            // #1382's guard rows: an arm *pattern* spelled like a
+            // command whose value slots the rule now withdraws. An arm
+            // list parses as commands, so the pattern becomes a real
+            // command name and the arm *body* lands in one of that
+            // command's value slots — where only `Getter::is_switch_arm`
+            // keeps it a block. Both rows are `switch` bodies that must
+            // keep their `{}`, and both were measured with the guard
+            // short-circuited to `false`.
+            //
+            // This one is the positional half: `after`'s slot 0 is the
+            // millisecond count, so without the guard `{ puts B }` reads
+            // as that value and the row drops to N1 1.
+            BracedWordValueCase {
+                source: "switch $v { after { puts B } }\n",
+                counts: [1, 2, 5, 5],
+                operands: &["switch", "$v", "after", "puts", "B"],
+            },
+            // …and this is the field-keyed half. `proc` needs three
+            // words, so the arm patterns must be written one per line
+            // for the grammar to build a `procedure` at all — on one
+            // line it recovers into an `ERROR` and no rule fires. Here
+            // it swallows two arms, taking `{ puts A }` as its `name`
+            // field and `{ puts B }` as its body; without the guard the
+            // name's brace goes and the row reads N1 5. The `namespace`
+            // arm is the third spelling of the same hazard and is not
+            // discriminating: its subcommand slot holds the braced body
+            // itself rather than a `simple_word`, so no layout resolves
+            // and the construct-wide script answer stands either way.
+            // `proc` and `namespace` are operators here and `after` an
+            // operand, which is the three patterns' whole difference.
+            BracedWordValueCase {
+                source: "switch $v {\n    proc { puts A }\n    after { puts B }\n    namespace { puts C }\n}\n",
+                counts: [3, 6, 7, 9],
+                operands: &["switch", "$v", "after", "puts", "A", "B", "C"],
+            },
+            // The arity guard on `ScriptSlots::LastOf`, Tcl-only
+            // because the iRules grammar models `trap_handler` and so
+            // never reaches the generic-command path (#1382 review).
+            // Tcl models neither `on` nor `trap`, so the whole tail
+            // after the `try` body parses as *one* `trap` command with
+            // five arguments — `{p} {v} {puts b} finally {puts c}`.
+            // Reading "the script is the last argument" off that names
+            // the `finally` body and calls `{puts b}` a value, which
+            // dropped the `{}` of a block the line does contain and
+            // read N1 3. All five braces are blocks here, which is the
+            // answer a list the signature cannot explain has to get.
+            // The `trap` row in the shared table is the same clause at
+            // its documented arity, where two of the three braces
+            // really are values — so a guard stuck on "always script"
+            // fails there and one stuck on "always last" fails here.
+            BracedWordValueCase {
+                source: "try {puts a} trap {p} {v} {puts b} finally {puts c}\n",
+                counts: [2, 6, 8, 10],
+                operands: &["a", "b", "c", "finally", "p", "puts", "trap", "v"],
+            },
         ];
         check_braced_word_value_cases::<TclParser>(&tcl_only, "foo.tcl");
     }
@@ -7015,7 +7531,7 @@ f() {
     #[test]
     fn irules_braced_word_role_follows_the_enclosing_command_1318() {
         check_braced_word_value_cases::<IrulesParser>(&BRACED_WORD_VALUE_CASES, "foo.irule");
-        let irules_only: [BracedWordValueCase; 3] = [
+        let irules_only: [BracedWordValueCase; 4] = [
             // A `when` handler body is a modelled slot, so the literal
             // inside it is classified independently of the block that
             // holds it.
@@ -7052,6 +7568,18 @@ f() {
                     "local0.",
                     "oops",
                 ],
+            },
+            // #1382 inside a modelled handler slot: the `when` body is
+            // a block and keeps its `{}`, and the `after` delay nested
+            // in it is a value and does not. Before #1382 this read
+            // N1 4. The shared table's `after` pair already runs for
+            // this dialect; what this row adds is that the rule reaches
+            // a command nested inside a handler, where the `{}` billed
+            // for the handler could otherwise mask a withdrawal.
+            BracedWordValueCase {
+                source: "when HTTP_REQUEST {\n    after {100} {puts hi}\n}\n",
+                counts: [2, 3, 5, 5],
+                operands: &["HTTP_REQUEST", "after", "100", "puts", "hi"],
             },
         ];
         check_braced_word_value_cases::<IrulesParser>(&irules_only, "foo.irule");

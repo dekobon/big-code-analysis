@@ -372,6 +372,25 @@ impl Abc for KotlinCode {
             // annotation-shaped parent at zero too. A supertype with no
             // argument list (`class Sub : Marker`) is a plain `user_type`
             // and never reaches here.
+            //
+            // Where this branch lands is decided by the space tree, and it
+            // is not where the secondary spelling above lands. The
+            // superclass call sits in the class declaration's
+            // `delegation_specifiers` — outside every member, and a
+            // *sibling* of the `primary_constructor` node rather than its
+            // child — so the innermost enclosing space is the **class**.
+            // (Verified by perturbation: labelling `PrimaryConstructor` a
+            // `SpaceKind::Function` moves nothing, precisely because the
+            // delegation specifier is not inside it.) A
+            // `SecondaryConstructor`, which `KotlinCode::get_space_kind`
+            // does label a function, takes its `: super(x)` with it.
+            // File-level `branches_sum` agrees between the two spellings;
+            // per-function `branches_max` / `branches_average` and a
+            // per-space `bca check --threshold abc=N` do not. That is the
+            // same intended attribution C# has, stated at length in
+            // `src/metrics/abc/csharp.rs`, and is pinned here by
+            // `kotlin_primary_constructor_superclass_call_is_a_branch`
+            // (#1456).
             ConstructorInvocation
                 if ancestors.parent_has_kind(node, DelegationSpecifier as u16) =>
             {

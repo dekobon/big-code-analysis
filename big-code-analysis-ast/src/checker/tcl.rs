@@ -41,15 +41,14 @@ impl Checker for TclCode {
     impl_simple_is_string!(Tcl, QuotedWord, BracedWord, BracedWordSimple);
 
     // The half of the rule that needs the source bytes (#1381), the twin
-    // of `TclCode::get_op_type_with_code`. Both start from
-    // `is_value_braced_word` on `Getter` over one kinds table rather than
-    // from two copies (grammar-dispatch §7), and part company in two
-    // known places. `is_braced_script_word` also withdraws the value slots
+    // of `TclCode::get_op_type_with_code`. Since #1382 both call the same
+    // `Getter::is_braced_script_word` over one kinds table rather than two
+    // copies of the reasoning (grammar-dispatch §7), so the value slots
     // `is_braced_literal_slot` names (`proc {my proc}`,
-    // `namespace export {…}`), whose `{` Halstead still bills as a block.
-    // And Halstead's *operand* half keys on whether a body holds a
-    // command, so an empty or comment-only `proc` body is an operand there
-    // and not a string here.
+    // `namespace export {…}`) are a literal to both. They part company in
+    // one known place: Halstead's *operand* half keys on whether a body
+    // holds a command, so an empty or comment-only `proc` body is an
+    // operand there and not a string here.
     fn is_string_with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
         Self::is_string(node)
             && !<Self as Getter>::is_braced_script_word(node, code, ancestors, &BRACED_WORD_KINDS)

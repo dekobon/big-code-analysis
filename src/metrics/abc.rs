@@ -2061,22 +2061,83 @@ mod tests {
         //
         // `class Plain : Marker` is the negative case: a delegation
         // specifier with no argument list is a plain `user_type`, so it
-        // must stay at zero. It contributes to no ABC axis, so nothing
-        // anchors it — deleting the line keeps this test green. What it
-        // buys is discrimination: with it present, broadening the arm to
-        // bare `DelegationSpecifier` fails here; without it, only
-        // `kotlin_constructor_delegation_is_a_branch` catches that.
+        // must stay at zero. Broadening the arm to bare
+        // `DelegationSpecifier` fails here at `branches_sum` (5 against
+        // 3), though not on `Plain`'s account alone: `class Classic :
+        // Base` below is argument-less too, so deleting `Plain` still
+        // leaves the broadening failing, at 4. What `Plain` buys is the
+        // case stated outright rather than riding on the contrast fixture,
+        // and since the per-space assertions below name it, trimming it
+        // from the fixture fails in `child_space` instead of passing
+        // silently as it did while this test read only the sum.
         //
-        // expected: 2 branches — `Base(1, 2)` and `Base(3)`. Nothing else
-        // in the fixture is a call, so deleting either construction from
-        // the fixture moves the total.
-        check_metrics::<KotlinParser>(
+        // `class Classic` carries the secondary spelling of the same call
+        // alongside, which is what makes the per-space assertions below a
+        // contrast rather than a census: a class header's superclass call
+        // sits in `delegation_specifiers`, outside every member, so no
+        // function space encloses it and the branch is the **class**
+        // space's, while `constructor(x: Int) : super(x)` opens a function
+        // space and takes the branch with it. `branches_sum` cannot see the
+        // difference — the file totals 3 either way — so a codebase moving
+        // to primary constructors shifts per-function `branches_max` /
+        // `branches_average` and per-space `abc` thresholds without any
+        // behaviour change. That is deliberate (there is no function to
+        // attribute the call to), and C# has the identical split, pinned by
+        // `csharp_base_call_and_constructor_initializer_do_not_double_count`
+        // (#1456).
+        //
+        // expected: 3 branches — `Base(1, 2)`, `Base(3)` and `super(x)`.
+        // Nothing else in the fixture is a call, so deleting any one
+        // construction from the fixture moves both the total and the space
+        // it belongs to.
+        check_func_space::<KotlinParser, _>(
             "class Sub : Base(1, 2) { }
              class Plain : Marker { }
-             fun make(): Any = object : Base(3) { }",
+             fun make(): Any = object : Base(3) { }
+             class Classic : Base {
+                 constructor(x: Int) : super(x) { }
+             }",
             "foo.kt",
-            |metric| {
-                assert_eq!(metric.abc.branches_sum(), 2);
+            |space| {
+                assert_eq!(space.metrics.abc.branches_sum(), 3);
+                assert_eq!(
+                    child_space(&space, "Sub").metrics.abc.branches(),
+                    1,
+                    "the primary-constructor superclass call is the class space's"
+                );
+                assert_eq!(
+                    child_space(&space, "Plain").metrics.abc.branches(),
+                    0,
+                    "a delegation specifier with no argument list is not a call"
+                );
+                // The object expression is its own Class space (#463), so
+                // `make` holds nothing of its own — the same attribution
+                // one level down.
+                let make = child_space(&space, "make");
+                assert_eq!(
+                    make.metrics.abc.branches(),
+                    0,
+                    "`make` owns no branch; `object : Base(3)` is its own space"
+                );
+                assert_eq!(
+                    child_space(make, "<anonymous>").metrics.abc.branches(),
+                    1,
+                    "the object expression's superclass call is that space's"
+                );
+                // The contrast. `Classic` spells the same call through a
+                // secondary constructor, which *does* open a function
+                // space, so the class owns nothing.
+                let classic = child_space(&space, "Classic");
+                assert_eq!(
+                    classic.metrics.abc.branches(),
+                    0,
+                    "a secondary constructor's `: super(x)` is not the class's"
+                );
+                assert_eq!(
+                    child_space(classic, "<anonymous>").metrics.abc.branches(),
+                    1,
+                    "it belongs to the constructor's own function space"
+                );
             },
         );
     }

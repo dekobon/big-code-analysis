@@ -26,6 +26,14 @@ for historical reference.
 
 ### Added
 
+- A quarterly `baseline-freshness` workflow (#1473) that regenerates
+  `.bca-baseline.toml` with `make self-scan-write-baseline-headroom`,
+  diffs it against the committed file with `bca diff-baseline`, and
+  files — or comments on — one `self-scan`-labelled issue when the two
+  disagree. This closes the half of baseline staleness the #1465
+  warning cannot reach: an entry whose offender stopped breaching its
+  threshold produces no violation, so only a full regeneration finds
+  it. See `docs/development/baseline_freshness.md`.
 - The parse and classification layer now lives in its own published
   crate, `big-code-analysis-ast` (#1376). It depends on nothing in this
   crate, in either direction, so it can be built and tested alone: the generated per-grammar
@@ -123,6 +131,30 @@ for historical reference.
 
 ### Changed
 
+- Documented when a delimiter is a Halstead operator (#1395).
+  Punctuation and delimiters are vocabulary and classify as operators
+  whatever grammatical role they serve, so a decision metric that gates
+  the same token by role — ABC's exclusion of a non-comparison `<` /
+  `>` from `conditions` — is a deliberate disagreement rather than
+  drift. The one getter-side suppression the rule admits is a literal's
+  own delimiter, in either of its two shapes: the nine arms that drop
+  the quotes of a literal node that carries the operand itself, and
+  `Getter::braced_word_op_type`, which drops the `{` of a Tcl or iRules
+  braced value whose operands are the words inside it. Stated on
+  `Getter::get_op_type`, in the book's Halstead section and on the ABC
+  per-language deviations row, and pinned by
+  `tests/parity/abc_halstead_bracket_parity.rs`, which fails if either
+  side is later "made consistent" with the other.
+- Documented the `Checker::is_call` contract (#1456): the `call` filter
+  of `bca find` / `bca count` reports call *sites* only, while ABC's
+  `branches` axis applies Fitzpatrick's wider "function invocation or
+  object creation" rule — so object construction and constructor
+  delegation are branches and not calls, in every language that has
+  both. The book gains a **Semantic filters** section defining every
+  non-node-type `-t/--type` value (`all`, `function`, `call`,
+  `comment`, `string`, `error`) and an ABC note recording that a C# 12
+  or Kotlin primary constructor's superclass call is attributed to the
+  class space, since no function space exists for it.
 - Every test that names a per-language grammar now carries that
   language's Cargo feature as a `cfg` marker, so a partial-feature build
   drops it rather than compiling it and panicking (#1472, #1413). The
@@ -195,6 +227,78 @@ for historical reference.
   here uses.
 
 ### Fixed
+
+- **A Tcl or iRules braced *value* passed to a script-taking command
+  no longer reports a `{}` operator** (#1382). #1318 decided the role
+  of a braced word by the enclosing command's name, which is the whole
+  answer only for a command whose arguments are all scripts. Most are
+  not: `after ms ?script …?` starts with a millisecond count,
+  `time script ?count?` ends with an iteration count, `proc` can take
+  a braced *name*, the `namespace` subcommands other than
+  `eval` / `inscope` / `code` take values throughout, and an `on` or
+  `trap` clause leads with an error code and a variable list. #1381
+  already read those positions for `bca find --type string` and the
+  `Ast` dump; Halstead kept billing their braces as blocks, so
+  `after {100} {puts hi}` scored `N1` 2 against bare
+  `after 100 {puts hi}`'s 1 — the score moving with the delimiter,
+  which is what the rule exists to stop. All three classifiers now
+  read one predicate. **Metric drift:** `halstead.N1` falls by one per
+  braced value slot in Tcl and iRules sources, and `n1` with it only
+  where such a slot held the space's sole `{}`: `after {100} {puts hi}`
+  keeps `n1` 1 because its script brace remains, while
+  `namespace export {a b}` drops from 2 to 1. No operand count moves,
+  and the script argument of the same command keeps its `{}`.
+  A clause whose argument list is longer than its signature
+  admits — a top-level `try … trap … finally`, which the Tcl grammar
+  parses as one five-argument `trap` command — is read as scripts
+  throughout rather than by position.
+
+  The remaining asymmetry is now documented as the contract rather
+  than tracked as a defect: a braced value scores one operand where
+  the grammar names the command (`set x {a b}`) and one per word where
+  only the command name would (`lappend x {a b}`). Closing it needs
+  either a contents heuristic — built, measured, and rejected for
+  collapsing an `oo::class` body, a `tcltest -body` and an `apply`
+  lambda from `n2` 25 to 15 — or a list of *value*-taking commands,
+  which is open where the script-taking list is closed, every user
+  proc belonging to it.
+
+- **C# parameter modifiers contributed nothing to Halstead** (#1418).
+  `tree-sitter-c-sharp` aliases the bare tokens `this`, `scoped`,
+  `ref`, `out`, `in` and `readonly` to a childless `modifier` node in
+  parameter position, and no classifier arm reached that node — so an
+  extension-method receiver and every `ref` / `out` / `in` parameter
+  scored as neither operator nor operand. Each now takes the role its
+  own token carries elsewhere: `this` is an operand, as it is in a
+  method body since #1380; the other five are operators, as their bare
+  spellings already were. The two spellings of one keyword key into
+  one vocabulary entry, so `M(ref Foo f)` beside `f(ref x)` counts
+  `ref` once in `n1`. **Metric drift:** `halstead.n1` / `N1` / `n2` /
+  `N2` rise for C# sources with parameter modifiers. A lambda's or
+  anonymous method's `static` / `async` is the same aliased shape and
+  stays unbilled; that is recorded, not fixed.
+- **JSX tag closers are Halstead operators** (#1395). `</` and `/>`
+  were in neither arm of the shared JS-family classifier, so a JSX
+  element billed its opening `<` and its `>`s and nothing for its
+  closers — `<br />` reported one bracket operator where the source
+  spells two. Fixed for JavaScript, MozJS and TSX; TypeScript has no
+  JSX. **Metric drift:** `halstead.n1` / `N1` and everything derived
+  from them, for JSX input only.
+- **PHP's `string` *type* keyword counted as a string literal**
+  (#1474). `Checker::is_string` listed `Php::String2`, the anonymous
+  `string` token the grammar emits as the sole child of a
+  `primitive_type` wrapper, so `bca find --type string` and `bca count
+  --type string` reported a hit for every `: string` return type,
+  `string $param`, `?string`, `string|int` union and typed property
+  alongside the literals — 24 hits rather than 12 on the integration
+  corpus's `strings.php`, 27 rather than 8 on `classes.php`. The
+  keyword is now excluded and both commands report literals only,
+  matching the narrowing #1261 made for TypeScript's `String2` and
+  TSX's `String3` and the `float` keyword PHP's own ABC terminal set
+  already kept out. No metric moves: that filter is the only consumer
+  of the predicate, and `Getter::get_op_type` has suppressed the
+  keyword under its `primitive_type` wrapper since #1293. String
+  *literals* whose contents spell `string` are unaffected.
 
 - **`make worktree-setup` reinstalled a stale build of the Python
   bindings.** Their version is dynamic — maturin reads it from the
@@ -1049,9 +1153,10 @@ for historical reference.
   `interp eval`, `apply` — are still reported; iRules models its
   handlers structurally and has no such gap. The reverse misses remain
   too: a braced value that `after cancel` or the separate-argument form
-  of `switch` takes, or that sits in a multi-line `try … trap` clause
-  the Tcl grammar leaves inside an error node, is still treated as a
-  script.
+  of `switch` takes, or that sits in a `try … trap` clause written
+  inside a `proc` or `namespace eval` body — which the Tcl grammar
+  recovers into an error node — is still treated as a script. The same
+  clause at the top level parses cleanly and *is* read by position.
 
 - **A `.mailmap` edit invalidates the persistent VCS history cache**
   (#1262). Author identities are canonicalised through the repository

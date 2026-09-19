@@ -1,0 +1,197 @@
+name: Baseline freshness
+
+# Quarterly regeneration of `.bca-baseline.toml`, diffed against the
+# committed file (#1473).
+#
+# `bca check --baseline` warns when a covered offender has measured past
+# its recorded value, but that warning is emitted per *violation*: a
+# function that stopped breaching its threshold altogether produces no
+# violation, so its entry is inert and invisible to every gated run. Only
+# a full regeneration finds it. This job is that regeneration.
+#
+# A finding is an issue, not a broken build — nothing here is wrong with
+# the tree, the file describing it has simply aged. See
+# docs/development/baseline_freshness.md.
+
+on:
+  schedule:
+    # 07:00 UTC on the 22nd of January, April, July, and October. The
+    # four out-of-band jobs take one day each: mutation testing on the
+    # 1st, fuzzing on the 8th, benchmarks on the 15th, this a week after
+    # the last of them.
+    - cron: '0 7 22 1,4,7,10 *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: baseline-freshness
+  cancel-in-progress: false
+
+# All `uses:` below are pinned to commit SHAs to eliminate supply-chain
+# risk from action-release spoofing. Bump via Dependabot (see
+# .github/dependabot.yml), which rewrites the SHA + version comment.
+jobs:
+  baseline-freshness:
+    name: Baseline freshness
+    runs-on: ubuntu-latest
+    # Matches the `scan` job in pages.yml, which builds the same release
+    # binary over the same workspace: 3-5 min warm, with headroom for a
+    # cold cache after a Cargo.lock churn.
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The walk deny-set in `.bcaignore` excludes
+          # `tests/repositories/`, so the corpora contribute no baseline
+          # entries and fetching them would only cost time.
+          submodules: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable tip
+        with:
+          toolchain: stable
+
+      # Same `shared-key` as pages.yml's `scan` job: both build the CLI
+      # in `--release` over this workspace, so they warm one cache
+      # instead of thrashing two.
+      - name: Cache cargo build artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: pages-scan-release
+
+      # `bca diff-baseline` rather than `git diff --exit-code`: a v6
+      # baseline records `start_line` for the identity triples two
+      # spaces share, and for those a `git diff` reports code moving
+      # above the function as staleness. `diff-baseline` pairs on
+      # `(path, qualified, metric)` and ignores `start_line`. It also
+      # buckets the result the way the book does — added / removed /
+      # worsened / improved.
+      - name: Regenerate the baseline and diff it
+        id: diff
+        run: |
+          set -euo pipefail
+          cp .bca-baseline.toml "${RUNNER_TEMP}/old.toml"
+          make self-scan-write-baseline-headroom
+          cp .bca-baseline.toml "${RUNNER_TEMP}/new.toml"
+          # `--exit-code` exits 2 on a non-empty diff and 1 on a tool
+          # error, so the status is captured with `|| status=$?` rather
+          # than let `set -e` end the step: the two mean different things
+          # and only one of them is a finding.
+          status=0
+          cargo run --quiet --release -p big-code-analysis-cli -- \
+            diff-baseline "${RUNNER_TEMP}/old.toml" "${RUNNER_TEMP}/new.toml" \
+            --format markdown --exit-code > "${RUNNER_TEMP}/diff.md" || status=$?
+          cat "${RUNNER_TEMP}/diff.md"
+          if [ "$status" = "0" ]; then
+            echo "The committed baseline still describes the tree."
+            exit 0
+          fi
+          if [ "$status" != "2" ]; then
+            echo "diff-baseline exited ${status}, which is a tool error"
+            echo "rather than a diff. Treating as an infrastructure"
+            echo "failure, not opening an issue."
+            exit "$status"
+          fi
+          # Set only on this path, so the filing step below cannot run
+          # for a `make` or `diff-baseline` failure: those end the step
+          # before this line.
+          echo "stale=true" >> "${GITHUB_OUTPUT}"
+          # Deliberately red. Nothing in the tree is wrong, but a green
+          # scheduled run is invisible, and the filing step below is
+          # gated on `failure()` — turning this into `exit 0` would stop
+          # the issue being filed at all, silently.
+          exit 1
+
+      - name: Upload baselines and diff
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: baseline-freshness
+          path: |
+            ${{ runner.temp }}/old.toml
+            ${{ runner.temp }}/new.toml
+            ${{ runner.temp }}/diff.md
+          if-no-files-found: warn
+          retention-days: 90
+
+      # Unlike the other out-of-band jobs, this one deduplicates. A
+      # stale baseline persists until someone commits a refresh, so an
+      # unconditional `gh issue create` would open one issue per quarter
+      # for the same unfixed file.
+      - name: File or update the staleness issue
+        if: failure() && steps.diff.outputs.stale == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # 200 rows of the widest shape `diff-baseline` renders is
+          # comfortably inside GitHub's 65 536-character body cap, and
+          # covers a routine quarter's drift whole.
+          DIFF_LINE_CAP: 200
+        run: |
+          set -euo pipefail
+          {
+            echo "The scheduled \`baseline-freshness.yml\` run regenerated"
+            echo "\`.bca-baseline.toml\` and the result differs from the"
+            echo "committed file, which therefore no longer describes the"
+            echo "tree. On a green \`main\` the difference is entries whose"
+            echo "offender improved or stopped breaching altogether —"
+            echo "headroom nobody chose, in which a later regression hides."
+            echo
+            echo "- Run: ${RUN_URL}"
+            echo
+            echo "Refresh with \`make self-scan-write-baseline-headroom\` and"
+            echo "commit \`.bca-baseline.toml\`. Download the"
+            echo "\`baseline-freshness\` artifact for the two files this diff"
+            echo "was taken over."
+            echo
+            echo "See \`docs/development/baseline_freshness.md\` for how to"
+            echo "read the buckets, and the book's"
+            echo "\`recipes/baselines.md\` for what the ratchet does with a"
+            echo "stale entry."
+            echo
+            echo "## Diff"
+            echo
+            # Bounded, like the excerpts the sibling jobs paste. A
+            # GitHub issue body caps at 65 536 characters, and a diff
+            # that pairs nothing — what an `.bcaignore` edit or a
+            # baseline-anchor change produces — is one row per entry on
+            # each side: ~28 KB for today's 240 entries, twice that for
+            # a remove + add, and the file only grows. Over the cap
+            # `gh` fails with a 422, `set -e` ends the step, and the
+            # finding is lost, which is the one outcome this job exists
+            # to prevent. The artifact carries the whole diff.
+            total=$(wc -l < "${RUNNER_TEMP}/diff.md")
+            head -n "${DIFF_LINE_CAP}" "${RUNNER_TEMP}/diff.md"
+            if [ "$total" -gt "${DIFF_LINE_CAP}" ]; then
+              # `diff-baseline` renders each bucket inside a ```text
+              # fence, so a cut can land inside one. Close it, or the
+              # note below is swallowed by an unterminated block.
+              shown=$(head -n "${DIFF_LINE_CAP}" "${RUNNER_TEMP}/diff.md" \
+                | grep -c '^```' || true)
+              if [ $((shown % 2)) -ne 0 ]; then
+                echo '```'
+              fi
+              echo
+              echo "_Truncated to the first ${DIFF_LINE_CAP} of ${total}"
+              echo "lines; the \`baseline-freshness\` artifact has the rest._"
+            fi
+          } > "${RUNNER_TEMP}/issue-body.md"
+          existing=$(gh issue list --state open --label "self-scan" \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            echo "Commenting on the open staleness issue #${existing}."
+            gh issue comment "$existing" --body-file "${RUNNER_TEMP}/issue-body.md"
+          else
+            # No run id in the title: the issue outlives the run that
+            # opened it, and later runs comment on it rather than
+            # opening a second one.
+            gh issue create \
+              --title "Baseline freshness: .bca-baseline.toml no longer describes the tree" \
+              --label "self-scan" \
+              --body-file "${RUNNER_TEMP}/issue-body.md"
+          fi

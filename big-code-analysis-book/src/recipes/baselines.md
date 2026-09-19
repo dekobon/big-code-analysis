@@ -342,10 +342,20 @@ is silent, so a freshly written baseline never warns about itself.
 **It finds only half of the staleness.** A function that stopped
 breaching its limit altogether produces no violation at all, so it never
 reaches the baseline matcher and cannot be counted here. Its entry stays
-in the file, inert and invisible, until someone regenerates. Closing
-that half needs a scheduled `--write-baseline` run whose output is
-diffed against the committed file; the warning covers only the offenders
-still above their limits.
+in the file, inert and invisible, until someone regenerates.
+
+This repository closes the other half with a scheduled job rather than a
+gate, and the shape is worth copying. `baseline-freshness.yml` runs
+quarterly: it regenerates the baseline with the same `--write-baseline`
+recipe that wrote the committed one — the job pins that recipe, so a
+tier change has to land in both places — diffs the two with `bca
+diff-baseline --exit-code`, and files a labelled issue naming what
+moved. `diff-baseline` rather than `git diff`, because the latter
+reports a moved `start_line` as staleness; a label lookup before filing,
+because a stale baseline persists until someone commits a refresh and an
+unconditional file would open one issue per quarter for the same entry.
+Nothing is gated on the result — the tree is fine, the file describing
+it has aged.
 
 ## How matching works {#how-matching-works}
 

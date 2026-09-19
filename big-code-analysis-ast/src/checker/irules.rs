@@ -58,7 +58,7 @@ impl Checker for IrulesCode {
     impl_simple_is_string!(Irules, QuotedWord, BracedWord, BracedWordSimple);
 
     // The twin of `TclCode::is_string_with_code` (#1381), including the
-    // two places it parts company with Halstead that the Tcl comment
+    // one place it parts company with Halstead that the Tcl comment
     // records. This grammar models more script positions than Tcl's —
     // `when`, `for`, `switch` and the `dict` loops each have a node of
     // their own — so the handler bodies this rescues are recognised

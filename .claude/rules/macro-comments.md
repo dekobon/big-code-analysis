@@ -17,11 +17,11 @@ test fixtures?". Those comments are not redundant — each answers
 a question only its language's grammar quirks produced.
 
 If they collapse into the macro body, the reader at the call site
-sees only `impl_simple_is_string!(Php, String, String2, String3);`
-and has no clue that `String3` is the hidden `_string` supertype
-or that PHP's grammar emits multi-alias annotation-type strings.
-The comment is two screens away, attached to a token-tree the
-reader has no reason to scroll to.
+sees only `impl_simple_is_string!(Php, String, String3, …);` and has
+no clue that `String3` is the hidden `_string` supertype, or that the
+`String2` alias missing from that list is the `string` *type* keyword
+rather than an oversight. The comment is two screens away, attached
+to a token-tree the reader has no reason to scroll to.
 
 ## How to apply
 
@@ -29,11 +29,11 @@ At each macro invocation, place the language-specific rationale
 *directly above* the call:
 
 ```rust
-// PHP's grammar emits String2 for the anonymous `string` keyword
-// alias (see lesson #2, fixed in #288) and lists String3 as the
-// hidden `_string` supertype (lesson #34 — defensive arm + drift
-// marker in tests below).
-impl_simple_is_string!(Php, String, String2, String3);
+// PHP's String2 alias is the `string` *type* keyword, excluded so
+// `find string` reports literals (#288 listed it, #1474 withdrew
+// it); String3 is the hidden `_string` supertype (lesson #34 —
+// defensive arm + drift marker in tests below).
+impl_simple_is_string!(Php, String, String3, …);
 ```
 
 The macro body itself should contain only the structural pattern —
