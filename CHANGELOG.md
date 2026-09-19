@@ -26,6 +26,14 @@ for historical reference.
 
 ### Added
 
+- A quarterly `baseline-freshness` workflow (#1473) that regenerates
+  `.bca-baseline.toml` with `make self-scan-write-baseline-headroom`,
+  diffs it against the committed file with `bca diff-baseline`, and
+  files — or comments on — one `self-scan`-labelled issue when the two
+  disagree. This closes the half of baseline staleness the #1465
+  warning cannot reach: an entry whose offender stopped breaching its
+  threshold produces no violation, so only a full regeneration finds
+  it. See `docs/development/baseline_freshness.md`.
 - The parse and classification layer now lives in its own published
   crate, `big-code-analysis-ast` (#1376). It depends on nothing in this
   crate, in either direction, so it can be built and tested alone: the generated per-grammar
@@ -123,6 +131,27 @@ for historical reference.
 
 ### Changed
 
+- Documented when a delimiter is a Halstead operator (#1395).
+  Punctuation and delimiters are vocabulary and classify as operators
+  whatever grammatical role they serve, so a decision metric that gates
+  the same token by role — ABC's exclusion of a non-comparison `<` /
+  `>` from `conditions` — is a deliberate disagreement rather than
+  drift. The one getter-side suppression the rule admits is a literal's
+  own delimiter, where the enclosing literal node is itself the
+  operand. Stated on `Getter::get_op_type`, in the book's Halstead
+  section and on the ABC per-language deviations row, and pinned by
+  `tests/parity/abc_halstead_bracket_parity.rs`, which fails if either
+  side is later "made consistent" with the other.
+- Documented the `Checker::is_call` contract (#1456): the `call` filter
+  of `bca find` / `bca count` reports call *sites* only, while ABC's
+  `branches` axis applies Fitzpatrick's wider "function invocation or
+  object creation" rule — so object construction and constructor
+  delegation are branches and not calls, in every language that has
+  both. The book gains a **Semantic filters** section defining every
+  non-node-type `-t/--type` value (`all`, `function`, `call`,
+  `comment`, `string`, `error`) and an ABC note recording that a C# 12
+  or Kotlin primary constructor's superclass call is attributed to the
+  class space, since no function space exists for it.
 - Every test that names a per-language grammar now carries that
   language's Cargo feature as a `cfg` marker, so a partial-feature build
   drops it rather than compiling it and panicking (#1472, #1413). The
@@ -228,6 +257,27 @@ for historical reference.
   which is open where the script-taking list is closed, every user
   proc belonging to it.
 
+- **C# parameter modifiers contributed nothing to Halstead** (#1418).
+  `tree-sitter-c-sharp` aliases the bare tokens `this`, `scoped`,
+  `ref`, `out`, `in` and `readonly` to a childless `modifier` node in
+  parameter position, and no classifier arm reached that node — so an
+  extension-method receiver and every `ref` / `out` / `in` parameter
+  scored as neither operator nor operand. Each now takes the role its
+  own token carries elsewhere: `this` is an operand, as it is in a
+  method body since #1380; the other five are operators, as their bare
+  spellings already were. The two spellings of one keyword key into
+  one vocabulary entry, so `M(ref Foo f)` beside `f(ref x)` counts
+  `ref` once in `n1`. **Metric drift:** `halstead.n1` / `N1` / `n2` /
+  `N2` rise for C# sources with parameter modifiers. A lambda's or
+  anonymous method's `static` / `async` is the same aliased shape and
+  stays unbilled; that is recorded, not fixed.
+- **JSX tag closers are Halstead operators** (#1395). `</` and `/>`
+  were in neither arm of the shared JS-family classifier, so a JSX
+  element billed its opening `<` and its `>`s and nothing for its
+  closers — `<br />` reported one bracket operator where the source
+  spells two. Fixed for JavaScript, MozJS and TSX; TypeScript has no
+  JSX. **Metric drift:** `halstead.n1` / `N1` and everything derived
+  from them, for JSX input only.
 - **PHP's `string` *type* keyword counted as a string literal**
   (#1474). `Checker::is_string` listed `Php::String2`, the anonymous
   `string` token the grammar emits as the sole child of a
