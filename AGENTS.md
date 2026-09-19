@@ -518,7 +518,7 @@ auto-file a GitHub issue labelled `mutation-testing`. See
 [`docs/development/mutation_testing.md`](docs/development/mutation_testing.md)
 for local invocation and triage guidance.
 
-**Benchmarking** is the other out-of-band quarterly gate
+**Benchmarking** is the second out-of-band quarterly gate
 (`.github/workflows/benchmark.yml`, `big-code-analysis-bench`). It is
 deliberately not per-PR — shared runners cannot produce stable numbers,
 and a timing assertion in the unit suite already produced false
