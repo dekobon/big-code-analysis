@@ -137,9 +137,12 @@ for historical reference.
   the same token by role — ABC's exclusion of a non-comparison `<` /
   `>` from `conditions` — is a deliberate disagreement rather than
   drift. The one getter-side suppression the rule admits is a literal's
-  own delimiter, where the enclosing literal node is itself the
-  operand. Stated on `Getter::get_op_type`, in the book's Halstead
-  section and on the ABC per-language deviations row, and pinned by
+  own delimiter, in either of its two shapes: the nine arms that drop
+  the quotes of a literal node that carries the operand itself, and
+  `Getter::braced_word_op_type`, which drops the `{` of a Tcl or iRules
+  braced value whose operands are the words inside it. Stated on
+  `Getter::get_op_type`, in the book's Halstead section and on the ABC
+  per-language deviations row, and pinned by
   `tests/parity/abc_halstead_bracket_parity.rs`, which fails if either
   side is later "made consistent" with the other.
 - Documented the `Checker::is_call` contract (#1456): the `call` filter

@@ -450,19 +450,33 @@ pub trait Getter {
     /// consistency pass flips either side.
     ///
     /// The one suppression that reading admits is **a literal's own
-    /// delimiter, where the enclosing literal node is itself the
-    /// operand**. There the punctuation is not vocabulary in its own
-    /// right — the wrapper already contributes the literal, so counting
-    /// its quotes fabricates an arithmetic or comparison operator the
+    /// delimiter**. There the punctuation is not vocabulary in its own
+    /// right — the literal it wraps is already counted, so billing its
+    /// quotes fabricates an arithmetic or comparison operator the
     /// source never spelled, and the score moves with the author's
-    /// choice of delimiter. Nine arms do this, each guarded on the
-    /// delimiter's *parent* being that literal: Elixir's sigil
-    /// (#1256), the regex `/` of the JS family (#1314), of Perl and of
-    /// Ruby (#1312), Ruby's subshell backtick (#1360), Groovy's slashy
-    /// string and the raw-string `(` of both C++ grammars (#1314), and
-    /// Objective-C's `@` before an `NSString` literal. A bracket
-    /// delimiting *syntax* has no such wrapper operand, so nothing
-    /// would absorb its contribution and it stays an operator.
+    /// choice of delimiter. It takes two shapes, and only the first is
+    /// an arm of this method.
+    ///
+    /// Nine arms suppress a delimiter whose enclosing literal node is
+    /// itself the operand, each guarded on the delimiter's *parent*
+    /// being that literal: Elixir's sigil (#1256), the regex `/` of the
+    /// JS family (#1314), of Perl and of Ruby (#1312), Ruby's subshell
+    /// backtick (#1360), Groovy's slashy string and the raw-string `(`
+    /// of both C++ grammars (#1314), and Objective-C's `@` before an
+    /// `NSString` literal.
+    ///
+    /// The tenth is [`braced_word_op_type`], which Tcl and iRules route
+    /// their `{` through. A braced *value* is a literal to
+    /// [`Checker::is_string_with_code`] and to the dump, so its opener
+    /// is withdrawn for the same reason — `puts {c d}` and
+    /// `puts "c d"` have to agree on the operator column — but the
+    /// operands are the words *inside* it rather than the braced word
+    /// itself, so the parent test above does not describe it. #1318
+    /// established that arm and #1382 widened it to the value slots of
+    /// a script-taking command.
+    ///
+    /// A bracket delimiting *syntax* fits neither shape: no literal
+    /// would absorb its contribution, so it stays an operator.
     ///
     /// `ancestors` is the chain the walker descended through. Six
     /// impls read a parent from it to disambiguate a token whose role
@@ -472,6 +486,9 @@ pub trait Getter {
     /// namespace identifier in both C++ grammars, Bash's `$name`, and
     /// iRules' `$var`. Reaching those parents with [`Node::parent`]
     /// instead costs `O(depth)` per node (#1096).
+    ///
+    /// [`braced_word_op_type`]: Self::braced_word_op_type
+    /// [`Checker::is_string_with_code`]: crate::Checker::is_string_with_code
     #[must_use]
     fn get_op_type<'a>(_node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> TokenRole {
         TokenRole::Unknown
