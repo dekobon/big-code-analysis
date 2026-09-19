@@ -62,7 +62,7 @@ with a literal `call` node cannot be matched by name — use its numeric
   [Where a constructor call lands](../metrics.md#abc-constructor-attribution).
 - `comment` — a comment of any of the language's forms.
 - `string` — a string *literal*. Type-annotation keywords that share the
-  literal's node name (TypeScript's `: string`) are excluded.
+  literal's node name (TypeScript's and PHP's `: string`) are excluded.
 - `error` — a node that *is or contains* a parse error, so a match
   covers every ancestor of an `ERROR` node up to the root as well as the
   node itself. `-t ERROR` is the narrower spelling used above: it
