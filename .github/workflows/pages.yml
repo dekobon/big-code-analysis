@@ -121,7 +121,7 @@ jobs:
           rm -f "/tmp/${tarball}"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable tip
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # stable tip
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -225,7 +225,7 @@ jobs:
       # Swatinem/rust-cache below keeps the cold-build cost
       # bounded — warm runs are dominated by incremental relink,
       # not full recompile.
-      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable tip
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # stable tip
         with:
           toolchain: stable
       # `shared-key` (vs `key`) lets Swatinem fall back to
@@ -379,7 +379,7 @@ jobs:
       # distinct analysis from ci.yml's `category: clippy` upload.
       - name: Upload self-scan SARIF to code scanning
         if: always() && hashFiles('bca.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           sarif_file: bca.sarif
           category: bca
