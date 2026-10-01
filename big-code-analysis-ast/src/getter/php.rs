@@ -242,11 +242,12 @@ impl Getter for PhpCode {
             // that never reaches this arm.
             //
             // Cross-walk (grammar-dispatch §7): `Checker::is_string`
-            // and the PHP `Alterator` arm both list `String2`, so a
-            // `: string` return type still answers `is_string`. That
-            // stays in step with Halstead because the *span* keeps its
-            // operand — the enclosing `primitive_type` carries it — and
-            // only the node it is attributed to moved.
+            // agrees — #1474 withdrew `String2` from it on the strength
+            // of this arm, so a `: string` return type is neither a
+            // Halstead operand here nor a literal to `find string`.
+            // The *span* keeps its operand either way: the enclosing
+            // `primitive_type` carries it, and only the node it is
+            // attributed to moved.
             Int | Bool | Array | Object | String2 | Float2 | Null2 => {
                 match ancestors.parent(node).map(|p| p.kind_id().into()) {
                     Some(PrimitiveType) => TokenRole::Unknown,

@@ -454,7 +454,53 @@ pub trait Checker {
     fn is_closure<'a>(_: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         false
     }
-    /// Whether `node` is a call expression.
+    /// Whether `node` is a *call site* — a function, method or command
+    /// invocation a reader would navigate to.
+    ///
+    /// This is the predicate behind the `call` filter that
+    /// [`ParserTrait::filters`](crate::traits::ParserTrait::filters)
+    /// builds, so it decides what `bca find --type call` and
+    /// `bca count --type call` report.
+    ///
+    /// It is deliberately narrower than the ABC `branches` axis, which
+    /// applies Fitzpatrick's *"function invocation or object creation"*
+    /// rule. Object construction (`new T(…)`) and constructor
+    /// delegation — C#'s `: base(x)` / `: this(a)` and a C# 12 primary
+    /// constructor's `: Base(x)`, Java's `super(…)` / `this(…)`,
+    /// Kotlin's `constructor_invocation` — are ABC branches and are
+    /// **not** call sites here: a constructor is not a function the
+    /// `find` result should point a reader at. The languages whose
+    /// `branches` axis consequently exceeds their `is_call` set are C#,
+    /// Java, Groovy, Kotlin, C++, Mozcpp, JavaScript, MozJS,
+    /// TypeScript, TSX, PHP, Ruby (`super` / `yield` count as branches)
+    /// and Rust (`?` does).
+    ///
+    /// The relation is not a plain superset everywhere. Four languages
+    /// depart from it, each in its own direction:
+    ///
+    /// * Tcl and iRules bill a mutator command (`incr`, `append`,
+    ///   `lappend`) as an ABC *assignment* rather than a branch while
+    ///   `is_call` still counts it. `set` is not one of those: it has a
+    ///   grammar production of its own (`Tcl::Set` / `Irules::Set`)
+    ///   rather than being a `command`, so it is an ABC assignment that
+    ///   `is_call` never matches either.
+    /// * Elixir excludes its definition and directive `Call`s (`def`,
+    ///   `defmodule`, `alias`, `import`, …) from `branches` while
+    ///   counting each `|>` pipeline step.
+    /// * Perl counts a bareword call only at the outermost dispatch
+    ///   site: in `print shift;` the wrapper
+    ///   `call_expression_with_spaced_args` is the branch and the
+    ///   `print` bareword it holds is skipped, so that bareword is an
+    ///   `is_call` match with no branch behind it.
+    ///
+    /// The two sets coincide only in C, Objective-C, Go, Python, Lua
+    /// and Bash, which have neither a separate construction syntax nor
+    /// a gated branch arm.
+    // `is_call` and each language's ABC branch arm classify the same
+    // nodes through parallel `matches!()` tables, so they drift
+    // silently; the divergence is pinned by
+    // `groovy_is_call_excludes_constructors` (#430) and
+    // `csharp_is_call_excludes_constructors` in this file's tests.
     #[inline]
     #[must_use]
     fn is_call(_: &Node) -> bool {
@@ -770,6 +816,41 @@ pub fn csharp_accessor_count(node: &Node) -> usize {
 #[must_use]
 pub fn csharp_member_has_accessors(node: &Node) -> bool {
     csharp_accessor_count(node) > 0
+}
+
+/// Whether `node` is a bare keyword token the C# grammar *aliased* to
+/// `modifier`, rather than the `modifier` rule itself.
+///
+/// The rule is `choice('public', 'static', 'async', 'readonly', …)`, so
+/// a real `modifier` wraps one keyword leaf that the getter already
+/// classifies on its own. Two other rules alias a bare token onto the
+/// same named kind, and those nodes are **childless**:
+///
+/// - `_parameter_type_with_modifiers` — `this`, `scoped`, `ref`, `out`,
+///   `in`, `readonly` in parameter position, the six #1418 bills.
+/// - `_lambda_expression_init` and `anonymous_method_expression` —
+///   `static` and `async` on a lambda or `delegate { … }`. These reach
+///   [`CsharpCode::get_op_type_with_code`]'s fallthrough and stay
+///   unclassified, exactly as they were before #1418; billing them is a
+///   separate decision, since the *declaration* spelling of the same two
+///   keywords is billed through its leaf.
+///
+/// Child-presence is therefore what separates an alias from the rule,
+/// and it is the grammar's shape rather than an inference about a broken
+/// parse — contrast [`Checker::is_bare_param`], which refuses the same
+/// test precisely because there it would be a guess.
+///
+/// Shared by [`CsharpCode::get_op_type_with_code`], which decides the
+/// keyword's Halstead role from its text, and
+/// [`CsharpCode::is_primitive`], which routes the operator half through
+/// the lexeme-keyed map so the alias and the bare token are one
+/// operator (#1418).
+///
+/// [`CsharpCode::get_op_type_with_code`]: crate::Getter::get_op_type_with_code
+/// [`CsharpCode::is_primitive`]: Checker::is_primitive
+#[must_use]
+pub(crate) fn csharp_is_aliased_modifier(node: &Node) -> bool {
+    node.kind_id() == Csharp::Modifier as u16 && node.child_count() == 0
 }
 
 /// Whether `param` is C's `(void)` marker — the spelling for an empty
@@ -1254,21 +1335,88 @@ mod tests {
 
     #[cfg(feature = "php")]
     #[test]
-    fn php_is_string_matches_string_alias_kinds() {
-        // Regression for #288. Before the fix, only `Php::String`
-        // (kind_id 368, the named single-quoted literal) matched
-        // `is_string`. The `Php::String2` (anonymous `string` type
-        // keyword, kind_id 25) and `Php::String3` (the hidden `_string`
-        // supertype, kind_id 378) alias kinds — both of which the
-        // language enum maps to `"string"` — were missed. A function
-        // with a `: string` return type produces a `Php::String2`
-        // anonymous-keyword node, so we exercise it here. The named
-        // `Php::String` literal in the body matches too.
-        let src = "<?php function f(): string { return 'x'; }";
-        // Two string-matching nodes: the `string` return-type keyword
-        // (Php::String2) and the `'x'` literal (Php::String). Pre-fix
-        // only the literal matched (count would be 1).
-        assert_eq!(count_php_strings(src), 2);
+    fn php_is_string_excludes_type_keyword_alias_1474() {
+        // `Php::String2` (kind_id 25) is the `string` *type* keyword,
+        // not a literal: `bca dump` finds it only as the sole child of
+        // a `primitive_type` wrapper. #288 listed it in `is_string` for
+        // kind-name identity and for parity with `get_op_type` and the
+        // `Alterator`; #1293 moved it into `get_op_type`'s
+        // `primitive_type`-suppression arm, so #1474 withdrew it here
+        // too — the same reversal #1261 made for TS's `String2` and
+        // TSX's `String3`. On the repo's PHP corpus this took
+        // `find -t string` from 24 hits to 12 on `strings.php` and from
+        // 27 to 8 on `classes.php`.
+        //
+        // The fixture carries every position the keyword appears in —
+        // property type, plain parameter, `?string`, a `string|int`
+        // union and the return type. Today's predicate is a `kind_id`
+        // `matches!`, so it cannot tell those five apart; they are here
+        // against a future ancestor-sensitive `is_string_with_code`
+        // override of the kind Tcl already carries (#1381), which could
+        // suppress one position and not another. The literals anchor
+        // the other direction: without them this test would also pass
+        // if `is_string` were emptied out entirely.
+        let src = concat!(
+            "<?php\n",
+            "class C {\n",
+            "    private string $prop = 'p';\n",
+            "    public function f(string $a, ?string $b, string|int $c): string {\n",
+            "        $d = \"y\";\n",
+            "        $e = <<<EOT\n",
+            "        body\n",
+            "        EOT;\n",
+            "        $g = <<<'EOT'\n",
+            "        lit\n",
+            "        EOT;\n",
+            "        return (string) $a;\n",
+            "    }\n",
+            "}\n",
+        );
+        let parser = parse_php(src);
+        // Pin the keyword spellings by *count*, not with a boolean
+        // `ast_has_kind_id`. The zero below holds for one spelling
+        // exactly as for five, so a fixture trimmed to a single
+        // `string` keyword would keep every assertion here green while
+        // the paragraph above claimed full coverage — measured, by
+        // stripping four of the five. The count also subsumes the
+        // "is the keyword in the parse at all" guard the boolean gave.
+        let keyword_nodes = parser
+            .root()
+            .preorder()
+            .filter(|n| n.kind_id() == Php::String2 as u16)
+            .count();
+        assert_eq!(
+            keyword_nodes, 5,
+            "fixture must keep all five `string` type-keyword positions: property, \
+             parameter, `?string`, `string|int` union, return type",
+        );
+        assert_eq!(
+            count_string_matches_for_kind(&parser, Php::String2 as u16, PhpCode::is_string),
+            0,
+            "Php::String2 (type keyword) must not match is_string",
+        );
+        // The `(string)` cast is the negative control: a childless
+        // `cast_type`, a different kind_id, so the four below would be
+        // five if anything ever classified a cast as a literal. Pinned
+        // so the control cannot be trimmed out of the fixture silently.
+        assert_eq!(
+            parser
+                .root()
+                .preorder()
+                .filter(|n| n.kind_id() == Php::CastType as u16)
+                .count(),
+            1,
+            "fixture must keep the `(string)` cast negative control",
+        );
+        assert!(
+            count_string_matches_for_kind(&parser, Php::String as u16, PhpCode::is_string) > 0,
+            "the `'p'` literal must still match is_string",
+        );
+        // End-to-end through the filter chain `bca find` / `bca count`
+        // actually use (`is_string_with_code`, `parser.rs`), not just
+        // the predicate: `'p'`, `"y"`, the heredoc and the nowdoc — the
+        // four literals, and none of the five keywords.
+        assert_eq!(count_php_strings(src), 4);
     }
 
     // ===== JS-family `is_string` regression tests (issue #283) =====
@@ -1446,6 +1594,7 @@ mod tests {
     #[cfg(any(
         feature = "c",
         feature = "cpp",
+        feature = "csharp",
         feature = "groovy",
         feature = "mozcpp",
         feature = "python",
@@ -1952,6 +2101,97 @@ mod tests {
         );
         let chain = find_first_kind(&parser, Groovy::CommandChain as u16).expect("command_chain");
         assert!(GroovyCode::is_call(&chain), "command_chain must be a call");
+    }
+
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_is_call_excludes_constructors() {
+        // The C# half of the `is_call` contract documented on the
+        // `Checker::is_call` trait method (#1456), mirroring the #430 test
+        // above. C# spells four call-shaped constructs that ABC counts
+        // as branches and this filter must not count as call sites:
+        //
+        //   * `new Foo()`                  -> object_creation_expression
+        //   * `: this(a)`                  -> constructor_initializer
+        //   * `class Sub(int x) : Base(x)` -> base_list > argument_list
+        //   * `record R(int x) : Base(x)`  -> base_list >
+        //                                     primary_constructor_base_type
+        //
+        // paired with one genuine call, `Helper(f)`. The fixture scores
+        // `abc.branches` 5 and `call` 1, so widening `is_call` to any of
+        // the four moves the count asserted here.
+        let src = "class Sub(int x) : Base(x) {
+                       public Sub(int a, int b) : this(a) { }
+                       void M() { var f = new Foo(); Helper(f); }
+                   }
+                   record R(int x) : Base(x);";
+        let parser = CsharpParser::new(src.as_bytes().to_vec(), &PathBuf::from("test.cs"), None);
+        assert_eq!(
+            count(&parser, &["call".to_string()]).0,
+            1,
+            "is_call must count `Helper(f)` only, not the four constructions"
+        );
+
+        let call = find_first_kind(&parser, Csharp::InvocationExpression3 as u16)
+            .expect("invocation_expression");
+        assert!(
+            CsharpCode::is_call(&call),
+            "an invocation_expression is a call"
+        );
+        // §2 drift markers for the other two members of
+        // `csharp_invocation_expr_kinds!()`. All three render to
+        // `"invocation_expression"`, and at the 0.23.5 pin every
+        // spelling probed with `bca dump` — plain, `this.`-qualified,
+        // `base.`-qualified, inside a query clause, a lambda body, an
+        // attribute argument, an interpolation, a `when` guard and a
+        // constant pattern — emits only the aliased id. The claim these
+        // pin is therefore about *this* fixture; a grammar bump that
+        // starts spelling an ordinary call with either id fails the
+        // count above as well, since neither is `find_first_kind`'s
+        // target here.
+        for (id, name) in [
+            (Csharp::InvocationExpression, "InvocationExpression"),
+            (Csharp::InvocationExpression2, "InvocationExpression2"),
+        ] {
+            assert!(
+                !ast_has_kind_id(&parser, id as u16),
+                "{name} is unobserved at this grammar pin; its arm is defensive"
+            );
+        }
+
+        for (id, what) in [
+            (Csharp::ObjectCreationExpression as u16, "`new Foo()`"),
+            (Csharp::ConstructorInitializer as u16, "`: this(a)`"),
+            (
+                Csharp::PrimaryConstructorBaseType as u16,
+                "a record's `: Base(x)`",
+            ),
+        ] {
+            let node = find_first_kind(&parser, id)
+                .unwrap_or_else(|| panic!("fixture must contain {what}"));
+            assert!(
+                !CsharpCode::is_call(&node),
+                "{what} is an ABC branch, not a call site"
+            );
+        }
+
+        // The `class` spelling of the primary-constructor base call is a
+        // bare `argument_list` under the `base_list`, and preorder reaches
+        // `Sub`'s before the four that belong to `: this(a)`, `new Foo()`,
+        // `Helper(f)` and the record's `: Base(x)` — the parent assertion
+        // is what keeps this pointing at the construction rather than at
+        // one of those.
+        let base_args =
+            find_first_kind(&parser, Csharp::ArgumentList as u16).expect("argument_list");
+        assert_eq!(
+            base_args.parent().map(|p| p.kind_id()),
+            Some(Csharp::BaseList2 as u16),
+            "the first argument_list must be `class Sub(int x) : Base(x)`'s"
+        );
+        assert!(
+            !CsharpCode::is_call(&base_args),
+            "a class's primary-constructor base call is an ABC branch, not a call site"
+        );
     }
 
     // ===== C-family `is_call` regression tests (issue #1254) =====
@@ -2748,16 +2988,19 @@ mod tests {
             [QuotedWord, BracedWordSimple, BracedWord]
         );
 
-        // ---- Php (7 variants): String, String2, String3,
-        // EncapsedString, Heredoc, Nowdoc, ShellCommandExpression ----
-        // String2 is the `string` type-keyword (`: string` return
-        // type, exercised here). String3 is the hidden `_string`
-        // supertype (kind_id => "_string" — name starts with `_`),
-        // which tree-sitter does NOT emit as a concrete node — see
-        // its empirical absence asserted below.
+        // ---- Php (6 variants): String, String3, EncapsedString,
+        // Heredoc, Nowdoc, ShellCommandExpression ----
+        // The `: string` return type in the fixture produces a
+        // `String2` — the `string` *type* keyword, which is NOT a
+        // variant here: #1474 withdrew it, and
+        // `php_is_string_excludes_type_keyword_alias_1474` pins its
+        // absence. String3 is the hidden `_string` supertype (kind_id
+        // => "_string" — name starts with `_`), which tree-sitter does
+        // NOT emit as a concrete node — see its empirical absence
+        // asserted below.
         let src = b"<?php function f(): string { $a = 'single'; $b = \"double\"; $c = <<<EOT\nbody\nEOT;\n$d = <<<'EOT'\nnow\nEOT;\n$e = `ls`; return $a; }\n".to_vec();
         let parser = PhpParser::new(src, &path, None);
-        assert_variants_is_string!(&parser, Php, PhpCode, [String, String2]);
+        assert_variants_is_string!(&parser, Php, PhpCode, [String]);
         // `Php::String3` is the hidden `_string` supertype — never
         // surfaces as a concrete kind_id in observed parses; the
         // checker still lists it so future grammar revisions that

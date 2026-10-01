@@ -46,10 +46,10 @@ use crate::node::{Cursor, Node};
 /// | `after` | `after ms ?script …?` | all but the first — argument 0 is a millisecond count or a `cancel` / `idle` / `info` subcommand word | `after(n)` |
 /// | `eval` | `eval arg ?arg …?` | all | `eval(n)` |
 /// | `for` | `for start test next body` | all four | `for(n)` |
-/// | `on` | `on code varList script` | the last | `try(n)` |
+/// | `on` | `on code varList script` | the last of exactly three | `try(n)` |
 /// | `switch` | `switch ?options? string pattern body ?pattern body …?` | the arm bodies, or the single braced arm list | `switch(n)` |
 /// | `time` | `time script ?count?` | argument 0 only | `time(n)` |
-/// | `trap` | `trap pattern varList script` | the last | `try(n)` |
+/// | `trap` | `trap pattern varList script` | the last of exactly three | `try(n)` |
 /// | `uplevel` | `uplevel ?level? arg ?arg …?` | all but a leading level specifier | `uplevel(n)` |
 ///
 /// `on` and `trap` are listed because the iRules grammar models
@@ -59,7 +59,10 @@ use crate::node::{Cursor, Node};
 /// that shape they parse as generic commands. Their last argument is
 /// the handler script. The pattern and variable list before it are
 /// values, which only `Getter::is_braced_literal_slot` tells apart —
-/// the `{}` operator this table decides still bills them as blocks.
+/// and since #1382 every classifier reads that answer, so their braces
+/// quote rather than open. Both rows carry the clause's arity for the
+/// reason [`ScriptSlots::LastOf`] gives: these are the two commands a
+/// grammar that models neither can group a *following* clause into.
 ///
 /// `after cancel {…}` and `after info {…}` are the one place the slot
 /// column knowingly over-reports: those arguments identify a *pending*
@@ -90,12 +93,18 @@ const SCRIPT_TAKING_COMMANDS: [(&str, ScriptSlots); 8] = [
     ("after", ScriptSlots::EveryButFirst),
     ("eval", ScriptSlots::Every),
     ("for", ScriptSlots::Every),
-    ("on", ScriptSlots::Last),
+    ("on", ScriptSlots::LastOf(HANDLER_CLAUSE_ARITY)),
     (SWITCH_COMMAND, ScriptSlots::SwitchArms),
     ("time", ScriptSlots::Only(0)),
-    ("trap", ScriptSlots::Last),
+    ("trap", ScriptSlots::LastOf(HANDLER_CLAUSE_ARITY)),
     ("uplevel", ScriptSlots::EveryButLeadingLevel),
 ];
+
+/// `on code varList script` and `trap pattern varList script` each take
+/// exactly three arguments (Tcl 8.6 `try(n)`). See
+/// [`ScriptSlots::LastOf`] for why the count is part of the rule rather
+/// than a comment on it.
+const HANDLER_CLAUSE_ARITY: usize = 3;
 
 /// Named because two rules have to agree on it: `switch` takes a
 /// script, and its *arm bodies* are scripts too even though the Tcl
@@ -154,9 +163,25 @@ pub(crate) enum ScriptSlots {
     /// Exactly one argument, by position: `time script ?count?` is
     /// `Only(0)`, `namespace inscope ns script ?arg …?` is `Only(1)`.
     Only(usize),
-    /// The last argument: `on code varList script` and
-    /// `trap pattern varList script`.
-    Last,
+    /// The last argument of a list of exactly `n`:
+    /// `on code varList script` and `trap pattern varList script` are
+    /// both `LastOf(3)`.
+    ///
+    /// The arity is the rule, not a note beside it. Neither command is
+    /// modelled outside a `try`, so a top-level
+    /// `try {…} trap {p} {v} {b} finally {c}` parses the whole tail as
+    /// *one* generic `trap` command with five arguments —
+    /// `p v b finally c`. "The last one is the script" then names the
+    /// `finally` body and calls the handler body `b` a value, which
+    /// withdrew the `{}` of a block the source does contain, reported
+    /// it from `bca find --type string`, and flattened it out of the
+    /// `Ast` dump: the #1381 defect, reopened for one shape (#1382
+    /// review). An argument count the signature does not admit means
+    /// the grammar grouped something else in, so no position in the
+    /// list is trustworthy and every argument keeps the construct-wide
+    /// script answer — the same answer [`argument_slots_are_readable`]
+    /// gives for the other way a layout becomes unreadable.
+    LastOf(usize),
     /// Every argument but a leading level specifier:
     /// `uplevel ?level? arg ?arg …?`, where an argument 0 that does not
     /// read as a level is the start of the script rather than a value
@@ -321,17 +346,18 @@ pub(crate) fn fills_script_slot<'t>(
         ScriptSlots::EveryButFirst => position > 0,
         ScriptSlots::Only(evaluated) => position == evaluated,
         // `checked_sub` for the same reason the one above it has one:
-        // `Last` is reachable only from a table row paired with
-        // `first == 0` today, and a `Last` row added to
+        // `LastOf` is reachable only from a table row paired with
+        // `first == 0` today, and such a row added to
         // `NAMESPACE_SCRIPT_SUBCOMMANDS` would pair it with `1` and
         // underflow — a debug panic, or a release wrap to `usize::MAX`
         // that answers `false` for every argument. `None` keeps the
         // construct-wide script answer, as every other unresolvable
-        // position here does.
-        ScriptSlots::Last => arguments
+        // position here does — and so does a count the signature does
+        // not admit, which is the whole of the arity rule.
+        ScriptSlots::LastOf(arity) => arguments
             .child_count()
             .checked_sub(roles.first)
-            .is_none_or(|count| position + 1 == count),
+            .is_none_or(|count| count != arity || position + 1 == count),
         ScriptSlots::EveryButLeadingLevel => {
             position > 0 || !reads_as_uplevel_level(word, dialect.code)
         }

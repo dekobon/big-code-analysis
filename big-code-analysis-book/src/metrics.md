@@ -132,7 +132,7 @@ paper makes this explicit twice:
    conditional expressions". The `||` again contributes zero; `x`
    and `y` each contribute one.
 
-#### Per-language deviations
+#### Per-language deviations {#abc-per-language-deviations}
 
 Per-language `impl Abc` blocks narrow the paper rule set where the
 language has no equivalent construct, or where strict literal
@@ -153,9 +153,41 @@ application would over-count.
 | Kotlin | `try` counts a condition alongside `catch` | Fitzpatrick counts both keywords, and Java / C# / C++ / Groovy already count both; Kotlin previously counted only the catch block. |
 | C#, Java, Rust, Python, Ruby, Elixir | A pattern-match guard is a condition slot, scoring one however it is spelled | A guard is a branch: the pattern can match while the guard fails. The guard's expression is scored exactly as an `if` condition is — one for a call, type test, attribute or bare identifier, one via the operator arm for a comparison — so every spelling agrees, and a compound guard (`when a > 1 && b < 2`) keeps its sub-structure rather than collapsing to one. Before this, ABC scored whatever operator happened to sit inside, so `when x > 2` counted one and the equivalent `when IsEven(x)` counted none. The spellings, per language: C# `when_clause` on a switch arm or `case` section and `catch_filter_clause` on a `catch` (#1422); Java 21's `guard` on a pattern-switch label, in both the arrow and colon forms; Rust's `match_pattern` guard; Python's `case … if g:`; Ruby's `if_guard` / `unless_guard` on a `case … in` arm; Elixir's `when` operator on a `stab_clause` head or a `def` / `defguard` head (#1454). The same change made the guard a **cyclomatic** decision wherever it was not already one — Java, Ruby and Elixir — and excluded Elixir's typespec `when` (`@spec f(a) :: a when a: integer`), which spells the same token as a guard but is type syntax. Groovy and Kotlin are absent because neither pinned grammar has a guard production at all: Kotlin 2.1 guard syntax does not parse, so there is nothing to classify (#1454). |
 | Kotlin | A subject-less `when` arm scores through the predicate slot; a subject-ful arm scores per entry | A subject-less arm's condition (`when { x > 5 -> … }`) is an ordinary boolean expression, compiled as an `if` predicate, so the comparison inside it is already counted by the operator arms and a blanket per-entry increment double-counted it. A subject-ful arm (`when (x) { in 1..2 -> … }`) lists a pattern rather than an independent boolean expression, so the implicit `subject == pattern` is a decision nothing in the source spells and the entry itself pays for it (#1421). |
-| C++, Objective-C, Mozcpp, Rust, Go, Java, Groovy, C#, Kotlin, TypeScript, TSX, JavaScript, Mozjs, Lua, Perl, Ruby, Bash, Elixir | A `<` or `>` that is not a comparison is not a condition | Every one of these grammars spells at least one non-comparison construct with the same bare `<` / `>` token a comparison uses, so the comparison rule is gated on the token's parent. What that excludes, per family: template and generic brackets in C++, Objective-C, Mozcpp, Rust, Go, Java, Groovy, C#, Kotlin, TypeScript and TSX (#1274); JSX tag delimiters in TypeScript, TSX, JavaScript and Mozjs; Lua 5.4 variable attributes (`local x <const> = 1`); a C# comparison-operator overload's declared name (`operator <`); Kotlin's qualified super call (`super<A>.g()`) (#1297); Perl's filehandle and lexical-handle readlines (`<FH>`, `<$fh>` — but not `<STDIN>`, which the grammar lexes as one token); Ruby's superclass clause (`class Foo < Bar`) and comparison-operator method names (`def <(other)`), and Bash I/O redirection (`cmd > out`) (#1280); Elixir's sigil delimiters (`~s<hi>`) (#1256). C# additionally excludes the operator of a relational pattern (`x is > 0`, and the `> 5 =>` arm of a switch expression): the arm or `if` condition slot that owns the pattern already scores the decision, so counting the operator too charged a relational arm twice what the constant arm `5 => 1` scores (#1383). Its `>=` / `<=` spelling is excluded by the same rule through a separate token. The declared name of an operator overload is excluded on every spelling too: C# overloads six comparison operators and gives each a distinct token, so `operator <=`, `operator >=`, `operator ==` and `operator !=` join `operator <` and `operator >`, which alone were excluded before #1420. The exclusion is on the operator alone, not on the test that encloses it: since #1461 the `is` test itself is a condition wherever it is written, so `bool b = x is > 0;` and `return x is > 0;` each score 1 — level with the `x > 0` they are sugar for, and the same 1 a `when n is > 5` guard has scored since #1422 made the guard a condition slot. Counting the pattern's operator as well would make a relational arm worth twice the constant arm `5 => 1`. PHP, Python, Tcl and iRules emit a bare `<` / `>` from no non-comparison production; C carries the same gate as its C-family siblings although, having no templates, it has nothing to exclude. The gate is a claim about the grammar's productions, not about every parse: where a grammar resolves a generic *call* into nested `binary_expression` nodes, as tree-sitter-kotlin-ng does for `id<Int>(a)`, no polarity can exclude it (#1394). |
+| C++, Objective-C, Mozcpp, Rust, Go, Java, Groovy, C#, Kotlin, TypeScript, TSX, JavaScript, Mozjs, Lua, Perl, Ruby, Bash, Elixir | A `<` or `>` that is not a comparison is not a condition | Every one of these grammars spells at least one non-comparison construct with the same bare `<` / `>` token a comparison uses, so the comparison rule is gated on the token's parent. What that excludes, per family: template and generic brackets in C++, Objective-C, Mozcpp, Rust, Go, Java, Groovy, C#, Kotlin, TypeScript and TSX (#1274); JSX tag delimiters in TSX, JavaScript and Mozjs — TypeScript carries the same gate through the shared macro, but the `.ts` dialect of tree-sitter-typescript has no JSX production, so it has nothing to exclude there; Lua 5.4 variable attributes (`local x <const> = 1`); a C# comparison-operator overload's declared name (`operator <`); Kotlin's qualified super call (`super<A>.g()`) (#1297); Perl's filehandle and lexical-handle readlines (`<FH>`, `<$fh>` — but not `<STDIN>`, which the grammar lexes as one token); Ruby's superclass clause (`class Foo < Bar`) and comparison-operator method names (`def <(other)`), and Bash I/O redirection (`cmd > out`) (#1280); Elixir's sigil delimiters (`~s<hi>`) (#1256). C# additionally excludes the operator of a relational pattern (`x is > 0`, and the `> 5 =>` arm of a switch expression): the arm or `if` condition slot that owns the pattern already scores the decision, so counting the operator too charged a relational arm twice what the constant arm `5 => 1` scores (#1383). Its `>=` / `<=` spelling is excluded by the same rule through a separate token. The declared name of an operator overload is excluded on every spelling too: C# overloads six comparison operators and gives each a distinct token, so `operator <=`, `operator >=`, `operator ==` and `operator !=` join `operator <` and `operator >`, which alone were excluded before #1420. The exclusion is on the operator alone, not on the test that encloses it: since #1461 the `is` test itself is a condition wherever it is written, so `bool b = x is > 0;` and `return x is > 0;` each score 1 — level with the `x > 0` they are sugar for, and the same 1 a `when n is > 5` guard has scored since #1422 made the guard a condition slot. Counting the pattern's operator as well would make a relational arm worth twice the constant arm `5 => 1`. PHP, Python, Tcl and iRules emit a bare `<` / `>` from no non-comparison production; C carries the same gate as its C-family siblings although, having no templates, it has nothing to exclude. The gate is a claim about the grammar's productions, not about every parse: where a grammar resolves a generic *call* into nested `binary_expression` nodes, as tree-sitter-kotlin-ng does for `id<Int>(a)`, no polarity can exclude it (#1394). The exclusion is ABC's alone: Halstead counts vocabulary rather than decisions, so `bca ops` still bills every one of these `<` / `>` as an operator, and the two metrics are meant to disagree here (#1395) — see [the Halstead delimiter rule](#halstead). |
 | Java, Groovy, C#, TypeScript, TSX | A `?` used as type syntax is not a ternary | In each of these grammars the ternary `?` and the type-syntax `?` are the *same* anonymous token, so the ternary rule above is gated on the token's parent. Java and Groovy exclude the wildcard bound `List<? extends T>` (#1274); C# excludes the nullable type `int? x` and the constraint `where T : class?`; TypeScript and TSX exclude optional parameters, properties, methods, class fields and tuple elements, and conditional types (`T extends U ? X : Y`, which the type checker resolves and erases before runtime, so it is no more a branch than the `<` / `>` already excluded) (#1275). Safe navigation is untouched: C#'s `a?.b` shares the same token and still counts, while the other languages spell theirs as a distinct one. |
 | C#, Java, Groovy, Kotlin, Ruby, Elixir | A relational operator scores by use; a value-bearing operand scores in a boolean slot | Five of these grammars spell at least one relational construct as its own production rather than as a binary expression with an operator token: C#'s `x is int` and `x is null`, Java's and Groovy's `x instanceof T`, Groovy's `a in l`, Kotlin's `a is T` and `a in 1..2`, and Ruby's one-line `a in Integer`. Having no token to count, each was reached only through the language's terminal-operand set, which the walker consults inside an `if` / `while` / ternary / `&&`-operand slot and nowhere else — so `var b = x == 1;` scored 1 while `var b = x is int;` scored 0. Fitzpatrick's Rule 5 counts a relational operator wherever it appears, so each now counts wherever it appears and has left the operand set; being in both would score it twice. Groovy's spaceship `<=>` counts on the same rule, as it already did in Ruby, PHP, C++ and Mozcpp, although its result is an integer rather than a boolean — what Rule 5 measures is the comparison, not its type. Elixir reached the same 0 by the other route: its membership and type tests (`a in [1, 2]`, `rescue e in RuntimeError`) *do* carry an operator token, and simply had no arm matching it. They count by use on the same rule, gated on the token's parent so that an operator merely *named* (`&in/2`) stays excluded alongside `<` and `>`. The converse still holds for a construct whose *value* fills the slot: a cast, a Go type assertion, a Rust `matches!` / `cfg!` macro and a Python walrus are all operands and count only where a slot reads them as a predicate (#1461). |
+
+#### Where a constructor call lands {#abc-constructor-attribution}
+
+Fitzpatrick's branch rule is "function invocation **or object
+creation**", so object construction and constructor delegation count as
+branches even though they are not call sites — they do not appear in
+`bca find --type call`, which reports invocations only. See
+[Semantic filters](commands/nodes.md#semantic-filters).
+
+Which *space* a constructor call is charged to depends on how it is
+spelled, and C# 12 and Kotlin both let you spell it two ways:
+
+```csharp
+class Sub(int x) : Base(x) { }            // charged to the class space
+class Classic : Base {
+    public Classic(int x) : base(x) { }   // charged to the constructor
+}
+```
+
+A primary constructor has no body. Its superclass call sits in the class
+header — C#'s `base_list`, Kotlin's `delegation_specifiers` — outside
+every member, so no function space encloses it and the branch belongs to
+the class. The classic spelling puts the same call inside a constructor
+declaration, which does open a function space.
+
+File-level `abc.branches` is identical either way, so nothing shifts at
+the aggregate. Per-function figures do: `branches_max`,
+`branches_average`, and a per-space `bca check --threshold abc=N` all see
+the primary-constructor form on a class row and never on a function row.
+A codebase migrating to primary constructors will therefore see its
+per-function ABC distribution move without any behaviour change. That is
+the intended reading — there is no function to attribute the call to.
 
 #### Worked example
 
@@ -537,7 +569,7 @@ basis; the rules deliberately exclude pure layout punctuation like
 parentheses and statement separators, which is why the Halstead
 totals are *not* the same as the Tokens count.
 
-Two classification rules are worth knowing because they are choices
+Three classification rules are worth knowing because they are choices
 rather than consequences, and because several grammars spell the
 tokens involved the same way they spell real operators:
 
@@ -551,14 +583,32 @@ tokens involved the same way they spell real operators:
   braced script body the same way: whether `{a b}` is a block or a
   quoted value depends on the command it is passed to, so the
   classifier reads that command's name. `eval {…}`, `uplevel`,
-  `after`, `time`, and Tcl's `for` and `switch` take scripts and keep
+  `after`, `time`, an `on` or `trap` handler clause written outside a
+  `try`, and Tcl's `for` and `switch` take scripts and keep
   their `{}` operator, as does every construct the grammar models with
   a node of its own (`proc`, `if`, `while`, `foreach`, `catch`, `try`,
-  `namespace`, an iRules `when` handler) — except a defaulted `proc`
-  parameter (`proc p {a {b {x y}}}`), which holds data the interpreter
-  assigns rather than a script it runs. Every other command —
+  `namespace`, an iRules `when` handler). Every other command —
   `lappend`, `puts`, `list`, and any user-defined proc — is taken to
   receive a value, so its braces score no operator.
+
+  Recognising the command is only half of it, because most of those
+  signatures mix the two roles. A braced word in a slot the command's
+  documented syntax reserves for a *value* scores no operator either,
+  however script-like the command around it: `after`'s delay
+  (`after {100} {puts hi}` scores the one `{}` its script earns, the
+  same as `after 100 {puts hi}`), `time`'s iteration count, a braced
+  `proc` name (`proc {my proc} {} {}`), a defaulted `proc` parameter
+  (`proc p {a {b {x y}}}`), `namespace export`'s pattern list,
+  `namespace ensemble create -map`'s dictionary, and a `trap` or `on`
+  handler's error code and variable list. The slots come from the Tcl
+  8.6 manual pages. The two `proc` cases are positions the grammar
+  names, so the classifier reads them off the tree; the rest are
+  recorded as per-command signatures in
+  `big-code-analysis-ast/src/lang_helpers/tcl_family.rs`. Where a
+  command's argument list does not match the signature — a top-level
+  `try … trap … finally` parses its whole tail as one `trap` command,
+  five arguments rather than three — no position in it is read, and
+  every brace stays a block.
 
   This decides the *operator* only. The words inside a braced argument
   are counted either way, because an unrecognised command is as likely
@@ -570,15 +620,38 @@ tokens involved the same way they spell real operators:
   has no operator left, and because Halstead's difficulty multiplies
   by the operator count, its `effort` reads `0.0` rather than slightly
   low. A `proc` keeps its own `proc` keyword and body brace, so this
-  reaches top-level script fragments, not functions. The remaining
-  asymmetry is that a braced value scores one operand where the
-  grammar names the command (`set x {a b}`) and one per word where
-  only the command name would (`lappend x {a b}`); closing that needs
-  a signal neither grammar gives.
+  reaches top-level script fragments, not functions.
+
+  The consequence for the operand column is an asymmetry, and it is
+  the contract rather than an open defect: a braced value scores one
+  operand where the grammar names the command (`set x {a b}` → the
+  operand `{a b}`) and one per word where only the command name would
+  (`lappend x {a b}` → the operands `a` and `b`). Both ways of
+  removing it were weighed and neither is available. Deciding from the
+  *contents* — no substitution, no nested block, therefore a list —
+  was built and measured: on a file holding an `oo::class` body, a
+  `tcltest -body` and an `apply` lambda it took n2 from 25 to 15 and
+  N2 from 32 to 15, each of those three collapsing into a single
+  operand. And listing the value-taking commands instead needs an
+  *open* set where the script-taking one is closed — every user proc
+  belongs to it — so the list would be incomplete by construction and
+  would make three behaviours where there are two.
 - **A string-interpolation opener is not an operator.** `"{$x}"` in
   PHP, `"#{x}"` in Ruby and Elixir, `"${x}"` in Kotlin and Groovy and
   `$"{x}"` in C# all count the interpolated expression's own operators
   and nothing for the opener itself.
+- **A delimiter around *syntax* is an operator, whatever it delimits.**
+  The rule above is about a literal's own punctuation, and it stops
+  there. Halstead counts the vocabulary a program is written in and has
+  no notion of a decision, so a `<` is the same vocabulary entry
+  whether it is a comparison, a JSX tag delimiter, a Lua `<const>`
+  attribute, the declared name of a C# `operator <`, a Kotlin
+  `super<A>`, or a Perl `<FH>` readline — and `bca ops` reports every
+  one of them. This is the deliberate counterpart to
+  [the ABC deviation](#abc-per-language-deviations) that excludes the same
+  tokens from `conditions`: ABC asks whether a branch is taken, and
+  these are not branches; Halstead asks what alphabet the source uses,
+  and these are part of it. Expect the two metrics to disagree here.
 
 ### Derived metrics
 

@@ -69,9 +69,14 @@ impl Getter for TsxCode {
     // the macro body: a member access or a `namespace N.M` header
     // contributes its identifier leaves plus the `.` operator, never
     // the composite text as well.
+    //
+    // `LTSLASH` / `SLASHGT` are the JSX closing and self-closing tag
+    // delimiters. TSX is the only one of the two TypeScript grammars
+    // with JSX, so the `.ts` invocation has no such variants to pass
+    // (#1395).
     impl_js_family_get_op_type!(
         Tsx,
-        op_extras: [QMARKDOT, PredefinedType],
+        op_extras: [QMARKDOT, PredefinedType, LTSLASH, SLASHGT],
         operand_extras: [Identifier2, String2],
         predefined_void: PredefinedType,
     );

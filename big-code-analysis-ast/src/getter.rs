@@ -79,6 +79,15 @@ macro_rules! get_operator {
 //     the bare `?.` token under the `optional_chain` wrapper (issue
 //     #281); `PredefinedType` is the TS type keyword set (`string`,
 //     `number`, `boolean`, …).
+//   * JavaScript / MozJS / TSX: `LTSLASH`, `SLASHGT` — the JSX closing
+//     and self-closing tag delimiters, which these grammars spell as
+//     their own two-character tokens rather than as a `<` / `>` pair.
+//     Until #1395 neither was in either arm, so a JSX element billed
+//     its opening `<` and its `>`s but nothing for `</`, and `<br />`
+//     reported one bracket operator where the source spells two. They
+//     are extras rather than members of the shared arm because
+//     TypeScript is the one grammar of the four with no JSX and
+//     therefore no such variants to name.
 //
 // `$operand_extras` per language:
 //   * JavaScript / MozJS / TSX: `Identifier2`, `String2` — anonymous
@@ -418,6 +427,57 @@ pub trait Getter {
 
     /// Classifies `node` as a Halstead operator, operand, or neither.
     ///
+    /// **Punctuation and delimiters are vocabulary, so they classify as
+    /// operators whatever grammatical role they serve.** Halstead
+    /// counts the alphabet a program is written in and has no notion of
+    /// a decision, so a `<` is the same vocabulary entry whether it
+    /// opens a JSX tag, brackets a Lua `<const>` attribute, names a C#
+    /// `operator <` overload, disambiguates a Kotlin `super<A>`, or
+    /// delimits a Perl `<FH>` readline. Every impl that classifies
+    /// punctuation at all already bills `(`, `{`, `[`, `,`, `;`, `.`
+    /// and `:` on exactly that reading, for each glyph its language
+    /// spells — bar two, which #1395 did not revisit: Python
+    /// classifies only `,` and `.` of that set, and Rust bills `::`
+    /// but not the type-annotation `:`.
+    ///
+    /// A *decision* metric gates the same token by role, and is
+    /// supposed to disagree: ABC's `conditions` counts a `<` only under
+    /// a `binary_expression` (#1274, #1275, #1280, #1297), so each of
+    /// the five constructs above scores zero there while `bca ops`
+    /// still reports the bracket. #1395 settled that the two answers
+    /// are both correct rather than a drift to be reconciled;
+    /// `tests/parity/abc_halstead_bracket_parity.rs` fails if a later
+    /// consistency pass flips either side.
+    ///
+    /// The one suppression that reading admits is **a literal's own
+    /// delimiter**. There the punctuation is not vocabulary in its own
+    /// right — the literal it wraps is already counted, so billing its
+    /// quotes fabricates an arithmetic or comparison operator the
+    /// source never spelled, and the score moves with the author's
+    /// choice of delimiter. It takes two shapes, and only the first is
+    /// an arm of this method.
+    ///
+    /// Nine arms suppress a delimiter whose enclosing literal node is
+    /// itself the operand, each guarded on the delimiter's *parent*
+    /// being that literal: Elixir's sigil (#1256), the regex `/` of the
+    /// JS family (#1314), of Perl and of Ruby (#1312), Ruby's subshell
+    /// backtick (#1360), Groovy's slashy string and the raw-string `(`
+    /// of both C++ grammars (#1314), and Objective-C's `@` before an
+    /// `NSString` literal.
+    ///
+    /// The tenth is [`braced_word_op_type`], which Tcl and iRules route
+    /// their `{` through. A braced *value* is a literal to
+    /// [`Checker::is_string_with_code`] and to the dump, so its opener
+    /// is withdrawn for the same reason — `puts {c d}` and
+    /// `puts "c d"` have to agree on the operator column — but the
+    /// operands are the words *inside* it rather than the braced word
+    /// itself, so the parent test above does not describe it. #1318
+    /// established that arm and #1382 widened it to the value slots of
+    /// a script-taking command.
+    ///
+    /// A bracket delimiting *syntax* fits neither shape: no literal
+    /// would absorb its contribution, so it stays an operator.
+    ///
     /// `ancestors` is the chain the walker descended through. Six
     /// impls read a parent from it to disambiguate a token whose role
     /// depends on what encloses it: Python's `not` / `in` / `is` inside
@@ -426,6 +486,9 @@ pub trait Getter {
     /// namespace identifier in both C++ grammars, Bash's `$name`, and
     /// iRules' `$var`. Reaching those parents with [`Node::parent`]
     /// instead costs `O(depth)` per node (#1096).
+    ///
+    /// [`braced_word_op_type`]: Self::braced_word_op_type
+    /// [`Checker::is_string_with_code`]: crate::Checker::is_string_with_code
     #[must_use]
     fn get_op_type<'a>(_node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> TokenRole {
         TokenRole::Unknown
@@ -701,20 +764,21 @@ pub trait Getter {
     /// `braced_word_simple`, which is right for the literal role and
     /// wrong for the script role the same kind also serves.
     ///
-    /// Stated here rather than in each of the four call sites so the
-    /// string and dump classifiers cannot drift apart on the same bytes
-    /// (grammar-dispatch §7). Halstead is the deliberate exception:
-    /// `braced_word_op_type` asks [`is_value_braced_word`] alone, so the
-    /// braces of the value slots `is_braced_literal_slot` adds still
-    /// bill a `{}` operator, as they have since #1318. Moving that rule
-    /// into the shared predicate changes `bca metrics` for Tcl, and is
-    /// its own measured change rather than a rider on this one — **it is
-    /// tracked as #1382**, where the measurement belongs. Concretely,
-    /// until it lands `after {100} {puts hi}` bills `N1 2` against bare
-    /// `after 100 {puts hi}`'s `1`, which is the score-moves-with-the-
-    /// delimiter property [`is_value_braced_word`]'s own rationale says
-    /// #1318 removed. An exception carried knowingly is still a §7
-    /// disagreement, so it gets an issue rather than only a paragraph.
+    /// Stated here rather than in each of the five call sites so the
+    /// string, dump and Halstead classifiers cannot drift apart on the
+    /// same bytes (grammar-dispatch §7). Halstead was the deliberate
+    /// exception between #1318 and #1382: `braced_word_op_type` asked
+    /// [`is_value_braced_word`] alone, so the braces of the value slots
+    /// [`is_braced_literal_slot`] adds still billed a `{}` operator
+    /// while the other two called the same bytes a literal. #1382
+    /// closed it — that call site now asks this predicate — so a braced
+    /// value is a value to all three, and `after {100} {puts hi}` bills
+    /// the one `{}` its `{puts hi}` block earns rather than two.
+    ///
+    /// The remaining §7 note is one of scope, not of disagreement: the
+    /// three differ only where Halstead's *operand* half keys on
+    /// whether a body holds a command, which makes an empty or
+    /// comment-only `proc` body an operand there and not a string here.
     ///
     /// [`is_value_braced_word`]: Self::is_value_braced_word
     /// [`is_braced_literal_slot`]: Self::is_braced_literal_slot
@@ -733,11 +797,10 @@ pub trait Getter {
     /// Whether `word`, a braced word [`is_value_braced_word`] calls a
     /// script, fills a slot whose documented syntax takes a *value*.
     ///
-    /// [`is_value_braced_word`] answers by command name alone, which is
-    /// all Halstead's `{}` operator needs. Most of the names it recognises
-    /// have a mixed signature, though, so reusing that answer for the
-    /// string and dump classifiers made a *value* — a millisecond count, a
-    /// namespace name, a `switch` subject — a script (#1381 review). This
+    /// [`is_value_braced_word`] answers by command name alone. Most of the
+    /// names it recognises have a mixed signature, though, so that answer
+    /// made a *value* — a millisecond count, a namespace name, a `switch`
+    /// subject — a script (#1381 review). This
     /// is the per-argument half: `proc` has one value slot the grammar
     /// names as a field, and every other construct declares its layout in
     /// one of the two tables in `lang_helpers::tcl_family`, which
@@ -747,24 +810,37 @@ pub trait Getter {
     /// would otherwise have become a script under it: the dump rendered
     /// `{my proc}` as a command named `my` and `{100}` as one named `100`,
     /// and `namespace export {…}` and `namespace ensemble create -map {…}`
-    /// both occur in the Tcl 8.6 standard library.
+    /// both occur in the Tcl 8.6 standard library. Since #1382 Halstead
+    /// reads the same answer through [`is_braced_script_word`], so the
+    /// braces of these values quote rather than open (`after {100} {…}`
+    /// scores the `{}` of its script and no other).
     ///
     /// Two guards keep the construct-wide answer. A switch arm list parses
     /// as commands, so an arm whose *pattern* is spelled `proc`,
     /// `namespace`, `after` or `switch` builds one of these shapes around
     /// what are really arm bodies — [`is_switch_arm`] recognises it first.
     /// And an argument list whose own slot sequence is unreadable has no
-    /// positions worth trusting. The multi-line `try … trap` clause is out
-    /// of reach entirely: the Tcl grammar leaves it inside an `ERROR`
-    /// node, where no role signal survives.
+    /// positions worth trusting.
     ///
     /// That second guard is `tcl_family::argument_slots_are_readable`,
     /// which asks the *slots* rather than the owner — asking
     /// [`Node::has_error`] of the command withdrew every value slot of a
     /// command whose only error sat inside one of its script arguments.
-    /// Its doc carries the measurement.
+    /// Its doc carries the measurement. A list *longer* than the
+    /// signature admits is the second way to be unreadable, and
+    /// `tcl_family::ScriptSlots::LastOf` is where that one lives.
+    ///
+    /// A `try … trap` clause is out of reach only where the grammar
+    /// wraps it: inside a `proc` or a `namespace eval` body the Tcl
+    /// grammar recovers into an `ERROR` node and no role signal
+    /// survives, but at the top level the same clause parses as a plain
+    /// `trap` command whose slots this does read. An earlier revision
+    /// of this paragraph said "the multi-line `try … trap` clause" was
+    /// out of reach outright, which is where the `finally` defect
+    /// `LastOf` now guards hid (#1382 review).
     ///
     /// [`Node::has_error`]: crate::Node::has_error
+    /// [`is_braced_script_word`]: Self::is_braced_script_word
     /// [`is_value_braced_word`]: Self::is_value_braced_word
     /// [`is_switch_arm`]: Self::is_switch_arm
     #[must_use]
@@ -945,6 +1021,17 @@ pub trait Getter {
     /// `lappend x {a b}`, `puts {c d}`, and every user proc taking a
     /// list.
     ///
+    /// The role is [`is_braced_script_word`], the same predicate
+    /// `Checker::is_string_with_code` and `Alterator::keeps_children`
+    /// ask, so the three classifiers answer one question about one set
+    /// of bytes (grammar-dispatch §7). That was not so between #1318
+    /// and #1382: this call site asked [`is_value_braced_word`] alone
+    /// and billed a `{}` for the value slots of a script-taking
+    /// command, which the other two had called literals since #1381.
+    /// The exception, and what closing it moved, is recorded on
+    /// [`is_braced_script_word`], which owns the §7 story for all five
+    /// call sites.
+    ///
     /// **It revises the operator only, and deliberately leaves the
     /// words inside a value alone.** Suppressing them too would make
     /// `lappend x {a b}` score like its `set x {a b}` synonym, which
@@ -958,22 +1045,40 @@ pub trait Getter {
     /// collapsing into a single operand, and `halstead.effort` — a
     /// gated threshold metric — collapsing with them. So the rule only
     /// ever withdraws a claim the classifier cannot support; it never
-    /// discards code the walk has already read. The residual is the
-    /// asymmetry the issue opens with: a braced value scores one
-    /// operand where the grammar names it (`set`) and one per word
-    /// where only the command name would (`lappend`). Closing that
-    /// needs a signal neither grammar gives — filed as #1382.
+    /// discards code the walk has already read.
+    ///
+    /// The residual is the asymmetry #1382 opens with, and it is the
+    /// **contract**, not an outstanding defect: a braced value scores
+    /// one operand where the grammar names the command (`set x {a b}`)
+    /// and one per word where only the command name would
+    /// (`lappend x {a b}`). #1382 weighed the two ways of closing it
+    /// and took neither. Reading the *contents* — no substitution, no
+    /// nested block, therefore list-like — is the measurement above,
+    /// already taken and already rejected. Widening the one-operand
+    /// treatment to a *value*-taking command list needs the mirror of
+    /// `SCRIPT_TAKING_COMMANDS`, and that set is open where this one is
+    /// closed: every user proc is in it, so the list is incomplete by
+    /// construction and would leave three behaviours where there are
+    /// two. Both trade a bounded over-report of the operand vocabulary
+    /// for an unbounded loss of real code, which is the trade the
+    /// paragraph above declines.
     ///
     /// Keeping to the operator also keeps the whole thing cheap: only
     /// a braced word's own opener can change answer, so the test is one
     /// kind comparison and one parent lookup, the same scope #1354 and
-    /// #1314 use — with the single exception of a `switch` arm
-    /// command, where [`is_switch_arm_body`] needs the word's index
-    /// among that command's arguments, an `O(log n)` cursor lookup. An
+    /// #1314 use. Two lookups are `O(log n)` rather than `O(1)`, both
+    /// cursor seeks by byte and both reached only from a *command whose
+    /// name resolves*: [`is_switch_arm_body`] needs a `switch` arm
+    /// word's index among its command's arguments, and — since #1382 —
+    /// [`is_braced_literal_slot`] needs the same index to place a word
+    /// against the layout `lang_helpers::tcl_family` records. An
     /// ancestor scan would have been `O(depth)` per node and quadratic
     /// on a deeply nested `expr`, the shape #1122 warns about.
     ///
+    /// [`is_braced_literal_slot`]: Self::is_braced_literal_slot
+    /// [`is_braced_script_word`]: Self::is_braced_script_word
     /// [`is_switch_arm_body`]: Self::is_switch_arm_body
+    /// [`is_value_braced_word`]: Self::is_value_braced_word
     ///
     /// [`get_op_type`]: Self::get_op_type
     #[must_use]
@@ -997,7 +1102,7 @@ pub trait Getter {
         }
         let quotes_a_literal = ancestors.iter(node).next().is_some_and(|(parent, above)| {
             parent.kind_id() == kinds.script
-                && Self::is_value_braced_word(&parent, code, above, kinds)
+                && !Self::is_braced_script_word(&parent, code, above, kinds)
         });
         if quotes_a_literal {
             TokenRole::Unknown
@@ -1332,18 +1437,64 @@ mod braced_slot_tests {
     /// of the argument list *does* shift every argument after it, so the
     /// construct-wide answer is the right one there.
     ///
-    /// `on code varList script` reads its script from the last slot, and
-    /// the stray `]` takes a slot of its own — so `{v}` is no longer the
-    /// second of three and the layout cannot be trusted. Without this row
-    /// the guard could be deleted outright and the test above would still
-    /// pass.
+    /// `on code varList script` reads its slots by position, and the
+    /// stray `]` takes one of its own — so `{code}` is no longer
+    /// followed by the variable list the signature puts there and the
+    /// layout cannot be trusted. Without this row the guard could be
+    /// deleted outright and the test above would still pass.
+    ///
+    /// The fixture keeps the clause's three arguments deliberately: the
+    /// `]` replaces the variable list rather than joining it, so
+    /// `ScriptSlots::LastOf`'s arity rule still admits the list and
+    /// `argument_slots_are_readable` is the only guard that can reject
+    /// it. A four-argument spelling would be rejected twice over and
+    /// this row would stop naming which guard it tests (#1382 review).
+    ///
+    /// The well-formed row is what keeps the empty one from passing
+    /// vacuously: `on` reaching the slot table at all is what makes the
+    /// error row's emptiness mean something, and dropping that row from
+    /// `SCRIPT_TAKING_COMMANDS` empties both. The siblings either side
+    /// of this test anchor the same way.
     #[test]
     #[cfg(feature = "tcl")]
     fn an_error_occupying_a_slot_withdraws_the_layout() {
+        assert_eq!(
+            value_slot_texts(b"on {code} {v} {puts j}\n"),
+            ["{code}", "{v}"],
+            "the fixture must spell two value slots before the error \
+             takes one of their places"
+        );
         assert!(
-            value_slot_texts(b"on {code} ] {v} {puts j}\n").is_empty(),
+            value_slot_texts(b"on {code} ] {puts j}\n").is_empty(),
             "an ERROR token in the argument list makes every position \
              unreadable"
+        );
+    }
+
+    /// The third way a layout stops being readable: the grammar groups
+    /// a *following* clause into this one, so the list is longer than
+    /// the signature admits (#1382 review).
+    ///
+    /// Tcl models neither `on` nor `trap` outside a `try`, so a
+    /// top-level `try … trap … finally` parses the whole tail as one
+    /// generic `trap` command — `p v b finally c`. Reading "the script
+    /// is the last argument" off that names the `finally` body and
+    /// calls the handler body a value, which withdraws the `{}` of a
+    /// real block and flattens it out of the dump. Both rows run the
+    /// same clause, so the second cannot pass by the fixture having
+    /// stopped spelling a value slot at all.
+    #[test]
+    #[cfg(feature = "tcl")]
+    fn a_handler_clause_of_the_wrong_arity_withdraws_the_layout() {
+        assert_eq!(
+            value_slot_texts(b"try {puts a} trap {p} {v} {puts b}\n"),
+            ["{p}", "{v}"],
+            "a three-argument `trap` clause spells two value slots"
+        );
+        assert!(
+            value_slot_texts(b"try {puts a} trap {p} {v} {puts b} finally {puts c}\n").is_empty(),
+            "a trailing `finally` joins the same generic `trap` command, \
+             so no position in its argument list is trustworthy"
         );
     }
 

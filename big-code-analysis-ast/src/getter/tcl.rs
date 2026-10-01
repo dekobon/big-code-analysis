@@ -106,15 +106,16 @@ impl Getter for TclCode {
             // `Alterator::keeps_children` ask
             // `Getter::is_braced_script_word` — so `bca find --type
             // string` reports `lappend x {a b}`'s `{a b}` and not a
-            // `proc` body, agreeing with this arm. Three disagreements
-            // remain, each recorded where it lives: an interpolating
-            // `QuotedWord` is `Unknown` here and a string there, which
-            // predates #1354; an empty or comment-only script body is an
-            // operand here and not a string there; and the value slots
-            // `is_braced_literal_slot` recognises (`proc {my proc}`,
-            // `namespace export {…}`) are strings there while
-            // `get_op_type_with_code` still bills their `{` as a block —
-            // the third is #1382, whose measurement decides it.
+            // `proc` body, agreeing with this arm. Since #1382 the two
+            // also agree on the value slots of a script-taking command
+            // (`proc {my proc}`, `after {100} {…}`,
+            // `namespace export {…}`): `get_op_type_with_code` asks the
+            // same `Getter::is_braced_script_word` and no longer bills
+            // their `{` as a block. Two disagreements remain, each
+            // recorded where it lives: an interpolating `QuotedWord` is
+            // `Unknown` here and a string there, which predates #1354;
+            // and an empty or comment-only script body is an operand
+            // here and not a string there.
             //
             // `Checker::is_call` needs no such follow-up. It calls
             // every `Command` a call, including the ones inside a value
