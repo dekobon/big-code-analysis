@@ -132,6 +132,11 @@ jobs:
           # comfortably inside GitHub's 65 536-character body cap, and
           # covers a routine quarter's drift whole.
           DIFF_LINE_CAP: 200
+          # Named once because the lookup below matches on it as well
+          # as creating with it. No run id: the issue outlives the run
+          # that opened it, and later runs comment on it rather than
+          # opening a second one.
+          ISSUE_TITLE: "Baseline freshness: .bca-baseline.toml no longer describes the tree"
         run: |
           set -euo pipefail
           {
@@ -181,17 +186,21 @@ jobs:
               echo "lines; the \`baseline-freshness\` artifact has the rest._"
             fi
           } > "${RUNNER_TEMP}/issue-body.md"
+          # Matched on label *and* title. `self-scan` is the label the
+          # threshold gate's own issues would carry, so the label alone
+          # could hand this quarter's diff to an unrelated open issue;
+          # the title is this job's and nobody else's. `env.ISSUE_TITLE`
+          # is read by gh's embedded jq, so the string is not spliced
+          # into the filter.
           existing=$(gh issue list --state open --label "self-scan" \
-            --json number --jq '.[0].number // empty')
+            --json number,title \
+            --jq 'first(.[] | select(.title == env.ISSUE_TITLE) | .number) // empty')
           if [ -n "$existing" ]; then
             echo "Commenting on the open staleness issue #${existing}."
             gh issue comment "$existing" --body-file "${RUNNER_TEMP}/issue-body.md"
           else
-            # No run id in the title: the issue outlives the run that
-            # opened it, and later runs comment on it rather than
-            # opening a second one.
             gh issue create \
-              --title "Baseline freshness: .bca-baseline.toml no longer describes the tree" \
+              --title "${ISSUE_TITLE}" \
               --label "self-scan" \
               --body-file "${RUNNER_TEMP}/issue-body.md"
           fi

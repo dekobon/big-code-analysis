@@ -36,7 +36,8 @@ The job:
 4. Uploads both baselines and the diff as the `baseline-freshness`
    artifact (90-day retention).
 5. On a non-empty diff, fails the job and opens — or comments on — a
-   GitHub issue labelled `self-scan`.
+   GitHub issue labelled `self-scan` and titled
+   `Baseline freshness: .bca-baseline.toml no longer describes the tree`.
 
 It needs `issues: write` and `GITHUB_TOKEN`; no other secrets.
 
@@ -47,9 +48,12 @@ unconditionally, with the run id in the title, because each reports a
 fresh measurement. A stale baseline is not a measurement: it persists
 until someone commits a refresh, so an unconditional create would open
 one issue per quarter for the same unfixed file. This job looks for an
-open issue labelled `self-scan` first and comments on it with the
-current diff when there is one. The title therefore carries no run id —
-the issue outlives the run that opened it.
+open issue carrying both the `self-scan` label and its own title first,
+and comments on it with the current diff when there is one. The title
+therefore carries no run id — the issue outlives the run that opened it
+— and it is part of the match, not just the label: `self-scan` is the
+label a threshold-gate finding would carry too, so matching on the label
+alone could hand a quarter's diff to an unrelated open issue.
 
 ## Why `diff-baseline` and not `git diff` {#why-diff-baseline}
 
