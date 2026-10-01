@@ -351,9 +351,11 @@ recipe that wrote the committed one — the job pins that recipe, so a
 tier change has to land in both places — diffs the two with `bca
 diff-baseline --exit-code`, and files a labelled issue naming what
 moved. `diff-baseline` rather than `git diff`, because the latter
-reports a moved `start_line` as staleness; a label lookup before filing,
-because a stale baseline persists until someone commits a refresh and an
-unconditional file would open one issue per quarter for the same entry.
+reports a moved `start_line` as staleness; a lookup by label *and* title
+before filing, because a stale baseline persists until someone commits a
+refresh and an unconditional file would open one issue per quarter for
+the same entry — and the label alone is shared with other findings, so
+it is the fixed title that keeps the comment on the right issue.
 Nothing is gated on the result — the tree is fine, the file describing
 it has aged.
 
