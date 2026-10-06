@@ -75,7 +75,7 @@ fn test_guess_file_no_file_name() {
     let all_files: HashMap<String, Vec<PathBuf>> = HashMap::new();
     let current = Path::new("/some/file.c");
     let result = guess_file(current, "..", &all_files);
-    assert!(result.is_empty());
+    assert_eq!(result, [] as [PathBuf; 0]);
 }
 
 /// Regression for issue #297: `#include "../foo.h"` from
@@ -868,7 +868,10 @@ fn resolve_against_parent_returns_none_when_no_parent() {
 fn min_distance_candidates_empty_returns_empty() {
     let possibilities: Vec<PathBuf> = vec![];
     let current = pb("src/main.c");
-    assert!(min_distance_candidates(&possibilities, &current).is_empty());
+    assert_eq!(
+        min_distance_candidates(&possibilities, &current),
+        [] as [PathBuf; 0]
+    );
 }
 
 #[test]
@@ -886,7 +889,10 @@ fn min_distance_candidates_excludes_current_path() {
     // [current]. This is the invariant that protects guess_file from
     // emitting `#include "main.c"` resolving to itself.
     let possibilities = vec![current.clone()];
-    assert!(min_distance_candidates(&possibilities, &current).is_empty());
+    assert_eq!(
+        min_distance_candidates(&possibilities, &current),
+        [] as [PathBuf; 0]
+    );
 }
 
 #[test]

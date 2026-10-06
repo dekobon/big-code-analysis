@@ -51,7 +51,7 @@ workspace = true
 [dev-dependencies]
 assert_cmd = "^2.0"
 csv.workspace = true
-insta = "1.29.0"
+insta = "1.49.0"
 jsonschema = "^0.49"
 predicates = "^3.0"
 quick-xml = "^0.41"

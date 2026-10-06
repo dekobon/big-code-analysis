@@ -318,8 +318,7 @@ fn json_omitted_sections_are_null_not_empty() {
     };
     let out = report.render(OutputFormat::Json, "").expect("json render");
     let v: Value = serde_json::from_str(&out).expect("valid JSON");
-    assert!(v["suppressions"]["markers"].is_array());
-    assert!(v["suppressions"]["markers"].as_array().unwrap().is_empty());
+    assert_eq!(v["suppressions"]["markers"], serde_json::json!([]));
     assert!(v["suppressions"]["excludes"].is_null());
     assert!(v["suppressions"]["baseline"].is_null());
 }

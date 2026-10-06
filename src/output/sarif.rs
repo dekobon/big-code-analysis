@@ -447,17 +447,10 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
         assert_eq!(v["version"], "2.1.0");
         assert_eq!(v["runs"][0]["tool"]["driver"]["name"], "big-code-analysis");
-        assert!(
-            v["runs"][0]["results"]
-                .as_array()
-                .expect("array")
-                .is_empty()
-        );
-        assert!(
-            v["runs"][0]["tool"]["driver"]["rules"]
-                .as_array()
-                .expect("array")
-                .is_empty()
+        assert_eq!(v["runs"][0]["results"], serde_json::json!([]));
+        assert_eq!(
+            v["runs"][0]["tool"]["driver"]["rules"],
+            serde_json::json!([])
         );
     }
 

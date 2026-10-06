@@ -74,7 +74,7 @@ fn consecutive_empty_markers_emit_nothing() {
     buffer(&mut pending, 0, None);
     buffer(&mut pending, 1, None);
 
-    assert!(ready(&mut pending).is_empty());
+    assert_eq!(ready(&mut pending), [] as [String; 0]);
     assert_eq!(pending.next, 2);
 }
 

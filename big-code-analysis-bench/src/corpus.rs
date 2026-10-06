@@ -327,7 +327,7 @@ mod tests {
     fn absent_roots_produce_an_empty_slice() {
         let slice = CorpusSlice::from_roots(&[PathBuf::from("/nonexistent/corpus/root")]);
         assert!(slice.is_empty());
-        assert!(slice.roots.is_empty());
+        assert_eq!(slice.roots, [] as [PathBuf; 0]);
         assert_eq!(slice.total_bytes(), 0);
         assert!(
             slice.summary().contains("empty"),

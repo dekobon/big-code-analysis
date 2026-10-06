@@ -490,7 +490,11 @@ fn vcs_emit_author_details_controls_author_ids() {
     assert!(ids(&[]).is_none(), "author_ids key absent by default");
     let with = ids(&["--emit-author-details"]).expect("author_ids present under the flag");
     let arr = with.as_array().expect("author_ids is an array");
-    assert!(!arr.is_empty());
+    assert_ne!(
+        arr,
+        &[] as &[serde_json::Value; 0],
+        "author_ids lists at least one id under the flag"
+    );
     assert!(
         arr[0].as_str().is_some_and(|h| h.len() == 64),
         "SHA-256 hex"

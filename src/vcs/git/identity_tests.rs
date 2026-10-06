@@ -95,12 +95,12 @@ fn single_paragraph_trailer_only_message_is_counted() {
 #[test]
 fn ordinary_single_author_message_yields_no_coauthor() {
     let msg = "just a normal commit\n\nwith a body paragraph that explains why.";
-    assert!(coauthor_emails(msg).is_empty());
+    assert_eq!(coauthor_emails(msg), [] as [String; 0]);
 }
 
 #[test]
 fn empty_message_yields_no_coauthor() {
-    assert!(coauthor_emails("").is_empty());
+    assert_eq!(coauthor_emails(""), [] as [String; 0]);
 }
 
 /// Issue #817: `push_if_human` must drop a keyless author so distinct

@@ -531,7 +531,7 @@ fn merge_sorted_ids_yields_one_sorted_copy_of_each_id() {
     assert_eq!(out, vec![2, 7]);
     // Both empty: the leaf case every closure bottoms out in.
     merge_sorted_ids(&[], &[], &mut out);
-    assert!(out.is_empty());
+    assert_eq!(out, [] as [usize; 0]);
 }
 
 /// The scratch buffer the fold reuses is cleared by `merge_sorted_ids`
@@ -792,7 +792,10 @@ fn the_closure_is_computed_once_for_the_whole_graph() {
             all_files.insert(name.to_string(), vec![PathBuf::from(name)]);
         }
 
-        assert!(fix_includes(&mut files, &all_files).is_empty());
+        assert_eq!(
+            fix_includes(&mut files, &all_files),
+            [] as [PreprocDiagnostic; 0]
+        );
         // The closure is right, and it took one pass to get there.
         assert_eq!(
             files
@@ -834,7 +837,10 @@ fn visible_macros_borrows_exactly_what_get_macros_owns() {
         for name in ["a.h", "b.h", "c.h"] {
             all_files.insert(name.to_string(), vec![PathBuf::from(name)]);
         }
-        assert!(fix_includes(&mut files, &all_files).is_empty());
+        assert_eq!(
+            fix_includes(&mut files, &all_files),
+            [] as [PreprocDiagnostic; 0]
+        );
 
         let borrowed = visible_macros(&root, &files);
         // `FROM_C` is two hops away, so a closure that stopped at the

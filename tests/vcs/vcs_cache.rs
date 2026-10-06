@@ -529,7 +529,7 @@ fn cached_and_uncached_agree_under_emit_author_details() {
         .iter()
         .find_map(|(_, stats)| stats.author_ids.as_ref())
         .expect("some file emitted author ids");
-    assert!(!stats.is_empty());
+    assert_ne!(stats, &[] as &[String; 0], "author ids were emitted");
     // The emitted ids are full SHA-256 hex digests (64 chars), confirming
     // the cache stored digests and replay reproduced them verbatim — not
     // some truncated or double-hashed form.

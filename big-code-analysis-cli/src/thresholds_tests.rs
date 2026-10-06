@@ -874,7 +874,10 @@ fn closest_metric_names_returns_empty_for_very_short_input() {
     // produce no suggestion. Without this, every short candidate
     // would match by trivial substitution.
     let names = known_metric_names();
-    assert!(crate::threshold_suggestion::closest_names("z", &names).is_empty());
+    assert_eq!(
+        crate::threshold_suggestion::closest_names("z", &names),
+        [] as [&str; 0]
+    );
 }
 
 #[test]

@@ -361,7 +361,7 @@ workspace = true
 big-code-analysis-ast = { path = "big-code-analysis-ast", version = "=2.2.1", default-features = false, features = [
   "test-support",
 ] }
-insta = { version = "1.29.0", features = ["yaml", "json", "redactions"] }
+insta = { version = "1.49.0", features = ["yaml", "json", "redactions"] }
 jsonschema = "^0.49"
 tempfile.workspace = true
 quick-xml = "^0.41"

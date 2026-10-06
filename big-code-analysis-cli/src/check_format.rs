@@ -876,7 +876,7 @@ mod tests {
         let mut buf = Vec::new();
         write_github_annotations(&mut buf, std::iter::empty(), DEFAULT_GITHUB_ANNOTATION_CAP)
             .expect("write");
-        assert!(buf.is_empty());
+        assert_eq!(String::from_utf8_lossy(&buf), "");
     }
 
     #[cfg(unix)]
