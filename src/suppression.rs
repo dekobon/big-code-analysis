@@ -1088,7 +1088,7 @@ mod tests {
         // allow documentation comments to mention the namespace.
         let scan = parse_marker("// bca:");
         assert_eq!(scan.suppression, None);
-        assert!(scan.diagnostics.is_empty());
+        assert_eq!(scan.diagnostics, [] as [SuppressionError; 0]);
     }
 
     #[test]
@@ -1614,8 +1614,8 @@ mod tests {
     #[cfg(feature = "rust")]
     #[test]
     fn collector_empty_source_yields_no_markers() {
-        assert!(rust_markers("").is_empty());
-        assert!(rust_markers("fn f() {}\n").is_empty());
+        assert_eq!(rust_markers(""), [] as [SuppressionMarker; 0]);
+        assert_eq!(rust_markers("fn f() {}\n"), [] as [SuppressionMarker; 0]);
     }
 
     /// A comment that yields no directive contributes nothing to the

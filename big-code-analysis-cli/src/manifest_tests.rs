@@ -494,7 +494,10 @@ fn sub_table_typos_are_flagged_with_qualified_name() {
     );
     // `[thresholds]` is validated separately (`split_thresholds_table`),
     // so its keys are deliberately not walked here.
-    assert!(unknown_sub_table_keys("[thresholds]\nbogus = 1\n").is_empty());
+    assert_eq!(
+        unknown_sub_table_keys("[thresholds]\nbogus = 1\n"),
+        [] as [String; 0]
+    );
 }
 
 /// `[report] no_suppress = true` enables the audit view when the CLI
@@ -743,5 +746,8 @@ fn vcs_is_a_known_manifest_key() {
     // A `[vcs]` table must not draw the "ignoring unrecognized key"
     // warning (the #409 regression class): every consumed key is listed
     // in KNOWN_KEYS.
-    assert!(unknown_top_level_keys("[vcs]\nfile_types = \"all\"\n").is_empty());
+    assert_eq!(
+        unknown_top_level_keys("[vcs]\nfile_types = \"all\"\n"),
+        [] as [String; 0]
+    );
 }

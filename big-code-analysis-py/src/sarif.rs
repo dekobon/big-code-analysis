@@ -847,7 +847,7 @@ mod tests {
         let len = names.len();
         names.dedup();
         assert_eq!(names.len(), len, "metric fields table has duplicates");
-        assert!(!names.is_empty());
+        assert_ne!(names, [] as [&str; 0], "metric fields table is empty");
         for entry in METRIC_FIELDS {
             assert!(
                 !entry.path.is_empty(),

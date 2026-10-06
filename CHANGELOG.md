@@ -228,6 +228,17 @@ for historical reference.
 
 ### Fixed
 
+- **The workspace builds clean under Rust 1.99's clippy.** Two new
+  diagnostics turned every `-D warnings` CI job red the day the
+  toolchain floated: `clippy::assert_is_empty` (pedantic) wants
+  `assert_eq!(x, [] as [T; 0])` in place of `assert!(x.is_empty())` so
+  a failure shows the offending contents — 27 test assertions across
+  17 files now do that — and the future-incompatibility lint
+  `semicolon_in_expressions_from_non_local_macros` fired on every
+  closure-position `insta::assert_json_snapshot!` because insta 1.48's
+  macro ended in a stray `;`. insta 1.49.0 drops it, so both
+  dev-dependency floors move from `1.29.0` to `1.49.0`; nothing in the
+  published library changes.
 - **A Tcl or iRules braced *value* passed to a script-taking command
   no longer reports a `{}` operator** (#1382). #1318 decided the role
   of a braced word by the enclosing command's name, which is the whole

@@ -689,9 +689,9 @@ mod tests {
         // `.h` stays on `Cpp` (decision-log #1: asymmetric failure modes).
         assert_eq!(get_from_ext("h"), Some(LANG::Cpp));
         // The fork claims zero extensions.
-        assert!(LANG::Mozcpp.extensions().is_empty());
-        assert!(
-            !LANG::into_enum_iter().any(|l| l == LANG::Mozcpp && !l.extensions().is_empty()),
+        assert_eq!(
+            LANG::Mozcpp.extensions(),
+            [] as [&str; 0],
             "Mozcpp must own no file extension"
         );
     }

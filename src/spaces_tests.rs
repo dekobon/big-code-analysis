@@ -2757,7 +2757,7 @@ mod nameless_construct_spaces {
         // inner lambda's space sits inside the outer's, not beside it.
         assert_eq!(root.spaces.len(), 1);
         assert_eq!(root.spaces[0].spaces.len(), 1);
-        assert!(root.spaces[0].spaces[0].spaces.is_empty());
+        assert_eq!(root.spaces[0].spaces[0].spaces, [] as [crate::FuncSpace; 0]);
     }
 
     /// Sibling constructs with the same synthesised name are allowed to

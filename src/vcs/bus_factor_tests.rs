@@ -38,7 +38,7 @@ fn schema_version_is_pinned() {
 fn empty_input_yields_zero_everywhere() {
     let bf = compute(&[], DEFAULT_COVERAGE_THRESHOLD, false, None);
     assert_eq!(bf.repo, GroupBusFactor::default());
-    assert!(bf.by_directory.is_empty());
+    assert_eq!(bf.by_directory, [] as [DirectoryBusFactor; 0]);
 }
 
 #[test]
@@ -253,7 +253,7 @@ fn doa_rises_with_first_authorship_and_deliveries_falls_with_accepted() {
 
 #[test]
 fn directory_keys_cover_depth_one_and_two_only() {
-    assert!(directory_keys(Path::new("README.md")).is_empty());
+    assert_eq!(directory_keys(Path::new("README.md")), [] as [PathBuf; 0]);
     assert_eq!(
         directory_keys(Path::new("src/lib.rs")),
         vec![PathBuf::from("src")]
