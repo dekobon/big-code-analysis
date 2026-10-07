@@ -215,6 +215,13 @@ impl AuthorHashKey {
         // it per RFC 2104), so it is infallible here; the `expect`
         // documents that provably-unreachable invariant (AGENTS.md permits
         // it for such cases).
+        //
+        // CodeQL's rust/hard-coded-cryptographic-value flags `self.key` as
+        // fed by the `SECONDS_PER_*` window constants in `vcs/options.rs`
+        // (alerts #799-#803). That is field-insensitive taint through
+        // `Options`: the constants only reach the `*_window_secs` fields,
+        // and `self.key` is only ever built by `AuthorHashKey::new` from
+        // caller-supplied bytes. Dismissed as a false positive.
         let mut mac =
             Hmac::<Sha256>::new_from_slice(&self.key).expect("HMAC accepts a key of any length");
         mac.update(digest_hex.as_bytes());
