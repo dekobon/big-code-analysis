@@ -1360,6 +1360,14 @@ for historical reference.
   complete a handshake. `rustls` is a dev-only transitive dependency
   here (`jsonschema` → `reqwest`), reached by no shipped code path;
   the bump keeps the `cargo-deny` advisories gate green.
+- Cleared RUSTSEC-2026-0306 by moving `faster-hex` `0.10.0` → `0.10.1`
+  in the workspace lockfile. On x86 / x86_64 with AVX2, the safe
+  `faster_hex::hex_decode_unchecked` could read past the end of a short
+  `src` buffer. `faster-hex` ships in `bca` through `gix-hash`, which
+  calls only the length-checked `hex_decode` / `hex_encode`, so no
+  shipped code path reached the unsound function. `cargo-deny` missed
+  the advisory because its default `unsound` scope covers direct
+  dependencies only; `deny.toml` now sets `unsound = "all"`.
 
 ## [2.2.0] - 2026-08-29
 

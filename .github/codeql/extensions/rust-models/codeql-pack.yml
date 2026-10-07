@@ -1,0 +1,9 @@
+# Repository-local CodeQL model pack. Code scanning picks up any pack under
+# .github/codeql/extensions automatically, in default and advanced setup.
+name: dekobon/big-code-analysis-rust-models
+version: 0.0.1
+library: true
+extensionTargets:
+  codeql/rust-all: "*"
+dataExtensions:
+  - models/**/*.yml

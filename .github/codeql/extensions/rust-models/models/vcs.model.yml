@@ -1,0 +1,17 @@
+# CodeQL's Rust taint tracking is field-insensitive on a struct: writing a
+# tainted value into one field taints the whole value, and reading any field
+# of a tainted value is tainted. Options carries both the parsed window
+# lengths (integer constants, which rust/hard-coded-cryptographic-value treats
+# as sources) and the HMAC author_hash_key, so every window constant was
+# reported as a hard-coded HMAC key (alerts #799-#803).
+#
+# Excluding the field removes only that read shortcut. A store into
+# author_hash_key followed by a read of it is ordinary field-sensitive value
+# flow, so a literal really stored there should still be reported (reasoned
+# from the taint-step definitions, not probed).
+extensions:
+  - addsTo:
+      pack: codeql/rust-all
+      extensible: excludeFieldTaintStep
+    data:
+      - ["big_code_analysis::vcs::options::Options::author_hash_key"]

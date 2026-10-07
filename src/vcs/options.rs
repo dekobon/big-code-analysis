@@ -231,6 +231,10 @@ pub struct Options {
     /// itself), so it never enters the persistent-cache fingerprint: the
     /// same cached walk re-finalizes under any key without a re-walk (see
     /// [`AuthorId::emit_hashed`](super::identity::AuthorId::emit_hashed)).
+    //
+    // Named by path in .github/codeql/extensions/rust-models: a rename or
+    // move must update that model, or CodeQL again reports every window
+    // constant as a hard-coded HMAC key (alerts #799-#803).
     pub author_hash_key: Option<AuthorHashKey>,
     /// Emit stats for files deleted at the target ref (default: off).
     pub include_deleted: bool,
