@@ -11,6 +11,11 @@ all-features = true
 version = 2
 yanked = "deny"
 ignore = []
+# The default scope ("workspace") reports an unsound advisory only for a
+# direct dependency, so RUSTSEC-2026-0306 in `faster-hex` (reached through
+# gix-hash) passed this gate for weeks and surfaced only via the Scorecard
+# Vulnerabilities check. Unsound code anywhere in the graph ships in `bca`.
+unsound = "all"
 
 [licenses]
 version = 2
