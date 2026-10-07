@@ -13,7 +13,7 @@ To use this crate, add it to the `[dependencies]` section of your
 ``` toml
 [dependencies]
 tree-sitter = "0.26"
-bca-tree-sitter-mozjs = "2.2"
+bca-tree-sitter-mozjs = "2.3"
 ```
 
 Typically, you will use the [language][language func] function to add this

@@ -24,6 +24,14 @@ for historical reference.
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-10-07
+
+This release adds a ninth published crate, `big-code-analysis-ast`,
+which now holds the parse and classification layer; depend on
+`big-code-analysis` as before, not on it directly. Several entries under
+**Fixed** change metric values for valid input, each noted where it
+lands. Nothing here is a source-level break.
+
 ### Added
 
 - A quarterly `baseline-freshness` workflow (#1473) that regenerates
@@ -10041,7 +10049,8 @@ Halstead scores, and MI stay `f64`. No value changes — only the type.
 [Unreleased] link to `vX.Y.Z...HEAD` and add a `[X.Y.Z]:` line
 pointing at `<prev-tag>...vX.Y.Z`. -->
 
-[Unreleased]: https://github.com/dekobon/big-code-analysis/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/dekobon/big-code-analysis/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/dekobon/big-code-analysis/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/dekobon/big-code-analysis/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/dekobon/big-code-analysis/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/dekobon/big-code-analysis/compare/v1.1.0...v2.0.0

@@ -47,7 +47,7 @@ exclude = [
 ]
 
 [workspace.package]
-version = "2.2.1"
+version = "2.3.0"
 edition = "2024"
 rust-version = "1.94"
 license = "MPL-2.0"
@@ -98,11 +98,11 @@ tree-sitter-c = "=0.24.2"
 # Rationale and the rejected alternatives live on the umbrella
 # issue (dekobon/big-code-analysis#149); the operational details
 # (publish order, first-bootstrap workflow) live in `RELEASING.md`.
-tree-sitter-ccomment = { package = "bca-tree-sitter-ccomment", path = "./tree-sitter-ccomment", version = "=2.2.1" }
-tree-sitter-mozcpp = { package = "bca-tree-sitter-mozcpp", path = "./tree-sitter-mozcpp", version = "=2.2.1" }
-tree-sitter-mozjs = { package = "bca-tree-sitter-mozjs", path = "./tree-sitter-mozjs", version = "=2.2.1" }
-tree-sitter-preproc = { package = "bca-tree-sitter-preproc", path = "./tree-sitter-preproc", version = "=2.2.1" }
-tree-sitter-tcl = { package = "bca-tree-sitter-tcl", path = "./tree-sitter-tcl", version = "=2.2.1" }
+tree-sitter-ccomment = { package = "bca-tree-sitter-ccomment", path = "./tree-sitter-ccomment", version = "=2.3.0" }
+tree-sitter-mozcpp = { package = "bca-tree-sitter-mozcpp", path = "./tree-sitter-mozcpp", version = "=2.3.0" }
+tree-sitter-mozjs = { package = "bca-tree-sitter-mozjs", path = "./tree-sitter-mozjs", version = "=2.3.0" }
+tree-sitter-preproc = { package = "bca-tree-sitter-preproc", path = "./tree-sitter-preproc", version = "=2.3.0" }
+tree-sitter-tcl = { package = "bca-tree-sitter-tcl", path = "./tree-sitter-tcl", version = "=2.3.0" }
 
 # PyO3 powers the `big-code-analysis-py` cdylib. Pinned to a major
 # series; bumping is a deliberate, separate change because the Bound
@@ -247,7 +247,7 @@ tree-sitter.workspace = true
 # the C preprocessor pass. Version-locked like the vendored grammar leaves;
 # the per-language features below forward to it, so a `--features rust`
 # build of this crate still links exactly one grammar.
-big-code-analysis-ast = { path = "big-code-analysis-ast", version = "=2.2.1", default-features = false }
+big-code-analysis-ast = { path = "big-code-analysis-ast", version = "=2.3.0", default-features = false }
 
 # Per-language Cargo features. `default = ["all-languages"]` keeps the
 # library's historical "every grammar compiled in" behaviour for
@@ -358,7 +358,7 @@ workspace = true
 # `javascript` was off while the parse layer's was on. The language
 # features come from the normal dependency above; this entry adds only
 # `test-support`.
-big-code-analysis-ast = { path = "big-code-analysis-ast", version = "=2.2.1", default-features = false, features = [
+big-code-analysis-ast = { path = "big-code-analysis-ast", version = "=2.3.0", default-features = false, features = [
   "test-support",
 ] }
 insta = { version = "1.49.0", features = ["yaml", "json", "redactions"] }
