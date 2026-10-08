@@ -382,9 +382,9 @@ Both tap and bucket repos must exist and accept the configured PAT.
 
 ### crates.io ownership
 
-Before the first automated publish you must manually claim **all nine
-crate names**: the five `bca-tree-sitter-*` leaves plus the four
-top-level crates. The `publish-crates` job in `release.yml` uses
+Before the first automated publish you must manually claim **every
+publishable crate name**: the five `bca-tree-sitter-*` leaves plus the
+four top-level crates. The `publish-crates` job in `release.yml` uses
 Trusted Publishing which requires the crate to exist before TP can be
 registered, so the very first publish has to be a hand-rolled
 `cargo publish` from your workstation.
@@ -434,7 +434,7 @@ registered, so the very first publish has to be a hand-rolled
 
 3. **Publish leaf-first, with rate-limit pacing.** crates.io
    rate-limits **new** crates at roughly one per ten minutes after
-   a short burst. Publishing all eight in a single pass will trip
+   a short burst. Publishing every crate in a single pass will trip
    the limit; the second-half publishes return `429 Too Many
    Requests` with an explicit `try again after <timestamp>` hint.
    The simplest workaround is to retry on a loop:
@@ -459,12 +459,12 @@ registered, so the very first publish has to be a hand-rolled
    until cargo publish -p big-code-analysis-web --locked; do sleep 60; done
    ```
 
-   After all eight crates are on the registry, the `publish-crates`
+   After every crate is on the registry, the `publish-crates`
    job's idempotency check makes it a no-op for any tag at the same
    version.
 
 4. **Add additional owners.** `cargo owner --add <github-handle>
-   <crate>` for each of the eight crates. A single-owner crate is
+   <crate>` for each crate. A single-owner crate is
    one forgotten password away from being orphaned. If you have a
    GitHub team, use `github:<org>:<team>`.
 
@@ -489,7 +489,7 @@ one-time setup steps are required on top of the
    The name must match the TP registration exactly; a typo here is
    the most common self-inflicted failure mode.
 
-2. **Register a Trusted Publisher for each of the nine crates.**
+2. **Register a Trusted Publisher for each publishable crate.**
    On crates.io, open the settings page for each of the five
    `bca-tree-sitter-*` leaves, `big-code-analysis-ast`, `big-code-analysis`,
    `big-code-analysis-cli`, and `big-code-analysis-web`. In the
@@ -513,6 +513,73 @@ one-time setup steps are required on top of the
    via `workflow_dispatch`. The first non-prerelease tag after the
    cutover, with `ENABLE_CRATES_PUBLISH=true`, is the real
    end-to-end test. Watch the `auth` step logs.
+
+### Adding a publishable crate
+
+A crate published for the first time in a later release cannot follow
+the [crates.io ownership](#cratesio-ownership) loop above, because
+crates.io refuses both halves of it:
+
+- The `publish-crates` job cannot create the crate. A Trusted Publishing
+  token gets `403 Forbidden: Trusted Publishing tokens do not support
+  creating new crates. Publish the crate manually, first`.
+- You cannot publish the existing crates by hand to get ahead of it.
+  The `bca-tree-sitter-*` leaves accept new versions only through
+  Trusted Publishing, so a personal token gets `403 Forbidden: New
+  versions of this crate can only be published using Trusted
+  Publishing`.
+
+A new crate that pins the leaves at `=<version>` cannot be packaged
+until the leaves are on the registry at that version, and only the
+workflow can put them there. So you publish the new crate by hand
+partway through the release run. `big-code-analysis-ast` went out this
+way in 2.3.0.
+
+Before tagging:
+
+- Give the crate its own step in `publish-crates`, in dependency order,
+  copying the sparse-index existence check the neighbouring steps use.
+  Adjust the index URL: crates.io files a name of four or more
+  characters under `<first two>/<next two>/<name>`, so the `bi/g-/`
+  prefix fits only `big-*` names.
+- Add the crate everywhere this file names the existing crates. Search
+  for one (`rg -n 'big-code-analysis-ast' RELEASING.md`), add the new
+  crate beside each hit, and correct any crate count you pass.
+- Add the crate to the fixed lists in `utils/check-versions.py` that
+  apply to it: `INTERNAL_PIN_MANIFESTS` if its manifest pins internal
+  crates at `=X.Y.Z`, `EXCLUDED_LEAF_DIRS` if it is a vendored grammar
+  crate excluded from the workspace, and `DOC_VERSION_FILES` if its
+  README carries an install snippet. The rest of that check, and all of
+  `make check-publish-metadata`, find workspace members on their own.
+
+On release day:
+
+1. Push the tag as usual. `publish-crates` publishes every crate ahead
+   of the new one, then packages and compiles the new crate, and its
+   upload fails with the first `403` above. Read that step's log to
+   confirm the failure is the upload and not the build.
+2. From a clean checkout of the tagged commit, log in with a personal
+   token carrying the `publish-new` scope (created at
+   <https://crates.io/settings/tokens>) and publish the new crate:
+
+   ```bash
+   cargo login
+   cargo publish -p <new-crate> --locked
+   ```
+
+3. Add a co-owner with `cargo owner --add`, and register the crate's
+   Trusted Publisher with the values in
+   [crates.io Trusted Publisher setup](#cratesio-trusted-publisher-setup).
+   Revoke the personal token and run `cargo logout`.
+4. Re-run the failed job with `gh run rerun <run-id> --failed`. The
+   existence checks skip every crate already on crates.io and publish
+   the rest.
+
+The run shows one red job until step 4. If the new crate fails to
+package, build, or upload after the crates ahead of it are published,
+those versions are irrevocable: fix the cause and release the next patch
+version, as [Fixing a broken release](#fixing-a-broken-release)
+describes.
 
 ## Bumping the version
 
@@ -752,6 +819,10 @@ not touch:
 Before tagging, on `main`:
 
 - [ ] All intended changes are merged and CI is green.
+- [ ] If this release publishes a crate for the first time, the
+      pre-tag steps in
+      [Adding a publishable crate](#adding-a-publishable-crate) are
+      done, and you have read its release-day steps.
 - [ ] Workspace version is bumped per
       [Bumping the version](#bumping-the-version): all
       `Cargo.toml` sites, plus a refreshed `Cargo.lock`.
@@ -942,11 +1013,11 @@ per-release flow, but skipping any of them on the cutover release
 turns into a foot-gun on the *next* release.
 
 - [ ] **crates.io ownership and Trusted Publisher.** For each of
-      the eight publishable crates (the five `bca-tree-sitter-*`
-      leaves, `big-code-analysis`, `big-code-analysis-cli`,
-      `big-code-analysis-web`): claim the name with a manual
-      `cargo publish` (leaf-first, retry on the new-crate rate
-      limit; see [crates.io ownership](#cratesio-ownership) for
+      the publishable crates (the five `bca-tree-sitter-*`
+      leaves, `big-code-analysis-ast`, `big-code-analysis`,
+      `big-code-analysis-cli`, `big-code-analysis-web`): claim the
+      name with a manual `cargo publish` (leaf-first, retry on the
+      new-crate rate limit; see [crates.io ownership](#cratesio-ownership) for
       the loop), add at least one co-owner via `cargo owner
       --add`, and register a Trusted Publisher (repo owner
       `dekobon`, repo `big-code-analysis`, workflow `release.yml`,
@@ -1243,7 +1314,11 @@ if `MINISIGN_SECRET_KEY` is missing, corrupted, or doesn't pair with
 `post-publish verify` runs *after* `publish` and is an internal
 sanity check; its failure does not invalidate the published
 artefacts and does not roll back any external state. Treat a `verify`
-red as a CI bug to triage, not as a botched release.
+red as a CI bug to triage, not as a botched release. Check the log
+first. A `Verify SLSA provenance` failure with
+`HTTP 503: trust-metadata-api service unavailable` is a transient GitHub
+error: re-run the job with `gh run rerun <run-id> --failed`. On 2.3.0
+the re-run passed.
 
 If publish itself partially succeeds (e.g. GitHub Release created but
 tap push failed), the fix is usually to re-run the workflow against
