@@ -90,7 +90,7 @@ impl Abc for MozcppCode {
             // tree-sitter-cpp; the `grammar.json` sweep, the fold and
             // `#if` decisions, and the operator-overload defect (#1448)
             // are recorded on the matching arm of `CppCode::compute`.
-            LT | GT | LTEQ | GTEQ | EQEQ | BANGEQ | LTEQGT
+            LT | GT | LTEQ | GTEQ | EQEQ | BANGEQ | NotEq | LTEQGT
                 if ancestors
                     .parent(node)
                     .is_some_and(|parent| cpp_comparison_is_applied(node, &parent)) =>
@@ -98,8 +98,10 @@ impl Abc for MozcppCode {
                 stats.conditions += 1.;
             }
             // Fitzpatrick Rule 9 (C++ in Figure 3): each operand of a
-            // `&&` / `||` chain is one condition (issue #403).
-            AMPAMP | PIPEPIPE => {
+            // `&&` / `||` chain is one condition (issue #403). `and` /
+            // `or` are the same operators spelled as ISO alternative
+            // tokens, which the grammar gives kinds of their own.
+            AMPAMP | PIPEPIPE | And | Or => {
                 if let Some(parent) = ancestors.parent(node) {
                     cpp_count_unary_conditions(&parent, &mut stats.conditions);
                 }

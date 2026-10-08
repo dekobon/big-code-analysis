@@ -4654,6 +4654,63 @@ mod tests {
         );
     }
 
+    // ISO C++ spells `!`, `&&`, `||` and `!=` equally as `not`, `and`,
+    // `or` and `not_eq` ([lex.digraph]), and the C++ grammars give each
+    // alternative token a kind of its own. ABC tested only the symbols,
+    // so `if (not b)` scored 0 against `if (!b)`'s 1, `b and c` scored 0
+    // against `b && c`'s 2, and `b not_eq c` scored 0 against `b != c`'s
+    // 1. Each row pairs a symbolic spelling with its alternative and the
+    // value both must give; the census proves the alternative fixture
+    // really carries the alternative token rather than parsing it as an
+    // identifier, which is what tree-sitter-c does with the same text.
+    //
+    // Arguments: the `not`, `and`, `or` and `not_eq` ids of `P`'s grammar.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    fn assert_cpp_alternative_tokens_score_like_symbols<P: MetricSuite>(alt: [u16; 4]) {
+        let [not, and, or, not_eq] = alt;
+        let rows = [
+            ("if (!b) {}", "if (not b) {}", not, 1),
+            ("bool x = !b && c;", "bool x = not b && c;", not, 2),
+            ("bool x = c ? !b : c;", "bool x = c ? not b : c;", not, 3),
+            ("bool x = b && c;", "bool x = b and c;", and, 2),
+            ("if (b || c) {}", "if (b or c) {}", or, 2),
+            ("if (b != c) {}", "if (b not_eq c) {}", not_eq, 1),
+        ];
+        for (symbolic, alternative, token, expected) in rows {
+            let alt_source = format!("void f(bool b, bool c) {{\n  {alternative}\n}}\n");
+            assert_fixture_spells::<P>(&alt_source, "foo.cpp", &[(token, 1, alternative)]);
+            for source in [symbolic, alternative] {
+                let source = format!("void f(bool b, bool c) {{\n  {source}\n}}\n");
+                check_func_space::<P, _>(&source, "foo.cpp", |space| {
+                    assert_eq!(
+                        space.metrics.abc.conditions_sum(),
+                        expected,
+                        "`{source}` must score like its symbolic spelling `{symbolic}`"
+                    );
+                });
+            }
+        }
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_alternative_tokens_score_like_symbols() {
+        assert_cpp_alternative_tokens_score_like_symbols::<CppParser>(
+            [Cpp::Not, Cpp::And, Cpp::Or, Cpp::NotEq].map(|k| k as u16),
+        );
+    }
+
+    // Mozcpp owns no file extension, so this is its only coverage of the
+    // alternative tokens: no integration snapshot routes to it.
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_alternative_tokens_score_like_symbols() {
+        use crate::Mozcpp;
+        assert_cpp_alternative_tokens_score_like_symbols::<crate::MozcppParser>(
+            [Mozcpp::Not, Mozcpp::And, Mozcpp::Or, Mozcpp::NotEq].map(|k| k as u16),
+        );
+    }
+
     // The two other productions #1448's allowlist decides, alongside the
     // operator overloads above.
     //

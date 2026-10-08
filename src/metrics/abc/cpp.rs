@@ -68,8 +68,16 @@ pub(super) fn cpp_inspect_container(container_node: &Node, parent: &Node, condit
         // same way at child(1). `do { ... } while (...)`'s trailing
         // condition is a plain `parenthesized_expression`.
         let is_parens = matches!(node_kind, "parenthesized_expression" | "condition_clause");
-        let is_not =
-            node_kind == "unary_expression" && node.child(0).is_some_and(|c| c.kind() == "!");
+        // `not` is the ISO C++ alternative token for `!` ([lex.digraph]);
+        // the C++ grammars give it a kind of its own, so testing `!`
+        // alone scored `if (not b)` zero where `if (!b)` scores one.
+        // tree-sitter-c and tree-sitter-objc have no such token — there
+        // `not` is an `<iso646.h>` macro the parser sees as an
+        // identifier — so the extra name is inert for them.
+        let is_not = node_kind == "unary_expression"
+            && node
+                .child(0)
+                .is_some_and(|c| matches!(c.kind(), "!" | "not"));
 
         if !is_parens && !is_not {
             break;
@@ -301,7 +309,11 @@ impl Abc for CppCode {
             // counting too, as `<` / `>` always have.
             //
             // The test is `cpp_comparison_is_applied`, shared with Mozcpp.
-            LT | GT | LTEQ | GTEQ | EQEQ | BANGEQ | LTEQGT
+            //
+            // `NotEq` is `not_eq`, the ISO alternative token for `!=`. It
+            // occurs in exactly the productions `!=` does bar the
+            // preprocessor one, so the same allowlist decides it.
+            LT | GT | LTEQ | GTEQ | EQEQ | BANGEQ | NotEq | LTEQGT
                 if ancestors
                     .parent(node)
                     .is_some_and(|parent| cpp_comparison_is_applied(node, &parent)) =>
@@ -309,8 +321,10 @@ impl Abc for CppCode {
                 stats.conditions += 1.;
             }
             // Fitzpatrick Rule 9 (C++ in Figure 3): each operand of a
-            // `&&` / `||` chain is one condition (issue #403).
-            AMPAMP | PIPEPIPE => {
+            // `&&` / `||` chain is one condition (issue #403). `and` /
+            // `or` are the same operators spelled as ISO alternative
+            // tokens, which the grammar gives kinds of their own.
+            AMPAMP | PIPEPIPE | And | Or => {
                 if let Some(parent) = ancestors.parent(node) {
                     cpp_count_unary_conditions(&parent, &mut stats.conditions);
                 }
