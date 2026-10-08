@@ -18206,10 +18206,7 @@ mod slot_comment_invariance {
     #[test]
     fn a_comment_in_a_slot_changes_nothing() {
         let mut checked = 0;
-        for lang in LANG::into_enum_iter() {
-            if !lang.is_enabled() {
-                continue;
-            }
+        for lang in LANG::into_enum_iter().filter(LANG::is_enabled) {
             let Some(spelling) = spelling(lang) else {
                 continue;
             };
@@ -18327,10 +18324,7 @@ mod slot_role_reads {
     #[test]
     fn a_slot_is_read_by_role() {
         let mut checked = 0;
-        for &(lang, plain, variant, expected) in ROWS {
-            if !lang.is_enabled() {
-                continue;
-            }
+        for &(lang, plain, variant, expected) in ROWS.iter().filter(|row| row.0.is_enabled()) {
             let without = abc(lang, plain);
             assert_eq!(
                 abc(lang, variant),

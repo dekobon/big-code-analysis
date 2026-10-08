@@ -80,22 +80,20 @@ pub(super) fn cpp_inspect_container(container_node: &Node, parent: &Node, condit
                 .child(0)
                 .is_some_and(|c| matches!(c.kind(), "!" | "not"));
 
-        if !is_parens && !is_not {
-            break;
-        }
-        if !has_boolean_content && is_not {
-            has_boolean_content = true;
-        }
-
         // By role, never at child(1): a comment may sit there
         // (`if (/*c*/ b)`, #1455), and so may a clause's init-statement
         // (`if (int y = f(); b)`), whose condition is the `value` field.
+        // Anything that is not a wrapper has no operand, which ends the
+        // peel through the same exit as a missing one.
         let operand = if is_clause {
             node.child_by_field_name("value")
-        } else {
+        } else if is_parens || is_not {
             wrapped_operand(&node)
+        } else {
+            None
         };
         let Some(child) = operand else { break };
+        has_boolean_content |= is_not;
         node = child;
         node_kind = node.kind();
 

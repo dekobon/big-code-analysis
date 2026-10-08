@@ -78,15 +78,16 @@ fn csharp_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 
     match node.kind_id().into() {
         // `(expr)` — the inner expression follows the `(` token.
-        csharp_paren_expr_kinds!() => Some((wrapped_operand(node)?, false)),
+        csharp_paren_expr_kinds!() => wrapped_operand(node).map(|o| (o, false)),
         // `!expr` — the operand follows the operator token. Seven other
         // prefix operators (`++ -- + - ~ & ^`) share this kind, as does
         // the `*` of a pointer indirection the grammar aliases onto it;
         // none is a boolean slot's operand.
-        csharp_prefix_unary_expr_kinds!() => match node.child(0)?.kind_id().into() {
-            BANG => Some((wrapped_operand(node)?, true)),
-            _ => None,
-        },
+        csharp_prefix_unary_expr_kinds!()
+            if node.child(0).is_some_and(|c| c.kind_id() == BANG as u16) =>
+        {
+            wrapped_operand(node).map(|o| (o, true))
+        }
         // `expr!` — the null-forgiving operator. One kind id at the
         // pinned `=0.23.5`, no numbered aliases (§1).
         PostfixUnaryExpression if node.is_child(BANG as u16) => Some((node.child(0)?, false)),

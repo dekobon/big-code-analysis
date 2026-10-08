@@ -57,18 +57,19 @@ macro_rules! impl_js_family_unary_walker {
                 let is_not = matches!(node_kind, UnaryExpression)
                     && node.child(0).is_some_and(|c| c.kind_id() == BANG as u16);
 
-                if !is_parens && !is_not {
-                    break;
-                }
-                if !has_boolean_content && is_not {
-                    has_boolean_content = true;
-                }
-
                 // The wrapper's only operand, not child(1): a comment may
                 // sit there (`(/*c*/ b)`, `! /*c*/ b` — #1455).
-                let Some(child) = wrapped_operand(&node) else {
+                // Anything that is not a wrapper has no operand, which ends the
+                // peel through the same exit as a missing one.
+                let operand = if is_parens || is_not {
+                    wrapped_operand(&node)
+                } else {
+                    None
+                };
+                let Some(child) = operand else {
                     break;
                 };
+                has_boolean_content |= is_not;
                 node = child;
                 node_kind = node.kind_id().into();
 

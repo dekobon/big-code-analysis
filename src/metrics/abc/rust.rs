@@ -28,9 +28,9 @@ fn rust_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     use Rust::*;
 
     match node.kind_id().into() {
-        ParenthesizedExpression => Some((wrapped_operand(node)?, false)),
-        UnaryExpression if node.child(0)?.kind_id() == BANG as u16 => {
-            Some((wrapped_operand(node)?, true))
+        ParenthesizedExpression => wrapped_operand(node).map(|o| (o, false)),
+        UnaryExpression if node.child(0).is_some_and(|c| c.kind_id() == BANG as u16) => {
+            wrapped_operand(node).map(|o| (o, true))
         }
         _ => None,
     }

@@ -29,9 +29,9 @@ fn go_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     use Go as G;
 
     match node.kind_id().into() {
-        G::ParenthesizedExpression => Some((wrapped_operand(node)?, false)),
-        G::UnaryExpression if node.child(0)?.kind_id() == G::BANG as u16 => {
-            Some((node.child_by_field_name("operand")?, true))
+        G::ParenthesizedExpression => wrapped_operand(node).map(|o| (o, false)),
+        G::UnaryExpression if node.child(0).is_some_and(|c| c.kind_id() == G::BANG as u16) => {
+            node.child_by_field_name("operand").map(|o| (o, true))
         }
         _ => None,
     }

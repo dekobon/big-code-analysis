@@ -49,9 +49,13 @@ use crate::*;
 // other call-argument contexts would never set the walker's flag.
 fn lua_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     match node.kind_id().into() {
-        Lua::ParenthesizedExpression => Some((wrapped_operand(node)?, false)),
-        Lua::UnaryExpression if node.child(0)?.kind_id() == Lua::Not as u16 => {
-            Some((node.child_by_field_name("operand")?, true))
+        Lua::ParenthesizedExpression => wrapped_operand(node).map(|o| (o, false)),
+        Lua::UnaryExpression
+            if node
+                .child(0)
+                .is_some_and(|c| c.kind_id() == Lua::Not as u16) =>
+        {
+            node.child_by_field_name("operand").map(|o| (o, true))
         }
         _ => None,
     }

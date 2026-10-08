@@ -65,12 +65,13 @@ fn ruby_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     use Ruby::*;
 
     match node.kind_id().into() {
-        ParenthesizedStatements => Some((last_operand(node)?, false)),
-        Unary | Unary2 | Unary3 | Unary4 | Unary5 => {
-            match node.child_by_field_name("operator")?.kind_id().into() {
-                BANG | Not => Some((node.child_by_field_name("operand")?, true)),
-                _ => None,
-            }
+        ParenthesizedStatements => last_operand(node).map(|o| (o, false)),
+        Unary | Unary2 | Unary3 | Unary4 | Unary5
+            if node
+                .child_by_field_name("operator")
+                .is_some_and(|op| matches!(op.kind_id().into(), BANG | Not)) =>
+        {
+            node.child_by_field_name("operand").map(|o| (o, true))
         }
         _ => None,
     }
@@ -238,20 +239,18 @@ fn ruby_condition_scores_itself(expr: &Node) -> bool {
         }
         match node.kind_id().into() {
             Binary | Binary2 | Binary3 => {
-                let Some(op) = node.child_by_field_name("operator") else {
-                    continue;
-                };
-                let op = op.kind_id().into();
-                if matches!(op, ruby_comparison_kinds!()) {
-                    return true;
-                }
-                if matches!(op, AMPAMP | PIPEPIPE | And | Or) {
-                    pending.extend(
+                match node
+                    .child_by_field_name("operator")
+                    .map(|op| op.kind_id().into())
+                {
+                    Some(ruby_comparison_kinds!()) => return true,
+                    Some(AMPAMP | PIPEPIPE | And | Or) => pending.extend(
                         ["left", "right"]
                             .into_iter()
                             .filter_map(|field| node.child_by_field_name(field))
                             .map(|operand| (operand, true)),
-                    );
+                    ),
+                    _ => {}
                 }
             }
             TestPattern | Conditional => return true,
