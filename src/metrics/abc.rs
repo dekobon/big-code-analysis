@@ -8945,16 +8945,14 @@ end
         );
     }
 
-    // A clause may list several patterns, an implicit `or` cyclomatic
-    // scores as one decision. The clause pays unless any pattern already
-    // scored itself, so `bare_first` and `cmp_first` agree although only
-    // their pattern order differs — reading the first pattern alone, as
-    // Kotlin's `kotlin_count_when_entry` does, would score them 2 and 1.
-    //
-    // `alts` is the row that cannot reach parity from the ABC side: both
-    // comparisons are real conditions wherever they are written, and the
-    // remaining gap is cyclomatic's one-per-clause model (as for Kotlin's
-    // `when { x > 5, y < 0 -> … }`). It was 3.
+    // A clause may list several patterns: an implicit `||`, so each is
+    // one operand of that chain and scores once unless its own arm already
+    // counted it — every row here must equal its `if … || …` twin in the
+    // `or_*` defs. `bare_first` and `cmp_first` differ only in pattern
+    // order and must agree; reading the first pattern alone, as Kotlin's
+    // `kotlin_count_when_entry` does, would score them 2 and 1. None can
+    // reach `conditions == cyclomatic - 1`: cyclomatic scores the clause
+    // as one decision, and the `||` twins sit just as far above it.
     #[cfg(feature = "ruby")]
     #[test]
     fn ruby_subjectless_case_when_multiple_patterns() {
@@ -8978,6 +8976,15 @@ def cmp_first(a, x)
   when x > 1, a then 1
   end
 end
+def or_bare(a, b)
+  if a || b then 1 end
+end
+def or_cmp(x)
+  if x > 1 || x < -1 then 1 end
+end
+def or_mixed(a, x)
+  if a || x > 1 then 1 end
+end
 ";
         assert_ruby_case_members(
             src,
@@ -8987,11 +8994,15 @@ end
                 (Ruby::Pattern as u16, 8, "two patterns per clause"),
             ],
             &[
-                ("bare_alts", 1, 2),
+                // Was 1: one pattern went unscored.
+                ("bare_alts", 2, 2),
+                ("or_bare", 2, 3),
+                // Was 3.
                 ("alts", 2, 2),
-                // Both were 2.
-                ("bare_first", 1, 2),
-                ("cmp_first", 1, 2),
+                ("or_cmp", 2, 3),
+                ("bare_first", 2, 2),
+                ("cmp_first", 2, 2),
+                ("or_mixed", 2, 3),
             ],
         );
     }

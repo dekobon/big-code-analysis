@@ -259,13 +259,14 @@ fn ruby_condition_scores_itself(expr: &Node) -> bool {
 // against its `if` analogue's 2. Otherwise — a bare `when b`, `(b)`,
 // `!b`, `x.even?` — nothing else sees it and the clause still pays.
 //
-// A clause may list several patterns (`when a, b`), an implicit `or` that
-// cyclomatic scores as one decision. The clause pays unless *any* pattern
-// already scored itself, so `when a, b` stays at 1 and the result does not
-// depend on the order the patterns are written in. `when x > 1, x < -1`
-// reads 2 against that one decision: both comparisons are real ABC
-// conditions wherever they appear, and the gap is cyclomatic's
-// one-per-clause model, as for Kotlin's multi-alternative entries.
+// A clause may list several patterns (`when a, b`): an implicit `||`, so
+// each pattern is one operand of that chain and is scored as Rule 9
+// scores an `||` operand — once, unless its own arm already counted it.
+// `when a, b` / `when a, x > 1` / `when x > 1, x < -1` therefore each
+// read 2, exactly their `if a || b` analogues, and the order the patterns
+// are written in cannot matter. Cyclomatic scores the clause as one
+// decision, so these sit above `conditions == cyclomatic - 1`, as the
+// `||` analogues do.
 //
 // A `when` whose parent is not a `case` occurs only under error
 // recovery; it keeps the per-clause count rather than guessing.
@@ -273,16 +274,19 @@ fn ruby_count_when<'a>(when: &Node<'a>, ancestors: Ancestors<'a, '_>, conditions
     let subject_less = ancestors.parent(when).is_some_and(|case| {
         case.kind_id() == Ruby::Case && case.child_by_field_name("value").is_none()
     });
+    if !subject_less {
+        *conditions += 1.;
+        return;
+    }
     // `pattern` wraps exactly one expression, so an extra (a comment) can
     // sit beside it under the `when` but never inside it.
-    let owned = subject_less
-        && when
-            .children()
-            .filter(|child| child.kind_id() == Ruby::Pattern)
-            .filter_map(|pattern| pattern.child(0))
-            .any(|expr| ruby_condition_scores_itself(&expr));
-    if !owned {
-        *conditions += 1.;
+    for pattern in when.children().filter(|c| c.kind_id() == Ruby::Pattern) {
+        if pattern
+            .child(0)
+            .is_some_and(|expr| !ruby_condition_scores_itself(&expr))
+        {
+            *conditions += 1.;
+        }
     }
 }
 
