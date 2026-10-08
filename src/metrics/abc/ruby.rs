@@ -207,10 +207,15 @@ macro_rules! ruby_comparison_kinds {
 
 // Whether another arm of `compute` already charges `expr` as a condition,
 // looking through `(…)` and `!` / `not` layers, which add no decision of
-// their own. True for a comparison (the token arm), an `&&` / `||` /
-// `and` / `or` chain (the Rule 9 walker), a one-line pattern test (the
-// `TestPattern` arm) and a ternary (the `?` arm plus `ruby_walk_ternary`)
-// — exactly the expressions the `if` predicate slot leaves to those arms.
+// their own. True for a comparison (the token arm), a one-line pattern
+// test (the `TestPattern` arm) and a ternary (the `?` arm plus
+// `ruby_walk_ternary`). An `&&` / `||` / `and` / `or` chain is paid only
+// if some operand is: one of those, or a plain operand the Rule 9
+// walker counts. `-a && -b` has neither, so the walker scores it 0 and
+// the clause must still pay, exactly as it does for `when -a`.
+//
+// A worklist rather than recursion: a left-nested chain is as deep as
+// it is long, and the input is untrusted source.
 //
 // It answers "is the decision already paid for", not "is this a boolean
 // slot", which is why a subject-less `when` asks this rather than routing
@@ -224,25 +229,37 @@ macro_rules! ruby_comparison_kinds {
 fn ruby_condition_scores_itself(expr: &Node) -> bool {
     use Ruby::*;
 
-    let mut node = *expr;
-    loop {
+    // (node, whether it is an operand of an enclosing chain)
+    let mut pending = vec![(*expr, false)];
+    while let Some((mut node, in_chain)) = pending.pop() {
+        // The same wrappers the condition peel descends, by construction.
+        while let Some((operand, _)) = ruby_wrapper_operand(&node) {
+            node = operand;
+        }
         match node.kind_id().into() {
             Binary | Binary2 | Binary3 => {
-                return node.child_by_field_name("operator").is_some_and(|op| {
-                    let op = op.kind_id().into();
-                    matches!(op, ruby_comparison_kinds!())
-                        || matches!(op, AMPAMP | PIPEPIPE | And | Or)
-                });
+                let Some(op) = node.child_by_field_name("operator") else {
+                    continue;
+                };
+                let op = op.kind_id().into();
+                if matches!(op, ruby_comparison_kinds!()) {
+                    return true;
+                }
+                if matches!(op, AMPAMP | PIPEPIPE | And | Or) {
+                    pending.extend(
+                        ["left", "right"]
+                            .into_iter()
+                            .filter_map(|field| node.child_by_field_name(field))
+                            .map(|operand| (operand, true)),
+                    );
+                }
             }
             TestPattern | Conditional => return true,
+            kind if in_chain && matches!(kind, ruby_bool_terminal_kinds!()) => return true,
             _ => {}
         }
-        // The same wrappers the condition peel descends, by construction.
-        let Some((operand, _)) = ruby_wrapper_operand(&node) else {
-            return false;
-        };
-        node = operand;
     }
+    false
 }
 
 // Scores one `when` clause (#1453, transferring #1421's Kotlin rule).

@@ -17862,6 +17862,33 @@ mod wrapper_peel_routing {
         );
     }
 
+    /// A subject-less `when` whose pattern is a chain owes its clause
+    /// condition unless some operand of the chain is counted by another
+    /// arm. `-a && -b` and `(a = 1) && (b = 2)` have no such operand —
+    /// the Rule 9 walker counts plain operands only — so the clause pays,
+    /// as it does for a bare `when -a`; treating every chain as paid
+    /// scored them 0 (found by review of #1453). The other rows keep the
+    /// double count #1453 removed out: a counted operand anywhere in the
+    /// chain, at any depth, pays for it.
+    #[test]
+    #[cfg(feature = "ruby")]
+    fn ruby_subjectless_when_chain_pays_only_through_a_counted_operand() {
+        assert_operands(
+            LANG::Ruby,
+            "def f(a, b, c)\n  case\n  when @ then 1\n  end\nend\n",
+            &[
+                ("-a", 1),
+                ("-a && -b", 1),
+                ("(a = 1) && (b = 2)", 1),
+                ("-a || -b || -c", 1),
+                ("-a && b", 1),
+                ("a > 1 && -b", 1),
+                ("-a && (-b || c)", 1),
+                ("a && b", 2),
+            ],
+        );
+    }
+
     #[test]
     #[cfg(feature = "lua")]
     fn lua_condition_slot_routes_what_the_peel_accepts() {
