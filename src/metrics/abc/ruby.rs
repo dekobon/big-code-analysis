@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, wrapped_operand};
+use super::{Abc, Stats, is_operand};
 use crate::macros::ruby_bool_terminal_kinds;
 use crate::*;
 
@@ -55,16 +55,17 @@ use crate::*;
 // `unary` operators (`-b`, `~b`, `defined?`) are arithmetic or
 // introspection, never a boolean slot's operand, so the peel declines.
 //
-// A negation names its `operand`; `parenthesized_statements` wraps its
-// body in named children, the first of which that is not an extra
-// carries the expression. Both are read by role because a comment may
+// A negation names its `operand`; `parenthesized_statements` wraps a
+// statement sequence and evaluates to its *last* statement (`(x; y)` is
+// `y`), so the peel reads the last child that is not an extra, as
+// Perl's `perl_last_operand` does for a list. Both are read by role because a comment may
 // sit before the operand — `(# c` or `! # c` — and a positional or
 // first-named-child read handed the comment to the slot (#1455).
 fn ruby_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     use Ruby::*;
 
     match node.kind_id().into() {
-        ParenthesizedStatements => Some((wrapped_operand(node)?, false)),
+        ParenthesizedStatements => Some((node.children().filter(is_operand).last()?, false)),
         Unary | Unary2 | Unary3 | Unary4 | Unary5 => {
             match node.child_by_field_name("operator")?.kind_id().into() {
                 BANG | Not => Some((node.child_by_field_name("operand")?, true)),

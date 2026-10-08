@@ -16428,8 +16428,10 @@ mod numeric_bool_operands {
 /// - **Perl** `/^#/` (`pattern_matcher`) and `m{^#}`
 ///   (`pattern_matcher_m`), the two spellings of a match against the
 ///   implicit `$_`. They are sibling rules, not aliases, so both are
-///   listed — a fixture carrying only the first would have left the
-///   `m{}` half at zero and read as covered.
+///   covered — a fixture carrying only the first would have left the
+///   `m{}` half at zero and read as covered. Since #1467 they take the
+///   other route: a gated arm in `PerlCode::compute` counts them by use,
+///   and they have left `perl_bool_terminal_kinds!()`.
 /// - **Ruby** `a in Integer` (`test_pattern`), the one-line pattern
 ///   test. Decided against `match_pattern` (`expr => pat`), which
 ///   raises rather than yielding a boolean.
@@ -16463,12 +16465,13 @@ mod numeric_bool_operands {
 /// exercised.
 ///
 /// Even with it, no language exercises all three consumers through
-/// these two slots, and which one is missed differs by language —
-/// Perl's `perl_count_condition` (reached only from a ternary or a
-/// C-style `for` header) and Ruby's `ruby_count_unary_conditions`
+/// these two slots, and which one is missed differs by language. Perl
+/// is no longer one of them: since #1467 its rows score through the
+/// by-use arm, not through any consumer of the terminal set. Ruby's
+/// `ruby_count_unary_conditions` is the remaining one
 /// (unreachable here because `in` binds looser than `&&`, so the chain
 /// slot must parenthesise and routes through `inspect_container`
-/// instead). Both are covered elsewhere in this file; the gap is
+/// instead). It is covered elsewhere in this file; the gap is
 /// recorded rather than papered over, because a reader comparing the
 /// slot count to the consumer count will otherwise assume it is three.
 ///
@@ -16582,14 +16585,15 @@ mod own_production_bool_constructs {
                 &["a in Integer", "!(a in Integer)"],
                 2,
             ),
-            // Objective-C's `@available` is not relational like the three
-            // above, but it reaches the terminal set by the same route: a
-            // dedicated `available_expression` production whose value is a
-            // boolean, seen by no comparison-token arm (#1457). Both
-            // spellings are listed because they are alternatives of one
-            // rule's leading token rather than two rules — so unlike
-            // Perl's `m{}` above they cannot drift apart, and the second
-            // row is here to keep that claim measured rather than assumed.
+            // Objective-C's `@available` is not relational like the
+            // constructs above, but it reaches the terminal set by the
+            // route Groovy's `in` takes: a dedicated `available_expression`
+            // production whose value is a boolean, seen by no
+            // comparison-token arm (#1457). Both spellings are listed
+            // because they are alternatives of one rule's leading token
+            // rather than two rules — so unlike Perl's `m{}` above they
+            // cannot drift apart, and the second row is here to keep that
+            // claim measured rather than assumed.
             LANG::Objc => (
                 [
                     ("int f(int a) {\n  return {} && b;\n}\n", 2, 3),
@@ -17834,6 +17838,19 @@ mod wrapper_peel_routing {
             LANG::Ruby,
             "def f(b, c)\n  x = c ? 1 : @\nend\n",
             &[("!b", 3), ("not b", 3), ("(b)", 2), ("-b", 2)],
+        );
+        // A statement sequence evaluates to its last statement, so that is
+        // the operand the slot reads: `(b; b > 1)` is the comparison,
+        // already counted by its own `>`, and `(b > 1; b)` is the bare `b`,
+        // which the slot counts beside that `>`. Reading the first
+        // statement inverted both. The subject-less `when` goes through
+        // the same peel.
+        let seqs: &[(&str, u64)] = &[("(b; b > 1)", 1), ("(b > 1; b)", 2)];
+        assert_operands(LANG::Ruby, "def f(b)\n  if @ then 1 end\nend\n", seqs);
+        assert_operands(
+            LANG::Ruby,
+            "def f(b)\n  case\n  when @ then 1\n  end\nend\n",
+            seqs,
         );
     }
 

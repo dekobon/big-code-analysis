@@ -24,9 +24,9 @@ for historical reference.
 
 ## [Unreleased]
 
-Every entry under **Fixed** changes ABC `conditions` for valid input.
-Only `abc.*` values move; cyclomatic, cognitive and Halstead are
-unchanged.
+Every entry under **Fixed** changes ABC values for valid input, mostly
+`conditions` (one Elixir case changes `assignments`). Only `abc.*`
+values move; cyclomatic, cognitive and Halstead are unchanged.
 
 ### Fixed
 
@@ -37,8 +37,9 @@ unchanged.
   now count only where they are applied. A fold over a comparison
   (`(a < ...)`, `(0 == ... == a)`) now counts once, through the fold's
   `operator` field, where `<` / `>` folds scored 0 and a binary fold
-  scored 2. `#if A <= B` still counts. In the openfst corpus every
-  `operator==` / `operator!=` definition and declaration drops by one.
+  scored 2. `#if A <= B` still counts. In the openfst and kenlm corpora each
+  comparison-overload definition and declaration (`operator==`,
+  `operator!=`, `operator>=`) drops by one.
 - **C++ and Mozcpp score the ISO alternative tokens like their
   symbols** (#1470). `not b`, `b and c`, `b or c` and `b not_eq c` scored
   0 where `!b`, `b && c`, `b || c` and `b != c` score 1, 2, 2 and 1.
@@ -49,7 +50,10 @@ unchanged.
   predicate, so each of its patterns is one operand of an implicit `||`
   and scores once unless its own operator already counted it:
   `when a, b` and `when a, x > 1` now score 2, level with `if a || b`.
-  A subject-ful `case x; when 1` still scores one per clause.
+  A subject-ful `case x; when 1` still scores one per clause. A
+  parenthesised statement sequence in a condition (`if (x; x > 1)`) is
+  now read by its last statement, the value Ruby evaluates it to, where
+  the first was read before.
 - **A Perl bare pattern match scores by use** (#1467). `/^#/` and
   `m{^#}` match the implicit `$_`, and scored a condition only inside a
   boolean slot, so `my $r = /^#/;` read 0 against `$x =~ /^#/`'s 1. They
