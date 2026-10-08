@@ -30,7 +30,8 @@ use crate::*;
 //   every one of those tokens also names an operator method in a `def`
 //   and `<` also spells a superclass clause (#1280) — plus the
 //   control-flow arms that the Fitzpatrick rules
-//   list — the named clause nodes `Else` / `Elsif` / `When` and the
+//   list — the named clause nodes `Else` / `Elsif` / `When` (see
+//   `ruby_count_when` for a subject-less `case`) and the
 //   `?` ternary marker, plus `Rescue` (the rescue clause) and rescue
 //   modifiers. `if` / `unless` themselves are not counted (the head
 //   condition appears as the inner comparison); the `Then` clause is
@@ -178,6 +179,113 @@ fn ruby_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
     }
 }
 
+// The comparison / equality tokens that are one condition each inside a
+// `binary`. Shared by the token arm in `compute` and by
+// `ruby_condition_scores_itself`, which must agree with that arm on
+// exactly which operators it charges.
+macro_rules! ruby_comparison_kinds {
+    () => {
+        Ruby::EQEQ
+            | Ruby::BANGEQ
+            | Ruby::EQEQEQ
+            | Ruby::LT
+            | Ruby::GT
+            | Ruby::LTEQ
+            | Ruby::GTEQ
+            | Ruby::LTEQGT
+            | Ruby::EQTILDE
+            | Ruby::BANGTILDE
+    };
+}
+
+// Whether another arm of `compute` already charges `expr` as a condition,
+// looking through `(…)` and `!` / `not` layers, which add no decision of
+// their own. True for a comparison (the token arm), an `&&` / `||` /
+// `and` / `or` chain (the Rule 9 walker), a one-line pattern test (the
+// `TestPattern` arm) and a ternary (the `?` arm plus `ruby_walk_ternary`)
+// — exactly the expressions the `if` predicate slot leaves to those arms.
+//
+// It answers "is the decision already paid for", not "is this a boolean
+// slot", which is why a subject-less `when` asks this rather than routing
+// through `ruby_count_condition`. That slot scores zero for any shape
+// outside `ruby_bool_terminal_kinds!()` — `Foo::Bar`, `self`, `-x`,
+// `defined?(x)`, `(y = x)`, `*xs`, `1..2` — so delegating to it would
+// have moved each of those `when`s from 1 to 0 against an unchanged
+// cyclomatic decision (measured for #1453). The `if` forms of those
+// shapes do score 0 today; that is the slot's gap (#1520), not this
+// arm's to copy.
+fn ruby_condition_scores_itself(expr: &Node) -> bool {
+    use Ruby::*;
+
+    let mut node = *expr;
+    loop {
+        let next = match node.kind_id().into() {
+            Binary | Binary2 | Binary3 => {
+                return node.child_by_field_name("operator").is_some_and(|op| {
+                    let op = op.kind_id().into();
+                    matches!(op, ruby_comparison_kinds!())
+                        || matches!(op, AMPAMP | PIPEPIPE | And | Or)
+                });
+            }
+            TestPattern | Conditional => return true,
+            ParenthesizedStatements => node.children().find(Node::is_named),
+            Unary | Unary2 | Unary3 | Unary4 | Unary5
+                if node
+                    .child_by_field_name("operator")
+                    .is_some_and(|op| matches!(op.kind_id().into(), BANG | Not)) =>
+            {
+                node.child_by_field_name("operand")
+            }
+            _ => return false,
+        };
+        let Some(child) = next else { return false };
+        node = child;
+    }
+}
+
+// Scores one `when` clause (#1453, transferring #1421's Kotlin rule).
+// Both `case` shapes contribute the single decision cyclomatic counts per
+// clause, but they pay for it in different places.
+//
+// A subject-ful clause (`case x; when 1`) lists a *pattern* matched with
+// `pattern === x`: that comparison is written nowhere in the source, so
+// the clause itself is the condition.
+//
+// A subject-less clause (`case; when x > 5`) lists an ordinary boolean
+// expression, evaluated exactly as an `if` predicate. When that
+// expression is a comparison, chain, pattern test or ternary, its own arm
+// has already counted it, and the clause's former blanket +1 counted the
+// same decision twice: `case; when x > 5 then 1; else 0; end` scored 3
+// against its `if` analogue's 2. Otherwise — a bare `when b`, `(b)`,
+// `!b`, `x.even?` — nothing else sees it and the clause still pays.
+//
+// A clause may list several patterns (`when a, b`), an implicit `or` that
+// cyclomatic scores as one decision. The clause pays unless *any* pattern
+// already scored itself, so `when a, b` stays at 1 and the result does not
+// depend on the order the patterns are written in. `when x > 1, x < -1`
+// reads 2 against that one decision: both comparisons are real ABC
+// conditions wherever they appear, and the gap is cyclomatic's
+// one-per-clause model, as for Kotlin's multi-alternative entries.
+//
+// A `when` whose parent is not a `case` occurs only under error
+// recovery; it keeps the per-clause count rather than guessing.
+fn ruby_count_when<'a>(when: &Node<'a>, ancestors: Ancestors<'a, '_>, conditions: &mut f64) {
+    let subject_less = ancestors.parent(when).is_some_and(|case| {
+        case.kind_id() == Ruby::Case && case.child_by_field_name("value").is_none()
+    });
+    // `pattern` wraps exactly one expression, so an extra (a comment) can
+    // sit beside it under the `when` but never inside it.
+    let owned = subject_less
+        && when
+            .children()
+            .filter(|child| child.kind_id() == Ruby::Pattern)
+            .filter_map(|pattern| pattern.child(0))
+            .any(|expr| ruby_condition_scores_itself(&expr));
+    if !owned {
+        *conditions += 1.;
+    }
+}
+
 // Phase-2B (issues #403 / #1102 / #1161): a Ruby ternary's condition and
 // its two branch operands are each a Fitzpatrick Rule 9 unary condition,
 // exactly as `cpp_walk_ternary` counts them for the C family. Without
@@ -275,7 +383,7 @@ impl Abc for RubyCode {
             // siblings are listed defensively per grammar-dispatch §1.
             // `<<` is the distinct `LTLT` token and heredoc openers are
             // their own tokens, so neither is affected.
-            EQEQ | BANGEQ | EQEQEQ | LT | GT | LTEQ | GTEQ | LTEQGT | EQTILDE | BANGTILDE
+            ruby_comparison_kinds!()
                 if ancestors
                     .parent(node)
                     .is_some_and(|p| matches!(p.kind_id().into(), Binary | Binary2 | Binary3)) =>
@@ -301,10 +409,13 @@ impl Abc for RubyCode {
             // the arm's meaning is "this node is a condition, with
             // nothing to gate on" — as true of a production as of a
             // token.
-            Else | Elsif | When | QMARK | Rescue | RescueModifier | RescueModifier2
-            | RescueModifier3 | TestPattern => {
+            Else | Elsif | QMARK | Rescue | RescueModifier | RescueModifier2 | RescueModifier3
+            | TestPattern => {
                 stats.conditions += 1.;
             }
+            // A subject-less `case` can already have paid for its clause
+            // through the clause's own operators (#1453).
+            When => ruby_count_when(node, ancestors, &mut stats.conditions),
             // A `case … in` pattern-match arm is a branch condition exactly
             // when it counts toward cyclomatic — a non-wildcard pattern or
             // a guarded arm. The bare `in _` default arm is filtered out,

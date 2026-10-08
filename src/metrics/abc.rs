@@ -8727,6 +8727,339 @@ function f(int $a, int $b): int {
         );
     }
 
+    // The two anchors every #1453 fixture needs, coupled on purpose as
+    // `assert_kotlin_class_members` couples them for #1421. `subjects` is
+    // the load-bearing one: the whole distinction is whether a `case`
+    // carries a `value` field, no node kind spells that, and a fixture
+    // that grew a subject would score its clauses the pre-#1453 way with
+    // every other row still satisfied. Each fixture is top-level `def`s,
+    // so the members are the unit space's.
+    #[cfg(feature = "ruby")]
+    fn assert_ruby_case_members(
+        src: &str,
+        subjects: usize,
+        kinds: &[(u16, usize, &str)],
+        expected: &[(&str, u64, u64)],
+    ) {
+        let parser = RubyParser::new(
+            src.as_bytes().to_vec(),
+            std::path::Path::new("foo.rb"),
+            None,
+        );
+        let found = parser
+            .root()
+            .preorder()
+            .filter(|n| n.kind_id() == Ruby::Case && n.child_by_field_name("value").is_some())
+            .count();
+        assert_eq!(found, subjects, "`case` subjects — the fixture moved");
+        assert_fixture_spells::<RubyParser>(src, "foo.rb", kinds);
+        check_func_space::<RubyParser, _>(src, "foo.rb", |space| {
+            assert_members_score(&space, expected);
+        });
+    }
+
+    // #1453's headline. A subject-less `when` clause's condition is an
+    // ordinary boolean expression, so a comparison in it is already an
+    // ABC condition through the token arm; the clause added a blanket one
+    // on top, and `gt` scored 3 against its `if` analogue `iff`'s 2.
+    //
+    // `bare` and `call` are the controls that isolate the defect: same
+    // clause shape, no operator for any other arm to count, so the clause
+    // must still pay for its decision — 2 and 1 before the fix and after.
+    // A fix that moved them would be attacking the clause count, which
+    // was never wrong.
+    //
+    // `gt`, `bare` and `iff` sit one above cyclomatic's decision count
+    // because ABC counts the `else` (Fitzpatrick Rule 5) and cyclomatic
+    // does not; every other row is at `conditions == cyclomatic - 1`.
+    // `cmt` puts a comment where the subject would go: an extra is not the
+    // `value` field, so the `case` stays subject-less.
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_subjectless_case_when_counts_its_condition_once() {
+        let src = "def gt(x)
+  case
+  when x > 5 then 1
+  else 0
+  end
+end
+def iff(x)
+  if x > 5 then 1 else 0 end
+end
+def two(x)
+  case
+  when x > 5 then 1
+  when x < 0 then 2
+  end
+end
+def ge(x)
+  case
+  when x >= 5 then 1
+  end
+end
+def andd(a, b)
+  case
+  when a > 1 && b < 2 then 1
+  end
+end
+def bare(b)
+  case
+  when b then 1
+  else 0
+  end
+end
+def call(x)
+  case
+  when x.even? then 1
+  end
+end
+def cmt(x)
+  case # no subject
+  when x > 5 then 1
+  end
+end
+";
+        assert_ruby_case_members(
+            src,
+            0,
+            &[
+                (Ruby::When as u16, 8, "`when` clauses"),
+                (Ruby::GT as u16, 5, "`>` comparisons"),
+                (Ruby::AMPAMP as u16, 1, "`andd`'s `&&`"),
+                (Ruby::Comment as u16, 1, "`cmt`'s comment"),
+            ],
+            &[
+                // (member, abc.conditions, cyclomatic)
+                // Was 3: the `>` and the clause, for one decision.
+                ("gt", 2, 2),
+                ("iff", 2, 2),
+                // Was 4.
+                ("two", 2, 3),
+                // Was 2: `>=` reaches the same token arm.
+                ("ge", 1, 2),
+                // Was 3. The compound condition keeps both comparisons —
+                // suppressing the operators instead would collapse it.
+                ("andd", 2, 3),
+                ("bare", 2, 2),
+                ("call", 1, 2),
+                // Was 2.
+                ("cmt", 1, 2),
+            ],
+        );
+    }
+
+    // Wrappers and the shapes no other arm owns. `not_cmp`, `paren_cmp`,
+    // `tern` and `test_pat` peel to an expression another arm already
+    // scored, and each read one above parity before the fix. `paren` and
+    // `notted` peel to a bare operand nothing else counts, so the clause
+    // pays exactly as an `if` predicate would.
+    //
+    // `scope`, `neg`, `splat` and `arith` are why the clause asks "is this
+    // already paid for" rather than routing through `ruby_count_condition`:
+    // that `if` slot scores each of these 0, so delegating to it would
+    // have dropped all four from 1 to 0 against an unchanged decision.
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_subjectless_case_when_condition_wrappers_count_once() {
+        let src = "def paren(b)
+  case
+  when (b) then 1
+  end
+end
+def notted(b)
+  case
+  when !b then 1
+  end
+end
+def not_cmp(x)
+  case
+  when not(x > 1) then 1
+  end
+end
+def paren_cmp(x)
+  case
+  when (x > 1) then 1
+  end
+end
+def tern(x, a, b)
+  case
+  when x ? a : b then 1
+  end
+end
+def test_pat(x)
+  case
+  when (x in Integer) then 1
+  end
+end
+def scope
+  case
+  when Foo::Bar then 1
+  end
+end
+def neg(x)
+  case
+  when -x then 1
+  end
+end
+def splat(xs)
+  case
+  when *xs then 1
+  end
+end
+def arith(x)
+  case
+  when x + 1 then 1
+  end
+end
+";
+        assert_ruby_case_members(
+            src,
+            0,
+            &[
+                (Ruby::When as u16, 10, "`when` clauses"),
+                (
+                    Ruby::ParenthesizedStatements as u16,
+                    4,
+                    "parenthesised operands",
+                ),
+                (Ruby::Conditional as u16, 1, "`tern`'s ternary"),
+                (Ruby::TestPattern as u16, 1, "`test_pat`'s pattern test"),
+                (Ruby::ScopeResolution2 as u16, 1, "`scope`'s `Foo::Bar`"),
+                (Ruby::SplatArgument as u16, 1, "`splat`'s `*xs`"),
+            ],
+            &[
+                ("paren", 1, 2),
+                ("notted", 1, 2),
+                // Each was 2.
+                ("not_cmp", 1, 2),
+                ("paren_cmp", 1, 2),
+                ("test_pat", 1, 2),
+                // Was 3. The ternary's own `?` and its condition `x` are
+                // its two conditions, as in `if x ? a : b`.
+                ("tern", 2, 3),
+                ("scope", 1, 2),
+                ("neg", 1, 2),
+                ("splat", 1, 2),
+                ("arith", 1, 2),
+            ],
+        );
+    }
+
+    // A clause may list several patterns, an implicit `or` cyclomatic
+    // scores as one decision. The clause pays unless any pattern already
+    // scored itself, so `bare_first` and `cmp_first` agree although only
+    // their pattern order differs — reading the first pattern alone, as
+    // Kotlin's `kotlin_count_when_entry` does, would score them 2 and 1.
+    //
+    // `alts` is the row that cannot reach parity from the ABC side: both
+    // comparisons are real conditions wherever they are written, and the
+    // remaining gap is cyclomatic's one-per-clause model (as for Kotlin's
+    // `when { x > 5, y < 0 -> … }`). It was 3.
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_subjectless_case_when_multiple_patterns() {
+        let src = "def bare_alts(a, b)
+  case
+  when a, b then 1
+  end
+end
+def alts(x)
+  case
+  when x > 1, x < -1 then 1
+  end
+end
+def bare_first(a, x)
+  case
+  when a, x > 1 then 1
+  end
+end
+def cmp_first(a, x)
+  case
+  when x > 1, a then 1
+  end
+end
+";
+        assert_ruby_case_members(
+            src,
+            0,
+            &[
+                (Ruby::When as u16, 4, "`when` clauses"),
+                (Ruby::Pattern as u16, 8, "two patterns per clause"),
+            ],
+            &[
+                ("bare_alts", 1, 2),
+                ("alts", 2, 2),
+                // Both were 2.
+                ("bare_first", 1, 2),
+                ("cmp_first", 1, 2),
+            ],
+        );
+    }
+
+    // The other half of #1453: a subject-ful clause must not move. It
+    // lists a pattern matched with `pattern === subject`, a comparison
+    // written nowhere, so the clause itself pays for the decision.
+    // `subj_cmp` is the subject-ful counterpart of `gt` above and keeps
+    // the clause's count *and* its `>`: `y > 5` is a value compared
+    // against `x`, two comparisons for one branch. `in_arms` (the
+    // `InClause` arm), `unl` and `elsif_` share no code with `When` and
+    // are here to pin that the fix left them alone.
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_subjectful_case_when_keeps_the_per_clause_count() {
+        let src = "def konst(x)
+  case x
+  when 1 then 1
+  when 2 then 2
+  else 0
+  end
+end
+def subj_alts(x)
+  case x
+  when 1, 2 then 1
+  else 0
+  end
+end
+def subj_cmp(x, y)
+  case x
+  when y > 5 then 1
+  end
+end
+def in_arms(x)
+  case x
+  in Integer then 1
+  in String then 2
+  else 0
+  end
+end
+def unl(x)
+  unless x > 5 then 1 else 0 end
+end
+def elsif_(x)
+  if x > 5 then 1 elsif x < 0 then 2 else 0 end
+end
+";
+        // Three: `in_arms` is a `case_match`, a separate production.
+        assert_ruby_case_members(
+            src,
+            3,
+            &[
+                (Ruby::CaseMatch as u16, 1, "`in_arms`'s `case`"),
+                (Ruby::When as u16, 4, "`when` clauses"),
+                (Ruby::InClause as u16, 2, "`in_arms`'s clauses"),
+                (Ruby::GT as u16, 3, "`>` comparisons"),
+            ],
+            &[
+                ("konst", 3, 3),
+                ("subj_alts", 2, 2),
+                ("subj_cmp", 2, 2),
+                ("in_arms", 3, 3),
+                ("unl", 2, 2),
+                ("elsif_", 4, 3),
+            ],
+        );
+    }
+
     // ---------------------------------------------------------------
     // Default-impl placeholder smoke tests (audited in #188).
     //
