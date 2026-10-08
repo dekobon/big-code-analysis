@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats};
+use super::{Abc, Stats, wrapped_operand};
 use crate::macros::java_bool_terminal_kinds;
 use crate::*;
 
@@ -23,16 +23,19 @@ use crate::*;
 // A `unary_expression` spelled `-x`, `+x` or `~x` is never a boolean
 // slot's operand, so the peel declines it.
 //
-// Both wrappers store their expression at child index one, after the
-// `(` or the operator token:
-// https://github.com/tree-sitter/tree-sitter-java/blob/master/src/grammar.json#L2472
-// https://github.com/tree-sitter/tree-sitter-java/blob/master/src/grammar.json#L2150
+// The operand is read by role, not at child index one after the `(` or
+// the operator token: a comment may sit there (`(/*c*/ b)`, `! /*c*/ b`)
+// and scored the condition zero (#1455). `unary_expression` names its
+// `operand`; `parenthesized_expression` names nothing, so it takes the
+// first operand that is not an extra.
 fn java_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     use Java::*;
 
     match node.kind_id().into() {
-        ParenthesizedExpression => Some((node.child(1)?, false)),
-        UnaryExpression if node.child(0)?.kind_id() == BANG as u16 => Some((node.child(1)?, true)),
+        ParenthesizedExpression => Some((wrapped_operand(node)?, false)),
+        UnaryExpression if node.child(0)?.kind_id() == BANG as u16 => {
+            Some((node.child_by_field_name("operand")?, true))
+        }
         _ => None,
     }
 }
@@ -128,13 +131,13 @@ fn java_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 // mutually exclusive in the source language so a short-circuit chain
 // reproduces the original `match` semantics bit-for-bit.
 
-// Shared helper: passes `node.child(idx)` to `java_inspect_container`.
+// Shared helper: passes a slot's occupant to `java_inspect_container`.
 // The container helper is a no-op on kinds other than
 // `ParenthesizedExpression` / `!`-prefixed `UnaryExpression`, so no
 // `matches!` guard is needed at the call site.
-fn java_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
-    if let Some(child) = node.child(idx) {
-        java_inspect_container(&child, node, conditions);
+fn java_inspect_slot(slot: Option<Node>, parent: &Node, conditions: &mut f64) {
+    if let Some(child) = slot {
+        java_inspect_container(&child, parent, conditions);
     }
 }
 
@@ -328,8 +331,14 @@ fn java_walk_for_conditions<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, s
         }
         // Unary conditions among method arguments.
         ArgumentList => java_count_unary_conditions(node, conds),
-        // Child 1: `if (cond) ...`, `while (cond) ...`, `return value;`.
-        IfStatement | WhileStatement | ReturnStatement => java_inspect_child(node, 1, conds),
+        // `if (cond)`, `while (cond)`, `do … while (cond);`, by grammar
+        // field: a fixed index lands on a comment before the slot
+        // (`if /*c*/ (b)`) and scores the condition zero (#1455).
+        IfStatement | WhileStatement | DoStatement => {
+            java_inspect_slot(node.child_by_field_name("condition"), node, conds);
+        }
+        // `return value;` names no field; the value is its only operand.
+        ReturnStatement => java_inspect_slot(wrapped_operand(node), node, conds),
         // The Java 21 pattern-switch guard (`case Integer i when g ->`),
         // modelled as a condition slot exactly like the `if` / `while`
         // slots above (#1454, transferring #1422's C# rule). Before
@@ -363,13 +372,11 @@ fn java_walk_for_conditions<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, s
                 java_count_condition(&guard, node, conds);
             }
         }
-        // Child 2: assignment / declarator RHS, lambda body
-        // (`params -> body`).
-        VariableDeclarator | AssignmentExpression | LambdaExpression => {
-            java_inspect_child(node, 2, conds);
-        }
-        // Child 3: the `while (cond)` condition of `do { ... } while (...);`.
-        DoStatement => java_inspect_child(node, 3, conds),
+        // Declarator / assignment RHS and lambda body (`params -> body`),
+        // by field for the same reason as the condition slots above.
+        VariableDeclarator => java_inspect_slot(node.child_by_field_name("value"), node, conds),
+        AssignmentExpression => java_inspect_slot(node.child_by_field_name("right"), node, conds),
+        LambdaExpression => java_inspect_slot(node.child_by_field_name("body"), node, conds),
         TernaryExpression => java_walk_ternary(node, stats),
         ForStatement => java_walk_for_statement(node, stats),
         _ => {}

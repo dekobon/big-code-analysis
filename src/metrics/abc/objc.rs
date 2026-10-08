@@ -10,15 +10,14 @@
 )]
 
 use super::cpp::{
-    cpp_count_unary_conditions, cpp_inspect_child, cpp_inspect_container, cpp_walk_for_statement,
-    cpp_walk_ternary,
+    cpp_count_unary_conditions, cpp_inspect_slot, cpp_walk_for_statement, cpp_walk_ternary,
 };
-use super::{Abc, Stats};
+use super::{Abc, Stats, wrapped_operand};
 use crate::*;
 
 // Objective-C ABC. ObjC is C plus message sends and `@`-directives, so
 // the walker is the C/C++ shape (it reuses the grammar-agnostic
-// `cpp_inspect_container` / `cpp_inspect_child` / `cpp_count_unary_conditions`
+// `cpp_inspect_container` / `cpp_inspect_slot` / `cpp_count_unary_conditions`
 // helpers, which match on node-kind strings) with two ObjC additions:
 //   * the `B` (branch) dimension counts `message_expression`
 //     (`[obj msg:x]`) alongside C `call_expression`s — a message send is
@@ -95,16 +94,16 @@ impl Abc for ObjcCode {
                     cpp_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }
-            IfStatement | WhileStatement => {
-                if let Some(cond) = node.child_by_field_name("condition") {
-                    cpp_inspect_container(&cond, node, &mut stats.conditions);
-                }
+            // By role, never by index — see `impl Abc for CppCode` (#1455).
+            IfStatement | WhileStatement | DoStatement => {
+                cpp_inspect_slot(
+                    node.child_by_field_name("condition"),
+                    node,
+                    &mut stats.conditions,
+                );
             }
             ReturnStatement => {
-                cpp_inspect_child(node, 1, &mut stats.conditions);
-            }
-            DoStatement => {
-                cpp_inspect_child(node, 3, &mut stats.conditions);
+                cpp_inspect_slot(wrapped_operand(node), node, &mut stats.conditions);
             }
             ArgumentList | ArgumentList2 => {
                 cpp_count_unary_conditions(node, &mut stats.conditions);

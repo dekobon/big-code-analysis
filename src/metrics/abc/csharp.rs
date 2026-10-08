@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats};
+use super::{Abc, Stats, is_operand, wrapped_operand};
 use crate::macros::{
     csharp_bool_terminal_kinds, csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds,
 };
@@ -57,18 +57,16 @@ use crate::*;
 // (`b /*c*/ !`); the operand is `child(0)`, which no extra can precede
 // because the node starts there.
 //
-// The paren and prefix arms keep the positional reads they have always
-// had. The C# grammar names nothing here — `parenthesized_expression`,
+// The paren and prefix arms read their operand with `wrapped_operand`.
+// The C# grammar names nothing here — `parenthesized_expression`,
 // `prefix_unary_expression` and `postfix_unary_expression` all carry an
 // empty `fields` map in node-types.json — so the field read that
-// Kotlin's and Groovy's equivalents use is unavailable, and with it the
-// comment bug those reads dodge: `if (( /*c*/ b))` and `if (! /*c*/ b)`
-// still score zero, because `child(1)` is the comment. Measured, not
-// assumed. That is #1455, which predates this change and is recorded
-// here rather than widened into it; the new arm adds no instance of it.
+// Kotlin's and Groovy's equivalents use is unavailable, and the
+// positional `child(1)` it replaced lost the operand to a comment:
+// `if (( /*c*/ b))` and `if (! /*c*/ b)` scored zero (#1455).
 //
 // Every `?` below is infallible for well-formed C# — each wrapper is
-// the operator token plus its operand, so `child(0)` and `child(1)`
+// the operator token plus its operand, so `child(0)` and an operand
 // both exist — and is spelled as an `Option` because `AGENTS.md` bans
 // `expect` outside tests. Do not try to cover the `None` arms: only
 // error recovery reaches them (`bool b = !;` parses to a one-child
@@ -80,13 +78,13 @@ fn csharp_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 
     match node.kind_id().into() {
         // `(expr)` — the inner expression follows the `(` token.
-        csharp_paren_expr_kinds!() => Some((node.child(1)?, false)),
+        csharp_paren_expr_kinds!() => Some((wrapped_operand(node)?, false)),
         // `!expr` — the operand follows the operator token. Seven other
         // prefix operators (`++ -- + - ~ & ^`) share this kind, as does
         // the `*` of a pointer indirection the grammar aliases onto it;
         // none is a boolean slot's operand.
         csharp_prefix_unary_expr_kinds!() => match node.child(0)?.kind_id().into() {
-            BANG => Some((node.child(1)?, true)),
+            BANG => Some((wrapped_operand(node)?, true)),
             _ => None,
         },
         // `expr!` — the null-forgiving operator. One kind id at the
@@ -634,25 +632,14 @@ fn csharp_walk_for_conditions<'a>(
         // zero conditions today. Repairing it means revisiting that
         // exclusion, not just this arm.
         ArgumentList => csharp_count_unary_conditions(node, conds),
-        // tree-sitter-c-sharp `if_statement` / `while_statement` shape:
-        // [`if`/`while`, `(`, condition, `)`, body, …]. The parens are
-        // anonymous string children, NOT a wrapping
-        // `parenthesized_expression` as in tree-sitter-java — so the
-        // condition lives at child(2). Targeting child(1) (the literal
-        // `(` token) was the #370 bug: every unary / bare-identifier
-        // condition silently scored 0. See issue #370.
-        IfStatement | WhileStatement => {
-            if let Some(condition) = node.child(2) {
-                csharp_count_condition(&condition, node, conds);
-            }
-        }
-        // tree-sitter-c-sharp `do_statement` shape:
-        // [`do`, body, `while`, `(`, condition, `)`, `;`]. The
-        // condition lives at child(4), not child(3) (which is the
-        // literal `(` token). Targeting child(3) was the second half
-        // of the #370 bug.
-        DoStatement => {
-            if let Some(condition) = node.child(4) {
+        // tree-sitter-c-sharp spells the parens of `if` / `while` /
+        // `do … while` as anonymous tokens, NOT a wrapping
+        // `parenthesized_expression` as in tree-sitter-java, so the
+        // slot holds the bare condition. Read by grammar field: a fixed
+        // index landed on the `(` token (#370), and after that fix on a
+        // comment, since `if (/*c*/ b)` puts one at child(2) (#1455).
+        IfStatement | WhileStatement | DoStatement => {
+            if let Some(condition) = node.child_by_field_name("condition") {
                 csharp_count_condition(&condition, node, conds);
             }
         }
@@ -692,25 +679,23 @@ fn csharp_walk_for_conditions<'a>(
         // `!`-prefix wrapper — so passing them through the slot adds
         // nothing and the loop cannot double count a clause that holds
         // one expression by construction.
-        //
-        // FIXME(#1455): the sibling `if` / `while` / `do` slots read a
-        // fixed child index and so still lose their condition to a
-        // leading comment (`if (/*c*/ g)` scores 0). That is the same
-        // class of bug and predates this arm; it is left to its own
-        // change rather than widened into here.
         WhenClause | CatchFilterClause => {
             for guard in node.children().filter(Node::is_named) {
                 csharp_count_condition(&guard, node, conds);
             }
         }
-        // `return value;` — child(1) is the value expression.
-        ReturnStatement => csharp_inspect_child(node, 1, conds),
-        // Child 2: declarator / assignment RHS, lambda body
-        // (`params => body`).
-        crate::Csharp::VariableDeclarator
-        | crate::Csharp::VariableDeclarator2
-        | AssignmentExpression
-        | LambdaExpression => csharp_inspect_child(node, 2, conds),
+        // The value slots, none of which a fixed index can address: a
+        // comment may precede the value (`return /*c*/ !b;`), and a
+        // lambda's optional `async` / attribute preamble shifts its body.
+        // `return` and a declarator name no field for the value, so the
+        // first and last operand stand in: a `return` holds only its
+        // value, and a declarator's initialiser follows its name.
+        ReturnStatement => csharp_inspect_slot(wrapped_operand(node), node, conds),
+        crate::Csharp::VariableDeclarator | crate::Csharp::VariableDeclarator2 => {
+            csharp_inspect_slot(node.children().filter(is_operand).last(), node, conds);
+        }
+        AssignmentExpression => csharp_inspect_slot(node.child_by_field_name("right"), node, conds),
+        LambdaExpression => csharp_inspect_slot(node.child_by_field_name("body"), node, conds),
         ConditionalExpression => csharp_walk_conditional(node, stats),
         ForStatement => csharp_walk_for_statement(node, stats),
         _ => {}
@@ -776,12 +761,12 @@ impl Abc for CsharpCode {
     }
 }
 
-// C# mirror of `java_inspect_child` / `groovy_inspect_child`: passes
-// `node.child(idx)` to `csharp_inspect_container`, which is a no-op on
-// every kind `csharp_wrapper_operand` declines.
-fn csharp_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
-    if let Some(child) = node.child(idx) {
-        csharp_inspect_container(&child, node, conditions);
+// C# mirror of `java_inspect_slot` / `groovy_inspect_slot`: passes a
+// value slot's occupant to `csharp_inspect_container`, which is a no-op
+// on every kind `csharp_wrapper_operand` declines.
+fn csharp_inspect_slot(slot: Option<Node>, parent: &Node, conditions: &mut f64) {
+    if let Some(child) = slot {
+        csharp_inspect_container(&child, parent, conditions);
     }
 }
 

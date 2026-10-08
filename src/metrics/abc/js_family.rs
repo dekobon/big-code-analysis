@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats};
+use super::{Abc, Stats, wrapped_operand};
 use crate::macros::{
     javascript_bool_terminal_kinds, mozjs_bool_terminal_kinds, tsx_bool_terminal_kinds,
     typescript_bool_terminal_kinds,
@@ -64,7 +64,11 @@ macro_rules! impl_js_family_unary_walker {
                     has_boolean_content = true;
                 }
 
-                let Some(child) = node.child(1) else { break };
+                // The wrapper's only operand, not child(1): a comment may
+                // sit there (`(/*c*/ b)`, `! /*c*/ b` — #1455).
+                let Some(child) = wrapped_operand(&node) else {
+                    break;
+                };
                 node = child;
                 node_kind = node.kind_id().into();
 
@@ -429,26 +433,18 @@ macro_rules! ts_abc_compute {
                 // (...)` in `parenthesized_expression`, so
                 // `<lang>_inspect_container`'s paren-unwrap handles
                 // the boolean-literal case (`if (true)` counts 1).
-                // The condition sits at child(1) for if and while.
-                // For `do_statement`, the condition is at child(3)
-                // (children: `do`(0), body(1), `while`(2),
-                // parenthesized condition(3), `;`(4)).
-                IfStatement | WhileStatement => {
-                    if let Some(cond) = node.child(1) {
+                // Read by grammar field, not index: a comment before
+                // the slot (`if /*c*/ (b)`) shifted every positional
+                // read onto it (#1455).
+                IfStatement | WhileStatement | DoStatement => {
+                    if let Some(cond) = node.child_by_field_name("condition") {
                         $inspect_container(&cond, node, &mut stats.conditions);
                     }
                 }
-                DoStatement => {
-                    // children: `do`(0), body(1), `while`(2),
-                    // parenthesized condition(3), `;`(4).
-                    if let Some(cond) = node.child(3) {
-                        $inspect_container(&cond, node, &mut stats.conditions);
-                    }
-                }
-                // `return value;` — value at child(1). The bare
-                // `return;` (no value) form has no child(1).
+                // `return value;` names no field; the value is its only
+                // operand. The bare `return;` form has none.
                 ReturnStatement => {
-                    if let Some(value) = node.child(1) {
+                    if let Some(value) = wrapped_operand(node) {
                         $inspect_container(&value, node, &mut stats.conditions);
                     }
                 }
@@ -573,21 +569,14 @@ macro_rules! js_abc_compute {
                 }
                 // Phase-2B (issue #403): condition slots. Same shape
                 // as the TypeScript impl above — see that macro's
-                // arm-block for the per-child-index rationale.
-                IfStatement | WhileStatement => {
-                    if let Some(cond) = node.child(1) {
-                        $inspect_container(&cond, node, &mut stats.conditions);
-                    }
-                }
-                DoStatement => {
-                    // children: `do`(0), body(1), `while`(2),
-                    // parenthesized condition(3), `;`(4).
-                    if let Some(cond) = node.child(3) {
+                // arm-block for why each slot is read by role.
+                IfStatement | WhileStatement | DoStatement => {
+                    if let Some(cond) = node.child_by_field_name("condition") {
                         $inspect_container(&cond, node, &mut stats.conditions);
                     }
                 }
                 ReturnStatement => {
-                    if let Some(value) = node.child(1) {
+                    if let Some(value) = wrapped_operand(node) {
                         $inspect_container(&value, node, &mut stats.conditions);
                     }
                 }

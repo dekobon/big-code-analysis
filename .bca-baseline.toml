@@ -897,19 +897,13 @@ value = 16.0
 path = "src/metrics/abc/go.rs"
 qualified = "GoCode::compute"
 metric = "halstead.effort"
-value = 49999.43426005393
+value = 49998.590597403396
 
 [[entry]]
 path = "src/metrics/abc/kotlin.rs"
 qualified = "KotlinCode::compute"
 metric = "cyclomatic"
 value = 20.0
-
-[[entry]]
-path = "src/metrics/abc/objc.rs"
-qualified = "ObjcCode::compute"
-metric = "halstead.effort"
-value = 50110.01872952996
 
 [[entry]]
 path = "src/metrics/abc/rust.rs"

@@ -432,6 +432,24 @@ pub(super) fn for_each_named_child(
     }
 }
 
+// The operand a single-operand wrapper holds — `(…)`, a negation, a
+// `return` — read as its first named child that is not a tree-sitter
+// `extra`. A positional `child(1)` read assumes nothing sits between the
+// opening token and the operand, and a comment can sit anywhere: `(/*c*/
+// b)` handed the comment to the peel, which declined it, and the
+// condition scored zero (#1455). `is_named` alone is not enough either,
+// because extras are named.
+pub(super) fn wrapped_operand<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+    node.children().find(is_operand)
+}
+
+// Whether `child` can occupy an operand slot: named, and not an `extra`.
+// The `extra` flag is read off the tree-sitter node because the `Node`
+// wrapper exposes no accessor for it.
+pub(super) fn is_operand(child: &Node) -> bool {
+    child.is_named() && !child.as_tree_sitter().is_extra()
+}
+
 // Default no-op `Abc` impls. Audited in #188; the matrix below
 // records the rationale for every entry so the no-op default is a
 // deliberate choice, not scaffolding leftover.
@@ -5267,15 +5285,13 @@ mod tests {
     // between it and the operator. The operator is identified by
     // membership rather than by index for the same reason.
     //
-    // The other two wrappers have no such luck and are pinned here as a
-    // *measured* gap rather than left to be discovered: the C# grammar
-    // gives `parenthesized_expression`, `prefix_unary_expression` and
+    // The other two wrappers name no field either — the C# grammar gives
+    // `parenthesized_expression`, `prefix_unary_expression` and
     // `postfix_unary_expression` an empty `fields` map in
-    // node-types.json, so the field read Kotlin's and Groovy's
-    // equivalents use is unavailable and `child(1)` is a comment
-    // whenever one is written there. That is #1455, which predates
-    // #1463 and is a separate change; what this test adds is that the
-    // new arm does not join it.
+    // node-types.json — so `child(1)` was a comment whenever one was
+    // written there, and `nc` / `rc` scored zero. They read their
+    // operand as the first one that is not an extra since #1455, so all
+    // three pairs agree with their controls.
     #[cfg(feature = "csharp")]
     #[test]
     fn csharp_null_forgiving_operand_survives_an_interposed_comment() {
@@ -5309,17 +5325,15 @@ mod tests {
                 &space.spaces[0],
                 &[
                     ("p", 1, 2),
-                    // The row #1463 fixes and the only one of the three
-                    // pairs that agrees with its control.
+                    // The row #1463 fixes.
                     ("pc", 1, 2),
                     ("n", 1, 2),
                     // #1455: `child(1)` of the prefix wrapper is the
-                    // comment. Delete this expectation, not the row,
-                    // when that issue is fixed.
-                    ("nc", 0, 2),
+                    // comment.
+                    ("nc", 1, 2),
                     ("r", 1, 2),
                     // #1455 again, through the paren wrapper.
-                    ("rc", 0, 2),
+                    ("rc", 1, 2),
                 ],
             );
         });
@@ -16725,10 +16739,8 @@ mod own_production_bool_constructs {
     /// the peel rewrite.
     ///
     /// `parenthesized_expression` names nothing in node-types.json, so
-    /// it keeps the positional read and keeps the bug; that half is
-    /// pinned here as a *measured* gap rather than left to be discovered
-    /// as a surprise. Kotlin records the identical pair
-    /// (`kotlin_wrapper_operand`).
+    /// it kept the positional read, and the bug, until #1455 read it as
+    /// the first operand that is not an extra.
     #[test]
     #[cfg(feature = "groovy")]
     fn groovy_negation_operand_survives_an_interposed_comment() {
@@ -16744,9 +16756,9 @@ mod own_production_bool_constructs {
         assert_eq!(conditions(LANG::Groovy, &template.replace("{}", "(a)")), 1);
         assert_eq!(
             conditions(LANG::Groovy, &template.replace("{}", "( /*c*/ a)")),
-            0,
-            "`parenthesized_expression` now survives an interposed comment — if the \
-             grammar gained a field for its inner expression, read it and delete this"
+            1,
+            "the parenthesised operand is being read positionally again; a comment \
+             displaces it"
         );
     }
 
@@ -17845,6 +17857,440 @@ mod wrapper_peel_routing {
             LANG::Lua,
             "function f(b)\n  g(@)\nend\n",
             &[("not b", 1), ("(b)", 0), ("-b", 0)],
+        );
+    }
+}
+
+/// A comment inside a condition or value slot changes nothing (#1455).
+///
+/// Every walker read its slots by fixed child index, and every peel
+/// stepped into a `(…)` / negation with `child(1)` or the first named
+/// child. tree-sitter counts a comment among a node's children and
+/// marks it *named*, so `if (/*c*/ b)` handed the comment to the slot,
+/// which declined it, and the condition scored zero. Each pair below is
+/// one spelling with and without a comment; the two are asserted equal
+/// to each other *and* to the expected literal, so a regression that
+/// moved both sides alike — to zero, say — still fails.
+///
+/// The forms, per slot and per comment spelling of the language: a
+/// comment before the operand, inside a nested parenthesis, before a
+/// negation, between a negation and its operand, and — where the
+/// language's syntax puts parentheses around the slot — before those
+/// parentheses. Value slots (`return`, declarator, assignment, lambda
+/// body) take the negated forms only, since a bare operand there is no
+/// condition, and only the first comment spelling: a line comment after
+/// `return` ends the statement in Go.
+#[cfg(test)]
+#[cfg(any(
+    feature = "c",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "typescript"
+))]
+mod slot_comment_invariance {
+    use crate::test_support::metrics_verbatim;
+    use crate::{LANG, MetricsOptions};
+
+    fn conditions(lang: LANG, source: &str) -> u64 {
+        metrics_verbatim(lang, source.as_bytes(), MetricsOptions::default())
+            .abc
+            .conditions_sum()
+    }
+
+    /// How one language spells the slots under test.
+    struct Spelling {
+        /// Comment spellings, each carrying the whitespace — a newline
+        /// for a line comment — the operand after it needs.
+        comments: &'static [&'static str],
+        operand: &'static str,
+        /// `None` where the peel does not descend the negation: Python
+        /// counts `not` through its own arm, and tree-sitter-python
+        /// fails to parse the valid `(not # c⏎ b)` at the pinned grammar.
+        negation: Option<&'static str>,
+        /// The slot is written inside parentheses: either the syntax
+        /// requires them (`if (…)`), or a line comment needs them to
+        /// stay inside the expression (Python, Ruby, Elixir).
+        parenthesised: bool,
+        /// The parentheses belong to the slot's syntax, so a comment
+        /// may also sit before them (`if /*c*/ (b)`).
+        syntactic_parens: bool,
+        /// `(template, expected)`; `@` marks a condition slot.
+        conditions: &'static [(&'static str, u64)],
+        /// Templates whose `@` is a value slot; a negation there scores 1.
+        values: &'static [&'static str],
+    }
+
+    const C_COMMENTS: &[&str] = &["/*c*/ ", "//c\n "];
+
+    const C_FAMILY: Spelling = Spelling {
+        comments: C_COMMENTS,
+        operand: "b",
+        negation: Some("!"),
+        parenthesised: true,
+        syntactic_parens: true,
+        conditions: &[
+            ("int f(){ if @ { x(); } }", 1),
+            ("int f(){ while @ { x(); } }", 1),
+            ("int f(){ do { x(); } while @; }", 1),
+        ],
+        values: &["int f(){ return @; }"],
+    };
+
+    const JS_FAMILY: Spelling = Spelling {
+        comments: C_COMMENTS,
+        operand: "b",
+        negation: Some("!"),
+        parenthesised: true,
+        syntactic_parens: true,
+        conditions: &[
+            ("function f(){ if @ { x(); } }", 1),
+            ("function f(){ while @ { x(); } }", 1),
+            ("function f(){ do { x(); } while @; }", 1),
+        ],
+        values: &["function f(){ return @; }"],
+    };
+
+    fn spelling(lang: LANG) -> Option<Spelling> {
+        Some(match lang {
+            LANG::C | LANG::Cpp | LANG::Mozcpp | LANG::Objc => C_FAMILY,
+            LANG::Javascript | LANG::Mozjs | LANG::Typescript | LANG::Tsx => JS_FAMILY,
+            LANG::Java => Spelling {
+                conditions: &[
+                    ("class K{ void f(){ if @ { x(); } } }", 1),
+                    ("class K{ void f(){ while @ { x(); } } }", 1),
+                    ("class K{ void f(){ do { x(); } while @; } }", 1),
+                ],
+                values: &[
+                    "class K{ boolean f(){ return @; } }",
+                    "class K{ void f(){ boolean y = @; } }",
+                    "class K{ void f(){ y = @; } }",
+                    "class K{ void f(){ Supplier<Boolean> s = () -> @; } }",
+                ],
+                ..C_FAMILY
+            },
+            LANG::Csharp => Spelling {
+                conditions: &[
+                    ("class K{ void f(){ if @ { x(); } } }", 1),
+                    ("class K{ void f(){ while @ { x(); } } }", 1),
+                    ("class K{ void f(){ do { x(); } while @; } }", 1),
+                ],
+                values: &[
+                    "class K{ bool f(){ return @; } }",
+                    "class K{ void f(){ var y = @; } }",
+                    "class K{ void f(){ y = @; } }",
+                    "class K{ void f(){ Func<bool> s = () => @; } }",
+                ],
+                ..C_FAMILY
+            },
+            LANG::Groovy => Spelling {
+                conditions: &[
+                    ("def f(){ if @ { x() } }", 1),
+                    ("def f(){ while @ { x() } }", 1),
+                    ("def f(){ do { x() } while @ }", 1),
+                ],
+                values: &[
+                    "def f(){ return @ }",
+                    "def f(){ def y = @ }",
+                    "def f(){ y = @ }",
+                ],
+                ..C_FAMILY
+            },
+            LANG::Php => Spelling {
+                comments: &["/*c*/ ", "//c\n ", "#c\n "],
+                operand: "$b",
+                conditions: &[
+                    ("<?php function f(){ if @ { x(); } }", 1),
+                    ("<?php function f(){ while @ { x(); } }", 1),
+                    ("<?php function f(){ do { x(); } while @; }", 1),
+                ],
+                values: &["<?php function f(){ return @; }"],
+                ..C_FAMILY
+            },
+            LANG::Kotlin => Spelling {
+                conditions: &[
+                    ("fun f(){ if @ { x() } }", 1),
+                    ("fun f(){ while @ { x() } }", 1),
+                    ("fun f(){ do { x() } while @ }", 1),
+                ],
+                values: &[],
+                ..C_FAMILY
+            },
+            LANG::Perl => Spelling {
+                comments: &["# c\n "],
+                operand: "$b",
+                conditions: &[
+                    ("sub f { if @ { x(); } }", 1),
+                    ("sub f { unless @ { x(); } }", 1),
+                    ("sub f { while @ { x(); } }", 1),
+                    ("sub f { until @ { x(); } }", 1),
+                ],
+                values: &["sub f { return @; }"],
+                ..C_FAMILY
+            },
+            LANG::Rust => Spelling {
+                parenthesised: false,
+                syntactic_parens: false,
+                conditions: &[
+                    ("fn f(){ if @ { x(); } }", 1),
+                    ("fn f(){ while @ { x(); } }", 1),
+                ],
+                values: &["fn f() -> bool { return @; }"],
+                ..C_FAMILY
+            },
+            LANG::Go => Spelling {
+                parenthesised: false,
+                syntactic_parens: false,
+                conditions: &[
+                    ("package p\nfunc f(){ if @ { x() } }", 1),
+                    ("package p\nfunc f(){ for @ { x() } }", 1),
+                ],
+                values: &["package p\nfunc f() bool { return @ }"],
+                ..C_FAMILY
+            },
+            LANG::Lua => Spelling {
+                comments: &["--[[c]] ", "--c\n "],
+                negation: Some("not "),
+                parenthesised: false,
+                syntactic_parens: false,
+                conditions: &[
+                    ("function f() if @ then x() end end", 1),
+                    ("function f() while @ do x() end end", 1),
+                    ("function f() repeat x() until @ end", 1),
+                ],
+                values: &["function f() return @ end"],
+                ..C_FAMILY
+            },
+            LANG::Python => Spelling {
+                comments: &["# c\n "],
+                negation: None,
+                syntactic_parens: false,
+                conditions: &[
+                    ("def f():\n    if @:\n        x()\n", 1),
+                    ("def f():\n    while @:\n        x()\n", 1),
+                ],
+                values: &[],
+                ..C_FAMILY
+            },
+            LANG::Ruby => Spelling {
+                comments: &["# c\n "],
+                syntactic_parens: false,
+                conditions: &[
+                    ("def f\n  if @\n    x\n  end\nend\n", 1),
+                    ("def f\n  while @\n    x\n  end\nend\n", 1),
+                    ("def f\n  case\n  when @\n    x\n  end\nend\n", 1),
+                ],
+                values: &[],
+                ..C_FAMILY
+            },
+            // Elixir's `if` slot scored its operand whatever the peel
+            // returned, so the defect showed only where the peel decides:
+            // an operand of a `&&` chain, which counts each operand.
+            LANG::Elixir => Spelling {
+                comments: &["# c\n "],
+                syntactic_parens: false,
+                conditions: &[
+                    (
+                        "defmodule M do\n def f do\n  if @ do\n   x()\n  end\n end\nend\n",
+                        1,
+                    ),
+                    ("defmodule M do\n def f do\n  y = a && @\n end\nend\n", 2),
+                ],
+                values: &[],
+                ..C_FAMILY
+            },
+            _ => return None,
+        })
+    }
+
+    /// `(without, with, expected)` for every form of every slot.
+    fn cases(s: &Spelling) -> Vec<(String, String, u64)> {
+        let slot = |x: String| {
+            if s.parenthesised { format!("({x})") } else { x }
+        };
+        let b = s.operand;
+        let mut out = Vec::new();
+        for &(template, expected) in s.conditions {
+            let fill = |x: String| template.replace('@', &x);
+            for c in s.comments {
+                let mut push = |plain: String, commented: String| {
+                    out.push((fill(plain), fill(commented), expected));
+                };
+                push(slot(b.into()), slot(format!("{c}{b}")));
+                push(slot(format!("({b})")), slot(format!("({c}{b})")));
+                if let Some(n) = s.negation {
+                    push(slot(format!("{n}{b}")), slot(format!("{c}{n}{b}")));
+                    push(slot(format!("{n}{b}")), slot(format!("{n}{c}{b}")));
+                }
+                if s.syntactic_parens {
+                    push(slot(b.into()), format!("{c}{}", slot(b.into())));
+                }
+            }
+        }
+        if let (Some(n), Some(c)) = (s.negation, s.comments.first()) {
+            for template in s.values {
+                let fill = |x: String| template.replace('@', &x);
+                out.push((fill(format!("{n}{b}")), fill(format!("{c}{n}{b}")), 1));
+                out.push((fill(format!("{n}{b}")), fill(format!("{n}{c}{b}")), 1));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_comment_in_a_slot_changes_nothing() {
+        let mut checked = 0;
+        for lang in LANG::into_enum_iter() {
+            if !lang.is_enabled() {
+                continue;
+            }
+            let Some(spelling) = spelling(lang) else {
+                continue;
+            };
+            for (plain, commented, expected) in cases(&spelling) {
+                let without = conditions(lang, &plain);
+                assert_eq!(
+                    conditions(lang, &commented),
+                    without,
+                    "{lang:?}: a comment changed the ABC conditions\n  \
+                     without: {plain}\n  with:    {commented}"
+                );
+                assert_eq!(without, expected, "{lang:?}: {plain}");
+                checked += 1;
+            }
+        }
+        assert!(
+            checked > 0,
+            "no slot language enabled; this test asserted nothing"
+        );
+    }
+}
+
+/// Slot occupants that no fixed index or first-named-child read finds
+/// (#1455): a preamble before the slot, a comment *after* the operand
+/// of a last-operand read, and the non-condition reads that were
+/// positional too. Each row pairs a spelling with its plain twin.
+#[cfg(test)]
+#[cfg(any(
+    feature = "cpp",
+    feature = "elixir",
+    feature = "mozcpp",
+    feature = "perl",
+    feature = "ruby",
+    feature = "rust"
+))]
+mod slot_role_reads {
+    use crate::test_support::metrics_verbatim;
+    use crate::{LANG, MetricsOptions};
+
+    /// `(conditions, assignments)`.
+    fn abc(lang: LANG, source: &str) -> (u64, u64) {
+        let abc = metrics_verbatim(lang, source.as_bytes(), MetricsOptions::default()).abc;
+        (abc.conditions_sum(), abc.assignments_sum())
+    }
+
+    /// `(language, plain, variant, (conditions, assignments))`.
+    const ROWS: &[(LANG, &str, &str, (u64, u64))] = &[
+        // A C++ `condition_clause` holds its condition in the `value`
+        // field; an init-statement sits at child(1) before it.
+        (
+            LANG::Cpp,
+            "int f(){ int y = g(); if (b) { x(); } }",
+            "int f(){ if (int y = g(); b) { x(); } }",
+            (1, 1),
+        ),
+        (
+            LANG::Mozcpp,
+            "int f(){ int y = g(); if (b) { x(); } }",
+            "int f(){ if (int y = g(); b) { x(); } }",
+            (1, 1),
+        ),
+        (
+            LANG::Cpp,
+            "int f(){ if constexpr (b) { x(); } }",
+            "int f(){ if constexpr (/*c*/ b) { x(); } }",
+            (1, 0),
+        ),
+        // A loop label is the `while` expression's first child.
+        (
+            LANG::Rust,
+            "fn f(){ while b { x(); } }",
+            "fn f(){ 'a: while b { x(); } }",
+            (1, 0),
+        ),
+        // Perl's `(…)` evaluates to its last element, so the peel takes
+        // the last operand — never a trailing comment.
+        (
+            LANG::Perl,
+            "sub f { if ($b) { x(); } }",
+            "sub f { if ($b # c\n) { x(); } }",
+            (1, 0),
+        ),
+        (
+            LANG::Perl,
+            "sub f { x() if $b; }",
+            "sub f { x() if $b # c\n; }",
+            (1, 0),
+        ),
+        // `split`'s delimiter is its first *operand*; a comment before it
+        // made the pattern read as an ordinary match.
+        (
+            LANG::Perl,
+            "sub f { my @a = split(/,/, $s); }",
+            "sub f { my @a = split( # sep\n /,/, $s); }",
+            (0, 1),
+        ),
+        // A subject-less `when` scores its operand once; the comment
+        // made the peel return it, so `x > 1` counted twice.
+        (
+            LANG::Ruby,
+            "def f\n  case\n  when (x > 1)\n    y\n  end\nend\n",
+            "def f\n  case\n  when ( # c\n x > 1)\n    y\n  end\nend\n",
+            (1, 0),
+        ),
+        // Elixir's match operator, read at child(1), lost to a comment
+        // before the `=` — an assignment rather than a condition.
+        (
+            LANG::Elixir,
+            "defmodule M do\n def f do\n  a = 1\n end\nend\n",
+            "defmodule M do\n def f do\n  a # c\n = 1\n end\nend\n",
+            (0, 1),
+        ),
+    ];
+
+    #[test]
+    fn a_slot_is_read_by_role() {
+        let mut checked = 0;
+        for &(lang, plain, variant, expected) in ROWS {
+            if !lang.is_enabled() {
+                continue;
+            }
+            let without = abc(lang, plain);
+            assert_eq!(
+                abc(lang, variant),
+                without,
+                "{lang:?}: the variant scored differently\n  plain:   {plain}\n  variant: {variant}"
+            );
+            assert_eq!(without, expected, "{lang:?}: {plain}");
+            checked += 1;
+        }
+        assert!(
+            checked > 0,
+            "no row language enabled; this test asserted nothing"
         );
     }
 }

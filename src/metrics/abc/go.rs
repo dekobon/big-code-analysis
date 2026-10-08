@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, for_each_named_child};
+use super::{Abc, Stats, for_each_named_child, wrapped_operand};
 use crate::macros::go_bool_terminal_kinds;
 use crate::*;
 
@@ -19,17 +19,19 @@ use crate::*;
 // `go_count_condition` asks for, so the slot and the peel cannot
 // disagree about which kinds are wrappers (#1470; the Kotlin, Groovy
 // and C# instances of that disagreement were #1459, #1466 and #1463).
-// Both wrappers store their operand at child(1), after the `(` or the
-// operator token. A `unary_expression` spelled with any other operator
+// Each operand is read by role rather than at child(1) after the `(` or
+// the operator token, where a comment may sit (`if ! /*c*/ b`, #1455):
+// `unary_expression` names its `operand`, and a parenthesis holds only
+// its operand. A `unary_expression` spelled with any other operator
 // (`-x`, `^x`, `*p`, `&v`, `<-ch`) is never a boolean slot's operand,
 // so the peel declines it.
 fn go_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     use Go as G;
 
     match node.kind_id().into() {
-        G::ParenthesizedExpression => Some((node.child(1)?, false)),
+        G::ParenthesizedExpression => Some((wrapped_operand(node)?, false)),
         G::UnaryExpression if node.child(0)?.kind_id() == G::BANG as u16 => {
-            Some((node.child(1)?, true))
+            Some((node.child_by_field_name("operand")?, true))
         }
         _ => None,
     }
@@ -239,16 +241,18 @@ impl Abc for GoCode {
                 go_walk_for_statement(node, &mut stats.conditions);
             }
             // `return value` — Go wraps the return values in an
-            // `expression_list` at child(1). Iterate the list's
+            // `expression_list`, the statement's only operand (not
+            // child(1), where `return /*c*/ !x` puts a comment —
+            // #1455). Iterate the list's
             // children and route each through `inspect_container`
             // (NOT the terminal-at-top form): `return !x` counts
             // the wrapped Identifier once, while `return x` (bare
             // identifier in the return slot) reports zero
             // conditions. Matches Java's policy in
             // `java_return_without_conditions`. Bare `return`
-            // (no values) has no child(1).
+            // (no values) has no operand.
             G::ReturnStatement => {
-                if let Some(expr_list) = node.child(1) {
+                if let Some(expr_list) = wrapped_operand(node) {
                     for_each_named_child(&expr_list, &mut stats.conditions, go_inspect_container);
                 }
             }

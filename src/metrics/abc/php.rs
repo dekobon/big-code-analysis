@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats};
+use super::{Abc, Stats, wrapped_operand};
 use crate::macros::php_bool_terminal_kinds;
 use crate::*;
 
@@ -49,7 +49,11 @@ fn php_inspect_container(container_node: &Node, parent: &Node, conditions: &mut 
             has_boolean_content = true;
         }
 
-        let Some(child) = node.child(1) else { break };
+        // The wrapper's only operand, not child(1): a comment may sit
+        // there (`(/*c*/ $b)`, `! /*c*/ $b` — #1455).
+        let Some(child) = wrapped_operand(&node) else {
+            break;
+        };
         node = child;
         node_kind = node.kind_id().into();
 
@@ -62,13 +66,13 @@ fn php_inspect_container(container_node: &Node, parent: &Node, conditions: &mut 
     }
 }
 
-// Phase-2B helper (issue #403): pass `node.child(idx)` through
+// Phase-2B helper (issue #403): pass a slot's occupant through
 // `php_inspect_container`. PHP wraps `if (...)` / `while (...)` /
 // `do {…} while (...)` in `parenthesized_expression`, so the paren
 // unwrap handles the boolean-literal case (`if (true)` counts 1).
-fn php_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
-    if let Some(child) = node.child(idx) {
-        php_inspect_container(&child, node, conditions);
+fn php_inspect_slot(slot: Option<Node>, parent: &Node, conditions: &mut f64) {
+    if let Some(child) = slot {
+        php_inspect_container(&child, parent, conditions);
     }
 }
 
@@ -280,15 +284,20 @@ impl Abc for PhpCode {
                 }
             }
             // Phase-2B (issue #403): condition slots. PHP wraps
-            // `if (...)` / `while (...)` in `parenthesized_expression`
-            // at child(1); `return value;` exposes the value at the
-            // same index. `do {…} while (...)` has the parenthesized
-            // condition at child(3).
-            IfStatement | WhileStatement | ReturnStatement => {
-                php_inspect_child(node, 1, &mut stats.conditions);
+            // `if (...)` / `while (...)` / `do {…} while (...)` in a
+            // `parenthesized_expression`, read by grammar field: a
+            // comment before it (`if /*c*/ ($b)`) shifted the fixed
+            // index it replaced (#1455). `return value;` names no
+            // field; its value is its only operand.
+            IfStatement | WhileStatement | DoStatement => {
+                php_inspect_slot(
+                    node.child_by_field_name("condition"),
+                    node,
+                    &mut stats.conditions,
+                );
             }
-            DoStatement => {
-                php_inspect_child(node, 3, &mut stats.conditions);
+            ReturnStatement => {
+                php_inspect_slot(wrapped_operand(node), node, &mut stats.conditions);
             }
             // `f(!$a, !$b)` — argument list walker.
             Arguments => {

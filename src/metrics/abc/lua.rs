@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, for_each_named_child};
+use super::{Abc, Stats, for_each_named_child, wrapped_operand};
 use crate::macros::lua_bool_terminal_kinds;
 use crate::*;
 
@@ -36,8 +36,10 @@ use crate::*;
 // `lua_count_condition` asks for, so the slot and the peel cannot
 // disagree about which kinds are wrappers (#1470; the Kotlin, Groovy
 // and C# instances of that disagreement were #1459, #1466 and #1463).
-// Both wrappers store their operand at child(1), after the `(` or the
-// `not` keyword. A `unary_expression` spelled `-x`, `#t` or `~x` is
+// Each operand is read by role rather than at child(1) after the `(` or
+// the `not` keyword, where a comment may sit (`not --[[c]] b`, #1455):
+// `unary_expression` names its `operand`, and a parenthesis holds only
+// its operand. A `unary_expression` spelled `-x`, `#t` or `~x` is
 // arithmetic, length or bitwise — never a boolean slot's operand — so
 // the peel declines it.
 //
@@ -46,9 +48,9 @@ use crate::*;
 // other call-argument contexts would never set the walker's flag.
 fn lua_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     match node.kind_id().into() {
-        Lua::ParenthesizedExpression => Some((node.child(1)?, false)),
+        Lua::ParenthesizedExpression => Some((wrapped_operand(node)?, false)),
         Lua::UnaryExpression if node.child(0)?.kind_id() == Lua::Not as u16 => {
-            Some((node.child(1)?, true))
+            Some((node.child_by_field_name("operand")?, true))
         }
         _ => None,
     }
@@ -180,14 +182,16 @@ impl Abc for LuaCode {
                     lua_count_condition(&cond, node, &mut stats.conditions);
                 }
             }
-            // `return value` — Lua wraps return values in
-            // `expression_list` at child(1). Route each named child
+            // `return value` — Lua wraps return values in an
+            // `expression_list`, the statement's only operand (not
+            // child(1), where `return --[[c]] not x` puts a comment —
+            // #1455). Route each named child
             // through `inspect_container` (no top-level terminal
             // count) so `return not x` counts the unary unwrap once
             // while `return x` (bare) reports zero. Bare `return`
-            // (no values) has no child(1).
+            // (no values) has no operand.
             Lua::ReturnStatement => {
-                if let Some(expr_list) = node.child(1) {
+                if let Some(expr_list) = wrapped_operand(node) {
                     for_each_named_child(&expr_list, &mut stats.conditions, lua_inspect_container);
                 }
             }

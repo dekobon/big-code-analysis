@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats};
+use super::{Abc, Stats, wrapped_operand};
 use crate::macros::python_bool_terminal_kinds;
 use crate::*;
 
@@ -41,8 +41,9 @@ use crate::*;
 //   paper's "unary conditional expression". See the module-level
 //   `Stats` doc-comment for the cross-language `&&` / `||` policy
 //   (issue #395, walker tracked in #403).
-// One step of the `(...)` peel: the expression a parenthesis wraps, at
-// child(1) after the `(` token. `None` for anything else, which is also
+// One step of the `(...)` peel: the expression a parenthesis wraps —
+// its only operand, not child(1) after the `(` token, which is where a
+// comment sits in `if (  # c` (#1455). `None` for anything else, which is also
 // the answer `python_count_condition` asks for, so the slot and the peel
 // cannot disagree about which kinds are wrappers (#1470; the Kotlin,
 // Groovy and C# instances of that disagreement were #1459, #1466 and
@@ -54,7 +55,7 @@ use crate::*;
 // parenthesis preserves the type of what it wraps.
 fn python_wrapper_operand<'a>(node: &Node<'a>) -> Option<Node<'a>> {
     if matches!(node.kind_id().into(), Python::ParenthesizedExpression) {
-        node.child(1)
+        wrapped_operand(node)
     } else {
         None
     }
@@ -200,9 +201,9 @@ fn python_count_case_guard(case_clause: &Node, conditions: &mut f64) {
     }
 }
 
-fn python_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
-    if let Some(child) = node.child(idx) {
-        python_count_condition(&child, node, conditions);
+fn python_count_slot(slot: Option<Node>, parent: &Node, conditions: &mut f64) {
+    if let Some(condition) = slot {
+        python_count_condition(&condition, parent, conditions);
     }
 }
 
@@ -321,8 +322,17 @@ impl Abc for PythonCode {
             // ArgumentList do not need walker arms because every
             // unary-conditional content node (NotOperator,
             // ComparisonOperator) already has its own top-level arm.
+            //
+            // Read by grammar field (grammar-dispatch §3). Unlike the
+            // other languages' slots (#1455) a fixed child(1) gave the
+            // same answer: no valid Python puts a comment between `if`
+            // and its condition, so no test can tell the two apart.
             IfStatement | WhileStatement => {
-                python_inspect_child(node, 1, &mut stats.conditions);
+                python_count_slot(
+                    node.child_by_field_name("condition"),
+                    node,
+                    &mut stats.conditions,
+                );
             }
             // `a if c() else b` — the conditional expression node itself
             // is one condition, as the `?` token is in every C-family

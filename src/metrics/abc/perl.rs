@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats};
+use super::{Abc, Stats, is_operand, wrapped_operand};
 use crate::macros::perl_bool_terminal_kinds;
 use crate::*;
 
@@ -102,8 +102,8 @@ fn perl_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
         // child gives the semantically correct operand for both
         // shapes: `($a)` → `$a`, `($x, $y)` → `$y`, `if ($a)` →
         // `$a`. `ParenthesizedArgument` (the other paren-wrap kind)
-        // has only one inner expression, so child(1) and last-named
-        // are equivalent.
+        // has only one inner expression, so the first and last
+        // operand are the same node.
         let is_parens = matches!(node_kind, P::ParenthesizedArgument | P::Array);
         // Both spellings of the same negation — see `ruby_inspect_container`
         // for the rationale; Perl has the identical gap (#1182). Read
@@ -123,13 +123,14 @@ fn perl_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
             has_boolean_content = true;
         }
 
-        // Descend through the wrapper to the value. Array uses
-        // last-named-child (Perl scalar-context value); other
-        // wrappers store their inner expression at child(1).
+        // Descend through the wrapper to the value. Array uses the
+        // last operand (Perl scalar-context value); the other wrappers
+        // hold one operand. Neither is read by index: a comment may sit
+        // before or after the operand (`(# c` / `! # c`, #1455).
         let next = if matches!(node_kind, P::Array) {
-            perl_last_named_child(&node)
+            perl_last_operand(&node)
         } else {
-            node.child(1)
+            wrapped_operand(&node)
         };
         let Some(child) = next else { break };
         node = child;
@@ -144,14 +145,14 @@ fn perl_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
     }
 }
 
-// Phase-2B (issue #403): pass `node.child(idx)` through
+// Phase-2B (issue #403): pass a slot's occupant through
 // `perl_inspect_container`. Perl wraps `if (cond)` / `while (cond)` /
 // `unless (cond)` / `until (cond)` conditions in a
 // `parenthesized_argument`, so the paren unwrap handles the
 // boolean-literal case.
-fn perl_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
-    if let Some(child) = node.child(idx) {
-        perl_inspect_container(&child, node, conditions);
+fn perl_inspect_slot(slot: Option<Node>, parent: &Node, conditions: &mut f64) {
+    if let Some(child) = slot {
+        perl_inspect_container(&child, parent, conditions);
     }
 }
 
@@ -162,28 +163,16 @@ fn perl_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
 // `perl_count_unary_conditions`; condition-slot Arrays are
 // already unwrapped by `perl_inspect_container`. This predicate
 // disambiguates by checking the parent kind.
-// Returns the last named child of a node, or None if there are no
-// named children. Used by `perl_inspect_container` to descend through
-// the `Array` `(...)` wrapper: for a single-element grouping
-// `($a)` the last named child is `$a`; for a multi-element list
-// literal `($x, $y)` the last named child is `$y` (the value the
-// expression evaluates to in Perl's scalar context, which is the
-// only context the walker operates in).
-fn perl_last_named_child<'a>(node: &Node<'a>) -> Option<Node<'a>> {
-    let mut cursor = node.cursor();
-    let mut last_named = None;
-    if cursor.goto_first_child() {
-        loop {
-            let child = cursor.node();
-            if child.is_named() {
-                last_named = Some(child);
-            }
-            if !cursor.goto_next_sibling() {
-                break;
-            }
-        }
-    }
-    last_named
+// Returns the last operand of a node — its last named child that is
+// not an extra — or None if there is none. Used by
+// `perl_inspect_container` to descend through the `Array` `(...)`
+// wrapper: for a single-element grouping `($a)` the last operand is
+// `$a`; for a multi-element list literal `($x, $y)` it is `$y` (the
+// value the expression evaluates to in Perl's scalar context, which is
+// the only context the walker operates in). A trailing comment
+// (`($a # c⏎)`) is skipped rather than returned (#1455).
+fn perl_last_operand<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+    node.children().filter(is_operand).last()
 }
 
 // Phase-2B (issues #403 / #1102): a ternary's condition and its two
@@ -283,7 +272,7 @@ fn perl_walk_for_statement(node: &Node, conditions: &mut f64) {
 // The `condition` field holds an `_argument_choice`: either a
 // `parenthesized_argument`, which `perl_inspect_container` already
 // peels, or a bare `arguments` wrapper, which it does not. Peel the
-// `arguments` layer here — via the same last-named-child rule the
+// `arguments` layer here — via the same last-operand rule the
 // `Array` `(...)` wrapper uses, since a Perl comma list evaluates to
 // its last element in the scalar context a condition imposes — and
 // hand what it holds to the shared condition classifier.
@@ -301,15 +290,15 @@ fn perl_walk_for_statement(node: &Node, conditions: &mut f64) {
 //   wrapping an `array`). An empty wrapper peels to nothing, so that
 //   arm and a bare `None` score alike — measured by perturbation, not
 //   assumed. A test would pin a value neither branch decides.
-// - `perl_last_named_child` returns `None` only for an `arguments`
-//   node with no named child, which the grammar's comma-separated
+// - `perl_last_operand` returns `None` only for an `arguments`
+//   node with no operand, which the grammar's comma-separated
 //   one-or-more list cannot produce.
 fn perl_walk_statement_modifier(node: &Node, conditions: &mut f64) {
     let Some(condition) = node.child_by_field_name("condition") else {
         return;
     };
     let slot = if matches!(condition.kind_id().into(), Perl::Arguments) {
-        perl_last_named_child(&condition)
+        perl_last_operand(&condition)
     } else {
         Some(condition)
     };
@@ -343,9 +332,12 @@ fn perl_pattern_is_bound_or_delimiter(pattern: &Node, code: &[u8], ancestors: An
                 .child_by_field_name("operator")
                 .is_some_and(|op| matches!(op.kind_id().into(), P::EQTILDE | P::BANGTILDE)),
             P::Arguments | P::Array => {
+                // The first operand, not the first named child: a
+                // comment is named, so `split( # sep⏎ /,/, $s)` read it
+                // as the first argument (#1455).
                 parent
                     .children()
-                    .find(Node::is_named)
+                    .find(is_operand)
                     .is_some_and(|first| first.id() == pattern.id())
                     && climb
                         .next()
@@ -557,16 +549,20 @@ impl Abc for PerlCode {
             // `until (cond)` in the `Array` `(...)` shape (the
             // grammar's name for parenthesized expressions in
             // statement-modifier slots) — the paren unwrap handles
-            // boolean-literal cases. Condition sits at child(1)
-            // (child(0) is the `if` / `while` keyword).
-            // `return value`'s value also sits at child(1); merged
-            // into the same arm body to satisfy `match_same_arms`.
-            P::IfStatement
-            | P::UnlessStatement
-            | P::WhileStatement
-            | P::UntilStatement
-            | P::ReturnExpression => {
-                perl_inspect_child(node, 1, &mut stats.conditions);
+            // boolean-literal cases. Read by grammar field, not at
+            // child(1): a comment may sit before the slot (`if # c⏎
+            // ($b)`), which the fixed index scored zero (#1455).
+            // `return value` names no field; its value is its only
+            // operand.
+            P::IfStatement | P::UnlessStatement | P::WhileStatement | P::UntilStatement => {
+                perl_inspect_slot(
+                    node.child_by_field_name("condition"),
+                    node,
+                    &mut stats.conditions,
+                );
+            }
+            P::ReturnExpression => {
+                perl_inspect_slot(wrapped_operand(node), node, &mut stats.conditions);
             }
             // `call(!$a, !$b)` — argument list walker. Perl wraps
             // call-argument lists in an `Array` node (same kind name

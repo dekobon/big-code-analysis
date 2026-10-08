@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats};
+use super::{Abc, Stats, wrapped_operand};
 use crate::macros::groovy_bool_terminal_kinds;
 use crate::*;
 
@@ -29,23 +29,22 @@ use crate::*;
 // (`if (! /*c*/ a)` scores, where the positional `child(1)` read scored
 // the comment). `parenthesized_expression` names nothing — its only
 // child in node-types.json is the unlabelled inner `_expression` — so it
-// keeps the positional read, and with it the same comment bug Kotlin
-// records: `if ( /*c*/ a)` still scores zero. Measured, not assumed.
+// takes the first operand that is not an extra; the positional read it
+// replaced scored `if ( /*c*/ a)` zero (#1455).
 //
 // Kotlin, C# and Groovy now share this peel's *shape* and nothing else,
 // deliberately. A common helper would have to be parameterised by the
 // wrapper kind set, a per-wrapper operand accessor, a per-wrapper
 // proves-boolean flag and the parent seed — every line of the body —
 // to save a five-line `while let`, so the reuse worth having is the
-// `Option<(Node, bool)>` signature, not a generic function. C#'s
-// positional read over its aliased wrapper kinds is #1455's, not this
-// change's.
+// `Option<(Node, bool)>` signature and the shared `wrapped_operand`
+// read, not a generic function.
 //
 // Every `?` below is infallible at the pinned grammar and is spelled
 // that way because `AGENTS.md` bans `expect` outside tests — do not try
 // to cover the `None` arms. `unary_expression` declares `operand` and
 // `operator` as required fields, and a `parenthesized_expression` is
-// `(` expr `)`, so `child(1)` exists. Only error recovery on invalid
+// `(` expr `)`, so an operand exists. Only error recovery on invalid
 // Groovy can produce a shorter node, and pinning that would make the
 // grammar's present over-permissiveness the contract (§6).
 fn groovy_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
@@ -53,7 +52,7 @@ fn groovy_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 
     match node.kind_id().into() {
         // `(expr)` — the inner expression follows the `(` token.
-        ParenthesizedExpression => Some((node.child(1)?, false)),
+        ParenthesizedExpression => Some((wrapped_operand(node)?, false)),
         UnaryExpression => {
             let operand = node.child_by_field_name("operand")?;
             match node.child_by_field_name("operator")?.kind_id().into() {
@@ -135,15 +134,15 @@ fn groovy_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 // Java's `DoStatement`; no `LambdaExpression` (Groovy closures take
 // block bodies, no implicit-return arm); and `if (…)` / `while (…)` /
 // `do { … } while (…)` parens inlined as token children rather than
-// wrapped in `parenthesized_expression`, so the condition sits at a
-// different child index and goes through `groovy_count_condition`.
+// wrapped in `parenthesized_expression`, so the condition slot holds
+// the bare expression and goes through `groovy_count_condition`.
 
-// Groovy mirror of `java_inspect_child`: passes `node.child(idx)` to
+// Groovy mirror of `java_inspect_slot`: passes a slot's occupant to
 // `groovy_inspect_container`, which is a no-op on kinds other than
 // `ParenthesizedExpression` / `!`-prefixed `UnaryExpression`.
-fn groovy_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
-    if let Some(child) = node.child(idx) {
-        groovy_inspect_container(&child, node, conditions);
+fn groovy_inspect_slot(slot: Option<Node>, parent: &Node, conditions: &mut f64) {
+    if let Some(child) = slot {
+        groovy_inspect_container(&child, parent, conditions);
     }
 }
 
@@ -373,24 +372,22 @@ fn groovy_walk_for_conditions<'a>(
             }
         }
         ArgumentList => groovy_count_unary_conditions(node, conds),
-        VariableDeclarator | AssignmentExpression => groovy_inspect_child(node, 2, conds),
-        // dekobon `if_statement` / `while_statement` shape:
-        // [keyword, `(`, condition, `)`, body, …]. Condition lives at
-        // child index 2 (not 1 as under tree-sitter-java, where parens
-        // wrap the condition in a `parenthesized_expression`).
-        IfStatement | WhileStatement => {
-            if let Some(condition) = node.child(2) {
+        VariableDeclarator => groovy_inspect_slot(node.child_by_field_name("value"), node, conds),
+        AssignmentExpression => {
+            groovy_inspect_slot(node.child_by_field_name("right"), node, conds);
+        }
+        // The dekobon grammar inlines the parens of `if` / `while` /
+        // `do … while` as anonymous tokens (tree-sitter-java wraps them
+        // in a `parenthesized_expression`), so the slot holds the bare
+        // condition. Read by grammar field: the fixed index it replaced
+        // landed on a comment in `if (/*c*/ b)` (#1455).
+        IfStatement | WhileStatement | DoWhileStatement => {
+            if let Some(condition) = node.child_by_field_name("condition") {
                 groovy_count_condition(&condition, node, conds);
             }
         }
-        // dekobon shape: [`do`, body, `while`, `(`, condition, `)`].
-        // Condition is at child index 4.
-        DoWhileStatement => {
-            if let Some(condition) = node.child(4) {
-                groovy_count_condition(&condition, node, conds);
-            }
-        }
-        ReturnStatement => groovy_inspect_child(node, 1, conds),
+        // `return value` names no field; the value is its only operand.
+        ReturnStatement => groovy_inspect_slot(wrapped_operand(node), node, conds),
         TernaryExpression => groovy_walk_ternary(node, stats),
         ForStatement => groovy_walk_for_statement(node, stats),
         _ => {}

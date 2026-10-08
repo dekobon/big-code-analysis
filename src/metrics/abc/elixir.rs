@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats};
+use super::{Abc, Stats, wrapped_operand};
 use crate::lang_helpers::elixir::elixir_call_keyword;
 use crate::macros::elixir_bool_terminal_kinds;
 use crate::*;
@@ -64,13 +64,15 @@ fn elixir_inspect_container(container_node: &Node, parent: &Node, conditions: &m
             has_boolean_content = true;
         }
 
-        // A `!` unary stores its operand at child index 1 (after the `!`
-        // token); a parenthesised `block` carries its inner expression as
-        // the first named child.
+        // A negation names its `operand`; a parenthesised `block`
+        // carries its inner expression as its only operand. Neither is
+        // read positionally or as the first named child, because a
+        // comment is named and may sit before the operand
+        // (`a && ! # c⏎ b`, #1455).
         let next = if is_not {
-            node.child(1)
+            node.child_by_field_name("operand")
         } else {
-            node.children().find(Node::is_named)
+            wrapped_operand(&node)
         };
         let Some(child) = next else { break };
         node = child;
@@ -235,15 +237,15 @@ impl Abc for ElixirCode {
 
         match node.kind_id().into() {
             // A `BinaryOperator` whose operator token is `EQ` is a
-            // pattern-match assignment. The grammar shape is
-            // `(left, operator, right)`, so the operator token is
-            // always at child index 1 — looking it up directly is
-            // O(1) vs. an `any()` scan of all children. This arm
-            // fires on every Elixir binary op (comparisons, pipes,
-            // boolean ops, arithmetic) so the constant-time check
-            // matters.
+            // pattern-match assignment. Read through the `operator`
+            // field rather than at child index 1, where a comment
+            // before the operator (`a # c⏎ = 1`) sits instead (#1455);
+            // a field read also avoids an `any()` scan of all children
+            // on an arm that fires on every Elixir binary op.
             E::BinaryOperator | E::BinaryOperator2 | E::BinaryOperator3
-                if node.child(1).is_some_and(|c| c.kind_id() == E::EQ as u16) =>
+                if node
+                    .child_by_field_name("operator")
+                    .is_some_and(|c| c.kind_id() == E::EQ as u16) =>
             {
                 stats.assignments += 1.;
             }

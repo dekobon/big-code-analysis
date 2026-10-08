@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats};
+use super::{Abc, Stats, wrapped_operand};
 use crate::macros::rust_bool_terminal_kinds;
 use crate::*;
 
@@ -19,15 +19,19 @@ use crate::*;
 // `rust_count_condition` asks for, so the slot and the peel cannot
 // disagree about which kinds are wrappers (#1470; the Kotlin, Groovy
 // and C# instances of that disagreement were #1459, #1466 and #1463).
-// Both wrappers store their operand at child(1), after the `(` or the
-// operator token. A `unary_expression` spelled `-x` or `*p` is never a
+// Each wrapper holds one operand, read by role rather than at child(1)
+// after the `(` or the operator token, where a comment may sit
+// (`if ! /*c*/ b`, #1455) — neither wrapper names a field. A
+// `unary_expression` spelled `-x` or `*p` is never a
 // boolean slot's operand, so the peel declines it.
 fn rust_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     use Rust::*;
 
     match node.kind_id().into() {
-        ParenthesizedExpression => Some((node.child(1)?, false)),
-        UnaryExpression if node.child(0)?.kind_id() == BANG as u16 => Some((node.child(1)?, true)),
+        ParenthesizedExpression => Some((wrapped_operand(node)?, false)),
+        UnaryExpression if node.child(0)?.kind_id() == BANG as u16 => {
+            Some((wrapped_operand(node)?, true))
+        }
         _ => None,
     }
 }
@@ -81,7 +85,7 @@ fn rust_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
 // condition itself is a terminal-bool kind (`if true {}`, `if a {}`),
 // it counts as one condition; if wrapped in `(...)` or `!...`,
 // `rust_inspect_container` unwraps until a terminal is found. Mirrors
-// the `java_count_condition` / `java_inspect_child` helper pair used
+// the `java_count_condition` / `java_inspect_slot` helper pair used
 // by `java_walk_ternary` / `java_walk_for_statement`.
 fn rust_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
     if matches!(condition.kind_id().into(), rust_bool_terminal_kinds!()) {
@@ -141,9 +145,9 @@ fn rust_count_match_arm(node: &Node, conditions: &mut f64) {
     }
 }
 
-fn rust_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
-    if let Some(child) = node.child(idx) {
-        rust_count_condition(&child, node, conditions);
+fn rust_count_slot(slot: Option<Node>, parent: &Node, conditions: &mut f64) {
+    if let Some(condition) = slot {
+        rust_count_condition(&condition, parent, conditions);
     }
 }
 
@@ -277,21 +281,25 @@ impl Abc for RustCode {
             // Phase-2B (issue #403): Fitzpatrick Rule 6 / 7 condition
             // slots. `if true {}` / `if !a {}` count their condition
             // once via `rust_count_condition` (terminal-at-top or
-            // paren / unary unwrap). The condition sits at child(1)
-            // for `if_expression` and `while_expression` (child(0)
-            // is the keyword). Rust has no `do_statement`, no
-            // ternary, and no for-condition slot.
+            // paren / unary unwrap). Read by grammar field: a fixed
+            // child(1) landed on a comment (`if /*c*/ b`) and on the
+            // label of `'a: while b` (#1455). Rust has no
+            // `do_statement`, no ternary, and no for-condition slot.
             IfExpression | WhileExpression => {
-                rust_inspect_child(node, 1, &mut stats.conditions);
+                rust_count_slot(
+                    node.child_by_field_name("condition"),
+                    node,
+                    &mut stats.conditions,
+                );
             }
-            // `return value;` — `value` sits at child(1). Use the
+            // `return value;` — the value is the only operand. Use the
             // bare `inspect_container` path (no top-level terminal
             // count) so that `return x` reports zero conditions
             // while `return !x` reports one. Matches Java's policy
             // (`java_return_without_conditions`): a bare identifier
             // in the return slot is not a unary conditional.
             ReturnExpression => {
-                if let Some(value) = node.child(1) {
+                if let Some(value) = wrapped_operand(node) {
                     rust_inspect_container(&value, node, &mut stats.conditions);
                 }
             }

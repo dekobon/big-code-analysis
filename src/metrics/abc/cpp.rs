@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats};
+use super::{Abc, Stats, wrapped_operand};
 use crate::macros::cpp_bool_terminal_kinds;
 use crate::*;
 
@@ -63,11 +63,12 @@ pub(super) fn cpp_inspect_container(container_node: &Node, parent: &Node, condit
 
     loop {
         // `condition_clause` is the C++-grammar wrapper around an
-        // `if (...)` / `while (...)` head — same `(`, content, `)`
-        // shape as `parenthesized_expression`, so it unwraps the
-        // same way at child(1). `do { ... } while (...)`'s trailing
-        // condition is a plain `parenthesized_expression`.
-        let is_parens = matches!(node_kind, "parenthesized_expression" | "condition_clause");
+        // `if (...)` / `while (...)` head — the same `(`, content, `)`
+        // shape as `parenthesized_expression`, plus an optional
+        // init-statement before the content. `do { ... } while (...)`'s
+        // trailing condition is a plain `parenthesized_expression`.
+        let is_clause = node_kind == "condition_clause";
+        let is_parens = is_clause || node_kind == "parenthesized_expression";
         // `not` is the ISO C++ alternative token for `!` ([lex.digraph]);
         // the C++ grammars give it a kind of its own, so testing `!`
         // alone scored `if (not b)` zero where `if (!b)` scores one.
@@ -86,7 +87,15 @@ pub(super) fn cpp_inspect_container(container_node: &Node, parent: &Node, condit
             has_boolean_content = true;
         }
 
-        let Some(child) = node.child(1) else { break };
+        // By role, never at child(1): a comment may sit there
+        // (`if (/*c*/ b)`, #1455), and so may a clause's init-statement
+        // (`if (int y = f(); b)`), whose condition is the `value` field.
+        let operand = if is_clause {
+            node.child_by_field_name("value")
+        } else {
+            wrapped_operand(&node)
+        };
+        let Some(child) = operand else { break };
         node = child;
         node_kind = node.kind();
 
@@ -105,9 +114,9 @@ pub(super) fn cpp_inspect_container(container_node: &Node, parent: &Node, condit
 // `(...)` / `!...` unwrap chain and the boolean-context seed from
 // the parent kind. No top-level terminal counter is needed because
 // the paren wrapper provides the unwrap step.
-pub(super) fn cpp_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
-    if let Some(child) = node.child(idx) {
-        cpp_inspect_container(&child, node, conditions);
+pub(super) fn cpp_inspect_slot(slot: Option<Node>, parent: &Node, conditions: &mut f64) {
+    if let Some(child) = slot {
+        cpp_inspect_container(&child, parent, conditions);
     }
 }
 
@@ -329,31 +338,25 @@ impl Abc for CppCode {
                     cpp_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }
-            // Phase-2B (issue #403): condition slots. C++ wraps every
-            // `if (...)` / `while (...)` / `do {…} while (...)` /
-            // `return value` in a paren / parenthesized expression
-            // (return is unparenthesized but its child(1) is the
-            // expression). `cpp_inspect_container` handles the
-            // `(...)` / `!...` unwrap so `if (true)` and `return !x`
-            // each count one condition; bare `return x` reports zero.
-            // Use `child_by_field_name("condition")` for if/while so
-            // the `if constexpr (cond)` form (where child(1) is the
-            // `constexpr` keyword, not the condition_clause) is
-            // handled correctly. Return uses positional child(1)
-            // — its value field is always at index 1, no optional
-            // attribute precedes it.
-            IfStatement | WhileStatement => {
-                if let Some(cond) = node.child_by_field_name("condition") {
-                    cpp_inspect_container(&cond, node, &mut stats.conditions);
-                }
+            // Phase-2B (issue #403): condition slots. `if (...)` /
+            // `while (...)` / `do {…} while (...)` wrap their condition
+            // in a paren / `condition_clause` node that
+            // `cpp_inspect_container` unwraps, so `if (true)` and
+            // `return !x` each count one condition; bare `return x`
+            // reports zero. Every slot is read by role, never by index:
+            // `if constexpr (cond)` puts the keyword at child(1), and a
+            // comment shifts every later child (`do {} while /*c*/ (b);`,
+            // `return /*c*/ !b;` — #1455). `return` names no field; its
+            // value is its only operand.
+            IfStatement | WhileStatement | DoStatement => {
+                cpp_inspect_slot(
+                    node.child_by_field_name("condition"),
+                    node,
+                    &mut stats.conditions,
+                );
             }
             ReturnStatement => {
-                cpp_inspect_child(node, 1, &mut stats.conditions);
-            }
-            // `do { ... } while (cond);` — children: `do`, body,
-            // `while`, condition (parenthesized). Condition at child(3).
-            DoStatement => {
-                cpp_inspect_child(node, 3, &mut stats.conditions);
+                cpp_inspect_slot(wrapped_operand(node), node, &mut stats.conditions);
             }
             // `f(!a, !b)` — argument list walker. Two aliases —
             // `argument_list` is emitted as ArgumentList or

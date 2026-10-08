@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats};
+use super::{Abc, Stats, wrapped_operand};
 use crate::macros::kotlin_bool_terminal_kinds;
 use crate::*;
 
@@ -85,19 +85,16 @@ fn kotlin_eq_initializes_immutable_binding<'a>(
 // scores its condition, where the positional read scored zero.
 //
 // `parenthesized_expression` names nothing — its only child in
-// node-types.json is the unlabelled inner `expression` — so it keeps the
-// positional read it has always had, and with it the comment bug:
-// `when { ( /*c*/ a) -> … }` still scores zero, because child(1) is the
-// comment. Measured, not assumed. That is the same class as the C#
-// `if` / `while` / `do` slots tracked in #1455 and left to their own
-// change there; it predates #1459 and is recorded here rather than
-// widened into it.
+// node-types.json is the unlabelled inner `expression` — so it takes the
+// first operand that is not an extra. The positional `child(1)` it
+// replaced scored `when { ( /*c*/ a) -> … }` zero, because that child is
+// the comment (#1455).
 fn kotlin_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     use Kotlin::*;
 
     match node.kind_id().into() {
         // `(expr)` — the inner expression follows the `(` token.
-        ParenthesizedExpression => Some((node.child(1)?, false)),
+        ParenthesizedExpression => Some((wrapped_operand(node)?, false)),
         UnaryExpression => {
             let operand = node.child_by_field_name("argument")?;
             match node.child_by_field_name("operator")?.kind_id().into() {

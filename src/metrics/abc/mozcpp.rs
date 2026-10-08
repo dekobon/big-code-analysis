@@ -10,10 +10,10 @@
 )]
 
 use super::cpp::{
-    cpp_comparison_is_applied, cpp_count_unary_conditions, cpp_inspect_child,
-    cpp_inspect_container, cpp_walk_for_statement, cpp_walk_ternary,
+    cpp_comparison_is_applied, cpp_count_unary_conditions, cpp_inspect_slot,
+    cpp_walk_for_statement, cpp_walk_ternary,
 };
-use super::{Abc, Stats};
+use super::{Abc, Stats, wrapped_operand};
 use crate::*;
 
 impl Abc for MozcppCode {
@@ -106,31 +106,25 @@ impl Abc for MozcppCode {
                     cpp_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }
-            // Phase-2B (issue #403): condition slots. C++ wraps every
-            // `if (...)` / `while (...)` / `do {…} while (...)` /
-            // `return value` in a paren / parenthesized expression
-            // (return is unparenthesized but its child(1) is the
-            // expression). `cpp_inspect_container` handles the
-            // `(...)` / `!...` unwrap so `if (true)` and `return !x`
-            // each count one condition; bare `return x` reports zero.
-            // Use `child_by_field_name("condition")` for if/while so
-            // the `if constexpr (cond)` form (where child(1) is the
-            // `constexpr` keyword, not the condition_clause) is
-            // handled correctly. Return uses positional child(1)
-            // — its value field is always at index 1, no optional
-            // attribute precedes it.
-            IfStatement | WhileStatement => {
-                if let Some(cond) = node.child_by_field_name("condition") {
-                    cpp_inspect_container(&cond, node, &mut stats.conditions);
-                }
+            // Phase-2B (issue #403): condition slots. `if (...)` /
+            // `while (...)` / `do {…} while (...)` wrap their condition
+            // in a paren / `condition_clause` node that
+            // `cpp_inspect_container` unwraps, so `if (true)` and
+            // `return !x` each count one condition; bare `return x`
+            // reports zero. Every slot is read by role, never by index:
+            // `if constexpr (cond)` puts the keyword at child(1), and a
+            // comment shifts every later child (`do {} while /*c*/ (b);`,
+            // `return /*c*/ !b;` — #1455). `return` names no field; its
+            // value is its only operand.
+            IfStatement | WhileStatement | DoStatement => {
+                cpp_inspect_slot(
+                    node.child_by_field_name("condition"),
+                    node,
+                    &mut stats.conditions,
+                );
             }
             ReturnStatement => {
-                cpp_inspect_child(node, 1, &mut stats.conditions);
-            }
-            // `do { ... } while (cond);` — children: `do`, body,
-            // `while`, condition (parenthesized). Condition at child(3).
-            DoStatement => {
-                cpp_inspect_child(node, 3, &mut stats.conditions);
+                cpp_inspect_slot(wrapped_operand(node), node, &mut stats.conditions);
             }
             // `f(!a, !b)` — argument list walker. Two aliases —
             // `argument_list` is emitted as ArgumentList or
