@@ -37,22 +37,53 @@ use crate::*;
 //   condition appears as the inner comparison); the `Then` clause is
 //   an implicit grammar wrapper around every `if` / `elsif` body and
 //   is NOT counted as a separate arm.
+// One step of the `(...)` / negation peel: the operand a wrapper wraps,
+// and whether the wrapper itself proves that operand boolean. `None`
+// for anything that is not a wrapper this peel descends, which is also
+// the answer `ruby_count_condition` asks for — it routes exactly the
+// kinds this function accepts, so the two cannot disagree (#1470; the
+// Kotlin, Groovy and C# instances of that disagreement were #1459,
+// #1466 and #1463).
+//
+// Both spellings of the same negation. `not` and `!` differ in
+// precedence but not in meaning, and ABC counts the negation, not the
+// parse — testing `BANG` alone scored `if not b` as 0 where `if !b`
+// scores 1, and a `not` ternary as 2 where the `!` form scores 4
+// (#1182). The operator is read through the grammar's `operator` field
+// rather than child(0), matching the ternary slots (#1181). The other
+// `unary` operators (`-b`, `~b`, `defined?`) are arithmetic or
+// introspection, never a boolean slot's operand, so the peel declines.
+//
+// A negation stores its operand at child index 1, after the operator
+// token. `parenthesized_statements` wraps its body in named children;
+// the first named child carries the expression.
+fn ruby_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
+    use Ruby::*;
+
+    match node.kind_id().into() {
+        ParenthesizedStatements => Some((node.children().find(Node::is_named)?, false)),
+        Unary | Unary2 | Unary3 | Unary4 | Unary5 => {
+            match node.child_by_field_name("operator")?.kind_id().into() {
+                BANG | Not => Some((node.child(1)?, true)),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 // Ruby ABC unary-conditional walker (Fitzpatrick Rule 9; issue #557).
 // tree-sitter-ruby parses `a && b || c` as a left-nested chain of
 // `binary` nodes carrying `&&` / `||` / `and` / `or` operator tokens
 // (the `binary` kind is aliased `Binary`..`Binary3` per lesson #2, so
 // every alias must be matched). Negation surfaces as `unary`
-// (`Unary`..`Unary5`) whose child(0) is the `!` token; the condition
-// slot may be wrapped in `parenthesized_statements`. Both are unwrapped
-// by `ruby_inspect_container`.
+// (`Unary`..`Unary5`); the condition slot may be wrapped in
+// `parenthesized_statements`. Both are unwrapped one layer at a time by
+// `ruby_wrapper_operand`.
 fn ruby_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
-    // bca: suppress(cognitive) — wrapper-peeling state machine, clearest whole
-    // See `cpp_inspect_container` for the shared rationale: one loop peels
-    // `(...)` / `!...` layers while carrying a single boolean-context flag.
     use Ruby::*;
 
     let mut node = *container_node;
-    let mut node_kind = node.kind_id().into();
     let parent_kind = parent.kind_id().into();
     // A ternary seeds boolean context for its condition slot alone: the
     // two branch operands are type-free, so an unnegated branch must
@@ -81,40 +112,11 @@ fn ruby_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
             .child_by_field_name("condition")
             .is_some_and(|condition| condition.id() == node.id()));
 
-    loop {
-        let is_parens = matches!(node_kind, ParenthesizedStatements);
-        // Both spellings of the same negation. `not` and `!` differ in
-        // precedence but not in meaning, and ABC counts the negation,
-        // not the parse — testing `BANG` alone scored `if not b` as 0
-        // where `if !b` scores 1, and a `not` ternary as 2 where the `!`
-        // form scores 4 (#1182). Read through the grammar's `operator`
-        // field rather than child(0), matching the ternary slots (#1181).
-        let is_not = matches!(node_kind, Unary | Unary2 | Unary3 | Unary4 | Unary5)
-            && node
-                .child_by_field_name("operator")
-                .is_some_and(|op| matches!(op.kind_id().into(), BANG | Not));
+    while let Some((operand, proves_boolean)) = ruby_wrapper_operand(&node) {
+        has_boolean_content |= proves_boolean;
+        node = operand;
 
-        if !is_parens && !is_not {
-            break;
-        }
-        if !has_boolean_content && is_not {
-            has_boolean_content = true;
-        }
-
-        // A `!` unary stores its operand at child index 1 (after the `!`
-        // token). `parenthesized_statements` wraps its body in named
-        // children; descend through the first named child carrying the
-        // expression.
-        let next = if is_not {
-            node.child(1)
-        } else {
-            node.children().find(Node::is_named)
-        };
-        let Some(child) = next else { break };
-        node = child;
-        node_kind = node.kind_id().into();
-
-        if matches!(node_kind, ruby_bool_terminal_kinds!()) {
+        if matches!(node.kind_id().into(), ruby_bool_terminal_kinds!()) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -167,14 +169,15 @@ fn ruby_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 // counted them, breaking the conditions >= decisions invariant
 // (#469/#473/#456); issue #696.
 fn ruby_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
-    use Ruby::*;
-    let kind = condition.kind_id().into();
-    if matches!(kind, ruby_bool_terminal_kinds!()) {
+    if matches!(condition.kind_id().into(), ruby_bool_terminal_kinds!()) {
         *conditions += 1.;
-    } else if matches!(
-        kind,
-        ParenthesizedStatements | Unary | Unary2 | Unary3 | Unary4 | Unary5
-    ) {
+    } else if ruby_wrapper_operand(condition).is_some() {
+        // Asking the peel itself which kinds it unwraps, rather than
+        // restating the list here (#1470). A restated list that gained
+        // a kind the peel lacked would read as covering a shape the
+        // peel then dropped on the floor (`.claude/rules/
+        // grammar-dispatch.md` §7) — the Kotlin and Groovy defects of
+        // #1459 / #1466.
         ruby_inspect_container(condition, parent, conditions);
     }
 }

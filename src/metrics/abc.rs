@@ -17602,3 +17602,192 @@ mod hidden_literal_supertypes {
         );
     }
 }
+
+/// The condition slot and the wrapper peel agree on which kinds are
+/// wrappers, in each language whose slot used to restate the list
+/// (#1470).
+///
+/// `<lang>_count_condition` decides which slot expressions to hand the
+/// peel, and `<lang>_inspect_container` decides which it can descend.
+/// Spelled as two lists they drifted three times — Kotlin (#1459),
+/// Groovy (#1466) and C# (#1463) — each time scoring a valid predicate
+/// zero. The six languages here now ask `<lang>_wrapper_operand`
+/// instead, which removed the duplication without moving a number: the
+/// wrapper matrix measured identical before and after, so a revert
+/// cannot fail these tests. What they pin is the *answer* both halves
+/// must keep giving:
+///
+/// - **Routed.** Every wrapper the peel accepts scores its slot once.
+///   A slot that stops asking the peel scores these zero.
+/// - **Declined.** A unary the peel does not accept (`-b`) scores
+///   nothing, so a peel that starts accepting arithmetic operators by
+///   accident is caught here rather than in a corpus snapshot.
+/// - **Proves boolean.** A negation counts its operand outside any
+///   boolean slot and a parenthesis does not — the second half of the
+///   peel's answer, which the slot never sees.
+///
+/// Each template's `@` is the operand under test.
+#[cfg(test)]
+#[cfg(any(
+    feature = "rust",
+    feature = "go",
+    feature = "java",
+    feature = "python",
+    feature = "ruby",
+    feature = "lua"
+))]
+mod wrapper_peel_routing {
+    use crate::test_support::metrics_verbatim;
+    use crate::{LANG, MetricsOptions};
+
+    fn conditions(lang: LANG, source: &str) -> u64 {
+        metrics_verbatim(lang, source.as_bytes(), MetricsOptions::default())
+            .abc
+            .conditions_sum()
+    }
+
+    /// Asserts `conditions` for every `(operand, expected)` row of one
+    /// template.
+    fn assert_operands(lang: LANG, template: &str, rows: &[(&str, u64)]) {
+        assert!(template.contains('@'), "template has no operand slot");
+        for &(operand, expected) in rows {
+            let source = template.replace('@', operand);
+            assert_eq!(
+                conditions(lang, &source),
+                expected,
+                "`{operand}` in {lang:?}\n  source: {source}"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "rust")]
+    fn rust_condition_slot_routes_what_the_peel_accepts() {
+        assert_operands(
+            LANG::Rust,
+            "fn f(b: bool) { if @ {} }\n",
+            &[
+                ("b", 1),
+                ("(b)", 1),
+                ("!b", 1),
+                ("!(b)", 1),
+                ("-b", 0),
+                ("(-b)", 0),
+            ],
+        );
+        assert_operands(
+            LANG::Rust,
+            "fn f(b: bool) { g(@); }\n",
+            &[("!b", 1), ("(b)", 0), ("-b", 0)],
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "go")]
+    fn go_condition_slot_routes_what_the_peel_accepts() {
+        assert_operands(
+            LANG::Go,
+            "package p\nfunc f(b bool) { if @ {} }\n",
+            &[
+                ("b", 1),
+                ("(b)", 1),
+                ("!b", 1),
+                ("!(b)", 1),
+                ("-b", 0),
+                ("(-b)", 0),
+            ],
+        );
+        assert_operands(
+            LANG::Go,
+            "package p\nfunc f(b bool) { g(@) }\n",
+            &[("!b", 1), ("(b)", 0), ("-b", 0)],
+        );
+    }
+
+    /// Java's `if` hands the peel its `condition` directly; the ternary
+    /// condition is the slot that goes through `java_count_condition`,
+    /// so it is the one under test. The `?` itself is the base 1.
+    #[test]
+    #[cfg(feature = "java")]
+    fn java_condition_slot_routes_what_the_peel_accepts() {
+        assert_operands(
+            LANG::Java,
+            "class A { int f(boolean b) { return @ ? 1 : 2; } }\n",
+            &[
+                ("b", 2),
+                ("(b)", 2),
+                ("!b", 2),
+                ("!(b)", 2),
+                ("-b", 1),
+                ("(-b)", 1),
+            ],
+        );
+        assert_operands(
+            LANG::Java,
+            "class A { void f(boolean b) { g(@); } }\n",
+            &[("!b", 1), ("(b)", 0), ("-b", 0)],
+        );
+    }
+
+    /// Python peels parentheses only: `not` is counted by its own
+    /// `NotOperator` arm, so `python_wrapper_operand` carries no
+    /// proves-boolean flag and there is no outside-a-slot half to pin.
+    #[test]
+    #[cfg(feature = "python")]
+    fn python_condition_slot_routes_what_the_peel_accepts() {
+        assert_operands(
+            LANG::Python,
+            "def f(b):\n    if @:\n        pass\n",
+            &[("b", 1), ("(b)", 1), ("((b))", 1), ("-b", 0), ("(-b)", 0)],
+        );
+    }
+
+    /// Ruby has no counted call-argument slot, so the outside-a-slot
+    /// half reads a ternary *branch*, which is type-free: only a
+    /// negation there proves its operand boolean.
+    #[test]
+    #[cfg(feature = "ruby")]
+    fn ruby_condition_slot_routes_what_the_peel_accepts() {
+        assert_operands(
+            LANG::Ruby,
+            "def f(b)\n  if @ then 1 end\nend\n",
+            &[
+                ("b", 1),
+                ("(b)", 1),
+                ("!b", 1),
+                ("not b", 1),
+                ("!(b)", 1),
+                ("-b", 0),
+                ("(-b)", 0),
+            ],
+        );
+        assert_operands(
+            LANG::Ruby,
+            "def f(b, c)\n  x = c ? 1 : @\nend\n",
+            &[("!b", 3), ("not b", 3), ("(b)", 2), ("-b", 2)],
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "lua")]
+    fn lua_condition_slot_routes_what_the_peel_accepts() {
+        assert_operands(
+            LANG::Lua,
+            "function f(b)\n  if @ then end\nend\n",
+            &[
+                ("b", 1),
+                ("(b)", 1),
+                ("not b", 1),
+                ("not (b)", 1),
+                ("-b", 0),
+                ("#b", 0),
+                ("(-b)", 0),
+            ],
+        );
+        assert_operands(
+            LANG::Lua,
+            "function f(b)\n  g(@)\nend\n",
+            &[("not b", 1), ("(b)", 0), ("-b", 0)],
+        );
+    }
+}

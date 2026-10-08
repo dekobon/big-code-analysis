@@ -30,6 +30,30 @@ use crate::*;
 //   operators `and` / `or` are deliberately NOT counted; see the
 //   module-level `Stats` doc-comment for the cross-language policy
 //   (issue #395, walker tracked in #403).
+// One step of the `(...)` / `not` peel: the operand a wrapper wraps, and
+// whether the wrapper itself proves that operand boolean. `None` for
+// anything this peel does not descend, which is also the answer
+// `lua_count_condition` asks for, so the slot and the peel cannot
+// disagree about which kinds are wrappers (#1470; the Kotlin, Groovy
+// and C# instances of that disagreement were #1459, #1466 and #1463).
+// Both wrappers store their operand at child(1), after the `(` or the
+// `not` keyword. A `unary_expression` spelled `-x`, `#t` or `~x` is
+// arithmetic, length or bitwise — never a boolean slot's operand — so
+// the peel declines it.
+//
+// A `not` proves the operand boolean even when the parent context does
+// not — matching the JS / Java pattern. Without that, `m(not a)` and
+// other call-argument contexts would never set the walker's flag.
+fn lua_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
+    match node.kind_id().into() {
+        Lua::ParenthesizedExpression => Some((node.child(1)?, false)),
+        Lua::UnaryExpression if node.child(0)?.kind_id() == Lua::Not as u16 => {
+            Some((node.child(1)?, true))
+        }
+        _ => None,
+    }
+}
+
 // Lua ABC unary-conditional walker (Fitzpatrick Rule 9; issue #403).
 // Lua's logical operators are keyword tokens (`and` / `or`) inside a
 // `binary_expression`; `not x` is a `unary_expression` whose first
@@ -38,33 +62,16 @@ use crate::*;
 // every call / indexing form.
 fn lua_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
     let mut node = *container_node;
-    let mut node_kind = node.kind_id().into();
     let mut has_boolean_content = matches!(
         parent.kind_id().into(),
         Lua::BinaryExpression | Lua::IfStatement | Lua::WhileStatement | Lua::RepeatStatement
     );
 
-    loop {
-        let is_parens = matches!(node_kind, Lua::ParenthesizedExpression);
-        let is_not = matches!(node_kind, Lua::UnaryExpression)
-            && node
-                .child(0)
-                .is_some_and(|c| c.kind_id() == Lua::Not as u16);
+    while let Some((operand, proves_boolean)) = lua_wrapper_operand(&node) {
+        has_boolean_content |= proves_boolean;
+        node = operand;
 
-        if !is_parens && !is_not {
-            break;
-        }
-        // A `not` wrapper proves the operand is boolean even when
-        // the parent context didn't — matches the JS/Java/etc.
-        // pattern. Without this, `m(not a)` and other call-argument
-        // contexts would never propagate has_boolean_content.
-        has_boolean_content |= is_not;
-
-        let Some(child) = node.child(1) else { break };
-        node = child;
-        node_kind = node.kind_id().into();
-
-        if matches!(node_kind, lua_bool_terminal_kinds!()) {
+        if matches!(node.kind_id().into(), lua_bool_terminal_kinds!()) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -79,10 +86,13 @@ fn lua_inspect_container(container_node: &Node, parent: &Node, conditions: &mut 
 // FunctionCall, etc.) count at the top level; `(...)` / `not ...`
 // route through `lua_inspect_container`.
 fn lua_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
-    let kind = condition.kind_id().into();
-    if matches!(kind, lua_bool_terminal_kinds!()) {
+    if matches!(condition.kind_id().into(), lua_bool_terminal_kinds!()) {
         *conditions += 1.;
-    } else if matches!(kind, Lua::ParenthesizedExpression | Lua::UnaryExpression) {
+    } else if lua_wrapper_operand(condition).is_some() {
+        // Asking the peel itself which kinds it unwraps, rather than
+        // restating the list here (#1470): a restated list that gained a
+        // kind the peel lacked would read as covering a shape the peel
+        // then dropped (`.claude/rules/grammar-dispatch.md` §7).
         lua_inspect_container(condition, parent, conditions);
     }
 }

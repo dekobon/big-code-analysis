@@ -41,6 +41,25 @@ use crate::*;
 //   paper's "unary conditional expression". See the module-level
 //   `Stats` doc-comment for the cross-language `&&` / `||` policy
 //   (issue #395, walker tracked in #403).
+// One step of the `(...)` peel: the expression a parenthesis wraps, at
+// child(1) after the `(` token. `None` for anything else, which is also
+// the answer `python_count_condition` asks for, so the slot and the peel
+// cannot disagree about which kinds are wrappers (#1470; the Kotlin,
+// Groovy and C# instances of that disagreement were #1459, #1466 and
+// #1463).
+//
+// Unlike its siblings this returns no "proves boolean" flag, because no
+// wrapper it accepts can prove one: `not` is deliberately not peeled —
+// the `NotOperator` arm counts it (see the walker below) — and a
+// parenthesis preserves the type of what it wraps.
+fn python_wrapper_operand<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+    if matches!(node.kind_id().into(), Python::ParenthesizedExpression) {
+        node.child(1)
+    } else {
+        None
+    }
+}
+
 // Python ABC unary-conditional walker (Fitzpatrick Rule 9 / Figure 4;
 // issue #403). Python's `a and b` parses as `boolean_operator` (NOT
 // `binary_operator`), so the walker triggers on the `And` / `Or`
@@ -59,7 +78,6 @@ fn python_inspect_container(container_node: &Node, parent: &Node, conditions: &m
     use Python::*;
 
     let mut node = *container_node;
-    let mut node_kind = node.kind_id().into();
     // `IfClause` joined this list with #1454: a `case … if g:` guard is
     // a boolean slot exactly as an `if` condition is, so a parenthesised
     // guard operand (`case n if (b):`) counts where the bare
@@ -69,16 +87,10 @@ fn python_inspect_container(container_node: &Node, parent: &Node, conditions: &m
         BooleanOperator | IfStatement | WhileStatement | ConditionalExpression | IfClause
     );
 
-    loop {
-        if !matches!(node_kind, ParenthesizedExpression) {
-            break;
-        }
+    while let Some(operand) = python_wrapper_operand(&node) {
+        node = operand;
 
-        let Some(child) = node.child(1) else { break };
-        node = child;
-        node_kind = node.kind_id().into();
-
-        if matches!(node_kind, python_bool_terminal_kinds!()) {
+        if matches!(node.kind_id().into(), python_bool_terminal_kinds!()) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -98,11 +110,13 @@ fn python_inspect_container(container_node: &Node, parent: &Node, conditions: &m
 //     (the `Or`/`And` keyword walker, the `NotOperator` arm, and
 //     the `ComparisonOperator` arm at lines `~1334-1390`).
 fn python_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
-    use Python::*;
-    let kind = condition.kind_id().into();
-    if matches!(kind, python_bool_terminal_kinds!()) {
+    if matches!(condition.kind_id().into(), python_bool_terminal_kinds!()) {
         *conditions += 1.;
-    } else if matches!(kind, ParenthesizedExpression) {
+    } else if python_wrapper_operand(condition).is_some() {
+        // Asking the peel itself which kinds it unwraps, rather than
+        // restating the list here (#1470): a restated list that gained a
+        // kind the peel lacked would read as covering a shape the peel
+        // then dropped (`.claude/rules/grammar-dispatch.md` §7).
         python_inspect_container(condition, parent, conditions);
     }
 }

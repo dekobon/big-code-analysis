@@ -13,13 +13,36 @@ use super::{Abc, Stats};
 use crate::macros::java_bool_terminal_kinds;
 use crate::*;
 
+// One step of the `(...)` / `!` peel: the operand a wrapper wraps, and
+// whether the wrapper itself proves that operand boolean (`return (!x);`
+// is boolean whatever `x` is; a parenthesis preserves the type). `None`
+// for anything this peel does not descend, which is also the answer
+// `java_count_condition` asks for, so the slot and the peel cannot
+// disagree about which kinds are wrappers (#1470; the Kotlin, Groovy
+// and C# instances of that disagreement were #1459, #1466 and #1463).
+// A `unary_expression` spelled `-x`, `+x` or `~x` is never a boolean
+// slot's operand, so the peel declines it.
+//
+// Both wrappers store their expression at child index one, after the
+// `(` or the operator token:
+// https://github.com/tree-sitter/tree-sitter-java/blob/master/src/grammar.json#L2472
+// https://github.com/tree-sitter/tree-sitter-java/blob/master/src/grammar.json#L2150
+fn java_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
+    use Java::*;
+
+    match node.kind_id().into() {
+        ParenthesizedExpression => Some((node.child(1)?, false)),
+        UnaryExpression if node.child(0)?.kind_id() == BANG as u16 => Some((node.child(1)?, true)),
+        _ => None,
+    }
+}
+
 // Inspects the content of Java parenthesized expressions
 // and `Not` operators to find unary conditional expressions
 fn java_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
     use Java::*;
 
     let mut node = *container_node;
-    let mut node_kind = node.kind_id().into();
 
     // Initializes the flag to true if the container is known to contain a boolean value
     // `Guard` joined this list with #1454: a `case … when g ->` guard is
@@ -37,35 +60,9 @@ fn java_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
     };
 
     // Looks inside parenthesized expressions and `Not` operators to find what they contain
-    loop {
-        // Checks if the node is a parenthesized expression or a `Not` operator
-        // The child node of index 0 contains the unary expression operator (we look for the `!` operator)
-        let is_parenthesised_exp = matches!(node_kind, ParenthesizedExpression);
-        let is_not_operator = matches!(node_kind, UnaryExpression)
-            && node
-                .child(0)
-                .is_some_and(|c| matches!(c.kind_id().into(), BANG));
-
-        // Stops the exploration if the node is neither
-        // a parenthesized expression nor a `Not` operator
-        if !is_parenthesised_exp && !is_not_operator {
-            break;
-        }
-
-        // Sets the flag to true if a `Not` operator is found
-        // This is used to prove if a variable or a value returned by a method is actually boolean
-        // e.g. `return (!x);`
-        if !has_boolean_content && is_not_operator {
-            has_boolean_content = true;
-        }
-
-        // Parenthesized expressions and `Not` operators nodes
-        // always store their expressions in the children nodes of index one
-        // https://github.com/tree-sitter/tree-sitter-java/blob/master/src/grammar.json#L2472
-        // https://github.com/tree-sitter/tree-sitter-java/blob/master/src/grammar.json#L2150
-        let Some(child) = node.child(1) else { break };
-        node = child;
-        node_kind = node.kind_id().into();
+    while let Some((operand, proves_boolean)) = java_wrapper_operand(&node) {
+        has_boolean_content |= proves_boolean;
+        node = operand;
 
         // Stops the exploration when the content is found. The terminal
         // set includes `FieldAccess` (`obj.flag`), `CastExpression`
@@ -75,7 +72,7 @@ fn java_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
         // `InstanceofExpression` was a fifth until #1461 moved it to
         // an unconditional arm: it is an operator, so it scores by use
         // rather than only where this walker looks.
-        if matches!(node_kind, java_bool_terminal_kinds!()) {
+        if matches!(node.kind_id().into(), java_bool_terminal_kinds!()) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -409,13 +406,14 @@ fn java_walk_ternary(node: &Node, stats: &mut Stats) {
 // Mirrors
 // `csharp_count_condition` / `groovy_count_condition`.
 fn java_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
-    use Java::*;
-    match condition.kind_id().into() {
-        java_bool_terminal_kinds!() => *conditions += 1.,
-        ParenthesizedExpression | UnaryExpression => {
-            java_inspect_container(condition, parent, conditions);
-        }
-        _ => {}
+    if matches!(condition.kind_id().into(), java_bool_terminal_kinds!()) {
+        *conditions += 1.;
+    } else if java_wrapper_operand(condition).is_some() {
+        // Asking the peel itself which kinds it unwraps, rather than
+        // restating the list here (#1470): a restated list that gained a
+        // kind the peel lacked would read as covering a shape the peel
+        // then dropped (`.claude/rules/grammar-dispatch.md` §7).
+        java_inspect_container(condition, parent, conditions);
     }
 }
 

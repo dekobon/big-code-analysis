@@ -13,6 +13,25 @@ use super::{Abc, Stats};
 use crate::macros::rust_bool_terminal_kinds;
 use crate::*;
 
+// One step of the `(...)` / `!` peel: the operand a wrapper wraps, and
+// whether the wrapper itself proves that operand boolean. `None` for
+// anything this peel does not descend, which is also the answer
+// `rust_count_condition` asks for, so the slot and the peel cannot
+// disagree about which kinds are wrappers (#1470; the Kotlin, Groovy
+// and C# instances of that disagreement were #1459, #1466 and #1463).
+// Both wrappers store their operand at child(1), after the `(` or the
+// operator token. A `unary_expression` spelled `-x` or `*p` is never a
+// boolean slot's operand, so the peel declines it.
+fn rust_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
+    use Rust::*;
+
+    match node.kind_id().into() {
+        ParenthesizedExpression => Some((node.child(1)?, false)),
+        UnaryExpression if node.child(0)?.kind_id() == BANG as u16 => Some((node.child(1)?, true)),
+        _ => None,
+    }
+}
+
 // Rust ABC unary-conditional walker (Fitzpatrick Rule 7 / Listing 2).
 //
 // On every `&&` / `||` token, we walk the parent `binary_expression`
@@ -34,7 +53,6 @@ fn rust_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
     use Rust::*;
 
     let mut node = *container_node;
-    let mut node_kind = node.kind_id().into();
     // `MatchPattern` joined this list with #1454: a match guard
     // (`n if g =>`) is a boolean slot exactly as an `if` condition is,
     // so a parenthesised guard operand (`n if (b)`) counts where the
@@ -44,23 +62,11 @@ fn rust_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
         BinaryExpression | IfExpression | WhileExpression | LetChain | LetChain2 | MatchPattern
     );
 
-    loop {
-        let is_parens = matches!(node_kind, ParenthesizedExpression);
-        let is_not = matches!(node_kind, UnaryExpression)
-            && node.child(0).is_some_and(|c| c.kind_id() == BANG as u16);
+    while let Some((operand, proves_boolean)) = rust_wrapper_operand(&node) {
+        has_boolean_content |= proves_boolean;
+        node = operand;
 
-        if !is_parens && !is_not {
-            break;
-        }
-        if !has_boolean_content && is_not {
-            has_boolean_content = true;
-        }
-
-        let Some(child) = node.child(1) else { break };
-        node = child;
-        node_kind = node.kind_id().into();
-
-        if matches!(node_kind, rust_bool_terminal_kinds!()) {
+        if matches!(node.kind_id().into(), rust_bool_terminal_kinds!()) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -78,11 +84,13 @@ fn rust_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
 // the `java_count_condition` / `java_inspect_child` helper pair used
 // by `java_walk_ternary` / `java_walk_for_statement`.
 fn rust_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
-    use Rust::*;
-    let kind = condition.kind_id().into();
-    if matches!(kind, rust_bool_terminal_kinds!()) {
+    if matches!(condition.kind_id().into(), rust_bool_terminal_kinds!()) {
         *conditions += 1.;
-    } else if matches!(kind, ParenthesizedExpression | UnaryExpression) {
+    } else if rust_wrapper_operand(condition).is_some() {
+        // Asking the peel itself which kinds it unwraps, rather than
+        // restating the list here (#1470): a restated list that gained a
+        // kind the peel lacked would read as covering a shape the peel
+        // then dropped (`.claude/rules/grammar-dispatch.md` §7).
         rust_inspect_container(condition, parent, conditions);
     }
 }
