@@ -37,6 +37,7 @@ use crate::*;
 //   condition appears as the inner comparison); the `Then` clause is
 //   an implicit grammar wrapper around every `if` / `elsif` body and
 //   is NOT counted as a separate arm.
+
 // One step of the `(...)` / negation peel: the operand a wrapper wraps,
 // and whether the wrapper itself proves that operand boolean. `None`
 // for anything that is not a wrapper this peel descends, which is also
@@ -222,7 +223,7 @@ fn ruby_condition_scores_itself(expr: &Node) -> bool {
 
     let mut node = *expr;
     loop {
-        let next = match node.kind_id().into() {
+        match node.kind_id().into() {
             Binary | Binary2 | Binary3 => {
                 return node.child_by_field_name("operator").is_some_and(|op| {
                     let op = op.kind_id().into();
@@ -231,18 +232,13 @@ fn ruby_condition_scores_itself(expr: &Node) -> bool {
                 });
             }
             TestPattern | Conditional => return true,
-            ParenthesizedStatements => node.children().find(Node::is_named),
-            Unary | Unary2 | Unary3 | Unary4 | Unary5
-                if node
-                    .child_by_field_name("operator")
-                    .is_some_and(|op| matches!(op.kind_id().into(), BANG | Not)) =>
-            {
-                node.child_by_field_name("operand")
-            }
-            _ => return false,
+            _ => {}
+        }
+        // The same wrappers the condition peel descends, by construction.
+        let Some((operand, _)) = ruby_wrapper_operand(&node) else {
+            return false;
         };
-        let Some(child) = next else { return false };
-        node = child;
+        node = operand;
     }
 }
 
