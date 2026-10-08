@@ -41,13 +41,14 @@ use crate::*;
 //   paper's "unary conditional expression". See the module-level
 //   `Stats` doc-comment for the cross-language `&&` / `||` policy
 //   (issue #395, walker tracked in #403).
+
 // One step of the `(...)` peel: the expression a parenthesis wraps —
 // its only operand, not child(1) after the `(` token, which is where a
-// comment sits in `if (  # c` (#1455). `None` for anything else, which is also
-// the answer `python_count_condition` asks for, so the slot and the peel
-// cannot disagree about which kinds are wrappers (#1470; the Kotlin,
-// Groovy and C# instances of that disagreement were #1459, #1466 and
-// #1463).
+// comment sits in `if (  # c` (#1455). `None` for anything else, which
+// is also the answer `python_count_condition` asks for, so the slot and
+// the peel cannot disagree about which kinds are wrappers (#1470; the
+// Kotlin, Groovy and C# instances of that disagreement were #1459,
+// #1466 and #1463).
 //
 // Unlike its siblings this returns no "proves boolean" flag, because no
 // wrapper it accepts can prove one: `not` is deliberately not peeled —

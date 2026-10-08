@@ -30,6 +30,7 @@ use crate::*;
 //   operators `and` / `or` are deliberately NOT counted; see the
 //   module-level `Stats` doc-comment for the cross-language policy
 //   (issue #395, walker tracked in #403).
+
 // One step of the `(...)` / `not` peel: the operand a wrapper wraps, and
 // whether the wrapper itself proves that operand boolean. `None` for
 // anything this peel does not descend, which is also the answer

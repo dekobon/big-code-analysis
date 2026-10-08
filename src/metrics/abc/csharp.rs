@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, is_operand, wrapped_operand};
+use super::{Abc, Stats, last_operand, wrapped_operand};
 use crate::macros::{
     csharp_bool_terminal_kinds, csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds,
 };
@@ -692,7 +692,7 @@ fn csharp_walk_for_conditions<'a>(
         // value, and a declarator's initialiser follows its name.
         ReturnStatement => csharp_inspect_slot(wrapped_operand(node), node, conds),
         crate::Csharp::VariableDeclarator | crate::Csharp::VariableDeclarator2 => {
-            csharp_inspect_slot(node.children().filter(is_operand).last(), node, conds);
+            csharp_inspect_slot(last_operand(node), node, conds);
         }
         AssignmentExpression => csharp_inspect_slot(node.child_by_field_name("right"), node, conds),
         LambdaExpression => csharp_inspect_slot(node.child_by_field_name("body"), node, conds),

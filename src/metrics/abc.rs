@@ -443,6 +443,14 @@ pub(super) fn wrapped_operand<'a>(node: &Node<'a>) -> Option<Node<'a>> {
     node.children().find(is_operand)
 }
 
+// The last operand of `node`, by the same rule as `wrapped_operand`: for
+// a wrapper that evaluates to its final element (a Perl list in scalar
+// context, a Ruby statement sequence) and for a slot that follows an
+// unnamed one (a C# declarator's initialiser after its name).
+pub(super) fn last_operand<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+    node.children().filter(is_operand).last()
+}
+
 // Whether `child` can occupy an operand slot: named, and not an `extra`.
 // The `extra` flag is read off the tree-sitter node because the `Node`
 // wrapper exposes no accessor for it.
@@ -13531,7 +13539,7 @@ end
     // The pattern `split` takes first is its delimiter, not a match
     // against `$_`, so it is no condition (#1467) in any spelling: the
     // spaced and parenthesised call forms, the `m{}` pattern, and the
-    // `CORE::` qualifier. Two discriminating members keep the exclusion
+    // `CORE::` qualifier. Three discriminating members keep the exclusion
     // narrow: `spl2` puts the pattern in `split`'s *second* slot, where
     // it is an ordinary match whose result `split` receives, `grpe`
     // puts one first in a call that is not `split`, and `tsplit` puts

@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, is_operand, wrapped_operand};
+use super::{Abc, Stats, is_operand, last_operand, wrapped_operand};
 use crate::macros::perl_bool_terminal_kinds;
 use crate::*;
 
@@ -128,7 +128,7 @@ fn perl_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
         // hold one operand. Neither is read by index: a comment may sit
         // before or after the operand (`(# c` / `! # c`, #1455).
         let next = if matches!(node_kind, P::Array) {
-            perl_last_operand(&node)
+            last_operand(&node)
         } else {
             wrapped_operand(&node)
         };
@@ -163,18 +163,6 @@ fn perl_inspect_slot(slot: Option<Node>, parent: &Node, conditions: &mut f64) {
 // `perl_count_unary_conditions`; condition-slot Arrays are
 // already unwrapped by `perl_inspect_container`. This predicate
 // disambiguates by checking the parent kind.
-// Returns the last operand of a node — its last named child that is
-// not an extra — or None if there is none. Used by
-// `perl_inspect_container` to descend through the `Array` `(...)`
-// wrapper: for a single-element grouping `($a)` the last operand is
-// `$a`; for a multi-element list literal `($x, $y)` it is `$y` (the
-// value the expression evaluates to in Perl's scalar context, which is
-// the only context the walker operates in). A trailing comment
-// (`($a # c⏎)`) is skipped rather than returned (#1455).
-fn perl_last_operand<'a>(node: &Node<'a>) -> Option<Node<'a>> {
-    node.children().filter(is_operand).last()
-}
-
 // Phase-2B (issues #403 / #1102): a ternary's condition and its two
 // branch operands are each a Fitzpatrick Rule 9 unary condition, exactly
 // as `java_walk_ternary` already counts them. Without this Perl scored
@@ -290,7 +278,7 @@ fn perl_walk_for_statement(node: &Node, conditions: &mut f64) {
 //   wrapping an `array`). An empty wrapper peels to nothing, so that
 //   arm and a bare `None` score alike — measured by perturbation, not
 //   assumed. A test would pin a value neither branch decides.
-// - `perl_last_operand` returns `None` only for an `arguments`
+// - `last_operand` returns `None` only for an `arguments`
 //   node with no operand, which the grammar's comma-separated
 //   one-or-more list cannot produce.
 fn perl_walk_statement_modifier(node: &Node, conditions: &mut f64) {
@@ -298,7 +286,7 @@ fn perl_walk_statement_modifier(node: &Node, conditions: &mut f64) {
         return;
     };
     let slot = if matches!(condition.kind_id().into(), Perl::Arguments) {
-        perl_last_operand(&condition)
+        last_operand(&condition)
     } else {
         Some(condition)
     };
