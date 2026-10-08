@@ -10,8 +10,8 @@
 )]
 
 use super::cpp::{
-    cpp_count_unary_conditions, cpp_inspect_child, cpp_inspect_container, cpp_walk_for_statement,
-    cpp_walk_ternary,
+    cpp_comparison_is_applied, cpp_count_unary_conditions, cpp_inspect_child,
+    cpp_inspect_container, cpp_walk_for_statement, cpp_walk_ternary,
 };
 use super::{Abc, Stats};
 use crate::*;
@@ -90,12 +90,10 @@ impl Abc for MozcppCode {
             // tree-sitter-cpp; the `grammar.json` sweep, the fold and
             // `#if` decisions, and the operator-overload defect (#1448)
             // are recorded on the matching arm of `CppCode::compute`.
-            // Here `BinaryExpression2` (430) is the emitted id and
-            // `BinaryExpression` (342) the never-emitted pre-alias one.
             LT | GT | LTEQ | GTEQ | EQEQ | BANGEQ | LTEQGT
-                if ancestors.parent(node).is_some_and(|p| {
-                    matches!(p.kind_id().into(), BinaryExpression | BinaryExpression2)
-                }) =>
+                if ancestors
+                    .parent(node)
+                    .is_some_and(|parent| cpp_comparison_is_applied(node, &parent)) =>
             {
                 stats.conditions += 1.;
             }

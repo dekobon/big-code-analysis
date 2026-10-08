@@ -4555,6 +4555,10 @@ mod tests {
             bool operator!=(const V& o) const { return true; }
             auto operator<=>(const V& o) const { return 0; }
         };
+        struct W {
+            int n;
+            bool operator==(const W&) const = default;
+        };
         int n(int a, int b) {
             return (a < b) + (a > b) + (a <= b) + (a >= b) + (a == b) + (a != b) + (a <=> b);
         }";
@@ -4568,9 +4572,15 @@ mod tests {
     ) {
         #[cfg(any(feature = "cpp", feature = "mozcpp"))]
         const SPELLINGS: [&str; 7] = ["<", ">", "<=", ">=", "==", "!=", "<=>"];
-        let mut census = vec![(operator_name, 7, "operator names")];
-        // Two of each token: one declaring, one applying.
-        census.extend(tokens.iter().zip(SPELLINGS).map(|(&id, s)| (id, 2, s)));
+        let mut census = vec![(operator_name, 8, "operator names")];
+        // Two of each token, one declaring and one applying, plus the
+        // third `==` that `W`'s defaulted comparison declares.
+        census.extend(
+            tokens
+                .iter()
+                .zip(SPELLINGS)
+                .map(|(&id, s)| (id, if s == "==" { 3 } else { 2 }, s)),
+        );
         assert_fixture_spells::<P>(CPP_COMPARISON_OVERLOADS, "foo.cpp", &census);
         check_func_space::<P, _>(CPP_COMPARISON_OVERLOADS, "foo.cpp", |space| {
             let class = child_space(&space, "V");
@@ -4592,6 +4602,14 @@ mod tests {
                 child_space(&space, "n").metrics.abc.conditions(),
                 7,
                 "`n` applies all seven tokens: one condition each"
+            );
+            // A defaulted C++20 comparison declares the operator with no
+            // body; it is the common modern spelling and must score
+            // nothing anywhere in the file.
+            assert_eq!(
+                space.metrics.abc.conditions_sum(),
+                7,
+                "only `n`'s seven applications are conditions"
             );
         });
     }
@@ -4644,15 +4662,18 @@ mod tests {
     // are gated. The fixture's two directives are the root's only
     // conditions.
     //
-    // A fold over a comparison operator does not count, for all six
-    // foldable tokens alike (`<` / `>` never did): before the fix `le`
-    // scored 1 and the binary fold `eq` scored 2, one per spelling of its
-    // single operator, against `lt`'s 0. `idiom` is the control — its
-    // `==` sits in a `binary_expression` inside the fold and counts.
+    // A fold over a comparison operator counts once, through the fold's
+    // `operator` field: before the fix `lt` scored 0, `le` 1 and the
+    // binary fold `eq` 2 (one per spelling of its single operator).
+    // `idiom` is the control — its `==` sits in a `binary_expression`
+    // inside the fold and counts there, while the fold's own `&&` is not
+    // a comparison.
     //
     // The census also pins §2: every `binary_expression` here carries the
-    // `BinaryExpression2` id, and `BinaryExpression` — the pre-alias
-    // symbol the arm lists defensively — is never emitted.
+    // `BinaryExpression2` id and the pre-alias `BinaryExpression` is never
+    // emitted. `cpp_comparison_is_applied` matches the kind *name*, which
+    // covers both, so a grammar that starts emitting the pre-alias id
+    // changes nothing — this census is what would notice it.
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     fn assert_cpp_comparison_folds_and_preproc_operands<P: MetricSuite>(
         binary_expression: u16,
@@ -4677,7 +4698,7 @@ mod tests {
             ],
         );
         check_func_space::<P, _>(src, "foo.cpp", |space| {
-            for (name, want) in [("lt", 0), ("le", 0), ("eq", 0), ("idiom", 1)] {
+            for (name, want) in [("lt", 1), ("le", 1), ("eq", 1), ("idiom", 1)] {
                 assert_eq!(
                     child_space(&space, name).metrics.abc.conditions(),
                     want,

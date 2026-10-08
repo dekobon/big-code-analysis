@@ -13,6 +13,24 @@ use super::{Abc, Stats};
 use crate::macros::cpp_bool_terminal_kinds;
 use crate::*;
 
+// Whether a comparison token under `parent` applies its operator, as
+// opposed to declaring an overload (`operator_name`) or delimiting a
+// template. Compared by kind *name*, like `cpp_inspect_container`, so
+// one body serves both grammars: at the pinned grammars every
+// `binary_expression` (an `#if` operand included) carries the aliased
+// id `BinaryExpression2`, and the name covers the never-emitted
+// pre-alias id too. A fold counts once, through its `operator` field,
+// because a binary fold `(0 == ... == a)` spells its operator twice.
+pub(super) fn cpp_comparison_is_applied(node: &Node, parent: &Node) -> bool {
+    match parent.kind() {
+        "binary_expression" => true,
+        "fold_expression" => parent
+            .child_by_field_name("operator")
+            .is_some_and(|op| op.id() == node.id()),
+        _ => false,
+    }
+}
+
 // C++ ABC unary-conditional walker (Fitzpatrick Rule 9 in Figure 3;
 // see `rust_inspect_container` for the cross-language rationale).
 // Matches on node-kind NAMES so the helper is correct for every C-family
@@ -267,12 +285,12 @@ impl Abc for CppCode {
             //   condition each (#1420 is the C# instance).
             // - `_fold_operator` / `_binary_fold_operator` (`<` `>` `<=`
             //   `>=` `==` `!=` only) — the parent is `fold_expression`.
-            //   Not counted, as `<` / `>` never were: a binary fold
-            //   `(0 == ... == a)` spells its one operator twice, and a
-            //   comparison fold is a chained comparison
-            //   (`a1 < (a2 < a3)`). The idiomatic spelling
-            //   `((a == 0) && ...)` keeps its `==` inside a
-            //   `binary_expression` and still counts.
+            //   A fold applies its comparison, so it counts once per
+            //   fold: the token must be the fold's `operator` field. A
+            //   binary fold `(0 == ... == a)` spells its one operator
+            //   twice, and the field names only one of the two
+            //   spellings. The idiomatic `((a == 0) && ...)` keeps its
+            //   `==` inside a `binary_expression` and counts there.
             // - `template_argument_list` / `template_parameter_list` /
             //   `system_lib_string` (`<` `>` only) — delimiters
             //   (`std::vector<int>`, `#include <vector>`).
@@ -282,15 +300,11 @@ impl Abc for CppCode {
             // token reparented under `{ERROR}` by recovery stops
             // counting too, as `<` / `>` always have.
             //
-            // At this pin every `binary_expression`, `#if` operand or
-            // not, carries kind id `BinaryExpression2` (341);
-            // `BinaryExpression` (253) is the pre-alias symbol and never
-            // emitted, listed defensively per §1 and pinned unreachable
-            // by `cpp_comparison_folds_and_preproc_operands` (§2).
+            // The test is `cpp_comparison_is_applied`, shared with Mozcpp.
             LT | GT | LTEQ | GTEQ | EQEQ | BANGEQ | LTEQGT
-                if ancestors.parent(node).is_some_and(|p| {
-                    matches!(p.kind_id().into(), BinaryExpression | BinaryExpression2)
-                }) =>
+                if ancestors
+                    .parent(node)
+                    .is_some_and(|parent| cpp_comparison_is_applied(node, &parent)) =>
             {
                 stats.conditions += 1.;
             }
