@@ -8802,6 +8802,16 @@ def andd(a, b)
   when a > 1 && b < 2 then 1
   end
 end
+def orr(a, b)
+  case
+  when a || b then 1
+  end
+end
+def kw_or(a, b)
+  case
+  when a or b then 1
+  end
+end
 def bare(b)
   case
   when b then 1
@@ -8823,9 +8833,11 @@ end
             src,
             0,
             &[
-                (Ruby::When as u16, 8, "`when` clauses"),
+                (Ruby::When as u16, 10, "`when` clauses"),
                 (Ruby::GT as u16, 5, "`>` comparisons"),
                 (Ruby::AMPAMP as u16, 1, "`andd`'s `&&`"),
+                (Ruby::PIPEPIPE as u16, 1, "`orr`'s `||`"),
+                (Ruby::Or as u16, 1, "`kw_or`'s `or`"),
                 (Ruby::Comment as u16, 1, "`cmt`'s comment"),
             ],
             &[
@@ -8840,6 +8852,10 @@ end
                 // Was 3. The compound condition keeps both comparisons —
                 // suppressing the operators instead would collapse it.
                 ("andd", 2, 3),
+                // The Rule 9 walker scores both operands of a bare chain,
+                // in both spellings; the clause adds nothing on top.
+                ("orr", 2, 3),
+                ("kw_or", 2, 3),
                 ("bare", 2, 2),
                 ("call", 1, 2),
                 // Was 2.
