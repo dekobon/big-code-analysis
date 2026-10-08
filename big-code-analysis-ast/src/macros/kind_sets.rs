@@ -732,23 +732,11 @@ macro_rules! python_bool_terminal_kinds {
 // carry no truthy numeric operand, and no corpus carries a `.groovy`
 // file at all.
 //
-// `pattern_matcher` (`/^#/`) and `pattern_matcher_m` (`m{^#}`) are the
-// two spellings of a match against the implicit `$_`. They are
-// **sibling rules, not aliases** — ids 337 and 336, the distinction
-// this file's own numeric-literal note warns is invisible to an alias
-// sweep — so both have to be listed or the `m{}` half stays at zero.
-// A bound match (`$x =~ /^#/`) is a `binary_expression` whose `=~`
-// token the dispatcher already counts; the bare form carries no
-// operator token at all, which is why `if (/^#/)` scored zero
-// conditions against `if ($x)`'s one.
-//
-// Listing them double-counts nothing (§5). In `$x =~ /^#/` the
-// pattern is a child of the `binary_expression`, and every walker that
-// consumes this set either breaks on that `binary_expression`
-// (`perl_inspect_container`, `perl_count_condition`) or requires the
-// list node itself to be the `&&`-chain parent
-// (`perl_count_unary_conditions`), so the pattern node is never
-// reached alongside its own `=~`.
+// `pattern_matcher` (`/^#/`) and `pattern_matcher_m` (`m{^#}`), the
+// two spellings of a match against the implicit `$_`, are absent: a
+// match is a relational operator, so it scores by use through a gated
+// arm in `PerlCode::compute` (#1467), not only where a slot reads it.
+// Listing them here as well would score `if (/^#/)` twice (§5).
 //
 // `substitution_pattern_s` (`s///`) and `transliteration_tr_or_y`
 // (`tr///`) are deliberately absent: both edit `$_` and evaluate to a
@@ -805,8 +793,6 @@ macro_rules! perl_bool_terminal_kinds {
             | $crate::Perl::CallExpressionRecursive
             | $crate::Perl::CallExpressionWithBareword
             | $crate::Perl::MethodInvocation
-            | $crate::Perl::PatternMatcher
-            | $crate::Perl::PatternMatcherM
             | $crate::Perl::StringSingleQuoted
             | $crate::Perl::StringQQuoted
             | $crate::Perl::StringDoubleQuoted

@@ -587,6 +587,7 @@ mod tests {
         feature = "groovy",
         feature = "java",
         feature = "kotlin",
+        feature = "perl",
         feature = "python",
         feature = "ruby",
         feature = "rust",
@@ -13381,6 +13382,150 @@ end
         );
     }
 
+    // A bare `/re/` or `m{re}` is a match against `$_`, a relational
+    // operator spelled with no operator token, so it scores by use
+    // (#1467, the rule #1461 applied to five other languages). Each
+    // `*_out` member and `ret` / `notm` / `grp` / `arg` / `smart` was 0
+    // before the arm: only a boolean slot reached the pattern, through
+    // `perl_bool_terminal_kinds!()`. `mbare_out` is the `m{}` spelling, a
+    // sibling kind rather than an alias. `smart` levels a smartmatch
+    // with its `=~` sibling: no arm counts `~~`, so the pattern does.
+    //
+    // The in-slot members are the §5 check that the slot stopped
+    // counting the pattern in the change that gave it an arm: each
+    // reads what it read before. `bound_out` / `nbound` pin the gate on
+    // `=~` / `!~` — the operator token scores, the pattern under it does
+    // not — and `ctrl_out` is the `==` control the rest level with.
+    // `s///`, `tr///` and `qr//` are not matches and stay at 0; whether
+    // the first two should score is #1475.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_bare_match_is_a_condition_by_use() {
+        check_func_space::<PerlParser, _>(
+            "sub bare_out { my $r = /^#/; return $r; }\n\
+             sub mbare_out { my $r = m{^#}; return $r; }\n\
+             sub ret { return /x/; }\n\
+             sub notm { my $r = !/x/; return $r; }\n\
+             sub grp { my @a = @_; return grep { /x/ } @a; }\n\
+             sub arg { foo(/x/); }\n\
+             sub smart { my ($x) = @_; my $r = $x ~~ /re/; return $r; }\n\
+             sub bare_in { if (/^#/) { return 1; } return 0; }\n\
+             sub mbare_in { unless (m{^#}) { return 1; } return 0; }\n\
+             sub modif { return 0 unless /x/; return 1; }\n\
+             sub andy { my ($y) = @_; return /x/ && $y; }\n\
+             sub oror { return /a/ || /b/; }\n\
+             sub tern { return /x/ ? 1 : 0; }\n\
+             sub forc { for (my $i = 0; /x/; $i++) { } }\n\
+             sub bound_out { my ($x) = @_; my $r = ($x =~ /^#/); return $r; }\n\
+             sub nbound { my ($x) = @_; my $r = ($x !~ /^#/); return $r; }\n\
+             sub ctrl_out { my ($x) = @_; my $r = ($x == 1); return $r; }\n\
+             sub subst { my $n = s/x/y/; return $n; }\n\
+             sub tr1 { my $n = tr/a/b/; return $n; }\n\
+             sub qrx { my $q = qr/x/; return $q; }\n",
+            "foo.pl",
+            |space| {
+                assert_members_score(
+                    &space,
+                    &[
+                        ("bare_out", 1, 1),
+                        ("mbare_out", 1, 1),
+                        ("ret", 1, 1),
+                        // `!` adds nothing outside a slot; the match is
+                        // the one condition.
+                        ("notm", 1, 1),
+                        ("grp", 1, 1),
+                        ("arg", 1, 1),
+                        ("smart", 1, 1),
+                        ("bare_in", 1, 2),
+                        ("mbare_in", 1, 2),
+                        ("modif", 1, 2),
+                        // One per `&&` / `||` operand, the match included.
+                        ("andy", 2, 2),
+                        ("oror", 2, 2),
+                        // The ternary node plus its condition.
+                        ("tern", 2, 2),
+                        ("forc", 1, 2),
+                        ("bound_out", 1, 1),
+                        ("nbound", 1, 1),
+                        ("ctrl_out", 1, 1),
+                        ("subst", 0, 1),
+                        ("tr1", 0, 1),
+                        ("qrx", 0, 1),
+                    ],
+                );
+            },
+        );
+    }
+
+    // The pattern `split` takes first is its delimiter, not a match
+    // against `$_`, so it is no condition (#1467) in any spelling: the
+    // spaced and parenthesised call forms, the `m{}` pattern, and the
+    // `CORE::` qualifier. Two discriminating members keep the exclusion
+    // narrow: `spl2` puts the pattern in `split`'s *second* slot, where
+    // it is an ordinary match whose result `split` receives, `grpe`
+    // puts one first in a call that is not `split`, and `tsplit` puts
+    // one first in a list whose grandparent holds a bare `split` without
+    // being that call — the ternary node plus `$c` plus the match.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_split_delimiter_is_not_a_condition() {
+        use crate::{ParserTrait, Perl};
+
+        let src = "sub spl { my ($s) = @_; my @p = split /,/, $s; return @p; }\n\
+                   sub splp { my ($s) = @_; my @p = split(/,/, $s); return @p; }\n\
+                   sub splm { my ($s) = @_; my @p = split m{,}, $s; return @p; }\n\
+                   sub splc { my ($s) = @_; my @p = CORE::split(/,/, $s); return @p; }\n\
+                   sub spl2 { my @p = split ' ', /x/; return @p; }\n\
+                   sub grpe { my @a = @_; return grep /x/, @a; }\n\
+                   sub tsplit { my ($c) = @_; my @r = $c ? split : (/x/); return @r; }\n";
+
+        // Fixture census: each member but `tsplit` holds exactly one
+        // pattern, as a direct argument of its call — so a zero below
+        // is the exclusion at work and not a pattern the fixture lost.
+        let parser = PerlParser::new(
+            src.as_bytes().to_vec(),
+            &std::path::PathBuf::from("foo.pl"),
+            None,
+        );
+        let call_arguments = parser
+            .root()
+            .preorder()
+            .filter(|n| {
+                matches!(
+                    n.kind_id().into(),
+                    Perl::PatternMatcher | Perl::PatternMatcherM
+                )
+            })
+            .filter(|n| {
+                n.parent()
+                    .and_then(|list| list.parent())
+                    .is_some_and(|call| {
+                        matches!(
+                            call.kind_id().into(),
+                            Perl::CallExpressionWithSpacedArgs
+                                | Perl::CallExpressionWithArgsWithBrackets
+                        )
+                    })
+            })
+            .count();
+        assert_eq!(call_arguments, 6, "one call-argument pattern per member");
+
+        check_func_space::<PerlParser, _>(src, "foo.pl", |space| {
+            assert_members_score(
+                &space,
+                &[
+                    ("spl", 0, 1),
+                    ("splp", 0, 1),
+                    ("splm", 0, 1),
+                    ("splc", 0, 1),
+                    ("spl2", 1, 1),
+                    ("grpe", 1, 1),
+                    ("tsplit", 3, 2),
+                ],
+            );
+        });
+    }
+
     // ---------- Lua ABC tests ----------
 
     #[cfg(feature = "lua")]
@@ -16575,8 +16720,8 @@ mod own_production_bool_constructs {
 
     /// The two Perl spellings must remain two distinct grammar kinds.
     ///
-    /// `perl_bool_terminal_kinds!()` lists `PatternMatcher` **and**
-    /// `PatternMatcherM` on the stated grounds that `/^#/` and `m{^#}`
+    /// The bare-match arm of `PerlCode::compute` lists `PatternMatcher`
+    /// **and** `PatternMatcherM` on the stated grounds that `/^#/` and `m{^#}`
     /// are sibling rules rather than aliases of one. Nothing above pins
     /// that: if a grammar bump collapsed `m{}` onto `pattern_matcher`,
     /// both fixtures would keep scoring through the surviving entry,
@@ -16597,7 +16742,7 @@ mod own_production_bool_constructs {
         assert_ne!(
             Perl::PatternMatcher as u16,
             Perl::PatternMatcherM as u16,
-            "the two spellings share one kind id; one terminal-set entry is dead"
+            "the two spellings share one kind id; one bare-match arm entry is dead"
         );
 
         for (src, present, absent) in [
@@ -16626,7 +16771,7 @@ mod own_production_bool_constructs {
             assert!(
                 !ast_has_kind_id(&parser, absent_id),
                 "`{src}` now also emits `{absent_name}`; the two spellings have \
-                 collapsed and one `perl_bool_terminal_kinds!()` entry is dead"
+                 collapsed and one bare-match arm entry is dead"
             );
         }
     }

@@ -30,7 +30,8 @@ use crate::*;
 //   already contributed the branch.
 // - Conditions: numeric and string comparison operators (`==`, `!=`,
 //   `<`, `>`, `<=`, `>=`, `<=>`, `eq`, `ne`, `lt`, `gt`, `le`, `ge`,
-//   `cmp`, `=~`, `!~`), the ternary operator (`TernaryExpression`),
+//   `cmp`, `=~`, `!~`), a bare `/re/` / `m{re}` match against `$_`,
+//   the ternary operator (`TernaryExpression`),
 //   and each `elsif` / `else` clause of an `if` / `unless`
 //   statement. Bare predicates that have no comparison (e.g.
 //   `if ($x)`) are not separately counted; we let the comparison
@@ -317,6 +318,57 @@ fn perl_walk_statement_modifier(node: &Node, conditions: &mut f64) {
     }
 }
 
+// Whether a pattern (`/re/` or `m{re}`) is one of the two shapes that
+// are not a bare match the ABC walk should count on its own (#1467):
+//
+// - **Bound**: the pattern is the right operand of `$x =~ /re/` or
+//   `$x !~ /re/`, whose operator token is already a condition. Read
+//   through the grammar's `operator` field, so `$x ~~ /re/` — a
+//   smartmatch, which no arm counts — still scores the match once.
+// - **`split`'s delimiter**: `split /,/, $s` and `split(/,/, $s)` hand
+//   the pattern to `split` as a separator; nothing is matched against
+//   `$_`, so it is no condition. Only the *first* argument is a
+//   delimiter: a pattern elsewhere in the list is an ordinary match
+//   whose result `split` receives. The callee is identified by its
+//   `function_name` bytes (grammar-dispatch §10) — the package
+//   qualifier is ignored so `CORE::split` is covered too.
+fn perl_pattern_is_bound_or_delimiter(pattern: &Node, code: &[u8], ancestors: Ancestors) -> bool {
+    use Perl as P;
+
+    let mut climb = ancestors.iter(pattern).map(|(ancestor, _)| ancestor);
+    climb
+        .next()
+        .is_some_and(|parent| match parent.kind_id().into() {
+            P::BinaryExpression => parent
+                .child_by_field_name("operator")
+                .is_some_and(|op| matches!(op.kind_id().into(), P::EQTILDE | P::BANGTILDE)),
+            P::Arguments | P::Array => {
+                parent
+                    .children()
+                    .find(Node::is_named)
+                    .is_some_and(|first| first.id() == pattern.id())
+                    && climb
+                        .next()
+                        .is_some_and(|call| perl_call_is_split(&call, code))
+            }
+            _ => false,
+        })
+}
+
+// Whether `call` is a `split` call. Every named child of the two call
+// wrappers that take an argument list is the callee or an `args`
+// field, so a list whose grandparent is one of them is its arguments.
+fn perl_call_is_split(call: &Node, code: &[u8]) -> bool {
+    matches!(
+        call.kind_id().into(),
+        Perl::CallExpressionWithSpacedArgs | Perl::CallExpressionWithArgsWithBrackets
+    ) && call
+        .children()
+        .find(|child| child.kind_id() == Perl::CallExpressionWithBareword as u16)
+        .and_then(|callee| callee.child_by_field_name("function_name"))
+        .is_some_and(|name| code.get(name.start_byte()..name.end_byte()) == Some(b"split"))
+}
+
 fn perl_is_call_argument_parent(parent: Node) -> bool {
     use Perl as P;
     matches!(
@@ -359,7 +411,7 @@ fn perl_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 impl Abc for PerlCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
@@ -374,10 +426,10 @@ impl Abc for PerlCode {
         // and the cyclomatic count is the number of node kinds the
         // grammar can hand us, neither being reasoning a reader must
         // do. Adding the guarded `<` / `>` arm for #1297 took the
-        // count from 14 to 15, and the statement-modifier arm for
-        // #1464 from 15 to 16; each arm is independent and
-        // self-describing like every other, and there is no semantic
-        // boundary to split this lookup on.
+        // count from 14 to 15, the statement-modifier arm for #1464
+        // to 16, and the bare-match arm for #1467 to 17; each arm is
+        // independent and self-describing like every other, and there
+        // is no semantic boundary to split this lookup on.
         use Perl as P;
 
         match node.kind_id().into() {
@@ -476,6 +528,19 @@ impl Abc for PerlCode {
             // `gt` are distinct tokens counted above, and a heredoc
             // opener is its own token, so none reaches this arm.
             P::LT | P::GT if ancestors.parent_has_kind(node, P::BinaryExpression as u16) => {
+                stats.conditions += 1.;
+            }
+            // A bare `/re/` or `m{re}` (sibling kinds, not aliases)
+            // matches the implicit `$_`: a relational operator with no
+            // operator token, so it scores by use wherever it is
+            // written (#1467) — `my $r = /^#/` levels with
+            // `my $r = ($x =~ /^#/)`. It is not in
+            // `perl_bool_terminal_kinds!()`, or every slot would score
+            // it a second time. `s///` and `tr///` stay out: they edit
+            // `$_` and yield a count, a policy question left to #1475.
+            P::PatternMatcher | P::PatternMatcherM
+                if !perl_pattern_is_bound_or_delimiter(node, code, ancestors) =>
+            {
                 stats.conditions += 1.;
             }
             // Fitzpatrick Rule 9 walker: each operand of a Perl
