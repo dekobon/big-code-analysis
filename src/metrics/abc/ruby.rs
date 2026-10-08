@@ -66,13 +66,11 @@ fn ruby_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 
     match node.kind_id().into() {
         ParenthesizedStatements => last_operand(node).map(|o| (o, false)),
-        Unary | Unary2 | Unary3 | Unary4 | Unary5
-            if node
-                .child_by_field_name("operator")
-                .is_some_and(|op| matches!(op.kind_id().into(), BANG | Not)) =>
-        {
-            node.child_by_field_name("operand").map(|o| (o, true))
-        }
+        Unary | Unary2 | Unary3 | Unary4 | Unary5 => node
+            .child_by_field_name("operator")
+            .filter(|op| matches!(op.kind_id().into(), BANG | Not))
+            .and_then(|_| node.child_by_field_name("operand"))
+            .map(|o| (o, true)),
         _ => None,
     }
 }
