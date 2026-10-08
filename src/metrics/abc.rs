@@ -4533,6 +4533,186 @@ mod tests {
         });
     }
 
+    // #1448, the C++ / Mozcpp instance of #1420. C++ overloads seven
+    // comparison operators; before the fix only `<` / `>` were gated on a
+    // `binary_expression` parent, so `operator<=` `>=` `==` `!=` and the
+    // spaceship `operator<=>` each scored one spurious condition on a
+    // struct where every member has `cyclomatic()` 1.
+    //
+    // Members are looked up by name, so a partial fix fails on the
+    // spelling it missed rather than on a total that merely moved. `n`
+    // is the §11 control: the same seven tokens applied, which must
+    // keep scoring one condition each. The census anchors both halves —
+    // trimming an overload or an application out of the fixture fails
+    // by name instead of decaying into its counterpart.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const CPP_COMPARISON_OVERLOADS: &str = "struct V {
+            bool operator<(const V& o) const { return true; }
+            bool operator>(const V& o) const { return true; }
+            bool operator<=(const V& o) const { return true; }
+            bool operator>=(const V& o) const { return true; }
+            bool operator==(const V& o) const { return true; }
+            bool operator!=(const V& o) const { return true; }
+            auto operator<=>(const V& o) const { return 0; }
+        };
+        int n(int a, int b) {
+            return (a < b) + (a > b) + (a <= b) + (a >= b) + (a == b) + (a != b) + (a <=> b);
+        }";
+
+    // `operator_name` id, then the seven token ids in source order, for
+    // whichever of the two grammars `P` parses.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    fn assert_cpp_comparison_overloads_are_not_conditions<P: MetricSuite>(
+        operator_name: u16,
+        tokens: [u16; 7],
+    ) {
+        #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+        const SPELLINGS: [&str; 7] = ["<", ">", "<=", ">=", "==", "!=", "<=>"];
+        let mut census = vec![(operator_name, 7, "operator names")];
+        // Two of each token: one declaring, one applying.
+        census.extend(tokens.iter().zip(SPELLINGS).map(|(&id, s)| (id, 2, s)));
+        assert_fixture_spells::<P>(CPP_COMPARISON_OVERLOADS, "foo.cpp", &census);
+        check_func_space::<P, _>(CPP_COMPARISON_OVERLOADS, "foo.cpp", |space| {
+            let class = child_space(&space, "V");
+            assert_eq!(class.spaces.len(), 7, "seven overloads");
+            for spelling in SPELLINGS {
+                let member = child_space(class, &format!("operator{spelling}"));
+                assert_eq!(
+                    member.metrics.abc.conditions(),
+                    0,
+                    "`operator{spelling}` declares an operator, it does not apply one"
+                );
+                assert_eq!(
+                    member.metrics.abc.conditions(),
+                    member.metrics.cyclomatic.cyclomatic() - 1,
+                    "`operator{spelling}`: §8 parity with the cyclomatic decision count"
+                );
+            }
+            assert_eq!(
+                child_space(&space, "n").metrics.abc.conditions(),
+                7,
+                "`n` applies all seven tokens: one condition each"
+            );
+        });
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_comparison_operator_overloads_are_not_conditions() {
+        assert_cpp_comparison_overloads_are_not_conditions::<CppParser>(
+            Cpp::OperatorName as u16,
+            [
+                Cpp::LT,
+                Cpp::GT,
+                Cpp::LTEQ,
+                Cpp::GTEQ,
+                Cpp::EQEQ,
+                Cpp::BANGEQ,
+                Cpp::LTEQGT,
+            ]
+            .map(|k| k as u16),
+        );
+    }
+
+    // Mozcpp owns no file extension, so this is its only coverage of the
+    // arm: no integration snapshot routes to it.
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_comparison_operator_overloads_are_not_conditions() {
+        use crate::Mozcpp;
+        assert_cpp_comparison_overloads_are_not_conditions::<crate::MozcppParser>(
+            Mozcpp::OperatorName as u16,
+            [
+                Mozcpp::LT,
+                Mozcpp::GT,
+                Mozcpp::LTEQ,
+                Mozcpp::GTEQ,
+                Mozcpp::EQEQ,
+                Mozcpp::BANGEQ,
+                Mozcpp::LTEQGT,
+            ]
+            .map(|k| k as u16),
+        );
+    }
+
+    // The two other productions #1448's allowlist decides, alongside the
+    // operator overloads above.
+    //
+    // `#if A <= B` is a real decision and must keep counting: the grammar
+    // aliases `preproc_binary_expression` onto `binary_expression`, and
+    // the allowlist is the only thing that admits it now that `<=` / `!=`
+    // are gated. The fixture's two directives are the root's only
+    // conditions.
+    //
+    // A fold over a comparison operator does not count, for all six
+    // foldable tokens alike (`<` / `>` never did): before the fix `le`
+    // scored 1 and the binary fold `eq` scored 2, one per spelling of its
+    // single operator, against `lt`'s 0. `idiom` is the control — its
+    // `==` sits in a `binary_expression` inside the fold and counts.
+    //
+    // The census also pins §2: every `binary_expression` here carries the
+    // `BinaryExpression2` id, and `BinaryExpression` — the pre-alias
+    // symbol the arm lists defensively — is never emitted.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    fn assert_cpp_comparison_folds_and_preproc_operands<P: MetricSuite>(
+        binary_expression: u16,
+        binary_expression2: u16,
+        fold_expression: u16,
+    ) {
+        let src = "#if A <= B
+            #endif
+            #if C != D
+            #endif
+            template <typename... T> bool lt(T... a) { return (a < ...); }
+            template <typename... T> bool le(T... a) { return (a <= ...); }
+            template <typename... T> bool eq(T... a) { return (0 == ... == a); }
+            template <typename... T> bool idiom(T... a) { return ((a == 0) && ...); }";
+        assert_fixture_spells::<P>(
+            src,
+            "foo.cpp",
+            &[
+                (fold_expression, 4, "fold expressions"),
+                (binary_expression2, 3, "binary expressions"),
+                (binary_expression, 0, "pre-alias binary expressions"),
+            ],
+        );
+        check_func_space::<P, _>(src, "foo.cpp", |space| {
+            for (name, want) in [("lt", 0), ("le", 0), ("eq", 0), ("idiom", 1)] {
+                assert_eq!(
+                    child_space(&space, name).metrics.abc.conditions(),
+                    want,
+                    "fold in `{name}`"
+                );
+            }
+            assert_eq!(
+                space.metrics.abc.conditions(),
+                2,
+                "one condition per `#if` comparison"
+            );
+        });
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_comparison_folds_and_preproc_operands() {
+        assert_cpp_comparison_folds_and_preproc_operands::<CppParser>(
+            Cpp::BinaryExpression as u16,
+            Cpp::BinaryExpression2 as u16,
+            Cpp::FoldExpression as u16,
+        );
+    }
+
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_comparison_folds_and_preproc_operands() {
+        use crate::Mozcpp;
+        assert_cpp_comparison_folds_and_preproc_operands::<crate::MozcppParser>(
+            Mozcpp::BinaryExpression as u16,
+            Mozcpp::BinaryExpression2 as u16,
+            Mozcpp::FoldExpression as u16,
+        );
+    }
+
     // #1383: a `relational_pattern`'s operator is not a condition of
     // its own — the `switch_expression_arm` that owns it already scores
     // the decision, exactly as it does for the constant arm `5 => 1`.

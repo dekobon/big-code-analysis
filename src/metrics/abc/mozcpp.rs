@@ -70,9 +70,6 @@ impl Abc for MozcppCode {
             CallExpression | CallExpression2 | NewExpression => {
                 stats.branches += 1.;
             }
-            // Comparison operators emitted as token children of a
-            // `binary_expression`. The C++20 spaceship `<=>` (`LTEQGT`)
-            // is a comparison operator and counts once per use.
             // `else` opens an alternative branch path; `case`
             // (non-default) adds one per switch arm; `?` opens a
             // ternary; `try` / `catch` count per Fitzpatrick (and
@@ -85,18 +82,17 @@ impl Abc for MozcppCode {
             // counterpart is Rule 9). See the module-level `Stats`
             // doc-comment for the cross-language policy (issue
             // #395, walker tracked in #403).
-            LTEQ | GTEQ | EQEQ | BANGEQ | LTEQGT | Else | Case | QMARK | Try | Try2 | Catch => {
+            Else | Case | QMARK | Try | Try2 | Catch => {
                 stats.conditions += 1.;
             }
-            // Plain `<` / `>` doubles as template-argument and
-            // template-parameter delimiter (`std::vector<int>`,
-            // `template <typename T>`). The `binary_expression` parent
-            // check disambiguates without inspecting siblings — only
-            // comparison uses of `<` / `>` count. Both kind-id aliases
-            // (`BinaryExpression`, `BinaryExpression2`) are accepted
-            // because the C++ grammar emits the same node under two
-            // production-rule paths.
-            LT | GT
+            // The seven comparison tokens count only when applied. The
+            // vendored grammar has the same productions for them as
+            // tree-sitter-cpp; the `grammar.json` sweep, the fold and
+            // `#if` decisions, and the operator-overload defect (#1448)
+            // are recorded on the matching arm of `CppCode::compute`.
+            // Here `BinaryExpression2` (430) is the emitted id and
+            // `BinaryExpression` (342) the never-emitted pre-alias one.
+            LT | GT | LTEQ | GTEQ | EQEQ | BANGEQ | LTEQGT
                 if ancestors.parent(node).is_some_and(|p| {
                     matches!(p.kind_id().into(), BinaryExpression | BinaryExpression2)
                 }) =>

@@ -68,6 +68,12 @@ impl Abc for CCode {
             // counterpart is Rule 9). See the module-level `Stats`
             // doc-comment for the cross-language policy (issue
             // #395, walker tracked in #403).
+            //
+            // Unlike C++ (#1448), `<=` `>=` `==` `!=` need no parent
+            // gate: tree-sitter-c 0.24.2's `grammar.json` emits them
+            // only from `binary_expression` and
+            // `preproc_binary_expression`, both comparisons, and C has
+            // no operator overloading to declare them elsewhere.
             LTEQ | GTEQ | EQEQ | BANGEQ | Else | Case | QMARK => {
                 stats.conditions += 1.;
             }

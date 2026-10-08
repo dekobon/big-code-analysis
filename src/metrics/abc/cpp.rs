@@ -234,9 +234,6 @@ impl Abc for CppCode {
             CallExpression | CallExpression2 | NewExpression => {
                 stats.branches += 1.;
             }
-            // Comparison operators emitted as token children of a
-            // `binary_expression`. The C++20 spaceship `<=>` (`LTEQGT`)
-            // is a comparison operator and counts once per use.
             // `else` opens an alternative branch path; `case`
             // (non-default) adds one per switch arm; `?` opens a
             // ternary; `try` / `catch` count per Fitzpatrick (and
@@ -249,18 +246,48 @@ impl Abc for CppCode {
             // counterpart is Rule 9). See the module-level `Stats`
             // doc-comment for the cross-language policy (issue
             // #395, walker tracked in #403).
-            LTEQ | GTEQ | EQEQ | BANGEQ | LTEQGT | Else | Case | QMARK | Try | Try2 | Catch => {
+            Else | Case | QMARK | Try | Try2 | Catch => {
                 stats.conditions += 1.;
             }
-            // Plain `<` / `>` doubles as template-argument and
-            // template-parameter delimiter (`std::vector<int>`,
-            // `template <typename T>`). The `binary_expression` parent
-            // check disambiguates without inspecting siblings — only
-            // comparison uses of `<` / `>` count. Both kind-id aliases
-            // (`BinaryExpression`, `BinaryExpression2`) are accepted
-            // because the C++ grammar emits the same node under two
-            // production-rule paths.
-            LT | GT
+            // The seven comparison tokens, counted only when applied —
+            // their parent is a `binary_expression`. A `grammar.json`
+            // sweep of tree-sitter-cpp 0.23.4 (and the vendored
+            // tree-sitter-mozcpp) finds each of them in these
+            // productions:
+            //
+            // - `binary_expression` — a comparison; counts.
+            // - `preproc_binary_expression` — `#if A <= B`, legal C++
+            //   and a real decision. The grammar aliases it onto
+            //   `binary_expression`, so it counts through the same
+            //   allowlist.
+            // - `operator_name` — `bool operator<=(…)` *declares* the
+            //   operator rather than applying it. Each of the seven
+            //   overloads has `cyclomatic()` 1; before #1448 only
+            //   `<` / `>` were gated, so the other five scored one
+            //   condition each (#1420 is the C# instance).
+            // - `_fold_operator` / `_binary_fold_operator` (`<` `>` `<=`
+            //   `>=` `==` `!=` only) — the parent is `fold_expression`.
+            //   Not counted, as `<` / `>` never were: a binary fold
+            //   `(0 == ... == a)` spells its one operator twice, and a
+            //   comparison fold is a chained comparison
+            //   (`a1 < (a2 < a3)`). The idiomatic spelling
+            //   `((a == 0) && ...)` keeps its `==` inside a
+            //   `binary_expression` and still counts.
+            // - `template_argument_list` / `template_parameter_list` /
+            //   `system_lib_string` (`<` `>` only) — delimiters
+            //   (`std::vector<int>`, `#include <vector>`).
+            //
+            // Allowlist polarity so a grammar bump adding a production
+            // fails closed (`.claude/rules/grammar-dispatch.md` §1). A
+            // token reparented under `{ERROR}` by recovery stops
+            // counting too, as `<` / `>` always have.
+            //
+            // At this pin every `binary_expression`, `#if` operand or
+            // not, carries kind id `BinaryExpression2` (341);
+            // `BinaryExpression` (253) is the pre-alias symbol and never
+            // emitted, listed defensively per §1 and pinned unreachable
+            // by `cpp_comparison_folds_and_preproc_operands` (§2).
+            LT | GT | LTEQ | GTEQ | EQEQ | BANGEQ | LTEQGT
                 if ancestors.parent(node).is_some_and(|p| {
                     matches!(p.kind_id().into(), BinaryExpression | BinaryExpression2)
                 }) =>

@@ -67,6 +67,11 @@ impl Abc for ObjcCode {
             // and the `@try` / `@catch` exception conditions. `&&` / `||`
             // are deliberately excluded (Fitzpatrick Rule 7; the
             // unary-conditional counterpart is Rule 9, handled below).
+            // `<=` `>=` `==` `!=` need no parent gate, unlike C++
+            // (#1448): tree-sitter-objc 3.0.2's `grammar.json` emits
+            // them only from `binary_expression` and
+            // `preproc_binary_expression`, and ObjC has no operator
+            // overloading.
             LTEQ | GTEQ | EQEQ | BANGEQ | Else | Case | QMARK | ATtry | CatchClause => {
                 stats.conditions += 1.;
             }
