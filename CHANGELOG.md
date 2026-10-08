@@ -24,6 +24,53 @@ for historical reference.
 
 ## [Unreleased]
 
+Every entry under **Fixed** changes ABC `conditions` for valid input.
+Only `abc.*` values move; cyclomatic, cognitive and Halstead are
+unchanged.
+
+### Fixed
+
+- **A C++ or Mozcpp comparison-operator overload no longer scores a
+  condition** (#1448). `operator<=`, `operator>=`, `operator==`,
+  `operator!=` and `operator<=>` each declared one, while `operator<`
+  and `operator>` were already excluded; all seven comparison tokens
+  now count only where they are applied. A fold over a comparison
+  (`(a < ...)`, `(0 == ... == a)`) now counts once, through the fold's
+  `operator` field, where `<` / `>` folds scored 0 and a binary fold
+  scored 2. `#if A <= B` still counts. In the openfst corpus every
+  `operator==` / `operator!=` definition and declaration drops by one.
+- **C++ and Mozcpp score the ISO alternative tokens like their
+  symbols** (#1470). `not b`, `b and c`, `b or c` and `b not_eq c` scored
+  0 where `!b`, `b && c`, `b || c` and `b != c` score 1, 2, 2 and 1.
+  Cyclomatic, cognitive and Halstead do not yet recognise them (#1522).
+- **A Ruby subject-less `case` no longer counts a comparison twice**
+  (#1453). `case; when x > 5 … else …` scored 3 against its `if`
+  analogue's 2. A subject-less `when` is evaluated like an `if`
+  predicate, so each of its patterns is one operand of an implicit `||`
+  and scores once unless its own operator already counted it:
+  `when a, b` and `when a, x > 1` now score 2, level with `if a || b`.
+  A subject-ful `case x; when 1` still scores one per clause.
+- **A Perl bare pattern match scores by use** (#1467). `/^#/` and
+  `m{^#}` match the implicit `$_`, and scored a condition only inside a
+  boolean slot, so `my $r = /^#/;` read 0 against `$x =~ /^#/`'s 1. They
+  now count wherever they are written. The pattern bound by `=~` / `!~`
+  is not counted again, and `split`'s delimiter (`split /,/, $s`) is not
+  a match and scores 0. In-slot spellings such as `if (/x/)` are
+  unchanged.
+- **A comment inside or before a condition no longer zeroes it**
+  (#1455). Condition and value slots were read by child index, and the
+  `(…)` / `!` peels stepped to child 1 or to the first named child, so a
+  comment (`if (/*c*/ b)`, `if /*c*/ (b)`, `return /*c*/ !b`,
+  `((/*c*/ b))`, `! /*c*/ b`) took the operand's place and the condition
+  scored 0. Every slot is now read by grammar field or as the first
+  operand that is not a comment, in C, C++, C#, Elixir, Go, Groovy,
+  Java, JavaScript, Kotlin, Lua, Mozcpp, Mozjs, Objective-C, Perl, PHP,
+  Python, Ruby, Rust, TSX and TypeScript. The same change fixes a C++
+  `if` with an init-statement (`if (int y = f(); b)`), a labelled Rust
+  `while`, and an Elixir `=` behind a comment, which scored no
+  assignment. In the corpora, two pdf.js commented conditions and one
+  serde `while try!(…)` loop gain one condition each.
+
 ## [2.3.0] - 2026-10-07
 
 This release adds a ninth published crate, `big-code-analysis-ast`,
