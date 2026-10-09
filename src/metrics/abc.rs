@@ -14130,6 +14130,92 @@ end
         );
     }
 
+    // Issue #1273. tree-sitter-perl 1.1.2 parses `$a > $b ? 1 : 2` as
+    // `$a > ($b ? 1 : 2)`, and the ternary's condition slot then paid
+    // for `$b`: 3 against JavaScript's 2 for `a > b ? 1 : 2`. Every
+    // chaining comparison does it; each row must also equal its
+    // parenthesised spelling, which parses correctly and so takes its
+    // value from outside the fix.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_comparison_conditioned_ternary_counts_the_comparison_once() {
+        let operators = [
+            "<", ">", "<=", ">=", "lt", "gt", "le", "ge", "==", "!=", "eq", "ne",
+        ];
+        for op in operators {
+            let bare = format!("sub f {{ my $m = $a {op} $b ? 1 : 2; }}\n");
+            let grouped = format!("sub f {{ my $m = ($a {op} $b) ? 1 : 2; }}\n");
+            // The ternary (1) and the comparison token (1).
+            assert_eq!(abc_conditions(LANG::Perl, &bare), 2, "`{op}`");
+            assert_eq!(abc_conditions(LANG::Perl, &grouped), 2, "`({op})`");
+        }
+    }
+
+    // Issue #1273, the general shape: a chaining comparison swallows
+    // every lower-precedence operator to its right, so a logical chain
+    // misparses too — `$a > $b && $c` is `$a > ($b && $c)`, and the
+    // chain walker paid for `$b`. Expected values are the JavaScript
+    // twins (`a > b && c ? 1 : 2` = 3, …) or, where JavaScript has no
+    // spelling, the parenthesised Perl one.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_misparsed_comparison_operand_is_not_a_condition() {
+        let cases = [
+            // `<` `<` `?`; `($a < $b < $c) ? 1 : 2` is 3.
+            ("my $m = $a < $b < $c ? 1 : 2;", 3),
+            // `>` `?` `>` `?`, as `a > b ? (c > d ? 1 : 2) : 3`.
+            ("my $m = $a > $b ? $c > $d ? 1 : 2 : 3;", 4),
+            // Two ternaries and two comparisons, as the JS twin.
+            ("if ($a > $b ? $c : $d) { } return $a == $b ? 1 : 0;", 4),
+            // The chain is the ternary's condition: `>` `?` `$c`.
+            ("my $m = $a > $b && $c ? 1 : 2;", 3),
+            // The ternary hangs off the chain's right comparison.
+            ("my $m = $x > 0 && $y > 0 ? 1 : 2;", 3),
+            ("my $m = $x && $a > $b ? 1 : 2;", 3),
+            ("if ($a > $b && $c) { }", 2),
+            ("if ($a eq $b && $c eq $d) { }", 2),
+            // `&&` is the first operand of `||`: the climb crosses it.
+            ("if ($a > $b && $c || $d) { }", 3),
+            ("if ($a > $b && $c && $d) { }", 3),
+            // `and` is a two-operand `unary_expression`, which the
+            // climb crosses too: `(($a > $b) && $c) and $d` is 3.
+            ("if ($a > $b and $c) { }", 2),
+            ("if ($a > $b && $c and $d) { }", 3),
+            // A comment between the operator and the ternary is an
+            // `extra` sibling, not the operator.
+            ("my $m = $a > # c\n $b ? 1 : 2;", 2),
+        ];
+        for (body, expected) in cases {
+            let src = format!("sub f {{ {body} }}\n");
+            assert_eq!(abc_conditions(LANG::Perl, &src), expected, "`{body}`");
+        }
+    }
+
+    // Issue #1273: shapes the workaround must leave alone. The explicit
+    // `$a > ($b ? 1 : 2)` puts an `array` between the comparison and
+    // the ternary, so `$b` really is a condition: 3, as
+    // `a > (b ? 1 : 2)` in JavaScript. `<=>`, `cmp` and `=~` do not
+    // chain and parse correctly; those rows pin that grammar fact, not
+    // the workaround's operator list — adding `<=>` to the list moves
+    // nothing, since no tree ever puts a ternary straight after it.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_correctly_parsed_ternaries_keep_their_condition_slot() {
+        let cases = [
+            ("my $m = ($a > $b) ? 1 : 2;", 2),
+            ("my $m = $a <=> $b ? 1 : 2;", 2),
+            ("my $m = $a cmp $b ? 1 : 2;", 2),
+            ("my $m = $a =~ /x/ ? 1 : 2;", 2),
+            ("my $m = $a > ($b ? 1 : 2);", 3),
+            ("my $m = $a ? !$b : !$c;", 4),
+            ("my $m = $a && $b ? 1 : 2;", 3),
+        ];
+        for (body, expected) in cases {
+            let src = format!("sub f {{ {body} }}\n");
+            assert_eq!(abc_conditions(LANG::Perl, &src), expected, "`{body}`");
+        }
+    }
+
     #[cfg(feature = "perl")]
     #[test]
     fn perl_elsif_and_else_count_conditions() {

@@ -168,6 +168,88 @@ fn perl_count_slot(slot: Option<Node>, conditions: &mut f64) {
     }
 }
 
+// FIXME(#1273 upstream): tree-sitter-perl 1.1.2 lets a chaining
+// comparison (`< > <= >= lt gt le ge == != eq ne`) swallow everything
+// of lower precedence to its right, so `$a > $b && $c` parses as
+// `$a > ($b && $c)` and `$a > $b ? 1 : 2` as `$a > ($b ? 1 : 2)`. The
+// operand those trees hand to a boolean slot — `$b` — is really the
+// comparison's right operand, and the real slot occupant is the
+// comparison, which scores itself. Remove these helpers, and the two
+// call sites' `absorbed` flags, once the pin carries the upstream
+// `prec` fix.
+//
+// Whether the leading boolean slot of `node` — a ternary's condition or
+// a logical chain's first operand — belongs to such a comparison. The
+// misparse nests the stolen operand down a spine of exactly these two
+// slots (`$a > $b && $c ? …` is `$a > (($b && $c) ? …)`), so the climb
+// follows that spine to its root and asks whether the root directly
+// follows a chaining operator. An explicit `$a > ($b ? 1 : 2)` puts an
+// `array` between the two and is left alone. The token check alone
+// suffices: those operators occur only in `binary_expression`, apart
+// from the readline `<FH>` brackets, whose interior is never an
+// expression.
+fn perl_misparse_absorbs_leading_operand<'a>(
+    node: &Node<'a>,
+    mut ancestors: impl Iterator<Item = Node<'a>>,
+) -> bool {
+    use Perl as P;
+
+    let mut child = *node;
+    ancestors
+        .find(|parent| {
+            let leading = match parent.kind_id().into() {
+                P::TernaryExpression => parent.child_by_field_name("condition"),
+                _ if perl_is_logical_chain(parent) => wrapped_operand(parent),
+                _ => None,
+            };
+            let on_spine = leading.is_some_and(|lead| lead.id() == child.id());
+            if on_spine {
+                child = *parent;
+            }
+            !on_spine
+        })
+        .is_some_and(|parent| {
+            parent
+                .children()
+                .take_while(|sibling| sibling.id() != child.id())
+                .filter(|sibling| !sibling.as_tree_sitter().is_extra())
+                .last()
+                .is_some_and(|operator| {
+                    matches!(
+                        operator.kind_id().into(),
+                        P::LT
+                            | P::GT
+                            | P::LTEQ
+                            | P::GTEQ
+                            | P::Lt
+                            | P::Gt
+                            | P::Le
+                            | P::Ge
+                            | P::EQEQ
+                            | P::BANGEQ
+                            | P::Eq
+                            | P::Ne
+                    )
+                })
+        })
+}
+
+// A `&&` / `||` / `//` / `and` / `or` / `xor` chain. tree-sitter-perl
+// spells `and` as a two-operand `unary_expression`.
+fn perl_is_logical_chain(node: &Node) -> bool {
+    use Perl as P;
+
+    matches!(
+        node.kind_id().into(),
+        P::BinaryExpression | P::UnaryExpression
+    ) && node.children().any(|token| {
+        matches!(
+            token.kind_id().into(),
+            P::AMPAMP | P::PIPEPIPE | P::SLASHSLASH | P::And | P::Or | P::Xor
+        )
+    })
+}
+
 // Phase-2B (issues #403 / #1102): a ternary's condition is a boolean
 // slot and each branch a negated operand, exactly as `java_walk_ternary`
 // counts them. Without this Perl scored `$a ? !$b : !$c` as 1 (the
@@ -177,8 +259,12 @@ fn perl_count_slot(slot: Option<Node>, conditions: &mut f64) {
 // tree-sitter-perl names the branches `true` / `false` rather than the
 // C-family `consequence` / `alternative`, and all three slots are
 // mandatory — Perl has no short-ternary elision.
-fn perl_walk_ternary(node: &Node, conditions: &mut f64) {
-    perl_count_slot(node.child_by_field_name("condition"), conditions);
+//
+// `condition_absorbed`: see `perl_misparse_absorbs_leading_operand`.
+fn perl_walk_ternary(node: &Node, condition_absorbed: bool, conditions: &mut f64) {
+    if !condition_absorbed {
+        perl_count_slot(node.child_by_field_name("condition"), conditions);
+    }
     for field in ["true", "false"] {
         if let Some(branch) = node.child_by_field_name(field) {
             perl_count_negated(&branch, conditions);
@@ -193,12 +279,20 @@ fn perl_walk_ternary(node: &Node, conditions: &mut f64) {
 // `extra`: tree-sitter-perl names no operand field on a comparison or on
 // the two-operand `unary_expression` it parses `$a and $b` as, which the
 // field-less walk is what scores at all — it scored 0.
-fn perl_count_chain_operands(chain: &Node, conditions: &mut f64) {
+//
+// `leading_absorbed`: see `perl_misparse_absorbs_leading_operand`.
+fn perl_count_chain_operands(chain: &Node, leading_absorbed: bool, conditions: &mut f64) {
     if matches!(
         chain.kind_id().into(),
         Perl::BinaryExpression | Perl::UnaryExpression
     ) {
-        count_each_operand(chain, perl_count_condition, conditions);
+        for operand in chain
+            .children()
+            .filter(is_operand)
+            .skip(usize::from(leading_absorbed))
+        {
+            perl_count_condition(&operand, conditions);
+        }
     }
 }
 
@@ -410,8 +504,10 @@ impl Abc for PerlCode {
             // condition (issue #403). Covers `&&`, `||`, `//`,
             // `and`, `or`, `xor`.
             P::AMPAMP | P::PIPEPIPE | P::SLASHSLASH | P::And | P::Or | P::Xor => {
-                if let Some(chain) = ancestors.parent(node) {
-                    perl_count_chain_operands(&chain, &mut stats.conditions);
+                let mut above = ancestors.iter(node).map(|(ancestor, _)| ancestor);
+                if let Some(chain) = above.next() {
+                    let absorbed = perl_misparse_absorbs_leading_operand(&chain, above);
+                    perl_count_chain_operands(&chain, absorbed, &mut stats.conditions);
                 }
             }
             // An `elsif` is Java's `else if`: the `else` (+1, Rule 5) and
@@ -450,7 +546,9 @@ impl Abc for PerlCode {
             // and adds the three operand slots (issue #1102).
             P::TernaryExpression => {
                 stats.conditions += 1.;
-                perl_walk_ternary(node, &mut stats.conditions);
+                let above = ancestors.iter(node).map(|(ancestor, _)| ancestor);
+                let absorbed = perl_misparse_absorbs_leading_operand(node, above);
+                perl_walk_ternary(node, absorbed, &mut stats.conditions);
             }
             // Phase-2B (issue #403): condition slots, each read by the
             // grammar's `condition` field, not at child(1): a comment
