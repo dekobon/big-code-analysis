@@ -13,25 +13,22 @@
 
 use super::*;
 
-/// Folds a Perl `binary_expression`'s short-circuit operator children
+/// Folds a Perl `binary_expression`'s (or, for low-precedence `and`,
+/// `unary_expression`'s) short-circuit operator children
 /// into the boolean-sequence counter — Perl has five bare forms (`&&`,
 /// `||`, `//`, `and`, `or`) plus three compound short-circuit
 /// assignments (`&&=`, `||=`, `//=`). The grammar exposes each `op=`
 /// as a distinct operator token inside the same `binary_expression`,
-/// so they fold into the same predicate (issue #249).
+/// so they fold into the same predicate (issue #249). The word forms
+/// `and` / `or` are keyed to their symbols (see
+/// [`compute_booleans_keyed`]); `//` and each compound assignment keep
+/// keys of their own.
 fn compute_perl_booleans(node: &Node, stats: &mut Stats) {
-    compute_booleans_with(node, stats, |id| {
-        matches!(
-            id.into(),
-            Perl::AMPAMP
-                | Perl::PIPEPIPE
-                | Perl::SLASHSLASH
-                | Perl::And
-                | Perl::Or
-                | Perl::AMPAMPEQ
-                | Perl::PIPEPIPEEQ
-                | Perl::SLASHSLASHEQ
-        )
+    compute_booleans_keyed(node, stats, |id| match id.into() {
+        Perl::AMPAMP | Perl::And => Some(Perl::AMPAMP as u16),
+        Perl::PIPEPIPE | Perl::Or => Some(Perl::PIPEPIPE as u16),
+        Perl::SLASHSLASH | Perl::AMPAMPEQ | Perl::PIPEPIPEEQ | Perl::SLASHSLASHEQ => Some(id),
+        _ => None,
     });
 }
 
@@ -91,7 +88,12 @@ impl Cognitive for PerlCode {
             P::LoopControlStatement if node.is_child(P::Identifier as u16) => {
                 increment_by_one(stats);
             }
-            P::BinaryExpression => {
+            // tree-sitter-perl files low-precedence `and` under
+            // `unary_expression` (with `not`), while `or` / `xor` are a
+            // `binary_expression`; without the second kind every `and`
+            // scored nothing here while cyclomatic and ABC counted it
+            // (#1530).
+            P::BinaryExpression | P::UnaryExpression => {
                 compute_perl_booleans(node, stats);
             }
             P::FunctionDefinition | P::FunctionDefinitionWithoutSub => {

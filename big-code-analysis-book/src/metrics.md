@@ -330,7 +330,12 @@ Sequences of identical boolean operators (`a && b && c`) score `+1`
 for the whole run, on the grounds that a chain of `&&`s is no harder
 to read than a single `&&`. Switching operators (`a && b || c`) is
 where the cognitive load jumps, so the second operator earns its own
-`+1`.
+`+1`. "Identical" means the same logical operation, not the same
+token: where a language spells conjunction and disjunction both ways
+(C++, Ruby, PHP, Perl, Elixir, iRules), `a && b and c` is one
+sequence. Precedence still decides what nests where, so Ruby's
+`a || b and c` is `(a || b) and c` and scores two. `xor`, `??` and
+Perl's `//` are operations of their own.
 
 big-code-analysis exports the per-function structural score along
 with the file-wide `sum`, `min`, `max`, and a per-function `average`.

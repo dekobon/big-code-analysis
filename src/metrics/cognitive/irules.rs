@@ -64,10 +64,14 @@ impl Cognitive for IrulesCode {
                 increase_nesting(stats, &mut nesting);
             }
             // Boolean sequences inside expressions: both symbolic (`&&`/`||`)
-            // and the iRules keyword forms (`and`/`or`).
+            // and the iRules keyword forms (`and`/`or`), each keyword keyed
+            // to the symbol it aliases so a mixed spelling stays one
+            // sequence (#1530).
             BinopExpr => {
-                compute_booleans_with(node, stats, |id| {
-                    matches!(id.into(), AMPAMP | PIPEPIPE | And | Or)
+                compute_booleans_keyed(node, stats, |id| match id.into() {
+                    AMPAMP | And => Some(AMPAMP as u16),
+                    PIPEPIPE | Or => Some(PIPEPIPE as u16),
+                    _ => None,
                 });
             }
             // The two function-space kinds reset nesting and bump the

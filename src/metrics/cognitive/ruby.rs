@@ -16,13 +16,13 @@ use crate::checker::ruby::is_stabby_lambda_body;
 
 /// Folds a Ruby `binary`'s short-circuit operator children into the
 /// boolean-sequence counter — Ruby has four (`&&`, `||`, word-form
-/// `and`, word-form `or`).
+/// `and`, word-form `or`). Each word form is keyed to its symbol (see
+/// [`compute_booleans_keyed`]).
 fn compute_ruby_booleans(node: &Node, stats: &mut Stats) {
-    compute_booleans_with(node, stats, |id| {
-        matches!(
-            id.into(),
-            Ruby::AMPAMP | Ruby::PIPEPIPE | Ruby::And | Ruby::Or
-        )
+    compute_booleans_keyed(node, stats, |id| match id.into() {
+        Ruby::AMPAMP | Ruby::And => Some(Ruby::AMPAMP as u16),
+        Ruby::PIPEPIPE | Ruby::Or => Some(Ruby::PIPEPIPE as u16),
+        _ => None,
     });
 }
 

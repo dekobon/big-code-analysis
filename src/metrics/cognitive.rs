@@ -198,6 +198,17 @@ fn compute_booleans_with<F: Fn(u16) -> bool>(node: &Node, stats: &mut Stats, is_
 /// child to the id the boolean sequence compares, so two spellings of
 /// one operator share a key and continue each other's sequence — C++'s
 /// `a and b && c` is one sequence, exactly as `a && b && c` is.
+///
+/// SonarSource's rule charges one increment per sequence of *like*
+/// operators because switching between conjunction and disjunction is
+/// what a reader must stop and work through. "Like" is therefore the
+/// logical operation, not the token: a word form is keyed to its
+/// symbol even where the language gives it a lower precedence (Ruby,
+/// PHP, Perl) or strict-boolean operands (Elixir). Precedence only
+/// changes which operator nests under which, and the parse already
+/// carries that, so `a || b and c` is `(a || b) and c` and still
+/// switches operation. Operators that are a different operation
+/// (`xor`, `??`, `//`) keep keys of their own (#1530).
 fn compute_booleans_keyed<F: Fn(u16) -> Option<u16>>(
     node: &Node,
     stats: &mut Stats,
@@ -553,6 +564,15 @@ mod rust;
 mod tcl;
 mod tsx;
 mod typescript;
+#[cfg(test)]
+#[cfg(any(
+    feature = "elixir",
+    feature = "irules",
+    feature = "perl",
+    feature = "php",
+    feature = "ruby"
+))]
+mod word_operator_tests;
 
 // Tcl's `switch` is a generic `command` (no dedicated kind_id, unlike
 // `if`/`while`/`foreach`/`catch`), so the kind-dispatch in the Cognitive

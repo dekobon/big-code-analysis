@@ -65,9 +65,14 @@ impl Cognitive for PhpCode {
                 // `||` and the word-form `and` / `or` / `xor`, so it
                 // forms boolean sequences alongside them. Mirrors the
                 // PHP cyclomatic operator set minus the assignment
-                // form `??=`, which is not a `BinaryExpression`.
-                compute_booleans_with(node, stats, |id| {
-                    matches!(id.into(), AMPAMP | PIPEPIPE | And | Or | Xor | QMARKQMARK)
+                // form `??=`, which is not a `BinaryExpression`. The word
+                // forms `and` / `or` are keyed to their symbols; `xor`
+                // and `??` are operations of their own (#1530).
+                compute_booleans_keyed(node, stats, |id| match id.into() {
+                    AMPAMP | And => Some(AMPAMP as u16),
+                    PIPEPIPE | Or => Some(PIPEPIPE as u16),
+                    Xor | QMARKQMARK => Some(id),
+                    _ => None,
                 });
             }
             AugmentedAssignmentExpression => {

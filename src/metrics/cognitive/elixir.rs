@@ -15,14 +15,14 @@ use super::*;
 
 /// Folds an Elixir `BinaryOperator`'s short-circuit operator children
 /// into the boolean-sequence counter — Elixir has four (`&&`, `||`,
-/// `and`, `or`). Single-pass walk over `node.children()` avoids the
-/// 2x cost of calling the two-operator `compute_booleans` twice.
+/// `and`, `or`). Each word form is keyed to its symbol (see
+/// [`compute_booleans_keyed`]): `and` / `or` demand a boolean left
+/// operand, but they are the same conjunction / disjunction to read.
 fn compute_elixir_booleans(node: &Node, stats: &mut Stats) {
-    compute_booleans_with(node, stats, |id| {
-        matches!(
-            id.into(),
-            Elixir::AMPAMP | Elixir::PIPEPIPE | Elixir::And | Elixir::Or
-        )
+    compute_booleans_keyed(node, stats, |id| match id.into() {
+        Elixir::AMPAMP | Elixir::And => Some(Elixir::AMPAMP as u16),
+        Elixir::PIPEPIPE | Elixir::Or => Some(Elixir::PIPEPIPE as u16),
+        _ => None,
     });
 }
 
