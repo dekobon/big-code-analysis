@@ -9,7 +9,9 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, count_boolean_slot, count_negated_operand, last_operand};
+use super::{
+    Abc, Stats, count_boolean_slot, count_field_operands, count_negated_operand, last_operand,
+};
 use crate::*;
 
 // Ruby ABC rules follow the Fitzpatrick paper's spirit, adapted to
@@ -81,22 +83,6 @@ fn ruby_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
             .and_then(|_| node.child_by_field_name("operand"))
             .map(|o| (o, true)),
         _ => None,
-    }
-}
-
-// Fitzpatrick Rule 9 walker (#557): each operand of an `&&` / `||` /
-// `and` / `or` chain is a boolean slot, scored by `ruby_count_condition`.
-// tree-sitter-ruby parses `a && b || c` as a left-nested chain of
-// `binary` nodes (aliased `Binary`..`Binary3`, lesson #2), so an operand
-// that is itself a chain is paid by its own operator's visit.
-//
-// The operands are read by field: a comment between operand and operator
-// is a named child of the `binary` too, and must not pay.
-fn ruby_count_chain_operands(chain: &Node, conditions: &mut f64) {
-    for field in ["left", "right"] {
-        if let Some(operand) = chain.child_by_field_name(field) {
-            ruby_count_condition(&operand, conditions);
-        }
     }
 }
 
@@ -369,13 +355,16 @@ impl Abc for RubyCode {
             // (cross-language policy, #395); the keyword forms `and` / `or`
             // get the same treatment as `&&` / `||`. Under error recovery
             // the token's parent can be an `ERROR` node (`f(&&)`), which
-            // has no operands to score.
+            // has no operands to score. tree-sitter-ruby parses
+            // `a && b || c` as a left-nested chain of `binary` nodes
+            // (aliased `Binary`..`Binary3`, lesson #2), so an operand that
+            // is itself a chain is paid by its own operator's visit.
             AMPAMP | PIPEPIPE | And | Or => {
                 if let Some(chain) = ancestors
                     .parent(node)
                     .filter(|p| matches!(p.kind_id().into(), Binary | Binary2 | Binary3))
                 {
-                    ruby_count_chain_operands(&chain, &mut stats.conditions);
+                    count_field_operands(&chain, ruby_count_condition, &mut stats.conditions);
                 }
             }
             // `a ? !b : !c` — the ternary's own `?` token is already

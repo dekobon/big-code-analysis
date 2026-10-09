@@ -10,8 +10,8 @@
 )]
 
 use super::{
-    Abc, Stats, count_boolean_slot, count_negated_operand, is_operand, last_operand,
-    wrapped_operand,
+    Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
+    count_negated_operand, last_operand, wrapped_operand,
 };
 use crate::*;
 
@@ -92,13 +92,6 @@ fn rust_count_slot(slot: Option<Node>, conditions: &mut f64) {
     }
 }
 
-// Each argument of a call is a negated operand (`m(!a, !b)`).
-fn rust_count_arguments(arguments: &Node, conditions: &mut f64) {
-    for argument in arguments.children().filter(is_operand) {
-        rust_count_negated(&argument, conditions);
-    }
-}
-
 // The conditions a `match_arm` contributes: the arm itself, plus its
 // guard.
 //
@@ -151,20 +144,14 @@ fn rust_count_match_arm(node: &Node, conditions: &mut f64) {
 // 3). Its `let` operands score themselves.
 fn rust_count_chain_operands(token: &Node, chain: &Node, conditions: &mut f64) {
     if chain.kind_id() == Rust::BinaryExpression {
-        for field in ["left", "right"] {
-            if let Some(operand) = chain.child_by_field_name(field) {
-                rust_count_condition(&operand, conditions);
-            }
-        }
+        count_field_operands(chain, rust_count_condition, conditions);
     } else if matches!(chain.kind_id().into(), Rust::LetChain | Rust::LetChain2)
         && chain
             .children()
             .find(|child| child.kind_id() == Rust::AMPAMP)
             .is_some_and(|first| first.id() == token.id())
     {
-        for operand in chain.children().filter(is_operand) {
-            rust_count_condition(&operand, conditions);
-        }
+        count_each_operand(chain, rust_count_condition, conditions);
     }
 }
 
@@ -278,7 +265,8 @@ impl Abc for RustCode {
             }
             // Method-argument walker: `m(!a, !b)` contributes one
             // condition per negated argument.
-            Arguments => rust_count_arguments(node, &mut stats.conditions),
+            // Each argument of a call is a negated operand (`m(!a, !b)`).
+            Arguments => count_each_operand(node, rust_count_negated, &mut stats.conditions),
             _ => {}
         }
     }

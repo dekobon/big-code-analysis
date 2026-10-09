@@ -9,7 +9,10 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, count_boolean_slot, count_negated_operand, is_operand, wrapped_operand};
+use super::{
+    Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
+    count_negated_operand, is_operand, wrapped_operand,
+};
 use crate::metrics::cyclomatic::cpp_operator_is_applied;
 use crate::*;
 
@@ -142,9 +145,7 @@ pub(super) fn cpp_count_return(statement: &Node, conditions: &mut f64) {
 // Each operand of a call's `argument_list` or of an Objective-C message
 // is a negated operand (`f(!a, !b)`).
 pub(super) fn cpp_count_arguments(list: &Node, conditions: &mut f64) {
-    for operand in list.children().filter(is_operand) {
-        cpp_count_negated(&operand, conditions);
-    }
+    count_each_operand(list, cpp_count_negated, conditions);
 }
 
 // Fitzpatrick Rule 9 (C++ in Figure 3, #403): each operand of an `&&` /
@@ -167,12 +168,7 @@ pub(super) fn cpp_count_arguments(list: &Node, conditions: &mut f64) {
 // arms do, scores nothing.
 pub(super) fn cpp_count_chain_operands(chain: &Node, conditions: &mut f64) {
     match chain.kind() {
-        "binary_expression" => {
-            let operands = ["left", "right"].map(|field| chain.child_by_field_name(field));
-            for operand in operands.iter().flatten() {
-                cpp_count_condition(operand, conditions);
-            }
-        }
+        "binary_expression" => count_field_operands(chain, cpp_count_condition, conditions),
         "fold_expression" => {
             let mut written = 0;
             for operand in chain.children().filter(is_operand) {

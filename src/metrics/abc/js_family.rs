@@ -10,8 +10,8 @@
 )]
 
 use super::{
-    Abc, Stats, count_boolean_slot, count_negated_operand, is_operand, last_operand,
-    wrapped_operand,
+    Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
+    count_negated_operand, last_operand, wrapped_operand,
 };
 use crate::*;
 
@@ -104,19 +104,6 @@ fn js_family_count_negated(operand: &Node, conditions: &mut f64) {
     );
 }
 
-// Fitzpatrick Rule 9 (#403): each operand of an `&&` / `||` chain is a
-// boolean slot. `a && b || c` is a left-nested chain of
-// `binary_expression`s, so an operand that is itself a chain is paid by
-// its own operator's visit. Read by field: a comment beside the operator
-// is a named child too, and must not pay.
-fn js_family_count_chain_operands(chain: &Node, conditions: &mut f64) {
-    for field in ["left", "right"] {
-        if let Some(operand) = chain.child_by_field_name(field) {
-            js_family_count_condition(&operand, conditions);
-        }
-    }
-}
-
 // Phase-2B (issues #403 / #1102): a ternary's condition is a boolean
 // slot, and each branch operand a negated operand, exactly as
 // `java_walk_ternary` counts them. Without this the JS family scored
@@ -157,13 +144,6 @@ fn js_family_walk_for(node: &Node, conditions: &mut f64) {
         .filter(|slot| slot.is_named() && slot.kind() != "empty_statement")
     {
         js_family_count_condition(&condition, conditions);
-    }
-}
-
-// Each argument of a call is a negated operand (`f(!a, !b)`).
-fn js_family_count_arguments(arguments: &Node, conditions: &mut f64) {
-    for argument in arguments.children().filter(is_operand) {
-        js_family_count_negated(&argument, conditions);
     }
 }
 
@@ -367,10 +347,17 @@ macro_rules! ts_abc_compute {
                     stats.conditions += 1.;
                 }
                 // Fitzpatrick Rule 9: each operand of a `&&` / `||`
-                // chain is one condition (issue #403).
+                // chain is one condition (issue #403). `a && b || c` is a
+                // left-nested chain of `binary_expression`s, so an operand
+                // that is itself a chain is paid by its own operator's
+                // visit.
                 AMPAMP | PIPEPIPE => {
                     if let Some(chain) = ancestors.parent(node) {
-                        js_family_count_chain_operands(&chain, &mut stats.conditions);
+                        count_field_operands(
+                            &chain,
+                            js_family_count_condition,
+                            &mut stats.conditions,
+                        );
                     }
                 }
                 // Phase-2B (issue #403): condition slots. JS / TS
@@ -395,7 +382,7 @@ macro_rules! ts_abc_compute {
                 }
                 // Method-argument walker for `f(!a, !b)`.
                 Arguments => {
-                    js_family_count_arguments(node, &mut stats.conditions);
+                    count_each_operand(node, js_family_count_negated, &mut stats.conditions);
                 }
                 // `a ? !b : !c` — the ternary's own `?` token is
                 // already counted by the condition arm above; this
@@ -488,10 +475,17 @@ macro_rules! js_abc_compute {
                     stats.conditions += 1.;
                 }
                 // Fitzpatrick Rule 9: each operand of a `&&` / `||`
-                // chain is one condition (issue #403).
+                // chain is one condition (issue #403). `a && b || c` is a
+                // left-nested chain of `binary_expression`s, so an operand
+                // that is itself a chain is paid by its own operator's
+                // visit.
                 AMPAMP | PIPEPIPE => {
                     if let Some(chain) = ancestors.parent(node) {
-                        js_family_count_chain_operands(&chain, &mut stats.conditions);
+                        count_field_operands(
+                            &chain,
+                            js_family_count_condition,
+                            &mut stats.conditions,
+                        );
                     }
                 }
                 // Phase-2B (issue #403): condition slots. Same shape
@@ -508,7 +502,7 @@ macro_rules! js_abc_compute {
                     }
                 }
                 Arguments => {
-                    js_family_count_arguments(node, &mut stats.conditions);
+                    count_each_operand(node, js_family_count_negated, &mut stats.conditions);
                 }
                 // `a ? !b : !c` — the ternary's own `?` token is
                 // already counted by the condition arm above; this

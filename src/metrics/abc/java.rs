@@ -10,7 +10,8 @@
 )]
 
 use super::{
-    Abc, Stats, count_boolean_slot, count_negated_operand, is_operand, peel, wrapped_operand,
+    Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
+    count_negated_operand, peel, wrapped_operand,
 };
 use crate::*;
 
@@ -94,19 +95,6 @@ fn java_count_negated(operand: &Node, conditions: &mut f64) {
         java_condition_scores_itself,
         conditions,
     );
-}
-
-// Fitzpatrick Rule 9 (#403): each operand of an `&&` / `||` chain is a
-// boolean slot. `a && b || c` is a left-nested chain of
-// `binary_expression`s, so an operand that is itself a chain is paid by
-// its own operator's visit. Read by field: a comment beside the operator
-// is a named child too, and must not pay.
-fn java_count_chain_operands(chain: &Node, conditions: &mut f64) {
-    for field in ["left", "right"] {
-        if let Some(operand) = chain.child_by_field_name(field) {
-            java_count_condition(&operand, conditions);
-        }
-    }
 }
 
 fn java_count_slot(slot: Option<Node>, conditions: &mut f64) {
@@ -311,21 +299,20 @@ fn java_walk_for_conditions<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, s
     use Java::*;
     let conds = &mut stats.conditions;
     match node.kind_id().into() {
-        // Each operand of an `&&` / `||` chain is a boolean slot.
+        // Fitzpatrick Rule 9 (#403): each operand of an `&&` / `||` chain
+        // is a boolean slot. `a && b || c` is a left-nested chain of
+        // `binary_expression`s, so an operand that is itself a chain is
+        // paid by its own operator's visit.
         AMPAMP | PIPEPIPE => {
             if let Some(chain) = ancestors
                 .parent(node)
                 .filter(|p| p.kind_id() == BinaryExpression)
             {
-                java_count_chain_operands(&chain, conds);
+                count_field_operands(&chain, java_count_condition, conds);
             }
         }
         // Negated operands among method arguments.
-        ArgumentList => {
-            for argument in node.children().filter(is_operand) {
-                java_count_negated(&argument, conds);
-            }
-        }
+        ArgumentList => count_each_operand(node, java_count_negated, conds),
         // `if (cond)`, `while (cond)`, `do … while (cond);`, by grammar
         // field: a fixed index lands on a comment before the slot
         // (`if /*c*/ (b)`) and scores the condition zero (#1455).

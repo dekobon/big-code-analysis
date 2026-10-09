@@ -527,6 +527,32 @@ pub(super) fn count_negated_operand<'a>(
     }
 }
 
+// A language's scorer for one operand: its `count_boolean_slot` or
+// `count_negated_operand` wrapper.
+pub(super) type OperandScorer = fn(&Node, &mut f64);
+
+// Fitzpatrick Rule 9 for a chain whose grammar names its two operands
+// `left` and `right`: each is scored by `score`. Read by field rather
+// than as every operand child, so a comment beside the operator — a
+// named child too — does not pay. The caller owns the gate deciding
+// that `chain` is a chain at all.
+pub(super) fn count_field_operands(chain: &Node, score: OperandScorer, conditions: &mut f64) {
+    for field in ["left", "right"] {
+        if let Some(operand) = chain.child_by_field_name(field) {
+            score(&operand, conditions);
+        }
+    }
+}
+
+// Each operand child of `list` — an argument list, a `return` value
+// list, a chain whose grammar names no operand field — scored by
+// `score`. `is_operand` keeps punctuation and comments out.
+pub(super) fn count_each_operand(list: &Node, score: OperandScorer, conditions: &mut f64) {
+    for operand in list.children().filter(is_operand) {
+        score(&operand, conditions);
+    }
+}
+
 // Default no-op `Abc` impls. Audited in #188; the matrix below
 // records the rationale for every entry so the no-op default is a
 // deliberate choice, not scaffolding leftover.
@@ -7294,7 +7320,7 @@ function f(int $a, int $b): int {
 
     // The wrapper peel has two callers, and #1459's fixture members all
     // reach it through the *slot* (`kotlin_count_condition`). This is the
-    // other one: the `&&` / `||` walker (`kotlin_count_chain_operands`),
+    // other one: the `&&` / `||` walker (`count_field_operands`),
     // which hands each operand to the same slot. The two wrappers #1459
     // taught it therefore have a
     // second, structurally independent path into the count, and a

@@ -10,7 +10,8 @@
 )]
 
 use super::{
-    Abc, Stats, count_boolean_slot, count_negated_operand, is_operand, peel, wrapped_operand,
+    Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
+    count_negated_operand, peel, wrapped_operand,
 };
 use crate::*;
 
@@ -366,23 +367,16 @@ fn groovy_walk_for_conditions<'a>(
     use Groovy::*;
     let conds = &mut stats.conditions;
     match node.kind_id().into() {
-        // Each operand of an `&&` / `||` chain is a boolean slot, read by
-        // field so a comment beside the operator does not pay.
+        // Each operand of an `&&` / `||` chain is a boolean slot.
         AMPAMP | PIPEPIPE => {
             if let Some(chain) = ancestors
                 .parent(node)
                 .filter(|p| p.kind_id() == BinaryExpression)
             {
-                for field in ["left", "right"] {
-                    groovy_count_slot(chain.child_by_field_name(field), conds);
-                }
+                count_field_operands(&chain, groovy_count_condition, conds);
             }
         }
-        ArgumentList => {
-            for argument in node.children().filter(is_operand) {
-                groovy_count_negated(&argument, conds);
-            }
-        }
+        ArgumentList => count_each_operand(node, groovy_count_negated, conds),
         VariableDeclarator => groovy_count_negated_slot(node.child_by_field_name("value"), conds),
         AssignmentExpression => {
             groovy_count_negated_slot(node.child_by_field_name("right"), conds);

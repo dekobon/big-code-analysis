@@ -9,7 +9,9 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, count_boolean_slot, count_negated_operand, is_operand, wrapped_operand};
+use super::{
+    Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, wrapped_operand,
+};
 use crate::*;
 
 /// The three operand slots of a `ternary_expr`, located relative to the
@@ -244,8 +246,6 @@ fn irules_count_condition(condition: &Node, conditions: &mut f64) {
 // operand field, and inlines the parens of `($a)`.
 fn irules_count_chain_operands(chain: &Node, conditions: &mut f64) {
     if chain.kind_id() == Irules::BinopExpr {
-        for operand in chain.children().filter(is_operand) {
-            irules_count_condition(&operand, conditions);
-        }
+        count_each_operand(chain, irules_count_condition, conditions);
     }
 }

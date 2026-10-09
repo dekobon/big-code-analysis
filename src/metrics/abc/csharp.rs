@@ -10,8 +10,8 @@
 )]
 
 use super::{
-    Abc, Stats, count_boolean_slot, count_negated_operand, is_operand, last_operand, peel,
-    wrapped_operand,
+    Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
+    count_negated_operand, last_operand, peel, wrapped_operand,
 };
 use crate::macros::{csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds};
 use crate::*;
@@ -166,22 +166,7 @@ fn csharp_count_negated_slot(slot: Option<Node>, conditions: &mut f64) {
 
 // Each argument of a call is a negated operand.
 fn csharp_count_arguments(arguments: &Node, conditions: &mut f64) {
-    for argument in arguments.children().filter(is_operand) {
-        csharp_count_negated(&argument, conditions);
-    }
-}
-
-// Fitzpatrick Rule 9: each operand of an `&&` / `||` chain is a boolean
-// slot. `a && b || c` is a left-nested chain of `binary_expression`s, so
-// an operand that is itself a chain is paid by its own operator's visit.
-// Read by field: a comment beside the operator is a named child too, and
-// must not pay.
-fn csharp_count_chain_operands(chain: &Node, conditions: &mut f64) {
-    for field in ["left", "right"] {
-        if let Some(operand) = chain.child_by_field_name(field) {
-            csharp_count_condition(&operand, conditions);
-        }
-    }
+    count_each_operand(arguments, csharp_count_negated, conditions);
 }
 
 // ABC token-level helpers for C#. Mirror of Java's helper layout with
@@ -632,12 +617,16 @@ fn csharp_walk_for_conditions<'a>(
     use Csharp::*;
     let conds = &mut stats.conditions;
     match node.kind_id().into() {
+        // Fitzpatrick Rule 9: each operand of an `&&` / `||` chain is a
+        // boolean slot. `a && b || c` is a left-nested chain of
+        // `binary_expression`s, so an operand that is itself a chain is
+        // paid by its own operator's visit.
         AMPAMP | PIPEPIPE => {
             if let Some(chain) = ancestors
                 .parent(node)
                 .filter(|p| matches!(p.kind_id().into(), BinaryExpression | BinaryExpression2))
             {
-                csharp_count_chain_operands(&chain, conds);
+                count_field_operands(&chain, csharp_count_condition, conds);
             }
         }
         // `compute` returns as soon as `csharp_count_token_branch` fires,

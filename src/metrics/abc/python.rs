@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, count_boolean_slot, peel, wrapped_operand};
+use super::{Abc, Stats, count_boolean_slot, count_field_operands, peel, wrapped_operand};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Python.
@@ -88,19 +88,6 @@ fn python_count_condition(condition: &Node, conditions: &mut f64) {
         python_condition_scores_itself,
         conditions,
     );
-}
-
-// Each operand of an `and` / `or` chain is a boolean slot (Fitzpatrick
-// Rule 9, #403). tree-sitter-python parses `a and b or c` as a
-// left-nested chain of `boolean_operator`s, so an operand that is itself
-// a chain is paid by its own operator's visit. Read by field: a comment
-// beside the operator is a named child too, and must not pay.
-fn python_count_chain_operands(chain: &Node, conditions: &mut f64) {
-    for field in ["left", "right"] {
-        if let Some(operand) = chain.child_by_field_name(field) {
-            python_count_condition(&operand, conditions);
-        }
-    }
 }
 
 // Phase-2B (issue #1161): the condition slot of a Python conditional
@@ -258,12 +245,15 @@ impl Abc for PythonCode {
             // `or` chain is one condition (issue #403). The `And` /
             // `Or` keyword tokens live inside a `boolean_operator`
             // wrapper which the walker iterates as the parent list.
+            // `a and b or c` is a left-nested chain of
+            // `boolean_operator`s, so an operand that is itself a chain is
+            // paid by its own operator's visit.
             And | Or => {
                 if let Some(chain) = ancestors
                     .parent(node)
                     .filter(|p| p.kind_id() == BooleanOperator)
                 {
-                    python_count_chain_operands(&chain, &mut stats.conditions);
+                    count_field_operands(&chain, python_count_condition, &mut stats.conditions);
                 }
             }
             // An `elif` is Java's `else if`: the `else` (+1, Rule 5) and

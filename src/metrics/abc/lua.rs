@@ -9,7 +9,10 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, count_boolean_slot, count_negated_operand, is_operand, wrapped_operand};
+use super::{
+    Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
+    count_negated_operand, wrapped_operand,
+};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Lua.
@@ -103,27 +106,6 @@ fn lua_count_slot(slot: Option<Node>, conditions: &mut f64) {
     }
 }
 
-// Each operand of an `and` / `or` chain is a boolean slot (Fitzpatrick
-// Rule 9, #403). `a and b or c` is a left-nested chain of
-// `binary_expression`s, so an operand that is itself a chain is paid by
-// its own operator's visit. Read by field: a comment beside the operator
-// is a named child too, and must not pay.
-fn lua_count_chain_operands(chain: &Node, conditions: &mut f64) {
-    if chain.kind_id() == Lua::BinaryExpression {
-        for field in ["left", "right"] {
-            lua_count_slot(chain.child_by_field_name(field), conditions);
-        }
-    }
-}
-
-// Each operand of an `expression_list` or `arguments` list is a
-// negated operand.
-fn lua_count_negated_operands(list: &Node, conditions: &mut f64) {
-    for operand in list.children().filter(is_operand) {
-        lua_count_negated(&operand, conditions);
-    }
-}
-
 impl Abc for LuaCode {
     fn compute<'a>(
         node: &Node<'a>,
@@ -158,10 +140,16 @@ impl Abc for LuaCode {
                 stats.conditions += 1.;
             }
             // Fitzpatrick Rule 9 walker: each operand of an `and` /
-            // `or` chain is one condition (issue #403).
+            // `or` chain is one condition (issue #403). `a and b or c`
+            // is a left-nested chain of `binary_expression`s, so an
+            // operand that is itself a chain is paid by its own
+            // operator's visit.
             Lua::And | Lua::Or => {
-                if let Some(chain) = ancestors.parent(node) {
-                    lua_count_chain_operands(&chain, &mut stats.conditions);
+                if let Some(chain) = ancestors
+                    .parent(node)
+                    .filter(|p| p.kind_id() == Lua::BinaryExpression)
+                {
+                    count_field_operands(&chain, lua_count_condition, &mut stats.conditions);
                 }
             }
             // An `elseif` is Java's `else if`: the `else` (+1, Rule 5) and
@@ -192,12 +180,12 @@ impl Abc for LuaCode {
             // reports zero. Bare `return` (no values) has no operand.
             Lua::ReturnStatement => {
                 if let Some(expr_list) = wrapped_operand(node) {
-                    lua_count_negated_operands(&expr_list, &mut stats.conditions);
+                    count_each_operand(&expr_list, lua_count_negated, &mut stats.conditions);
                 }
             }
             // `f(not a, not b)` — argument-list walker.
             Lua::Arguments => {
-                lua_count_negated_operands(node, &mut stats.conditions);
+                count_each_operand(node, lua_count_negated, &mut stats.conditions);
             }
             _ => {}
         }

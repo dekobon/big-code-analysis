@@ -9,7 +9,9 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, count_boolean_slot, count_negated_operand, is_operand, wrapped_operand};
+use super::{
+    Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, wrapped_operand,
+};
 use crate::*;
 
 // Names of Tcl commands that mutate a variable. Each invocation of
@@ -114,9 +116,7 @@ fn tcl_count_condition(condition: &Node, conditions: &mut f64) {
 // operand field, and inlines the parens of `($a)`.
 fn tcl_count_chain_operands(chain: &Node, conditions: &mut f64) {
     if chain.kind_id() == Tcl::BinopExpr {
-        for operand in chain.children().filter(is_operand) {
-            tcl_count_condition(&operand, conditions);
-        }
+        count_each_operand(chain, tcl_count_condition, conditions);
     }
 }
 

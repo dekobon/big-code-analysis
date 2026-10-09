@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, count_boolean_slot, wrapped_operand};
+use super::{Abc, Stats, count_boolean_slot, count_field_operands, wrapped_operand};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Kotlin syntax. Kotlin shares the
@@ -173,18 +173,6 @@ fn kotlin_count_condition(condition: &Node, conditions: &mut f64) {
         kotlin_condition_scores_itself,
         conditions,
     );
-}
-
-// Fitzpatrick Rule 9 (#557): each operand of an `&&` / `||` chain is a
-// boolean slot. `a && b || c` is a left-nested chain of
-// `binary_expression`s, so an operand that is itself a chain is paid by
-// its own operator's visit. Read by field, so a comment beside the
-// operator does not pay.
-fn kotlin_count_chain_operands(chain: &Node, conditions: &mut f64) {
-    let operands = ["left", "right"].map(|field| chain.child_by_field_name(field));
-    for operand in operands.iter().flatten() {
-        kotlin_count_condition(operand, conditions);
-    }
 }
 
 // Returns true when the `when_expression` enclosing `entry` carries a
@@ -484,10 +472,12 @@ impl Abc for KotlinCode {
             // `&&` / `||` chain is one condition (issue #557). The short-
             // circuit operators are not counted directly (cross-language
             // policy, #395); the walker fires off the operator token and
-            // inspects the parent `binary_expression`.
+            // inspects the parent `binary_expression`. `a && b || c` is a
+            // left-nested chain, so an operand that is itself a chain is
+            // paid by its own operator's visit.
             AMPAMP | PIPEPIPE => {
                 if let Some(parent) = ancestors.parent(node) {
-                    kotlin_count_chain_operands(&parent, &mut stats.conditions);
+                    count_field_operands(&parent, kotlin_count_condition, &mut stats.conditions);
                 }
             }
             _ => {}

@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, count_boolean_slot, last_operand, wrapped_operand};
+use super::{Abc, Stats, count_boolean_slot, count_field_operands, last_operand, wrapped_operand};
 use crate::lang_helpers::elixir::elixir_call_keyword;
 use crate::*;
 
@@ -189,20 +189,6 @@ fn elixir_has_else(call: &Node, code: &[u8]) -> bool {
             .any(|key| key.utf8_text(code).is_some_and(|k| k.trim_end() == "else:")),
         _ => false,
     })
-}
-
-// Each operand of an `&&` / `||` / `and` / `or` chain is a boolean slot
-// (Fitzpatrick Rule 9). tree-sitter-elixir parses `a && b || c` as a
-// left-nested chain of `binary_operator`s, so an operand that is itself
-// a chain is paid by its own operator's visit. Read by field: a comment
-// beside the operator is a named child of the `binary_operator` too,
-// and must not pay.
-fn elixir_count_chain_operands(chain: &Node, conditions: &mut f64) {
-    for field in ["left", "right"] {
-        if let Some(operand) = chain.child_by_field_name(field) {
-            elixir_count_condition(&operand, conditions);
-        }
-    }
 }
 
 // What an Elixir `Call` contributes. The classification is by keyword
@@ -460,13 +446,15 @@ impl Abc for ElixirCode {
             // The short-circuit operators are not counted directly
             // (cross-language policy, #395). Under error recovery the
             // token's parent can be an `ERROR` node, which has no
-            // operands to score.
+            // operands to score. `a && b || c` is a left-nested chain of
+            // `binary_operator`s, so an operand that is itself a chain is
+            // paid by its own operator's visit.
             E::AMPAMP | E::PIPEPIPE | E::And | E::Or => {
                 if let Some(chain) = ancestors
                     .parent(node)
                     .filter(|parent| parent.kind() == BINARY_OPERATOR)
                 {
-                    elixir_count_chain_operands(&chain, &mut stats.conditions);
+                    count_field_operands(&chain, elixir_count_condition, &mut stats.conditions);
                 }
             }
             E::StabClause if npa::elixir_clause_is_decision(node, code, ancestors) => {

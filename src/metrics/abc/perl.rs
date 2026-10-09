@@ -10,8 +10,8 @@
 )]
 
 use super::{
-    Abc, Stats, count_boolean_slot, count_negated_operand, is_operand, last_operand,
-    wrapped_operand,
+    Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, is_operand,
+    last_operand, wrapped_operand,
 };
 use crate::*;
 
@@ -198,9 +198,7 @@ fn perl_count_chain_operands(chain: &Node, conditions: &mut f64) {
         chain.kind_id().into(),
         Perl::BinaryExpression | Perl::UnaryExpression
     ) {
-        for operand in chain.children().filter(is_operand) {
-            perl_count_condition(&operand, conditions);
-        }
+        count_each_operand(chain, perl_count_condition, conditions);
     }
 }
 
@@ -441,9 +439,7 @@ impl Abc for PerlCode {
                     .parent(node)
                     .is_some_and(perl_is_call_argument_parent) =>
             {
-                for argument in node.children().filter(is_operand) {
-                    perl_count_negated(&argument, &mut stats.conditions);
-                }
+                count_each_operand(node, perl_count_negated, &mut stats.conditions);
             }
             // `$a ? !$b : !$c`. Unlike the C family, this dispatcher
             // has no `?`-token arm — the grammar emits the token, but

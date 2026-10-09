@@ -9,7 +9,10 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, count_boolean_slot, count_negated_operand, is_operand, wrapped_operand};
+use super::{
+    Abc, Stats, count_boolean_slot, count_field_operands, count_negated_operand, is_operand,
+    wrapped_operand,
+};
 use crate::*;
 
 // One step of the value peel (see `PeelStep`). A parenthesis, a cast
@@ -156,17 +159,6 @@ fn php_count_arguments(arguments: &Node, conditions: &mut f64) {
     }
 }
 
-// Fitzpatrick Rule 9 (#403): each operand of an `&&` / `||` / `and` /
-// `or` / `xor` chain is a boolean slot. `$a && $b || $c` is a
-// left-nested chain of `binary_expression`s, so an operand that is
-// itself a chain is paid by its own operator's visit. Read by field: a
-// comment beside the operator is a named child too, and must not pay.
-fn php_count_chain_operands(chain: &Node, conditions: &mut f64) {
-    for field in ["left", "right"] {
-        php_count_slot(chain.child_by_field_name(field), conditions);
-    }
-}
-
 impl Abc for PhpCode {
     fn compute<'a>(
         node: &Node<'a>,
@@ -235,13 +227,15 @@ impl Abc for PhpCode {
             // low-precedence keyword forms (`and`, `or`, `xor`) as
             // distinct tokens inside `binary_expression`; both fire
             // the walker so `connect() or die();`-style idiom counts
-            // the same as `connect() || die();`.
+            // the same as `connect() || die();`. `$a && $b || $c` is a
+            // left-nested chain of `binary_expression`s, so an operand
+            // that is itself a chain is paid by its own operator's visit.
             AMPAMP | PIPEPIPE | And | Or | Xor => {
                 if let Some(chain) = ancestors
                     .parent(node)
                     .filter(|p| p.kind_id() == BinaryExpression)
                 {
-                    php_count_chain_operands(&chain, &mut stats.conditions);
+                    count_field_operands(&chain, php_count_condition, &mut stats.conditions);
                 }
             }
             // An `elseif` is Java's `else if` — and PHP's own two-word
