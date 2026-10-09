@@ -375,9 +375,9 @@ macro_rules! ts_abc_compute {
                 }
                 // Phase-2B (issue #403): condition slots. JS / TS
                 // wrap `if (...)` / `while (...)` / `do {…} while
-                // (...)` in `parenthesized_expression`, so
-                // `<lang>_inspect_container`'s paren-unwrap handles
-                // the boolean-literal case (`if (true)` counts 1).
+                // (...)` in `parenthesized_expression`, which
+                // `js_family_wrapper_operand` peels before the slot
+                // pays (`if (true)` counts 1).
                 // Read by grammar field, not index: a comment before
                 // the slot (`if /*c*/ (b)`) shifted every positional
                 // read onto it (#1455).

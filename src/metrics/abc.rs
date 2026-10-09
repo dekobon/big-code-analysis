@@ -4793,7 +4793,8 @@ mod tests {
     // binary fold `eq` 2 (one per spelling of its single operator).
     // `idiom` is the control — its `==` sits in a `binary_expression`
     // inside the fold and counts there, while the fold's own `&&` is not
-    // a comparison.
+    // a comparison. `neg` is the same twice-spelled operator under the
+    // `||` chain arm: its `!a` operand scored once per spelling, 2.
     //
     // The census also pins §2: every `binary_expression` here carries the
     // `BinaryExpression2` id and the pre-alias `BinaryExpression` is never
@@ -4813,18 +4814,19 @@ mod tests {
             template <typename... T> bool lt(T... a) { return (a < ...); }
             template <typename... T> bool le(T... a) { return (a <= ...); }
             template <typename... T> bool eq(T... a) { return (0 == ... == a); }
-            template <typename... T> bool idiom(T... a) { return ((a == 0) && ...); }";
+            template <typename... T> bool idiom(T... a) { return ((a == 0) && ...); }
+            template <typename... T> bool neg(T... a) { return (true || ... || !a); }";
         assert_fixture_spells::<P>(
             src,
             "foo.cpp",
             &[
-                (fold_expression, 4, "fold expressions"),
+                (fold_expression, 5, "fold expressions"),
                 (binary_expression2, 3, "binary expressions"),
                 (binary_expression, 0, "pre-alias binary expressions"),
             ],
         );
         check_func_space::<P, _>(src, "foo.cpp", |space| {
-            for (name, want) in [("lt", 1), ("le", 1), ("eq", 1), ("idiom", 1)] {
+            for (name, want) in [("lt", 1), ("le", 1), ("eq", 1), ("idiom", 1), ("neg", 1)] {
                 assert_eq!(
                     child_space(&space, name).metrics.abc.conditions(),
                     want,
@@ -9609,11 +9611,11 @@ end
         );
     }
 
-    /// Nested `not` + comparison counts each unique node once.
-    /// `not (x > 0)` parses as `NotOperator(ParenthesizedExpression(
-    /// ComparisonOperator))`; both the unary and the comparison
-    /// contribute one condition (mirrors Java's `!(x > 0)` = 2
-    /// conditions).
+    /// A negated comparison is one condition. `not (x > 0)` parses as
+    /// `NotOperator(ParenthesizedExpression(ComparisonOperator))`; the
+    /// comparison's arm pays and the `not` adds nothing, as Java's
+    /// `!(x > 0)` scores 1 (#1526). This test asserted 2 on the false
+    /// premise that Java scores 2.
     #[cfg(feature = "python")]
     #[test]
     fn python_unary_not_with_comparison_counts_each_once() {
@@ -9621,8 +9623,9 @@ end
             "def f(x):\n    if not (x > 0):\n        return 1\n    return 0\n",
             "foo.py",
             |metric| {
-                // NotOperator (1) + ComparisonOperator (1) = 2.
-                assert_eq!(metric.abc.conditions_sum(), 2);
+                // ComparisonOperator (1); the `not` negates a counted
+                // comparison and adds nothing.
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10036,11 +10039,12 @@ end
              def m3(x, y): return x and y\n",
             "foo.py",
             |metric| {
-                // m1: NotOperator (1) + ComparisonOperator (1) = 2.
+                // m1: ComparisonOperator (1); the `not` adds nothing,
+                //     as Java's `return !(z >= 0)` scores 1 (#1526).
                 // m2: NotOperator (1).
                 // m3: walker on `and` counts both operands = 2.
-                // Sum: 5.
-                assert_eq!(metric.abc.conditions_sum(), 5);
+                // Sum: 4.
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -18195,63 +18199,12 @@ mod literal_bool_operands {
     }
 }
 
-/// PHP's `String3` is the hidden `_string` supertype and Groovy's
-/// `SlashyString` the hidden `_slashy_string` one — both listed in, or
-/// deliberately omitted from, their terminal-bool sets on the strength
-/// of being unreachable (`.claude/rules/grammar-dispatch.md` §2). A
-/// grammar bump that promotes either changes ABC's answer silently, so
-/// the unreachability is pinned rather than assumed.
-// Gated on the union of the two features its tests name, so a build
-// enabling neither drops the module rather than leaving its imports
-// unused (`.claude/rules/testing.md`, #1286).
-#[cfg(all(test, any(feature = "php", feature = "groovy")))]
-mod hidden_literal_supertypes {
-    use crate::test_support::ast_has_kind_id;
-    use crate::*;
-
-    #[cfg(feature = "php")]
-    #[test]
-    fn php_hidden_string_supertype_is_unreachable() {
-        let src = "<?php\nfunction f($a) {\n  return $a && 's' && \"x$a\" && <<<EOT\ns\nEOT;\n}\n";
-        let parser = PhpParser::new(src.as_bytes().to_vec(), std::path::Path::new("f.php"), None);
-        assert!(
-            ast_has_kind_id(&parser, Php::String as u16),
-            "control: the fixture must carry the reachable `string` kind"
-        );
-        assert!(
-            !ast_has_kind_id(&parser, Php::String3 as u16),
-            "`_string` is no longer hidden; the defensive arm in \
-             `php_bool_terminal_kinds!()` is now live and needs a fixture"
-        );
-    }
-
-    #[cfg(feature = "groovy")]
-    #[test]
-    fn groovy_hidden_slashy_string_is_unreachable() {
-        let src = "def f(a) {\n  return a && /re/ && \"s\"\n}\n";
-        let parser = GroovyParser::new(
-            src.as_bytes().to_vec(),
-            std::path::Path::new("f.groovy"),
-            None,
-        );
-        assert!(
-            ast_has_kind_id(&parser, Groovy::StringLiteral as u16),
-            "control: a slashy string must still parse to `string_literal`"
-        );
-        assert!(
-            !ast_has_kind_id(&parser, Groovy::SlashyString as u16),
-            "`_slashy_string` is no longer hidden; `groovy_bool_terminal_kinds!()` \
-             omits it on the strength of it being unreachable"
-        );
-    }
-}
-
 /// The condition slot and the wrapper peel agree on which kinds are
 /// wrappers, in each language whose slot used to restate the list
 /// (#1470).
 ///
-/// `<lang>_count_condition` decides which slot expressions to hand the
-/// peel, and `<lang>_inspect_container` decides which it can descend.
+/// `<lang>_count_condition` decided which slot expressions to hand the
+/// peel, and the former `<lang>_inspect_container` which it could descend.
 /// Spelled as two lists they drifted three times — Kotlin (#1459),
 /// Groovy (#1466) and C# (#1463) — each time scoring a valid predicate
 /// zero. The six languages here now ask `<lang>_wrapper_operand`
@@ -18262,9 +18215,12 @@ mod hidden_literal_supertypes {
 ///
 /// - **Routed.** Every wrapper the peel accepts scores its slot once.
 ///   A slot that stops asking the peel scores these zero.
-/// - **Declined.** A unary the peel does not accept (`-b`) scores
-///   nothing, so a peel that starts accepting arithmetic operators by
-///   accident is caught here rather than in a corpus snapshot.
+/// - **Declined.** A unary the peel does not accept (`-b`, or a valid
+///   non-wrapper such as `b & b`) stops the peel: a slot pays for it
+///   once (#1526; Go's terminal-kind slot still scores `-b` nothing),
+///   and outside a slot it scores nothing, so a peel that starts
+///   accepting arithmetic operators by accident is caught here rather
+///   than in a corpus snapshot.
 /// - **Proves boolean.** A negation counts its operand outside any
 ///   boolean slot and a parenthesis does not — the second half of the
 ///   peel's answer, which the slot never sees.

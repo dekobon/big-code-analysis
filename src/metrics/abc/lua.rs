@@ -9,9 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{
-    Abc, Stats, count_boolean_slot, count_negated_operand, for_each_named_child, wrapped_operand,
-};
+use super::{Abc, Stats, count_boolean_slot, count_negated_operand, is_operand, wrapped_operand};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Lua.
@@ -118,11 +116,12 @@ fn lua_count_chain_operands(chain: &Node, conditions: &mut f64) {
     }
 }
 
-// Each named child of an `expression_list` or `arguments` list is a
-// negated operand. `parent` is unused: `for_each_named_child` serves
-// the walkers that seed a boolean-context flag from it.
-fn lua_count_negated_child(operand: &Node, _parent: &Node, conditions: &mut f64) {
-    lua_count_negated(operand, conditions);
+// Each operand of an `expression_list` or `arguments` list is a
+// negated operand.
+fn lua_count_negated_operands(list: &Node, conditions: &mut f64) {
+    for operand in list.children().filter(is_operand) {
+        lua_count_negated(&operand, conditions);
+    }
 }
 
 impl Abc for LuaCode {
@@ -193,16 +192,12 @@ impl Abc for LuaCode {
             // reports zero. Bare `return` (no values) has no operand.
             Lua::ReturnStatement => {
                 if let Some(expr_list) = wrapped_operand(node) {
-                    for_each_named_child(
-                        &expr_list,
-                        &mut stats.conditions,
-                        lua_count_negated_child,
-                    );
+                    lua_count_negated_operands(&expr_list, &mut stats.conditions);
                 }
             }
             // `f(not a, not b)` — argument-list walker.
             Lua::Arguments => {
-                for_each_named_child(node, &mut stats.conditions, lua_count_negated_child);
+                lua_count_negated_operands(node, &mut stats.conditions);
             }
             _ => {}
         }

@@ -56,6 +56,15 @@ fn python_slots_pay_for_any_predicate() {
         ("(y := b > 1)", 1, 1),
         ("b > 1", 1, 1),
         ("not b", 1, 1),
+        // `not` pays only for an operand nothing else counts, as Java's
+        // `!` does: a negated comparison or chain is paid by its own arm,
+        // and a double negation once. Each scored one more before.
+        ("not (b > 1)", 1, 1),
+        ("not a > b", 1, 1),
+        ("not not b", 1, 1),
+        ("not (not (b > 1))", 1, 1),
+        ("not -b", 1, 1),
+        ("not (a and b)", 2, 2),
         ("a and b", 2, 2),
         ("a and -b", 2, 2),
         ("-b or a", 2, 2),
@@ -71,6 +80,13 @@ fn python_slots_pay_for_any_predicate() {
         LANG::Python,
         "def f(a, b):\n    while PRED:\n        pass\n",
         &[("b", 1, 1), ("-b", 1, 1), ("b > 1", 1, 1)],
+    );
+    // Outside a slot a `not` is the only thing that makes a value a
+    // condition, and a negated comparison still pays once.
+    assert_rows(
+        LANG::Python,
+        "def f(a, b):\n    y = PRED\n    return y\n",
+        &[("b", 0, 0), ("not b", 1, 0), ("not (b > 1)", 1, 0)],
     );
     // The conditional expression is one condition of its own, as the
     // `?` token is in the C family.
@@ -243,6 +259,9 @@ const C_FAMILY_IF_ROWS: &[(&str, u64, u64)] = &[
     ("!(b > 1)", 1, 1),
     ("b > 1", 1, 1),
     ("!b", 1, 1),
+    // A ternary predicate is counted by its own `?` and pays its
+    // condition slot; the `if` slot must not pay a third time.
+    ("a ? b : y", 2, 2),
     ("a && b", 2, 2),
     ("a && -b", 2, 2),
     ("*p || a", 2, 2),
@@ -328,6 +347,24 @@ fn assert_cpp_slots(lang: LANG) {
         lang,
         "template <class... T> bool f(T... a) { if (PRED) { g(); } return 0; }",
         &[("(... == a)", 1, 1), ("(a < ... < 0)", 1, 1)],
+    );
+    // An unparenthesised requires-clause constraint is a
+    // `constraint_conjunction` and scores nothing. Parenthesised, it
+    // parses as an ordinary expression and scores like one, as
+    // `static_assert(A && B)` does: excluding it would need the enclosing
+    // `requires_clause`, and climbing to it from every token made long
+    // `&&` chains quadratic. The fold row is the gap #1533 tracks.
+    assert_rows(
+        lang,
+        "template <class T> void f(T a) requires PRED {}",
+        &[
+            ("A<T> && B<T>", 0, 0),
+            ("(A<T> && B<T>)", 2, 1),
+            ("(A<T> || (B<T> && C<T>))", 3, 2),
+            ("(!(A<T> && B<T>))", 2, 1),
+            ("(... && A<T>)", 0, 1),
+            ("(sizeof(T) > 4)", 1, 0),
+        ],
     );
 }
 

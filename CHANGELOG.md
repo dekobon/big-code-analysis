@@ -25,9 +25,10 @@ for historical reference.
 ## [Unreleased]
 
 Every entry under **Fixed** changes ABC values for valid input, mostly
-`conditions` (one Elixir case changes `assignments`), except the C++
-alternative-token entry for #1522, which moves cyclomatic, cognitive
-and Halstead only.
+`conditions` (one Elixir case changes `assignments`), except two C++
+entries: the alternative-token entry for #1522 moves cyclomatic,
+cognitive and Halstead only, and the `&&` entry for #1525 moves
+cyclomatic, plus ABC for a binary fold.
 
 ### Fixed
 
@@ -108,6 +109,50 @@ and Halstead only.
   `bitor`, `xor`, `compl`, `and_eq`, `or_eq`, `xor_eq`) count as
   Halstead operators. `and` and `&&` stay distinct entries in
   `unique_operators`, as `bca ops` lists them.
+- **A Ruby `&&` / `||` operand scores one unless its own arm counts
+  it** (#1529). `a && self`, `a && Foo::Bar`, `a && -b`,
+  `a && defined?(x)` and `a && (y ||= b)` scored 1 where `a && b`
+  scores 2, wherever the chain is written; they now score 2, and
+  `if -a && -b` goes from 1 to 2. A comparison, `in` test, ternary or
+  nested chain operand is still paid by its own arm, so `a && b > 1`
+  and `a && !b` do not move. A negated ternary branch follows the same
+  rule: `c ? 1 : !self` now matches `c ? 1 : !b`.
+- **An Elixir `if` / `unless` predicate and each `cond` clause are
+  condition slots** (#1527). The keyword call paid one condition on top
+  of the comparison inside it, so `if x > 5` scored 2 and `if a && b`
+  3; they now score 1 and 2, like Ruby and Java. `cond` scores one per
+  clause, like its nested-`if` twin, and its unguarded `true ->`
+  catch-all scores nothing. Guard and `&&` / `||` operands use the same
+  rule, so `a && @x` and `a && fn … end` score like `a && b`.
+- **C++ and Mozcpp cyclomatic count `&&` / `||` only where they apply
+  an operator** (#1525). An rvalue reference (`int&& x`, `T&& f()`,
+  `auto&& y`), the ref-qualifier (`void f() &&`), an overload name
+  (`operator&&`, `operator and`) and a requires-clause constraint
+  (`requires A<T> && B<T>`) each added a decision. A binary fold
+  `(0 && ... && a)` now counts once rather than twice, and ABC no
+  longer scores a negated fold operand (`(0 || ... || !a)`) once per
+  spelling of the operator. Compile-time
+  expressions parsed as ordinary expressions, such as
+  `static_assert(A && B)` or a parenthesised constraint
+  `requires (A<T> && B<T>)`, still count, as `if constexpr` does. In the
+  DeepSpeech corpus, openfst and kenlm headers lose one decision per
+  rvalue reference.
+- **Every ABC boolean slot pays one condition unless its predicate is
+  already counted** (#1526). In Python, JavaScript, TypeScript, C, C++,
+  Objective-C, Java, C#, Rust, PHP, Perl, Lua, Groovy, Tcl and iRules,
+  an `if` / `while` / `do` / `for` condition, ternary condition, guard
+  or `&&` / `||` operand scored 0 unless it was a bare identifier,
+  literal, call or member access, so `if (-x)`, `if (x + 1)`,
+  `if (this)`, `if (*p)`, `if (flags & k)`, `if (y = x)` and
+  `if (a & b)` scored 0 against a cyclomatic decision of 1. They now
+  score 1, through the rule Ruby and Elixir use. A wrapped comparison
+  no longer counts twice: `if ((int)(x > 1))`, Python
+  `if (y := x > 1)` and Python `not (x > 0)` score 1, not 2, matching
+  Java's `!(x > 0)`. Python `elif`, PHP and Lua
+  `elseif` and Perl `elsif` now score the `else` plus a predicate slot,
+  like Ruby's `elsif` and Java's `else if`. Perl's `$a and $b` now
+  counts both operands, and a Rust let-chain counts each operand once.
+  In the corpora, pdf.js, DeepSpeech and serde files gain conditions.
 
 ## [2.3.0] - 2026-10-07
 

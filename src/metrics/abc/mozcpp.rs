@@ -92,9 +92,7 @@ impl Abc for MozcppCode {
             // `#if` decisions, and the operator-overload defect (#1448)
             // are recorded on the matching arm of `CppCode::compute`.
             LT | GT | LTEQ | GTEQ | EQEQ | BANGEQ | NotEq | LTEQGT
-                if ancestors
-                    .parent(node)
-                    .is_some_and(|parent| cpp_operator_is_applied(node, &parent)) =>
+                if cpp_operator_is_applied(node, ancestors) =>
             {
                 stats.conditions += 1.;
             }
@@ -102,7 +100,12 @@ impl Abc for MozcppCode {
             // `&&` / `||` chain is one condition (issue #403). `and` /
             // `or` are the same operators spelled as ISO alternative
             // tokens, which the grammar gives kinds of their own.
-            AMPAMP | PIPEPIPE | And | Or => {
+            //
+            // Gated like the comparisons, so an unparenthesised
+            // requires-clause constraint and a binary fold's second
+            // operator spelling score nothing; the derivation is on the
+            // Cpp twin.
+            AMPAMP | PIPEPIPE | And | Or if cpp_operator_is_applied(node, ancestors) => {
                 if let Some(parent) = ancestors.parent(node) {
                     cpp_count_chain_operands(&parent, &mut stats.conditions);
                 }

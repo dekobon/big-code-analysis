@@ -319,9 +319,7 @@ impl Abc for CppCode {
             // occurs in exactly the productions `!=` does bar the
             // preprocessor one, so the same allowlist decides it.
             LT | GT | LTEQ | GTEQ | EQEQ | BANGEQ | NotEq | LTEQGT
-                if ancestors
-                    .parent(node)
-                    .is_some_and(|parent| cpp_operator_is_applied(node, &parent)) =>
+                if cpp_operator_is_applied(node, ancestors) =>
             {
                 stats.conditions += 1.;
             }
@@ -329,7 +327,13 @@ impl Abc for CppCode {
             // `&&` / `||` chain is one condition (issue #403). `and` /
             // `or` are the same operators spelled as ISO alternative
             // tokens, which the grammar gives kinds of their own.
-            AMPAMP | PIPEPIPE | And | Or => {
+            //
+            // The same applied-operator gate as cyclomatic: an
+            // unparenthesised requires-clause constraint scores nothing,
+            // and a binary fold `(0 || ... || !a)` spells its one
+            // operator twice, so only the `operator` field token walks
+            // the fold — the second spelling paid `!a` again.
+            AMPAMP | PIPEPIPE | And | Or if cpp_operator_is_applied(node, ancestors) => {
                 if let Some(parent) = ancestors.parent(node) {
                     cpp_count_chain_operands(&parent, &mut stats.conditions);
                 }

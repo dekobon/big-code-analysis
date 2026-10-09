@@ -11318,6 +11318,36 @@ end",
             }
         );
     }
+
+    /// An unparenthesised requires-clause constraint is a
+    /// `constraint_conjunction` and starts no boolean sequence. A
+    /// parenthesised one parses as an ordinary `binary_expression` and
+    /// scores like the `static_assert` twin in `g`: excluding it would
+    /// need the enclosing `requires_clause`, and climbing to it per node
+    /// made long chains quadratic. So the file reads 0 + 1 + 1.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const CPP_REQUIRES_FIXTURE: &str = "\
+template<class T> requires A<T> && B<T> void f1(T) {}
+template<class T> requires (A<T> && B<T>) void f2(T) {}
+template<class T> void g(T) { static_assert(A<T> && B<T>); }
+";
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_requires_constraint_scores_as_parsed() {
+        check_metrics::<CppParser>(CPP_REQUIRES_FIXTURE, "foo.cpp", |metric| {
+            assert_eq!(metric.cognitive.cognitive_sum(), 2);
+        });
+    }
+
+    /// Mozcpp owns no file extension; this pins its clone of the arm.
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_requires_constraint_scores_as_parsed() {
+        check_metrics::<MozcppParser>(CPP_REQUIRES_FIXTURE, "foo.cpp", |metric| {
+            assert_eq!(metric.cognitive.cognitive_sum(), 2);
+        });
+    }
 }
 
 /// The nameless constructs from #1184 are function boundaries, so a

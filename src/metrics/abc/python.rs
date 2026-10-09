@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, count_boolean_slot, wrapped_operand};
+use super::{Abc, Stats, count_boolean_slot, peel, wrapped_operand};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Python.
@@ -49,8 +49,9 @@ use crate::*;
 // the comparison its own arm already counts. The walrus was a terminal
 // kind until #1526, which charged that slot a second time.
 //
-// `not` is deliberately not peeled: the `NotOperator` arm counts it, so
-// `python_condition_scores_itself` stops on it instead.
+// `not` is deliberately not peeled: the `NotOperator` arm counts it
+// when its operand pays nothing else, so `python_condition_scores_itself`
+// stops on it instead.
 fn python_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     match node.kind_id().into() {
         Python::ParenthesizedExpression => wrapped_operand(node),
@@ -184,6 +185,12 @@ impl Abc for PythonCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        // bca: suppress(cyclomatic) — exhaustive kind dispatch table
+        // One arm per grammar kind, like `CppCode::compute`: the count is
+        // the number of node kinds the Python grammar can hand us, not
+        // branching a reader must hold. The `NotOperator` guard (#1526)
+        // took it into the headroom band; each arm is independent and
+        // there is no semantic boundary to split this lookup on.
         use Python::*;
 
         match node.kind_id().into() {
@@ -212,16 +219,20 @@ impl Abc for PythonCode {
             // all parse as a single `ComparisonOperator` node — one
             // node, one condition, regardless of how many comparison
             // operators are chained.
-            ComparisonOperator | ElseClause | ExceptClause | FinallyClause | NotOperator => {
-                // `NotOperator` is Python's unary `not`. Counting it
-                // mirrors Java's `!x` / C#'s `!x` Abc condition rule
-                // and closes the parity gap noted in #214 — without
-                // it, `if not flag:` reports 0 conditions while
-                // `if !flag` in Java reports 1. Nested combos like
-                // `not (x > 0)` count both the unary and the
-                // comparison once each (one logical "is-negation",
-                // one logical "comparison"), matching Java's
-                // `!(x > 0)`.
+            ComparisonOperator | ElseClause | ExceptClause | FinallyClause => {
+                stats.conditions += 1.;
+            }
+            // Python's unary `not` is the paper's "unary conditional
+            // expression" (#214), wherever it is written. Like Java's
+            // `!`, it pays only for an operand nothing else counts: the
+            // innermost `not` pays, and only when its operand is not a
+            // comparison, chain or ternary, so `not (x > 0)` scores 1
+            // through the comparison where it scored 2 (#1526).
+            NotOperator
+                if node.child_by_field_name("argument").is_some_and(|operand| {
+                    !python_condition_scores_itself(&peel(&operand, python_wrapper_operand).0)
+                }) =>
+            {
                 stats.conditions += 1.;
             }
             // A non-wildcard `case` arm contributes one condition,

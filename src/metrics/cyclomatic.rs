@@ -299,8 +299,8 @@ where
 /// `java_enhanced_for_statement_counts_in_cyclomatic` pin the
 /// correct keyword-driven counts.
 ///
-/// `applied_if = <fn(&Node, &Node) -> bool>` gates the short-circuit
-/// arm on the token's parent, for a grammar that spells the operator
+/// `applied_if = <fn(&Node, Ancestors) -> bool>` gates the short-circuit
+/// arm on the token's ancestry, for a grammar that spells the operator
 /// token in productions where it applies nothing (C++'s `int&& x`).
 macro_rules! impl_cyclomatic_c_family {
     (
@@ -327,10 +327,7 @@ macro_rules! impl_cyclomatic_c_family {
                     }
                     $($short_circuit)|+ => {
                         $(
-                            if !ancestors
-                                .parent(node)
-                                .is_some_and(|parent| $applied(node, &parent))
-                            {
+                            if !$applied(node, ancestors) {
                                 return;
                             }
                         )?
@@ -352,6 +349,12 @@ macro_rules! impl_cyclomatic_c_family {
 /// or ref-qualifier (`int&& x`, `void f() &&`), a requires-clause
 /// constraint (`requires A<T> && B<T>`), or a template delimiter.
 ///
+/// It answers from the parent alone, so it stays O(1) per token. A
+/// parenthesised constraint (`requires (A<T> && B<T>)`) parses as an
+/// ordinary `binary_expression` and counts, like `static_assert`:
+/// telling it apart needs the enclosing `requires_clause`, and climbing
+/// to it from every token made a long `&&` chain quadratic.
+///
 /// An allowlist, so a grammar bump adding a production fails closed and
 /// a token reparented under `{ERROR}` stops counting. Compared by kind
 /// *name* so one body serves both tree-sitter-cpp and the vendored
@@ -360,14 +363,16 @@ macro_rules! impl_cyclomatic_c_family {
 /// pinned grammars, and the name also covers the never-emitted
 /// pre-alias id. A fold counts once, through its `operator` field,
 /// because a binary fold `(0 && ... && a)` spells its operator twice.
-pub(crate) fn cpp_operator_is_applied(node: &Node, parent: &Node) -> bool {
-    match parent.kind() {
-        "binary_expression" => true,
-        "fold_expression" => parent
-            .child_by_field_name("operator")
-            .is_some_and(|op| op.id() == node.id()),
-        _ => false,
-    }
+pub(crate) fn cpp_operator_is_applied<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors
+        .parent(node)
+        .is_some_and(|parent| match parent.kind() {
+            "binary_expression" => true,
+            "fold_expression" => parent
+                .child_by_field_name("operator")
+                .is_some_and(|op| op.id() == node.id()),
+            _ => false,
+        })
 }
 
 // JS-family: include nullish coalescing (`??`) and the three compound
@@ -6485,7 +6490,7 @@ f() {
     /// exactly `decisions` more than `twin`, so the expected value comes
     /// from the twin rather than from the gate under test (#1525).
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
-    const CPP_SHORT_CIRCUIT_ROWS: [(&str, &str, usize, usize, u64); 26] = [
+    const CPP_SHORT_CIRCUIT_ROWS: [(&str, &str, usize, usize, u64); 30] = [
         // Reference declarators, one per production that spells `&&`.
         ("void f(int&& x) {}", "void f(int& x) {}", 0, 1, 0),
         ("void f(int&&) {}", "void f(int&) {}", 0, 1, 0),
@@ -6554,6 +6559,38 @@ f() {
             0,
             1,
             0,
+        ),
+        // Parenthesised, the same constraints parse as ordinary
+        // expressions and count like `static_assert(A && B)`: telling them
+        // apart needs the enclosing `requires_clause`, and climbing to it
+        // per token made long chains quadratic. A fold counts once.
+        (
+            "template<class T> requires (A<T> && B<T>) void f() {}",
+            "template<class T> requires (A<T>) void f() {}",
+            0,
+            1,
+            1,
+        ),
+        (
+            "template<class T> requires (A<T> && B<T>) && C<T> void f() {}",
+            "template<class T> requires (A<T>) and C<T> void f() {}",
+            0,
+            2,
+            1,
+        ),
+        (
+            "template<class T> void f() requires (A<T> || (B<T> && C<T>)) {}",
+            "template<class T> void f() requires (A<T> || (B<T>)) {}",
+            0,
+            1,
+            1,
+        ),
+        (
+            "template<class... T> requires (... && A<T>) void f() {}",
+            "template<class... T> requires (A<T>) void f() {}",
+            0,
+            1,
+            1,
         ),
         // Applied operators: one decision each.
         (
