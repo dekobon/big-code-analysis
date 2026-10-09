@@ -845,7 +845,7 @@ pub(crate) fn elixir_sole_unguarded_pattern<'a>(node: &Node<'a>) -> Option<Node<
 /// to the owning construct (grammar-dispatch §8); a guarded
 /// `true when g ->` is a real decision and never reaches the
 /// container check.
-pub(crate) fn elixir_is_default_clause<'a>(
+fn elixir_is_default_clause<'a>(
     node: &Node<'a>,
     code: &'a [u8],
     ancestors: Ancestors<'a, '_>,
@@ -875,13 +875,73 @@ pub(crate) fn elixir_is_default_clause<'a>(
     }
 }
 
-/// Whether `node` (a `stab_clause`) is one arm of a `cond`: its parent
-/// is the `do_block` of a `Call` spelling `cond`.
+/// Returns `true` when `node` is the first `stab_clause` child of an
+/// `anonymous_function` parent — the closure's head clause rather than a
+/// pattern-dispatch branch.
+///
+/// The grammar shape is `anonymous_function → fn stab_clause+ end`, so
+/// the first child whose kind is `stab_clause` (skipping the `fn` token)
+/// is the head. Multi-clause `fn`s thus skip only their first clause;
+/// every other construct's clauses have a block parent and never match
+/// here (issue #776).
+fn elixir_is_anonymous_fn_head_clause<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+    use Elixir as E;
+
+    ancestors
+        .parent(node)
+        .filter(|parent| parent.kind_id() == E::AnonymousFunction as u16)
+        .and_then(|parent| {
+            parent
+                .children()
+                .find(|child| child.kind_id() == E::StabClause as u16)
+        })
+        .is_some_and(|first| first.id() == node.id())
+}
+
+/// Whether `node` (a `stab_clause`) is one decision of the construct
+/// that owns it: every clause of a `case` / `cond` / `with`'s `else` /
+/// `receive` / `try` handler and every clause after a multi-clause
+/// `fn`'s first, except the construct's free default clause
+/// ([`elixir_is_default_clause`]).
+///
+/// An anonymous fn's head clause is the closure's definition, not a
+/// dispatch: the closure opens its own function space whose base path
+/// already covers it, so counting it too would score a trivial
+/// `fn x -> x end` as a decision (#776).
+///
+/// The parent is allowlisted because the grammar puts a `stab_clause`
+/// in one more position: a parenthesised `block`, which is how a
+/// typespec spells a function type (`@spec f((any -> any)) :: list`).
+/// That is type syntax and branches on nothing, the same reason
+/// [`elixir_when_is_guard`] excludes a typespec's `when` (#1531).
 ///
 /// Shared by the `Cyclomatic` and `Abc` impls for `ElixirCode`, which
-/// both score a `cond` per clause and must agree on which clauses those
-/// are (grammar-dispatch §7).
-pub(crate) fn elixir_is_cond_clause<'a>(
+/// both score a clause construct per clause and must agree on which
+/// clauses those are (grammar-dispatch §7, #1531).
+pub(crate) fn elixir_clause_is_decision<'a>(
+    node: &Node<'a>,
+    code: &'a [u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    use Elixir as E;
+
+    ancestors.parent(node).is_some_and(|parent| {
+        matches!(
+            parent.kind_id().into(),
+            E::DoBlock
+                | E::ElseBlock
+                | E::AfterBlock
+                | E::RescueBlock
+                | E::CatchBlock
+                | E::AnonymousFunction
+        )
+    }) && !elixir_is_anonymous_fn_head_clause(node, ancestors)
+        && !elixir_is_default_clause(node, code, ancestors)
+}
+
+/// Whether `node` (a `stab_clause`) is one arm of a `cond`: its parent
+/// is the `do_block` of a `Call` spelling `cond`.
+fn elixir_is_cond_clause<'a>(
     node: &Node<'a>,
     code: &'a [u8],
     ancestors: Ancestors<'a, '_>,

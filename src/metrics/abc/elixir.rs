@@ -146,31 +146,49 @@ fn elixir_count_guard(when_operator: &Node, conditions: &mut f64) {
     }
 }
 
-// One arm of a `cond` (#1527). `cond` is an `if` / `else if` chain
-// spelled as clauses, so each clause's condition is an `if` predicate
-// slot, and `cond do x > 5 -> …; b -> … end` scores what its nested-`if`
-// twin does. It paid a flat one per construct instead, which
-// double-counted a comparison clause and undercounted every clause
-// after the first.
+// One clause of a `case` / `cond` / `with`'s `else` / `receive` /
+// `try` handler or multi-clause `fn` — one decision, as `Cyclomatic`
+// counts it and as Ruby's subject-ful `when`, Go's `case` and Rust's
+// match arm each pay one (#1531). Which clauses those are is
+// `elixir_clause_is_decision`, shared with `Cyclomatic` (§7): a free
+// default clause (`_ ->`, `cond`'s `true ->`) and an anonymous fn's head
+// pay nothing, as Go's `default:` and Rust's `_ =>` do (§8).
 //
-// The unguarded `true ->` catch-all is `cond`'s `default:` and scores
-// nothing, by the gate `Cyclomatic` uses for the same clause (§7, §8).
-// A clause with no sole unguarded condition (`x when g ->`, `a, b ->`)
-// does not compile, so it scores nothing here: only invalid input could
-// tell any choice apart (grammar-dispatch §6). A guarded one still pays
-// its guard through the `when` arm.
-fn elixir_count_cond_clause<'a>(
-    clause: &Node<'a>,
-    code: &'a [u8],
-    ancestors: Ancestors<'a, '_>,
-    conditions: &mut f64,
-) {
-    if npa::elixir_is_default_clause(clause, code, ancestors) {
-        return;
+// A clause with a sole unguarded pattern scores it as a boolean slot,
+// so the clause pays unless another arm already charged the decision.
+// That is what keeps `cond do x > 5 -> …` level with `if x > 5` (#1527)
+// and `rescue e in RuntimeError ->` at one rather than two: the `in`
+// type test is the clause's whole decision and its token arm counts it.
+// A `case` pattern never scores itself — comparisons and chains are not
+// patterns — so a `case` pays one per clause. A guarded or multi-pattern
+// clause (`x when g ->`, `kind, reason ->`) pays one for its pattern
+// match, and a guard pays its own slot through the `when` arm, as the
+// two `Cyclomatic` decisions it carries.
+fn elixir_count_clause(clause: &Node, conditions: &mut f64) {
+    match npa::elixir_sole_unguarded_pattern(clause) {
+        Some(pattern) => elixir_count_condition(&pattern, conditions),
+        None => *conditions += 1.,
     }
-    if let Some(condition) = npa::elixir_sole_unguarded_pattern(clause) {
-        elixir_count_condition(&condition, conditions);
-    }
+}
+
+// Whether an `if` / `unless` Call carries an `else` branch, in either
+// spelling: the block form's `else_block` inside the `do_block`
+// (`if b do … else … end`), or the keyword form's `else:` pair
+// (`if b, do: …, else: …`). The keyword token's text carries its colon
+// and the whitespace after it, so it is trimmed before comparing.
+fn elixir_has_else(call: &Node, code: &[u8]) -> bool {
+    use Elixir as E;
+
+    call.children().any(|child| match child.kind_id().into() {
+        E::DoBlock => child.children().any(|c| c.kind_id() == E::ElseBlock as u16),
+        _ if child.kind() == "arguments" => child
+            .children()
+            .filter(|c| c.kind_id() == E::Keywords as u16)
+            .flat_map(|keywords| keywords.children())
+            .filter_map(|pair| pair.child_by_field_name("key"))
+            .any(|key| key.utf8_text(code).is_some_and(|k| k.trim_end() == "else:")),
+        _ => false,
+    })
 }
 
 // Each operand of an `&&` / `||` / `and` / `or` chain is a boolean slot
@@ -213,24 +231,25 @@ fn elixir_count_call(node: &Node, code: &[u8], stats: &mut Stats) {
     if !is_definition_or_directive {
         stats.branches += 1.;
     }
-    match keyword {
-        // The predicate is the Call's first argument in both the block
-        // (`if p do … end`) and keyword (`if p, do: …`) forms, and is a
-        // slot (#1527). `arguments` carries five kind aliases at this
-        // pin, so it is matched by rule name (grammar-dispatch §1).
-        Some("if" | "unless") => {
-            if let Some(predicate) = node
-                .children()
-                .find(|c| c.kind() == "arguments")
-                .and_then(|args| wrapped_operand(&args))
-            {
-                elixir_count_condition(&predicate, &mut stats.conditions);
-            }
+    // The predicate is the Call's first argument in both the block
+    // (`if p do … end`) and keyword (`if p, do: …`) forms, and is a
+    // slot (#1527). `arguments` carries five kind aliases at this
+    // pin, so it is matched by rule name (grammar-dispatch §1).
+    if let Some("if" | "unless") = keyword {
+        if let Some(predicate) = node
+            .children()
+            .find(|c| c.kind() == "arguments")
+            .and_then(|args| wrapped_operand(&args))
+        {
+            elixir_count_condition(&predicate, &mut stats.conditions);
         }
-        // A `case` / `with` pays once per construct, not per clause; a
-        // `cond` pays per clause through its `StabClause` arm.
-        Some("case" | "with") => stats.conditions += 1.,
-        _ => {}
+        // Fitzpatrick Rule 5 counts the `else`, as Ruby's, Java's,
+        // Python's and Go's `if … else` each pay it (#1531). Only an
+        // `if` / `unless` has a two-way `else`: the `else` of a
+        // `with` or `try` holds clauses, which pay per clause.
+        if elixir_has_else(node, code) {
+            stats.conditions += 1.;
+        }
     }
 }
 
@@ -253,16 +272,13 @@ impl Abc for ElixirCode {
     // Conditions cover the comparison and membership operator tokens
     // (`==`, `===`, `!=`, `!==`, `<`, `>`, `<=`, `>=`, `in`, `not in`),
     // the boolean slots scored by `elixir_count_condition` (`if` /
-    // `unless` predicates, `cond` clauses, guards, chain operands), and
-    // one per `case` / `with` construct.
+    // `unless` predicates, guards, chain operands), one per clause of a
+    // clause construct (`elixir_count_clause`), and the `else` of an
+    // `if` / `unless` (Rule 5).
     // `for` / `while` are looping forms — not condition-shaped per
     // the issue body's literal list — so we omit them.
     //
     // Limitations:
-    // - `case` / `with` are counted once on the container, not once per
-    //   arm (`stab_clause`), matching the Rust impl's "MatchExpression
-    //   once" rule. `cond` left that rule in #1527: its clauses are
-    //   boolean predicates, not patterns, so each is an `if` slot.
     // - Higher-order calls like `Enum.reduce` are `RemoteCallWithParentheses`
     //   nodes; they are still `Call` nodes and so contribute one branch
     //   each, matching the issue's "branches = `|>`, function calls"
@@ -327,9 +343,6 @@ impl Abc for ElixirCode {
             // helper to look up the keyword, but apply different
             // policies on top.
             E::Call => elixir_count_call(node, code, stats),
-            E::EQEQ | E::EQEQEQ | E::BANGEQ | E::BANGEQEQ | E::LTEQ | E::GTEQ => {
-                stats.conditions += 1.;
-            }
             // Guard `when` token: introduces the guard clause of a
             // function head or `case` / `fn` / `receive` arm. The guard
             // is a condition *slot*, so every spelling contributes
@@ -408,7 +421,13 @@ impl Abc for ElixirCode {
             // each scored a condition against zero decisions, the same
             // shape as the C# `operator <` declaration #1297 fixed.
             // (`:<` atoms and `<:` keywords lex as single tokens and
-            // never reach here, as do `<=` / `>=` and `<<` / `>>`.)
+            // never reach here, as do `<<` / `>>`.)
+            //
+            // The six equality and ordering tokens have the same
+            // positions less the sigil ones — `binary_operator`,
+            // `operator_identifier`, and the single-token `atom` /
+            // `keyword` — and sat on an ungated arm, so `&==/2` and
+            // `Kernel.==(a, b)` each scored a condition too (#1531).
             //
             // Matched by rule name rather than by `kind_id`: this
             // grammar aliases `binary_operator` to three ids
@@ -420,7 +439,16 @@ impl Abc for ElixirCode {
             // The runtime cost that trade buys there is not paid here:
             // the guard runs only for one of these four tokens, not for
             // every node.
-            E::LT | E::GT | E::In | E::Notin
+            E::EQEQ
+            | E::EQEQEQ
+            | E::BANGEQ
+            | E::BANGEQEQ
+            | E::LTEQ
+            | E::GTEQ
+            | E::LT
+            | E::GT
+            | E::In
+            | E::Notin
                 if ancestors
                     .parent(node)
                     .is_some_and(|parent| parent.kind() == BINARY_OPERATOR) =>
@@ -441,8 +469,8 @@ impl Abc for ElixirCode {
                     elixir_count_chain_operands(&chain, &mut stats.conditions);
                 }
             }
-            E::StabClause if npa::elixir_is_cond_clause(node, code, ancestors) => {
-                elixir_count_cond_clause(node, code, ancestors, &mut stats.conditions);
+            E::StabClause if npa::elixir_clause_is_decision(node, code, ancestors) => {
+                elixir_count_clause(node, &mut stats.conditions);
             }
             _ => {}
         }

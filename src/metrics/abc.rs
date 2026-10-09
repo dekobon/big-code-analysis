@@ -11434,10 +11434,10 @@ func sel(c chan int) int { select { case <-c: return 1 }; return 0 }
         );
     }
 
-    // A `case` / `with` Call counts one condition per construct AND one
-    // branch. `case` here adds 1 condition (the keyword Call) + 1 branch
-    // (the Call itself). `if` / `unless` / `cond` score their predicate
-    // slots instead — see `elixir_if_and_cond_predicates_are_slots`.
+    // A `case` pays one condition per clause (#1531) AND one branch for
+    // the Call itself. The `_ ->` catch-all is the default arm and pays
+    // nothing, so this two-clause `case` scores 1; the per-clause rule
+    // is pinned by `elixir_clause_constructs_pay_per_clause`.
     #[cfg(feature = "elixir")]
     #[test]
     fn elixir_case_is_condition_and_branch() {
@@ -11445,7 +11445,7 @@ func sel(c chan int) int { select { case <-c: return 1 }; return 0 }
             "defmodule Foo do\n  def f(x) do\n    case x do\n      1 -> :one\n      _ -> :other\n    end\n  end\nend\n",
             "foo.ex",
             |metric| {
-                // conditions: case → 1
+                // conditions: `1 ->` (+1) + `_ ->` default (+0) = 1
                 assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
@@ -11479,8 +11479,12 @@ func sel(c chan int) int { select { case <-c: return 1 }; return 0 }
     // Expected values come from the twins, not the rule: each `if` row
     // is what Ruby and Java score for the same `if` (`if x > 5` 1,
     // `if b` 1, `if a && b` 2 — measured), every non-chain row sits at
-    // `cyclomatic - 1`, and each `cond` row equals its nested-`if` twin
-    // beside it (`cond3` / `nested`). The chain rows sit one under
+    // `cyclomatic - 1`, and `cond3` equals Go's tagless
+    // `switch { case x > 5: … case b: … default: … }` (2), whose
+    // `default:` is as free as `cond`'s `true ->`. Its nested-`if` twin
+    // `nested` pays Fitzpatrick Rule 5 for each `else` (#1531), as
+    // Ruby's `if … elsif … else` and Java's `if … else if … else` do (4
+    // against cyclomatic 3 — measured). The chain rows sit one under
     // parity exactly as Ruby's and Java's `if a && b` (2 / 3) do.
     //
     // Paths only one row exercises (§11): `cmp_comment` the comment
@@ -11562,8 +11566,203 @@ end
                         ("cond_cmp", 1, 2),
                         ("cond_bare", 1, 2),
                         ("cond3", 2, 3),
-                        ("nested", 2, 3),
+                        ("nested", 4, 3),
                         ("cond_no_default", 3, 4),
+                    ],
+                );
+            },
+        );
+    }
+
+    // Every clause construct pays one condition per clause (#1531), as
+    // `Cyclomatic` counts one decision per clause through the same gate.
+    // `case` and `with` paid once per construct and the others not at
+    // all, so a two-clause `case` scored 1 against Ruby's
+    // `case x; when 1; when 2; end`, Go's `switch` and Rust's `match`
+    // at 2 (measured).
+    //
+    // Expected values come from cyclomatic, which this fix did not move:
+    // every row sits at `cyclomatic - 1`. Paths only one row exercises
+    // (§11): `case_default` the free `_ ->`, `case_guard` a guarded
+    // clause's flat one beside its `>`, `rescue_in` a sole pattern that
+    // scores itself (the `in` arm), `rescue_alias` a sole pattern the
+    // clause slot pays for, `catch_two` a multi-pattern clause, `recv` a
+    // `receive`'s `after` timeout clause, and `with_else` the `else` of
+    // a `with`, whose clauses pay rather than a Rule 5 `else`.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_clause_constructs_pay_per_clause() {
+        check_func_space::<ElixirParser, _>(
+            "defmodule Foo do
+  def case2(x) do
+    case x do
+      1 -> :a
+      2 -> :b
+    end
+  end
+  def case_default(x) do
+    case x do
+      1 -> :a
+      2 -> :b
+      _ -> :c
+    end
+  end
+  def case_guard(x) do
+    case x do
+      y when y > 0 -> :a
+      _ -> :b
+    end
+  end
+  def with_else(x) do
+    with {:ok, a} <- g(x) do
+      a
+    else
+      {:error, e} -> e
+      _ -> nil
+    end
+  end
+  def recv(x) do
+    receive do
+      {:a, y} -> y
+      {:b, z} -> z
+    after
+      100 -> x
+    end
+  end
+  def rescue_in() do
+    try do
+      g()
+    rescue
+      e in RuntimeError -> e
+    end
+  end
+  def rescue_alias() do
+    try do
+      g()
+    rescue
+      RuntimeError -> 1
+    end
+  end
+  def catch_two() do
+    try do
+      g()
+    catch
+      :exit, r -> r
+    end
+  end
+end
+",
+            "foo.ex",
+            |space| {
+                assert_members_score(
+                    &space.spaces[0],
+                    &[
+                        ("case2", 2, 3),
+                        ("case_default", 2, 3),
+                        ("case_guard", 2, 3),
+                        ("with_else", 1, 2),
+                        ("recv", 3, 4),
+                        ("rescue_in", 1, 2),
+                        ("rescue_alias", 1, 2),
+                        ("catch_two", 1, 2),
+                    ],
+                );
+            },
+        );
+    }
+
+    // A multi-clause anonymous fn dispatches like a `case`, less its head
+    // clause, which is the closure's definition (#776): `fn x -> x end`
+    // has no decision and `fn 0 -> :a; _ -> :b end` one — the trailing
+    // `_ ->` included, since the head already took the free path.
+    // Expected: each total equals the closure's cyclomatic decisions.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_multi_clause_fn_pays_after_its_head() {
+        for (source, conditions) in [
+            ("f = fn x -> x end\n", 0),
+            ("f = fn 0 -> :a; _ -> :b end\n", 1),
+            ("f = fn 0 -> :a; 1 -> :b; _ -> :c end\n", 2),
+        ] {
+            let metrics =
+                metrics_verbatim(LANG::Elixir, source.as_bytes(), MetricsOptions::default());
+            assert_eq!(metrics.abc.conditions_sum(), conditions, "{source}");
+        }
+    }
+
+    // A typespec's function type (`(any -> any)`) is a `stab_clause` too,
+    // under a parenthesised `block`, and is type syntax with no decision
+    // behind it. Cyclomatic counted each one; the shared clause gate
+    // would have carried that into ABC (#1531). Expected: nothing but the
+    // unit's base path, as for the typespec `when` in
+    // `elixir_typespec_when_is_not_a_guard`.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_typespec_function_type_is_not_a_clause() {
+        let metrics = metrics_verbatim(
+            LANG::Elixir,
+            b"@spec f(list, (any -> any)) :: list\n@type cb :: (integer, integer -> boolean)\n",
+            MetricsOptions::default(),
+        );
+        assert_eq!(metrics.abc.conditions_sum(), 0);
+        assert_eq!(metrics.cyclomatic.cyclomatic_sum(), 1);
+    }
+
+    // Fitzpatrick Rule 5 counts the `else` of an `if` / `unless` (#1531),
+    // in both of Elixir's spellings. Expected values are the twins':
+    // Ruby's `if b … else … end`, Java's `if (b) {} else {}`, Python's
+    // and Go's each score 2 against cyclomatic 2 (measured), one over
+    // parity by the documented `else` arm. `kw_other` is the control
+    // that the `else:` key is read only on an `if` / `unless`: on any
+    // other call it is an ordinary keyword argument.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_if_else_pays_rule_5() {
+        check_func_space::<ElixirParser, _>(
+            "defmodule Foo do
+  def block(b) do
+    if b do
+      1
+    else
+      2
+    end
+  end
+  def kw(b), do: if(b, do: 1, else: 2)
+  def unless_block(b) do
+    unless b do
+      1
+    else
+      2
+    end
+  end
+  def cmp(x) do
+    if x > 5 do
+      1
+    else
+      2
+    end
+  end
+  def no_else(b) do
+    if b do
+      1
+    end
+  end
+  def kw_no_else(b), do: if(b, do: 1)
+  def kw_other(b), do: g(b, else: 1)
+end
+",
+            "foo.ex",
+            |space| {
+                assert_members_score(
+                    &space.spaces[0],
+                    &[
+                        ("block", 2, 2),
+                        ("kw", 2, 2),
+                        ("unless_block", 2, 2),
+                        ("cmp", 2, 2),
+                        ("no_else", 1, 2),
+                        ("kw_no_else", 1, 2),
+                        ("kw_other", 0, 1),
                     ],
                 );
             },
@@ -11734,6 +11933,10 @@ end
     // control: a qualified call whose name is not an operator was
     // always 0, so a guard that merely stopped counting `<` everywhere
     // would pass this row and fail the two below it.
+    //
+    // The six equality and ordering tokens share the gate (#1531): they
+    // sat on an ungated arm, so `&==/2` and `Kernel.==(a, b)` scored a
+    // condition each and `caps` five. `eq` is their applied control.
     #[cfg(feature = "elixir")]
     #[test]
     fn elixir_operator_identifier_is_not_a_condition() {
@@ -11743,6 +11946,10 @@ end
                def lt(a, b), do: Kernel.<(a, b)\n\
                def big(a, b), do: Kernel.max(a, b)\n\
                def cmp(a, b), do: a < b\n\
+               def eq_cap(l), do: Enum.sort(l, &==/2)\n\
+               def eq_remote(a, b), do: Kernel.==(a, b)\n\
+               def caps(), do: {&===/2, &!=/2, &!==/2, &<=/2, &>=/2}\n\
+               def eq(a, b), do: a == b\n\
              end\n",
             "foo.ex",
             |space| {
@@ -11764,6 +11971,10 @@ end
                         ("lt".to_owned(), 0),
                         ("big".to_owned(), 0),
                         ("cmp".to_owned(), 1),
+                        ("eq_cap".to_owned(), 0),
+                        ("eq_remote".to_owned(), 0),
+                        ("caps".to_owned(), 0),
+                        ("eq".to_owned(), 1),
                     ],
                 );
             },

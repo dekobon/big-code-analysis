@@ -8,32 +8,6 @@
 
 use super::*;
 
-/// Returns `true` when `node` is the first `stab_clause` child of an
-/// `anonymous_function` parent — i.e. the closure's head clause rather
-/// than a pattern-dispatch branch.
-///
-/// The grammar shape is `anonymous_function → fn stab_clause+ end`, so
-/// the parent's children include the `fn`/`end` keyword tokens and one
-/// or more `stab_clause`s. We locate the first child whose kind is
-/// `stab_clause` (skipping the `fn` token and any other non-clause
-/// sibling) and report whether it is `node`. Multi-clause `fn`s thus
-/// skip only their first clause; `case`/`cond`/`with` arms have a
-/// `do_block` parent and never match here (issue #776).
-fn elixir_is_anonymous_fn_head_clause<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-    use Elixir as E;
-
-    let Some(parent) = ancestors.parent(node) else {
-        return false;
-    };
-    if parent.kind_id() != E::AnonymousFunction as u16 {
-        return false;
-    }
-    parent
-        .children()
-        .find(|child| child.kind_id() == E::StabClause as u16)
-        .is_some_and(|first| first.id() == node.id())
-}
-
 impl Cyclomatic for ElixirCode {
     // Elixir's control-flow constructs are not distinct grammar
     // productions: `if`/`unless`/`for`/`while`/`with`/`case`/`cond`/`try`
@@ -96,9 +70,8 @@ impl Cyclomatic for ElixirCode {
             // and named discards (`_x ->`) are real decisions and
             // still count.
             E::StabClause
-                if elixir_is_anonymous_fn_head_clause(node, ancestors)
-                    || crate::metrics::npa::elixir_is_default_clause(node, code, ancestors) => {}
-            E::StabClause => {
+                if crate::metrics::npa::elixir_clause_is_decision(node, code, ancestors) =>
+            {
                 stats.cyclomatic += 1.;
             }
             // A guard is a decision the construct it guards does not
