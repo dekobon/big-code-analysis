@@ -21,5 +21,5 @@ fn test_csharp() {
         .join("repositories")
         .join("big-code-analysis-output");
 
-    compare_rca_output_with_files_under(&source_root, "csharp", &["*.cs"], &[], 6);
+    compare_rca_output_with_files_under(&source_root, "csharp", &["*.cs"], &[], 7);
 }

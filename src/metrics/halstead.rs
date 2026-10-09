@@ -3678,48 +3678,63 @@ mod tests {
         // assertion is dead. That left four of the five bare kinds with
         // no input at all — dropping `Csharp::Ref`, `In`, `Readonly` or
         // `Scoped` from `is_primitive` failed no test in the workspace.
-        let both_code = CSHARP_MODIFIER_BOTH_SPELLINGS.as_bytes();
-        let spellings = [
-            ("ref", Csharp::Ref as u16),
-            ("out", Csharp::Out as u16),
-            ("in", Csharp::In as u16),
-            ("scoped", Csharp::Scoped as u16),
-            ("readonly", Csharp::Readonly as u16),
-        ];
-        let (mut bare, mut aliased) = ([0_usize; 5], [0_usize; 5]);
+        assert_modifier_spellings_are_one_operator(
+            CSHARP_MODIFIER_BOTH_SPELLINGS,
+            &[
+                ("ref", Csharp::Ref as u16),
+                ("out", Csharp::Out as u16),
+                ("in", Csharp::In as u16),
+                ("scoped", Csharp::Scoped as u16),
+                ("readonly", Csharp::Readonly as u16),
+            ],
+        );
+    }
 
-        for_each_node_with_chain::<CsharpCode>(both_code, |node, _| {
-            let text = &both_code[node.start_byte()..node.end_byte()];
+    /// Asserts each keyword in `spellings` appears in `source` both as
+    /// its own `kind` and as a childless aliased `modifier`, and that the
+    /// two spellings render as exactly one entry in the operator
+    /// vocabulary.
+    ///
+    /// The vocabulary is the concatenation of the kind-keyed and the
+    /// lexeme-keyed operator maps, so a keyword listed twice is one
+    /// keyword split across both maps and counted twice in `n1`.
+    #[cfg(feature = "csharp")]
+    #[track_caller]
+    fn assert_modifier_spellings_are_one_operator(source: &str, spellings: &[(&str, u16)]) {
+        let code = source.as_bytes();
+        // (bare, aliased) occurrences per keyword.
+        let mut seen = vec![(0_usize, 0_usize); spellings.len()];
+
+        for_each_node_with_chain::<CsharpCode>(code, |node, _| {
+            let text = &code[node.start_byte()..node.end_byte()];
             let Some(index) = spellings.iter().position(|(kw, _)| kw.as_bytes() == text) else {
                 return;
             };
             if node.kind_id() == Csharp::Modifier as u16 && node.child_count() == 0 {
-                aliased[index] += 1;
+                seen[index].1 += 1;
             } else if node.kind_id() == spellings[index].1 {
-                bare[index] += 1;
+                seen[index].0 += 1;
             }
         });
 
-        // Without this the count below is vacuous for any keyword the
-        // fixture stopped spelling both ways — the same decay that hid
-        // the four unguarded kinds in the first place.
-        for (index, (keyword, _)) in spellings.iter().enumerate() {
+        // Without this the vocabulary count below is vacuous for any
+        // keyword the fixture stopped spelling both ways — the decay
+        // that once left four of #1418's bare kinds with no input.
+        for ((keyword, _), (bare, aliased)) in spellings.iter().zip(&seen) {
             assert!(
-                bare[index] > 0 && aliased[index] > 0,
-                "fixture must spell `{keyword}` both ways; it has {} bare and {} aliased",
-                bare[index],
-                aliased[index]
+                *bare > 0 && *aliased > 0,
+                "fixture must spell `{keyword}` both ways; it has {bare} bare and {aliased} aliased"
             );
         }
 
-        let both = ops_of::<CsharpParser>(CSHARP_MODIFIER_BOTH_SPELLINGS, "both.cs");
+        let ops = ops_of::<CsharpParser>(source, "both.cs");
         for (keyword, _) in spellings {
             assert_eq!(
-                both.operators.iter().filter(|o| *o == keyword).count(),
+                ops.operators.iter().filter(|o| o == keyword).count(),
                 1,
                 "`{keyword}` must be one operator across both of its kind spellings; \
                  operators were {:?}",
-                both.operators
+                ops.operators
             );
         }
     }
@@ -3738,11 +3753,8 @@ mod tests {
     /// Childlessness says "aliased", *not* "parameter modifier" —
     /// `_lambda_expression_init` and `anonymous_method_expression` alias
     /// a bare `static` / `async` onto the same kind, which the second
-    /// walk below pins so the distinction cannot be forgotten. Their
-    /// `Unknown` is today's behaviour rather than a contract: it is what
-    /// they were before #1418, and billing them is a decision about
-    /// lambdas. It is asserted only so making that decision has to come
-    /// through this test.
+    /// walk below pins so the distinction cannot be forgotten. Both are
+    /// operators, as their declaration spelling is (#1482).
     #[cfg(feature = "csharp")]
     #[test]
     fn csharp_aliased_modifier_is_childless() {
@@ -3759,9 +3771,8 @@ mod tests {
             if node.child_count() == 0 {
                 aliased += 1;
                 // Spelled out rather than `this`-versus-everything-else,
-                // because "everything else is an operator" is false of
-                // the kind at large — a lambda's aliased `static` is
-                // neither, and the second walk below owns it.
+                // so a text this fixture does not carry fails loudly;
+                // the lambda spellings are owned by the second walk.
                 let (correct, expected) = match text {
                     b"this" => (matches!(role, TokenRole::Operand), "an operand"),
                     b"scoped" | b"ref" | b"out" | b"in" | b"readonly" => {
@@ -3861,10 +3872,9 @@ mod tests {
             assert!(
                 matches!(
                     CsharpCode::get_op_type_with_code(node, lambda, Ancestors::known(chain)),
-                    TokenRole::Unknown
+                    TokenRole::Operator
                 ),
-                "`{}` on a lambda is unbilled today, as it was before #1418; billing it is a \
-                 deliberate change and belongs in this assertion, not around it",
+                "`{}` on a lambda must be an operator, as its declaration spelling is (#1482)",
                 String::from_utf8_lossy(text)
             );
         });
@@ -3872,6 +3882,59 @@ mod tests {
         assert_eq!(
             lambda_aliases, 2,
             "fixture lost a lambda / anonymous-method modifier alias"
+        );
+    }
+
+    /// `static` and `async` in both of their kind spellings: the keyword
+    /// leaf under a method's `modifier` wrapper, and the childless
+    /// `modifier` the grammar aliases a lambda's keyword to (#1482).
+    ///
+    /// The lambdas take parenthesised parameters because the bare
+    /// `y => y` spelling is an `implicit_parameter`, which no Halstead
+    /// half bills, and that gap is not what this fixture measures.
+    #[cfg(feature = "csharp")]
+    const CSHARP_LAMBDA_MODIFIER_BOTH_SPELLINGS: &str = "class L {
+    static void N() { }
+    async void M() { }
+    void P() {
+        var a = static (int x) => x;
+        var b = async (int y) => y;
+    }
+}";
+
+    /// A lambda's `static` / `async` is the same operator as the
+    /// declaration's, counted once in `n1` across both spellings
+    /// (#1482).
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_lambda_modifiers_are_operators_1482() {
+        // Operators (n1 = 10, N1 = 25): class 1; {} 4 (the class body
+        // and three method bodies); static 2; async 2; void 3; () 5
+        // (three method parameter lists and two lambda ones); int 2;
+        // = 2; ; 2; => 2.
+        //
+        // Operands (n2 = 8, N2 = 10): L, N, M, P, a, b once each; x 2
+        // and y 2 (the parameter and the lambda body). `var` is an
+        // unclassified `implicit_type` wrapper.
+        //
+        // Before the fix this read (10, 23, 8, 10): the two lambda
+        // keywords were billed nowhere. Billing them without listing
+        // `Static` / `Async` in `CsharpCode::is_primitive` reads
+        // (12, 25, 8, 10) — each keyword split across the kind-keyed
+        // and the lexeme-keyed operator map.
+        assert_halstead_counts::<CsharpParser>(
+            CSHARP_LAMBDA_MODIFIER_BOTH_SPELLINGS,
+            "foo.cs",
+            [10, 25, 8, 10],
+            "csharp lambda modifiers",
+        );
+
+        assert_modifier_spellings_are_one_operator(
+            CSHARP_LAMBDA_MODIFIER_BOTH_SPELLINGS,
+            &[
+                ("static", Csharp::Static as u16),
+                ("async", Csharp::Async as u16),
+            ],
         );
     }
 

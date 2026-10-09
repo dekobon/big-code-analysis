@@ -193,7 +193,7 @@ impl Getter for CsharpCode {
     // (grammar-dispatch section 7).
     //
     // `CsharpCode::is_primitive` routes the operator half through the
-    // lexeme-keyed map, because these five keywords now have two kind
+    // lexeme-keyed map, because these seven keywords have two kind
     // spellings for one operator; its comment carries that argument.
     fn get_op_type_with_code<'a>(
         node: &Node<'a>,
@@ -205,18 +205,17 @@ impl Getter for CsharpCode {
         }
         match node_text(code, node) {
             Some("this") => TokenRole::Operand,
-            Some("ref" | "out" | "in" | "scoped" | "readonly") => TokenRole::Operator,
-            // Live, not merely defensive: `_lambda_expression_init` and
-            // `anonymous_method_expression` alias a bare `static` /
-            // `async` onto `modifier` too, so `static (int x) => x`
-            // arrives here. Leaving those unclassified is what they
-            // already were before #1418, and closing that gap is a
-            // decision about lambdas rather than about parameters — the
-            // *declaration* spelling of both keywords is billed through
-            // its leaf, so they are unbilled only in this one position.
-            // A grammar bump that adds a seventh parameter spelling
-            // lands here as well, unclassified rather than billed as
-            // whichever arm happened to be last.
+            // `_lambda_expression_init` and `anonymous_method_expression`
+            // alias a bare `static` / `async` onto `modifier` too, so
+            // `static (int x) => x` arrives here. The declaration spelling
+            // of both keywords is billed as an operator through its leaf,
+            // so the lambda spelling is billed the same way (#1482).
+            Some("ref" | "out" | "in" | "scoped" | "readonly" | "static" | "async") => {
+                TokenRole::Operator
+            }
+            // A grammar bump that adds another aliased spelling lands
+            // here unclassified rather than billed as whichever arm
+            // happened to be last.
             _ => TokenRole::Unknown,
         }
     }

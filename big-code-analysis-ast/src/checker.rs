@@ -829,11 +829,8 @@ pub fn csharp_member_has_accessors(node: &Node) -> bool {
 /// - `_parameter_type_with_modifiers` — `this`, `scoped`, `ref`, `out`,
 ///   `in`, `readonly` in parameter position, the six #1418 bills.
 /// - `_lambda_expression_init` and `anonymous_method_expression` —
-///   `static` and `async` on a lambda or `delegate { … }`. These reach
-///   [`CsharpCode::get_op_type_with_code`]'s fallthrough and stay
-///   unclassified, exactly as they were before #1418; billing them is a
-///   separate decision, since the *declaration* spelling of the same two
-///   keywords is billed through its leaf.
+///   `static` and `async` on a lambda or `delegate { … }`, billed as
+///   operators like their declaration spelling (#1482).
 ///
 /// Child-presence is therefore what separates an alias from the rule,
 /// and it is the grammar's shape rather than an inference about a broken

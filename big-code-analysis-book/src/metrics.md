@@ -703,12 +703,14 @@ tokens involved the same way they spell real operators:
   `? super T` in Java and Groovy (#1380).
 - **A keyword's role follows its text, not its node kind.** C#'s
   grammar parses the bare `this`, `ref`, `out`, `in`, `scoped` and
-  `readonly` of a parameter as a `modifier` node, a different kind
-  from the one the same keyword has anywhere else. Each keeps the
-  role its text has elsewhere: an extension method's `this Foo f` is
-  an operand, and the `ref` in `M(ref int a)` is the same operator as
-  the `ref` in the call `M(ref x)`, adding to `total_operators` but
-  not to `unique_operators` (#1418).
+  `readonly` of a parameter, and the `static` / `async` of a lambda,
+  as a `modifier` node, a different kind from the one the same
+  keyword has anywhere else. Each keeps the role its text has
+  elsewhere: an extension method's `this Foo f` is an operand, the
+  `ref` in `M(ref int a)` is the same operator as the `ref` in the
+  call `M(ref x)`, and `static (int x) => x` bills the same `static`
+  as `static void M()`. A repeated operator keyword adds to
+  `total_operators` but not to `unique_operators` (#1418, #1482).
 - **A named operator is one operand.** Elixir names an operator
   without applying it in a capture (`&==/2`, `&and/2`) or a remote
   call (`Kernel.||(a, b)`), and its grammar wraps the token in an
