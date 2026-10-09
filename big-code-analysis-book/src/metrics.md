@@ -504,7 +504,10 @@ meet: each `pattern <- expr` clause is a separate test, scored once in
 both variants, as Rust's `if let` and `?` are. The clauses of its
 `else` are alternatives, so modified scores them once, and only when
 one of them is a decision: `else _ -> 0` selects nothing, like a plain
-`else`, and is free in both variants (#1535).
+`else`, and is free in both variants (#1535). Rust's `let`-`else`
+(`let Ok(a) = g(x) else { return 0 };`) is one such test too. It binds
+or diverges, so it scores one in both variants, as its `if let` twin
+does. Before #1542 it scored nothing.
 
 ### Counting Rust's `?` operator
 

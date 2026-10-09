@@ -80,6 +80,14 @@ fn rust_cyclomatic_increment(node: &Node<'_>, stats: &mut Stats, count_try: bool
             stats.cyclomatic += 1.;
             stats.cyclomatic_modified += 1.;
         }
+        // `let PAT = e else { … };` either binds or diverges: one
+        // decision, as its `if let` twin pays. Keyed on the
+        // `alternative` field rather than the shared `else` token, which
+        // `if … else` also emits.
+        LetDeclaration if node.child_by_field_name("alternative").is_some() => {
+            stats.cyclomatic += 1.;
+            stats.cyclomatic_modified += 1.;
+        }
         // Both standard and modified.
         If | For | While | Loop | AMPAMP | PIPEPIPE => {
             stats.cyclomatic += 1.;

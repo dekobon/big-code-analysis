@@ -34,7 +34,9 @@ impl Cognitive for RustCode {
             }
             // `Else` here is the `else` keyword token, which the grammar
             // also emits for the `else` of an `else if` — so this arm
-            // covers both.
+            // covers both. A `let`-`else` reaches it too, as a flat +1
+            // with no nesting; that is a side effect of the shared token,
+            // not a let-else rule (#1548).
             Else => {
                 increment_by_one(stats);
             }

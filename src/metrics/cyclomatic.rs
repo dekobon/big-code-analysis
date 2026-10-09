@@ -7373,6 +7373,99 @@ end
         );
     }
 
+    // A `let`-`else` binds or diverges: one decision (#1542). Each row is
+    // one `fn`, read as (cyclomatic, modified, abc.conditions).
+    //
+    // Expected values come from the twins, not the fix (measured,
+    // `--no-config`): `il` (`if let`) and `m` (`match` with a bare `_`)
+    // both score 2/2/1, so `le` must as well. `ctrl` is the same body
+    // without the `else`, at 1/1/0. `le2` pays once per `let`-`else`, 3/3/2.
+    // `ie` pins that the shared `else` token of an `if … else` still pays
+    // nothing extra (2/2, with ABC's slot for `x` and the `else`). `lp`
+    // nests one in a `for`: 1 + `for` + `let`-`else` = 3, where ABC counts
+    // only the `else`, because it does not score loops. `cl`'s closure
+    // opens its own space, which pays the decision itself.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_let_else_is_one_decision_1542() {
+        let src = "fn le(x: i32) -> i32 {
+    let Ok(a) = g(x) else { return 0 };
+    a
+}
+fn ctrl(x: i32) -> i32 {
+    let a = g(x);
+    a
+}
+fn il(x: i32) -> i32 {
+    if let Ok(a) = g(x) { return a; }
+    0
+}
+fn m(x: i32) -> i32 {
+    match g(x) { Ok(a) => a, _ => 0 }
+}
+fn le2(x: i32) -> i32 {
+    let Ok(a) = g(x) else { return 0 };
+    let Some(b) = h(a) else { return 1 };
+    b
+}
+fn ie(x: bool) -> i32 {
+    if x { 1 } else { 0 }
+}
+fn lp(xs: &[Option<i32>]) {
+    for y in xs {
+        let Some(a) = y else { continue };
+        k(a);
+    }
+}
+fn cl() {
+    let c = |y: Option<i32>| {
+        let Some(a) = y else { return 0 };
+        a
+    };
+    k(c);
+}
+";
+        let expected: &[(&str, u64, u64, u64)] = &[
+            ("le", 2, 2, 1),
+            ("ctrl", 1, 1, 0),
+            ("il", 2, 2, 1),
+            ("m", 2, 2, 1),
+            ("le2", 3, 3, 2),
+            ("ie", 2, 2, 2),
+            ("lp", 3, 3, 1),
+            ("cl", 1, 1, 0),
+        ];
+        check_func_space_only::<RustParser, _>(
+            src,
+            "foo.rs",
+            &[Metric::Cyclomatic, Metric::Abc],
+            |space| {
+                assert_eq!(space.spaces.len(), expected.len(), "fixture members");
+                for &(name, cyclomatic, modified, conditions) in expected {
+                    let f = child_space(&space, name);
+                    let measured = (
+                        f.metrics.cyclomatic.cyclomatic(),
+                        f.metrics.cyclomatic.cyclomatic_modified(),
+                        f.metrics.abc.conditions(),
+                    );
+                    assert_eq!(measured, (cyclomatic, modified, conditions), "{name}");
+                }
+                let closure = child_space(&space, "cl");
+                assert_eq!(closure.spaces.len(), 1, "cl's closure space");
+                let closure = &closure.spaces[0].metrics;
+                assert_eq!(
+                    (
+                        closure.cyclomatic.cyclomatic(),
+                        closure.cyclomatic.cyclomatic_modified(),
+                        closure.abc.conditions(),
+                    ),
+                    (2, 2, 1),
+                    "cl's closure"
+                );
+            },
+        );
+    }
+
     /// Regression #107: empty case…esac has no arms, so standard adds 0 and
     /// modified adds 1 (the container).
     #[cfg(feature = "bash")]
