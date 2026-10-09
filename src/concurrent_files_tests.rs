@@ -470,13 +470,20 @@ fn without_path_verification_dispatches_every_path() {
 /// only way to observe the difference from outside: dispatch itself now
 /// happens on this thread.
 ///
-/// Asserted as an upper bound plus "more than one", because the pool is
-/// work-stealing: with few files a fast consumer can drain the channel
-/// before its peers wake, so the exact count is not deterministic. The
-/// old `num_jobs - 1` behaviour is still excluded — at `num_jobs = 2` it
-/// permitted exactly one thread, and this fixture reaches two.
+/// The count is taken behind a rendezvous: each consumer, on its first
+/// file, waits for the other before returning. Counting the threads
+/// that happened to run the callback is a point-in-time read: under
+/// scheduler pressure the second consumer can start after the first has
+/// drained all 200 files, so it existed but was never seen (#1519). With
+/// the first consumer parked, the second is guaranteed a file whenever
+/// it starts. The wait is bounded so that the pre-#1114 single consumer
+/// fails the "more than one" assertion below instead of hanging.
 #[test]
 fn num_jobs_is_the_consumer_count_not_a_budget_shared_with_a_producer() {
+    // Generous enough for any scheduler delay a loaded CI host imposes;
+    // it is only ever waited out in full when a consumer is missing.
+    const RENDEZVOUS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
     let tmp = Builder::new().prefix("jobs").tempdir().expect("tempdir");
     let root = tmp.path();
     let mut paths = Vec::new();
@@ -488,14 +495,24 @@ fn num_jobs_is_the_consumer_count_not_a_budget_shared_with_a_producer() {
 
     let threads = Arc::new(Mutex::new(std::collections::HashSet::new()));
     let sink = Arc::clone(&threads);
+    let gate = (Mutex::new(0_usize), std::sync::Condvar::new());
     let caller = thread::current().id();
     ConcurrentRunner::new(2, move |_path: PathBuf, _cfg: &()| {
-        sink.lock()
+        let first_file = sink
+            .lock()
             .expect("uncontended in test")
             .insert(thread::current().id());
-        // Hold the worker briefly so the second consumer is given a
-        // chance to pick up work rather than losing every race.
-        thread::sleep(std::time::Duration::from_micros(50));
+        if first_file {
+            let (count, ready) = &gate;
+            let mut count = count.lock().expect("uncontended in test");
+            *count += 1;
+            ready.notify_all();
+            drop(
+                ready
+                    .wait_timeout_while(count, RENDEZVOUS_TIMEOUT, |n| *n < 2)
+                    .expect("uncontended in test"),
+            );
+        }
         Ok(())
     })
     .run((), FilesData { paths })
