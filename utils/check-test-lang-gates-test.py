@@ -742,6 +742,210 @@ mod tests {
         )
 
 
+def _offending(source: str) -> list[tuple[str, list[str]]]:
+    items = _scan(source)
+    return [
+        (i.name, sorted(w)) for i, w in gate.offenders(items, gate.resolve_needs(items))
+    ]
+
+
+class StrandedHelperTest(unittest.TestCase):
+    """#1528. A helper gated out of a build one of its callers is in.
+
+    The union check only asks whether a helper's gate is too *wide*.
+    `assert_members_score` was gated on nine languages, a `go`-gated
+    helper called it, and the gate printed OK over a `--features go`
+    build that failed with `E0425`. Each fixture below has a `rust`
+    test calling the shared helper too, so the helper's union check is
+    satisfied and only the caller comparison can see the gap.
+    """
+
+    TWO_HOPS = """
+#[cfg(test)]
+mod tests {
+    #[cfg(%s)]
+    fn shared() {}
+
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_case() {
+        check_metrics::<RustParser>("fn f() {}", "f.rs", |m| {});
+        shared();
+    }
+
+    #[cfg(feature = "python")]
+    fn python_helper() {
+        let _ = PythonParser::new();
+        shared();
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_case() {
+        python_helper();
+    }
+}
+"""
+
+    def test_a_helper_called_from_a_narrower_helper_is_reported(self) -> None:
+        self.assertEqual(
+            _offending(self.TWO_HOPS % 'feature = "rust"'), [("shared", ["python"])]
+        )
+        self.assertEqual(
+            _offending(self.TWO_HOPS % 'any(feature = "python", feature = "rust")'),
+            [],
+        )
+
+    def test_three_hops_through_a_helper_that_names_nothing(self) -> None:
+        """The middle link names no language, so only its gate says python."""
+        source = """
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "rust")]
+    fn shared() {}
+
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_case() {
+        check_metrics::<RustParser>("fn f() {}", "f.rs", |m| {});
+        shared();
+    }
+
+    #[cfg(feature = "python")]
+    fn relay() {
+        shared();
+    }
+
+    #[cfg(feature = "python")]
+    fn python_helper() {
+        let _ = PythonParser::new();
+        relay();
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_case() {
+        python_helper();
+    }
+}
+"""
+        self.assertEqual(_offending(source), [("shared", ["python"])])
+
+    def test_a_cycle_terminates_and_reports_each_narrow_link(self) -> None:
+        """Each half of the cycle is reached from the other's test.
+
+        `python_case` reaches `pong` only through `ping`, and `rust_case`
+        reaches `ping` only through `pong`, so each needs both languages.
+        """
+        source = """
+#[cfg(test)]
+mod tests {
+    #[cfg(%s)]
+    fn ping(n: u32) {
+        if n > 0 { pong(n - 1); }
+    }
+
+    #[cfg(%s)]
+    fn pong(n: u32) {
+        if n > 0 { ping(n - 1); }
+    }
+
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_case() {
+        check_metrics::<RustParser>("fn f() {}", "f.rs", |m| {});
+        pong(1);
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_case() {
+        check_metrics::<PythonParser>("a = 1", "f.py", |m| {});
+        ping(1);
+    }
+}
+"""
+        self.assertEqual(
+            _offending(source % ('feature = "python"', 'feature = "rust"')),
+            [("ping", ["rust"]), ("pong", ["python"])],
+        )
+        both = 'any(feature = "python", feature = "rust")'
+        self.assertEqual(_offending(source % (both, both)), [])
+
+    def test_a_caller_narrower_than_its_helper_is_fine_both_ways(self) -> None:
+        """Narrower implies the helper, so neither direction reports.
+
+        The `all(…)` caller is in no single-language build at all; only
+        the build enabling exactly what it names can strand a helper
+        under it, which is the last row. Its gate also passes the union
+        check (it is off with `python` and `rust` both off), so that
+        build is the only thing that sees it.
+        """
+        source = """
+#[cfg(test)]
+mod tests {
+    #[cfg(%s)]
+    fn shared() {}
+
+    #[cfg(all(feature = "python", feature = "rust"))]
+    #[test]
+    fn parity() {
+        check::<PythonParser>("a", "f.py");
+        check::<RustParser>("b", "f.rs");
+        shared();
+    }
+}
+"""
+        for wider in ('feature = "rust"', 'any(feature = "python", feature = "rust")'):
+            items = _scan(source % wider)
+            needs = gate.resolve_needs(items)
+            self.assertEqual(gate.offenders(items, needs), [], wider)
+            self.assertEqual(gate.over_gated(items, needs), [], wider)
+        self.assertEqual(
+            _offending(source % 'all(feature = "python", feature = "typescript")'),
+            [("shared", ["python", "rust"])],
+        )
+
+    def test_an_ungated_caller_strands_nothing_its_helper_never_needs(self) -> None:
+        """A whole-file test scope gives a caller no `cfg` at all.
+
+        `stray` only has a local sharing the helper's name, but the broad
+        link reads it as a caller. It compiles in every build and the
+        `python`-gated helper is missing from all but one — yet none of
+        those builds has anything the helper needs, so reporting them
+        would ask `--fix` for a gate its `any(needs)` marker can never
+        satisfy. `python_case` is gated, so `stray` is the only caller
+        that could strand anything.
+        """
+        items = gate.scan_source(
+            """
+#[cfg(feature = "python")]
+fn shared() {}
+
+#[cfg(feature = "python")]
+#[test]
+fn python_case() {
+    check_metrics::<PythonParser>("a = 1", "f.py", |m| {});
+    shared();
+}
+
+#[test]
+fn stray() {
+    let shared = 1;
+}
+""",
+            "tests/fixture.rs",
+            gate.language_table(LANGS_FIXTURE),
+            whole_file_is_test=True,
+        )
+        stray = _named(items, "stray")
+        self.assertIsNone(gate.effective_predicate(items, stray))
+        self.assertIn(
+            stray.index, gate.callers_by_callee(items)[_named(items, "shared").index]
+        )
+        self.assertEqual(gate.offenders(items, gate.resolve_needs(items)), [])
+
+
 class OverGatedTest(unittest.TestCase):
     """#1478. The direction no other check can see.
 
@@ -1273,6 +1477,69 @@ mod tests {
                 written,
             )
             self.assertEqual(written.count("#[cfg("), 2)
+
+    def test_fix_widens_a_stranded_helper_rather_than_stacking(self) -> None:
+        """#1528. A second `#[cfg]` conjoins with the first and only narrows.
+
+        So `--fix` stacked one copy of the widened marker per pass under
+        the narrow one and then exited 2. The language gate is replaced;
+        the `vcs-git` one says something the derivation cannot, and stays,
+        as does the `cfg` inside the body, past the item's header.
+        """
+        source = """#[cfg(test)]
+mod tests {
+    #[cfg(feature = "vcs-git")]
+    // Only the language gate is the derivation's to rewrite.
+    #[cfg(any(
+        feature = "rust",
+    ))]
+    fn shared() {
+        #[cfg(feature = "rust")]
+        let _ = 1;
+    }
+
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_case() {
+        check_metrics::<RustParser>("fn f() {}", "f.rs", |m| {});
+        shared();
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_case() {
+        check_metrics::<PythonParser>("a = 1", "f.py", |m| {});
+        shared();
+    }
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "src").mkdir()
+            (root / "big-code-analysis-ast" / "src").mkdir(parents=True)
+            (root / "big-code-analysis-ast" / "src" / "langs.rs").write_text(
+                LANGS_FIXTURE
+            )
+            target = root / "src" / "fixture.rs"
+            target.write_text(source)
+
+            err = io.StringIO()
+            with contextlib.redirect_stdout(io.StringIO()):
+                with contextlib.redirect_stderr(err):
+                    self.assertEqual(gate.main(["--root", str(root)]), 1)
+                self.assertIn("fn shared\n      unguarded: python\n", err.getvalue())
+                with contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(gate.main(["--root", str(root), "--fix"]), 0)
+                    self.assertEqual(gate.main(["--root", str(root)]), 0)
+
+            self.assertIn(
+                '    #[cfg(any(feature = "python", feature = "rust"))]\n'
+                '    #[cfg(feature = "vcs-git")]\n'
+                "    // Only the language gate is the derivation's to rewrite.\n"
+                "    fn shared() {\n"
+                '        #[cfg(feature = "rust")]\n',
+                target.read_text(),
+            )
 
     def test_both_directions_are_reported_in_one_run(self) -> None:
         """They are independent defects in independent items.

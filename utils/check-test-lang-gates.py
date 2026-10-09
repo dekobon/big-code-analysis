@@ -45,7 +45,9 @@ makes this sound without symbolic implication, and it handles ``any`` /
 
 A ``#[test] fn`` needs *every* language it names, so its marker is an
 ``all(…)``. A helper is live when *any* caller is, so its marker is an
-``any(…)`` over its callers. An item that filters at runtime on
+``any(…)`` over its callers, and it is checked against each caller's
+declared gate as well: a helper gated out of a build one caller compiles
+in is a compile error on that leg (#1528). An item that filters at runtime on
 ``LANG::is_enabled`` / ``into_enum_iter`` skips disabled languages by
 itself; those are checked only for naming at least one enabled language,
 and the ``checked > 0`` non-vacuity discipline (#1286) plus
@@ -1905,6 +1907,88 @@ def stale_markers(
     ]
 
 
+def callers_by_callee(items: list[Item]) -> dict[int, list[int]]:
+    """Every in-scope user of each item, by the broad reading of `_uses`.
+
+    Broad for the reason `_uses` gives for widening: a missed link
+    leaves a helper gated out from under a caller, which is the failure
+    `stranded_by_callers` exists to find.
+    """
+    scopes = _helper_scopes(items)
+    found: dict[int, list[int]] = {}
+    for item in items:
+        if not item.in_test_scope or item.kind == "mod":
+            continue
+        for name in item.references:
+            index = _resolve_call(items, scopes, item, name)
+            if index is not None and _uses(item, items[index], strict=False):
+                found.setdefault(index, []).append(item.index)
+    return found
+
+
+def _caller_builds(predicate: str | None) -> list[frozenset[str]]:
+    """Disabled sets for the builds ``predicate``'s item is likeliest in.
+
+    Every single-language build, plus the build enabling exactly the
+    features the predicate names positively. The second is what reaches
+    an `all(…)` caller, which no single-language build compiles.
+    """
+    builds = [KNOWN_FEATURES - enabled_closure(f) for f in sorted(KNOWN_FEATURES)]
+    if predicate is not None:
+        named = (
+            frozenset(FEATURE_NAME_RE.findall(predicate)) & KNOWN_FEATURES
+        ) - negated_features(predicate)
+        builds.append(
+            KNOWN_FEATURES - frozenset().union(*(enabled_closure(f) for f in named))
+        )
+    return builds
+
+
+def stranded_by_callers(
+    items: list[Item],
+    item: Item,
+    predicate: str,
+    required: frozenset[str],
+    callers: dict[int, list[int]],
+) -> frozenset[str]:
+    """Needed features of builds that compile a caller of ``item`` but not it.
+
+    The other half of a helper's gate. The union check in `offenders`
+    asks only whether the gate is too *wide* — compiled with every
+    needed language off. A gate too *narrow* for one caller passes it:
+    `assert_members_score` was gated on nine languages, a `go`-gated
+    helper called it, and the `--features go` build failed with
+    `E0425` while this gate printed OK (#1528). `needs` already held
+    `go`; nothing compared it with the gate the helper actually carries.
+
+    Edge by edge against each caller's *declared* gate, so a chain of
+    helpers of any length — or a cycle — is covered without a fixpoint:
+    each link is checked against the link before it, and a test at the
+    bottom is checked against its own needs by the `all(…)` rule.
+
+    ``predicate`` is the helper's own effective gate. An ungated helper
+    never gets here: the union check has already reported it.
+
+    Only a build enabling something in ``required`` counts. The caller
+    link is the broad one, so a local that merely shares the helper's
+    name links an ungated caller to it, and that caller is in every
+    build; without the intersection the helper reads as stranded in all
+    of them, and the `any(required)` marker `--fix` writes can never
+    clear it. A real caller's languages are in ``required`` already,
+    since needs propagate over the same links — which is also why the
+    marker `--fix` writes always clears whatever this reports.
+    """
+    stranded: set[str] = set()
+    for index in callers.get(item.index, []):
+        caller_gate = effective_predicate(items, items[index])
+        for disabled in _caller_builds(caller_gate):
+            if (
+                caller_gate is None or evaluate_predicate(caller_gate, disabled)
+            ) and not evaluate_predicate(predicate, disabled):
+                stranded |= (KNOWN_FEATURES - disabled) & required
+    return frozenset(stranded)
+
+
 def offenders(
     items: list[Item], needs: dict[int, frozenset[str]]
 ) -> list[tuple[Item, frozenset[str]]]:
@@ -1914,8 +1998,11 @@ def offenders(
     languages at runtime. It still has to be excluded from a build
     enabling *none* of them, which is the union check in the else branch
     and the half `check-feature-gates.py` verifies against a real build.
+    A helper is also an offender when it is gated out of a build one of
+    its callers compiles in (`stranded_by_callers`).
     """
     found: list[tuple[Item, frozenset[str]]] = []
+    callers = callers_by_callee(items)
     for item in items:
         # Production code names these types unconditionally and must
         # stay ungated: only the test scope is this gate's business.
@@ -1967,6 +2054,10 @@ def offenders(
             disabled = frozenset().union(*(disabled_closure(f) for f in required))
             if predicate is None or evaluate_predicate(predicate, disabled):
                 found.append((item, required))
+                continue
+            stranded = stranded_by_callers(items, item, predicate, required, callers)
+            if stranded:
+                found.append((item, stranded))
             continue
         missing = frozenset(f for f in required if gate_admits(predicate, f))
         if missing:
@@ -2000,6 +2091,55 @@ def wrap_marker(predicate: str, indent: str) -> list[str]:
     return lines
 
 
+def _is_language_disjunction(predicate: str) -> bool:
+    """A language ``feature = "x"``, or an ``any(…)`` of nothing else.
+
+    Language features only: a `feature = "vcs-git"` gate says something
+    the derivation knows nothing about, and must survive a rewrite.
+    """
+    group = (
+        balanced_group(predicate, len("any")) if predicate.startswith("any(") else None
+    )
+    parts = split_top_level(group[0]) if group else [predicate]
+    return all(
+        (atom := FEATURE_ATOM_RE.match(part)) and atom.group(1) in KNOWN_FEATURES
+        for part in parts
+    )
+
+
+def _drop_widenable_gates(lines: list[str], item: Item) -> None:
+    """Remove ``item``'s own plain feature gates, so a marker replaces them.
+
+    Inserting a second `#[cfg]` conjoins it with the first, which can
+    only narrow. A helper stranded under one of its callers needs the
+    opposite, so stacking never converges (#1528). The derived marker
+    for a non-test item is the `any(…)` of everything its callers need,
+    so it is the gate the plain disjunction should have been, and true in
+    every build `stranded_by_callers` can report. Any other shape — a
+    `not(…)`, an `all(…)`, a `test` atom, a non-language feature — is
+    left in place and stacked on as before.
+    """
+    index = item.attr_line - 1
+    header = item.line - 1
+    while index < header:
+        if not lines[index].strip().startswith("#[cfg("):
+            index += 1
+            continue
+        end = index
+        depth = lines[index].count("[") - lines[index].count("]")
+        while depth > 0:
+            end += 1
+            depth += lines[end].count("[") - lines[end].count("]")
+        predicate = cfg_predicate(
+            " ".join(line.strip() for line in lines[index : end + 1])
+        )
+        if predicate is not None and _is_language_disjunction(predicate):
+            del lines[index : end + 1]
+            header -= end + 1 - index
+        else:
+            index = end + 1
+
+
 def apply_fixes(
     path: pathlib.Path,
     items: list[Item],
@@ -2017,6 +2157,8 @@ def apply_fixes(
         predicate = required_marker(items, item, needs)
         if predicate is None:
             continue
+        if not item.is_test_fn:
+            _drop_widenable_gates(lines, item)
         lines[item.attr_line - 1 : item.attr_line - 1] = wrap_marker(
             predicate, item.indent
         )
@@ -2310,8 +2452,9 @@ def main(argv: list[str] | None = None) -> int:
             sys.stderr.write(f"  {item.describe()}\n      unguarded: {names}\n")
         sys.stderr.write(
             "\nEach of these compiles into a build without the grammar it "
-            "names and\npanics in `Tree::new`. Add the marker the derivation "
-            "reports:\n\n"
+            "names and\npanics in `Tree::new` — or, for a helper, is gated "
+            "out of a build one of\nits callers compiles in (`E0425`). Add "
+            "the marker the derivation reports:\n\n"
             "    ./utils/check-test-lang-gates.py --show\n"
             "    ./utils/check-test-lang-gates.py --fix\n\n"
             'See `.claude/rules/testing.md`, "Gate a feature-gated fixture '
