@@ -453,7 +453,8 @@ A "decision point" is any node where control can branch:
 - `case` / `when` arms in `switch` / `match` / `select`
 - `while`, `do … while`, every variant of `for`
 - exception-handler `catch` clauses
-- short-circuit boolean operators `&&` and `||`
+- short-circuit boolean operators `&&` and `||`, including their
+  word spellings (`and` / `or` in C++, Python, Ruby, Lua and Perl)
 
 The per-language `Cyclomatic` trait, in `src/metrics/cyclomatic.rs`,
 asks each tree-sitter node "are you a decision?" and increments the
@@ -571,7 +572,7 @@ basis; the rules deliberately exclude pure layout punctuation like
 parentheses and statement separators, which is why the Halstead
 totals are *not* the same as the Tokens count.
 
-Three classification rules are worth knowing because they are choices
+Four classification rules are worth knowing because they are choices
 rather than consequences, and because several grammars spell the
 tokens involved the same way they spell real operators:
 
@@ -654,6 +655,14 @@ tokens involved the same way they spell real operators:
   tokens from `conditions`: ABC asks whether a branch is taken, and
   these are not branches; Halstead asks what alphabet the source uses,
   and these are part of it. Expect the two metrics to disagree here.
+- **An alternative spelling is an operator of its own.** C++ spells
+  `&&` equally as `and`, `!=` as `not_eq` and so on through all eleven
+  [alternative tokens](https://en.cppreference.com/w/cpp/language/operator_alternative).
+  Each counts once in `total_operators`, exactly like its symbol, but
+  `a && b and c` has two entries in `unique_operators` where
+  `a && b && c` has one. Operators are distinct by token, and `bca ops`
+  lists `and` and `&&` separately, so the metric matches what it
+  reports (#1522).
 
 ### Derived metrics
 

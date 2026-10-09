@@ -190,14 +190,26 @@ where
 /// a `Fn` closure lets each language declare its operator set with a
 /// `matches!` pattern at the call site without duplicating the walk.
 fn compute_booleans_with<F: Fn(u16) -> bool>(node: &Node, stats: &mut Stats, is_op: F) {
+    compute_booleans_keyed(node, stats, |id| is_op(id).then_some(id));
+}
+
+/// [`compute_booleans_with`] for a language that spells one operator
+/// with more than one token kind. `sequence_key` maps each operator
+/// child to the id the boolean sequence compares, so two spellings of
+/// one operator share a key and continue each other's sequence — C++'s
+/// `a and b && c` is one sequence, exactly as `a && b && c` is.
+fn compute_booleans_keyed<F: Fn(u16) -> Option<u16>>(
+    node: &Node,
+    stats: &mut Stats,
+    sequence_key: F,
+) {
     let enclosing_end = node.end_byte();
     for child in node.children() {
-        let id = child.kind_id();
-        if is_op(id) {
+        if let Some(key) = sequence_key(child.kind_id()) {
             stats.structural =
                 stats
                     .boolean_seq
-                    .eval_based_on_prev(id, enclosing_end, stats.structural);
+                    .eval_based_on_prev(key, enclosing_end, stats.structural);
         }
     }
 }

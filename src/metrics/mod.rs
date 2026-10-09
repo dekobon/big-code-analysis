@@ -65,6 +65,10 @@ pub mod wmc;
 ))]
 #[path = "container_scope_tests.rs"]
 mod container_scope_tests;
+#[cfg(test)]
+#[cfg(any(feature = "cpp", feature = "mozcpp"))]
+#[path = "cpp_alternative_tokens_tests.rs"]
+mod cpp_alternative_tokens_tests;
 
 /// Divides a metric sum by a count, guarding the divisor with `.max(1)`.
 ///

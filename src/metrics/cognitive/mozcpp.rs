@@ -45,8 +45,13 @@ impl Cognitive for MozcppCode {
             GotoStatement | Else => {
                 increment_by_one(stats);
             }
+            // `and` / `or` keyed to `&&` / `||` — see the Cpp twin (#1522).
             BinaryExpression2 => {
-                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
+                compute_booleans_keyed(node, stats, |id| match id.into() {
+                    AMPAMP | And => Some(AMPAMP as u16),
+                    PIPEPIPE | Or => Some(PIPEPIPE as u16),
+                    _ => None,
+                });
             }
             LambdaExpression => {
                 nesting.lambda += 1;

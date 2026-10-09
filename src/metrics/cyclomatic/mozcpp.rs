@@ -8,9 +8,11 @@
 
 use super::*;
 
+// `and` / `or` are the ISO alternative spellings of `&&` / `||`; the
+// derivation is on the Cpp twin (#1522).
 impl_cyclomatic_c_family!(
     MozcppCode,
     Mozcpp,
     ConditionalExpression,
-    [AMPAMP, PIPEPIPE]
+    [AMPAMP, PIPEPIPE, And, Or]
 );

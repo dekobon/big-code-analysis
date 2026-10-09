@@ -45,8 +45,17 @@ impl Cognitive for CppCode {
             GotoStatement | Else => {
                 increment_by_one(stats);
             }
+            // `and` / `or` are the ISO alternative spellings of `&&` /
+            // `||` ([lex.digraph]) and get kinds of their own, so each is
+            // keyed to its symbol: a chain that mixes the spellings of
+            // one operator is one sequence, as it is when spelled alike
+            // (#1522).
             BinaryExpression2 => {
-                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
+                compute_booleans_keyed(node, stats, |id| match id.into() {
+                    AMPAMP | And => Some(AMPAMP as u16),
+                    PIPEPIPE | Or => Some(PIPEPIPE as u16),
+                    _ => None,
+                });
             }
             LambdaExpression => {
                 nesting.lambda += 1;

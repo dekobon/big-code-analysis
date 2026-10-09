@@ -96,6 +96,9 @@ impl Getter for MozcppCode {
             | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ | GTGTEQ | LTLTEQ | AMPEQ | CARET
             | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | COLONCOLON | PrimitiveType
             | TypeSpecifier | Sizeof
+            // The ISO alternative tokens (`not`, `and`, `not_eq`, …) —
+            // the derivation is on the Cpp twin (#1522).
+            | Not | Compl | And | Or | Bitand | Bitor | Xor | NotEq | AndEq | OrEq | XorEq
             // A `sized_type_specifier` carries its `unsigned`/`signed`/`long`/
             // `short` modifiers as bare keyword tokens, not as `primitive_type`
             // children (`unsigned int` is `unsigned` + `primitive_type int`;

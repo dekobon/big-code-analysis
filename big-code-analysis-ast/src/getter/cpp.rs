@@ -117,6 +117,18 @@ impl Getter for CppCode {
             | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ | GTGTEQ | LTLTEQ | AMPEQ | CARET
             | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | COLONCOLON | PrimitiveType
             | TypeSpecifier | Sizeof
+            // The ISO alternative tokens ([lex.digraph]): `not`, `compl`,
+            // `and`, `or`, `bitand`, `bitor`, `xor`, `not_eq`, `and_eq`,
+            // `or_eq`, `xor_eq` spell `!`, `~`, `&&`, `||`, `&`, `|`, `^`,
+            // `!=`, `&=`, `|=`, `^=`. The grammar gives each a kind of its
+            // own, so without these they fell into `Unknown` and `b and c`
+            // billed no operator at all (#1522). Each kind occurs only in
+            // productions its symbol also occurs in, so it needs no gate
+            // the symbol lacks. Keyed by `kind_id` like every operator, so
+            // `and` and `&&` are two distinct operators in n1: the `ops`
+            // vocabulary names operators by kind, and folding the two in
+            // the metric alone would make the two stores disagree.
+            | Not | Compl | And | Or | Bitand | Bitor | Xor | NotEq | AndEq | OrEq | XorEq
             // A `sized_type_specifier` carries its `unsigned`/`signed`/`long`/
             // `short` modifiers as bare keyword tokens, not as `primitive_type`
             // children (`unsigned int` is `unsigned` + `primitive_type int`;
