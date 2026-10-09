@@ -113,6 +113,9 @@ impl Getter for MozcppCode {
             // An overloaded operator's name, the `operator` keyword and
             // `co_await` — the derivation is on the Cpp twin (#1296).
             | LPARENRPAREN | LBRACKRBRACK | DQUOTEDQUOTE | CoAwait | Operator
+            // `co_return` / `co_yield`, billed as `return` is — the
+            // derivation is on the Cpp twin (#1547).
+            | CoReturn | CoYield
                 => TokenRole::Operator,
             // `CharLiteral` — the full derivation lives on the same arm
             // in `src/getter/c.rs` (#1316): the wrapper is the only

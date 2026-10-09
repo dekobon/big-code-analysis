@@ -10061,6 +10061,38 @@ S s; int a = s[1]; auto t = co_await s;
         assert_cpp_operator_names::<MozcppParser>("mozcpp");
     }
 
+    /// Asserts a coroutine's `co_yield` and `co_return` keywords bill as
+    /// operators under parser `T`, as `return` does (#1547).
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    #[track_caller]
+    fn assert_cpp_coroutine_keywords<T: crate::MetricSuite>(label: &str) {
+        let source = "T gen() { co_yield 1; co_yield 2; co_return 3; }";
+        // Operators (n1 = 5, N1 = 8): `()` 1, `{}` 1, `co_yield` 2,
+        // `co_return` 1, `;` 3. Operands (n2 = 5, N2 = 5): `T`, `gen`,
+        // `1`, `2`, `3`. Before #1547: (3, 5, 5, 5), both keywords
+        // billed nowhere.
+        assert_halstead_counts::<T>(source, "foo.cpp", [5, 8, 5, 5], label);
+        let ops = ops_of::<T>(source, "foo.cpp");
+        for keyword in ["co_yield", "co_return"] {
+            assert!(
+                ops.operators.iter().any(|o| o == keyword),
+                "{label}: `{keyword}` must be an operator; operators were {:?}",
+                ops.operators
+            );
+        }
+    }
+
+    /// Regression for #1547: `co_return` and `co_yield` are Halstead
+    /// operators. One row per clone, so reverting either arm fails its
+    /// own row; Mozcpp owns no file extension, so this row is its only
+    /// coverage.
+    #[cfg(all(feature = "cpp", feature = "mozcpp"))]
+    #[test]
+    fn cpp_coroutine_keywords_are_operators() {
+        assert_cpp_coroutine_keywords::<CppParser>("cpp");
+        assert_cpp_coroutine_keywords::<MozcppParser>("mozcpp");
+    }
+
     /// Regression for #1361: a C++ `this` is a Halstead operand.
     ///
     /// `Cpp::This` / `Mozcpp::This` were in neither arm of

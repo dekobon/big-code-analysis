@@ -159,6 +159,12 @@ impl Getter for CppCode {
             // `bca ops` both renders `[]` — the same choice Ruby makes for
             // its `def [](i)` method names.
             | LPARENRPAREN | LBRACKRBRACK | DQUOTEDQUOTE | CoAwait | Operator
+            // `co_return` and `co_yield` are the coroutine spellings of
+            // `return` and of handing a value back, so they bill as
+            // `return` does (#1547). Each is the keyword leaf of a
+            // `co_return_statement` / `co_yield_statement`, which no arm
+            // classifies, so nothing bills one twice.
+            | CoReturn | CoYield
                 => TokenRole::Operator,
             // `CharLiteral` — the full derivation lives on the same arm
             // in `src/getter/c.rs` (#1316): the wrapper is the only

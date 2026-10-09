@@ -730,7 +730,8 @@ tokens involved the same way they spell real operators:
   `co_await` in an expression. C++'s `[]` and `()` names are tokens of
   their own, so `bca ops` lists `operator[]`'s `[]` beside a
   subscript's `[]` as a second operator, as Ruby does for `def [](i)`
-  (#1296).
+  (#1296). C++'s coroutine keywords `co_return` and `co_yield` are
+  operators as `return` is (#1547).
 - **A named operator is one operand.** Elixir names an operator
   without applying it in a capture (`&==/2`, `&and/2`) or a remote
   call (`Kernel.||(a, b)`), and its grammar wraps the token in an
@@ -1060,7 +1061,10 @@ ones that have accreted "just one more parameter" feature flags.
 
 **NExits** counts the number of distinct exit points from a
 function — every explicit `return`, every `throw` / `raise`, and
-(in Rust) every `?` early-return. The implicit fall-through return at
+(in Rust) every `?` early-return. A generator's `yield` counts in
+Python, the JavaScript family, C# and PHP, because it hands control
+back to the caller, and so does C++'s `co_yield`; C++'s `co_return` is
+a `return` (#1547). The implicit fall-through return at
 the end of a function is **not** counted; only explicit exits are
 (see issue #243).
 

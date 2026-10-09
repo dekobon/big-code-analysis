@@ -181,8 +181,29 @@ impl_exit_match_kinds!(
     Tsx,
     [ReturnStatement, ThrowStatement, YieldExpression]
 );
-impl_exit_match_kinds!(CppCode, Cpp, [ReturnStatement, ThrowStatement]);
-impl_exit_match_kinds!(MozcppCode, Mozcpp, [ReturnStatement, ThrowStatement]);
+// A coroutine's `co_return` is its `return`, and `co_yield` suspends it
+// back to the caller as a Python or JS `yield` does, so both count
+// (#1547).
+impl_exit_match_kinds!(
+    CppCode,
+    Cpp,
+    [
+        ReturnStatement,
+        ThrowStatement,
+        CoReturnStatement,
+        CoYieldStatement
+    ]
+);
+impl_exit_match_kinds!(
+    MozcppCode,
+    Mozcpp,
+    [
+        ReturnStatement,
+        ThrowStatement,
+        CoReturnStatement,
+        CoYieldStatement
+    ]
+);
 // C has no exceptions: `return` is the only exit kind (no `throw`).
 impl_exit_match_kinds!(CCode, C, [ReturnStatement]);
 // Objective-C adds `@throw` on top of C's `return` (the `throw_statement`
@@ -2898,6 +2919,30 @@ end",
                 );
             },
         );
+    }
+
+    /// A coroutine with two `co_yield`s and a `co_return`, which count
+    /// as three exits, as Python's two `yield`s and a `return` do (#1547).
+    /// Before #1547 neither statement counted and the sum was 0.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const CPP_COROUTINE: &str = "T gen() { co_yield 1; co_yield 2; co_return; }";
+
+    // One test per clone, so reverting either impl fails its own test.
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_co_return_and_co_yield_count_as_exits() {
+        check_metrics::<CppParser>(CPP_COROUTINE, "foo.cpp", |metric| {
+            assert_eq!(metric.nexits.nexits_sum(), 3);
+        });
+    }
+
+    // Mozcpp owns no file extension, so this is its only coverage.
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_co_return_and_co_yield_count_as_exits() {
+        check_metrics::<MozcppParser>(CPP_COROUTINE, "foo.cpp", |metric| {
+            assert_eq!(metric.nexits.nexits_sum(), 3);
+        });
     }
 
     #[cfg(feature = "python")]
