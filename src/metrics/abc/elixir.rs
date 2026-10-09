@@ -9,9 +9,8 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, wrapped_operand};
+use super::{Abc, Stats, last_operand, wrapped_operand};
 use crate::lang_helpers::elixir::elixir_call_keyword;
-use crate::macros::elixir_bool_terminal_kinds;
 use crate::*;
 
 /// The grammar rule an applied binary operator hangs off, as opposed to
@@ -23,89 +22,102 @@ use crate::*;
 /// `BinaryOperator3`).
 const BINARY_OPERATOR: &str = "binary_operator";
 
-// Elixir ABC unary-conditional walker (Fitzpatrick Rule 9; issue #557).
-// tree-sitter-elixir parses `a && b || c` as a left-nested chain of
-// `binary_operator` nodes (aliased `BinaryOperator`..`BinaryOperator3`
-// per lesson #2) carrying `&&` / `||` / `and` / `or` operator tokens.
-// Negation surfaces as `unary_operator` whose child(0) is the `!` token;
-// parenthesised operands parse as `block`. Both are unwrapped by
-// `elixir_inspect_container`.
-fn elixir_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
-    // bca: suppress(cognitive) — wrapper-peeling state machine, clearest whole
-    // See `cpp_inspect_container` for the shared rationale: one loop peels
-    // `(...)` / `!...` layers while carrying a single boolean-context flag.
+// One step of the value peel: the operand a wrapper evaluates to, or
+// `None` for anything that is not a wrapper this peel descends. A
+// wrapper adds no decision of its own, so a slot looks through it to
+// what is actually tested.
+//
+// Both of Elixir's negations, not just `!`: the keyword `not` raises on
+// a non-boolean operand where `!` accepts any truthy value, but ABC
+// counts the negation, not its strictness. The other `unary_operator`s
+// (`-x`, `@attr`, `&f/1`, `^pin`) yield a value rather than wrapping a
+// test, so the peel declines them and the slot pays for them.
+//
+// A parenthesised `block` evaluates to its *last* expression
+// (`(a; b)` is `b`), and a match `=` to its `right` side — so
+// `if (y = x > 1)` tests the comparison, which its own arm already
+// counts. Every slot is read by role (field, or last operand), never by
+// position, because a comment is named and may sit before the operand
+// (`(# c⏎ b)`, #1455).
+fn elixir_wrapper_operand<'a>(node: &Node<'a>) -> Option<Node<'a>> {
     use Elixir as E;
 
-    let mut node = *container_node;
-    let mut node_kind = node.kind_id().into();
-    let mut has_boolean_content = matches!(
-        parent.kind_id().into(),
-        E::BinaryOperator | E::BinaryOperator2 | E::BinaryOperator3
-    );
-
-    loop {
-        let is_block = matches!(node_kind, E::Block);
-        // Both of Elixir's negations, not just `!`. The keyword `not` is
-        // the stricter of the two — it raises on a non-boolean operand,
-        // where `!` accepts any truthy value — so it is at least as good
-        // a proof that what it wraps is boolean. Listing only `BANG`
-        // scored `a && not b` one condition against `a && !b`'s two, and
-        // would have dropped `when not is_nil(y)` to zero once the guard
-        // became a slot below.
-        let is_not = matches!(node_kind, E::UnaryOperator)
-            && node
-                .child(0)
-                .is_some_and(|c| matches!(c.kind_id().into(), E::BANG | E::Not));
-
-        if !is_block && !is_not {
-            break;
-        }
-        if !has_boolean_content && is_not {
-            has_boolean_content = true;
-        }
-
-        // A negation names its `operand`; a parenthesised `block`
-        // carries its inner expression as its only operand. Neither is
-        // read positionally or as the first named child, because a
-        // comment is named and may sit before the operand
-        // (`a && ! # c⏎ b`, #1455).
-        let next = if is_not {
-            node.child_by_field_name("operand")
-        } else {
-            wrapped_operand(&node)
-        };
-        let Some(child) = next else { break };
-        node = child;
-        node_kind = node.kind_id().into();
-
-        if matches!(node_kind, elixir_bool_terminal_kinds!()) {
-            if has_boolean_content {
-                *conditions += 1.;
-            }
-            break;
-        }
+    match node.kind_id().into() {
+        E::Block => last_operand(node),
+        E::UnaryOperator => node
+            .child_by_field_name("operator")
+            .filter(|op| matches!(op.kind_id().into(), E::BANG | E::Not))
+            .and_then(|_| node.child_by_field_name("operand")),
+        _ if elixir_binary_operator_is(node, |op| op == E::EQ) => node.child_by_field_name("right"),
+        _ => None,
     }
 }
 
-// The Elixir sibling of `java_count_condition` / `ruby_count_condition`:
-// classifies one boolean *slot* — a position whose occupant is evaluated
-// for truth — and adds at most one condition for it.
+// Whether `node` is a `binary_operator` whose operator token satisfies
+// `accept`.
+fn elixir_binary_operator_is(node: &Node, accept: impl Fn(Elixir) -> bool) -> bool {
+    node.kind() == BINARY_OPERATOR
+        && node
+            .child_by_field_name("operator")
+            .is_some_and(|op| accept(op.kind_id().into()))
+}
+
+// Whether another arm of `compute` already charges `expr` as a
+// condition, looking through the wrappers `elixir_wrapper_operand`
+// descends. True for a comparison or membership test (the two token
+// arms) and for an `&&` / `||` / `and` / `or` chain, whose walker scores
+// each operand through `elixir_count_condition` — so every operand
+// either pays there or is one of these, and a chain always carries at
+// least one condition of its own.
 //
-// A slot adds nothing for an operator-spelled occupant: `y > 5` is a
-// `binary_operator`, absent from `elixir_bool_terminal_kinds!()`, and
-// the `>` token arm in `compute` already owns that one. Counting it here
-// too is the `.claude/rules/grammar-dispatch.md` §5 double count, and is
-// what made an Elixir guard's score depend on its spelling. `Block`
-// (`(y)`) and `UnaryOperator` (`!y`, `not y`) are wrappers rather than
-// occupants, so they are peeled by `elixir_inspect_container`.
-fn elixir_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
+// The operator list must agree with the token arms in `compute`: an
+// operator listed here and counted nowhere would leave its slot at zero,
+// and one counted there but missing here would pay twice.
+fn elixir_condition_scores_itself(expr: &Node) -> bool {
     use Elixir as E;
 
-    let kind = condition.kind_id().into();
-    if matches!(kind, elixir_bool_terminal_kinds!()) {
+    let mut node = *expr;
+    while let Some(operand) = elixir_wrapper_operand(&node) {
+        node = operand;
+    }
+    elixir_binary_operator_is(&node, |op| {
+        matches!(
+            op,
+            E::EQEQ
+                | E::EQEQEQ
+                | E::BANGEQ
+                | E::BANGEQEQ
+                | E::LTEQ
+                | E::GTEQ
+                | E::LT
+                | E::GT
+                | E::In
+                | E::Notin
+                | E::AMPAMP
+                | E::PIPEPIPE
+                | E::And
+                | E::Or
+        )
+    })
+}
+
+// Scores one boolean slot — an `if` / `unless` predicate, a `cond`
+// clause's condition, a guard alternative, or an operand of an `&&` /
+// `||` chain — as Fitzpatrick's "unary conditional expression" (Rule
+// 6 / 7 / 9): one condition, unless another arm already charged the
+// same decision. The port of `ruby_count_condition` (#1520, #1529).
+//
+// Elixir's slots used to pay only for an occupant that peeled down to a
+// fixed list of terminal kinds, and the `if` / `unless` / `cond` Calls
+// did not use a slot at all: they paid a flat one on top of whatever
+// their predicate scored, so `if x > 5` cost two against Ruby's and
+// Java's one, and `if a && b` three against their two (#1527). Asking
+// whether the decision is already paid for, rather than whether the
+// occupant is a known terminal, also scores what the list never held —
+// `a && x + 1`, `a && @flag`, `a && -x` each scored one below `a && b`.
+fn elixir_count_condition(condition: &Node, conditions: &mut f64) {
+    if !elixir_condition_scores_itself(condition) {
         *conditions += 1.;
-    } else if matches!(kind, E::Block | E::UnaryOperator) {
-        elixir_inspect_container(condition, parent, conditions);
     }
 }
 
@@ -125,39 +137,48 @@ fn elixir_count_condition(condition: &Node, parent: &Node, conditions: &mut f64)
 // required — so the `if let`'s else is unreachable at the pin rather
 // than untested.
 fn elixir_count_guard(when_operator: &Node, conditions: &mut f64) {
-    if let Some((alternative, owner)) = npa::elixir_when_alternative(when_operator) {
-        elixir_count_condition(&alternative, &owner, conditions);
+    if let Some(alternative) = npa::elixir_when_alternative(when_operator) {
+        elixir_count_condition(&alternative, conditions);
     }
 }
 
-// Counts each non-comparison operand of an Elixir `&&` / `||` chain once.
-// Comparison operands are nested `binary_operator` nodes (absent from
-// `elixir_bool_terminal_kinds!()`) and so contribute nothing.
-fn elixir_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
-    use Elixir as E;
+// One arm of a `cond` (#1527). `cond` is an `if` / `else if` chain
+// spelled as clauses, so each clause's condition is an `if` predicate
+// slot, and `cond do x > 5 -> …; b -> … end` scores what its nested-`if`
+// twin does. It paid a flat one per construct instead, which
+// double-counted a comparison clause and undercounted every clause
+// after the first.
+//
+// The unguarded `true ->` catch-all is `cond`'s `default:` and scores
+// nothing, by the gate `Cyclomatic` uses for the same clause (§7, §8).
+// A clause with no sole unguarded condition (`x when g ->`, `a, b ->`)
+// does not compile, so it scores nothing here: only invalid input could
+// tell any choice apart (grammar-dispatch §6). A guarded one still pays
+// its guard through the `when` arm.
+fn elixir_count_cond_clause<'a>(
+    clause: &Node<'a>,
+    code: &'a [u8],
+    ancestors: Ancestors<'a, '_>,
+    conditions: &mut f64,
+) {
+    if npa::elixir_is_default_clause(clause, code, ancestors) {
+        return;
+    }
+    if let Some(condition) = npa::elixir_sole_unguarded_pattern(clause) {
+        elixir_count_condition(&condition, conditions);
+    }
+}
 
-    let list_kind = list_node.kind_id().into();
-    let mut cursor = list_node.cursor();
-
-    if cursor.goto_first_child() {
-        loop {
-            let node = cursor.node();
-            let node_kind = node.kind_id().into();
-
-            if matches!(node_kind, elixir_bool_terminal_kinds!())
-                && matches!(
-                    list_kind,
-                    E::BinaryOperator | E::BinaryOperator2 | E::BinaryOperator3
-                )
-            {
-                *conditions += 1.;
-            } else if node.is_named() {
-                elixir_inspect_container(&node, list_node, conditions);
-            }
-
-            if !cursor.goto_next_sibling() {
-                break;
-            }
+// Each operand of an `&&` / `||` / `and` / `or` chain is a boolean slot
+// (Fitzpatrick Rule 9). tree-sitter-elixir parses `a && b || c` as a
+// left-nested chain of `binary_operator`s, so an operand that is itself
+// a chain is paid by its own operator's visit. Read by field: a comment
+// beside the operator is a named child of the `binary_operator` too,
+// and must not pay.
+fn elixir_count_chain_operands(chain: &Node, conditions: &mut f64) {
+    for field in ["left", "right"] {
+        if let Some(operand) = chain.child_by_field_name(field) {
+            elixir_count_condition(&operand, conditions);
         }
     }
 }
@@ -188,9 +209,24 @@ fn elixir_count_call(node: &Node, code: &[u8], stats: &mut Stats) {
     if !is_definition_or_directive {
         stats.branches += 1.;
     }
-    // Keyword-shaped control-flow Calls also contribute one condition.
-    if matches!(keyword, Some("if" | "unless" | "case" | "cond" | "with")) {
-        stats.conditions += 1.;
+    match keyword {
+        // The predicate is the Call's first argument in both the block
+        // (`if p do … end`) and keyword (`if p, do: …`) forms, and is a
+        // slot (#1527). `arguments` carries five kind aliases at this
+        // pin, so it is matched by rule name (grammar-dispatch §1).
+        Some("if" | "unless") => {
+            if let Some(predicate) = node
+                .children()
+                .find(|c| c.kind() == "arguments")
+                .and_then(|args| wrapped_operand(&args))
+            {
+                elixir_count_condition(&predicate, &mut stats.conditions);
+            }
+        }
+        // A `case` / `with` pays once per construct, not per clause; a
+        // `cond` pays per clause through its `StabClause` arm.
+        Some("case" | "with") => stats.conditions += 1.,
+        _ => {}
     }
 }
 
@@ -210,19 +246,19 @@ impl Abc for ElixirCode {
     // variants are subordinate nodes to `Call`, so the single `Call`
     // match captures every dispatch site.
     //
-    // Conditions cover `when` (guard token `Elixir::When`), the six
-    // comparison operator tokens (`==`, `===`, `!=`, `!==`, `<`, `>`,
-    // `<=`, `>=`), and the keyword-shaped `Call`s that introduce a
-    // decision point (`if`, `unless`, `case`, `cond`, `with`).
+    // Conditions cover the comparison and membership operator tokens
+    // (`==`, `===`, `!=`, `!==`, `<`, `>`, `<=`, `>=`, `in`, `not in`),
+    // the boolean slots scored by `elixir_count_condition` (`if` /
+    // `unless` predicates, `cond` clauses, guards, chain operands), and
+    // one per `case` / `with` construct.
     // `for` / `while` are looping forms — not condition-shaped per
     // the issue body's literal list — so we omit them.
     //
     // Limitations:
-    // - `case` is counted once on the container, not once per arm
-    //   (`stab_clause`). The issue body says "conditions = case,
-    //   cond, if, with, guard when" — i.e. one condition per
-    //   construct, not per arm. Matches the Rust impl's "MatchExpression
-    //   once" rule.
+    // - `case` / `with` are counted once on the container, not once per
+    //   arm (`stab_clause`), matching the Rust impl's "MatchExpression
+    //   once" rule. `cond` left that rule in #1527: its clauses are
+    //   boolean predicates, not patterns, so each is an `if` slot.
     // - Higher-order calls like `Enum.reduce` are `RemoteCallWithParentheses`
     //   nodes; they are still `Call` nodes and so contribute one branch
     //   each, matching the issue's "branches = `|>`, function calls"
@@ -233,6 +269,13 @@ impl Abc for ElixirCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        // bca: suppress(halstead, cyclomatic) — exhaustive kind dispatch table
+        // One arm per grammar kind, like `GoCode::compute`: the count is
+        // the number of node kinds the Elixir grammar can hand us, and
+        // `halstead.effort` counts the distinct enum operands those arms
+        // name, neither being reasoning a reader must do. The `cond`
+        // clause arm (#1527) took both past their limits; each arm is
+        // independent and there is no boundary to split on.
         use Elixir as E;
 
         match node.kind_id().into() {
@@ -305,12 +348,7 @@ impl Abc for ElixirCode {
             // has no `guard` production — `when` is a `binary_operator`
             // whose `left` is the head being guarded and whose `right`
             // is the guard — so a comment between the two cannot shift
-            // the read. That the operator *is* a `binary_operator` is
-            // also why `elixir_inspect_container` needs no new
-            // `has_boolean_content` seed for this slot the way its Java,
-            // Rust and Ruby siblings did: the seed list already opens
-            // with the three `BinaryOperator` aliases, so `when (y)` and
-            // `when !y` are proven boolean for free.
+            // the read.
             //
             // The gate is #1454's, shared with the `Cyclomatic` impl
             // that carries the matching decision (§7). Elixir has no
@@ -385,17 +423,22 @@ impl Abc for ElixirCode {
             {
                 stats.conditions += 1.;
             }
-            // Fitzpatrick Rule 9 walker: each non-comparison operand of a
-            // `&&` / `||` / `and` / `or` chain is one condition (issue
-            // #557). The short-circuit operators are not counted directly
-            // (cross-language policy, #395); the keyword forms `and` / `or`
-            // get the same treatment as `&&` / `||`. Combined with the
-            // `if` Call already contributing one condition, `if a && b ||
-            // c` reports 4 — consistent with the cyclomatic count.
+            // Fitzpatrick Rule 9 walker: each operand of a `&&` / `||` /
+            // `and` / `or` chain is a boolean slot (issue #557, #1527).
+            // The short-circuit operators are not counted directly
+            // (cross-language policy, #395). Under error recovery the
+            // token's parent can be an `ERROR` node, which has no
+            // operands to score.
             E::AMPAMP | E::PIPEPIPE | E::And | E::Or => {
-                if let Some(parent) = ancestors.parent(node) {
-                    elixir_count_unary_conditions(&parent, &mut stats.conditions);
+                if let Some(chain) = ancestors
+                    .parent(node)
+                    .filter(|parent| parent.kind() == BINARY_OPERATOR)
+                {
+                    elixir_count_chain_operands(&chain, &mut stats.conditions);
                 }
+            }
+            E::StabClause if npa::elixir_is_cond_clause(node, code, ancestors) => {
+                elixir_count_cond_clause(node, code, ancestors, &mut stats.conditions);
             }
             _ => {}
         }

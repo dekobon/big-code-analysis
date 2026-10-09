@@ -11354,9 +11354,10 @@ func sel(c chan int) int { select { case <-c: return 1 }; return 0 }
                         // Each was 0 before the arm.
                         ("bare", 1, 1),
                         ("negbare", 1, 1),
-                        // `if` (1) + `in` (1), exactly as `if a == b`
-                        // scores.
-                        ("slot", 2, 2),
+                        // `in` (1) only — the `if` predicate slot is
+                        // already paid by the operator (#1527), exactly
+                        // as `if a == b` scores.
+                        ("slot", 1, 2),
                         ("cmp", 1, 1),
                     ],
                 );
@@ -11389,9 +11390,10 @@ func sel(c chan int) int { select { case <-c: return 1 }; return 0 }
         );
     }
 
-    // Keyword-shaped Calls (`case`, `cond`, `if`, `with`) each count
-    // as one condition AND one branch. `case` here adds 1 condition
-    // (the keyword Call) + 1 branch (the Call itself).
+    // A `case` / `with` Call counts one condition per construct AND one
+    // branch. `case` here adds 1 condition (the keyword Call) + 1 branch
+    // (the Call itself). `if` / `unless` / `cond` score their predicate
+    // slots instead — see `elixir_if_and_cond_predicates_are_slots`.
     #[cfg(feature = "elixir")]
     #[test]
     fn elixir_case_is_condition_and_branch() {
@@ -11406,7 +11408,9 @@ func sel(c chan int) int { select { case <-c: return 1 }; return 0 }
         );
     }
 
-    // `cond` is structurally identical to `case` for Abc.
+    // `cond` scores per clause, as its nested-`if` twin does (#1527): the
+    // `x > 0` clause is a predicate slot its `>` already pays, and the
+    // `true ->` catch-all is the default arm and pays nothing.
     #[cfg(feature = "elixir")]
     #[test]
     fn elixir_cond_is_condition() {
@@ -11414,9 +11418,110 @@ func sel(c chan int) int { select { case <-c: return 1 }; return 0 }
             "defmodule Foo do\n  def f(x) do\n    cond do\n      x > 0 -> :pos\n      true -> :other\n    end\n  end\nend\n",
             "foo.ex",
             |metric| {
-                // conditions: cond (+1) + > (+1) = 2
-                assert_eq!(metric.abc.conditions_sum(), 2);
+                // conditions: `x > 0` clause slot (+0) + `>` (+1) +
+                // `true ->` default (+0) = 1, against cyclomatic 2
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // An `if` / `unless` predicate and each `cond` clause are condition
+    // slots (#1527): one condition, unless an operator in the slot
+    // already paid. Before, the keyword Call paid a flat one on top of
+    // its predicate, so `if x > 5` scored 2 and `cond` paid once per
+    // construct whatever its clause count.
+    //
+    // Expected values come from the twins, not the rule: each `if` row
+    // is what Ruby and Java score for the same `if` (`if x > 5` 1,
+    // `if b` 1, `if a && b` 2 — measured), every non-chain row sits at
+    // `cyclomatic - 1`, and each `cond` row equals its nested-`if` twin
+    // beside it (`cond3` / `nested`). The chain rows sit one under
+    // parity exactly as Ruby's and Java's `if a && b` (2 / 3) do.
+    //
+    // Paths only one row exercises (§11): `cmp_comment` the comment
+    // skip in a parenthesised peel, `assign` the match-`=` peel,
+    // `negcmp` the `not` peel, `arith` a non-comparison operator the
+    // slot pays for, `capture` a chain operand that no terminal list
+    // held (`&f/1` scored one short of `a && b` on main), and the
+    // `true ->` rows the default-arm gate shared with cyclomatic.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_if_and_cond_predicates_are_slots() {
+        check_func_space::<ElixirParser, _>(
+            "defmodule Foo do
+  def cmp(x), do: (if x > 5 do 1 end)
+  def bare(b), do: (if b do 1 end)
+  def kw(x), do: if(x > 5, do: 1)
+  def unless_cmp(x), do: (unless x > 5 do 1 end)
+  def cmp_comment(x) do
+    if (x > 5 # c
+    ) do
+      1
+    end
+  end
+  def assign(x), do: (if (y = x > 5) do y end)
+  def negcmp(x), do: (if not(x > 5) do 1 end)
+  def arith(x), do: (if x + 1 do 1 end)
+  def chain(a, b), do: (if a && b do 1 end)
+  def capture(a), do: (if a && &f/1 do 1 end)
+  def cond_cmp(x) do
+    cond do
+      x > 5 -> 1
+      true -> 2
+    end
+  end
+  def cond_bare(b) do
+    cond do
+      b -> 1
+      true -> 2
+    end
+  end
+  def cond3(x, b) do
+    cond do
+      x > 5 -> 1
+      b -> 2
+      true -> 3
+    end
+  end
+  def nested(x, b) do
+    if x > 5 do
+      1
+    else
+      if b do 2 else 3 end
+    end
+  end
+  def cond_no_default(a, b, c) do
+    cond do
+      a -> 1
+      b -> 2
+      c -> 3
+    end
+  end
+end
+",
+            "foo.ex",
+            |space| {
+                assert_members_score(
+                    &space.spaces[0],
+                    &[
+                        ("cmp", 1, 2),
+                        ("bare", 1, 2),
+                        ("kw", 1, 2),
+                        ("unless_cmp", 1, 2),
+                        ("cmp_comment", 1, 2),
+                        ("assign", 1, 2),
+                        ("negcmp", 1, 2),
+                        ("arith", 1, 2),
+                        ("chain", 2, 3),
+                        ("capture", 2, 3),
+                        ("cond_cmp", 1, 2),
+                        ("cond_bare", 1, 2),
+                        ("cond3", 2, 3),
+                        ("nested", 2, 3),
+                        ("cond_no_default", 3, 4),
+                    ],
+                );
             },
         );
     }
@@ -11442,7 +11547,8 @@ func sel(c chan int) int { select { case <-c: return 1 }; return 0 }
     // - Assignments: `x = 1` → A = 1.
     // - Branches: `defmodule` and `def` are declarative and excluded;
     //   `if` Call + `side_effect()` Call → 2 Calls, plus 0 `|>` → B = 2.
-    // - Conditions: `if` keyword → 1, `x > 0` → 1 → C = 2.
+    // - Conditions: `x > 0` → 1; the `if` predicate slot it fills adds
+    //   nothing more (#1527) → C = 1.
     #[cfg(feature = "elixir")]
     #[test]
     fn elixir_mixed_abc() {
@@ -11452,7 +11558,7 @@ func sel(c chan int) int { select { case <-c: return 1 }; return 0 }
             |metric| {
                 assert_eq!(metric.abc.assignments_sum(), 1);
                 assert_eq!(metric.abc.branches_sum(), 2);
-                assert_eq!(metric.abc.conditions_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -11462,20 +11568,21 @@ func sel(c chan int) int { select { case <-c: return 1 }; return 0 }
     #[test]
     fn elixir_unary_conditions_in_chain() {
         // Fitzpatrick Rule 9 (issue #557): each bare boolean operand of a
-        // `&&` / `||` chain is one condition. For `if a && b || c`: the
-        // `if` keyword Call contributes 1 condition, and the walker adds
-        // a, b, c → 3. expected: 4 conditions, consistent with the
-        // function's cyclomatic complexity of 4 (base 1 + if + && + ||).
+        // `&&` / `||` chain is one condition. For `if a && b || c` the
+        // walker adds a, b, c → 3, and the `if` predicate slot adds
+        // nothing because the chain already scored it (#1527). expected:
+        // 3, as Ruby and Java score the same `if`, against cyclomatic 4
+        // (base 1 + if + && + ||).
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def f(a, b, c) do\n    if a && b || c do\n      IO.puts(\"x\")\n    end\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4);
+                assert_eq!(metric.abc.conditions_sum(), 3);
             },
         );
     }
 
-    // Elixir spells negation two ways and `elixir_inspect_container`
+    // Elixir spells negation two ways and the operand peel once
     // recognised only `!`, so `a && not b` scored 3 where `a && !b`
     // scored 4 — the `not` operand reached no terminal and vanished.
     // Both forms now read the same. `not` is the stricter of the two (it
@@ -11488,9 +11595,9 @@ func sel(c chan int) int { select { case <-c: return 1 }; return 0 }
     // shared `check_metrics` total could not tell 3 + 4 from 4 + 3.
     //
     // `assert_members_score` rather than the parity-asserting sibling:
-    // a `&&` operand is an ABC condition with no cyclomatic decision
-    // behind it, so both members legitimately sit one above their
-    // decision count (`base 1 + if + &&` = 3).
+    // each member scores its two `&&` operands and nothing for the `if`
+    // slot the chain fills (#1527) — 2 against cyclomatic
+    // `base 1 + if + &&` = 3, as Ruby's `if a && !b` does.
     #[cfg(feature = "elixir")]
     #[test]
     fn elixir_keyword_not_negates_like_bang() {
@@ -11498,7 +11605,7 @@ func sel(c chan int) int { select { case <-c: return 1 }; return 0 }
             "defmodule Foo do\n  def kw(a, b) do\n    if a && not b do\n      IO.puts(\"x\")\n    end\n  end\n  def bang(a, b) do\n    if a && !b do\n      IO.puts(\"x\")\n    end\n  end\nend\n",
             "foo.ex",
             |space| {
-                assert_members_score(&space.spaces[0], &[("kw", 3, 3), ("bang", 3, 3)]);
+                assert_members_score(&space.spaces[0], &[("kw", 2, 3), ("bang", 2, 3)]);
             },
         );
     }
@@ -11508,13 +11615,13 @@ func sel(c chan int) int { select { case <-c: return 1 }; return 0 }
     fn elixir_comparison_operands_add_nothing() {
         // Isolation check: comparison operands of a `&&` chain are nested
         // `binary_operator` nodes, not bare boolean leaves, so the walker
-        // adds nothing. expected: 3 = `if` (1) + `>` (1) + `>` (1); the
-        // `&&` walker contributes 0.
+        // adds nothing. expected: 2 = `>` (1) + `>` (1); the `&&` walker
+        // and the `if` slot the chain fills contribute 0 (#1527).
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def f(x, y) do\n    if x > 0 && y > 0 do\n      IO.puts(\"x\")\n    end\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 3);
+                assert_eq!(metric.abc.conditions_sum(), 2);
             },
         );
     }
@@ -11523,12 +11630,13 @@ func sel(c chan int) int { select { case <-c: return 1 }; return 0 }
     #[test]
     fn elixir_keyword_and_or_chain_counts_operands() {
         // The keyword forms `and` / `or` get the same Rule 9 treatment as
-        // `&&` / `||`. expected: 4 = `if` (1) + operands a, b, c (3).
+        // `&&` / `||`. expected: 3 = operands a, b, c; the `if` slot the
+        // chain fills adds nothing (#1527).
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def f(a, b, c) do\n    if a and b or c do\n      IO.puts(\"x\")\n    end\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4);
+                assert_eq!(metric.abc.conditions_sum(), 3);
             },
         );
     }
@@ -15575,14 +15683,13 @@ end
     //   * `tok` / `eq` — the guard is an operator application, so the
     //     slot adds nothing and the `>` / `==` token arm supplies the
     //     one. These were 3 before the slot.
-    //   * `call` / `bare` — `Call` and `Identifier` are
-    //     `elixir_bool_terminal_kinds!()` members, so the slot supplies
-    //     the one directly.
+    //   * `call` / `bare` — no operator counts a `Call` or an
+    //     `Identifier`, so the slot supplies the one directly.
     //   * `paren` / `negated` — `block` and `unary_operator` are
-    //     wrappers, peeled by `elixir_inspect_container`. `negated`
-    //     covers the keyword `not`, which that walker did not recognise
-    //     as a negation until this change and which would otherwise have
-    //     scored zero here.
+    //     wrappers, peeled by `elixir_wrapper_operand` before the slot
+    //     asks whether an operator already paid. `negated` covers the
+    //     keyword `not`, which the peel once did not recognise as a
+    //     negation.
     //   * `membership` / `nonmembership` — `in` / `not in` are
     //     relational operators, given the by-use arm #1461 gave the
     //     other five languages. Without it these two would score zero,
@@ -17801,21 +17908,15 @@ mod literal_bool_operands {
     ///   `:"q a"` scored zero while `:atom` scored one — and the four
     ///   collection literals `list` / `tuple` / `map` / `bitstring`.
     ///
-    /// Elixir is the one row whose two slots are not two independent
-    /// consumers: the language has no bare-truthy `if` predicate slot
-    /// to route, since an Elixir `if` is a keyword-shaped `Call` scoring
-    /// one whatever its argument. Its second slot negates the operand
-    /// instead, which reaches the terminal set through
-    /// `elixir_inspect_container` rather than through the chain
-    /// walker's own check — a different path to the same set, which is
-    /// what the second slot exists to exercise.
-    ///
     /// Shapes that measured short and are deliberately absent, none of
     /// them a literal: JavaScript's `this` and Groovy's
     /// `object_creation_expression` (recorded in #1462); Perl's
     /// `s///` and `tr///` (operations on `$_` evaluating to a count),
-    /// `anonymous_function` and `array_dereference`; Ruby's `lambda`;
-    /// and Elixir's `anonymous_function` and `&f/1` capture.
+    /// `anonymous_function` and `array_dereference`; and Ruby's
+    /// `lambda`. Elixir's `anonymous_function` and `&f/1` capture were
+    /// on this list until #1527 moved its slots off a terminal-kind set,
+    /// after which every operand scores unless an operator already
+    /// counts it.
     fn cases(lang: LANG) -> Option<Case> {
         Some(match lang {
             LANG::Javascript => (JS_SLOTS, "b", js_literals!(Javascript, String2), 7),
@@ -17938,13 +18039,13 @@ mod literal_bool_operands {
                 [
                     (
                         "defmodule M do\n  def f(a, b) do\n    if a && {} do\n      a\n    end\n  end\nend\n",
-                        3,
+                        2,
                         5,
                     ),
                     (
-                        "defmodule M do\n  def f(a, b) do\n    if a && !{} do\n      a\n    end\n  end\nend\n",
-                        3,
-                        5,
+                        "defmodule M do\n  def f(a, b) do\n    if {} do\n      a\n    end\n  end\nend\n",
+                        1,
+                        4,
                     ),
                 ],
                 "b",

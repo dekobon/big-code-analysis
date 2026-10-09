@@ -683,8 +683,7 @@ fn elixir_is_when_operator(node: &Node) -> bool {
             .is_some_and(|operator| operator.kind_id() == Elixir::When as u16)
 }
 
-/// The one alternative a guard's `when` token introduces, paired with
-/// the `binary_operator` whose field slot it occupies.
+/// The one alternative a guard's `when` token introduces.
 ///
 /// `head when a when b` parses right-associatively as
 /// `head when (a when b)`, so each `when` operator owns exactly one
@@ -697,14 +696,12 @@ fn elixir_is_when_operator(node: &Node) -> bool {
 /// The `?` is infallible at the pinned grammar — `binary_operator`
 /// declares `right` required — and is spelled as an `Option` because
 /// `AGENTS.md` bans `expect` outside tests.
-pub(crate) fn elixir_when_alternative<'a>(
-    when_operator: &Node<'a>,
-) -> Option<(Node<'a>, Node<'a>)> {
+pub(crate) fn elixir_when_alternative<'a>(when_operator: &Node<'a>) -> Option<Node<'a>> {
     let right = when_operator.child_by_field_name("right")?;
     if elixir_is_when_operator(&right) {
-        right.child_by_field_name("left").map(|left| (left, right))
+        right.child_by_field_name("left")
     } else {
-        Some((right, *when_operator))
+        Some(right)
     }
 }
 
@@ -786,6 +783,115 @@ pub(crate) fn elixir_when_is_guard<'a>(
                 crate::lang_helpers::elixir::elixir_is_method_macro(keyword)
                     || matches!(keyword, "defguard" | "defguardp")
             })
+        })
+}
+
+/// Returns the sole pattern of a `stab_clause` whose left-hand side
+/// carries no `when` guard, or `None` otherwise.
+///
+/// The grammar's `left` field is an `arguments` node for a plain
+/// pattern list, but a guarded clause (`_ when g ->`) re-shapes it
+/// into a `binary_operator` wrapping the patterns and the guard — so
+/// checking the field's kind answers "is there a guard" for free. The
+/// kind is compared as a string because the grammar aliases several
+/// internal rules to `arguments` with distinct kind ids
+/// (`Arguments2`..`Arguments5`); grammar-dispatch §1 prefers the one
+/// string comparison over enumerating them. A zero-arity clause carries
+/// no `left` field at all (`fn -> … end`), which the same `filter` folds
+/// into "no plain pattern list" — the two spellings of "nothing to
+/// inspect" are one question, so they share one exit. Named-children
+/// filtering skips the anonymous `(` `)` tokens a parenthesised clause
+/// head carries, so an empty pair (`fn () -> … end`) also yields zero
+/// patterns. Clauses with zero or several patterns return `None`.
+pub(crate) fn elixir_sole_unguarded_pattern<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+    let left = node
+        .child_by_field_name("left")
+        .filter(|left| left.kind() == "arguments")?;
+    let mut patterns = left.children().filter(Node::is_named);
+    let sole = patterns.next()?;
+    patterns.next().is_none().then_some(sole)
+}
+
+/// Returns `true` when `node` is a construct's free default clause:
+/// a bare `_ ->` catch-all outside an anonymous fn, or an unguarded
+/// `true ->` directly under a `cond`.
+///
+/// Both shapes hinge on the clause's sole unguarded pattern, and
+/// [`elixir_sole_unguarded_pattern`]'s child scan allocates a cursor
+/// (the #1112 malloc) — so the pattern is extracted once here and the
+/// two shapes branch on its (kind, text), instead of every counted
+/// `stab_clause` paying the extraction twice through two independent
+/// predicates.
+///
+/// Bare `_ ->`: Elixir has no dedicated wildcard token — `_` parses
+/// as an ordinary `identifier` — so the bytes decide (grammar-dispatch
+/// §10). A named discard (`_x ->`) binds a value the body can read
+/// and keeps counting, matching Rust's bare-`_`-only `MatchArm` rule;
+/// guarded wildcards never reach the text check because
+/// [`elixir_sole_unguarded_pattern`] rejects them. The exclusion does
+/// NOT apply when the clause's container is an `anonymous_function`:
+/// a multi-clause `fn` is a dispatch like `case` — n clauses are n−1
+/// decisions — and its free base path is already granted by the
+/// head-clause skip (#776), so excluding a trailing `_ ->` too would
+/// leave `fn 0 -> :a; _ -> :b end` at zero decisions while the
+/// identical `case` reports one.
+///
+/// `true ->` under `cond`: the exclusion is *shape-based* — any
+/// unguarded `true ->` whose parent is the `do_block` of a `Call`
+/// spelling `cond`, whatever the arm's position. That deliberately
+/// matches the sibling convention: Rust's bare-`_` `MatchArm`
+/// exclusion is equally position-blind. The same clause under `case`
+/// is an ordinary boolean pattern match, so the exclusion is anchored
+/// to the owning construct (grammar-dispatch §8); a guarded
+/// `true when g ->` is a real decision and never reaches the
+/// container check.
+pub(crate) fn elixir_is_default_clause<'a>(
+    node: &Node<'a>,
+    code: &'a [u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    use Elixir as E;
+
+    let Some(pattern) = elixir_sole_unguarded_pattern(node) else {
+        return false;
+    };
+    match pattern.kind_id().into() {
+        // Bare `_` catch-all — free everywhere except under an
+        // anonymous fn, whose free base path the head-clause skip
+        // already provides.
+        E::Identifier => {
+            pattern.utf8_text(code) == Some("_")
+                && ancestors
+                    .parent(node)
+                    .is_none_or(|parent| parent.kind_id() != E::AnonymousFunction as u16)
+        }
+        // Unguarded `true` — free only as `cond`'s designated
+        // default; the O(1) parent/grandparent checks run after the
+        // text compare so non-`true` booleans bail early.
+        E::Boolean => {
+            pattern.utf8_text(code) == Some("true") && elixir_is_cond_clause(node, code, ancestors)
+        }
+        _ => false,
+    }
+}
+
+/// Whether `node` (a `stab_clause`) is one arm of a `cond`: its parent
+/// is the `do_block` of a `Call` spelling `cond`.
+///
+/// Shared by the `Cyclomatic` and `Abc` impls for `ElixirCode`, which
+/// both score a `cond` per clause and must agree on which clauses those
+/// are (grammar-dispatch §7).
+pub(crate) fn elixir_is_cond_clause<'a>(
+    node: &Node<'a>,
+    code: &'a [u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    let mut chain = ancestors.iter(node);
+    chain
+        .next()
+        .is_some_and(|(parent, _)| parent.kind_id() == Elixir::DoBlock as u16)
+        && chain.next().is_some_and(|(grandparent, _)| {
+            crate::lang_helpers::elixir::elixir_call_keyword(&grandparent, code) == Some("cond")
         })
 }
 
