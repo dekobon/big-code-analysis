@@ -42,6 +42,9 @@ pub mod wmc;
 // enabling exactly the languages it exists to cover
 // (`.claude/rules/testing.md`, #1286).
 #[cfg(test)]
+#[path = "bash_test_connective_tests.rs"]
+mod bash_test_connective_tests;
+#[cfg(test)]
 #[cfg(any(
     feature = "bash",
     feature = "c",

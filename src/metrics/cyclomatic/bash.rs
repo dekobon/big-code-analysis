@@ -7,12 +7,13 @@
 )]
 
 use super::*;
+use crate::lang_helpers::bash::bash_test_connective;
 
 impl Cyclomatic for BashCode {
     fn compute<'a>(
         node: &Node<'a>,
         code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
         match node.kind_id().into() {
@@ -48,6 +49,16 @@ impl Cyclomatic for BashCode {
             | Bash::TernaryExpression2
             | Bash::AMPAMP
             | Bash::PIPEPIPE => {
+                stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
+            }
+            // `[ … ]` spells `&&` / `||` as `-a` / `-o`, a decision each
+            // like the `[ … ] && [ … ]` and `[[ … && … ]]` twins (#1536).
+            Bash::TestOperator
+                if ancestors
+                    .parent(node)
+                    .is_some_and(|parent| bash_test_connective(node, &parent, code).is_some()) =>
+            {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }

@@ -217,9 +217,25 @@ fn compute_booleans_keyed<F: Fn(u16) -> Option<u16>>(
     stats: &mut Stats,
     sequence_key: F,
 ) {
-    let enclosing_end = node.end_byte();
+    compute_booleans_by_node(node, node.end_byte(), stats, |child| {
+        sequence_key(child.kind_id())
+    });
+}
+
+/// [`compute_booleans_keyed`] for an operator whose kind alone does not
+/// say which operation it is — Bash's `-a` / `-o` share `test_operator`
+/// with every comparison, so the key reads the child itself — and for a
+/// sequence whose extent is not `node`'s own span. `enclosing_end` is
+/// where the sequence `node` belongs to ends: an operator inside it
+/// continues a like operator seen earlier in it.
+fn compute_booleans_by_node<F: Fn(&Node) -> Option<u16>>(
+    node: &Node,
+    enclosing_end: usize,
+    stats: &mut Stats,
+    sequence_key: F,
+) {
     for child in node.children() {
-        if let Some(key) = sequence_key(child.kind_id()) {
+        if let Some(key) = sequence_key(&child) {
             stats.structural =
                 stats
                     .boolean_seq

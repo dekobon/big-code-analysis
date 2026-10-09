@@ -10,6 +10,7 @@
 )]
 
 use super::{Abc, Stats};
+use crate::lang_helpers::bash::{bash_eq_is_comparison, bash_test_connective};
 use crate::*;
 
 impl Abc for BashCode {
@@ -36,8 +37,11 @@ impl Abc for BashCode {
             // Three condition signals share this arm:
             //
             // - Comparison operators inside `[[ … ]]` and `(( … ))`, plus
-            //   the prefix test operators `-z`, `-n`, `-eq`, `-lt`, … which
-            //   the grammar emits as `Bash::TestOperator`.
+            //   the test operators `-z`, `-n`, `-eq`, `-lt`, … which the
+            //   grammar emits as `Bash::TestOperator`. The `-a` / `-o`
+            //   connectives share that kind and are excluded: they join
+            //   two tests the way `&&` / `||` do, and neither pays
+            //   (#1536).
             // - Control-flow branches (`if`/`elif`/`while`). A Bash predicate
             //   is a command, so the branch keyword itself is the only
             //   condition signal. These branch keywords mirror the matching
@@ -53,12 +57,23 @@ impl Abc for BashCode {
             | Bash::LTEQ
             | Bash::GTEQ
             | Bash::EQTILDE
-            | Bash::TestOperator
             | Bash::IfStatement
             | Bash::ElifClause
             | Bash::WhileStatement
             | Bash::TernaryExpression
             | Bash::TernaryExpression2 => {
+                stats.conditions += 1.;
+            }
+            Bash::TestOperator
+                if ancestors
+                    .parent(node)
+                    .is_none_or(|parent| bash_test_connective(node, &parent, code).is_none()) =>
+            {
+                stats.conditions += 1.;
+            }
+            // `=` compares strings inside `[ … ]` / `[[ … ]]`, exactly as
+            // `==` does, and assigns inside `(( … ))` (#1536).
+            Bash::EQ if bash_eq_is_comparison(node, ancestors) => {
                 stats.conditions += 1.;
             }
             // `<` and `>` are comparisons only inside a `binary_expression`.

@@ -13,6 +13,7 @@
 //! a helper *from* `metrics::cognitive` would make the parse layer depend
 //! on the metric layer, the inversion #1376 exists to remove.
 
+pub mod bash;
 pub mod elixir;
 // Crate-private: this dialect's only helper is a kind table the three
 // classifiers in this crate share, and nothing outside names it.
