@@ -1,8 +1,8 @@
-//! Perl: telling the `and` and `not` operators from an auto-quoted
-//! `and` or `not` key.
+//! Perl: telling the `and` and `not` operators, and the file tests,
+//! from an auto-quoted key that the grammar lexes as one of them.
 
 use crate::Perl;
-use crate::node::Node;
+use crate::node::{Ancestors, Node};
 
 /// Whether `and`, a Perl `and` token whose parent is `parent`, is the
 /// low-precedence logical operator.
@@ -76,6 +76,129 @@ pub fn perl_not_is_key(not: &Node, parent: &Node) -> bool {
             .skip_while(|child| child.id() != not.id())
             .nth(1)
             .is_some_and(|next| next.is_error() && next.is_child(Perl::FatComma as u16))
+}
+
+/// Whether `test`, a Perl `file_handle_operator` whose ancestor chain is
+/// `ancestors`, is an auto-quoted `-bareword` key rather than a file
+/// test.
+///
+/// FIXME(#1545 upstream): tree-sitter-perl 1.1.2 lexes the leading `-X`
+/// of a dash-prefixed bareword key as a file test. Perl auto-quotes
+/// `-foo` before `=>` and alone in a hash subscript — the Tk, CGI and
+/// Getopt option-hash idiom — so `$h{-foo}` and `(-text => 1)` hold the
+/// strings `"-foo"` and `"-text"`, and no operator. The grammar emits
+/// two shapes:
+///
+/// - `-` and a letter glued to more word characters (`-foo`) becomes a
+///   file test on the bareword `oo`. Perl never reads that as a file
+///   test, since one needs a non-word character after its letter, so
+///   only the position decides: the test is the whole `key` of a hash
+///   subscript, or the left of a `=>`. Elsewhere `-foo` is a negated
+///   call or a string, and stays as the grammar reads it.
+/// - a key that *is* a file test (`(-x => 1)`) swallows the `=>` and
+///   the value, wrapping the `=>` in an `ERROR`. A real file test
+///   cannot take a `=>` as its operand, so the `ERROR` decides.
+///
+/// The subscript form of the second shape (`$h{-x}`) recovers into an
+/// `ERROR` that drops the `-x` token altogether, so nothing is left to
+/// bill. Remove this, and every call site, once the pin carries the
+/// upstream fix.
+#[must_use]
+pub(crate) fn perl_file_test_is_dash_key<'a>(
+    test: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    test.children()
+        // As in `perl_not_is_key`: the `ERROR` is an extra.
+        .find(|child| child.is_error() || !child.as_tree_sitter().is_extra())
+        .is_some_and(|operand| {
+            if operand.is_error() {
+                operand.is_child(Perl::FatComma as u16)
+            } else {
+                is_glued_word(&operand, test) && is_key_position(test, ancestors)
+            }
+        })
+}
+
+/// Whether `node` is the word of a `-bareword` key that the enclosing
+/// file test bills whole, so it bills nothing of its own. `ancestors`
+/// is `node`'s chain.
+#[must_use]
+pub fn perl_is_dash_key_word<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors.iter(node).next().is_some_and(|(test, above)| {
+        test.kind_id() == Perl::FileHandleOperator as u16
+            && is_glued_word(node, &test)
+            && perl_file_test_is_dash_key(&test, above)
+    })
+}
+
+/// Whether `dash`, a Perl `-` token whose parent is `parent`, is the
+/// sign of an auto-quoted `-and` or `-not` key (`$h{-not}`,
+/// `(-and => 1)`), which the grammar splits into the `-` and the keyword
+/// token. [`perl_and_is_operator`] and [`perl_not_is_key`] decide
+/// whether the keyword is a key, and a key's sign is part of the string
+/// whether or not a space separates the two.
+#[must_use]
+pub(crate) fn perl_dash_signs_keyword_key(dash: &Node, parent: &Node) -> bool {
+    // `$h{-not}` keeps the keyword beside the `-`; `(-not => 1)` nests
+    // it as the first child of the `-`'s operand.
+    next_non_extra(parent, dash).is_some_and(|next| {
+        keyword_is_key(&next, parent)
+            || first_non_extra(&next).is_some_and(|keyword| keyword_is_key(&keyword, &next))
+    })
+}
+
+fn keyword_is_key(token: &Node, parent: &Node) -> bool {
+    match token.kind_id().into() {
+        Perl::And => !perl_and_is_operator(token, parent),
+        Perl::Not => perl_not_is_key(token, parent),
+        _ => false,
+    }
+}
+
+// Whether `word` is the bareword the grammar split off a `-bareword`
+// key: the `-X` file-test token is two bytes, so a word glued to it
+// starts right after them.
+fn is_glued_word(word: &Node, test: &Node) -> bool {
+    word.kind_id() == Perl::CallExpressionWithBareword as u16
+        && word.start_byte() == test.start_byte() + 2
+}
+
+// Whether the `unary_expression` around `test` is the whole key of a
+// hash subscript, which the grammar wraps in a `binary_expression` with
+// no other child but comments, or is followed by a `=>`.
+fn is_key_position<'a>(test: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+    let mut up = ancestors.iter(test).map(|(ancestor, _)| ancestor);
+    let mut key = up.next();
+    let mut parent = up.next();
+    if parent
+        .is_some_and(|p| p.kind_id() == Perl::BinaryExpression as u16 && non_extra_count(&p) == 1)
+    {
+        key = parent;
+        parent = up.next();
+    }
+    key.zip(parent).is_some_and(|(key, parent)| {
+        matches!(
+            parent.kind_id().into(),
+            Perl::HashAccessVariableSimple | Perl::HashAccessVariable
+        ) || next_non_extra(&parent, &key)
+            .is_some_and(|next| next.kind_id() == Perl::FatComma as u16)
+    })
+}
+
+fn non_extra_count(node: &Node) -> usize {
+    node.children()
+        .filter(|child| !child.as_tree_sitter().is_extra())
+        .count()
+}
+
+// The sibling after `child` in `parent`, comments aside.
+fn next_non_extra<'a>(parent: &Node<'a>, child: &Node) -> Option<Node<'a>> {
+    parent
+        .children()
+        .filter(|sibling| !sibling.as_tree_sitter().is_extra())
+        .skip_while(|sibling| sibling.id() != child.id())
+        .nth(1)
 }
 
 fn first_non_extra<'a>(node: &Node<'a>) -> Option<Node<'a>> {

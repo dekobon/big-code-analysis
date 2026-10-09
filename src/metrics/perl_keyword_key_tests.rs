@@ -1,5 +1,7 @@
 //! An auto-quoted `and` or `not` key scores like any other key, and the
 //! `and` and `not` operators still score as operators (#1539, #1541).
+//! The same holds for a `-bareword` key and the file tests the grammar
+//! mistakes it for (#1545).
 //!
 //! Perl quotes a bareword before `=>` and alone in a hash subscript, so
 //! `$h{and}` and `(not => 1)` hold a string key and no operator.
@@ -32,7 +34,15 @@ type Halstead = [u64; 4];
 
 #[cfg(feature = "perl")]
 fn measure(body: &str) -> (Decisions, Halstead) {
-    let out = Cell::new(([0; 3], [0; 4]));
+    let ([cyclomatic, _, conditions, cognitive], halstead) = measure_with_branches(body);
+    ([cyclomatic, conditions, cognitive], halstead)
+}
+
+/// `[cyclomatic, abc branches, abc conditions, cognitive]` sums of the
+/// root space, and its Halstead counts.
+#[cfg(feature = "perl")]
+fn measure_with_branches(body: &str) -> ([u64; 4], Halstead) {
+    let out = Cell::new(([0; 4], [0; 4]));
     check_func_space_only::<PerlParser, _>(
         &format!("sub f {{ {body} }}\n"),
         "foo.pl",
@@ -47,6 +57,7 @@ fn measure(body: &str) -> (Decisions, Halstead) {
             out.set((
                 [
                     m.cyclomatic.cyclomatic_sum(),
+                    m.abc.branches_sum(),
                     m.abc.conditions_sum(),
                     m.cognitive.cognitive_sum(),
                 ],
@@ -297,6 +308,194 @@ fn perl_not_operator_still_scores_like_bang() {
             measure(operator),
             want,
             "`{operator}` must score like `{twin}`"
+        );
+    }
+}
+
+/// `(quoted_twin, dash_key, [cyclomatic, branches, conditions,
+/// cognitive], halstead)` rows for
+/// `perl_dash_key_scores_like_its_quoted_twin`.
+#[cfg(feature = "perl")]
+const DASH_KEY_ROWS: [(&str, &str, [u64; 4], Halstead); 18] = [
+    (
+        "my %h; return $h{'-foo'};",
+        "my %h; return $h{-foo};",
+        [2, 0, 0, 0],
+        [6, 8, 4, 4],
+    ),
+    // A comment in the subscript. Its `#` bills as an operator in both
+    // spellings (#1549).
+    (
+        "my %h; return $h{'-foo' # why\n};",
+        "my %h; return $h{-foo # why\n};",
+        [2, 0, 0, 0],
+        [7, 9, 4, 4],
+    ),
+    (
+        "my $r; return $r->{'-foo'};",
+        "my $r; return $r->{-foo};",
+        [2, 0, 0, 0],
+        [7, 10, 3, 4],
+    ),
+    (
+        "my %h; return @h{'-foo'};",
+        "my %h; return @h{-foo};",
+        [2, 0, 0, 0],
+        [5, 7, 4, 4],
+    ),
+    (
+        "my %h; if ($h{'-foo'}) { return 1; } return 0;",
+        "my %h; if ($h{-foo}) { return 1; } return 0;",
+        [3, 0, 1, 1],
+        [8, 13, 6, 6],
+    ),
+    (
+        "my %h = ('-foo' => 1); return 1;",
+        "my %h = (-foo => 1); return 1;",
+        [2, 0, 0, 0],
+        [8, 9, 4, 5],
+    ),
+    (
+        "my $r = { '-foo' => 1 }; return $r;",
+        "my $r = { -foo => 1 }; return $r;",
+        [2, 0, 0, 0],
+        [8, 11, 4, 5],
+    ),
+    (
+        "f('-text' => 1);",
+        "f(-text => 1);",
+        [2, 1, 0, 0],
+        [5, 5, 3, 4],
+    ),
+    (
+        "f('-text' => 1, ext => 2);",
+        "f(-text => 1, ext => 2);",
+        [2, 2, 0, 0],
+        [6, 7, 5, 6],
+    ),
+    (
+        "my %h = ('-x' => 1); return 1;",
+        "my %h = (-x => 1); return 1;",
+        [2, 0, 0, 0],
+        [8, 9, 4, 5],
+    ),
+    (
+        "my %h = ('-x' => 1); my %g = ('-x' => 2);",
+        "my %h = (-x => 1); my %g = (-x => 2);",
+        [2, 0, 0, 0],
+        [7, 12, 6, 7],
+    ),
+    // The swallowed value is still billed, call and all.
+    (
+        "f('-x' => foo);",
+        "f(-x => foo);",
+        [2, 2, 0, 0],
+        [5, 5, 3, 4],
+    ),
+    (
+        "my %h; return $h{'-not'};",
+        "my %h; return $h{-not};",
+        [2, 0, 0, 0],
+        [6, 8, 4, 4],
+    ),
+    (
+        "my $r; return $r->{'-and'};",
+        "my $r; return $r->{-and};",
+        [2, 0, 0, 0],
+        [7, 10, 3, 4],
+    ),
+    (
+        "my %h = ('-and' => 1); return 1;",
+        "my %h = (-and => 1); return 1;",
+        [2, 0, 0, 0],
+        [8, 9, 4, 5],
+    ),
+    (
+        "my $r = { '-not' => 1 }; return $r;",
+        "my $r = { -not => 1 }; return $r;",
+        [2, 0, 0, 0],
+        [8, 11, 4, 5],
+    ),
+    (
+        "f('-not' => 1, not => 2);",
+        "f(-not => 1, not => 2);",
+        [2, 1, 0, 0],
+        [6, 7, 5, 6],
+    ),
+    (
+        "f('-and' => 1, and => 2);",
+        "f(-and => 1, and => 2);",
+        [2, 1, 0, 0],
+        [6, 7, 5, 6],
+    ),
+];
+
+/// Every valid spelling of a `-bareword` key scores exactly as its
+/// quoted twin does, in all four metrics (#1545). tree-sitter-perl
+/// reads `-foo` as the file test `-f` on a bareword `oo`, `-x => 1` as
+/// the file test `-x` swallowing the `=>`, and `-not` as a `-` applied
+/// to the keyword. Before the fix each `-foo` billed the operand `oo`
+/// and an ABC branch for calling it, and each `-not` / `-and` billed a
+/// `-` operator.
+///
+/// The rows pairing a key with a second key equal to the misparsed
+/// word (`ext`, `not`) or to itself (`-x` twice) pin the operand's
+/// spelling, which the counts alone cannot see: billed as `ext`, `not`
+/// or `-x => 1`, the two keys share or split one vocabulary entry
+/// where their twins do not.
+#[cfg(feature = "perl")]
+#[test]
+fn perl_dash_key_scores_like_its_quoted_twin() {
+    for (twin, key, decisions, halstead) in DASH_KEY_ROWS {
+        assert_eq!(twin.replace('\'', ""), key, "`{key}` drifted from its twin");
+        let want = measure_with_branches(twin);
+        assert_eq!(
+            want,
+            (decisions, halstead),
+            "`{twin}` moved; re-derive the row"
+        );
+        assert_eq!(
+            measure_with_branches(key),
+            want,
+            "`{key}` must score like `{twin}`"
+        );
+    }
+}
+
+/// A `-X` that is not a key keeps the reading it had before #1545: a
+/// real file test, alone, in a condition, on the `_` stat cache,
+/// stacked, and as a subscript's whole expression, where only a word
+/// glued to the letter makes a key; a `-bareword` outside key position,
+/// including a subscript it is only part of;
+/// and a `-` applied to a real `not`. The file test itself is billed as
+/// nothing, since the grammar emits its `-X` as a hidden token. Every
+/// value is `main`'s, measured before the fix.
+#[cfg(feature = "perl")]
+#[test]
+fn perl_file_test_outside_a_key_keeps_its_reading() {
+    let rows: [(&str, [u64; 4], Halstead); 11] = [
+        ("my $z = -f $x;", [2, 0, 0, 0], [6, 7, 3, 3]),
+        (
+            "if (-e $x) { return 1; } return 0;",
+            [3, 0, 1, 1],
+            [7, 10, 4, 4],
+        ),
+        ("my $z = -d _;", [2, 1, 0, 0], [6, 6, 3, 3]),
+        ("my $z = -f -w $x;", [2, 0, 0, 0], [6, 7, 3, 3]),
+        ("my %h; return $h{-f $x};", [2, 0, 0, 0], [6, 9, 4, 4]),
+        ("my %h; return $h{-f foo};", [2, 1, 0, 0], [6, 8, 4, 4]),
+        ("return -foo;", [2, 1, 0, 0], [4, 4, 2, 2]),
+        // Inside a subscript, but not the whole key.
+        ("my %h; return $h{$a . -foo};", [2, 1, 0, 0], [7, 10, 5, 5]),
+        ("f(-foo, 1);", [2, 2, 0, 0], [5, 5, 3, 4]),
+        ("return -not $x;", [2, 0, 0, 0], [7, 7, 2, 2]),
+        ("return $a - not $x;", [2, 0, 0, 0], [7, 8, 3, 3]),
+    ];
+    for (body, decisions, halstead) in rows {
+        assert_eq!(
+            measure_with_branches(body),
+            (decisions, halstead),
+            "`{body}` changed its reading"
         );
     }
 }

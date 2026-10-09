@@ -2,7 +2,10 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
-use crate::lang_helpers::perl::{perl_and_is_operator, perl_not_is_key};
+use crate::lang_helpers::perl::{
+    perl_and_is_operator, perl_dash_signs_keyword_key, perl_file_test_is_dash_key,
+    perl_is_dash_key_word, perl_not_is_key,
+};
 
 impl Getter for PerlCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
@@ -18,6 +21,9 @@ impl Getter for PerlCode {
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Perl as P;
 
+        if let Some(role) = auto_quoted_key_role(node, ancestors) {
+            return role;
+        }
         match node.kind_id().into() {
             // Regex delimiter punctuation. The bare match form is the
             // only one of Perl's five regex literals that spells its
@@ -37,27 +43,6 @@ impl Getter for PerlCode {
                 if ancestors.parent_has_kind(node, P::PatternMatcher as u16) =>
             {
                 TokenRole::Unknown
-            }
-            // FIXME(#1539 upstream): an auto-quoted `and` key (`$h{and}`,
-            // `(and => 1)`) lexes as the operator keyword. It is a
-            // string key, so it bills what `$h{or}` bills: the
-            // `identifier` operand the grammar gives every other
-            // bareword key.
-            P::And
-                if !ancestors
-                    .parent(node)
-                    .is_some_and(|parent| perl_and_is_operator(node, &parent)) =>
-            {
-                TokenRole::Operand
-            }
-            // FIXME(#1541 upstream): the same for an auto-quoted `not`
-            // key (`$h{not}`, `(not => 1)`); see `perl_not_is_key`.
-            P::Not
-                if ancestors
-                    .parent(node)
-                    .is_some_and(|parent| perl_not_is_key(node, &parent)) =>
-            {
-                TokenRole::Operand
             }
             // Control-flow and declaration keywords. `Perl::Sub` is the
             // `sub` keyword (token id 16); `Perl::SUB` is the `__SUB__`
@@ -252,6 +237,35 @@ impl Getter for PerlCode {
         }
     }
 
+    /// Spells a `-bareword` key whole (#1545). A key that is exactly a
+    /// file test (`(-x => 1)`) has swallowed the `=>` and the value into
+    /// its node, so the key is the sign and the word after it; a
+    /// `-and` / `-not` key gets back the sign its `-` token stopped
+    /// billing. Only a key reaches here as an operand, so the byte
+    /// before `and` / `not` is that sign whenever it is a `-`.
+    fn get_operand_id<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+    ) -> &'a [u8] {
+        let (start, end) = (node.start_byte(), node.end_byte());
+        match node.kind_id().into() {
+            Perl::FileHandleOperator => {
+                let word = code[start + 1..end]
+                    .iter()
+                    .take_while(|byte| byte.is_ascii_alphanumeric() || **byte == b'_')
+                    .count();
+                &code[start..=start + word]
+            }
+            Perl::And | Perl::Not
+                if start.checked_sub(1).is_some_and(|sign| code[sign] == b'-') =>
+            {
+                &code[start - 1..end]
+            }
+            _ => &code[start..end],
+        }
+    }
+
     /// Folds paired delimiters to one glyph, and names the two
     /// pattern *operations* after their source spelling.
     ///
@@ -275,4 +289,64 @@ impl Getter for PerlCode {
             _ => typ.into(),
         }
     }
+}
+
+/// The role of a token tree-sitter-perl 1.1.2 misparses inside an
+/// auto-quoted hash key, or `None` for any other token. Perl quotes a
+/// bareword before `=>` and alone in a hash subscript, keywords and a
+/// leading `-` included, and the grammar reads some of those keys as
+/// operators. Every arm is an upstream workaround; drop each with its
+/// issue once the pin carries the fix.
+fn auto_quoted_key_role<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> Option<TokenRole> {
+    use Perl as P;
+
+    let role = match node.kind_id().into() {
+        // FIXME(#1539 upstream): an auto-quoted `and` key (`$h{and}`,
+        // `(and => 1)`) lexes as the operator keyword. It is a
+        // string key, so it bills what `$h{or}` bills: the
+        // `identifier` operand the grammar gives every other
+        // bareword key.
+        P::And
+            if !ancestors
+                .parent(node)
+                .is_some_and(|parent| perl_and_is_operator(node, &parent)) =>
+        {
+            TokenRole::Operand
+        }
+        // FIXME(#1541 upstream): the same for an auto-quoted `not`
+        // key (`$h{not}`, `(not => 1)`); see `perl_not_is_key`.
+        P::Not
+            if ancestors
+                .parent(node)
+                .is_some_and(|parent| perl_not_is_key(node, &parent)) =>
+        {
+            TokenRole::Operand
+        }
+        // FIXME(#1545 upstream): a `-bareword` key (`$h{-foo}`,
+        // `(-text => 1)`) lexes as a file test on the rest of the
+        // word. It is one string key, so the test node bills it as
+        // one operand spelling the whole key, and the word inside
+        // bills nothing. A `-and` / `-not` key splits instead into
+        // a `-` and the keyword, which the arms above bill as the
+        // key; the `-` is part of it and bills nothing. See
+        // `perl_file_test_is_dash_key`.
+        P::FileHandleOperator if perl_file_test_is_dash_key(node, ancestors) => TokenRole::Operand,
+        P::Identifier
+            if ancestors
+                .iter(node)
+                .next()
+                .is_some_and(|(word, above)| perl_is_dash_key_word(&word, above)) =>
+        {
+            TokenRole::Unknown
+        }
+        P::DASH
+            if ancestors
+                .parent(node)
+                .is_some_and(|parent| perl_dash_signs_keyword_key(node, &parent)) =>
+        {
+            TokenRole::Unknown
+        }
+        _ => return None,
+    };
+    Some(role)
 }

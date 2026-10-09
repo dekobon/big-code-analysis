@@ -13,7 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, is_operand,
     last_operand, wrapped_operand,
 };
-use crate::lang_helpers::perl::{perl_and_is_operator, perl_not_is_key};
+use crate::lang_helpers::perl::{perl_and_is_operator, perl_is_dash_key_word, perl_not_is_key};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Perl.
@@ -456,7 +456,10 @@ impl Abc for PerlCode {
             // when this node is the outermost dispatch site. When the
             // bareword sits inside one of the wrappers above, the
             // outer node has already been counted and this child
-            // would double the branch tally.
+            // would double the branch tally. Nor is the word of a
+            // `-bareword` key a call (FIXME(#1545 upstream)): the
+            // grammar splits `$h{-foo}` into a file test on a bareword
+            // `oo`, and the key is a string.
             P::CallExpressionWithBareword
                 if !ancestors.parent(node).is_some_and(|p| {
                     matches!(
@@ -467,7 +470,7 @@ impl Abc for PerlCode {
                             | P::CallExpressionWithVariable
                             | P::CallExpressionRecursive
                     )
-                }) =>
+                }) && !perl_is_dash_key_word(node, ancestors) =>
             {
                 stats.branches += 1.;
             }
