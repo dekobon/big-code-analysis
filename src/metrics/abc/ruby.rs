@@ -38,6 +38,28 @@ use crate::*;
 //   an implicit grammar wrapper around every `if` / `elsif` body and
 //   is NOT counted as a separate arm.
 
+// The kinds whose `condition` field is a boolean slot: the block and
+// modifier `if` / `unless` / `while` / `until` forms and the `case … in`
+// guards. Shared by `compute`'s slot arm, which routes the condition,
+// and `ruby_inspect_container`'s seed, which must treat the same slot as
+// boolean. The seed once restated the list without the modifier kinds,
+// so `g if (b)` scored 0 where `if (b) then g end` scored 1 (#1521).
+macro_rules! ruby_condition_slot_kinds {
+    () => {
+        Ruby::If
+            | Ruby::Unless
+            | Ruby::While
+            | Ruby::Until
+            | Ruby::IfModifier
+            | Ruby::UnlessModifier
+            | Ruby::WhileModifier
+            | Ruby::UntilModifier
+            | Ruby::Guard
+            | Ruby::IfGuard
+            | Ruby::UnlessGuard
+    };
+}
+
 // One step of the `(...)` / negation peel: the operand a wrapper wraps,
 // and whether the wrapper itself proves that operand boolean. `None`
 // for anything that is not a wrapper this peel descends, which is also
@@ -102,18 +124,17 @@ fn ruby_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
     // Both were live across the C family, PHP, Perl and the JS family
     // until #1181 moved them all onto this form; the cross-language
     // regression test is `ternary_comment_invariance` in `abc.rs`.
-    // The three guard kinds joined this list with #1454: a `case … in`
+    // The three guard kinds joined the slot list with #1454: a `case … in`
     // arm's `if` / `unless` guard is a boolean slot exactly as an `if`
     // predicate is, so a parenthesised guard operand (`in [x] if (b)`)
     // counts where the bare `in [x] if b` already did. `Guard` is the
     // hidden `_guard` supertype, listed defensively (§2).
-    let mut has_boolean_content = matches!(
-        parent_kind,
-        Binary | Binary2 | Binary3 | If | Unless | While | Until | Guard | IfGuard | UnlessGuard
-    ) || (matches!(parent_kind, Conditional)
-        && parent
-            .child_by_field_name("condition")
-            .is_some_and(|condition| condition.id() == node.id()));
+    let mut has_boolean_content = matches!(parent_kind, Binary | Binary2 | Binary3)
+        || matches!(parent_kind, ruby_condition_slot_kinds!())
+        || (matches!(parent_kind, Conditional)
+            && parent
+                .child_by_field_name("condition")
+                .is_some_and(|condition| condition.id() == node.id()));
 
     while let Some((operand, proves_boolean)) = ruby_wrapper_operand(&node) {
         has_boolean_content |= proves_boolean;
@@ -382,8 +403,7 @@ impl Abc for RubyCode {
             // a guard contains are anonymous tokens distinct from the
             // `If` / `Unless` statement kinds this arm matches, so a
             // guard reaches the slot exactly once.
-            If | Unless | While | Until | IfModifier | UnlessModifier | WhileModifier
-            | UntilModifier | Guard | IfGuard | UnlessGuard => {
+            ruby_condition_slot_kinds!() => {
                 if let Some(cond) = node.child_by_field_name("condition") {
                     ruby_count_condition(&cond, node, &mut stats.conditions);
                 }

@@ -15071,6 +15071,81 @@ end
         });
     }
 
+    // A statement modifier's `condition` is the same boolean slot as the
+    // block form's, so `g if (b)` must score what `if (b) then g end`
+    // does. The modifier kinds were missing from the peel's seed, so a
+    // parenthesised operand unwrapped into a context only a negation
+    // could mark boolean and scored 0 (#1521). Every member here is one
+    // decision, so each reads `conditions == cyclomatic - 1`; `bare` and
+    // `block` are the analogues the modifier rows must match.
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_parenthesised_modifier_condition_scores_one() {
+        let src = "def bare(b)
+  g if b
+end
+def block(b)
+  if (b) then g end
+end
+def if1(b)
+  g if (b)
+end
+def if2(b)
+  g if ((b))
+end
+def unless1(b)
+  g unless (b)
+end
+def unless2(b)
+  g unless ((b))
+end
+def while1(b)
+  g while (b)
+end
+def while2(b)
+  g while ((b))
+end
+def until1(b)
+  g until (b)
+end
+def until2(b)
+  g until ((b))
+end
+";
+        assert_fixture_spells::<RubyParser>(
+            src,
+            "foo.rb",
+            &[
+                (Ruby::IfModifier as u16, 3, "`if` modifiers"),
+                (Ruby::UnlessModifier as u16, 2, "`unless` modifiers"),
+                (Ruby::WhileModifier as u16, 2, "`while` modifiers"),
+                (Ruby::UntilModifier as u16, 2, "`until` modifiers"),
+                (
+                    Ruby::ParenthesizedStatements as u16,
+                    13,
+                    "one layer per `(b)`, two per `((b))`",
+                ),
+            ],
+        );
+        check_func_space::<RubyParser, _>(src, "foo.rb", |space| {
+            assert_members_score(
+                &space,
+                &[
+                    ("bare", 1, 2),
+                    ("block", 1, 2),
+                    ("if1", 1, 2),
+                    ("if2", 1, 2),
+                    ("unless1", 1, 2),
+                    ("unless2", 1, 2),
+                    ("while1", 1, 2),
+                    ("while2", 1, 2),
+                    ("until1", 1, 2),
+                    ("until2", 1, 2),
+                ],
+            );
+        });
+    }
+
     // The slot's whole claim, on every spelling the Elixir grammar gives
     // a guard — and on `assert_every_member_scores`, which asserts §8
     // parity where the fixture above cannot (its unguarded control and
