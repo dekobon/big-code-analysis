@@ -3992,6 +3992,153 @@ mod tests {
         );
     }
 
+    // A `let`-`else` is an `if let` that diverges instead of nesting the
+    // happy path, so it scores what its `if let` twin scores: +1 plus the
+    // current nesting, with a level for everything under it (#1548).
+    //
+    // Each `le_*` fn is paired with an `il_*` twin that spells the same
+    // control flow with `if let`, and the expected values were measured
+    // on the twins *before* the fix (the twins do not move). Before it,
+    // the let-else paid a flat +1 through the shared `else` token arm:
+    // `le_lp` 2, `le_d2` 4, `le_d3` 7, `le_two` 3, the closure 1 and
+    // `le_in` 2. `le_in` pins that the `else` block is nested like the
+    // twin's body (its inner `if` pays 2), `ie` that an `if … else` still
+    // pays its `else`, and the closure rows that the lambda level reaches
+    // the let-else. `value` is the fn's own score and `sum` folds in the
+    // closure space it encloses.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_let_else_scores_like_its_if_let_twin_1548() {
+        let src = "fn le_lp(xs: &[Option<i32>]) {
+    for y in xs {
+        let Some(a) = y else { continue };
+        k(a);
+    }
+}
+fn il_lp(xs: &[Option<i32>]) {
+    for y in xs {
+        if let Some(a) = y { k(a); }
+    }
+}
+fn le_top(x: i32) -> i32 {
+    let Ok(a) = g(x) else { return 0 };
+    a
+}
+fn il_top(x: i32) -> i32 {
+    if let Ok(a) = g(x) { return a; }
+    0
+}
+fn le_d2(xs: &[Vec<Option<i32>>]) {
+    for y in xs {
+        for z in y {
+            let Some(a) = z else { continue };
+            k(a);
+        }
+    }
+}
+fn il_d2(xs: &[Vec<Option<i32>>]) {
+    for y in xs {
+        for z in y {
+            if let Some(a) = z { k(a); }
+        }
+    }
+}
+fn le_d3(xs: &[Vec<Option<i32>>], c: bool) {
+    for y in xs {
+        while c {
+            for z in y {
+                let Some(a) = z else { continue };
+                k(a);
+            }
+        }
+    }
+}
+fn il_d3(xs: &[Vec<Option<i32>>], c: bool) {
+    for y in xs {
+        while c {
+            for z in y {
+                if let Some(a) = z { k(a); }
+            }
+        }
+    }
+}
+fn le_two(xs: &[Option<i32>]) {
+    for y in xs {
+        let Some(a) = y else { continue };
+        let Ok(b) = g(a) else { continue };
+        k(b);
+    }
+}
+fn il_two(xs: &[Option<i32>]) {
+    for y in xs {
+        if let Some(a) = y { k(a); }
+        if let Ok(b) = g(*y) { k(b); }
+    }
+}
+fn le_cl() {
+    let c = |y: Option<i32>| {
+        let Some(a) = y else { return 0 };
+        a
+    };
+    k(c);
+}
+fn il_cl() {
+    let c = |y: Option<i32>| {
+        if let Some(a) = y { return a; }
+        0
+    };
+    k(c);
+}
+fn le_in(x: Option<i32>, c: bool) -> i32 {
+    let Some(a) = x else {
+        if c { return 1; }
+        return 0;
+    };
+    a
+}
+fn il_in(x: Option<i32>, c: bool) -> i32 {
+    if let Some(a) = x {
+        if c { return a; }
+    }
+    0
+}
+fn ie(x: bool) -> i32 {
+    if x { 1 } else { 0 }
+}
+";
+        // (let-else fn, if-let twin, value, sum)
+        let expected: &[(&str, &str, u64, u64)] = &[
+            ("le_lp", "il_lp", 3, 3),
+            ("le_top", "il_top", 1, 1),
+            ("le_d2", "il_d2", 6, 6),
+            ("le_d3", "il_d3", 10, 10),
+            ("le_two", "il_two", 5, 5),
+            ("le_cl", "il_cl", 0, 2),
+            ("le_in", "il_in", 3, 3),
+            ("ie", "ie", 2, 2),
+        ];
+        check_func_space::<RustParser, _>(src, "foo.rs", |space| {
+            assert_eq!(space.spaces.len(), 15, "fixture members");
+            let measured = |n: &str| {
+                let c = &child_space(&space, n).metrics.cognitive;
+                (c.cognitive(), c.cognitive_sum())
+            };
+            for &(name, twin, value, sum) in expected {
+                assert_eq!(measured(twin), (value, sum), "{twin}");
+                assert_eq!(measured(name), (value, sum), "{name}");
+            }
+            for name in ["le_cl", "il_cl"] {
+                let closure = &child_space(&space, name).spaces;
+                assert_eq!(closure.len(), 1, "{name}'s closure space");
+                assert_eq!(
+                    closure[0].metrics.cognitive.cognitive(),
+                    2,
+                    "{name} closure"
+                );
+            }
+        });
+    }
+
     #[cfg(feature = "typescript")]
     #[test]
     fn typescript_if_else_if_else() {

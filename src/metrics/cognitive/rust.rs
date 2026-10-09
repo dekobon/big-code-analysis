@@ -32,12 +32,20 @@ impl Cognitive for RustCode {
             ForExpression | WhileExpression | LoopExpression | MatchExpression => {
                 increase_nesting(stats, &mut nesting);
             }
+            // `let PAT = e else { … };` is an `if let` that diverges
+            // instead of nesting the happy path, so it pays what its
+            // `if let` twin pays: a structural increment plus the current
+            // nesting, and a level for everything under it — the `else`
+            // block included, as the twin's body is (#1548). Keyed on the
+            // `alternative` field, as cyclomatic does (#1542).
+            LetDeclaration if node.child_by_field_name("alternative").is_some() => {
+                increase_nesting(stats, &mut nesting);
+            }
             // `Else` here is the `else` keyword token, which the grammar
             // also emits for the `else` of an `else if` — so this arm
-            // covers both. A `let`-`else` reaches it too, as a flat +1
-            // with no nesting; that is a side effect of the shared token,
-            // not a let-else rule (#1548).
-            Else => {
+            // covers both. A `let`-`else`'s token is a direct child of the
+            // `let_declaration`, which the arm above already charged.
+            Else if !ancestors.parent_has_kind(node, LetDeclaration as u16) => {
                 increment_by_one(stats);
             }
             BreakExpression | ContinueExpression => {

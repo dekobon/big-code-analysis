@@ -1190,6 +1190,12 @@ value = 47694.803479864124
 [[entry]]
 path = "src/vcs/bus_factor.rs"
 qualified = "greedy_truck_factor"
+metric = "cognitive"
+value = 15.0
+
+[[entry]]
+path = "src/vcs/bus_factor.rs"
+qualified = "greedy_truck_factor"
 metric = "nargs"
 value = 5.0
 

@@ -395,6 +395,14 @@ Sonar ecosystem.
   levels up happened to be a closure. Python cannot express the shape
   at all: a `def` is a statement and a lambda body is a single
   expression.
+- **Rust**'s `let`-`else` (`let Some(a) = y else { continue };`)
+  postdates the specification. It is scored as the `if let` it
+  replaces: `+1` plus the current nesting, with everything under it,
+  the `else` block included, one level deeper. Its `else` token does
+  not pay again. A `for` holding it scores 3, the same as one holding
+  `if let Some(a) = y { … }`. Before #1548 the `let`-`else` paid a flat
+  `+1` through its `else` token whatever its depth, so that `for`
+  scored 2.
 - **Python** charges a boolean operator an extra `+1` for each
   enclosing `lambda`, on top of the `+1` the boolean sequence itself
   earns. No other language does this. Only the outermost operator
