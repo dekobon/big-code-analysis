@@ -27,7 +27,9 @@
 //! operator vocabulary, and `N1` — is what stops a row decaying into a
 //! claim about some surviving token after someone edits the fixture.
 
-use big_code_analysis::{Ast, LANG, MetricsOptions, Source, analyze};
+use big_code_analysis::LANG;
+
+use super::support::{metrics_space, ops_space};
 
 /// One row per construct #1395 settled, plus the two sibling grammars
 /// that share the JS-family getter macro.
@@ -49,6 +51,14 @@ use big_code_analysis::{Ast, LANG, MetricsOptions, Source, analyze};
 /// asserting they have no such construct, which would be false. What
 /// this pins is the policy, and a policy flip lands in a shared getter
 /// macro or a shared ABC arm, which these seven rows already reach.
+//
+// Two gates, one condition. The `mod` gate in `main.rs` names the seven
+// languages with a `Some` row and is the one that decides whether any of
+// this compiles: edit it when a row is added or removed. This gate and
+// the test's are the whole-roster union `check-test-lang-gates` derives
+// for a full `LANG` sweep; the tool reads one file at a time, cannot see
+// the module gate, and fails the file without them. Being wider than the
+// module gate, they never exclude anything it admits.
 #[cfg(any(
     feature = "bash",
     feature = "c",
@@ -207,15 +217,8 @@ fn a_non_comparison_bracket_is_a_halstead_operator_and_not_an_abc_condition() {
         checked += 1;
 
         let name = format!("parity.{ext}");
-        let space = analyze(
-            Source::new(lang, source.as_bytes()).with_name(Some(name.clone())),
-            MetricsOptions::default(),
-        )
-        .unwrap_or_else(|e| panic!("{lang:?}: analyze failed: {e}"));
-        let ops = Ast::parse(Source::new(lang, source.as_bytes()).with_name(Some(name)))
-            .unwrap_or_else(|e| panic!("{lang:?}: parse failed: {e}"))
-            .ops()
-            .unwrap_or_else(|e| panic!("{lang:?}: ops failed: {e}"));
+        let space = metrics_space(lang, source, &name);
+        let ops = ops_space(lang, source, &name);
 
         // The ABC half. `conditions_sum` folds every space in the tree,
         // so a row whose construct sits in a nested function is covered

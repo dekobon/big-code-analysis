@@ -21,7 +21,9 @@
 //! `add-lang` workflow trips over this test rather than discovering the
 //! divergence in the field.
 
-use big_code_analysis::{Ast, FuncSpace, LANG, MetricsOptions, Ops, Source, SpaceKind, analyze};
+use big_code_analysis::{FuncSpace, LANG, Ops, SpaceKind};
+
+use super::support::{metrics_space, ops_space};
 
 /// One fixture per language, chosen to open at least one *nested*
 /// space: a walk that opens no space below the file root would agree
@@ -360,15 +362,8 @@ fn ops_and_metrics_agree_on_the_space_tree() {
         let (source, ext) = fixture(lang);
         let name = format!("parity.{ext}");
 
-        let space = analyze(
-            Source::new(lang, source.as_bytes()).with_name(Some(name.clone())),
-            MetricsOptions::default(),
-        )
-        .unwrap_or_else(|e| panic!("{lang:?}: analyze failed: {e}"));
-        let ops = Ast::parse(Source::new(lang, source.as_bytes()).with_name(Some(name)))
-            .unwrap_or_else(|e| panic!("{lang:?}: parse failed: {e}"))
-            .ops()
-            .unwrap_or_else(|e| panic!("{lang:?}: ops failed: {e}"));
+        let space = metrics_space(lang, source, &name);
+        let ops = ops_space(lang, source, &name);
 
         let from_metrics = rendered(&space);
         let from_ops = rendered(&ops);

@@ -14,6 +14,12 @@
 // "Why the import lint is off on a partial build".
 #![cfg_attr(not(feature = "all-languages"), allow(unused_imports))]
 
+// Shared parse helpers. Their callers are gated per language, so a
+// partial build can compile out every caller of one helper — the same
+// reason `tests/common` carries this allow.
+#[allow(dead_code)]
+mod support;
+
 // Gated on the union of the languages whose fixture rows are `Some`, so
 // a build enabling only languages with no non-comparison bracket
 // construct drops the module rather than failing its non-vacuity guard

@@ -26,7 +26,9 @@
 //! exhaustive `match` on [`LANG`], so a new language variant fails to
 //! compile until a fixture is supplied.
 
-use big_code_analysis::{Ast, FuncSpace, LANG, MetricsOptions, Source, SpaceKind, analyze};
+use big_code_analysis::{Ast, FuncSpace, LANG, Source, SpaceKind};
+
+use super::support::metrics_space;
 
 use super::ops_metrics_space_parity::fixture;
 
@@ -249,11 +251,7 @@ fn every_named_function_space_is_reported_by_functions_and_find() {
         let (source, ext) = fixture(lang);
         let name = format!("parity.{ext}");
 
-        let space = analyze(
-            Source::new(lang, source.as_bytes()).with_name(Some(name.clone())),
-            MetricsOptions::default(),
-        )
-        .unwrap_or_else(|e| panic!("{lang:?}: analyze failed: {e}"));
+        let space = metrics_space(lang, source, &name);
 
         let ast = Ast::parse(Source::new(lang, source.as_bytes()).with_name(Some(name)))
             .unwrap_or_else(|e| panic!("{lang:?}: parse failed: {e}"));

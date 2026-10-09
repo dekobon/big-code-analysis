@@ -4266,10 +4266,8 @@ mod tests {
         // the lexeme-keyed map, not to list both — and this test is
         // what says so.
         //
-        // The same collapse makes the `GT2` arm in `getter/cpp.rs` and
-        // `getter/mozcpp.rs` a defensive arm rather than a live one:
-        // tree-sitter-cpp maps its `>>`-closing `GT2` the same way, so
-        // `vector<vector<int>>` reports two `GT`s.
+        // The C++ grammars' template-list closer collapses the same way;
+        // `cpp_template_closer_alias_never_reaches_kind_id` pins that.
         let path = PathBuf::from("foo.pl");
         for source in ["my $l = <FH>;\n", "my $l = <$fh>;\n", "my $b = $x > $y;\n"] {
             let parser = PerlParser::new(source.as_bytes().to_vec(), &path, None);
@@ -4285,6 +4283,64 @@ mod tests {
                 "Perl::GT must be the `>` kind for `{source}`"
             );
         }
+    }
+
+    /// Drift marker for `Cpp::GT2` / `Mozcpp::GT2`. Both grammars close
+    /// a template parameter or argument list with
+    /// `alias(token(prec(1, '>')), '>')`, which the generated parser
+    /// numbers separately, but `ts_symbol_map` folds that symbol onto
+    /// `GT` before `kind_id()`, as with Perl's readline closer above. The
+    /// `GT2` arms in `getter/cpp.rs` and `getter/mozcpp.rs` are therefore
+    /// defensive; this fails if a grammar bump makes them live, at which
+    /// point the two kinds would split one `>` across two `n1` entries.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    fn assert_template_closer_folds_to_gt<P: crate::ParserTrait>(gt: u16, gt2: u16, label: &str) {
+        // One parameter list (`S<T>`'s declaration) and two argument
+        // lists, the inner one closed by the first half of a `>>`.
+        let source = "template <typename T> struct S {};\n\
+                      std::vector<std::vector<int>> v;\n\
+                      bool b = x > y;\n";
+        let parser = P::new(source.as_bytes().to_vec(), &PathBuf::from("foo.cpp"), None);
+        assert!(
+            !ast_has_kind_id(&parser, gt2),
+            "{label}::GT2 must stay collapsed to {label}::GT",
+        );
+        // Positive control: every template-list closer is present and
+        // carries `GT`, so the assertion above cannot pass merely
+        // because the fixture stopped producing template lists.
+        let closers = parser
+            .root()
+            .preorder()
+            .filter(|n| {
+                n.kind_id() == gt
+                    && n.parent().is_some_and(|p| {
+                        matches!(
+                            p.kind(),
+                            "template_parameter_list" | "template_argument_list"
+                        )
+                    })
+            })
+            .count();
+        assert_eq!(
+            closers, 3,
+            "{label}: each template-list closer must be a `GT`"
+        );
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_template_closer_alias_never_reaches_kind_id() {
+        assert_template_closer_folds_to_gt::<CppParser>(Cpp::GT as u16, Cpp::GT2 as u16, "Cpp");
+    }
+
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_template_closer_alias_never_reaches_kind_id() {
+        assert_template_closer_folds_to_gt::<MozcppParser>(
+            Mozcpp::GT as u16,
+            Mozcpp::GT2 as u16,
+            "Mozcpp",
+        );
     }
 
     #[cfg(feature = "perl")]

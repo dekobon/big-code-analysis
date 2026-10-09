@@ -27,17 +27,15 @@
 //! inside `analyze`'s `LanguageDisabled` error (#1281).
 
 #[cfg(all(feature = "cpp", feature = "mozcpp"))]
-use big_code_analysis::{LANG, MetricsOptions, Source, analyze};
+use big_code_analysis::LANG;
+
+use super::support::metrics_space;
 
 #[cfg(all(feature = "cpp", feature = "mozcpp"))]
 /// Headline integer metric sums for one parse of `source` as `lang`.
 fn metric_sums(lang: LANG, source: &str, ext: &str) -> Vec<(&'static str, u64)> {
     let name = format!("parity.{ext}");
-    let space = analyze(
-        Source::new(lang, source.as_bytes()).with_name(Some(name)),
-        MetricsOptions::default(),
-    )
-    .unwrap_or_else(|e| panic!("{lang:?}: analyze failed: {e}"));
+    let space = metrics_space(lang, source, &name);
     let m = &space.metrics;
     vec![
         ("cyclomatic", m.cyclomatic.cyclomatic_sum()),

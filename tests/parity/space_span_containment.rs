@@ -23,6 +23,8 @@
 
 use big_code_analysis::{Ast, LANG, MetricsOptions, Source, SpaceKind, analyze};
 
+use super::support::{metrics_space, ops_space};
+
 use super::ops_metrics_space_parity::{SpaceTree, fixture};
 
 /// Lines in `source`, counting the way an editor does: a trailing
@@ -147,15 +149,8 @@ fn check_containment<T: SpaceTree>(
 fn check_source(lang: LANG, source: &str, ext: &str) -> usize {
     let name = format!("span.{ext}");
 
-    let space = analyze(
-        Source::new(lang, source.as_bytes()).with_name(Some(name.clone())),
-        MetricsOptions::default(),
-    )
-    .unwrap_or_else(|e| panic!("{lang:?}: analyze failed: {e}"));
-    let ops = Ast::parse(Source::new(lang, source.as_bytes()).with_name(Some(name)))
-        .unwrap_or_else(|e| panic!("{lang:?}: parse failed: {e}"))
-        .ops()
-        .unwrap_or_else(|e| panic!("{lang:?}: ops failed: {e}"));
+    let space = metrics_space(lang, source, &name);
+    let ops = ops_space(lang, source, &name);
 
     let visited = check_containment(lang, "metrics", &space, None);
     check_containment(lang, "ops", &ops, None);

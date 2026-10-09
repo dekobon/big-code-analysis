@@ -28,7 +28,9 @@
 //! file-level sum over functions, but with one function the value
 //! equals that function's nargs).
 
-use big_code_analysis::{LANG, MetricsOptions, Source, analyze};
+use big_code_analysis::LANG;
+
+use super::support::metrics_space;
 
 /// `function_args` file-level sum for the single function in `source`.
 #[cfg(any(
@@ -58,11 +60,7 @@ use big_code_analysis::{LANG, MetricsOptions, Source, analyze};
 ))]
 fn function_args_sum(lang: LANG, source: &str, ext: &str) -> f64 {
     let name = format!("parity.{ext}");
-    let space = analyze(
-        Source::new(lang, source.as_bytes()).with_name(Some(name)),
-        MetricsOptions::default(),
-    )
-    .unwrap_or_else(|e| panic!("{lang:?}: analyze failed: {e}"));
+    let space = metrics_space(lang, source, &name);
     space.metrics.nargs.function_args_sum() as f64
 }
 

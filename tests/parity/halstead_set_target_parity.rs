@@ -17,7 +17,9 @@
 //! source through both dialects and asserts the same operand list.
 
 #[cfg(all(feature = "tcl", feature = "irules"))]
-use big_code_analysis::{Ast, LANG, MetricsOptions, Ops, Source, analyze};
+use big_code_analysis::{LANG, Ops};
+
+use super::support::{metrics_space, ops_space};
 
 /// One occurrence per operand, flattened across nested spaces so the
 /// assertion does not depend on where each dialect opens spaces.
@@ -41,10 +43,7 @@ fn assert_each_operand_once_in_both_dialects(source: &str, expected: &[&str]) {
     for (lang, ext) in [(LANG::Tcl, "tcl"), (LANG::Irules, "irule")] {
         let name = format!("parity.{ext}");
 
-        let ops = Ast::parse(Source::new(lang, source.as_bytes()).with_name(Some(name.clone())))
-            .unwrap_or_else(|e| panic!("{lang:?}: parse failed: {e}"))
-            .ops()
-            .unwrap_or_else(|e| panic!("{lang:?}: ops failed: {e}"));
+        let ops = ops_space(lang, source, &name);
         let mut operands = Vec::new();
         flatten_operands(&ops, &mut operands);
 
@@ -61,11 +60,7 @@ fn assert_each_operand_once_in_both_dialects(source: &str, expected: &[&str]) {
             "{lang:?}: operands must be exactly {expected:?}; got {operands:?}",
         );
 
-        let space = analyze(
-            Source::new(lang, source.as_bytes()).with_name(Some(name)),
-            MetricsOptions::default(),
-        )
-        .unwrap_or_else(|e| panic!("{lang:?}: analyze failed: {e}"));
+        let space = metrics_space(lang, source, &name);
         // Every expected operand occurs once, so n2 = N2 = the list's
         // length in both dialects.
         assert_eq!(space.metrics.halstead.unique_operands(), n, "{lang:?}");

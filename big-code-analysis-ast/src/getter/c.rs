@@ -55,8 +55,11 @@ impl Getter for CCode {
 
         // C's operator alphabet is the C++ set minus the C++-only forms
         // (`.*` / `->*`, `new` / `delete`, `try` / `catch` / `throw`,
-        // `<=>`, the `>>`-closing `GT2`). Raw string literals and the
-        // `namespace`-qualified identifier likewise do not exist in C.
+        // `<=>`). Raw string literals, the `namespace`-qualified
+        // identifier and template lists likewise do not exist in C, so
+        // nor does the C++ getters' `GT2` arm — a defensive one even
+        // there, since the runtime folds the template-list closer onto
+        // `GT` (`cpp_template_closer_alias_never_reaches_kind_id`).
         // `LPAREN2` is a defensive arm (collapsed to `LPAREN` before
         // `kind_id()`; #768, see the Cpp note).
         match node.kind_id().into() {

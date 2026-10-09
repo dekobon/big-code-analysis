@@ -64,7 +64,9 @@
 //! this file exercises the new arms instead of documenting their
 //! absence.
 
-use big_code_analysis::{LANG, MetricsOptions, Source, analyze};
+use big_code_analysis::LANG;
+
+use super::support::metrics_space;
 
 /// Exit-count file-level sum for the single function in `source`.
 #[cfg(any(
@@ -94,11 +96,7 @@ use big_code_analysis::{LANG, MetricsOptions, Source, analyze};
 ))]
 fn nexits_sum(lang: LANG, source: &str, ext: &str) -> f64 {
     let name = format!("parity.{ext}");
-    let space = analyze(
-        Source::new(lang, source.as_bytes()).with_name(Some(name)),
-        MetricsOptions::default(),
-    )
-    .unwrap_or_else(|e| panic!("{lang:?}: analyze failed: {e}"));
+    let space = metrics_space(lang, source, &name);
     space.metrics.nexits.nexits_sum() as f64
 }
 

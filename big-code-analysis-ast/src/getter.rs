@@ -478,14 +478,16 @@ pub trait Getter {
     /// A bracket delimiting *syntax* fits neither shape: no literal
     /// would absorb its contribution, so it stays an operator.
     ///
-    /// `ancestors` is the chain the walker descended through. Six
+    /// `ancestors` is the chain the walker descended through. Most
     /// impls read a parent from it to disambiguate a token whose role
-    /// depends on what encloses it: Python's `not` / `in` / `is` inside
+    /// depends on what encloses it — the nine literal-delimiter arms
+    /// above, plus, among others, Python's `not` / `in` / `is` inside
     /// the compound `not in` / `is not`, Rust's `||` and `!` inside a
     /// binary expression rather than a doc-comment marker, the
-    /// namespace identifier in both C++ grammars, Bash's `$name`, and
-    /// iRules' `$var`. Reaching those parents with [`Node::parent`]
-    /// instead costs `O(depth)` per node (#1096).
+    /// namespace identifier in both C++ grammars, Bash's `$name`, the
+    /// name inside a Tcl or iRules variable substitution, and Groovy's
+    /// `super` in a wildcard bound. Reaching those parents with
+    /// [`Node::parent`] instead costs `O(depth)` per node (#1096).
     ///
     /// [`braced_word_op_type`]: Self::braced_word_op_type
     /// [`Checker::is_string_with_code`]: crate::Checker::is_string_with_code

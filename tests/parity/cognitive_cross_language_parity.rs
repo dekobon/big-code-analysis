@@ -33,7 +33,9 @@
 //! Java's mandatory wrapping class does not skew the comparison —
 //! no per-language offset is required.
 
-use big_code_analysis::{LANG, MetricsOptions, Source, analyze};
+use big_code_analysis::LANG;
+
+use super::support::metrics_space;
 
 /// Cognitive max for the single function in `source`.
 #[cfg(any(
@@ -63,11 +65,7 @@ use big_code_analysis::{LANG, MetricsOptions, Source, analyze};
 ))]
 fn cognitive_max(lang: LANG, source: &str, ext: &str) -> f64 {
     let name = format!("parity.{ext}");
-    let space = analyze(
-        Source::new(lang, source.as_bytes()).with_name(Some(name)),
-        MetricsOptions::default(),
-    )
-    .unwrap_or_else(|e| panic!("{lang:?}: analyze failed: {e}"));
+    let space = metrics_space(lang, source, &name);
     space.metrics.cognitive.cognitive_max() as f64
 }
 
@@ -327,11 +325,7 @@ fn a_function_declared_inside_a_closure_scores_the_same_as_outside() {
             space.spaces.iter().find_map(find)
         }
         let name = format!("parity.{ext}");
-        let space = analyze(
-            Source::new(lang, source.as_bytes()).with_name(Some(name)),
-            MetricsOptions::default(),
-        )
-        .expect("parser produced no FuncSpace for parity fixture");
+        let space = metrics_space(lang, source, &name);
         find(&space).unwrap_or_else(|| panic!("{lang:?}: fixture has no function named `g`"))
     }
 

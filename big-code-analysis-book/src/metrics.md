@@ -584,7 +584,7 @@ basis; the rules deliberately exclude pure layout punctuation like
 parentheses and statement separators, which is why the Halstead
 totals are *not* the same as the Tokens count.
 
-Four classification rules are worth knowing because they are choices
+Six classification rules are worth knowing because they are choices
 rather than consequences, and because several grammars spell the
 tokens involved the same way they spell real operators:
 
@@ -675,6 +675,22 @@ tokens involved the same way they spell real operators:
   `a && b && c` has one. Operators are distinct by token, and `bca ops`
   lists `and` and `&&` separately, so the metric matches what it
   reports (#1522).
+- **A self-reference is an operand.** `this`, `self`, `$this`,
+  `super` and `base` name the receiver of a member access, so
+  `this.x` counts the way `p.x` does: one `.` operator and two
+  operands. Java, Groovy, C#, Kotlin (labelled `this@Outer` included),
+  Python, Rust and PHP all agree. The keyword is an operator only where
+  it *declares* something, as the `operator` keyword of an overload
+  does: C#'s indexer `public int this[int i]`, and the wildcard bound
+  `? super T` in Java and Groovy (#1380).
+- **A keyword's role follows its text, not its node kind.** C#'s
+  grammar parses the bare `this`, `ref`, `out`, `in`, `scoped` and
+  `readonly` of a parameter as a `modifier` node, a different kind
+  from the one the same keyword has anywhere else. Each keeps the
+  role its text has elsewhere: an extension method's `this Foo f` is
+  an operand, and the `ref` in `M(ref int a)` is the same operator as
+  the `ref` in the call `M(ref x)`, adding to `total_operators` but
+  not to `unique_operators` (#1418).
 
 ### Derived metrics
 

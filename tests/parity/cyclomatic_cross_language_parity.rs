@@ -56,16 +56,14 @@
 
 use std::collections::BTreeMap;
 
-use big_code_analysis::{LANG, MetricsOptions, Source, analyze};
+use big_code_analysis::LANG;
+
+use super::support::metrics_space;
 
 /// Parses `source` as `lang` and returns the file-level standard CCN sum.
 fn ccn_sum(lang: LANG, source: &str, ext: &str) -> f64 {
     let name = format!("parity.{ext}");
-    let space = analyze(
-        Source::new(lang, source.as_bytes()).with_name(Some(name)),
-        MetricsOptions::default(),
-    )
-    .unwrap_or_else(|e| panic!("{lang:?}: analyze failed: {e}"));
+    let space = metrics_space(lang, source, &name);
     space.metrics.cyclomatic.cyclomatic_sum() as f64
 }
 

@@ -34,7 +34,9 @@
 //! `groovy_wildcard_super_bound_stays_an_operator` in
 //! `src/metrics/halstead.rs`.
 
-use big_code_analysis::{Ast, LANG, MetricsOptions, Source, analyze};
+use big_code_analysis::LANG;
+
+use super::support::{metrics_space, ops_space};
 
 /// The same fixture as [`fixture`], with the *receiver* occurrence of
 /// the keyword deleted and nothing else changed — or `None` for a row
@@ -118,14 +120,10 @@ fn receiver_stripped(lang: LANG) -> Option<&'static str> {
     feature = "typescript",
 ))]
 fn total_operands(lang: LANG, source: &str, name: &str) -> u64 {
-    analyze(
-        Source::new(lang, source.as_bytes()).with_name(Some(name.to_owned())),
-        MetricsOptions::default(),
-    )
-    .unwrap_or_else(|e| panic!("{lang:?}: analyze failed: {e}"))
-    .metrics
-    .halstead
-    .total_operands()
+    metrics_space(lang, source, name)
+        .metrics
+        .halstead
+        .total_operands()
 }
 
 /// Returns `(source, extension, keywords)` for a language that spells a
@@ -334,10 +332,7 @@ fn every_language_bills_a_self_reference_as_an_operand() {
         checked += 1;
 
         let name = format!("parity.{ext}");
-        let ops = Ast::parse(Source::new(lang, source.as_bytes()).with_name(Some(name.clone())))
-            .unwrap_or_else(|e| panic!("{lang:?}: parse failed: {e}"))
-            .ops()
-            .unwrap_or_else(|e| panic!("{lang:?}: ops failed: {e}"));
+        let ops = ops_space(lang, source, &name);
 
         for keyword in keywords {
             assert!(

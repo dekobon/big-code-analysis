@@ -1421,10 +1421,12 @@ mod tests {
 
     // ===== JS-family `is_string` regression tests (issue #283) =====
 
-    // For each language, count nodes whose kind_id is exactly `target`
-    // *and* simultaneously match `is_string`. A non-zero result proves
-    // both that the alias appears in the parse and that the checker
-    // accepts it. Pre-fix this would be zero for the alias kinds.
+    // Count nodes whose kind_id is exactly `target` *and* match
+    // `is_string`. It answers both directions: a non-zero count proves
+    // the alias reaches the predicate (the #283/#288 positive checks),
+    // and a zero paired with an `ast_has_kind_id` presence check proves
+    // a kind present in the parse is rejected (Go runes, C-family char
+    // literals, PHP's `string` type keyword in #1474).
     #[cfg(any(
         feature = "bash",
         feature = "c",
@@ -1455,19 +1457,11 @@ mod tests {
         target: u16,
         is_string: F,
     ) -> usize {
-        let mut stack = vec![parser.root()];
-        let mut hits = 0;
-        while let Some(node) = stack.pop() {
-            if node.kind_id() == target && is_string(&node) {
-                hits += 1;
-            }
-            for i in (0..node.child_count()).rev() {
-                if let Some(c) = node.child(i) {
-                    stack.push(c);
-                }
-            }
-        }
-        hits
+        parser
+            .root()
+            .preorder()
+            .filter(|node| node.kind_id() == target && is_string(node))
+            .count()
     }
 
     #[cfg(feature = "javascript")]
@@ -1587,10 +1581,7 @@ mod tests {
         );
     }
 
-    // Walk the AST and return the first node whose `kind_id` equals
-    // `target`. Used by the `is_else_if` tests below to fish a
-    // specific node out of the parse tree without depending on the
-    // `count` helper above.
+    // The first node, in document order, whose `kind_id` equals `target`.
     #[cfg(any(
         feature = "c",
         feature = "cpp",
@@ -1601,18 +1592,10 @@ mod tests {
         feature = "rust",
     ))]
     fn find_first_kind<P: ParserTrait>(parser: &P, target: u16) -> Option<Node<'_>> {
-        let mut stack = vec![parser.root()];
-        while let Some(node) = stack.pop() {
-            if node.kind_id() == target {
-                return Some(node);
-            }
-            for i in (0..node.child_count()).rev() {
-                if let Some(c) = node.child(i) {
-                    stack.push(c);
-                }
-            }
-        }
-        None
+        parser
+            .root()
+            .preorder()
+            .find(|node| node.kind_id() == target)
     }
 
     /// `#[cfg(test)] mod tests { … }` carries the test marker as an
