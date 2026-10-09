@@ -10,16 +10,11 @@
 )]
 
 use super::{Abc, Stats, count_boolean_slot, count_field_operands, last_operand, wrapped_operand};
-use crate::lang_helpers::elixir::elixir_call_keyword;
+use crate::lang_helpers::elixir::{elixir_applying_operator, elixir_call_keyword};
 use crate::*;
 
-/// The grammar rule an applied binary operator hangs off, as opposed to
-/// `operator_identifier`, which is how one is *named*
-/// (`&</2`, `Kernel.<(a, b)`).
-///
-/// Matched by name rather than by `kind_id` because the grammar aliases
-/// this one rule to three ids (`Elixir::BinaryOperator` through
-/// `BinaryOperator3`).
+/// The grammar rule an applied binary operator hangs off. Matched by
+/// name: see `elixir_applying_operator`.
 const BINARY_OPERATOR: &str = "binary_operator";
 
 // One step of the value peel (see `PeelStep`): the operand a wrapper
@@ -435,9 +430,7 @@ impl Abc for ElixirCode {
             | E::GT
             | E::In
             | E::Notin
-                if ancestors
-                    .parent(node)
-                    .is_some_and(|parent| parent.kind() == BINARY_OPERATOR) =>
+                if elixir_applying_operator(node, ancestors).is_some() =>
             {
                 stats.conditions += 1.;
             }
@@ -450,10 +443,7 @@ impl Abc for ElixirCode {
             // `binary_operator`s, so an operand that is itself a chain is
             // paid by its own operator's visit.
             E::AMPAMP | E::PIPEPIPE | E::And | E::Or => {
-                if let Some(chain) = ancestors
-                    .parent(node)
-                    .filter(|parent| parent.kind() == BINARY_OPERATOR)
-                {
+                if let Some(chain) = elixir_applying_operator(node, ancestors) {
                     count_field_operands(&chain, elixir_count_condition, &mut stats.conditions);
                 }
             }

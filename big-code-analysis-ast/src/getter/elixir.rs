@@ -142,6 +142,17 @@ impl Getter for ElixirCode {
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Elixir as E;
 
+        // A *named* operator (`&==/2`, `&and/2`, `Kernel.||(a, b)`) is one
+        // `operator_identifier` holding the operator token. The wrapper is
+        // the operand, as `foo` is in `&foo/2`, so the token inside it must
+        // not also bill an operator (grammar-dispatch §5, #1534). The
+        // wrapper is the keeper because it exists for every spelling: `..`
+        // is a childless `operator_identifier`, so keeping the leaf would
+        // lose it.
+        if ancestors.parent_has_kind(node, E::OperatorIdentifier as u16) {
+            return TokenRole::Unknown;
+        }
+
         match node.kind_id().into() {
             // Sigil delimiter punctuation. The delimiter choice is
             // spelling, not semantics — `~r/abc/` is not two divisions

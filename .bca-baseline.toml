@@ -231,7 +231,7 @@ value = 57421.05047463073
 path = "big-code-analysis-ast/src/getter/elixir.rs"
 qualified = "ElixirCode::get_op_type"
 metric = "halstead.effort"
-value = 68425.65670070829
+value = 76992.47971865896
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/irules.rs"

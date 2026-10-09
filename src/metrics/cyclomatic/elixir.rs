@@ -100,8 +100,13 @@ impl Cyclomatic for ElixirCode {
                 stats.cyclomatic_modified += 1.;
             }
             // Short-circuit booleans add a decision point in both
-            // metrics.
-            E::AMPAMP | E::PIPEPIPE | E::And | E::Or => {
+            // metrics — where applied. `&and/2`, `&||/2` and
+            // `Kernel.||(a, b)` only name the operator and decide
+            // nothing (#1534); ABC and cognitive gate on the same parent.
+            E::AMPAMP | E::PIPEPIPE | E::And | E::Or
+                if crate::lang_helpers::elixir::elixir_applying_operator(node, ancestors)
+                    .is_some() =>
+            {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }

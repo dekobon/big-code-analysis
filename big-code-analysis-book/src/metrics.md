@@ -594,7 +594,7 @@ basis; the rules deliberately exclude pure layout punctuation like
 parentheses and statement separators, which is why the Halstead
 totals are *not* the same as the Tokens count.
 
-Six classification rules are worth knowing because they are choices
+Seven classification rules are worth knowing because they are choices
 rather than consequences, and because several grammars spell the
 tokens involved the same way they spell real operators:
 
@@ -701,6 +701,14 @@ tokens involved the same way they spell real operators:
   an operand, and the `ref` in `M(ref int a)` is the same operator as
   the `ref` in the call `M(ref x)`, adding to `total_operators` but
   not to `unique_operators` (#1418).
+- **A named operator is one operand.** Elixir names an operator
+  without applying it in a capture (`&==/2`, `&and/2`) or a remote
+  call (`Kernel.||(a, b)`), and its grammar wraps the token in an
+  `operator_identifier`. That wrapper is the operand, as `foo` is in
+  `&foo/2`, so the token inside it adds no operator; `&==/2` scores
+  what `&foo/2` does. A named `&&` / `||` / `and` / `or` is no
+  decision either (#1534). This differs from a C# `operator <`, whose
+  `<` has no wrapper and so stays the operator the rule above makes it.
 
 ### Derived metrics
 

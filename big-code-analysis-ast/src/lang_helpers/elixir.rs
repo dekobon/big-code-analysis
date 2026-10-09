@@ -1,4 +1,5 @@
-//! Elixir: keyword `Call` identity (`def`, `defmodule`, `quote`, …).
+//! Elixir: keyword `Call` identity (`def`, `defmodule`, `quote`, …),
+//! and applied versus named operators.
 
 use crate::Elixir;
 use crate::node::{Ancestors, Node};
@@ -85,4 +86,28 @@ pub fn elixir_do_block_call_children<'a>(
         .filter(|child| child.kind_id() == Elixir::DoBlock as u16)
         .flat_map(|do_block| do_block.children())
         .filter(|stmt| stmt.kind_id() == Elixir::Call as u16)
+}
+
+/// The `binary_operator` that applies `op`, an operator token, or `None`
+/// when the token is not applied there.
+///
+/// An operator token also *names* the operator: `&==/2`, `&and/2` and
+/// `Kernel.||(a, b)` hold it inside an `operator_identifier`, and the
+/// single-token `atom` / `keyword` spell it too. None of those compares,
+/// chains or decides anything, and under error recovery the parent can
+/// be an `ERROR` with no operands, so every decision metric keys on this
+/// parent rather than on the token (#1531, #1534).
+///
+/// Matched by rule name rather than by `kind_id`: the grammar aliases
+/// `binary_operator` to three ids (`Elixir::BinaryOperator` through
+/// `BinaryOperator3`), and a name comparison stays correct when a bump
+/// adds a fourth (grammar-dispatch §1).
+#[must_use]
+pub fn elixir_applying_operator<'a>(
+    op: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+) -> Option<Node<'a>> {
+    ancestors
+        .parent(op)
+        .filter(|parent| parent.kind() == "binary_operator")
 }
