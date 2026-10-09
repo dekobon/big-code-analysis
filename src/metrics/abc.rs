@@ -610,6 +610,7 @@ mod tests {
     #[cfg(any(
         feature = "csharp",
         feature = "elixir",
+        feature = "go",
         feature = "groovy",
         feature = "java",
         feature = "kotlin",
@@ -9104,6 +9105,69 @@ end
         );
     }
 
+    // An `elsif` is Java's `else if`: one condition for the `else`
+    // (Rule 5) plus an `if` predicate slot. It paid only the `else`, so
+    // `eb`, `eself`, `eneg` and `eparen` scored 2 where
+    // `if (a) {} else if (b) {}` scores 3, while `ecmp` matched only
+    // because its `>` arm paid the predicate. Each row now equals its Java
+    // twin (`eelse` 4 / 3: Rule 5 counts the `else` arm, cyclomatic
+    // does not), and `ecmp` / `eand` must not move, or the slot is paying
+    // on top of the operator arms (#1520).
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_elsif_predicate_is_a_condition_slot() {
+        let src = "def eb(a, b)
+  if a then 1 elsif b then 2 end
+end
+def ecmp(a, x)
+  if a then 1 elsif x > 0 then 2 end
+end
+def eself(a)
+  if a then 1 elsif self then 2 end
+end
+def eneg(a, b)
+  if a then 1 elsif !b then 2 end
+end
+def eparen(a, b)
+  if a then 1 elsif (b) then 2 end
+end
+def eand(a, b, c)
+  if a then 1 elsif b && c then 2 end
+end
+def eelse(a, b)
+  if a then 1 elsif b then 2 else 3 end
+end
+";
+        assert_fixture_spells::<RubyParser>(
+            src,
+            "foo.rb",
+            &[
+                (Ruby::Elsif as u16, 7, "one `elsif` per member"),
+                (Ruby::Else as u16, 1, "`eelse`'s `else`"),
+            ],
+        );
+        check_func_space::<RubyParser, _>(src, "foo.rb", |space| {
+            assert_members_score(
+                &space,
+                &[
+                    // (member, abc.conditions, cyclomatic)
+                    // Was 2.
+                    ("eb", 3, 3),
+                    ("ecmp", 3, 3),
+                    // Was 2.
+                    ("eself", 3, 3),
+                    // Was 2.
+                    ("eneg", 3, 3),
+                    // Was 2.
+                    ("eparen", 3, 3),
+                    ("eand", 4, 4),
+                    // Was 3.
+                    ("eelse", 4, 3),
+                ],
+            );
+        });
+    }
+
     // #1520: every Ruby condition slot — block and modifier `if` /
     // `unless` / `while` / `until`, a `case … in` guard, a ternary
     // condition — pays one condition unless another arm already charged
@@ -9113,7 +9177,8 @@ end
     // subject-less `when` scored 1 (`ruby_subjectless_case_when_condition_
     // wrappers_count_once`). Every row sits at `conditions == cyclomatic
     // - 1` except `tern` and `ifelse`, which agree with each other one
-    // above it: ABC counts the `?` / `else` arm and cyclomatic does not.
+    // above it: ABC counts the `?` / `else` arm and cyclomatic does not;
+    // and `chain_neg`, one below: Rule 9 counts neither `-a` nor `-b`.
     //
     // The second block must not move, or the slot is paying twice: each
     // predicate's comparison or chain operand is already counted by its
@@ -9202,7 +9267,7 @@ end
                 &space,
                 &[
                     // (member, abc.conditions, cyclomatic); each of the
-                    // first twelve was one lower.
+                    // first thirteen was one lower.
                     ("scope", 1, 2),
                     ("zelf", 1, 2),
                     ("neg", 1, 2),
@@ -10698,6 +10763,50 @@ func nest2(x, y int) int { switch x { case 1: switch { case y > 1: return 1 } };
                 ("nest", 2, 3),
                 // Was 3: the tagged outer case keeps its 1.
                 ("nest2", 2, 3),
+            ],
+        );
+    }
+
+    // A pointer dereference or channel receive is a boolean operand the
+    // way an identifier is: `*p` of a `*bool`, `<-ch` of a `chan bool`.
+    // No operator arm counts either, so each slot pays for it — the `if`
+    // slot, a tagless case (which #1523 routed through that slot, so
+    // `swp` / `swr` fell from 1 to 0 until this), the `!` / paren peel,
+    // and an `&&` operand. `neg` and `asg` are the controls: `-x`, `*&y`
+    // and `b := *p` sit in no boolean slot and stay 0 (#1526).
+    #[cfg(feature = "go")]
+    #[test]
+    fn go_deref_and_receive_are_boolean_operands() {
+        let src = "package main
+func ifp(p *bool) int { if *p { return 1 }; return 0 }
+func ifr(ch chan bool) int { if <-ch { return 1 }; return 0 }
+func swp(p *bool) int { switch { case *p: return 1 }; return 0 }
+func swr(ch chan bool) int { switch { case <-ch: return 1 }; return 0 }
+func andp(a bool, p *bool) int { if a && *p { return 1 }; return 0 }
+func notp(p *bool) int { if !*p { return 1 }; return 0 }
+func parp(p *bool) int { if (*p) { return 1 }; return 0 }
+func neg(x int) int { y := -x; z := *&y; return z }
+func asg(p *bool) bool { b := *p; return b }
+";
+        assert_go_switch_members(
+            src,
+            0,
+            &[
+                (Go::ExpressionCase as u16, 2, "`swp` / `swr` cases"),
+                (Go::LTDASH as u16, 2, "`ifr` / `swr` receives"),
+                (Go::ParenthesizedExpression as u16, 1, "`parp`'s parens"),
+            ],
+            &[
+                // (member, abc.conditions, cyclomatic)
+                ("ifp", 1, 2),
+                ("ifr", 1, 2),
+                ("swp", 1, 2),
+                ("swr", 1, 2),
+                ("andp", 2, 3),
+                ("notp", 1, 2),
+                ("parp", 1, 2),
+                ("neg", 0, 1),
+                ("asg", 0, 1),
             ],
         );
     }

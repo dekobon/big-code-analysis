@@ -320,6 +320,12 @@ impl Abc for RubyCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        // bca: suppress(cyclomatic) — exhaustive kind dispatch table
+        // One arm per grammar kind, like `CppCode::compute`: the count is
+        // the number of node kinds the Ruby grammar can hand us, not
+        // branching a reader must hold. The `Elsif` slot arm took it past
+        // the limit; each arm is independent and there is no semantic
+        // boundary to split this lookup on.
         use Ruby::*;
 
         match node.kind_id().into() {
@@ -402,9 +408,19 @@ impl Abc for RubyCode {
             // the arm's meaning is "this node is a condition, with
             // nothing to gate on" — as true of a production as of a
             // token.
-            Else | Elsif | QMARK | Rescue | RescueModifier | RescueModifier2 | RescueModifier3
+            Else | QMARK | Rescue | RescueModifier | RescueModifier2 | RescueModifier3
             | TestPattern => {
                 stats.conditions += 1.;
+            }
+            // An `elsif` is Java's `else if`: the `else` (+1, Rule 5) and
+            // an `if` predicate slot. It paid only the first, so `elsif b`
+            // scored one below `else if (b)` while `elsif x > 0` matched it
+            // through the comparison arm.
+            Elsif => {
+                stats.conditions += 1.;
+                if let Some(cond) = node.child_by_field_name("condition") {
+                    ruby_count_condition(&cond, &mut stats.conditions);
+                }
             }
             // A subject-less `case` can already have paid for its clause
             // through the clause's own operators (#1453).

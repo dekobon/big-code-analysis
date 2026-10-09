@@ -25,8 +25,9 @@ for historical reference.
 ## [Unreleased]
 
 Every entry under **Fixed** changes ABC values for valid input, mostly
-`conditions` (one Elixir case changes `assignments`). Only `abc.*`
-values move; cyclomatic, cognitive and Halstead are unchanged.
+`conditions` (one Elixir case changes `assignments`), except the C++
+alternative-token entry for #1522, which moves cyclomatic, cognitive
+and Halstead only.
 
 ### Fixed
 
@@ -43,7 +44,7 @@ values move; cyclomatic, cognitive and Halstead are unchanged.
 - **C++ and Mozcpp score the ISO alternative tokens like their
   symbols** (#1470). `not b`, `b and c`, `b or c` and `b not_eq c` scored
   0 where `!b`, `b && c`, `b || c` and `b != c` score 1, 2, 2 and 1.
-  Cyclomatic, cognitive and Halstead do not yet recognise them (#1522).
+  Cyclomatic, cognitive and Halstead now recognise them too (#1522).
 - **A Ruby subject-less `case` no longer counts a comparison twice**
   (#1453). `case; when x > 5 … else …` scored 3 against its `if`
   analogue's 2. A subject-less `when` is evaluated like an `if`
@@ -74,6 +75,39 @@ values move; cyclomatic, cognitive and Halstead are unchanged.
   `while`, and an Elixir `=` behind a comment, which scored no
   assignment. In the corpora, two pdf.js commented conditions and one
   serde `while try!(…)` loop gain one condition each.
+- **A parenthesised Ruby statement-modifier condition scores one**
+  (#1521). `g if (b)`, `g while ((b))` and the `unless` / `until`
+  forms scored 0 where `g if b`, `g if !b` and the block form
+  `if (b) then … end` score 1.
+- **A Ruby predicate scores one unless another arm already counted
+  it** (#1520). An `if` / `elsif` / `unless` / `while` / `until`
+  predicate (block or modifier), a `case … in` guard or a ternary
+  condition scored 0
+  unless it peeled to a bare identifier or literal, so `if Foo::Bar`,
+  `if self`, `if -x`, `if defined?(x)`, `if (y = x)`, `if x + 1` and
+  `g if begin b end` scored 0 against a cyclomatic decision of 1. They
+  now score 1, the same rule a subject-less `when` uses. `elsif b` now
+  scores 2 (the `else` plus the predicate), like Java's `else if (b)`;
+  it scored 1, as did `elsif self` and `elsif !b`. An assignment
+  or `begin … end` operand of an `&&` / `||` chain, ternary condition or
+  ternary branch is read as its value, so `x = (y = b) ? c : d` and
+  `x = c ? (y = !b) : z` now score like `b ? c : d` and `c ? !b : z`.
+- **A Go tagless `switch` case no longer counts a comparison twice**
+  (#1523). `switch { case x > 5: }` scored 2 where `if x > 5` scores 1.
+  Each case expression of a `switch` with no tag now scores as an `if`
+  predicate does, and a list (`case a, b:`) is an implicit `||` that
+  scores 2, like `if a || b`. Tagged switches, type switches and
+  `select` are unchanged. A pointer dereference or channel receive in
+  a boolean slot (`if *p`, `case <-ch:`, `a && *p`) now scores one
+  condition like an identifier, where it scored 0.
+- **C++ and Mozcpp alternative operator tokens score like their
+  symbols in cyclomatic, cognitive and Halstead** (#1522). `b and c`
+  and `b or c` now add a cyclomatic decision and a cognitive boolean
+  sequence (`a and b && c` is one sequence, `a and b or c` two), and
+  all eleven alternative tokens (`and`, `or`, `not`, `not_eq`, `bitand`,
+  `bitor`, `xor`, `compl`, `and_eq`, `or_eq`, `xor_eq`) count as
+  Halstead operators. `and` and `&&` stay distinct entries in
+  `unique_operators`, as `bca ops` lists them.
 
 ## [2.3.0] - 2026-10-07
 

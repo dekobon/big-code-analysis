@@ -396,12 +396,12 @@ impl Abc for PerlCode {
         stats: &mut Stats,
     ) {
         // bca: suppress(halstead, cyclomatic)
-        // Exhaustive one-arm-per-grammar-kind dispatch table; see the
-        // rationale on `CppCode::compute`, which carries both markers
-        // for the same construct, as do `CCode`, `ObjcCode` and
-        // `MozcppCode`. Perl's arm list is the longest of the family —
-        // tree-sitter-perl tokenises all nineteen assignment operators
-        // and all six call-expression wrappers separately — so
+        // Exhaustive one-arm-per-grammar-kind dispatch table, like
+        // `CppCode::compute`, which breaches only the cyclomatic limit
+        // and so carries only that marker. Perl's arm list is the
+        // longest of the family — tree-sitter-perl tokenises all
+        // nineteen assignment operators and all six call-expression
+        // wrappers separately — so
         // `halstead.effort` here is a count of distinct enum operands,
         // and the cyclomatic count is the number of node kinds the
         // grammar can hand us, neither being reasoning a reader must

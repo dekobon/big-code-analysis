@@ -23,8 +23,8 @@ use crate::*;
 // the operator token, where a comment may sit (`if ! /*c*/ b`, #1455):
 // `unary_expression` names its `operand`, and a parenthesis holds only
 // its operand. A `unary_expression` spelled with any other operator
-// (`-x`, `^x`, `*p`, `&v`, `<-ch`) is never a boolean slot's operand,
-// so the peel declines it.
+// (`-x`, `^x`, `*p`, `&v`, `<-ch`) wraps no boolean, so the peel stops
+// there; `*p` and `<-ch` are boolean leaves (`go_is_bool_operand`).
 fn go_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     use Go as G;
 
@@ -35,6 +35,22 @@ fn go_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
         }
         _ => None,
     }
+}
+
+// A leaf a boolean slot can hold: the terminal kinds, plus a pointer
+// dereference (`*p` of a `*bool`) or a channel receive (`<-ch` of a
+// `chan bool`). Those two are `unary_expression`s, so they cannot join
+// the kind set, and no other arm counts them, so without this `if *p`
+// and a tagless `case <-ch:` scored 0 against a cyclomatic decision of
+// 1 (#1526). `-x` and `^x` are never boolean and stay out.
+fn go_is_bool_operand(node: &Node) -> bool {
+    use Go as G;
+
+    matches!(node.kind_id().into(), go_bool_terminal_kinds!())
+        || (node.kind_id() == G::UnaryExpression
+            && node
+                .child(0)
+                .is_some_and(|op| matches!(op.kind_id().into(), G::STAR | G::LTDASH)))
 }
 
 // Go ABC unary-conditional walker (issue #403; see `rust_inspect_container`
@@ -57,7 +73,7 @@ fn go_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f
         has_boolean_content |= proves_boolean;
         node = operand;
 
-        if matches!(node.kind_id().into(), go_bool_terminal_kinds!()) {
+        if go_is_bool_operand(&node) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -68,7 +84,7 @@ fn go_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f
 
 // Phase-2B (issue #403): condition-slot dispatcher for Go.
 fn go_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
-    if matches!(condition.kind_id().into(), go_bool_terminal_kinds!()) {
+    if go_is_bool_operand(condition) {
         *conditions += 1.;
     } else if go_wrapper_operand(condition).is_some() {
         // Asking the peel itself which kinds it unwraps, rather than
@@ -180,11 +196,7 @@ fn go_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     if cursor.goto_first_child() {
         loop {
             let node = cursor.node();
-            let node_kind = node.kind_id().into();
-
-            if matches!(node_kind, go_bool_terminal_kinds!())
-                && matches!(list_kind, G::BinaryExpression)
-            {
+            if go_is_bool_operand(&node) && matches!(list_kind, G::BinaryExpression) {
                 *conditions += 1.;
             } else if node.is_named() {
                 go_inspect_container(&node, list_node, conditions);
@@ -204,10 +216,14 @@ impl Abc for GoCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
-        // bca: suppress(halstead, cyclomatic)
-        // Exhaustive one-arm-per-grammar-kind dispatch table; see the
-        // rationale on `CppCode::compute`, which carries both markers
-        // for the same construct.
+        // bca: suppress(halstead, cyclomatic) — exhaustive kind dispatch table
+        // One arm per grammar kind, like `CppCode::compute`: the
+        // cyclomatic count is the number of node kinds the Go grammar can
+        // hand us, and `halstead.effort` counts the distinct enum operands
+        // those arms name, neither being reasoning a reader must do.
+        // Cyclomatic was already baselined past its limit; the
+        // `ExpressionCase` arm (#1523) took effort past its own. Each arm
+        // is independent; there is no boundary to split on.
         //
         // Aliased because `Go::Go` (the `go` keyword variant) collides
         // with the bare enum name in pattern position under

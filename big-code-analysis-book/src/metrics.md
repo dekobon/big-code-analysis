@@ -454,7 +454,8 @@ A "decision point" is any node where control can branch:
 - `while`, `do … while`, every variant of `for`
 - exception-handler `catch` clauses
 - short-circuit boolean operators `&&` and `||`, including their
-  word spellings (`and` / `or` in C++, Python, Ruby, Lua and Perl)
+  word spellings (`and` / `or` in C++, Python, Ruby, Lua, Perl, PHP,
+  Elixir and iRules)
 
 The per-language `Cyclomatic` trait, in `src/metrics/cyclomatic.rs`,
 asks each tree-sitter node "are you a decision?" and increments the
