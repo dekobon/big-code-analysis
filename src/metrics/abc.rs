@@ -8578,8 +8578,7 @@ function f(int $a, int $b): int {
     // Issue #1161. Ruby's ternary carried only the `?` token arm, so
     // `a ? !b : !c` scored 1 against the 4 that Java, C#, Groovy, the C
     // family, the JS family, PHP and Perl all report for the same
-    // expression (#1102) — and `ruby_inspect_container`'s `Conditional`
-    // boolean-context seed was unreachable for the same reason.
+    // expression (#1102).
     //
     // Every expectation below is the value its C++ sibling
     // (`cpp_ternary_operand_slots_count_as_unary_conditions`) already
@@ -8593,20 +8592,20 @@ function f(int $a, int $b): int {
         });
         // No-double-count pin, and the assertion that catches the trap
         // this grammar sets: `-b` and `!b` are the SAME node kind
-        // (`unary:284`), separated only by child(0). Routing the branch
-        // slots through `ruby_inspect_container` — which tests for the
-        // `!` token, not for the kind — is what keeps this at 2. An
+        // (`unary:284`), separated only by their operator. Scoring a
+        // branch only when the peel proves it boolean — a `!` / `not`
+        // layer, not the `unary` kind — is what keeps this at 2. An
         // implementation keying on `Unary` reads 3 here.
         // `?` (1) + `>` (1) = 2, unchanged by the fix: the parenthesised
-        // condition unwraps to a `binary`, which is not a boolean
-        // terminal, and neither branch is negated.
+        // condition unwraps to a comparison its own token already
+        // counts, and neither branch is negated.
         check_metrics::<RubyParser>("def f\n  x = (a > 0) ? b : -b\nend\n", "foo.rb", |metric| {
             assert_eq!(metric.abc.conditions_sum(), 2);
         });
         // Nested — Ruby needs the inner ternary parenthesised. Outer `?`
         // (1) + outer condition `a` (1) + inner `?` (1) + inner
         // condition `b` (1) = 4. The outer consequence unwraps to the
-        // inner `conditional`, which is neither a boolean terminal nor a
+        // inner `conditional`, which proves nothing boolean and is no
         // further paren / `!` layer, so it adds nothing on its own; the
         // inner ternary is reached by the walk, not by descent.
         check_metrics::<RubyParser>(
@@ -8616,12 +8615,10 @@ function f(int $a, int $b): int {
                 assert_eq!(metric.abc.conditions_sum(), 4);
             },
         );
-        // A parenthesised condition, pinning the `is_parens` unwrap on
-        // the condition slot: `(a)` is `parenthesized_statements`, not a
-        // boolean terminal, so it reaches the walker's `else` fallback
-        // and only `ruby_inspect_container` can resolve it.
-        // `?` (1) + `(a)` (1) + `!b` (1) + `!c` (1) = 4; drop the
-        // fallback and this reads 3 while every other case here holds.
+        // A parenthesised condition, pinning the paren unwrap on the
+        // condition slot: `(a)` is `parenthesized_statements`, which the
+        // peel must look through.
+        // `?` (1) + `(a)` (1) + `!b` (1) + `!c` (1) = 4.
         check_metrics::<RubyParser>("def f\n  x = (a) ? !b : !c\nend\n", "foo.rb", |metric| {
             assert_eq!(metric.abc.conditions_sum(), 4);
         });
@@ -9177,16 +9174,18 @@ end
     // subject-less `when` scored 1 (`ruby_subjectless_case_when_condition_
     // wrappers_count_once`). Every row sits at `conditions == cyclomatic
     // - 1` except `tern` and `ifelse`, which agree with each other one
-    // above it: ABC counts the `?` / `else` arm and cyclomatic does not;
-    // and `chain_neg`, one below: Rule 9 counts neither `-a` nor `-b`.
+    // above it: ABC counts the `?` / `else` arm and cyclomatic does not.
+    // `chain` and `chain_neg` sit level with each other, as a Rule 9
+    // chain scores one per operand.
     //
     // The second block must not move, or the slot is paying twice: each
     // predicate's comparison or chain operand is already counted by its
     // own arm. `begin_cmp` and `assign_cmp` are why the peel looks through
     // `begin … end` and an assignment's value — without that the slot
-    // would see a non-terminal and pay on top of the `>`. `chain_neg` has
-    // no counted operand (the Rule 9 walker skips `-a`), so the slot
-    // pays, exactly as `when -a && -b` does.
+    // would see a non-terminal and pay on top of the `>`. `chain_neg`'s
+    // operands are slots of their own: the Rule 9 walker pays for `-a`
+    // and `-b` as it does for `a` and `b`, and the `if` adds nothing
+    // (#1529; before it, the walker skipped both and the `if` paid one).
     #[cfg(feature = "ruby")]
     #[test]
     fn ruby_condition_slot_pays_what_no_other_arm_counted() {
@@ -9286,8 +9285,8 @@ end
                     ("assign_cmp", 1, 2),
                     ("notted", 1, 2),
                     ("chain", 2, 3),
-                    // Was 0.
-                    ("chain_neg", 1, 3),
+                    // Was 0, then 1 until #1529.
+                    ("chain_neg", 2, 3),
                 ],
             );
         });
@@ -16971,13 +16970,9 @@ mod numeric_bool_operands {
 /// Even with it, no language exercises all three consumers through
 /// these two slots, and which one is missed differs by language. Perl
 /// is no longer one of them: since #1467 its rows score through the
-/// by-use arm, not through any consumer of the terminal set. Ruby's
-/// `ruby_count_unary_conditions` is the remaining one
-/// (unreachable here because `in` binds looser than `&&`, so the chain
-/// slot must parenthesise and routes through `inspect_container`
-/// instead). It is covered elsewhere in this file; the gap is
-/// recorded rather than papered over, because a reader comparing the
-/// slot count to the consumer count will otherwise assume it is three.
+/// by-use arm, not through any consumer of the terminal set, and since
+/// #1529 Ruby has no terminal set: its chain operands and its slots both
+/// score through `ruby_count_condition`.
 ///
 /// The `cyclomatic` half of `every_construct_scores_its_recorded_values`
 /// is what rules out a regression that moved both metrics together:
@@ -17037,8 +17032,8 @@ mod own_production_bool_constructs {
     ///
     /// Ruby's chain slot parenthesises the slot because `in` binds
     /// looser than `&&` there; the control is parenthesised identically,
-    /// so the parens cancel out of the comparison and
-    /// `ruby_inspect_container` unwraps them for both sides alike.
+    /// so the parens cancel out of the comparison and the peel unwraps
+    /// them for both sides alike.
     fn cases(lang: LANG) -> Option<Case> {
         Some(match lang {
             LANG::Groovy => (
@@ -18344,7 +18339,16 @@ mod wrapper_peel_routing {
         assert_operands(
             LANG::Ruby,
             "def f(b, c)\n  x = c ? 1 : @\nend\n",
-            &[("!b", 3), ("not b", 3), ("(b)", 2), ("-b", 2)],
+            &[
+                ("!b", 3),
+                ("not b", 3),
+                ("(b)", 2),
+                ("-b", 2),
+                // A negated branch is a slot whatever it negates (#1529).
+                ("!self", 3),
+                ("not -b", 3),
+                ("!(b > 1)", 3),
+            ],
         );
         // A statement sequence evaluates to its last statement, so that is
         // the operand the slot reads: `(b; b > 1)` is the comparison,
@@ -18361,33 +18365,102 @@ mod wrapper_peel_routing {
         );
     }
 
-    /// A subject-less `when` whose pattern is a chain owes its clause
-    /// condition unless some operand of the chain is counted by another
-    /// arm. `-a && -b` has no such operand — the Rule 9 walker counts
-    /// plain operands only — so the clause pays, as it does for a bare
-    /// `when -a`; treating every chain as paid scored it 0 (found by
-    /// review of #1453). The other rows keep the double count #1453
-    /// removed out: a counted operand anywhere in the chain, at any
-    /// depth, pays for it. An assignment operand is its value (#1520),
-    /// so `(a = 1) && (b = 2)` is `1 && 2`: two counted operands, and
-    /// the clause adds nothing.
+    /// A subject-less `when` whose pattern is a chain adds nothing of its
+    /// own: the Rule 9 walker scores every operand as a slot, so each
+    /// chain already pays at least one (#1529). Before that the walker
+    /// skipped an operand outside its terminal list, the clause had to
+    /// pay for `-a && -b` (review of #1453), and a chain scored as many
+    /// conditions as it had *listed* operands plus one at most. Each row
+    /// now scores what its plain-identifier twin (`a && b`, `a || b ||
+    /// c`) does. An assignment operand is its value (#1520), so
+    /// `(a = 1) && (b = 2)` is `1 && 2`.
     #[test]
     #[cfg(feature = "ruby")]
-    fn ruby_subjectless_when_chain_pays_only_through_a_counted_operand() {
+    fn ruby_subjectless_when_chain_pays_per_operand() {
         assert_operands(
             LANG::Ruby,
             "def f(a, b, c)\n  case\n  when @ then 1\n  end\nend\n",
             &[
+                ("a", 1),
                 ("-a", 1),
-                ("-a && -b", 1),
-                ("(a = 1) && (b = 2)", 2),
-                ("-a || -b || -c", 1),
-                ("-a && b", 1),
-                ("a > 1 && -b", 1),
-                ("-a && (-b || c)", 1),
                 ("a && b", 2),
+                ("-a && -b", 2),
+                ("(a = 1) && (b = 2)", 2),
+                ("a || b || c", 3),
+                ("-a || -b || -c", 3),
+                ("-a && b", 2),
+                ("a > 1 && b", 2),
+                ("a > 1 && -b", 2),
+                ("a && (b || c)", 3),
+                ("-a && (-b || c)", 3),
             ],
         );
+    }
+
+    /// #1529: an operand of a Ruby `&&` / `||` / `and` / `or` chain is
+    /// scored by the rule #1520 gave every condition slot — one, unless
+    /// another arm already counts it — wherever the chain is written.
+    /// The walker used to pay only for an operand that peeled down to a
+    /// fixed list of terminal kinds, so every spelling in `UNLISTED`
+    /// scored one below its plain-identifier twin `b` in every position
+    /// below. `CONTROLS` must not move: `!b` and `(b)` already scored
+    /// their twin, and a comparison, a pattern test, or a negation of one
+    /// is counted by its own arm, so paying the operand as well would
+    /// count that decision twice.
+    #[test]
+    #[cfg(feature = "ruby")]
+    fn ruby_chain_operand_pays_what_no_other_arm_counted() {
+        const UNLISTED: &[&str] = &[
+            "self",
+            "Foo::Bar",
+            "-b",
+            "(-b)",
+            "defined?(b)",
+            "b + 1",
+            "!self",
+            "not self",
+            "(y ||= b)",
+            "(y = self)",
+            "begin self end",
+        ];
+        const CONTROLS: &[&str] = &["!b", "(b)", "c > 1", "!(c > 1)", "(c in Integer)"];
+        // (template, conditions with `b` in the `@` operand)
+        let positions: &[(&str, u64)] = &[
+            ("def f(a, b, c)\n  g if a && @\nend\n", 2),
+            ("def f(a, b, c)\n  g if (a && @)\nend\n", 2),
+            ("def f(a, b, c)\n  x = a && @\nend\n", 2),
+            ("def f(a, b, c)\n  return a || @\nend\n", 2),
+            ("def f(a, b, c)\n  h(@ && a)\nend\n", 2),
+            ("def f(a, b, c)\n  x = (a and @)\nend\n", 2),
+            ("def f(a, b, c)\n  x = (a or @)\nend\n", 2),
+            ("def f(a, b, c)\n  y ||= a && @\nend\n", 2),
+            ("def f(a, b, c)\n  y &&= a || @\nend\n", 2),
+            ("def f(a, b, c)\n  x = a && (c || @)\nend\n", 3),
+            // A comment is a named child of the `binary` too, and must not
+            // pay as a third operand.
+            ("def f(a, b, c)\n  x = a && # c\n    @\nend\n", 2),
+            ("def f(a, b, c)\n  while a && @ do g end\nend\n", 2),
+            (
+                "def f(a, b, c)\n  if a then 1 elsif a && @ then 2 end\nend\n",
+                4,
+            ),
+            (
+                "def f(a, b, c)\n  case\n  when a && @ then 1\n  end\nend\n",
+                2,
+            ),
+        ];
+        for &(template, twin) in positions {
+            // The twin is measured, not only assumed, so a template that
+            // stopped parsing as a chain fails here rather than agreeing
+            // with every row at some other value.
+            assert_operands(LANG::Ruby, template, &[("b", twin)]);
+            let rows: Vec<_> = UNLISTED
+                .iter()
+                .chain(CONTROLS)
+                .map(|&operand| (operand, twin))
+                .collect();
+            assert_operands(LANG::Ruby, template, &rows);
+        }
     }
 
     #[test]

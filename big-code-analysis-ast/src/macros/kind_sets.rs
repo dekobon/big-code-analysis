@@ -694,7 +694,8 @@ macro_rules! python_bool_terminal_kinds {
 // the batch measured the gap the CHANGELOG describes in all three:
 // `$a && "s"` scored 1 against `$a && $b`'s 2, and `if ("s")` scored 0
 // against `if ($b)`'s 1. The three sets were swept on the same terms
-// and each names its additions below.
+// and each named its additions; Ruby's set has since been retired, its
+// walker scoring every operand no other arm counts (#1529).
 //
 // Tcl and iRules are the remaining truthy-valued languages and needed
 // nothing: their `quoted_word`, `braced_word_simple` and `number` kinds
@@ -1124,123 +1125,6 @@ macro_rules! kotlin_bool_terminal_kinds {
     };
 }
 
-// Terminal-bool operand kinds for Ruby's ABC unary-conditional walker
-// (Fitzpatrick Rule 9; issue #557). tree-sitter-ruby parses `a && b` as
-// a `binary` node with `&&` / `||` / `and` / `or` operator tokens. Bare
-// boolean operands surface as: `identifier`, every `call` alias
-// (`Call`..`Call4` — lesson #2; a bare predicate method `ready?` is a
-// `call`), the literals `true` / `false` / `nil`, the variable sigils
-// (`@ivar`, `@@cvar`, `$gvar`), `constant`, `element_reference`
-// (`items[0]`), and the four numeric literal kinds `integer` / `float` /
-// `rational` / `complex`. Comparison operands (`x > 0`) are nested
-// `binary` nodes, so they are absent here and contribute nothing.
-//
-// Ruby is truthy-valued — every number including `0` and `0.0` is
-// truthy — so a bare numeric operand is a Fitzpatrick unary condition
-// exactly as it is in Python and Lua (#772). Listing `integer` alone
-// scored `a && 1.0` / `a && 1r` / `a && 2i` one condition where
-// `a && 1` scores two (#1379).
-//
-// `rational` and `complex` are WRAPPERS over the numeral (`1r` is
-// `rational(integer)`, `2i` is `complex(integer)`, `1ri` is
-// `complex(rational(integer))` — verified by `bca dump`), and the
-// **wrapper** is what has to be listed: `ruby_inspect_container` breaks
-// out of its descent for any node that is neither
-// `parenthesized_statements` nor a `!` / `not` unary, so the walker
-// cannot reach the inner numeral at all. Listing `Integer` alone scores
-// all three suffixed literals zero, which is what #1379 measured.
-//
-// The mirror-image hazard — grammar-dispatch §5's container/contained
-// double-count — is absent here for the same reason, and `Integer`
-// staying in the set alongside them is not redundancy: it is what scores
-// a bare `1`. Do not "simplify" by removing either half. (#1359 reached
-// the same keep-the-wrapper answer for Halstead operand identity, where
-// the walk *does* visit every node and the double-count is real.)
-//
-// None of the four kinds has a numeric-suffix alias in tree-sitter-ruby
-// 0.23.1; `_int_or_float` (`Ruby::IntOrFloat`) is a hidden supertype the
-// parser never emits (grammar-dispatch §2).
-//
-// `test_pattern` is Ruby 3.0's one-line pattern test (`a in Integer`),
-// which evaluates to a boolean. The grammar gives it its own
-// production, so the comparison-token arm in `metrics/abc/ruby.rs`
-// never sees it — that arm is gated on a `binary` parent and lists no
-// `in` token. It was listed here until #1461 moved it to an
-// unconditional arm in that file, slot-scoping having scored
-// `b = a in Integer` zero beside `b = a == 1`'s one. See the
-// operands-not-operators note on the Phase-2 block below.
-//
-// Counting the node rather than the `in` token is what keeps it to one
-// (§5): the same token heads `for x in xs` and the `in_clause` of a
-// `case`/`in`, and `bca dump` shows all three as separate productions,
-// so the `InClause` arm never sees a `test_pattern`.
-//
-// Its neighbour `match_pattern` (`expr => pat`, id 252) is **not**
-// here and must not be added: that spelling raises `NoMatchingPattern`
-// on failure rather than yielding a boolean, so it is a destructuring
-// assignment, not a condition.
-//
-// The literal kinds #1462's sweep added, each measured a condition
-// short of a `b` control in *both* the `&&`-chain and the `if`
-// predicate slot, with every id read off `bca dump`: `string` (314),
-// which covers `"s"`, `'s'`, `%q()` and `%Q()` alike; `chained_string`
-// (312), the adjacent-literal concatenation `"a" "b"`, a sibling rule
-// rather than an alias and so invisible to an alias sweep;
-// `heredoc_beginning` (142), the `<<~TXT` token that occupies the slot
-// while `heredoc_body` is a separate node the walker never reaches (so
-// no §5 double count); the collection literals `array` (322), `hash`
-// (323), `string_array` (316, `%w[]`) and `symbol_array` (317, `%i[]`);
-// `regex` (319), which in a predicate is additionally an implicit match
-// against `$_`; `subshell` (315), `` `ls` `` and `%x{}`, on PHP's
-// `shell_command_expression` precedent; `character` (123), the
-// one-character literal `?a`, the counterpart of the `Char` Elixir's
-// set already named; and the two symbol productions `simple_symbol`
-// (130) and `delimited_symbol` (318), which are to Ruby what `atom` is
-// to Elixir. None has a numeric-suffix alias in tree-sitter-ruby 0.23.1
-// (§1) and every one was observed emitted (§2).
-//
-// `Nil2` (22) is **not** here and must not be added. `nil` parses as a
-// `nil` *wrapper* (309, listed) around a `nil` keyword token (22), so
-// listing both would score the literal twice (§5); the same shape holds
-// for Elixir's `Nil` / `Nil2` below. `lambda` (325, `->{}`) and the
-// range productions are absent as well — a closure and a range are not
-// literals in the class this sweep covers.
-#[macro_export]
-#[doc(hidden)]
-macro_rules! ruby_bool_terminal_kinds {
-    () => {
-        $crate::Ruby::Identifier
-            | $crate::Ruby::Call
-            | $crate::Ruby::Call2
-            | $crate::Ruby::Call3
-            | $crate::Ruby::Call4
-            | $crate::Ruby::True
-            | $crate::Ruby::False
-            | $crate::Ruby::Nil
-            | $crate::Ruby::InstanceVariable
-            | $crate::Ruby::ClassVariable
-            | $crate::Ruby::GlobalVariable
-            | $crate::Ruby::Constant
-            | $crate::Ruby::ElementReference
-            | $crate::Ruby::Integer
-            | $crate::Ruby::Float
-            | $crate::Ruby::Rational
-            | $crate::Ruby::Complex
-            | $crate::Ruby::String
-            | $crate::Ruby::ChainedString
-            | $crate::Ruby::HeredocBeginning
-            | $crate::Ruby::Subshell
-            | $crate::Ruby::Array
-            | $crate::Ruby::Hash
-            | $crate::Ruby::StringArray
-            | $crate::Ruby::SymbolArray
-            | $crate::Ruby::Regex
-            | $crate::Ruby::Character
-            | $crate::Ruby::SimpleSymbol
-            | $crate::Ruby::DelimitedSymbol
-    };
-}
-
 // Terminal-bool operand kinds for Elixir's ABC unary-conditional walker
 // (Fitzpatrick Rule 9; issue #557). tree-sitter-elixir parses `a && b`
 // as a `binary_operator` (aliased `BinaryOperator`..`BinaryOperator3`,
@@ -1286,8 +1170,8 @@ macro_rules! ruby_bool_terminal_kinds {
 // token (13), so listing both would score the literal twice (§5), and
 // `Atom2` is unreachable at this pin — `:atom` is `Atom` (14) and
 // `:"q a"` is `quoted_atom`. The closures (`anonymous_function`, 203)
-// and captures (`&Foo.bar/1`, a `unary_operator`) are absent on the
-// same rule as Ruby's `lambda`: not literals.
+// and captures (`&Foo.bar/1`, a `unary_operator`) are absent: not
+// literals.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! elixir_bool_terminal_kinds {
@@ -1297,7 +1181,7 @@ macro_rules! elixir_bool_terminal_kinds {
             // `dot` is an alias family (`Dot`/`Dot2`/`Dot3`, lesson #2): a
             // `Mod.fun` reference used as a bare `&&`/`||` operand parses to
             // a different alias by position, so all three must count or the
-            // operand silently contributes 0 (mirrors Ruby's `Call..Call4`).
+            // operand silently contributes 0 (as Ruby's `Call..Call4` do).
             | $crate::Elixir::Dot
             | $crate::Elixir::Dot2
             | $crate::Elixir::Dot3

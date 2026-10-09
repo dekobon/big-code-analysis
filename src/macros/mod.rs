@@ -149,6 +149,6 @@ pub(crate) use big_code_analysis_ast::{
     irules_bool_terminal_kinds, java_bool_terminal_kinds, javascript_bool_terminal_kinds,
     kotlin_bool_terminal_kinds, lua_bool_terminal_kinds, mozjs_bool_terminal_kinds,
     perl_bool_terminal_kinds, php_bool_terminal_kinds, python_bool_terminal_kinds,
-    ruby_bool_terminal_kinds, rust_bool_terminal_kinds, tcl_bool_terminal_kinds,
-    tsx_bool_terminal_kinds, typescript_bool_terminal_kinds, with_any_parser,
+    rust_bool_terminal_kinds, tcl_bool_terminal_kinds, tsx_bool_terminal_kinds,
+    typescript_bool_terminal_kinds, with_any_parser,
 };

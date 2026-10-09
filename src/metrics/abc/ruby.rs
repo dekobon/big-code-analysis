@@ -10,7 +10,6 @@
 )]
 
 use super::{Abc, Stats, last_operand};
-use crate::macros::ruby_bool_terminal_kinds;
 use crate::*;
 
 // Ruby ABC rules follow the Fitzpatrick paper's spirit, adapted to
@@ -69,7 +68,7 @@ use crate::*;
 // `if begin a > 1 end` / `if (y = a > 1)` — without that, the slot
 // would pay a second time for a decision the comparison token already
 // counted. A `begin` whose last child is a `rescue` / `else` / `ensure`
-// clause peels to that clause, which is no terminal, so the peel stops.
+// clause peels to that clause, which is no wrapper, so the peel stops.
 fn ruby_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     use Ruby::*;
 
@@ -85,84 +84,38 @@ fn ruby_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     }
 }
 
-// Ruby ABC unary-conditional walker (Fitzpatrick Rule 9; issue #557).
+// Fitzpatrick Rule 9 walker (#557): each operand of an `&&` / `||` /
+// `and` / `or` chain is a boolean slot, scored by `ruby_count_condition`.
 // tree-sitter-ruby parses `a && b || c` as a left-nested chain of
-// `binary` nodes carrying `&&` / `||` / `and` / `or` operator tokens
-// (the `binary` kind is aliased `Binary`..`Binary3` per lesson #2, so
-// every alias must be matched). Negation surfaces as `unary`
-// (`Unary`..`Unary5`); an operand may be wrapped in
-// `parenthesized_statements`. Both are unwrapped one layer at a time by
-// `ruby_wrapper_operand`.
+// `binary` nodes (aliased `Binary`..`Binary3`, lesson #2), so an operand
+// that is itself a chain is paid by its own operator's visit.
 //
-// Its callers are the chain walker (an operand of a `binary`, which is
-// boolean context) and the ternary's two branch slots, which are
-// type-free: an unnegated branch contributes nothing — see
-// `ruby_walk_ternary` (#1161). Condition slots no longer reach here;
-// `ruby_count_condition` scores them whole (#1520).
-fn ruby_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
-    use Ruby::*;
-
-    let mut node = *container_node;
-    let mut has_boolean_content = matches!(parent.kind_id().into(), Binary | Binary2 | Binary3);
-
-    while let Some((operand, proves_boolean)) = ruby_wrapper_operand(&node) {
-        has_boolean_content |= proves_boolean;
-        node = operand;
-
-        if matches!(node.kind_id().into(), ruby_bool_terminal_kinds!()) {
-            if has_boolean_content {
-                *conditions += 1.;
-            }
-            break;
-        }
-    }
-}
-
-// Counts each non-comparison operand of a Ruby `&&` / `||` chain once.
-// Comparison operands are nested `binary` nodes (absent from
-// `ruby_bool_terminal_kinds!()`) and so contribute nothing.
-fn ruby_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
-    use Ruby::*;
-
-    let list_kind = list_node.kind_id().into();
-    let mut cursor = list_node.cursor();
-
-    if cursor.goto_first_child() {
-        loop {
-            let node = cursor.node();
-            let node_kind = node.kind_id().into();
-
-            if matches!(node_kind, ruby_bool_terminal_kinds!())
-                && matches!(list_kind, Binary | Binary2 | Binary3)
-            {
-                *conditions += 1.;
-            } else if node.is_named() {
-                ruby_inspect_container(&node, list_node, conditions);
-            }
-
-            if !cursor.goto_next_sibling() {
-                break;
-            }
+// The operands are read by field: a comment between operand and operator
+// is a named child of the `binary` too, and must not pay.
+fn ruby_count_chain_operands(chain: &Node, conditions: &mut f64) {
+    for field in ["left", "right"] {
+        if let Some(operand) = chain.child_by_field_name(field) {
+            ruby_count_condition(&operand, conditions);
         }
     }
 }
 
 // Scores one boolean slot — the predicate of every `if` / `unless` /
 // `while` / `until` form (block and modifier), a `case … in` guard, a
-// ternary condition, and each pattern of a subject-less `when` — as
-// Fitzpatrick's "unary conditional expression" (Rule 6 / 7): one
-// condition, unless another arm already charged the same decision
-// (a comparison, a pattern test, a ternary, or a chain with a counted
-// operand; see `ruby_condition_scores_itself`).
+// ternary condition, each pattern of a subject-less `when`, and each
+// operand of an `&&` / `||` chain — as Fitzpatrick's "unary conditional
+// expression" (Rule 6 / 7 / 9): one condition, unless another arm
+// already charged the same decision (see `ruby_condition_scores_itself`).
 //
-// The slot once paid only for a predicate that peeled down to
-// `ruby_bool_terminal_kinds!()`, so `if Foo::Bar`, `if self`, `if -x`,
+// The slot once paid only for a predicate that peeled down to a fixed
+// list of terminal kinds, so `if Foo::Bar`, `if self`, `if -x`,
 // `if defined?(x)`, `if (y = x)`, `if x + 1` and `g if begin b end` each
 // scored 0 against a cyclomatic decision of 1, while the same expression
-// as a subject-less `when` scored 1 (#1520). Asking whether the decision
-// is already paid for, rather than whether the predicate is a known
-// terminal, covers every kind the grammar can put in the slot, including
-// ones a future grammar adds.
+// as a subject-less `when` scored 1 (#1520); the chain walker kept that
+// list until #1529, so `a && self` scored one below `a && b`. Asking
+// whether the decision is already paid for, rather than whether the
+// predicate is a known terminal, covers every kind the grammar can put
+// in the slot, including ones a future grammar adds.
 fn ruby_count_condition(condition: &Node, conditions: &mut f64) {
     if !ruby_condition_scores_itself(condition) {
         *conditions += 1.;
@@ -188,51 +141,38 @@ macro_rules! ruby_comparison_kinds {
     };
 }
 
+// Every wrapper `ruby_wrapper_operand` descends, peeled: the operand
+// they evaluate to, and whether any layer proved it boolean.
+fn ruby_peel<'a>(node: &Node<'a>) -> (Node<'a>, bool) {
+    let mut node = *node;
+    let mut proves_boolean = false;
+    while let Some((operand, proves)) = ruby_wrapper_operand(&node) {
+        proves_boolean |= proves;
+        node = operand;
+    }
+    (node, proves_boolean)
+}
+
 // Whether another arm of `compute` already charges `expr` as a condition,
-// looking through `(…)` and `!` / `not` layers, which add no decision of
-// their own. True for a comparison (the token arm), a one-line pattern
-// test (the `TestPattern` arm) and a ternary (the `?` arm plus
-// `ruby_walk_ternary`). An `&&` / `||` / `and` / `or` chain is paid only
-// if some operand is: one of those, or a plain operand the Rule 9
-// walker counts. `-a && -b` has neither, so the walker scores it 0 and
-// the clause must still pay, exactly as it does for `when -a`.
-//
-// A worklist rather than recursion: a left-nested chain is as deep as
-// it is long, and the input is untrusted source.
-//
-// Every boolean slot asks this through `ruby_count_condition`.
+// looking through the wrappers `ruby_peel` descends, which add no
+// decision of their own. True for a comparison (the token arm), a
+// one-line pattern test (the `TestPattern` arm), a ternary (the `?` arm
+// plus `ruby_walk_ternary`) and an `&&` / `||` / `and` / `or` chain:
+// the chain walker scores each operand through `ruby_count_condition`,
+// so every operand either pays there or is one of these, and a chain
+// always carries at least one condition of its own.
 fn ruby_condition_scores_itself(expr: &Node) -> bool {
     use Ruby::*;
 
-    // (node, whether it is an operand of an enclosing chain)
-    let mut pending = vec![(*expr, false)];
-    while let Some((mut node, in_chain)) = pending.pop() {
-        // The same wrappers the condition peel descends, by construction.
-        while let Some((operand, _)) = ruby_wrapper_operand(&node) {
-            node = operand;
-        }
-        match node.kind_id().into() {
-            Binary | Binary2 | Binary3 => {
-                match node
-                    .child_by_field_name("operator")
-                    .map(|op| op.kind_id().into())
-                {
-                    Some(ruby_comparison_kinds!()) => return true,
-                    Some(AMPAMP | PIPEPIPE | And | Or) => pending.extend(
-                        ["left", "right"]
-                            .into_iter()
-                            .filter_map(|field| node.child_by_field_name(field))
-                            .map(|operand| (operand, true)),
-                    ),
-                    _ => {}
-                }
-            }
-            TestPattern | Conditional => return true,
-            kind if in_chain && matches!(kind, ruby_bool_terminal_kinds!()) => return true,
-            _ => {}
-        }
+    let (node, _) = ruby_peel(expr);
+    match node.kind_id().into() {
+        Binary | Binary2 | Binary3 => node.child_by_field_name("operator").is_some_and(|op| {
+            let kind: Ruby = op.kind_id().into();
+            matches!(kind, ruby_comparison_kinds!()) || matches!(kind, AMPAMP | PIPEPIPE | And | Or)
+        }),
+        TestPattern | Conditional => true,
+        _ => false,
     }
-    false
 }
 
 // Scores one `when` clause (#1453, transferring #1421's Kotlin rule).
@@ -283,8 +223,7 @@ fn ruby_count_when<'a>(when: &Node<'a>, ancestors: Ancestors<'a, '_>, conditions
 // its two branch operands are each a Fitzpatrick Rule 9 unary condition,
 // exactly as `cpp_walk_ternary` counts them for the C family. Without
 // this, Ruby scored `a ? !b : !c` as 1 — the `?` token alone — against
-// Java's 4, and `ruby_inspect_container`'s `Conditional` boolean-context
-// seed was unreachable.
+// Java's 4.
 //
 // Slots are addressed by grammar field, per
 // `.claude/rules/grammar-dispatch.md` item 3.
@@ -294,21 +233,17 @@ fn ruby_count_when<'a>(when: &Node<'a>, ancestors: Ancestors<'a, '_>, conditions
 // `if` / `unless` / `while` / `until` predicate, and the two cannot
 // drift.
 //
-// Both branch slots route through `ruby_inspect_container` rather than
-// testing for the `Unary` kind here: `-b` and `!b` are the SAME node
-// kind (`unary`), distinguished only by child(0) being `-` rather than
-// `!`. Keying on the kind takes the control case `(a > 0) ? b : -b`
-// from 2 to 3.
+// A branch slot is type-free: it is a boolean slot only when the peel
+// proves it one — a `!` / `not` layer. Keying on the `unary` kind instead
+// would also take `-b` (the same kind, a different operator), moving the
+// control case `(a > 0) ? b : -b` from 2 to 3.
 fn ruby_walk_ternary(node: &Node, conditions: &mut f64) {
     if let Some(condition) = node.child_by_field_name("condition") {
         ruby_count_condition(&condition, conditions);
     }
-    // Branch operands carry no terminal check: an unnegated branch is
-    // type-free and contributes nothing, which is what keeps
-    // `(a > 0) ? b : -b` at 2 (the `?` and the `>`).
     for field in ["consequence", "alternative"] {
-        if let Some(branch) = node.child_by_field_name(field) {
-            ruby_inspect_container(&branch, node, conditions);
+        if let Some((operand, true)) = node.child_by_field_name(field).map(|b| ruby_peel(&b)) {
+            ruby_count_condition(&operand, conditions);
         }
     }
 }
@@ -391,8 +326,8 @@ impl Abc for RubyCode {
             }
             // Ruby 3.0's one-line pattern test (`a in Integer`) joins
             // them in #1461, scored by use rather than by slot. It sat in
-            // `ruby_bool_terminal_kinds!()`, which counts only inside a
-            // boolean slot, so `b = a in Integer` scored zero where the
+            // the walker's terminal-kind list, which counted only inside
+            // a boolean slot, so `b = a in Integer` scored zero where the
             // `b = a == 1` beside it scored one — every comparison above
             // is a token arm and `in` was not. Fitzpatrick Rule 5 scores
             // a relational operator wherever it is written.
@@ -433,14 +368,19 @@ impl Abc for RubyCode {
             InClause if crate::metrics::npa::ruby_in_clause_counts(node, code) => {
                 stats.conditions += 1.;
             }
-            // Fitzpatrick Rule 9 walker: each non-comparison operand of a
-            // `&&` / `||` / `and` / `or` chain is one condition (issue
-            // #557). The short-circuit operators are not counted directly
+            // Fitzpatrick Rule 9 walker: each operand of a `&&` / `||` /
+            // `and` / `or` chain is a boolean slot (issue #557, #1529).
+            // The short-circuit operators are not counted directly
             // (cross-language policy, #395); the keyword forms `and` / `or`
-            // get the same treatment as `&&` / `||`.
+            // get the same treatment as `&&` / `||`. Under error recovery
+            // the token's parent can be an `ERROR` node (`f(&&)`), which
+            // has no operands to score.
             AMPAMP | PIPEPIPE | And | Or => {
-                if let Some(parent) = ancestors.parent(node) {
-                    ruby_count_unary_conditions(&parent, &mut stats.conditions);
+                if let Some(chain) = ancestors
+                    .parent(node)
+                    .filter(|p| matches!(p.kind_id().into(), Binary | Binary2 | Binary3))
+                {
+                    ruby_count_chain_operands(&chain, &mut stats.conditions);
                 }
             }
             // `a ? !b : !c` — the ternary's own `?` token is already

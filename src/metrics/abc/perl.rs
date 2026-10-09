@@ -105,7 +105,7 @@ fn perl_inspect_container(container_node: &Node, parent: &Node, conditions: &mut
         // has only one inner expression, so the first and last
         // operand are the same node.
         let is_parens = matches!(node_kind, P::ParenthesizedArgument | P::Array);
-        // Both spellings of the same negation — see `ruby_inspect_container`
+        // Both spellings of the same negation — see `ruby_wrapper_operand`
         // for the rationale; Perl has the identical gap (#1182). Read
         // through the grammar's `operator` field, whose type list is
         // `! + ++ - -- and not ~`. Do NOT match the hidden `_unary_not`
