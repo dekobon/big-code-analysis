@@ -1039,3 +1039,41 @@ fn irules_slots_pay_for_any_predicate() {
         ],
     );
 }
+
+/// A bare `return;` holds no value, so the negated-operand path that
+/// reads a `return`'s value has nothing to score. Each template pairs one
+/// with a valued `return` / declarator, so a bare `return` scoring
+/// anything shows as one over the row's twin.
+#[test]
+#[cfg(any(feature = "csharp", feature = "php", feature = "perl"))]
+fn bare_return_scores_nothing() {
+    let mut ran = 0;
+    #[cfg(feature = "csharp")]
+    {
+        assert_rows(
+            LANG::Csharp,
+            "class A { void f(bool b) { if (b) { return; } var r = PRED; } }\n",
+            &[("!b", 2, 1), ("b", 1, 1)],
+        );
+        ran += 1;
+    }
+    #[cfg(feature = "php")]
+    {
+        assert_rows(
+            LANG::Php,
+            "<?php\nfunction f($b) {\n    if ($b) { return; }\n    return PRED;\n}\n",
+            &[("!$b", 2, 1), ("$b", 1, 1)],
+        );
+        ran += 1;
+    }
+    #[cfg(feature = "perl")]
+    {
+        assert_rows(
+            LANG::Perl,
+            "sub f { my ($b) = @_; if ($b) { return; } return PRED; }\n",
+            &[("!$b", 2, 1), ("$b", 1, 1)],
+        );
+        ran += 1;
+    }
+    assert!(ran > 0, "no language enabled; this test asserted nothing");
+}
