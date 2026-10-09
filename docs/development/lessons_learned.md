@@ -3175,7 +3175,11 @@ unknown/fallback variant so unconverted callers stay correct, and pin the
 walker's own bookkeeping with a debug-only assertion: a chain type that
 trusts `chain.last()` unvalidated turns a desynchronised walker into
 wrong answers rather than a failure, and a parity test written against a
-*replica* walker cannot see the real one drift.
+*replica* walker cannot see the real one drift. A known chain makes each
+step `O(1)`, not the climb: a predicate that walks "until the first
+ancestor that is not X" is still `O(depth)` per node wherever X can
+nest without bound, so propagate the *answer* instead, and add a
+`bench-scaling` probe of that shape before trusting the gate.
 
 `tree_sitter` stores no parent pointer — `Node::parent` restarts at the
 root and descends — so any predicate asking a node for an ancestor is
@@ -3207,6 +3211,16 @@ in #1088 rather than blocking the fix. The walker maintains the chain with
 `truncate(depth)` on arrival and `push(node)` after the per-node
 computes, correct for a LIFO pre-order because every node popped between
 a parent and its child sits at a strictly greater depth.
+
+**Cheap steps, unbounded climb** (#1525, #1533). To score a parenthesised
+`requires (A<T> && B<T>)` as compile-time, every C++ `&&` token climbed
+the known chain through `binary_expression` ancestors to look for a
+`requires_clause`. On a left-nested `a && a && …` chain that is every
+ancestor, so 8,000 terms took 4.4s in a debug build, and 0.09s once
+reverted. `make
+pre-commit` passed, no `bench-scaling` probe is a C++ boolean chain, and
+a timed review run caught it. The exclusion was reverted;
+doing it in linear time needs the clause recorded as walk state.
 
 ---
 
@@ -3857,5 +3871,11 @@ The second way a sweep's scope goes unstated is a corpus that cannot
 contain the subject: the sibling fix predicted snapshot churn "for any
 Bash corpus file with a heredoc", and not one of the submodule's 1,610
 snapshots is shell-derived (#1412, and lesson 74 for the mechanism).
+
+A gate is a sweep too. `check-test-lang-gates` printed `OK` while a test
+helper was gated out of a build its Go-only caller compiled in. It asked
+only whether a helper is ever compiled *without* a language it needs,
+never whether it is compiled wherever a caller is, though the derivation
+already listed `go` among the helper's needs (#1528).
 
 ---

@@ -295,6 +295,13 @@ in the lib targets.
   count — can hold steady while the set changes. Diff the sets when the
   comparison is the point. Two `cargo-nextest` listings of the same tree
   gave 4,741 and 4,731 purely because one counts `#[ignore]`d entries.
+- Before quoting a patch-coverage number, run `cargo llvm-cov clean
+  --workspace`, then the commands the `coverage` job in `ci.yml` runs.
+  Profiles left by an earlier build keep mapping functions a refactor
+  deleted onto the lines their replacements now occupy, so those lines
+  read as never executed: in CI's own report format, the same library
+  run of #1526's patch read 47.8% on a stale target and 98.0% on a
+  clean one.
 
 ## Normalise the expectation, never the observation
 
