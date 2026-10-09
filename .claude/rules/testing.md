@@ -367,6 +367,16 @@ intermediate stage that filters, normalises, or short-circuits the input
 before it reaches the code under test. Pair any end-to-end test with a
 direct unit test on the function whose contract is being verified.
 
+## Take the expected value from outside the fix
+
+A metric fixture's expected value, typed by the author of the rule it
+tests, certifies that rule. Check it against two oracles the fix did
+not write: the construct's spelled-out twin (`case a, b` vs
+`if a || b`, a modifier vs its block form, Ruby `elsif` vs Java
+`else if`), asserted as a row beside it; and the same input on `main`,
+which catches what a twin cannot when the twin shares the gap (`case *p:`
+fell to 0 while `if *p` was already 0). Lesson 6 has the four cases.
+
 ## Assertion shapes that are wrong by construction
 
 - **Never `include_str!` or `fs::read_to_string` the codebase's own

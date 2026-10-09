@@ -375,7 +375,10 @@ holds wherever the expected value is *produced* rather than asserted: a
 gate checking generated artifacts against their generator, or a triage
 computed from the model it is meant to audit, can only confirm that
 model. Name the oracle outside it — prior human work, the previous
-revision, a fresh-context reviewer — before trusting a green result.
+revision, a fresh-context reviewer — before trusting a green result. A
+hand-typed expected value is no exception when its author also wrote
+the rule under test: check it against the construct's spelled-out twin
+(`case a, b` against `if a || b`) and against the same input on `main`.
 
 `AGENTS.md` carries the enforceable form of this ("Anchor every
 `insta::assert_json_snapshot!` call", with the three acceptable anchor
@@ -416,6 +419,16 @@ against the previous revision, which caught two parity sweeps gated on
 four of the twenty-three language features; and a fresh-context review.
 That comparison was also the one check a PR label switched off — on the
 very PR where the derivation's bugs were live.
+
+**Hand-typed expectations that agreed with the rule they tested**
+(#1448, #1453, PR #1524; #1523). Four ABC fixes passed their own
+anchored tests and fell only to a whole-branch review. Ruby
+`when a, b` scored below `if a || b` and `when -a && -b` below
+`when -a`; the #1448 gate's C++ folds and the Go port's `case *p:`
+dropped to 0 against `main`, where `if *p` was already 0, so no twin
+could show it. Each expected value
+came from the reasoning that wrote the code, so the anchor `AGENTS.md`
+requires certified the rule rather than checked it.
 
 For grammar bumps, run `cargo insta test --accept` per file only after
 spot-checking that the diff is metric values shifting in a direction
@@ -2372,6 +2385,12 @@ the release that closed the original report.
 anchored one and #1247 was the drift between the other two. The fix
 removed both duplicates and reads the span back from the single owner —
 teaching each copy the same rule would only have staged the next drift.
+
+**A port reuses the target's own copy** (#1520, #1523; the trail runs
+on through #1526, #1527 and #1529). Ruby and Go each own a copy of the
+ABC predicate-slot rule. The #1523 fix, pointed at Ruby's rule as just
+rewritten by #1520, routed Go's tagless cases through Go's older copy,
+so `case *p:` regressed in the same branch.
 
 ---
 
