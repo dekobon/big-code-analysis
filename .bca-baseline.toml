@@ -888,18 +888,6 @@ metric = "nexits"
 value = 8.0
 
 [[entry]]
-path = "src/metrics/abc/go.rs"
-qualified = "GoCode::compute"
-metric = "cyclomatic"
-value = 16.0
-
-[[entry]]
-path = "src/metrics/abc/go.rs"
-qualified = "GoCode::compute"
-metric = "halstead.effort"
-value = 49998.590597403396
-
-[[entry]]
 path = "src/metrics/abc/kotlin.rs"
 qualified = "KotlinCode::compute"
 metric = "cyclomatic"

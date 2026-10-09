@@ -46,9 +46,11 @@ fn go_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f
     use Go as G;
 
     let mut node = *container_node;
+    // `ExpressionCase` reaches here only from a tagless switch, whose
+    // case expressions are boolean exactly as an `if` predicate is.
     let mut has_boolean_content = matches!(
         parent.kind_id().into(),
-        G::BinaryExpression | G::IfStatement | G::ForStatement
+        G::BinaryExpression | G::IfStatement | G::ForStatement | G::ExpressionCase
     );
 
     while let Some((operand, proves_boolean)) = go_wrapper_operand(&node) {
@@ -119,6 +121,56 @@ fn go_walk_for_statement(node: &Node, conditions: &mut f64) {
     }
 }
 
+// Scores one `expression_case` (#1523, transferring #1453's Ruby rule).
+// Both switch shapes contribute the single decision cyclomatic counts per
+// case, but they pay for it in different places.
+//
+// A tagged case (`switch x { case 1: }`) lists values compared with
+// `x == 1`: that comparison is written nowhere in the source, so the case
+// itself is the condition.
+//
+// A tagless switch is `switch true`, so each case expression is an
+// ordinary boolean evaluated exactly as an `if` predicate, and is scored
+// by the same slot `IfStatement` uses. A comparison, chain or negated
+// comparison is then paid by the arm that owns its operator; a bare
+// `case b:`, `(b)` or `!b` pays through the slot. The former blanket +1
+// counted `case x > 5:` twice against its `if x > 5` twin's once.
+//
+// A case may list several expressions (`case a, b:`): an implicit `||`,
+// so each is one operand of that chain, scored as its `if` slot would
+// score it. `case a, b:` / `case a, x > 1:` therefore read 2, exactly
+// their `if a || b` / `if a || x > 1` analogues, independent of order.
+// Cyclomatic scores the case as one decision, so these sit one above
+// `conditions == cyclomatic - 1`, as Ruby's `when a, b` does.
+//
+// A case whose parent is not a switch occurs only under error recovery;
+// it keeps the per-case count rather than guessing.
+fn go_count_expression_case<'a>(
+    case: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+    conditions: &mut f64,
+) {
+    // The tag is the `value` field, not a position: `switch x := f(); {`
+    // carries an `initializer` and is still tagless.
+    let tagless = ancestors.parent(case).is_some_and(|switch| {
+        switch.kind_id() == Go::ExpressionSwitchStatement
+            && switch.child_by_field_name("value").is_none()
+    });
+    if !tagless {
+        *conditions += 1.;
+        return;
+    }
+    // A `,` or comment in the list is neither terminal nor wrapper, so the
+    // slot scores it 0 without a filter.
+    for expr in case
+        .child_by_field_name("value")
+        .into_iter()
+        .flat_map(|list| list.children())
+    {
+        go_count_condition(&expr, case, conditions);
+    }
+}
+
 fn go_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     use Go as G;
 
@@ -152,6 +204,11 @@ impl Abc for GoCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        // bca: suppress(halstead, cyclomatic)
+        // Exhaustive one-arm-per-grammar-kind dispatch table; see the
+        // rationale on `CppCode::compute`, which carries both markers
+        // for the same construct.
+        //
         // Aliased because `Go::Go` (the `go` keyword variant) collides
         // with the bare enum name in pattern position under
         // `use Go::*;` (same workaround as in cyclomatic / cognitive).
@@ -187,8 +244,9 @@ impl Abc for GoCode {
                 stats.branches += 1.;
             }
             // Comparison operators emitted as token children of a
-            // `binary_expression`, `else`, and each non-default switch
-            // / type-switch / select arm all contribute one condition.
+            // `binary_expression`, `else`, and each non-default
+            // type-switch / select arm all contribute one condition
+            // (an expression-switch case is scored below).
             // `<` / `>` double as type-argument delimiters in generic
             // instantiations (`f[T any]`, `List[int]`); the
             // `BinaryExpression` parent guard filters those out
@@ -200,10 +258,12 @@ impl Abc for GoCode {
             | G::LTEQ
             | G::GTEQ
             | G::Else
-            | G::ExpressionCase
             | G::TypeCase
             | G::CommunicationCase => {
                 stats.conditions += 1.;
+            }
+            G::ExpressionCase => {
+                go_count_expression_case(node, ancestors, &mut stats.conditions);
             }
             G::LT | G::GT
                 if ancestors

@@ -10600,6 +10600,191 @@ end
         );
     }
 
+    // Anchors the tag shape of a Go fixture before scoring its members:
+    // `tagged` is how many expression switches carry a `value` field, so
+    // a fixture edit that turns a tagless switch tagged (or back) fails
+    // here rather than as a moved score.
+    #[cfg(feature = "go")]
+    fn assert_go_switch_members(
+        src: &str,
+        tagged: usize,
+        kinds: &[(u16, usize, &str)],
+        expected: &[(&str, u64, u64)],
+    ) {
+        let parser = GoParser::new(
+            src.as_bytes().to_vec(),
+            std::path::Path::new("foo.go"),
+            None,
+        );
+        let found = parser
+            .root()
+            .preorder()
+            .filter(|n| {
+                n.kind_id() == Go::ExpressionSwitchStatement
+                    && n.child_by_field_name("value").is_some()
+            })
+            .count();
+        assert_eq!(found, tagged, "tagged switches — the fixture moved");
+        assert_fixture_spells::<GoParser>(src, "foo.go", kinds);
+        check_func_space::<GoParser, _>(src, "foo.go", |space| {
+            assert_members_score(&space, expected);
+        });
+    }
+
+    // #1523, transferring #1453's Ruby rule. A tagless switch is
+    // `switch true`: each case expression is an ordinary boolean, so a
+    // comparison in it is already paid by the token arm, and the case's
+    // former blanket +1 counted `gt` twice against its `if` twin `iff`.
+    // Every row now equals the `if` spelling of the same predicate.
+    //
+    // `bare`, `paren` and `neg` are the controls: no operator for any
+    // other arm to count, so the case still pays through the `if` slot
+    // (1 before the fix and after). `negcmp` peels to a comparison the
+    // token arm owns. `init1` carries an `initializer` and no tag, and
+    // `cmt` puts a comment where the tag would go: neither is the
+    // `value` field, so both stay tagless. `nest2` is a tagless switch
+    // inside a tagged one — each switch is judged by its own tag.
+    #[cfg(feature = "go")]
+    #[test]
+    fn go_tagless_switch_case_counts_its_condition_once() {
+        let src = "package main
+func gt(x int) int { switch { case x > 5: return 1 }; return 0 }
+func iff(x int) int { if x > 5 { return 1 }; return 0 }
+func bare(b bool) int { switch { case b: return 1 }; return 0 }
+func paren(b bool) int { switch { case (b): return 1 }; return 0 }
+func neg(b bool) int { switch { case !b: return 1 }; return 0 }
+func negcmp(x int) int { switch { case !(x > 5): return 1 }; return 0 }
+func andd(a, b bool) int { switch { case a && b: return 1 }; return 0 }
+func two(x int) int { switch { case x > 1: fallthrough; case x < 0: return 1; default: return 2 } }
+func init1(s string) int { switch n := len(s); { case n > 1: return 1 }; return 0 }
+func cmt(x int) int { switch /* no tag */ { case /* c */ x > 5: return 1 }; return 0 }
+func nest(x, y int) int { switch { case x > 1: switch { case y > 1: return 1 } }; return 0 }
+func nest2(x, y int) int { switch x { case 1: switch { case y > 1: return 1 } }; return 0 }
+";
+        assert_go_switch_members(
+            src,
+            1,
+            &[
+                (Go::ExpressionCase as u16, 14, "expression cases"),
+                (Go::DefaultCase as u16, 1, "`two`'s `default`"),
+                (Go::GT as u16, 9, "`>` comparisons"),
+                (
+                    Go::ParenthesizedExpression as u16,
+                    2,
+                    "`paren` / `negcmp` parens",
+                ),
+                (Go::Comment as u16, 2, "`cmt`'s comments"),
+            ],
+            &[
+                // (member, abc.conditions, cyclomatic)
+                // Was 2: the `>` and the case, for one decision.
+                ("gt", 1, 2),
+                ("iff", 1, 2),
+                ("bare", 1, 2),
+                ("paren", 1, 2),
+                ("neg", 1, 2),
+                // Was 2.
+                ("negcmp", 1, 2),
+                // Was 3: the Rule 9 walker owns both operands.
+                ("andd", 2, 3),
+                // Was 4. `default` stays +0 and `fallthrough` adds nothing.
+                ("two", 2, 3),
+                // Was 2.
+                ("init1", 1, 2),
+                // Was 2. A comparison, not a bare operand, so a misread
+                // tag (+1 per case on top of the `>`) shows as 2.
+                ("cmt", 1, 2),
+                // Was 4.
+                ("nest", 2, 3),
+                // Was 3: the tagged outer case keeps its 1.
+                ("nest2", 2, 3),
+            ],
+        );
+    }
+
+    // A case listing several expressions is an implicit `||` — Go's spec
+    // defines a tagless switch as `switch true`, so `case a, b:` holds
+    // when `a == true || b == true` — and each expression is scored as an
+    // operand of that chain: once, unless its own arm already counted it.
+    // `ab` and `mix` therefore read 2, exactly their `if a || b` /
+    // `if a || x > 1` twins, and `xim` shows the order cannot matter.
+    // This is #1453's Ruby rule (`when a, b` reads 2) rather than
+    // Kotlin's first-alternative-only rule, which scores the two orders
+    // differently.
+    //
+    // Parity consequence: cyclomatic scores the case as one decision, so
+    // these rows sit one above `conditions == cyclomatic - 1`, while the
+    // `||` twins sit at it — the same trade Ruby's `when a, b` makes.
+    #[cfg(feature = "go")]
+    #[test]
+    fn go_tagless_switch_case_lists_are_an_implicit_or() {
+        let src = "package main
+func ab(a, b bool) int { switch { case a, b: return 1 }; return 0 }
+func ifab(a, b bool) int { if a || b { return 1 }; return 0 }
+func mix(a bool, x int) int { switch { case a, x > 1: return 1 }; return 0 }
+func xim(a bool, x int) int { switch { case x > 1, a: return 1 }; return 0 }
+func ifmix(a bool, x int) int { if a || x > 1 { return 1 }; return 0 }
+func cmts(a, b bool) int { switch { case a, /* c */ b: return 1 }; return 0 }
+";
+        assert_go_switch_members(
+            src,
+            0,
+            &[
+                (Go::ExpressionCase as u16, 4, "expression cases"),
+                (Go::PIPEPIPE as u16, 2, "the `||` twins"),
+                (Go::Comment as u16, 1, "`cmts`'s comment"),
+            ],
+            &[
+                // Was 1: only the case, for two operands.
+                ("ab", 2, 2),
+                ("ifab", 2, 3),
+                ("mix", 2, 2),
+                ("xim", 2, 2),
+                ("ifmix", 2, 3),
+                // Was 1: the comment is no operand.
+                ("cmts", 2, 2),
+            ],
+        );
+    }
+
+    // The controls that must not move. A tagged case lists values
+    // compared with the tag, a comparison the source never spells, so the
+    // case itself is the condition — `init2` carries an `initializer`
+    // beside its tag, and `tagcmp`'s `x > 1` is a value compared with `b`
+    // (`if b == (x > 1)` also scores 2). Type-switch and `select` cases
+    // are not expression cases at all.
+    #[cfg(feature = "go")]
+    #[test]
+    fn go_tagged_switch_keeps_the_per_case_count() {
+        let src = "package main
+func tag(x int) int { switch x { case 1, 2: return 1 }; return 0 }
+func init2(s string) int { switch n := len(s); n { case 1: return 1 }; return 0 }
+func tagcmp(b bool, x int) int { switch b { case x > 1: return 1 }; return 0 }
+func ts(v any) int { switch v.(type) { case int: return 1 }; return 0 }
+func sel(c chan int) int { select { case <-c: return 1 }; return 0 }
+";
+        assert_go_switch_members(
+            src,
+            3,
+            &[
+                (Go::ExpressionCase as u16, 3, "expression cases"),
+                (Go::TypeCase as u16, 1, "`ts`'s type case"),
+                (
+                    Go::CommunicationCase as u16,
+                    1,
+                    "`sel`'s communication case",
+                ),
+            ],
+            &[
+                ("tag", 1, 2),
+                ("init2", 1, 2),
+                ("tagcmp", 2, 2),
+                ("ts", 1, 2),
+                ("sel", 1, 2),
+            ],
+        );
+    }
+
     #[cfg(feature = "go")]
     #[test]
     fn go_else_counts_as_condition() {
