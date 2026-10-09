@@ -787,7 +787,8 @@ fn php_slots_pay_for_any_predicate() {
             ("$a && $b", 2, 2),
             ("$a && -$x", 2, 2),
             ("$a and -$x", 2, 2),
-            ("$a xor -$x", 2, 2),
+            // `xor` is a value, as `^` is: one slot, no chain (#1536).
+            ("$a xor -$x", 1, 1),
             ("$a || ($y = $x > 1)", 2, 2),
             // A ternary scores itself through its own arm.
             ("$a ? $b : $x", 2, 2),
@@ -996,6 +997,10 @@ fn perl_slots_pay_for_any_predicate() {
             // two-operand `unary_expression`; it scored 0.
             ("$a and $b", 2, 2),
             ("$a and -$x", 2, 2),
+            // `xor` is a value, as `^` is: one slot, no chain (#1536).
+            ("$a ^ $b", 1, 1),
+            ("$a xor $b", 1, 1),
+            ("$a xor -$x", 1, 1),
         ],
     );
     for slot in [

@@ -48,7 +48,7 @@ fn php_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 
 // Whether an arm of `compute` already charges `expr` (already peeled) as
 // a condition: a ternary (its own arm), a comparison or `instanceof`
-// (the token arm), or an `&&` / `||` / `and` / `or` / `xor` chain, whose
+// (the token arm), or an `&&` / `||` / `and` / `or` chain, whose
 // operands each pay through `php_count_condition`. `??` is no condition
 // token in PHP, so a slot holding one pays for it.
 fn php_condition_scores_itself(expr: &Node) -> bool {
@@ -73,7 +73,6 @@ fn php_condition_scores_itself(expr: &Node) -> bool {
                     | PIPEPIPE
                     | And
                     | Or
-                    | Xor
             )
         }),
         _ => false,
@@ -82,7 +81,7 @@ fn php_condition_scores_itself(expr: &Node) -> bool {
 
 // Scores one boolean slot — an `if` / `elseif` / `while` / `do` / `for`
 // condition, a ternary condition, an operand of an `&&` / `||` / `and` /
-// `or` / `xor` chain (see `count_boolean_slot`). PHP is truthy-valued,
+// `or` chain (see `count_boolean_slot`). PHP is truthy-valued,
 // so `if (-$x)`, `if ($x + 1)`, `if ($y = $x)`, `if (A::B)` and
 // `if ($a ?? $b)` are each a decision, and each scored 0 while the slot
 // paid only for a fixed list of terminal kinds (#1526).
@@ -222,15 +221,17 @@ impl Abc for PhpCode {
                 stats.conditions += 1.;
             }
             // Fitzpatrick Rule 9: each operand of a `&&` / `||` / `and`
-            // / `or` / `xor` chain is one condition (issue #403). PHP
-            // exposes both the punctuation forms (`&&`, `||`) and the
-            // low-precedence keyword forms (`and`, `or`, `xor`) as
+            // / `or` chain is one condition (issue #403). `xor` is no
+            // chain: it evaluates both operands, so like `^` it is a
+            // value and its slot pays once (#1536). PHP exposes both
+            // the punctuation forms (`&&`, `||`) and the
+            // low-precedence keyword forms (`and`, `or`) as
             // distinct tokens inside `binary_expression`; both fire
             // the walker so `connect() or die();`-style idiom counts
             // the same as `connect() || die();`. `$a && $b || $c` is a
             // left-nested chain of `binary_expression`s, so an operand
             // that is itself a chain is paid by its own operator's visit.
-            AMPAMP | PIPEPIPE | And | Or | Xor => {
+            AMPAMP | PIPEPIPE | And | Or => {
                 if let Some(chain) = ancestors
                     .parent(node)
                     .filter(|p| p.kind_id() == BinaryExpression)

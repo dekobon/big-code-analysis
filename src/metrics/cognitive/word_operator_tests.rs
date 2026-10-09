@@ -11,8 +11,10 @@
 //!
 //! The rows that switch operation (`a || b and c`) stay at two
 //! sequences: precedence decides which operator nests under which, and
-//! the walk sees that through the parse. `xor`, `??` and `//` are
-//! operations of their own and must not join an `&&` / `||` sequence.
+//! the walk sees that through the parse. `??` and `//` are operations of
+//! their own and must not join an `&&` / `||` sequence. `xor` evaluates
+//! both operands, so it is a value like `^` and no sequence at all
+//! (#1536).
 
 use std::cell::Cell;
 
@@ -85,10 +87,10 @@ fn php_word_operators_continue_their_symbol_sequence() {
         ("$a && $b && $c", "$a and $b && $c", 1, 1),
         ("$a || $b || $c", "$a || $b or $c", 1, 1),
         ("($a || $b) && $c", "$a || $b and $c", 1, 2),
-        // `xor` is an operation of its own: it neither joins nor is
-        // joined by a conjunction.
-        ("$a ?? $b && $c", "$a xor $b && $c", 1, 2),
-        ("$a ?? $b ?? $c", "$a xor $b xor $c", 2, 1),
+        // `xor` is a value, as `^` is (#1536): it binds looser than
+        // `&&`, so only the conjunction is a sequence.
+        ("$a ^ ($b && $c)", "$a xor $b && $c", 1, 1),
+        ("$a ^ $b ^ $c", "$a xor $b xor $c", 2, 0),
     ];
     assert_rows::<PhpParser>("foo.php", asg, &words, &rows);
 }

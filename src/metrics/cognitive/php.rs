@@ -62,16 +62,18 @@ impl Cognitive for PhpCode {
             }
             BinaryExpression => {
                 // PHP's null-coalescing `??` short-circuits like `&&` /
-                // `||` and the word-form `and` / `or` / `xor`, so it
-                // forms boolean sequences alongside them. Mirrors the
-                // PHP cyclomatic operator set minus the assignment
-                // form `??=`, which is not a `BinaryExpression`. The word
-                // forms `and` / `or` are keyed to their symbols; `xor`
-                // and `??` are operations of their own (#1530).
+                // `||` and the word-form `and` / `or`, so it forms
+                // boolean sequences alongside them. Mirrors the PHP
+                // cyclomatic operator set minus the assignment form
+                // `??=`, which is not a `BinaryExpression`. The word
+                // forms `and` / `or` are keyed to their symbols; `??` is
+                // an operation of its own (#1530). `xor` evaluates both
+                // operands, so like `^` it is a value, not a sequence
+                // (#1536).
                 compute_booleans_keyed(node, stats, |id| match id.into() {
                     AMPAMP | And => Some(AMPAMP as u16),
                     PIPEPIPE | Or => Some(PIPEPIPE as u16),
-                    Xor | QMARKQMARK => Some(id),
+                    QMARKQMARK => Some(id),
                     _ => None,
                 });
             }

@@ -7942,21 +7942,27 @@ end",
 
     #[cfg(feature = "php")]
     #[test]
-    fn php_word_form_xor_forms_boolean_sequence_230() {
-        check_metrics::<PhpParser>(
-            "<?php
-            function check_xor($a, $b, $c, $d) {
-                if ($a xor $b xor $c xor $d) { // +1 (if) + 1 (xor chain)
+    fn php_word_form_xor_is_a_value_not_a_sequence_1536() {
+        // `xor` evaluates both operands, so it is a value like `^`
+        // (#1536): only the `if` scores, and the `^` twin agrees.
+        for op in ["xor", "^"] {
+            check_metrics::<PhpParser>(
+                &format!(
+                    "<?php
+            function check_xor($a, $b, $c, $d) {{
+                if ($a {op} $b {op} $c {op} $d) {{ // +1 (if)
                     return true;
-                }
+                }}
                 return false;
-            }",
-            "foo.php",
-            |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2);
-                assert_eq!(metric.cognitive.cognitive_max(), 2);
-            },
-        );
+            }}"
+                ),
+                "foo.php",
+                |metric| {
+                    assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                    assert_eq!(metric.cognitive.cognitive_max(), 1);
+                },
+            );
+        }
     }
 
     #[cfg(feature = "java")]

@@ -27,7 +27,9 @@ impl Cyclomatic for PhpCode {
             SwitchStatement | MatchExpression => {
                 stats.cyclomatic_modified += 1.;
             }
-            // Both standard and modified.
+            // Both standard and modified. `xor` is absent: it evaluates
+            // both operands, so like `^` it is a value, not a decision
+            // (#1536).
             IfStatement
             | ElseIfClause
             | ElseIfClause2
@@ -41,7 +43,6 @@ impl Cyclomatic for PhpCode {
             | PIPEPIPE
             | And
             | Or
-            | Xor
             | QMARKQMARK
             | QMARKQMARKEQ
             // Nullsafe operator `?->` (`QMARKDASHGT`) is short-circuit — it

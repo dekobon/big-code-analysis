@@ -116,10 +116,12 @@ each row attributed to the figure that introduces it.
 
 The short-circuit logical operators (`&&`, `||`, and per-language
 equivalents — Ruby `and` / `or`, Python `and` / `or`, Perl `and` /
-`or` / `xor`, Lua `and` / `or`, Tcl `&&` / `||`, iRules `&&` / `||` /
+`or`, Lua `and` / `or`, Tcl `&&` / `||`, iRules `&&` / `||` /
 `and` / `or`) do **not**
 contribute a condition on their own. Each non-comparison operand
-contributes one instead, via the unary-conditional rule. The
+contributes one instead, via the unary-conditional rule. Perl and
+PHP `xor` evaluate both operands, so like `^` they are a value: the
+slot holding one pays a single condition. The
 paper makes this explicit twice:
 
 1. **Listing 2** annotates `(am >= 0 && am <= 0xF) ? '/' : 'C'` as
@@ -335,8 +337,8 @@ where the cognitive load jumps, so the second operator earns its own
 token: where a language spells conjunction and disjunction both ways
 (C++, Ruby, PHP, Perl, Elixir, iRules), `a && b and c` is one
 sequence. Precedence still decides what nests where, so Ruby's
-`a || b and c` is `(a || b) and c` and scores two. `xor`, `??` and
-Perl's `//` are operations of their own.
+`a || b and c` is `(a || b) and c` and scores two. `??` and Perl's
+`//` are operations of their own; `xor`, like `^`, is no sequence.
 
 big-code-analysis exports the per-function structural score along
 with the file-wide `sum`, `min`, `max`, and a per-function `average`.

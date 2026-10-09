@@ -41,11 +41,14 @@ use crate::*;
 //   inside it already did (see `perl_count_condition`).
 //
 //   The short-circuit and low-precedence logical operators (`&&`,
-//   `||`, `//`, `and`, `or`, `xor`) are deliberately NOT counted.
+//   `||`, `//`, `and`, `or`) are not counted as tokens; each operand
+//   of their chain is a boolean slot instead (Rule 9, issue #403).
 //   See the module-level `Stats` doc-comment for the cross-
 //   language policy (Fitzpatrick rules mapped from Figure 2 for C,
 //   the closest analogue since the paper does not define rules for
-//   Perl; issue #395, walker tracked in #403).
+//   Perl; issue #395). `xor` is no chain: it evaluates both operands,
+//   so like Java's `^` it is a value, and the slot holding it pays
+//   one condition (#1536).
 // One step of the value peel (see `PeelStep`).
 //
 // `Array` is tree-sitter-perl's name for the `(...)` shape used BOTH as
@@ -260,8 +263,9 @@ fn perl_misparse_absorbs_leading_operand<'a>(
         })
 }
 
-// A `&&` / `||` / `//` / `and` / `or` / `xor` chain. tree-sitter-perl
-// spells `and` as a two-operand `unary_expression`.
+// A `&&` / `||` / `//` / `and` / `or` chain. tree-sitter-perl spells
+// `and` as a two-operand `unary_expression`. `xor` is left out: it does
+// not short-circuit, so it is a value, as `^` is (#1536).
 fn perl_is_logical_chain(node: &Node) -> bool {
     use Perl as P;
 
@@ -270,7 +274,7 @@ fn perl_is_logical_chain(node: &Node) -> bool {
         P::BinaryExpression | P::UnaryExpression
     ) && node.children().any(|token| match token.kind_id().into() {
         P::And => perl_and_is_operator(&token, node),
-        P::AMPAMP | P::PIPEPIPE | P::SLASHSLASH | P::Or | P::Xor => true,
+        P::AMPAMP | P::PIPEPIPE | P::SLASHSLASH | P::Or => true,
         _ => false,
     })
 }
@@ -534,8 +538,8 @@ impl Abc for PerlCode {
             // Fitzpatrick Rule 9 walker: each operand of a Perl
             // short-circuit / low-precedence logical chain is one
             // condition (issue #403). Covers `&&`, `||`, `//`,
-            // `and`, `or`, `xor`.
-            P::AMPAMP | P::PIPEPIPE | P::SLASHSLASH | P::And | P::Or | P::Xor => {
+            // `and`, `or` — not `xor`, which is a value (#1536).
+            P::AMPAMP | P::PIPEPIPE | P::SLASHSLASH | P::And | P::Or => {
                 let mut above = ancestors.iter(node).map(|(ancestor, _)| ancestor);
                 if let Some(chain) = above.next() {
                     let absorbed = perl_misparse_absorbs_leading_operand(&chain, above);

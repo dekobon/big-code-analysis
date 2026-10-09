@@ -80,7 +80,7 @@ mod tcl;
 /// Java `default:` precedent). The short-
 /// circuit logical operators `&&` and `||` (and per-language
 /// equivalents — Python's `and` / `or`, Lua's `and` / `or`, Tcl's
-/// `&&` / `||`, Perl's `&&` / `||` / `//` / `and` / `or` / `xor`)
+/// `&&` / `||`, Perl's `&&` / `||` / `//` / `and` / `or`)
 /// are deliberately **not** counted on their own. The paper's
 /// worked Listing 2 annotates `(am >= 0 && am <= 0xF) ? '/' : 'C'`
 /// as `accc` — three conditions for `>=`, `<=`, `?`, zero for
@@ -14057,10 +14057,12 @@ end
     #[cfg(feature = "perl")]
     #[test]
     fn perl_short_circuit_not_counted_directly_ternary_counts() {
-        // `&&`, `||`, `//`, low-precedence `and`, `or`, `xor` are
-        // NOT counted as conditions on their own (Fitzpatrick Rule
-        // 5; #395) — instead each operand is counted as a unary
-        // conditional by the walker (Rule 9; #403). The pinned
+        // `&&`, `||`, `//`, low-precedence `and`, `or` are NOT
+        // counted as conditions on their own (Fitzpatrick Rule 5;
+        // #395) — instead each operand is counted as a unary
+        // conditional by the walker (Rule 9; #403). `xor` evaluates
+        // both operands, so it is a value like `^` and, outside a
+        // slot, scores nothing (#1536). The pinned
         // tree-sitter-perl parses the low-precedence `and` as a
         // two-operand `unary_expression` rather than a
         // `binary_expression`; the walker reads the operands of either
@@ -14068,8 +14070,9 @@ end
         // The low-precedence forms bind looser than `=`, so
         // `$r = $a and $b` is `($r = $a) and $b`, and its left operand
         // pays through the assignment's value.
-        // Net: 6 chain lines × 2 operands + 1 ternary node + 1 for the
-        // ternary's bare `$a` condition operand (#1102) = 14.
+        // Net: 5 chain lines × 2 operands + 0 for the `xor` line + 1
+        // ternary node + 1 for the ternary's bare `$a` condition operand
+        // (#1102) = 12.
         check_metrics::<PerlParser>(
             "sub f {\n\
                  my $r;\n\
@@ -14086,9 +14089,9 @@ end
                 // 7 `=` tokens (one per reassignment line).
                 assert_eq!(metric.abc.assignments_sum(), 7);
                 assert_eq!(metric.abc.branches_sum(), 0);
-                // 6 chain lines × 2 operands + 1 ternary node + 1 for
-                // its bare `$a` condition operand = 14.
-                assert_eq!(metric.abc.conditions_sum(), 14);
+                // 5 chain lines × 2 operands + 1 ternary node + 1 for
+                // its bare `$a` condition operand = 12.
+                assert_eq!(metric.abc.conditions_sum(), 12);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -14311,7 +14314,7 @@ end
     #[test]
     fn perl_if_multiple_conditions() {
         // Fitzpatrick Rule 9 walker (issue #403): each operand of a
-        // `&&` / `||` / `//` / `and` / `or` / `xor` chain is one
+        // `&&` / `||` / `//` / `and` / `or` chain is one
         // condition. ScalarVariable operands ($a, $b, …) qualify as
         // terminal-bool kinds for the walker.
         check_metrics::<PerlParser>(
