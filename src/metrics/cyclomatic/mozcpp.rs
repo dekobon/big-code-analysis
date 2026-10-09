@@ -8,11 +8,13 @@
 
 use super::*;
 
-// `and` / `or` are the ISO alternative spellings of `&&` / `||`; the
-// derivation is on the Cpp twin (#1522).
+// `and` / `or` are the ISO alternative spellings of `&&` / `||`, and
+// the tokens count only where applied; both derivations are on the Cpp
+// twin (#1522, #1525).
 impl_cyclomatic_c_family!(
     MozcppCode,
     Mozcpp,
     ConditionalExpression,
-    [AMPAMP, PIPEPIPE, And, Or]
+    [AMPAMP, PIPEPIPE, And, Or],
+    applied_if = cpp_operator_is_applied
 );

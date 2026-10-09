@@ -11,25 +11,8 @@
 
 use super::{Abc, Stats, wrapped_operand};
 use crate::macros::cpp_bool_terminal_kinds;
+use crate::metrics::cyclomatic::cpp_operator_is_applied;
 use crate::*;
-
-// Whether a comparison token under `parent` applies its operator, as
-// opposed to declaring an overload (`operator_name`) or delimiting a
-// template. Compared by kind *name*, like `cpp_inspect_container`, so
-// one body serves both grammars: at the pinned grammars every
-// `binary_expression` (an `#if` operand included) carries the aliased
-// id `BinaryExpression2`, and the name covers the never-emitted
-// pre-alias id too. A fold counts once, through its `operator` field,
-// because a binary fold `(0 == ... == a)` spells its operator twice.
-pub(super) fn cpp_comparison_is_applied(node: &Node, parent: &Node) -> bool {
-    match parent.kind() {
-        "binary_expression" => true,
-        "fold_expression" => parent
-            .child_by_field_name("operator")
-            .is_some_and(|op| op.id() == node.id()),
-        _ => false,
-    }
-}
 
 // C++ ABC unary-conditional walker (Fitzpatrick Rule 9 in Figure 3;
 // see `rust_inspect_container` for the cross-language rationale).
@@ -315,7 +298,7 @@ impl Abc for CppCode {
             // token reparented under `{ERROR}` by recovery stops
             // counting too, as `<` / `>` always have.
             //
-            // The test is `cpp_comparison_is_applied`, shared with Mozcpp.
+            // The test is `cpp_operator_is_applied`, shared with Mozcpp.
             //
             // `NotEq` is `not_eq`, the ISO alternative token for `!=`. It
             // occurs in exactly the productions `!=` does bar the
@@ -323,7 +306,7 @@ impl Abc for CppCode {
             LT | GT | LTEQ | GTEQ | EQEQ | BANGEQ | NotEq | LTEQGT
                 if ancestors
                     .parent(node)
-                    .is_some_and(|parent| cpp_comparison_is_applied(node, &parent)) =>
+                    .is_some_and(|parent| cpp_operator_is_applied(node, &parent)) =>
             {
                 stats.conditions += 1.;
             }

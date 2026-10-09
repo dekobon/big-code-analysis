@@ -458,6 +458,13 @@ A "decision point" is any node where control can branch:
   word spellings (`and` / `or` in C++, Python, Ruby, Lua, Perl, PHP,
   Elixir and iRules)
 
+A `&&` or `||` counts only where it applies the operator. C++ also
+spells the token in rvalue references (`int&& x`), the ref-qualifier
+(`void f() &&`), overload names (`operator&&`) and `requires`-clause
+constraints, and none of those is a decision (#1525). A compile-time
+expression such as `static_assert(A && B)` still counts, as
+`if constexpr` does.
+
 The per-language `Cyclomatic` trait, in `src/metrics/cyclomatic.rs`,
 asks each tree-sitter node "are you a decision?" and increments the
 counter. The metric is rolled up per function and per file; per-class

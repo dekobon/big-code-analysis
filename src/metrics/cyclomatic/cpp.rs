@@ -17,9 +17,22 @@ use super::*;
 // listed here because the `While` / `For` keyword-token arms above
 // already fire inside them; adding the statement nodes would
 // double-count (issue #284).
+//
+// The grammar also spells `&&` / `||` / `and` / `or` where nothing
+// branches: reference declarators (`int&& x`, `T&& f()`, `auto&& y`),
+// the ref-qualifier (`void f() &&`), overload names (`operator&&`,
+// `operator and`), and a requires-clause's constraint conjunction and
+// disjunction (`requires A<T> && B<T>`), which are compile-time
+// constraint checks, not runtime branches; each scored a decision
+// (#1525). `cpp_operator_is_applied` admits only a `binary_expression`
+// and a fold's operator. A compile-time expression the grammar parses
+// as `binary_expression` (`static_assert`, `noexcept(…)`, a template
+// argument, a concept body, a parenthesised `requires (A && B)`) still
+// counts, as `if constexpr` does and as cognitive scores it.
 impl_cyclomatic_c_family!(
     CppCode,
     Cpp,
     ConditionalExpression,
-    [AMPAMP, PIPEPIPE, And, Or]
+    [AMPAMP, PIPEPIPE, And, Or],
+    applied_if = cpp_operator_is_applied
 );

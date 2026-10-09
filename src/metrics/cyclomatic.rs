@@ -298,28 +298,76 @@ where
 /// `java_do_statement_counts_in_cyclomatic`, and
 /// `java_enhanced_for_statement_counts_in_cyclomatic` pin the
 /// correct keyword-driven counts.
+///
+/// `applied_if = <fn(&Node, &Node) -> bool>` gates the short-circuit
+/// arm on the token's parent, for a grammar that spells the operator
+/// token in productions where it applies nothing (C++'s `int&& x`).
 macro_rules! impl_cyclomatic_c_family {
-    ($code:ty, $lang:ident, $ternary:ident, [$($short_circuit:ident),+ $(,)?]) => {
+    (
+        $code:ty,
+        $lang:ident,
+        $ternary:ident,
+        [$($short_circuit:ident),+ $(,)?]
+        $(, applied_if = $applied:path)? $(,)?
+    ) => {
         impl Cyclomatic for $code {
             fn compute<'a>(
                 node: &Node<'a>,
                 _code: &'a [u8],
-                _ancestors: Ancestors<'a, '_>,
+                ancestors: Ancestors<'a, '_>,
                 stats: &mut Stats,
             ) {
                 use $lang::*;
                 match node.kind_id().into() {
                     Case => stats.cyclomatic += 1.,
                     SwitchStatement => stats.cyclomatic_modified += 1.,
-                    If | For | While | Catch | $ternary $(| $short_circuit)+ => {
+                    If | For | While | Catch | $ternary => {
+                        stats.cyclomatic += 1.;
+                        stats.cyclomatic_modified += 1.;
+                    }
+                    $($short_circuit)|+ => {
+                        $(
+                            if !ancestors
+                                .parent(node)
+                                .is_some_and(|parent| $applied(node, &parent))
+                            {
+                                return;
+                            }
+                        )?
                         stats.cyclomatic += 1.;
                         stats.cyclomatic_modified += 1.;
                     }
                     _ => {}
                 }
+                // Read only by a gated expansion.
+                let _ = ancestors;
             }
         }
     };
+}
+
+/// Whether a C++ binary operator token applies its operator under
+/// `parent`, as opposed to spelling the same token in a declaration:
+/// an overload name (`operator&&`, `operator<`), a reference declarator
+/// or ref-qualifier (`int&& x`, `void f() &&`), a requires-clause
+/// constraint (`requires A<T> && B<T>`), or a template delimiter.
+///
+/// An allowlist, so a grammar bump adding a production fails closed and
+/// a token reparented under `{ERROR}` stops counting. Compared by kind
+/// *name* so one body serves both tree-sitter-cpp and the vendored
+/// Mozcpp fork, whose ids differ; every `binary_expression` (an `#if`
+/// operand included) carries the aliased id `BinaryExpression2` at the
+/// pinned grammars, and the name also covers the never-emitted
+/// pre-alias id. A fold counts once, through its `operator` field,
+/// because a binary fold `(0 && ... && a)` spells its operator twice.
+pub(crate) fn cpp_operator_is_applied(node: &Node, parent: &Node) -> bool {
+    match parent.kind() {
+        "binary_expression" => true,
+        "fold_expression" => parent
+            .child_by_field_name("operator")
+            .is_some_and(|op| op.id() == node.id()),
+        _ => false,
+    }
 }
 
 // JS-family: include nullish coalescing (`??`) and the three compound
@@ -612,6 +660,8 @@ mod typescript;
 mod tests {
     #[cfg(feature = "csharp")]
     use crate::test_support::assert_csharp_fixture_spells;
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    use crate::test_support::assert_fixture_spells;
     use crate::test_support::{
         ast_has_kind_id, check_func_space_only, check_metrics_only_shim, child_space,
     };
@@ -6426,6 +6476,197 @@ f() {
                 );
             },
         );
+    }
+
+    /// `(source, twin, token, count, decisions)`: `source` carries
+    /// `count` of the short-circuit `token` (an index into the kind
+    /// array the test passes), and `twin` is the same source with that
+    /// token respelled as one that never scores. `source` must score
+    /// exactly `decisions` more than `twin`, so the expected value comes
+    /// from the twin rather than from the gate under test (#1525).
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const CPP_SHORT_CIRCUIT_ROWS: [(&str, &str, usize, usize, u64); 26] = [
+        // Reference declarators, one per production that spells `&&`.
+        ("void f(int&& x) {}", "void f(int& x) {}", 0, 1, 0),
+        ("void f(int&&) {}", "void f(int&) {}", 0, 1, 0),
+        (
+            "template<class... T> void f(T&&... a) {}",
+            "template<class... T> void f(T&... a) {}",
+            0,
+            1,
+            0,
+        ),
+        ("struct S { int&& m; };", "struct S { int& m; };", 0, 1, 0),
+        ("typedef int&& R;", "typedef int& R;", 0, 1, 0),
+        ("T&& f() { return g(); }", "T& f() { return g(); }", 0, 1, 0),
+        (
+            "void f() { auto&& y = z; }",
+            "void f() { auto& y = z; }",
+            0,
+            1,
+            0,
+        ),
+        // Ref-qualifier.
+        (
+            "struct S { void g() && {} };",
+            "struct S { void g() & {} };",
+            0,
+            1,
+            0,
+        ),
+        // Overload names, in all four spellings.
+        ("bool operator&&(S, S);", "bool operator+(S, S);", 0, 1, 0),
+        ("bool operator||(S, S);", "bool operator+(S, S);", 1, 1, 0),
+        ("bool operator and(S, S);", "bool operator+(S, S);", 2, 1, 0),
+        ("bool operator or(S, S);", "bool operator+(S, S);", 3, 1, 0),
+        // Requires-clause constraints: compile-time, no runtime branch.
+        (
+            "template<class T> requires A<T> && B<T> void f() {}",
+            "template<class T> requires A<T> void f() {}",
+            0,
+            1,
+            0,
+        ),
+        (
+            "template<class T> requires A<T> || B<T> void f() {}",
+            "template<class T> requires A<T> void f() {}",
+            1,
+            1,
+            0,
+        ),
+        (
+            "template<class T> requires A<T> and B<T> void f() {}",
+            "template<class T> requires A<T> void f() {}",
+            2,
+            1,
+            0,
+        ),
+        (
+            "template<class T> requires A<T> or B<T> void f() {}",
+            "template<class T> requires A<T> void f() {}",
+            3,
+            1,
+            0,
+        ),
+        (
+            "template<class T> void f() requires A<T> && B<T> {}",
+            "template<class T> void f() requires A<T> {}",
+            0,
+            1,
+            0,
+        ),
+        // Applied operators: one decision each.
+        (
+            "bool f(int a, int b) { return a && b; }",
+            "bool f(int a, int b) { return a & b; }",
+            0,
+            1,
+            1,
+        ),
+        (
+            "bool f(int a, int b) { return a || b; }",
+            "bool f(int a, int b) { return a | b; }",
+            1,
+            1,
+            1,
+        ),
+        (
+            "bool f(int a, int b) { return a and b; }",
+            "bool f(int a, int b) { return a & b; }",
+            2,
+            1,
+            1,
+        ),
+        (
+            "bool f(int a, int b) { return a or b; }",
+            "bool f(int a, int b) { return a | b; }",
+            3,
+            1,
+            1,
+        ),
+        (
+            "template<class... T> bool f(T... a) { return (... && a); }",
+            "template<class... T> bool f(T... a) { return (... & a); }",
+            0,
+            1,
+            1,
+        ),
+        // A binary fold spells its one operator twice.
+        (
+            "template<class... T> bool f(T... a) { return (0 || ... || a); }",
+            "template<class... T> bool f(T... a) { return (0 | ... | a); }",
+            1,
+            2,
+            1,
+        ),
+        ("#if A && B\n#endif", "#if A & B\n#endif", 0, 1, 1),
+        // A compile-time `binary_expression` still counts, as
+        // `if constexpr` does.
+        (
+            "void f() { static_assert(A && B); }",
+            "void f() { static_assert(A & B); }",
+            0,
+            1,
+            1,
+        ),
+        // An rvalue-reference parameter beside an applied operator.
+        (
+            "auto l = [](int&& x) { return x && y; };",
+            "auto l = [](int& x) { return x & y; };",
+            0,
+            2,
+            1,
+        ),
+    ];
+
+    /// `[standard, modified]` cyclomatic sums of `src`'s root space.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    fn cyclomatic_sums<P: MetricSuite>(src: &str) -> [u64; 2] {
+        let out = std::cell::Cell::new([0; 2]);
+        check_func_space_only::<P, _>(src, "foo.cpp", &[Metric::Cyclomatic], |space| {
+            let s = &space.metrics.cyclomatic;
+            out.set([s.cyclomatic_sum(), s.cyclomatic_modified_sum()]);
+        });
+        out.get()
+    }
+
+    /// `kinds` is `[&&, ||, and, or]` in the grammar under test.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    fn assert_cpp_short_circuit_counts_only_where_applied<P: MetricSuite>(kinds: [u16; 4]) {
+        for (source, twin, token, count, decisions) in CPP_SHORT_CIRCUIT_ROWS {
+            assert_fixture_spells::<P>(source, "foo.cpp", &[(kinds[token], count, source)]);
+            assert_fixture_spells::<P>(twin, "foo.cpp", &[(kinds[token], 0, twin)]);
+            let [twin_standard, twin_modified] = cyclomatic_sums::<P>(twin);
+            assert_eq!(
+                cyclomatic_sums::<P>(source),
+                [twin_standard + decisions, twin_modified + decisions],
+                "`{source}` against its twin `{twin}`"
+            );
+        }
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_short_circuit_counts_only_where_applied() {
+        assert_cpp_short_circuit_counts_only_where_applied::<CppParser>([
+            Cpp::AMPAMP as u16,
+            Cpp::PIPEPIPE as u16,
+            Cpp::And as u16,
+            Cpp::Or as u16,
+        ]);
+    }
+
+    // Mozcpp owns no file extension, so this is the only coverage its
+    // gated arm has.
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_short_circuit_counts_only_where_applied() {
+        assert_cpp_short_circuit_counts_only_where_applied::<MozcppParser>([
+            Mozcpp::AMPAMP as u16,
+            Mozcpp::PIPEPIPE as u16,
+            Mozcpp::And as u16,
+            Mozcpp::Or as u16,
+        ]);
     }
 
     /// Decision kinds through the dedicated `LANG::C` grammar (#721):

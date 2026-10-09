@@ -10,10 +10,10 @@
 )]
 
 use super::cpp::{
-    cpp_comparison_is_applied, cpp_count_unary_conditions, cpp_inspect_slot,
-    cpp_walk_for_statement, cpp_walk_ternary,
+    cpp_count_unary_conditions, cpp_inspect_slot, cpp_walk_for_statement, cpp_walk_ternary,
 };
 use super::{Abc, Stats, wrapped_operand};
+use crate::metrics::cyclomatic::cpp_operator_is_applied;
 use crate::*;
 
 impl Abc for MozcppCode {
@@ -93,7 +93,7 @@ impl Abc for MozcppCode {
             LT | GT | LTEQ | GTEQ | EQEQ | BANGEQ | NotEq | LTEQGT
                 if ancestors
                     .parent(node)
-                    .is_some_and(|parent| cpp_comparison_is_applied(node, &parent)) =>
+                    .is_some_and(|parent| cpp_operator_is_applied(node, &parent)) =>
             {
                 stats.conditions += 1.;
             }
