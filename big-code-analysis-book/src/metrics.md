@@ -711,6 +711,15 @@ tokens involved the same way they spell real operators:
   call `M(ref x)`, and `static (int x) => x` bills the same `static`
   as `static void M()`. A repeated operator keyword adds to
   `total_operators` but not to `unique_operators` (#1418, #1482).
+- **An overloaded operator's name is an operator.** The `+` of
+  `operator +` was always one, and the names a grammar spells as whole
+  tokens now agree: C#'s `operator true` / `operator false`, and C++'s
+  `operator[]`, `operator()`, `operator""_x` and `operator co_await`.
+  The `operator` keyword is an operator in both languages, as is C++'s
+  `co_await` in an expression. C++'s `[]` and `()` names are tokens of
+  their own, so `bca ops` lists `operator[]`'s `[]` beside a
+  subscript's `[]` as a second operator, as Ruby does for `def [](i)`
+  (#1296).
 - **A named operator is one operand.** Elixir names an operator
   without applying it in a capture (`&==/2`, `&and/2`) or a remote
   call (`Kernel.||(a, b)`), and its grammar wraps the token in an

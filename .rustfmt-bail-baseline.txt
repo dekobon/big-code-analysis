@@ -125,8 +125,8 @@
 big-code-analysis-ast/src/getter.rs 3
 big-code-analysis-ast/src/getter/bash.rs 3
 big-code-analysis-ast/src/getter/c.rs 3
-big-code-analysis-ast/src/getter/cpp.rs 5
-big-code-analysis-ast/src/getter/csharp.rs 8
+big-code-analysis-ast/src/getter/cpp.rs 4
+big-code-analysis-ast/src/getter/csharp.rs 9
 big-code-analysis-ast/src/getter/elixir.rs 3
 big-code-analysis-ast/src/getter/go.rs 1
 big-code-analysis-ast/src/getter/groovy.rs 7
@@ -134,7 +134,7 @@ big-code-analysis-ast/src/getter/irules.rs 6
 big-code-analysis-ast/src/getter/java.rs 5
 big-code-analysis-ast/src/getter/kotlin.rs 4
 big-code-analysis-ast/src/getter/lua.rs 3
-big-code-analysis-ast/src/getter/mozcpp.rs 5
+big-code-analysis-ast/src/getter/mozcpp.rs 4
 big-code-analysis-ast/src/getter/perl.rs 3
 big-code-analysis-ast/src/getter/php.rs 11
 big-code-analysis-ast/src/getter/python.rs 7
@@ -142,7 +142,6 @@ big-code-analysis-ast/src/getter/ruby.rs 4
 big-code-analysis-ast/src/getter/tcl.rs 6
 big-code-analysis-ast/src/macros/mod.rs 14
 enums/src/macros.rs 1
-src/metrics/abc/elixir.rs 5
 src/metrics/cognitive/perl.rs 8
 src/metrics/cyclomatic.rs 7
 src/metrics/cyclomatic/irules.rs 2

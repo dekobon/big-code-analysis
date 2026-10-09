@@ -1089,12 +1089,13 @@ mod tests {
     #[test]
     fn cpp_dot_star_is_halstead_operator() {
         check_metrics::<CppParser>("struct S { void operator.*(int); };", "foo.cpp", |metric| {
-            // Unique operators with fix: {}, ;, (), int, void, .*
+            // Unique operators with fix: {}, ;, (), int, void, .*, and
+            //   the `operator` keyword (#1296).
             //   `.*` is the regression target — without the fix it
-            //   falls through to `Unknown` and `u_operators` is 5.
+            //   falls through to `Unknown` and `u_operators` is 6.
             // Unique operands: S
             let s = &metric.halstead;
-            assert_eq!(s.unique_operators(), 6);
+            assert_eq!(s.unique_operators(), 7);
             assert_eq!(s.unique_operands(), 1);
         });
     }
@@ -1116,12 +1117,13 @@ mod tests {
             "struct S { void operator->*(int); };",
             "foo.cpp",
             |metric| {
-                // Unique operators with fix: {}, ;, (), int, void, ->*
+                // Unique operators with fix: {}, ;, (), int, void, ->*,
+                //   and the `operator` keyword (#1296).
                 //   `->*` is the regression target — without the fix it
-                //   falls through to `Unknown` and `u_operators` is 5.
+                //   falls through to `Unknown` and `u_operators` is 6.
                 // Unique operands: S
                 let s = &metric.halstead;
-                assert_eq!(s.unique_operators(), 6);
+                assert_eq!(s.unique_operators(), 7);
                 assert_eq!(s.unique_operands(), 1);
             },
         );
@@ -3339,33 +3341,45 @@ mod tests {
 
     #[cfg(feature = "csharp")]
     #[test]
-    fn csharp_boolean_keyword_outside_a_literal_still_counts() {
-        // Companion to the test above (#1253): the suppression fires on
-        // the *parent* kind, never on `True` / `False` alone. C#'s
-        // overloadable-operator list emits a bare `true` / `false` token
-        // with no `boolean_literal` wrapper — `operator_declaration` is
-        // the grammar's only such position — so a blanket exclusion
-        // would drop the operand that is the sole difference between
-        // `operator true` and `operator false`, leaving two such
-        // declarations with identical Halstead vocabularies whenever
-        // their bodies match.
+    fn csharp_operator_true_names_an_operator_not_a_value() {
+        // C#'s overloadable-operator list emits a bare `true` / `false`
+        // token with no `boolean_literal` wrapper — `operator_declaration`
+        // is the grammar's only such position. There the keyword names
+        // the operator being declared, as `+` does in `operator +`, so it
+        // is an operator (#1296); the companion test above pins the
+        // wrapped literal, which bills only its wrapper (#1253).
         //
         // Each declaration names one boolean and returns the other, so
-        // the fixture exercises both the guarded and the unguarded
-        // position for each keyword.
+        // the fixture carries each keyword once as a name and once as a
+        // value.
         //
-        // Operands: `A` × 3 (class name, two parameter types), `a` × 2,
-        // `true` × 2 (operator name + literal), `false` × 2 (likewise)
-        // ⇒ n2 = 4, N2 = 9. A blanket exclusion gives N2 = 7; no guard
-        // at all restores the double count at N2 = 11.
-        check_metrics::<CsharpParser>(
-            "class A {\n    public static bool operator true(A a) => false;\n    public static bool operator false(A a) => true;\n}\n",
-            "foo.cs",
-            |metric| {
-                assert_eq!(metric.halstead.unique_operands(), 4);
-                assert_eq!(metric.halstead.total_operands(), 9);
-            },
-        );
+        // Operators (n1 = 11, N1 = 18): class 1, {} 1, public 2,
+        // static 2, bool 2, operator 2, true 1, false 1, () 2, => 2,
+        // ; 2. Operands (n2 = 4, N2 = 7): A × 3 (class name, two
+        // parameter types), a × 2, and the literals false and true once
+        // each. Before #1296 the two names were operands instead:
+        // (9, 16, 4, 9). A blanket exclusion of the leaf would give
+        // (9, 16, 4, 7), and no guard at all (11, 18, 4, 9).
+        let source = "class A {\n    public static bool operator true(A a) => false;\n    public static bool operator false(A a) => true;\n}\n";
+        assert_halstead_counts::<CsharpParser>(source, "foo.cs", [11, 18, 4, 7], "operator true");
+
+        // `true` and `false` are each an operator *and* an operand here,
+        // once apiece: the name and the literal land in different halves.
+        let ops = ops_of::<CsharpParser>(source, "foo.cs");
+        for keyword in ["true", "false"] {
+            for (half, list) in [("operators", &ops.operators), ("operands", &ops.operands)] {
+                assert_eq!(
+                    list.iter().filter(|o| *o == keyword).count(),
+                    1,
+                    "`{keyword}` must appear once among the {half}; they were {list:?}"
+                );
+            }
+        }
+
+        // The fallback arm: outside both positions — here a bare `true`
+        // under error recovery, the only other parent the grammar
+        // produces — the keyword keeps its role as a value.
+        assert_halstead_counts::<CsharpParser>("true\n", "foo.cs", [0, 0, 1, 1], "bare true");
     }
 
     #[cfg(feature = "csharp")]
@@ -9813,6 +9827,73 @@ f() {
             6,
             vec!["S", "x", "m1", "m2", "p", "this"],
         );
+    }
+
+    /// Every C++ overloaded-operator name the grammar spells as a token
+    /// of its own, plus the `co_await` expression and the conversion
+    /// operator's `operator` keyword (#1296).
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const CPP_OPERATOR_NAMES: &str =
+        "struct S { int operator[](int); void operator()(); bool operator co_await(); };
+long operator\"\"_x(unsigned long long);
+S::operator bool() const;
+S s; int a = s[1]; auto t = co_await s;
+";
+
+    /// Asserts `CPP_OPERATOR_NAMES` bills each operator name, keyword and
+    /// `co_await` as an operator under parser `T`.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    #[track_caller]
+    fn assert_cpp_operator_names<T: crate::MetricSuite>(label: &str) {
+        // Operators (n1 = 16, N1 = 39): `operator` 5 (four
+        // `operator_name`s and the `operator_cast`); the names `[]` 1,
+        // `()` 1, `""` 1; `co_await` 2 (the name and the expression);
+        // the `(` of a parameter list 5; `;` 9; `int` 3; `long` 3;
+        // `bool` 2; `=` 2; `{` 1; `void` 1; `unsigned` 1; `::` 1; the
+        // subscript `[` 1. `struct`, `auto` and `const` are in no arm.
+        //
+        // Operands (n2 = 6, N2 = 9): `s` 3, `S` 2 (the qualifier in
+        // `S::operator bool` is a namespace identifier, which #1096
+        // leaves unbilled), `_x`, `a`, `1`, `t`.
+        //
+        // Before #1296: (11, 29, 6, 9), the five operator kinds billed
+        // nowhere.
+        assert_halstead_counts::<T>(CPP_OPERATOR_NAMES, "ops.cpp", [16, 39, 6, 9], label);
+
+        // `operator[]` / `operator()` are kinds of their own, so they sit
+        // beside the subscript `[` and the parameter-list `(` as a second
+        // `[]` / `()` entry — two operators, as Ruby's `def [](i)` is.
+        let ops = ops_of::<T>(CPP_OPERATOR_NAMES, "ops.cpp");
+        for (name, entries) in [
+            ("operator", 1),
+            ("co_await", 1),
+            ("\"\"", 1),
+            ("[]", 2),
+            ("()", 2),
+        ] {
+            assert_eq!(
+                ops.operators.iter().filter(|o| *o == name).count(),
+                entries,
+                "{label}: `{name}` must be {entries} operator entry; operators were {:?}",
+                ops.operators
+            );
+            assert!(
+                !ops.operands.iter().any(|o| o == name),
+                "{label}: `{name}` must not be an operand; operands were {:?}",
+                ops.operands
+            );
+        }
+    }
+
+    /// Regression for #1296: a C++ operator name is a Halstead operator,
+    /// as `operator +`'s `+` already was. One row per clone, so reverting
+    /// either arm fails its own row (grammar-dispatch section 11); Mozcpp
+    /// owns no file extension, so this row is its only coverage.
+    #[cfg(all(feature = "cpp", feature = "mozcpp"))]
+    #[test]
+    fn cpp_operator_names_are_operators() {
+        assert_cpp_operator_names::<CppParser>("cpp");
+        assert_cpp_operator_names::<MozcppParser>("mozcpp");
     }
 
     /// Regression for #1361: a C++ `this` is a Halstead operand.

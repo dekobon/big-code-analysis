@@ -139,7 +139,27 @@ impl Getter for CppCode {
             // modifier has a distinct kind_id, so keying by kind_id (the default
             // `operators` store) keeps them distinct in n1 while `long long`'s
             // two `long` tokens correctly fold to one n1 entry but two N1 hits.
-            | Signed | Unsigned | Long | Short => TokenRole::Operator,
+            | Signed | Unsigned | Long | Short
+            // An overloaded operator's name (#1296). `operator +` already
+            // billed its `+` through the punctuation kind, but the grammar
+            // spells four overloadable names as whole tokens of their own
+            // — `[]`, `()`, the `""` of a user-defined literal and
+            // `co_await` — and none was in either arm, so
+            // `operator[]` and `operator()` billed nothing for the name
+            // that tells them apart. `Operator` is the `operator` keyword
+            // itself, which C# bills the same way. `CoAwait` is also the
+            // keyword of `co_await expr`, an operator there too. Each
+            // token occurs only under `operator_name`, `operator_cast` or
+            // `co_await_expression`, none of which is classified, so
+            // nothing bills one twice (grammar-dispatch section 5).
+            //
+            // `LPARENRPAREN` / `LBRACKRBRACK` are kinds of their own, not
+            // the `LPAREN` / `LBRACK` of a call or subscript, so declaring
+            // `operator[]` and applying `s[1]` are two `n1` entries that
+            // `bca ops` both renders `[]` — the same choice Ruby makes for
+            // its `def [](i)` method names.
+            | LPARENRPAREN | LBRACKRBRACK | DQUOTEDQUOTE | CoAwait | Operator
+                => TokenRole::Operator,
             // `CharLiteral` — the full derivation lives on the same arm
             // in `src/getter/c.rs` (#1316): the wrapper is the only
             // classified node in a character literal, so it bills one

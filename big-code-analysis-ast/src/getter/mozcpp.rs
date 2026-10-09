@@ -109,7 +109,11 @@ impl Getter for MozcppCode {
             // modifier has a distinct kind_id, so keying by kind_id (the default
             // `operators` store) keeps them distinct in n1 while `long long`'s
             // two `long` tokens correctly fold to one n1 entry but two N1 hits.
-            | Signed | Unsigned | Long | Short => TokenRole::Operator,
+            | Signed | Unsigned | Long | Short
+            // An overloaded operator's name, the `operator` keyword and
+            // `co_await` — the derivation is on the Cpp twin (#1296).
+            | LPARENRPAREN | LBRACKRBRACK | DQUOTEDQUOTE | CoAwait | Operator
+                => TokenRole::Operator,
             // `CharLiteral` — the full derivation lives on the same arm
             // in `src/getter/c.rs` (#1316): the wrapper is the only
             // classified node in a character literal, so it bills one

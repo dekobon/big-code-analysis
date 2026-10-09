@@ -85,14 +85,15 @@ impl Getter for CsharpCode {
             // the text-keyed `n2` hid it (#1253). The leaf cannot simply
             // be dropped: the overloadable-operator list emits a bare
             // `true` / `false` under `operator_declaration` — the
-            // grammar's only unwrapped position — and suppressing that
-            // would leave two such declarations with identical Halstead
-            // vocabularies whenever their bodies match. That position
-            // keeps its pre-#1253 `Operand` classification here; whether
-            // an overloaded operator's *name* is better counted as an
-            // operator, as `operator +` already is, is #1296.
+            // grammar's only unwrapped position. There the keyword
+            // *names* an operator, exactly as the `+` of `operator +`
+            // does, so it is billed as one (#1296); C# merely spells two
+            // of its overloadable operators with keywords instead of
+            // punctuation. The fallback keeps any other unwrapped
+            // position an operand, the role the keyword has as a value.
             True | False => match ancestors.parent(node).map(|p| p.kind_id().into()) {
                 Some(BooleanLiteral) => TokenRole::Unknown,
+                Some(OperatorDeclaration) => TokenRole::Operator,
                 _ => TokenRole::Operand,
             },
             // `this` is a self-reference everywhere (`this.x`,
