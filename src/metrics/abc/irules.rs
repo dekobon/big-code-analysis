@@ -9,8 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats};
-use crate::macros::irules_bool_terminal_kinds;
+use super::{Abc, Stats, count_boolean_slot, count_negated_operand, is_operand, wrapped_operand};
 use crate::*;
 
 /// The three operand slots of a `ternary_expr`, located relative to the
@@ -49,23 +48,19 @@ fn irules_ternary_slots<'a>(
     (condition, consequence, alternative)
 }
 
-/// Routes the three ternary slots (#1180).
-///
-/// Mirrors `cpp_walk_ternary`: the condition is counted directly when it
-/// is already a terminal bool, and otherwise handed to the wrapper-peeling
-/// walker; each branch goes to the walker, which counts it only if a `!`
-/// establishes boolean content for that slot.
+/// Routes the three ternary slots (#1180) — see `tcl_walk_ternary`.
 fn irules_walk_ternary(node: &Node, conditions: &mut f64) {
     let (condition, consequence, alternative) = irules_ternary_slots(node);
     if let Some(condition) = condition {
-        if matches!(condition.kind_id().into(), irules_bool_terminal_kinds!()) {
-            *conditions += 1.;
-        } else {
-            irules_inspect_container(&condition, node, conditions);
-        }
+        irules_count_condition(&condition, conditions);
     }
     for branch in [consequence, alternative].into_iter().flatten() {
-        irules_inspect_container(&branch, node, conditions);
+        count_negated_operand(
+            &branch,
+            irules_wrapper_operand,
+            irules_condition_scores_itself,
+            conditions,
+        );
     }
 }
 
@@ -134,13 +129,13 @@ impl Abc for IrulesCode {
             // mirrors arm for arm.
             Irules::If | Irules::While => {
                 if let Some(expr) = irules_condition_expr(node) {
-                    irules_inspect_container(&expr, node, &mut stats.conditions);
+                    irules_count_condition(&expr, &mut stats.conditions);
                 }
             }
             Irules::Elseif => {
                 stats.conditions += 1.;
                 if let Some(expr) = irules_condition_expr(node) {
-                    irules_inspect_container(&expr, node, &mut stats.conditions);
+                    irules_count_condition(&expr, &mut stats.conditions);
                 }
             }
             Irules::TernaryExpr => {
@@ -152,8 +147,8 @@ impl Abc for IrulesCode {
             // a `&&`/`||`/`and`/`or` chain is one condition (#403). iRules'
             // keyword forms (`and`/`or`) get the same treatment as `&&`/`||`.
             Irules::AMPAMP | Irules::PIPEPIPE | Irules::And | Irules::Or => {
-                if let Some(parent) = ancestors.parent(node) {
-                    irules_count_unary_conditions(&parent, &mut stats.conditions);
+                if let Some(chain) = ancestors.parent(node) {
+                    irules_count_chain_operands(&chain, &mut stats.conditions);
                 }
             }
             _ => {}
@@ -182,109 +177,75 @@ fn irules_command_is_assignment(node: &Node, code: &[u8]) -> bool {
         .is_some_and(|word| IRULES_ASSIGNMENT_COMMANDS.contains(&word))
 }
 
-// iRules counterpart of `tcl_inspect_container` (Fitzpatrick Rule 9): a
-// negated bare operand (`!$flag`) inside a boolean chain is one condition.
-fn irules_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
-    // bca: suppress(cognitive) — wrapper-peeling state machine, clearest whole
-    // The same shape as `cpp_inspect_container`, and it carries the same
-    // marker for the same reason: one loop peels the `expr` / `!` layers
-    // while carrying a single boolean-context flag, the flag must be
-    // readable at every step so any split would have to thread it back
-    // out, and the parts have no names a reader would draw. It crossed
-    // the limit when #1180 wired the Phase 2B slot routing — the seed
-    // grew a ternary-slot disjunct and the loop gained the wrapper peel
-    // every sibling already had.
-    let mut node = *container_node;
-    let mut node_kind = node.kind_id().into();
-    let parent_kind = parent.kind_id().into();
-    // Phase 2B slot routing (#1180). Before it, only a `&&` / `||` chain
-    // seeded boolean context, so `if {!$a}` and every ternary operand
-    // scored zero. The `if` / `elseif` / `while` predicate is a boolean
-    // context by construction; a ternary seeds only its *condition*
-    // slot, since the two branches are type-free and an unnegated branch
-    // must contribute nothing.
-    let mut has_boolean_content = matches!(
-        parent_kind,
-        Irules::BinopExpr | Irules::If | Irules::Elseif | Irules::While
-    );
-    // No ternary-condition disjunct here, unlike `cpp_inspect_container`.
-    // It would be dead: the flag is read only *after* a peel, and the
-    // loop peels exactly two kinds. `Expr` cannot sit under
-    // `ternary_expr` — the grammar's `_expr` alternatives are
-    // `unary_expr | binop_expr | ternary_expr | escaped_character |
-    // '(' _expr ')' | _expr_atom_no_brace | braced_word_simple` — and a
-    // `!`-unary sets the flag itself two lines below. Every other
-    // condition-slot kind breaks before the flag is read, and every
-    // terminal is counted by the ternary walker directly. Verified by
-    // deletion: the whole suite passes without it.
-    //
-    // The C-family version *is* live because C keeps `(a)` as a
-    // `parenthesized_expression` for the loop to peel, where this
-    // grammar inlines the parens. Porting it verbatim also cost two full
-    // child scans per ternary to produce `false`.
-
-    loop {
-        // The `expr` wrapper is this grammar's `{ … }` predicate node —
-        // the analogue of the C family's `condition_clause`, and peeled
-        // the same way.
-        let is_parens = matches!(node_kind, Irules::Expr);
-        let is_not = matches!(node_kind, Irules::UnaryExpr)
-            && node
+// iRules counterpart of `tcl_wrapper_operand`, which also takes the
+// keyword spelling `not` — Tcl's `expr` has no such token — as Perl and
+// Elixir do.
+fn irules_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
+    match node.kind_id().into() {
+        Irules::Expr => wrapped_operand(node).map(|o| (o, false)),
+        Irules::UnaryExpr
+            if node
                 .child(0)
-                .is_some_and(|c| c.kind_id() == Irules::BANG as u16);
-
-        if !is_parens && !is_not {
-            break;
+                .is_some_and(|c| matches!(c.kind_id().into(), Irules::BANG | Irules::Not)) =>
+        {
+            wrapped_operand(node).map(|o| (o, true))
         }
-        // A `!` proves the operand is boolean even where the parent did
-        // not — every sibling language carries this line; its absence was
-        // why a negated operand outside a `&&` chain could never count.
-        if !has_boolean_content && is_not {
-            has_boolean_content = true;
-        }
-
-        // The first *named* child, for both wrappers. `!` and the `{`
-        // / `(` delimiters are all anonymous, so this is the operand in
-        // every shape — and unlike a fixed index it survives `_expr`
-        // inlining its parens: `!($a)` puts `(` at child 1, where a
-        // positional read lands on the delimiter and the walk stops
-        // without counting the negation at all.
-        let Some(child) = node.children().find(Node::is_named) else {
-            break;
-        };
-        node = child;
-        node_kind = node.kind_id().into();
-
-        if matches!(node_kind, irules_bool_terminal_kinds!()) {
-            if has_boolean_content {
-                *conditions += 1.;
-            }
-            break;
-        }
+        _ => None,
     }
 }
 
-// iRules counterpart of `tcl_count_unary_conditions`.
-fn irules_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
-    let list_kind = list_node.kind_id().into();
-    let mut cursor = list_node.cursor();
+// iRules counterpart of `tcl_condition_scores_itself`, with the word-form
+// string comparators and the keyword chain forms Tcl lacks.
+fn irules_condition_scores_itself(expr: &Node) -> bool {
+    match expr.kind_id().into() {
+        Irules::TernaryExpr => true,
+        Irules::BinopExpr => expr.children().any(|token| {
+            matches!(
+                token.kind_id().into(),
+                Irules::EQEQ
+                    | Irules::BANGEQ
+                    | Irules::LT
+                    | Irules::GT
+                    | Irules::LTEQ
+                    | Irules::GTEQ
+                    | Irules::Eq
+                    | Irules::Ne
+                    | Irules::StartsWith
+                    | Irules::EndsWith
+                    | Irules::Contains
+                    | Irules::Equals
+                    | Irules::Matches
+                    | Irules::MatchesRegex
+                    | Irules::MatchesGlob
+                    | Irules::In
+                    | Irules::Ni
+                    | Irules::AMPAMP
+                    | Irules::PIPEPIPE
+                    | Irules::And
+                    | Irules::Or
+            )
+        }),
+        _ => false,
+    }
+}
 
-    if cursor.goto_first_child() {
-        loop {
-            let node = cursor.node();
-            let node_kind = node.kind_id().into();
+// iRules counterpart of `tcl_count_condition` (#1526).
+fn irules_count_condition(condition: &Node, conditions: &mut f64) {
+    count_boolean_slot(
+        condition,
+        irules_wrapper_operand,
+        irules_condition_scores_itself,
+        conditions,
+    );
+}
 
-            if matches!(node_kind, irules_bool_terminal_kinds!())
-                && matches!(list_kind, Irules::BinopExpr)
-            {
-                *conditions += 1.;
-            } else if node.is_named() {
-                irules_inspect_container(&node, list_node, conditions);
-            }
-
-            if !cursor.goto_next_sibling() {
-                break;
-            }
+// Each operand of a chain is a boolean slot (Fitzpatrick Rule 9, #403).
+// The operands are the chain's named children: the grammar names no
+// operand field, and inlines the parens of `($a)`.
+fn irules_count_chain_operands(chain: &Node, conditions: &mut f64) {
+    if chain.kind_id() == Irules::BinopExpr {
+        for operand in chain.children().filter(is_operand) {
+            irules_count_condition(&operand, conditions);
         }
     }
 }

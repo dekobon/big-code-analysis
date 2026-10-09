@@ -9,8 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats};
-use crate::macros::tcl_bool_terminal_kinds;
+use super::{Abc, Stats, count_boolean_slot, count_negated_operand, is_operand, wrapped_operand};
 use crate::*;
 
 // Names of Tcl commands that mutate a variable. Each invocation of
@@ -45,113 +44,78 @@ const TCL_ASSIGNMENT_COMMANDS: &[&str] = &["incr", "append", "lappend"];
 //   `if`. The short-circuit operators `&&` / `||` are deliberately
 //   NOT counted; see the module-level `Stats` doc-comment for the
 //   cross-language policy (issue #395, walker tracked in #403).
-// Tcl ABC unary-conditional walker (Fitzpatrick Rule 9; issue #403).
-// Tcl expression syntax appears inside `if {…}` / `while {…}` braces
-// and parses as `binop_expr` whose operator tokens include `AMPAMP`
-// and `PIPEPIPE`. Terminal-bool kinds are the bare-word literals
-// `simple_word`, the braced / quoted variants, variable substitutions
-// (`$x`), command substitutions (`[cmd]`), the boolean keyword, and
-// the numeric literal.
-fn tcl_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
-    // bca: suppress(cognitive) — wrapper-peeling state machine, clearest whole
-    // The same shape as `cpp_inspect_container`, and it carries the same
-    // marker for the same reason: one loop peels the `expr` / `!` layers
-    // while carrying a single boolean-context flag, the flag must be
-    // readable at every step so any split would have to thread it back
-    // out, and the parts have no names a reader would draw. It crossed
-    // the limit when #1180 wired the Phase 2B slot routing — the seed
-    // grew a ternary-slot disjunct and the loop gained the wrapper peel
-    // every sibling already had.
-    let mut node = *container_node;
-    let mut node_kind = node.kind_id().into();
-    let parent_kind = parent.kind_id().into();
-    // Phase 2B slot routing (#1180). Before it, only a `&&` / `||` chain
-    // seeded boolean context, so `if {!$a}` and every ternary operand
-    // scored zero. The `if` / `elseif` / `while` predicate is a boolean
-    // context by construction; a ternary seeds only its *condition*
-    // slot, since the two branches are type-free and an unnegated branch
-    // must contribute nothing.
-    let mut has_boolean_content = matches!(
-        parent_kind,
-        Tcl::BinopExpr | Tcl::If | Tcl::Elseif | Tcl::While
-    );
-    // No ternary-condition disjunct here, unlike `cpp_inspect_container`.
-    // It would be dead: the flag is read only *after* a peel, and the
-    // loop peels exactly two kinds. `Expr` cannot sit under
-    // `ternary_expr` — the grammar's `_expr` alternatives are
-    // `unary_expr | binop_expr | ternary_expr | escaped_character |
-    // '(' _expr ')' | _expr_atom_no_brace | braced_word_simple` — and a
-    // `!`-unary sets the flag itself two lines below. Every other
-    // condition-slot kind breaks before the flag is read, and every
-    // terminal is counted by the ternary walker directly. Verified by
-    // deletion: the whole suite passes without it.
-    //
-    // The C-family version *is* live because C keeps `(a)` as a
-    // `parenthesized_expression` for the loop to peel, where this
-    // grammar inlines the parens. Porting it verbatim also cost two full
-    // child scans per ternary to produce `false`.
-
-    loop {
-        // The `expr` wrapper is this grammar's `{ … }` predicate node —
-        // the analogue of the C family's `condition_clause`, and peeled
-        // the same way.
-        let is_parens = matches!(node_kind, Tcl::Expr);
-        let is_not = matches!(node_kind, Tcl::UnaryExpr)
-            && node
+// One step of the value peel (see `PeelStep`). The `expr` wrapper is
+// this grammar's `{ … }` predicate node — the analogue of the C family's
+// `condition_clause` — and holds one operand; `!` is the one unary that
+// proves its operand boolean, while `-$x` / `~$x` yield a value and stop
+// the peel. Both operands are the first *named* child that is not an
+// `extra`: `!` and the `{` / `(` delimiters are all anonymous, so this
+// is the operand in every shape, and unlike a fixed index it survives
+// `_expr` inlining its parens — `!($a)` puts `(` at child 1.
+fn tcl_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
+    match node.kind_id().into() {
+        Tcl::Expr => wrapped_operand(node).map(|o| (o, false)),
+        Tcl::UnaryExpr
+            if node
                 .child(0)
-                .is_some_and(|c| c.kind_id() == Tcl::BANG as u16);
-
-        if !is_parens && !is_not {
-            break;
+                .is_some_and(|c| c.kind_id() == Tcl::BANG as u16) =>
+        {
+            wrapped_operand(node).map(|o| (o, true))
         }
-        // A `!` proves the operand is boolean even where the parent did
-        // not — every sibling language carries this line; its absence was
-        // why a negated operand outside a `&&` chain could never count.
-        if !has_boolean_content && is_not {
-            has_boolean_content = true;
-        }
-
-        // The first *named* child, for both wrappers. `!` and the `{`
-        // / `(` delimiters are all anonymous, so this is the operand in
-        // every shape — and unlike a fixed index it survives `_expr`
-        // inlining its parens: `!($a)` puts `(` at child 1, where a
-        // positional read lands on the delimiter and the walk stops
-        // without counting the negation at all.
-        let Some(child) = node.children().find(Node::is_named) else {
-            break;
-        };
-        node = child;
-        node_kind = node.kind_id().into();
-
-        if matches!(node_kind, tcl_bool_terminal_kinds!()) {
-            if has_boolean_content {
-                *conditions += 1.;
-            }
-            break;
-        }
+        _ => None,
     }
 }
 
-fn tcl_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
-    let list_kind = list_node.kind_id().into();
-    let mut cursor = list_node.cursor();
+// Whether an arm of `compute` already charges `expr` (already peeled) as
+// a condition: a ternary (its own arm), or a `binop_expr` applying a
+// comparison (the token arm) or `&&` / `||`, whose operands each pay
+// through `tcl_count_condition`. The grammar names no operator field, so
+// the operator is found among the node's tokens.
+fn tcl_condition_scores_itself(expr: &Node) -> bool {
+    match expr.kind_id().into() {
+        Tcl::TernaryExpr => true,
+        Tcl::BinopExpr => expr.children().any(|token| {
+            matches!(
+                token.kind_id().into(),
+                Tcl::EQEQ
+                    | Tcl::BANGEQ
+                    | Tcl::LT
+                    | Tcl::GT
+                    | Tcl::LTEQ
+                    | Tcl::GTEQ
+                    | Tcl::Eq
+                    | Tcl::Ne
+                    | Tcl::In
+                    | Tcl::Ni
+                    | Tcl::AMPAMP
+                    | Tcl::PIPEPIPE
+            )
+        }),
+        _ => false,
+    }
+}
 
-    if cursor.goto_first_child() {
-        loop {
-            let node = cursor.node();
-            let node_kind = node.kind_id().into();
+// Scores one boolean slot — an `if` / `elseif` / `while` predicate, a
+// ternary condition, an operand of an `&&` / `||` chain (see
+// `count_boolean_slot`). `expr` tests any number for non-zero, so
+// `if {-$x}` and `if {$x + 1}` are each a decision, and each scored 0
+// while the slot paid only for a fixed list of terminal kinds (#1526).
+fn tcl_count_condition(condition: &Node, conditions: &mut f64) {
+    count_boolean_slot(
+        condition,
+        tcl_wrapper_operand,
+        tcl_condition_scores_itself,
+        conditions,
+    );
+}
 
-            if matches!(node_kind, tcl_bool_terminal_kinds!())
-                && matches!(list_kind, Tcl::BinopExpr)
-            {
-                *conditions += 1.;
-            } else if node.is_named() {
-                tcl_inspect_container(&node, list_node, conditions);
-            }
-
-            if !cursor.goto_next_sibling() {
-                break;
-            }
+// Each operand of a chain is a boolean slot (Fitzpatrick Rule 9, #403).
+// The operands are the chain's named children: the grammar names no
+// operand field, and inlines the parens of `($a)`.
+fn tcl_count_chain_operands(chain: &Node, conditions: &mut f64) {
+    if chain.kind_id() == Tcl::BinopExpr {
+        for operand in chain.children().filter(is_operand) {
+            tcl_count_condition(&operand, conditions);
         }
     }
 }
@@ -192,23 +156,21 @@ fn tcl_ternary_slots<'a>(
     (condition, consequence, alternative)
 }
 
-/// Routes the three ternary slots (#1180).
-///
-/// Mirrors `cpp_walk_ternary`: the condition is counted directly when it
-/// is already a terminal bool, and otherwise handed to the wrapper-peeling
-/// walker; each branch goes to the walker, which counts it only if a `!`
-/// establishes boolean content for that slot.
+/// Routes the three ternary slots (#1180): the condition is a boolean
+/// slot, and each branch counts only if a `!` makes it a negated operand
+/// (see `count_negated_operand`).
 fn tcl_walk_ternary(node: &Node, conditions: &mut f64) {
     let (condition, consequence, alternative) = tcl_ternary_slots(node);
     if let Some(condition) = condition {
-        if matches!(condition.kind_id().into(), tcl_bool_terminal_kinds!()) {
-            *conditions += 1.;
-        } else {
-            tcl_inspect_container(&condition, node, conditions);
-        }
+        tcl_count_condition(&condition, conditions);
     }
     for branch in [consequence, alternative].into_iter().flatten() {
-        tcl_inspect_container(&branch, node, conditions);
+        count_negated_operand(
+            &branch,
+            tcl_wrapper_operand,
+            tcl_condition_scores_itself,
+            conditions,
+        );
     }
 }
 
@@ -264,15 +226,12 @@ impl Abc for TclCode {
                 stats.conditions += 1.;
             }
             // Phase 2B slot routing (#1180). `if` / `while` / `elseif`
-            // carry their predicate in an `expr` wrapper; routing it is
-            // what makes a bare truthy test (`if {$a}`) and a negated one
-            // (`if {!$a}`) count at all. A comparison predicate is
-            // unaffected: its `binop_expr` is neither a wrapper nor a
-            // negation, so the walker breaks without counting and the
-            // operator token arm above still supplies the one condition.
+            // carry their predicate in an `expr` wrapper, which is a
+            // boolean slot. A comparison predicate pays through the
+            // operator token arm above, not again through the slot.
             Tcl::If | Tcl::While => {
                 if let Some(expr) = tcl_condition_expr(node) {
-                    tcl_inspect_container(&expr, node, &mut stats.conditions);
+                    tcl_count_condition(&expr, &mut stats.conditions);
                 }
             }
             // `elseif` is both a clause (one condition, as before) and a
@@ -281,7 +240,7 @@ impl Abc for TclCode {
             Tcl::Elseif => {
                 stats.conditions += 1.;
                 if let Some(expr) = tcl_condition_expr(node) {
-                    tcl_inspect_container(&expr, node, &mut stats.conditions);
+                    tcl_count_condition(&expr, &mut stats.conditions);
                 }
             }
             // The `?` marker is one condition, as before; its three
@@ -293,8 +252,8 @@ impl Abc for TclCode {
             // Fitzpatrick Rule 9 walker: each operand of a `&&` / `||`
             // chain inside an `expr` slot is one condition (issue #403).
             Tcl::AMPAMP | Tcl::PIPEPIPE => {
-                if let Some(parent) = ancestors.parent(node) {
-                    tcl_count_unary_conditions(&parent, &mut stats.conditions);
+                if let Some(chain) = ancestors.parent(node) {
+                    tcl_count_chain_operands(&chain, &mut stats.conditions);
                 }
             }
             _ => {}

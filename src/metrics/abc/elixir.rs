@@ -9,7 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, last_operand, wrapped_operand};
+use super::{Abc, Stats, count_boolean_slot, last_operand, wrapped_operand};
 use crate::lang_helpers::elixir::elixir_call_keyword;
 use crate::*;
 
@@ -22,10 +22,11 @@ use crate::*;
 /// `BinaryOperator3`).
 const BINARY_OPERATOR: &str = "binary_operator";
 
-// One step of the value peel: the operand a wrapper evaluates to, or
-// `None` for anything that is not a wrapper this peel descends. A
-// wrapper adds no decision of its own, so a slot looks through it to
-// what is actually tested.
+// One step of the value peel (see `PeelStep`): the operand a wrapper
+// evaluates to, and whether the wrapper proves it boolean (only a
+// negation does), or `None` for anything that is not a wrapper this
+// peel descends. A wrapper adds no decision of its own, so a slot looks
+// through it to what is actually tested.
 //
 // Both of Elixir's negations, not just `!`: the keyword `not` raises on
 // a non-boolean operand where `!` accepts any truthy value, but ABC
@@ -39,16 +40,19 @@ const BINARY_OPERATOR: &str = "binary_operator";
 // counts. Every slot is read by role (field, or last operand), never by
 // position, because a comment is named and may sit before the operand
 // (`(# c⏎ b)`, #1455).
-fn elixir_wrapper_operand<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+fn elixir_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     use Elixir as E;
 
     match node.kind_id().into() {
-        E::Block => last_operand(node),
+        E::Block => last_operand(node).map(|o| (o, false)),
         E::UnaryOperator => node
             .child_by_field_name("operator")
             .filter(|op| matches!(op.kind_id().into(), E::BANG | E::Not))
-            .and_then(|_| node.child_by_field_name("operand")),
-        _ if elixir_binary_operator_is(node, |op| op == E::EQ) => node.child_by_field_name("right"),
+            .and_then(|_| node.child_by_field_name("operand"))
+            .map(|o| (o, true)),
+        _ if elixir_binary_operator_is(node, |op| op == E::EQ) => {
+            node.child_by_field_name("right").map(|o| (o, false))
+        }
         _ => None,
     }
 }
@@ -62,9 +66,9 @@ fn elixir_binary_operator_is(node: &Node, accept: impl Fn(Elixir) -> bool) -> bo
             .is_some_and(|op| accept(op.kind_id().into()))
 }
 
-// Whether another arm of `compute` already charges `expr` as a
-// condition, looking through the wrappers `elixir_wrapper_operand`
-// descends. True for a comparison or membership test (the two token
+// Whether another arm of `compute` already charges `expr` (already
+// peeled through the wrappers `elixir_wrapper_operand` descends) as a
+// condition. True for a comparison or membership test (the two token
 // arms) and for an `&&` / `||` / `and` / `or` chain, whose walker scores
 // each operand through `elixir_count_condition` — so every operand
 // either pays there or is one of these, and a chain always carries at
@@ -76,11 +80,7 @@ fn elixir_binary_operator_is(node: &Node, accept: impl Fn(Elixir) -> bool) -> bo
 fn elixir_condition_scores_itself(expr: &Node) -> bool {
     use Elixir as E;
 
-    let mut node = *expr;
-    while let Some(operand) = elixir_wrapper_operand(&node) {
-        node = operand;
-    }
-    elixir_binary_operator_is(&node, |op| {
+    elixir_binary_operator_is(expr, |op| {
         matches!(
             op,
             E::EQEQ
@@ -105,7 +105,8 @@ fn elixir_condition_scores_itself(expr: &Node) -> bool {
 // clause's condition, a guard alternative, or an operand of an `&&` /
 // `||` chain — as Fitzpatrick's "unary conditional expression" (Rule
 // 6 / 7 / 9): one condition, unless another arm already charged the
-// same decision. The port of `ruby_count_condition` (#1520, #1529).
+// same decision (see `count_boolean_slot`). The port of
+// `ruby_count_condition` (#1520, #1529).
 //
 // Elixir's slots used to pay only for an occupant that peeled down to a
 // fixed list of terminal kinds, and the `if` / `unless` / `cond` Calls
@@ -116,9 +117,12 @@ fn elixir_condition_scores_itself(expr: &Node) -> bool {
 // occupant is a known terminal, also scores what the list never held —
 // `a && x + 1`, `a && @flag`, `a && -x` each scored one below `a && b`.
 fn elixir_count_condition(condition: &Node, conditions: &mut f64) {
-    if !elixir_condition_scores_itself(condition) {
-        *conditions += 1.;
-    }
+    count_boolean_slot(
+        condition,
+        elixir_wrapper_operand,
+        elixir_condition_scores_itself,
+        conditions,
+    );
 }
 
 // The guard slot of an anchored `when` operator.

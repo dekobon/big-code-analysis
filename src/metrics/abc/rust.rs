@@ -9,26 +9,26 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, wrapped_operand};
-use crate::macros::rust_bool_terminal_kinds;
+use super::{
+    Abc, Stats, count_boolean_slot, count_negated_operand, is_operand, last_operand,
+    wrapped_operand,
+};
 use crate::*;
 
-// One step of the `(...)` / `!` peel: the operand a wrapper wraps, and
-// whether the wrapper itself proves that operand boolean. `None` for
-// anything this peel does not descend, which is also the answer
-// `rust_count_condition` asks for, so the slot and the peel cannot
-// disagree about which kinds are wrappers (#1470; the Kotlin, Groovy
-// and C# instances of that disagreement were #1459, #1466 and #1463).
-// Each wrapper holds one operand, read by role rather than at child(1)
-// after the `(` or the operator token, where a comment may sit
-// (`if ! /*c*/ b`, #1455) — neither wrapper names a field. A
-// `unary_expression` spelled `-x` or `*p` is never a
-// boolean slot's operand, so the peel declines it.
+// One step of the value peel (see `PeelStep`). A parenthesis holds one
+// operand, read by role rather than at child(1) after the `(` or the
+// operator token, where a comment may sit (`if ! /*c*/ b`, #1455) —
+// neither wrapper names a field. A block evaluates to its last
+// expression, so `if { x > 1 } {}` tests the comparison its own arm
+// already counts. `!` is the one wrapper that proves its operand
+// boolean; the other unary operators (`-x`, `*p`) yield a value and stop
+// the peel.
 fn rust_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     use Rust::*;
 
     match node.kind_id().into() {
         ParenthesizedExpression => wrapped_operand(node).map(|o| (o, false)),
+        Block | Block2 => last_operand(node).map(|o| (o, false)),
         UnaryExpression if node.child(0).is_some_and(|c| c.kind_id() == BANG as u16) => {
             wrapped_operand(node).map(|o| (o, true))
         }
@@ -36,66 +36,66 @@ fn rust_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     }
 }
 
-// Rust ABC unary-conditional walker (Fitzpatrick Rule 7 / Listing 2).
-//
-// On every `&&` / `||` token, we walk the parent `binary_expression`
-// and count each non-comparison operand as one condition. Identifier,
-// boolean literal, call, field-expression, and index-expression
-// operands count directly. Operands wrapped in `(…)` or `!…` route
-// through `rust_inspect_container`, which unwraps the wrapper chain
-// until it lands on a terminal — then counts. Operands that are
-// themselves nested `binary_expression`s (left-associative
-// `(a && b) && c`) are not counted at the outer site; the inner
-// `&&` token's own walker pass picks them up.
-//
-// The list-kind guard inside the count helper prevents an Identifier
-// or BooleanLiteral that happens to be an immediate child of a non-
-// binary parent from contributing — only direct operands of a
-// `binary_expression` count as unary conditions per Rule 7. See issue
-// #403.
-fn rust_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
+// Whether an arm of `compute` already charges `expr` (already peeled) as
+// a condition: a comparison (the comparison-token arms), a `let`
+// condition (its own arm), or an `&&` / `||` chain — a
+// `binary_expression`, or the `let_chain` a Rust 2024 chain with a `let`
+// in it becomes — whose operands each pay through `rust_count_condition`.
+fn rust_condition_scores_itself(expr: &Node) -> bool {
     use Rust::*;
 
-    let mut node = *container_node;
-    // `MatchPattern` joined this list with #1454: a match guard
-    // (`n if g =>`) is a boolean slot exactly as an `if` condition is,
-    // so a parenthesised guard operand (`n if (b)`) counts where the
-    // bare `n if b` already did.
-    let mut has_boolean_content = matches!(
-        parent.kind_id().into(),
-        BinaryExpression | IfExpression | WhileExpression | LetChain | LetChain2 | MatchPattern
-    );
-
-    while let Some((operand, proves_boolean)) = rust_wrapper_operand(&node) {
-        has_boolean_content |= proves_boolean;
-        node = operand;
-
-        if matches!(node.kind_id().into(), rust_bool_terminal_kinds!()) {
-            if has_boolean_content {
-                *conditions += 1.;
-            }
-            break;
-        }
+    match expr.kind_id().into() {
+        LetCondition | LetChain | LetChain2 => true,
+        BinaryExpression => expr.child_by_field_name("operator").is_some_and(|op| {
+            matches!(
+                op.kind_id().into(),
+                EQEQ | BANGEQ | LT | GT | LTEQ | GTEQ | AMPAMP | PIPEPIPE
+            )
+        }),
+        _ => false,
     }
 }
 
-// Phase-2B helpers (issue #403): classify a condition slot directly.
-// Used for the `if (cond)` / `while (cond)` / `return value` arms —
-// Fitzpatrick's Rule 6 / 7 ("unary conditional expression"). If the
-// condition itself is a terminal-bool kind (`if true {}`, `if a {}`),
-// it counts as one condition; if wrapped in `(...)` or `!...`,
-// `rust_inspect_container` unwraps until a terminal is found. Mirrors
-// the `java_count_condition` / `java_inspect_slot` helper pair used
-// by `java_walk_ternary` / `java_walk_for_statement`.
-fn rust_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
-    if matches!(condition.kind_id().into(), rust_bool_terminal_kinds!()) {
-        *conditions += 1.;
-    } else if rust_wrapper_operand(condition).is_some() {
-        // Asking the peel itself which kinds it unwraps, rather than
-        // restating the list here (#1470): a restated list that gained a
-        // kind the peel lacked would read as covering a shape the peel
-        // then dropped (`.claude/rules/grammar-dispatch.md` §7).
-        rust_inspect_container(condition, parent, conditions);
+// Scores one boolean slot — an `if` / `while` condition, a match guard,
+// an operand of an `&&` / `||` chain (see `count_boolean_slot`). A Rust
+// slot only admits a `bool`, and the terminal-kind list it used to pay
+// for missed valid ones: `if *flag`, `if a & b`, `if a ^ b`, `if result?`,
+// `if match x { … }` and `if { a }` each scored 0 conditions against a
+// cyclomatic decision of 1 (#1526). Asking whether the decision is
+// already paid for covers them all. It also pays for an ill-typed
+// `if -x`, which no valid program can tell apart (grammar-dispatch §6).
+fn rust_count_condition(condition: &Node, conditions: &mut f64) {
+    count_boolean_slot(
+        condition,
+        rust_wrapper_operand,
+        rust_condition_scores_itself,
+        conditions,
+    );
+}
+
+// An operand outside a boolean slot — a `return` value, a call argument
+// — scores only when a `!` proves it boolean (see
+// `count_negated_operand`): `return !x` scores one, `return x` none,
+// matching Java's policy (`java_return_without_conditions`).
+fn rust_count_negated(operand: &Node, conditions: &mut f64) {
+    count_negated_operand(
+        operand,
+        rust_wrapper_operand,
+        rust_condition_scores_itself,
+        conditions,
+    );
+}
+
+fn rust_count_slot(slot: Option<Node>, conditions: &mut f64) {
+    if let Some(condition) = slot {
+        rust_count_condition(&condition, conditions);
+    }
+}
+
+// Each argument of a call is a negated operand (`m(!a, !b)`).
+fn rust_count_arguments(arguments: &Node, conditions: &mut f64) {
+    for argument in arguments.children().filter(is_operand) {
+        rust_count_negated(&argument, conditions);
     }
 }
 
@@ -110,11 +110,9 @@ fn rust_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
 // whatever operator happened to sit inside it: `n if n > 5` counted one
 // via the comparison-token arm while `n if is_even(n)` and `_ if b`
 // counted zero, so three semantically identical guards produced two
-// different numbers. As a slot every spelling contributes exactly one —
-// a call / field / index / bare identifier through
-// `rust_bool_terminal_kinds!()`, a comparison through the token arm
-// that already owns it — and a compound guard (`n if a > 1 && b`) keeps
-// its sub-structure rather than collapsing to one.
+// different numbers. As a slot every spelling contributes exactly one,
+// and a compound guard (`n if a > 1 && b`) keeps its sub-structure
+// rather than collapsing to one.
 //
 // By grammar FIELD, not index (`.claude/rules/grammar-dispatch.md` §3):
 // `match_pattern` names its guard `condition`, so a comment between the
@@ -126,9 +124,8 @@ fn rust_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
 // *keyword token* inside `match_pattern`, which no ABC arm matches, and
 // the field's two non-expression types — `let_condition` (`n if let
 // Some(v) = o`) and `let_chain` — are already owned by the
-// `LetCondition` token arm and by the `&&` walker respectively. Neither
-// is a `rust_bool_terminal_kinds!()` member, so routing them through
-// the slot adds nothing.
+// `LetCondition` token arm and by the `&&` walker respectively, so
+// `rust_condition_scores_itself` stops the slot paying for them again.
 fn rust_count_match_arm(node: &Node, conditions: &mut f64) {
     let Some(pattern) = node.child_by_field_name("pattern") else {
         // `pattern` is a required field, so this is unreachable at the
@@ -140,47 +137,33 @@ fn rust_count_match_arm(node: &Node, conditions: &mut f64) {
     if !super::npa::pattern_is_bare_underscore(&pattern, Rust::UNDERSCORE as u16) {
         *conditions += 1.;
     }
-    if let Some(guard) = pattern.child_by_field_name("condition") {
-        rust_count_condition(&guard, &pattern, conditions);
-    }
+    rust_count_slot(pattern.child_by_field_name("condition"), conditions);
 }
 
-fn rust_count_slot(slot: Option<Node>, parent: &Node, conditions: &mut f64) {
-    if let Some(condition) = slot {
-        rust_count_condition(&condition, parent, conditions);
-    }
-}
-
-fn rust_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
-    use Rust::*;
-
-    let list_kind = list_node.kind_id().into();
-    let mut cursor = list_node.cursor();
-
-    if cursor.goto_first_child() {
-        loop {
-            let node = cursor.node();
-            let node_kind = node.kind_id().into();
-
-            // Allow `LetChain` (and its hidden-rule alias `LetChain2`)
-            // alongside `BinaryExpression` as a known-boolean list
-            // parent: a Rust 2024 let-chain `if a && let Some(x) = b`
-            // makes `&&`'s parent the `LetChain` wrapper, not a
-            // `BinaryExpression`. Without this, bare-identifier
-            // operands inside a let-chain fall through and never
-            // contribute to the condition count, while their
-            // semantically equivalent `BinaryExpression` siblings do.
-            if matches!(node_kind, rust_bool_terminal_kinds!())
-                && matches!(list_kind, BinaryExpression | LetChain | LetChain2)
-            {
-                *conditions += 1.;
-            } else if node.is_named() {
-                rust_inspect_container(&node, list_node, conditions);
+// Fitzpatrick Rule 7 (#403): each operand of an `&&` / `||` chain is a
+// boolean slot. `a && b && c` is a left-nested chain, so an operand that
+// is itself a chain is paid by its own operator's visit and the walk
+// stays O(operands). A `binary_expression` names its operands; a Rust
+// 2024 `let_chain` (`if a && let Some(x) = b`) names none and is flat,
+// so its operands are every child that is neither an `&&` token nor an
+// `extra`, and only its first `&&` walks them: each later one would pay
+// every operand again (`if let Some(_) = o && b && c` scored 5 against
+// 3). Its `let` operands score themselves.
+fn rust_count_chain_operands(token: &Node, chain: &Node, conditions: &mut f64) {
+    if chain.kind_id() == Rust::BinaryExpression {
+        for field in ["left", "right"] {
+            if let Some(operand) = chain.child_by_field_name(field) {
+                rust_count_condition(&operand, conditions);
             }
-
-            if !cursor.goto_next_sibling() {
-                break;
-            }
+        }
+    } else if matches!(chain.kind_id().into(), Rust::LetChain | Rust::LetChain2)
+        && chain
+            .children()
+            .find(|child| child.kind_id() == Rust::AMPAMP)
+            .is_some_and(|first| first.id() == token.id())
+    {
+        for operand in chain.children().filter(is_operand) {
+            rust_count_condition(&operand, conditions);
         }
     }
 }
@@ -274,40 +257,28 @@ impl Abc for RustCode {
             // counts the inner pair and the outer operator's pass
             // counts only the new outer operand. See issue #403.
             AMPAMP | PIPEPIPE => {
-                if let Some(parent) = ancestors.parent(node) {
-                    rust_count_unary_conditions(&parent, &mut stats.conditions);
+                if let Some(chain) = ancestors.parent(node) {
+                    rust_count_chain_operands(node, &chain, &mut stats.conditions);
                 }
             }
             // Phase-2B (issue #403): Fitzpatrick Rule 6 / 7 condition
-            // slots. `if true {}` / `if !a {}` count their condition
-            // once via `rust_count_condition` (terminal-at-top or
-            // paren / unary unwrap). Read by grammar field: a fixed
-            // child(1) landed on a comment (`if /*c*/ b`) and on the
-            // label of `'a: while b` (#1455). Rust has no
-            // `do_statement`, no ternary, and no for-condition slot.
+            // slots. Read by grammar field: a fixed child(1) landed on a
+            // comment (`if /*c*/ b`) and on the label of `'a: while b`
+            // (#1455). Rust has no `do_statement`, no ternary, and no
+            // for-condition slot.
             IfExpression | WhileExpression => {
-                rust_count_slot(
-                    node.child_by_field_name("condition"),
-                    node,
-                    &mut stats.conditions,
-                );
+                rust_count_slot(node.child_by_field_name("condition"), &mut stats.conditions);
             }
-            // `return value;` — the value is the only operand. Use the
-            // bare `inspect_container` path (no top-level terminal
-            // count) so that `return x` reports zero conditions
-            // while `return !x` reports one. Matches Java's policy
-            // (`java_return_without_conditions`): a bare identifier
-            // in the return slot is not a unary conditional.
+            // `return value;` — the value is the only operand, which
+            // scores only behind a negation.
             ReturnExpression => {
                 if let Some(value) = wrapped_operand(node) {
-                    rust_inspect_container(&value, node, &mut stats.conditions);
+                    rust_count_negated(&value, &mut stats.conditions);
                 }
             }
             // Method-argument walker: `m(!a, !b)` contributes one
-            // condition per unary-conditional argument.
-            Arguments => {
-                rust_count_unary_conditions(node, &mut stats.conditions);
-            }
+            // condition per negated argument.
+            Arguments => rust_count_arguments(node, &mut stats.conditions),
             _ => {}
         }
     }

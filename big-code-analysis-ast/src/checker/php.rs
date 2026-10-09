@@ -70,8 +70,7 @@ impl Checker for PhpCode {
     //   property type, a parameter type, a `?string`, a `string|int`
     //   union and a return type. It is deliberately excluded so
     //   `find string` / `count string` report literals, matching TS's
-    //   `String2` and TSX's `String3` (#1261) and the `Float2` keyword
-    //   that `php_bool_terminal_kinds!` already keeps out. #288 listed
+    //   `String2` and TSX's `String3` (#1261). #288 listed
     //   it for kind-name identity and for parity with `get_op_type` and
     //   the `Alterator`; #1293 then moved it into `get_op_type`'s
     //   `primitive_type`-suppression arm, so that parity now argues the

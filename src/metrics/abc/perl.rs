@@ -9,8 +9,10 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, is_operand, last_operand, wrapped_operand};
-use crate::macros::perl_bool_terminal_kinds;
+use super::{
+    Abc, Stats, count_boolean_slot, count_negated_operand, is_operand, last_operand,
+    wrapped_operand,
+};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Perl.
@@ -33,10 +35,8 @@ use crate::*;
 //   `cmp`, `=~`, `!~`), a bare `/re/` / `m{re}` match against `$_`,
 //   the ternary operator (`TernaryExpression`),
 //   and each `elsif` / `else` clause of an `if` / `unless`
-//   statement. Bare predicates that have no comparison (e.g.
-//   `if ($x)`) are not separately counted; we let the comparison
-//   tokens carry the metric, mirroring the Bash / Python token-
-//   level approach.
+//   statement. Each condition slot pays one condition unless an arm
+//   inside it already did (see `perl_count_condition`).
 //
 //   The short-circuit and low-precedence logical operators (`&&`,
 //   `||`, `//`, `and`, `or`, `xor`) are deliberately NOT counted.
@@ -44,254 +44,163 @@ use crate::*;
 //   language policy (Fitzpatrick rules mapped from Figure 2 for C,
 //   the closest analogue since the paper does not define rules for
 //   Perl; issue #395, walker tracked in #403).
-// Perl ABC unary-conditional walker (Fitzpatrick Rule 9 mapped from
-// Figure 2 for C — the closest analogue, since the paper does not
-// define rules for Perl; issue #403). Logical-operator triggers cover
-// both the high-precedence punctuation (`&&`, `||`, `//`) and the
-// low-precedence keyword forms (`and`, `or`, `xor`). Terminal-bool
-// kinds: `Identifier`, `Boolean`, `True`, `False`, the call-expression
-// wrappers (every kind already counted as a branch), and the variable
-// wrappers (`ScalarVariable`, `ArrayVariable`, `HashVariable` plus the
-// access shapes).
-fn perl_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
-    // bca: suppress(cognitive, halstead) — wrapper-peeling state machine, clearest whole
-    // See `cpp_inspect_container` for the shared rationale: one loop peels
-    // `(...)` / `!...` layers while carrying a single boolean-context flag.
-    // `halstead` joined the marker in #1464: the five statement-modifier
-    // kinds added to the boolean-context seed list took `effort` past the
-    // 50000 limit. Every one of those operands is a distinct grammar enum
-    // variant in one flat `matches!`, so the number counts node kinds the
-    // parser can hand us, not reasoning a reader must do — the same
-    // artifact `PerlCode::compute` below already carries the marker for.
+// One step of the value peel (see `PeelStep`).
+//
+// `Array` is tree-sitter-perl's name for the `(...)` shape used BOTH as
+// the `if` / `while` / `unless` / `until` condition wrapper AND as list
+// literals `(1, 2, 3)`. In the scalar context a condition imposes, a list
+// evaluates to its LAST element, so the peel reads the last operand for
+// both shapes: `($a)` → `$a`, `($x, $y)` → `$y`. A statement modifier's
+// bare `arguments` list (`g() if $a, $b;`) is the same list without the
+// parentheses, and a plain `=` evaluates to its right-hand side, which
+// is its last operand too — so `if (my $y = $x > 1)` tests the
+// comparison its own arm already counts. `parenthesized_argument` holds
+// one operand.
+//
+// Both spellings of the same negation prove the operand boolean — see
+// `ruby_wrapper_operand`; Perl has the identical gap (#1182). Read
+// through the grammar's `operator` field, whose type list is
+// `! + ++ - -- and not ~`: `-$x` yields a value and stops the peel, and
+// tree-sitter-perl spells a low-precedence `$a and $b` as a two-operand
+// `unary_expression`, which is a chain rather than a wrapper. Do NOT
+// match the hidden `_unary_not` supertype (`P::UnaryNot`), which the
+// parser never emits (grammar-dispatch item 2).
+//
+// No operand is read by index: a comment may sit before or after it
+// (`(# c` / `! # c`, #1455).
+fn perl_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     use Perl as P;
 
-    let mut node = *container_node;
-    let mut node_kind = node.kind_id().into();
-    let parent_kind = parent.kind_id().into();
-    // The `*SimpleStatement` kinds are the statement-modifier forms
-    // (`return 1 if $x;`), whose `condition` slot is as boolean as the
-    // block form's (issue #1464). `ForSimpleStatement` is absent for
-    // the same reason `ForStatement2` is: its slot is a list to
-    // iterate, not a predicate — the grammar even names that field
-    // `list` rather than `condition`.
-    let mut has_boolean_content = matches!(
-        parent_kind,
-        P::BinaryExpression
-            | P::IfStatement
-            | P::UnlessStatement
-            | P::WhileStatement
-            | P::UntilStatement
-            | P::ForStatement1
-            | P::IfSimpleStatement
-            | P::UnlessSimpleStatement
-            | P::WhileSimpleStatement
-            | P::UntilSimpleStatement
-            | P::WhenSimpleStatement
-    ) || (matches!(parent_kind, P::TernaryExpression)
-        && parent
-            .child_by_field_name("condition")
-            .is_some_and(|condition| condition.id() == node.id()));
-
-    loop {
-        // `Array` is tree-sitter-perl's name for the `(...)` shape
-        // used BOTH as the if/while/unless/until condition wrapper
-        // AND as list literals `(1, 2, 3)` (and `(x, y)` operand
-        // groupings). In Perl's scalar context — which every walker
-        // call site here operates in — a list expression evaluates
-        // to its LAST element, so descending via the last named
-        // child gives the semantically correct operand for both
-        // shapes: `($a)` → `$a`, `($x, $y)` → `$y`, `if ($a)` →
-        // `$a`. `ParenthesizedArgument` (the other paren-wrap kind)
-        // has only one inner expression, so the first and last
-        // operand are the same node.
-        let is_parens = matches!(node_kind, P::ParenthesizedArgument | P::Array);
-        // Both spellings of the same negation — see `ruby_wrapper_operand`
-        // for the rationale; Perl has the identical gap (#1182). Read
-        // through the grammar's `operator` field, whose type list is
-        // `! + ++ - -- and not ~`. Do NOT match the hidden `_unary_not`
-        // supertype (`P::UnaryNot`), which the parser never emits
-        // (grammar-dispatch item 2).
-        let is_not = matches!(node_kind, P::UnaryExpression)
-            && node
+    match node.kind_id().into() {
+        P::Array | P::Arguments => last_operand(node).map(|o| (o, false)),
+        P::ParenthesizedArgument => wrapped_operand(node).map(|o| (o, false)),
+        P::BinaryExpression if node.is_child(P::EQ as u16) => {
+            last_operand(node).map(|o| (o, false))
+        }
+        P::UnaryExpression
+            if node
                 .child_by_field_name("operator")
-                .is_some_and(|op| matches!(op.kind_id().into(), P::BANG | P::Not));
-
-        if !is_parens && !is_not {
-            break;
+                .is_some_and(|op| matches!(op.kind_id().into(), P::BANG | P::Not)) =>
+        {
+            wrapped_operand(node).map(|o| (o, true))
         }
-        if !has_boolean_content && is_not {
-            has_boolean_content = true;
-        }
-
-        // Descend through the wrapper to the value. Array uses the
-        // last operand (Perl scalar-context value); the other wrappers
-        // hold one operand. Neither is read by index: a comment may sit
-        // before or after the operand (`(# c` / `! # c`, #1455).
-        let next = if matches!(node_kind, P::Array) {
-            last_operand(&node)
-        } else {
-            wrapped_operand(&node)
-        };
-        let Some(child) = next else { break };
-        node = child;
-        node_kind = node.kind_id().into();
-
-        if matches!(node_kind, perl_bool_terminal_kinds!()) {
-            if has_boolean_content {
-                *conditions += 1.;
-            }
-            break;
-        }
+        _ => None,
     }
 }
 
-// Phase-2B (issue #403): pass a slot's occupant through
-// `perl_inspect_container`. Perl wraps `if (cond)` / `while (cond)` /
-// `unless (cond)` / `until (cond)` conditions in a
-// `parenthesized_argument`, so the paren unwrap handles the
-// boolean-literal case.
-fn perl_inspect_slot(slot: Option<Node>, parent: &Node, conditions: &mut f64) {
-    if let Some(child) = slot {
-        perl_inspect_container(&child, parent, conditions);
+// Whether an arm of `compute` already charges `expr` (already peeled) as
+// a condition: a comparison or match operator (the token arms), a bare
+// `/re/` match (its own arm — a peeled slot occupant is never a bound
+// pattern or a `split` delimiter, the two shapes that arm skips), a
+// ternary (its own arm) or a logical chain, whose operands each pay
+// through `perl_count_condition`. The operator is found among the node's
+// tokens rather than through its `operator` field, which tree-sitter-perl
+// leaves off every comparison and off the `and` it parses as a
+// `unary_expression`.
+fn perl_condition_scores_itself(expr: &Node) -> bool {
+    use Perl as P;
+
+    match expr.kind_id().into() {
+        P::TernaryExpression | P::PatternMatcher | P::PatternMatcherM => true,
+        P::BinaryExpression | P::UnaryExpression => expr.children().any(|token| {
+            matches!(
+                token.kind_id().into(),
+                P::EQEQ
+                    | P::BANGEQ
+                    | P::LT
+                    | P::GT
+                    | P::LTEQ
+                    | P::GTEQ
+                    | P::LTEQGT
+                    | P::Eq
+                    | P::Ne
+                    | P::Lt
+                    | P::Gt
+                    | P::Le
+                    | P::Ge
+                    | P::Cmp
+                    | P::EQTILDE
+                    | P::BANGTILDE
+                    | P::AMPAMP
+                    | P::PIPEPIPE
+                    | P::SLASHSLASH
+                    | P::And
+                    | P::Or
+                    | P::Xor
+            )
+        }),
+        _ => false,
     }
 }
 
-// Phase-2B helper (issue #403): Perl's `Array` node serves double
-// duty as the `(...)` wrapper around `if` / `while` / `unless` /
-// `until` conditions AND as the call-argument-list wrapper. The
-// dispatcher routes call-argument Arrays through
-// `perl_count_unary_conditions`; condition-slot Arrays are
-// already unwrapped by `perl_inspect_container`. This predicate
-// disambiguates by checking the parent kind.
-// Phase-2B (issues #403 / #1102): a ternary's condition and its two
-// branch operands are each a Fitzpatrick Rule 9 unary condition, exactly
-// as `java_walk_ternary` already counts them. Without this Perl scored
-// `$a ? !$b : !$c` as 1 (the `ternary_expression` node alone) against
-// Java's 4, and `perl_inspect_container`'s `TernaryExpression`
-// boolean-context seed was unreachable.
+// Scores one boolean slot — an `if` / `elsif` / `unless` / `while` /
+// `until` condition, a statement modifier's condition, a ternary or
+// C-style `for` condition, an operand of a logical chain (see
+// `count_boolean_slot`). Perl is truthy-valued, so `if (-$x)`,
+// `if ($x + 1)` and `if (my $y = $x)` are each a decision, and each
+// scored 0 while the slot paid only for a fixed list of terminal kinds
+// (#1526).
+fn perl_count_condition(condition: &Node, conditions: &mut f64) {
+    count_boolean_slot(
+        condition,
+        perl_wrapper_operand,
+        perl_condition_scores_itself,
+        conditions,
+    );
+}
+
+// An operand outside a boolean slot — a `return` value, a call argument,
+// a ternary branch — scores only when a `!` / `not` proves it boolean
+// (see `count_negated_operand`), which keeps `($a > 0) ? $b : -$b` at 2
+// (the ternary node and the `>`).
+fn perl_count_negated(operand: &Node, conditions: &mut f64) {
+    count_negated_operand(
+        operand,
+        perl_wrapper_operand,
+        perl_condition_scores_itself,
+        conditions,
+    );
+}
+
+fn perl_count_slot(slot: Option<Node>, conditions: &mut f64) {
+    if let Some(condition) = slot {
+        perl_count_condition(&condition, conditions);
+    }
+}
+
+// Phase-2B (issues #403 / #1102): a ternary's condition is a boolean
+// slot and each branch a negated operand, exactly as `java_walk_ternary`
+// counts them. Without this Perl scored `$a ? !$b : !$c` as 1 (the
+// `ternary_expression` node alone) against Java's 4.
 //
 // Slots are addressed by grammar FIELD, not by child index.
 // tree-sitter-perl names the branches `true` / `false` rather than the
 // C-family `consequence` / `alternative`, and all three slots are
 // mandatory — Perl has no short-ternary elision.
-//
-// The condition goes through `perl_count_condition`, whose top-level
-// terminal check is what stops a bare `$a ? … : …` scoring zero:
-// `perl_inspect_container` alone only counts *after* unwrapping a
-// `(...)` / `!...` layer. Branch operands get no such check: an
-// unnegated branch is type-free and contributes nothing, which is what
-// keeps `($a > 0) ? $b : -$b` at 2 (the ternary node and the `>`).
 fn perl_walk_ternary(node: &Node, conditions: &mut f64) {
-    if let Some(condition) = node.child_by_field_name("condition") {
-        perl_count_condition(&condition, node, conditions);
-    }
+    perl_count_slot(node.child_by_field_name("condition"), conditions);
     for field in ["true", "false"] {
         if let Some(branch) = node.child_by_field_name(field) {
-            perl_inspect_container(&branch, node, conditions);
+            perl_count_negated(&branch, conditions);
         }
     }
 }
 
-// Classifies one condition-slot expression: a bare boolean terminal
-// counts directly, anything else is offered to the `(...)` / `!...`
-// unwrap chain. Shared by the ternary condition slot and the C-style
-// `for` header's condition slot — the two places a Perl condition
-// arrives *unwrapped*. `if` / `while` / `unless` / `until` hand
-// `perl_inspect_container` the `(...)` wrapper that supplies the unwrap
-// step itself, so they must not take the top-level terminal count.
-// Mirrors `cpp_count_condition`.
-fn perl_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
-    if matches!(condition.kind_id().into(), perl_bool_terminal_kinds!()) {
-        *conditions += 1.;
-    } else {
-        perl_inspect_container(condition, parent, conditions);
-    }
-}
-
-// Phase-2B (issues #403 / #1276): the C-style `for (init; condition;
-// update)` header's condition slot is a Fitzpatrick Rule 9 unary
-// condition, exactly like the `if` / `while` slots the dispatcher
-// already walks. Without this Perl scored `for (my $i = 0; $ok; $i++)`
-// zero where `if ($ok)` scores one. Comparison-shaped conditions
-// (`$i < $n`) were never affected — the `<` token arm counts those.
-//
-// The slot is addressed by grammar FIELD (`condition`, beside
-// `initializer` and `incrementor`), and an empty condition exposes no
-// field, so `for (;;)` counts zero with no special case — see the
-// `Stats` doc comment's cross-language empty-`for`-condition policy.
-// tree-sitter-perl does not parse an empty *initializer* (`for (; $ok;
-// )` becomes an `ERROR`-laden `for_statement_2`), so the three-clause
-// spelling is the only one this reaches. `for_statement_2` is the
-// `foreach` form and carries no condition.
-fn perl_walk_for_statement(node: &Node, conditions: &mut f64) {
-    if let Some(condition) = node.child_by_field_name("condition") {
-        perl_count_condition(&condition, node, conditions);
-    }
-}
-
-// Phase-2B (issue #1464): the statement-modifier forms
-// `EXPR if COND;` / `unless` / `while` / `until`. Each is its own node
-// whose `condition` field is the predicate, so the slot is read by
-// grammar FIELD rather than by child index (`.claude/rules/grammar-
-// dispatch.md` §3). Perl's cyclomatic dispatcher already counts all
-// six modifier kinds, so before this Perl scored `return 1 if $x;`
-// zero conditions against `if ($x) { return 1; }`'s one — a straight
-// undercount on the idiomatic spelling, not a metric disagreement.
-//
-// `for_simple_statement` — the sixth modifier kind — is deliberately
-// absent: `print $_ for @list;` iterates a list and has no boolean
-// test, and the grammar names its field `list`, not `condition`. That
-// mirrors the block forms, where `ForStatement1` contributes only its
-// C-style header *condition* and the `foreach` shape `ForStatement2`
-// contributes nothing.
-//
-// `when_simple_statement` is listed for parity with the cyclomatic
-// dispatcher, which counts all six, but it is untested and unreachable
-// from valid Perl: `when` is a statement inside a `given` / `for`
-// topicalizer, never a modifier, and `perl -c` rejects
-// `print 6 when $x;`. Only error recovery can produce the node, so a
-// fixture would pin the grammar's present over-permissiveness as the
-// contract (`.claude/rules/grammar-dispatch.md` §6).
-//
-// `_if_simple` (`Perl::IfSimple`) is a hidden rule and gets no arm —
-// the parser inlines it, emitting the `if` token directly beneath
-// `if_simple_statement` (§2, verified with `bca dump`).
-//
-// The `condition` field holds an `_argument_choice`: either a
-// `parenthesized_argument`, which `perl_inspect_container` already
-// peels, or a bare `arguments` wrapper, which it does not. Peel the
-// `arguments` layer here — via the same last-operand rule the
-// `Array` `(...)` wrapper uses, since a Perl comma list evaluates to
-// its last element in the scalar context a condition imposes — and
-// hand what it holds to the shared condition classifier.
-//
-// Three of the four paths below are unreachable or unobservable at the
-// pinned grammar, and are spelled as `Option` rather than as an
-// `expect` because `AGENTS.md` bans the latter outside tests. Do not
-// try to cover them:
-//
-// - `condition` is a required field on all five modifier productions
-//   (node-types.json), so the early `return` needs error recovery.
-// - The `else` arm takes a `parenthesized_argument`, which the parser
-//   emits in this slot only for the *empty* spelling `EXPR if ();`
-//   (valid Perl; anything with content resolves to `arguments`
-//   wrapping an `array`). An empty wrapper peels to nothing, so that
-//   arm and a bare `None` score alike — measured by perturbation, not
-//   assumed. A test would pin a value neither branch decides.
-// - `last_operand` returns `None` only for an `arguments`
-//   node with no operand, which the grammar's comma-separated
-//   one-or-more list cannot produce.
-fn perl_walk_statement_modifier(node: &Node, conditions: &mut f64) {
-    let Some(condition) = node.child_by_field_name("condition") else {
-        return;
-    };
-    let slot = if matches!(condition.kind_id().into(), Perl::Arguments) {
-        last_operand(&condition)
-    } else {
-        Some(condition)
-    };
-    if let Some(slot) = slot {
-        perl_count_condition(&slot, node, conditions);
+// Each operand of a logical chain is a boolean slot (Fitzpatrick Rule 9,
+// #403). `$a && $b || $c` is a left-nested chain, so an operand that is
+// itself a chain is paid by its own operator's visit. The operands are
+// the chain's children that are neither its operator token nor an
+// `extra`: tree-sitter-perl names no operand field on a comparison or on
+// the two-operand `unary_expression` it parses `$a and $b` as, which the
+// field-less walk is what scores at all — it scored 0.
+fn perl_count_chain_operands(chain: &Node, conditions: &mut f64) {
+    if matches!(
+        chain.kind_id().into(),
+        Perl::BinaryExpression | Perl::UnaryExpression
+    ) {
+        for operand in chain.children().filter(is_operand) {
+            perl_count_condition(&operand, conditions);
+        }
     }
 }
 
@@ -360,32 +269,6 @@ fn perl_is_call_argument_parent(parent: Node) -> bool {
             | P::CallExpressionRecursive
             | P::MethodInvocation
     )
-}
-
-fn perl_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
-    use Perl as P;
-
-    let list_kind = list_node.kind_id().into();
-    let mut cursor = list_node.cursor();
-
-    if cursor.goto_first_child() {
-        loop {
-            let node = cursor.node();
-            let node_kind = node.kind_id().into();
-
-            if matches!(node_kind, perl_bool_terminal_kinds!())
-                && matches!(list_kind, P::BinaryExpression)
-            {
-                *conditions += 1.;
-            } else if node.is_named() {
-                perl_inspect_container(&node, list_node, conditions);
-            }
-
-            if !cursor.goto_next_sibling() {
-                break;
-            }
-        }
-    }
 }
 
 impl Abc for PerlCode {
@@ -484,7 +367,6 @@ impl Abc for PerlCode {
             | P::Cmp
             | P::EQTILDE
             | P::BANGTILDE
-            | P::ElsifClause
             | P::ElseClause => {
                 stats.conditions += 1.;
             }
@@ -514,9 +396,9 @@ impl Abc for PerlCode {
             // matches the implicit `$_`: a relational operator with no
             // operator token, so it scores by use wherever it is
             // written (#1467) — `my $r = /^#/` levels with
-            // `my $r = ($x =~ /^#/)`. It is not in
-            // `perl_bool_terminal_kinds!()`, or every slot would score
-            // it a second time. `s///` and `tr///` stay out: they edit
+            // `my $r = ($x =~ /^#/)`. `perl_condition_scores_itself`
+            // lists it, or every slot would score it a second time.
+            // `s///` and `tr///` stay out: they edit
             // `$_` and yield a count, a policy question left to #1475.
             P::PatternMatcher | P::PatternMatcherM
                 if !perl_pattern_is_bound_or_delimiter(node, code, ancestors) =>
@@ -528,42 +410,40 @@ impl Abc for PerlCode {
             // condition (issue #403). Covers `&&`, `||`, `//`,
             // `and`, `or`, `xor`.
             P::AMPAMP | P::PIPEPIPE | P::SLASHSLASH | P::And | P::Or | P::Xor => {
-                if let Some(parent) = ancestors.parent(node) {
-                    perl_count_unary_conditions(&parent, &mut stats.conditions);
+                if let Some(chain) = ancestors.parent(node) {
+                    perl_count_chain_operands(&chain, &mut stats.conditions);
                 }
             }
-            // Phase-2B (issue #403): condition slots. Perl wraps
-            // `if (cond)` / `while (cond)` / `unless (cond)` /
-            // `until (cond)` in the `Array` `(...)` shape (the
-            // grammar's name for parenthesized expressions in
-            // statement-modifier slots) — the paren unwrap handles
-            // boolean-literal cases. Read by grammar field, not at
-            // child(1): a comment may sit before the slot (`if # c⏎
-            // ($b)`), which the fixed index scored zero (#1455).
+            // An `elsif` is Java's `else if`: the `else` (+1, Rule 5) and
+            // an `if` predicate slot, as Ruby's `elsif` is. It paid only
+            // the first, so `elsif ($b)` scored one below
+            // `elsif ($x > 1)` (#1526).
+            P::ElsifClause => {
+                stats.conditions += 1.;
+                perl_count_slot(node.child_by_field_name("condition"), &mut stats.conditions);
+            }
             // `return value` names no field; its value is its only
             // operand.
-            P::IfStatement | P::UnlessStatement | P::WhileStatement | P::UntilStatement => {
-                perl_inspect_slot(
-                    node.child_by_field_name("condition"),
-                    node,
-                    &mut stats.conditions,
-                );
-            }
             P::ReturnExpression => {
-                perl_inspect_slot(wrapped_operand(node), node, &mut stats.conditions);
+                if let Some(value) = wrapped_operand(node) {
+                    perl_count_negated(&value, &mut stats.conditions);
+                }
             }
             // `call(!$a, !$b)` — argument list walker. Perl wraps
             // call-argument lists in an `Array` node (same kind name
             // as the `(...)` wrapper around `if` / `while`
             // conditions). To avoid re-handling condition slots that
-            // were already walked through inspect_container, only
-            // dispatch when the parent is a call-expression form.
+            // were already walked as slots, only dispatch when the
+            // parent is a call-expression form. Each argument is a
+            // negated operand.
             P::Array
                 if ancestors
                     .parent(node)
                     .is_some_and(perl_is_call_argument_parent) =>
             {
-                perl_count_unary_conditions(node, &mut stats.conditions);
+                for argument in node.children().filter(is_operand) {
+                    perl_count_negated(&argument, &mut stats.conditions);
+                }
             }
             // `$a ? !$b : !$c`. Unlike the C family, this dispatcher
             // has no `?`-token arm — the grammar emits the token, but
@@ -574,21 +454,43 @@ impl Abc for PerlCode {
                 stats.conditions += 1.;
                 perl_walk_ternary(node, &mut stats.conditions);
             }
-            // `for (init; cond; update)` — the condition slot, read by
-            // grammar field (issue #1276). `for (;;)` has no condition
-            // field and counts nothing.
-            P::ForStatement1 => {
-                perl_walk_for_statement(node, &mut stats.conditions);
-            }
+            // Phase-2B (issue #403): condition slots, each read by the
+            // grammar's `condition` field, not at child(1): a comment
+            // may sit before the slot (`if # c⏎ ($b)`), which the fixed
+            // index scored zero (#1455). The block forms wrap it in the
+            // `Array` `(...)` shape the peel reads; the C-style `for`
+            // header's condition (#1276) is bare, and `for (;;)` has
+            // no condition field and counts nothing.
+            //
             // Statement modifiers — `return 1 if $x;`, `next unless $ok;`
-            // (issue #1464). See `perl_walk_statement_modifier` for why
-            // `for_simple_statement` is not in this list.
-            P::IfSimpleStatement
+            // (issue #1464). Each is its own node whose `condition` field
+            // is the predicate: a `parenthesized_argument`, or a bare
+            // `arguments` list the peel reads like a `(...)` one. Perl's
+            // cyclomatic dispatcher already counts these kinds, so
+            // before #1464 `return 1 if $x;` scored zero conditions
+            // against `if ($x) { return 1; }`'s one.
+            //
+            // `for_simple_statement` is deliberately absent: `print $_
+            // for @list;` iterates a list and has no boolean test, and
+            // the grammar names its field `list`, not `condition` —
+            // mirroring the block forms, where the `foreach` shape
+            // `ForStatement2` contributes nothing. `when_simple_statement`
+            // is listed for parity with the cyclomatic dispatcher, but
+            // only error recovery reaches it: `when` is never a modifier,
+            // and `perl -c` rejects `print 6 when $x;` (grammar-dispatch
+            // §6). `_if_simple` (`Perl::IfSimple`) is a hidden rule the
+            // parser inlines and gets no arm (§2).
+            P::IfStatement
+            | P::UnlessStatement
+            | P::WhileStatement
+            | P::UntilStatement
+            | P::ForStatement1
+            | P::IfSimpleStatement
             | P::UnlessSimpleStatement
             | P::WhileSimpleStatement
             | P::UntilSimpleStatement
             | P::WhenSimpleStatement => {
-                perl_walk_statement_modifier(node, &mut stats.conditions);
+                perl_count_slot(node.child_by_field_name("condition"), &mut stats.conditions);
             }
             _ => {}
         }

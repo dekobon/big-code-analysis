@@ -9,8 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, wrapped_operand};
-use crate::macros::python_bool_terminal_kinds;
+use super::{Abc, Stats, count_boolean_slot, wrapped_operand};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Python.
@@ -31,10 +30,10 @@ use crate::*;
 //   the unary `NotOperator` (paper's "unary conditional expression",
 //   Rule 7 / Figure 4), and the explicit arms of control flow:
 //   `ElifClause`, `ElseClause`, `ExceptClause`, `FinallyClause`,
-//   `CaseClause`. We do not separately count the `if` / `while`
-//   keyword: the condition expression itself is already covered by
-//   `ComparisonOperator`. This matches the token-level approach
-//   used for PHP / Bash.
+//   `CaseClause`. The predicate of an `if` / `elif` / `while`, a
+//   ternary condition and a `case` guard are each a boolean slot that
+//   pays one condition unless an arm inside it already did (see
+//   `python_count_condition`).
 //
 //   `BooleanOperator` (Python's `and` / `or` wrapper) is
 //   deliberately NOT counted, and `NotOperator` is kept as the
@@ -42,84 +41,64 @@ use crate::*;
 //   `Stats` doc-comment for the cross-language `&&` / `||` policy
 //   (issue #395, walker tracked in #403).
 
-// One step of the `(...)` peel: the expression a parenthesis wraps —
-// its only operand, not child(1) after the `(` token, which is where a
-// comment sits in `if (  # c` (#1455). `None` for anything else, which
-// is also the answer `python_count_condition` asks for, so the slot and
-// the peel cannot disagree about which kinds are wrappers (#1470; the
-// Kotlin, Groovy and C# instances of that disagreement were #1459,
-// #1466 and #1463).
+// One step of the value peel: the expression a wrapper evaluates to, or
+// `None` for anything that is not a wrapper. A parenthesis holds its
+// only operand — read by role, not at child(1) after the `(` token,
+// where a comment sits in `if (  # c` (#1455) — and a walrus
+// `(n := g())` evaluates to its `value`, so `if (y := x > 1):` tests
+// the comparison its own arm already counts. The walrus was a terminal
+// kind until #1526, which charged that slot a second time.
 //
-// Unlike its siblings this returns no "proves boolean" flag, because no
-// wrapper it accepts can prove one: `not` is deliberately not peeled —
-// the `NotOperator` arm counts it (see the walker below) — and a
-// parenthesis preserves the type of what it wraps.
-fn python_wrapper_operand<'a>(node: &Node<'a>) -> Option<Node<'a>> {
-    if matches!(node.kind_id().into(), Python::ParenthesizedExpression) {
-        wrapped_operand(node)
-    } else {
-        None
+// `not` is deliberately not peeled: the `NotOperator` arm counts it, so
+// `python_condition_scores_itself` stops on it instead.
+fn python_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
+    match node.kind_id().into() {
+        Python::ParenthesizedExpression => wrapped_operand(node),
+        Python::NamedExpression => node.child_by_field_name("value"),
+        _ => None,
     }
+    .map(|operand| (operand, false))
 }
 
-// Python ABC unary-conditional walker (Fitzpatrick Rule 9 / Figure 4;
-// issue #403). Python's `a and b` parses as `boolean_operator` (NOT
-// `binary_operator`), so the walker triggers on the `And` / `Or`
-// keyword tokens and iterates the immediate children of the parent
-// `boolean_operator`. Terminal-bool kinds: `Identifier`, `True`,
-// `False`, `Call`, `Attribute` (`obj.attr`), and `Subscript` (`xs[i]`).
-//
-// Unlike the C-family walkers, this one deliberately does NOT recurse
-// into `NotOperator`, `ComparisonOperator`, or nested `BooleanOperator`
-// children — each of those is counted by its own top-level dispatcher
-// arm. Re-counting them inside the walker would inflate the metric for
-// any `not x and y` / `x == 0 and y` shape. `ParenthesizedExpression`
-// is still unwrapped to catch bare-identifier operands like
-// `if (a) and b:` that the dispatcher would otherwise miss.
-fn python_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
+// Whether another arm of `compute` already charges `expr` (already
+// peeled) as a condition: a comparison, a `not`, a ternary (each its own
+// arm) or an `and` / `or` chain, whose walker scores each operand
+// through `python_count_condition` and so always carries a condition of
+// its own.
+fn python_condition_scores_itself(expr: &Node) -> bool {
     use Python::*;
 
-    let mut node = *container_node;
-    // `IfClause` joined this list with #1454: a `case … if g:` guard is
-    // a boolean slot exactly as an `if` condition is, so a parenthesised
-    // guard operand (`case n if (b):`) counts where the bare
-    // `case n if b:` already did.
-    let has_boolean_content = matches!(
-        parent.kind_id().into(),
-        BooleanOperator | IfStatement | WhileStatement | ConditionalExpression | IfClause
-    );
-
-    while let Some(operand) = python_wrapper_operand(&node) {
-        node = operand;
-
-        if matches!(node.kind_id().into(), python_bool_terminal_kinds!()) {
-            if has_boolean_content {
-                *conditions += 1.;
-            }
-            break;
-        }
-    }
+    matches!(
+        expr.kind_id().into(),
+        ComparisonOperator | NotOperator | BooleanOperator | ConditionalExpression
+    )
 }
 
-// Phase-2B (issue #403): Python `if` / `while` condition slot.
-// Python has no paren wrap around if-conditions and no top-level
-// terminal arm, so the condition has to be classified directly:
-//   - Identifier / True / False / Call / Attribute / Subscript at
-//     the top level counts once (Rule 6: bare-boolean condition).
-//   - ParenthesizedExpression unwraps via `python_inspect_container`.
-//   - NotOperator / ComparisonOperator / BooleanOperator are
-//     skipped: each is counted by its own top-level dispatcher arm
-//     (the `Or`/`And` keyword walker, the `NotOperator` arm, and
-//     the `ComparisonOperator` arm at lines `~1334-1390`).
-fn python_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
-    if matches!(condition.kind_id().into(), python_bool_terminal_kinds!()) {
-        *conditions += 1.;
-    } else if python_wrapper_operand(condition).is_some() {
-        // Asking the peel itself which kinds it unwraps, rather than
-        // restating the list here (#1470): a restated list that gained a
-        // kind the peel lacked would read as covering a shape the peel
-        // then dropped (`.claude/rules/grammar-dispatch.md` §7).
-        python_inspect_container(condition, parent, conditions);
+// Scores one boolean slot: an `if` / `elif` / `while` predicate, a
+// ternary condition, a `case` guard, or an operand of an `and` / `or`
+// chain (see `count_boolean_slot`). Python is truthy-valued, so every
+// expression the grammar can put there — `-x`, `x + 1`, a lambda — is a
+// decision, and scored 0 while the slot paid only for a fixed list of
+// terminal kinds (#1526).
+fn python_count_condition(condition: &Node, conditions: &mut f64) {
+    count_boolean_slot(
+        condition,
+        python_wrapper_operand,
+        python_condition_scores_itself,
+        conditions,
+    );
+}
+
+// Each operand of an `and` / `or` chain is a boolean slot (Fitzpatrick
+// Rule 9, #403). tree-sitter-python parses `a and b or c` as a
+// left-nested chain of `boolean_operator`s, so an operand that is itself
+// a chain is paid by its own operator's visit. Read by field: a comment
+// beside the operator is a named child too, and must not pay.
+fn python_count_chain_operands(chain: &Node, conditions: &mut f64) {
+    for field in ["left", "right"] {
+        if let Some(operand) = chain.child_by_field_name(field) {
+            python_count_condition(&operand, conditions);
+        }
     }
 }
 
@@ -127,9 +106,7 @@ fn python_count_condition(condition: &Node, parent: &Node, conditions: &mut f64)
 // expression, `<consequence> if <condition> else <alternative>`. Before
 // this, `a if c() else b` reported 1 — the `ConditionalExpression` node
 // alone — where every C-family language reports 2 for the equivalent
-// `c() ? a : b`, and `python_inspect_container`'s `ConditionalExpression`
-// boolean-context seed was unreachable because no call site ever passed
-// that parent.
+// `c() ? a : b`.
 //
 // tree-sitter-python's `conditional_expression` is a bare
 // `seq(expression, 'if', expression, 'else', expression)` carrying no
@@ -161,7 +138,7 @@ fn python_count_ternary_condition(node: &Node, conditions: &mut f64) {
         .skip(1)
         .find(|child| child.kind_id() != Comment as u16)
     {
-        python_count_condition(&condition, node, conditions);
+        python_count_condition(&condition, conditions);
     }
 }
 
@@ -172,69 +149,31 @@ fn python_count_ternary_condition(node: &Node, conditions: &mut f64) {
 // `comparison_operator` arm while `case n if is_even(n):` and
 // `case _ if b:` counted zero, so three semantically identical guards
 // produced two different numbers. As a slot every spelling contributes
-// exactly one — a call / attribute / subscript / bare identifier through
-// `python_bool_terminal_kinds!()`, a comparison or `not` through the arm
-// that already owns it — and a compound guard (`case n if a > 1 and b:`)
-// keeps its sub-structure rather than collapsing to one.
+// exactly one, and a compound guard (`case n if a > 1 and b:`) keeps its
+// sub-structure rather than collapsing to one.
 //
 // By grammar FIELD, not index (`.claude/rules/grammar-dispatch.md` §3):
 // `case_clause` names its guard `guard`, which is what keeps a
 // comprehension's `if_clause` — the same kind, in a wholly different
 // role — out of this slot. The clause itself carries no field for its
-// expression (it is `seq('if', expression)`), so the operand is located
-// as a named child rather than at a fixed offset, and *every* named
-// child is passed: tree-sitter `extra`s are named and may precede it,
-// so `case n if  # why\n b:` hands a `comment` to a first-child read.
-// Python's extras at this pin are `comment` and `line_continuation`,
-// neither a `python_bool_terminal_kinds!()` member nor a
-// `parenthesized_expression`, so passing them through adds nothing and
-// the loop cannot double count a clause that holds one expression by
-// construction.
+// expression (it is `seq('if', expression)`), so the operand is its
+// first named child that is not an `extra`: a comment may precede it
+// (`case n if  # why\n b:`), and would pay as a slot of its own.
 //
 // No double count (§5): cyclomatic reaches this guard through the `If`
 // *keyword token* inside the `if_clause`, which no ABC arm matches.
 fn python_count_case_guard(case_clause: &Node, conditions: &mut f64) {
-    let Some(guard) = case_clause.child_by_field_name("guard") else {
-        return;
-    };
-    for operand in guard.children().filter(Node::is_named) {
-        python_count_condition(&operand, &guard, conditions);
+    if let Some(operand) = case_clause
+        .child_by_field_name("guard")
+        .and_then(|guard| wrapped_operand(&guard))
+    {
+        python_count_condition(&operand, conditions);
     }
 }
 
-fn python_count_slot(slot: Option<Node>, parent: &Node, conditions: &mut f64) {
+fn python_count_slot(slot: Option<Node>, conditions: &mut f64) {
     if let Some(condition) = slot {
-        python_count_condition(&condition, parent, conditions);
-    }
-}
-
-fn python_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
-    use Python::*;
-
-    let list_kind = list_node.kind_id().into();
-    let mut cursor = list_node.cursor();
-
-    if cursor.goto_first_child() {
-        loop {
-            let node = cursor.node();
-            let node_kind = node.kind_id().into();
-
-            if matches!(node_kind, python_bool_terminal_kinds!())
-                && matches!(list_kind, BooleanOperator)
-            {
-                *conditions += 1.;
-            } else if matches!(node_kind, ParenthesizedExpression) {
-                python_inspect_container(&node, list_node, conditions);
-            }
-            // NotOperator / ComparisonOperator / nested BooleanOperator
-            // children are intentionally not walked here — each has
-            // its own top-level dispatcher arm and counting them
-            // again would double-count.
-
-            if !cursor.goto_next_sibling() {
-                break;
-            }
-        }
+        python_count_condition(&condition, conditions);
     }
 }
 
@@ -273,8 +212,7 @@ impl Abc for PythonCode {
             // all parse as a single `ComparisonOperator` node — one
             // node, one condition, regardless of how many comparison
             // operators are chained.
-            ComparisonOperator | ElifClause | ElseClause | ExceptClause | FinallyClause
-            | NotOperator => {
+            ComparisonOperator | ElseClause | ExceptClause | FinallyClause | NotOperator => {
                 // `NotOperator` is Python's unary `not`. Counting it
                 // mirrors Java's `!x` / C#'s `!x` Abc condition rule
                 // and closes the parity gap noted in #214 — without
@@ -310,9 +248,20 @@ impl Abc for PythonCode {
             // `Or` keyword tokens live inside a `boolean_operator`
             // wrapper which the walker iterates as the parent list.
             And | Or => {
-                if let Some(parent) = ancestors.parent(node) {
-                    python_count_unary_conditions(&parent, &mut stats.conditions);
+                if let Some(chain) = ancestors
+                    .parent(node)
+                    .filter(|p| p.kind_id() == BooleanOperator)
+                {
+                    python_count_chain_operands(&chain, &mut stats.conditions);
                 }
+            }
+            // An `elif` is Java's `else if`: the `else` (+1, Rule 5) and
+            // an `if` predicate slot, as Ruby's `elsif` is. It paid only
+            // the first, so `elif b` scored one below `else if (b)` while
+            // `elif x > 0` matched it through the comparison arm (#1526).
+            ElifClause => {
+                stats.conditions += 1.;
+                python_count_slot(node.child_by_field_name("condition"), &mut stats.conditions);
             }
             // Phase-2B (issue #403): `if` / `while` condition slot.
             // Python has no paren wrap around if-conditions, so the
@@ -329,11 +278,7 @@ impl Abc for PythonCode {
             // same answer: no valid Python puts a comment between `if`
             // and its condition, so no test can tell the two apart.
             IfStatement | WhileStatement => {
-                python_count_slot(
-                    node.child_by_field_name("condition"),
-                    node,
-                    &mut stats.conditions,
-                );
+                python_count_slot(node.child_by_field_name("condition"), &mut stats.conditions);
             }
             // `a if c() else b` — the conditional expression node itself
             // is one condition, as the `?` token is in every C-family

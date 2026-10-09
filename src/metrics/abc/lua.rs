@@ -9,8 +9,9 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, for_each_named_child, wrapped_operand};
-use crate::macros::lua_bool_terminal_kinds;
+use super::{
+    Abc, Stats, count_boolean_slot, count_negated_operand, for_each_named_child, wrapped_operand,
+};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Lua.
@@ -31,22 +32,13 @@ use crate::*;
 //   module-level `Stats` doc-comment for the cross-language policy
 //   (issue #395, walker tracked in #403).
 
-// One step of the `(...)` / `not` peel: the operand a wrapper wraps, and
-// whether the wrapper itself proves that operand boolean. `None` for
-// anything this peel does not descend, which is also the answer
-// `lua_count_condition` asks for, so the slot and the peel cannot
-// disagree about which kinds are wrappers (#1470; the Kotlin, Groovy
-// and C# instances of that disagreement were #1459, #1466 and #1463).
-// Each operand is read by role rather than at child(1) after the `(` or
-// the `not` keyword, where a comment may sit (`not --[[c]] b`, #1455):
+// One step of the `(...)` / `not` peel (see `PeelStep`). Each operand
+// is read by role rather than at child(1) after the `(` or the `not`
+// keyword, where a comment may sit (`not --[[c]] b`, #1455):
 // `unary_expression` names its `operand`, and a parenthesis holds only
-// its operand. A `unary_expression` spelled `-x`, `#t` or `~x` is
-// arithmetic, length or bitwise — never a boolean slot's operand — so
-// the peel declines it.
-//
-// A `not` proves the operand boolean even when the parent context does
-// not — matching the JS / Java pattern. Without that, `m(not a)` and
-// other call-argument contexts would never set the walker's flag.
+// its operand. `not` is the one wrapper that proves its operand
+// boolean; a `unary_expression` spelled `-x`, `#t` or `~x` yields a
+// value and stops the peel.
 fn lua_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     match node.kind_id().into() {
         Lua::ParenthesizedExpression => wrapped_operand(node).map(|o| (o, false)),
@@ -61,71 +53,76 @@ fn lua_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     }
 }
 
-// Lua ABC unary-conditional walker (Fitzpatrick Rule 9; issue #403).
-// Lua's logical operators are keyword tokens (`and` / `or`) inside a
-// `binary_expression`; `not x` is a `unary_expression` whose first
-// child is the `not` keyword. Terminal-bool kinds include identifiers,
-// the three keyword literals (`true`, `false`, `nil`), numbers, and
-// every call / indexing form.
-fn lua_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
-    let mut node = *container_node;
-    let mut has_boolean_content = matches!(
-        parent.kind_id().into(),
-        Lua::BinaryExpression | Lua::IfStatement | Lua::WhileStatement | Lua::RepeatStatement
+// Whether an arm of `compute` already charges `expr` (already peeled) as
+// a condition: a comparison (the token arms) or an `and` / `or` chain,
+// whose operands each pay through `lua_count_condition`.
+fn lua_condition_scores_itself(expr: &Node) -> bool {
+    expr.kind_id() == Lua::BinaryExpression
+        && expr.child_by_field_name("operator").is_some_and(|op| {
+            matches!(
+                op.kind_id().into(),
+                Lua::EQEQ
+                    | Lua::TILDEEQ
+                    | Lua::LT
+                    | Lua::GT
+                    | Lua::LTEQ
+                    | Lua::GTEQ
+                    | Lua::And
+                    | Lua::Or
+            )
+        })
+}
+
+// Scores one boolean slot — an `if` / `elseif` / `while` / `repeat …
+// until` condition or an operand of an `and` / `or` chain (see
+// `count_boolean_slot`). Lua is truthy-valued, so `if -x`, `if #t` and
+// `if x + 1` are each a decision, and each scored 0 while the slot paid
+// only for a fixed list of terminal kinds (#1526).
+fn lua_count_condition(condition: &Node, conditions: &mut f64) {
+    count_boolean_slot(
+        condition,
+        lua_wrapper_operand,
+        lua_condition_scores_itself,
+        conditions,
     );
+}
 
-    while let Some((operand, proves_boolean)) = lua_wrapper_operand(&node) {
-        has_boolean_content |= proves_boolean;
-        node = operand;
+// An operand outside a boolean slot — a `return` value, a call argument
+// — scores only when a `not` proves it boolean (see
+// `count_negated_operand`): `return not x` scores one, `return x` none.
+fn lua_count_negated(operand: &Node, conditions: &mut f64) {
+    count_negated_operand(
+        operand,
+        lua_wrapper_operand,
+        lua_condition_scores_itself,
+        conditions,
+    );
+}
 
-        if matches!(node.kind_id().into(), lua_bool_terminal_kinds!()) {
-            if has_boolean_content {
-                *conditions += 1.;
-            }
-            break;
+fn lua_count_slot(slot: Option<Node>, conditions: &mut f64) {
+    if let Some(condition) = slot {
+        lua_count_condition(&condition, conditions);
+    }
+}
+
+// Each operand of an `and` / `or` chain is a boolean slot (Fitzpatrick
+// Rule 9, #403). `a and b or c` is a left-nested chain of
+// `binary_expression`s, so an operand that is itself a chain is paid by
+// its own operator's visit. Read by field: a comment beside the operator
+// is a named child too, and must not pay.
+fn lua_count_chain_operands(chain: &Node, conditions: &mut f64) {
+    if chain.kind_id() == Lua::BinaryExpression {
+        for field in ["left", "right"] {
+            lua_count_slot(chain.child_by_field_name(field), conditions);
         }
     }
 }
 
-// Phase-2B (issue #403): Lua `if` / `while` / `repeat` condition
-// slots. Lua has no paren wrap, so the condition has to be classified
-// directly: terminal-bool kinds (Identifier, True, False, Nil,
-// FunctionCall, etc.) count at the top level; `(...)` / `not ...`
-// route through `lua_inspect_container`.
-fn lua_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
-    if matches!(condition.kind_id().into(), lua_bool_terminal_kinds!()) {
-        *conditions += 1.;
-    } else if lua_wrapper_operand(condition).is_some() {
-        // Asking the peel itself which kinds it unwraps, rather than
-        // restating the list here (#1470): a restated list that gained a
-        // kind the peel lacked would read as covering a shape the peel
-        // then dropped (`.claude/rules/grammar-dispatch.md` §7).
-        lua_inspect_container(condition, parent, conditions);
-    }
-}
-
-fn lua_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
-    let list_kind = list_node.kind_id().into();
-    let mut cursor = list_node.cursor();
-
-    if cursor.goto_first_child() {
-        loop {
-            let node = cursor.node();
-            let node_kind = node.kind_id().into();
-
-            if matches!(node_kind, lua_bool_terminal_kinds!())
-                && matches!(list_kind, Lua::BinaryExpression)
-            {
-                *conditions += 1.;
-            } else if node.is_named() {
-                lua_inspect_container(&node, list_node, conditions);
-            }
-
-            if !cursor.goto_next_sibling() {
-                break;
-            }
-        }
-    }
+// Each named child of an `expression_list` or `arguments` list is a
+// negated operand. `parent` is unused: `for_each_named_child` serves
+// the walkers that seed a boolean-context flag from it.
+fn lua_count_negated_child(operand: &Node, _parent: &Node, conditions: &mut f64) {
+    lua_count_negated(operand, conditions);
 }
 
 impl Abc for LuaCode {
@@ -142,12 +139,7 @@ impl Abc for LuaCode {
             Lua::FunctionCall => {
                 stats.branches += 1.;
             }
-            Lua::EQEQ
-            | Lua::TILDEEQ
-            | Lua::LTEQ
-            | Lua::GTEQ
-            | Lua::ElseifStatement
-            | Lua::ElseStatement => {
+            Lua::EQEQ | Lua::TILDEEQ | Lua::LTEQ | Lua::GTEQ | Lua::ElseStatement => {
                 stats.conditions += 1.;
             }
             // Counts `<` / `>` only as the operator token of a
@@ -169,13 +161,21 @@ impl Abc for LuaCode {
             // Fitzpatrick Rule 9 walker: each operand of an `and` /
             // `or` chain is one condition (issue #403).
             Lua::And | Lua::Or => {
-                if let Some(parent) = ancestors.parent(node) {
-                    lua_count_unary_conditions(&parent, &mut stats.conditions);
+                if let Some(chain) = ancestors.parent(node) {
+                    lua_count_chain_operands(&chain, &mut stats.conditions);
                 }
+            }
+            // An `elseif` is Java's `else if`: the `else` (+1, Rule 5) and
+            // an `if` predicate slot, as Ruby's `elsif` is. It paid only
+            // the first, so `elseif b` scored one below `elseif x > 0`
+            // (#1526).
+            Lua::ElseifStatement => {
+                stats.conditions += 1.;
+                lua_count_slot(node.child_by_field_name("condition"), &mut stats.conditions);
             }
             // Phase-2B (issue #403): condition slots. Lua has no paren
             // wrap around `if` / `while` / `repeat …` conditions, so
-            // `lua_count_condition` classifies the slot directly. Use
+            // `lua_count_slot` classifies the slot directly. Use
             // `child_by_field_name("condition")` so the lookup is
             // grammar-version-robust — tree-sitter-lua exposes the
             // `condition` field on if/while/repeat statements. Pinning
@@ -183,26 +183,26 @@ impl Abc for LuaCode {
             // shape where the BLANK alternative for the body would
             // shift positional child indices.
             Lua::IfStatement | Lua::WhileStatement | Lua::RepeatStatement => {
-                if let Some(cond) = node.child_by_field_name("condition") {
-                    lua_count_condition(&cond, node, &mut stats.conditions);
-                }
+                lua_count_slot(node.child_by_field_name("condition"), &mut stats.conditions);
             }
             // `return value` — Lua wraps return values in an
             // `expression_list`, the statement's only operand (not
             // child(1), where `return --[[c]] not x` puts a comment —
-            // #1455). Route each named child
-            // through `inspect_container` (no top-level terminal
-            // count) so `return not x` counts the unary unwrap once
-            // while `return x` (bare) reports zero. Bare `return`
-            // (no values) has no operand.
+            // #1455). Each named child is a negated operand, so
+            // `return not x` counts once while `return x` (bare)
+            // reports zero. Bare `return` (no values) has no operand.
             Lua::ReturnStatement => {
                 if let Some(expr_list) = wrapped_operand(node) {
-                    for_each_named_child(&expr_list, &mut stats.conditions, lua_inspect_container);
+                    for_each_named_child(
+                        &expr_list,
+                        &mut stats.conditions,
+                        lua_count_negated_child,
+                    );
                 }
             }
             // `f(not a, not b)` — argument-list walker.
             Lua::Arguments => {
-                lua_count_unary_conditions(node, &mut stats.conditions);
+                for_each_named_child(node, &mut stats.conditions, lua_count_negated_child);
             }
             _ => {}
         }

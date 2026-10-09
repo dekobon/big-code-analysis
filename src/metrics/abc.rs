@@ -48,6 +48,8 @@ mod php;
 mod python;
 mod ruby;
 mod rust;
+#[cfg(test)]
+mod slot_pays_tests;
 mod tcl;
 
 /// The `ABC` metric.
@@ -92,7 +94,7 @@ mod tcl;
 /// tested as conditional expressions" (so `||` contributes zero,
 /// `x` contributes one, `y` contributes one, and `printf(...)`
 /// contributes one branch). The walker machinery for this —
-/// modelled on `java_count_unary_conditions` /
+/// modelled on the former `java_count_unary_conditions` /
 /// `java_inspect_container` — is present today for Java, Groovy,
 /// C#, Rust, Go, JavaScript, TypeScript, TSX, Mozjs, PHP, C++,
 /// Python, Perl, Lua, Tcl, iRules, Kotlin, Ruby, and Elixir. So
@@ -456,6 +458,70 @@ pub(super) fn last_operand<'a>(node: &Node<'a>) -> Option<Node<'a>> {
 // wrapper exposes no accessor for it.
 pub(super) fn is_operand(child: &Node) -> bool {
     child.is_named() && !child.as_tree_sitter().is_extra()
+}
+
+// One step of a language's value peel: the operand a wrapper evaluates
+// to — `(…)`, a negation, an assignment's value, a type cast — and
+// whether that wrapper itself proves the operand boolean (only a
+// negation does). `None` for anything that is not a wrapper.
+pub(super) type PeelStep<'a> = fn(&Node<'a>) -> Option<(Node<'a>, bool)>;
+
+// Every wrapper `step` descends, peeled: the operand they evaluate to,
+// and whether any layer proved it boolean.
+pub(super) fn peel<'a>(node: &Node<'a>, step: PeelStep<'a>) -> (Node<'a>, bool) {
+    let mut node = *node;
+    let mut proves_boolean = false;
+    while let Some((operand, proves)) = step(&node) {
+        proves_boolean |= proves;
+        node = operand;
+    }
+    (node, proves_boolean)
+}
+
+// Scores one boolean slot — an `if` / `while` predicate, a ternary
+// condition, a guard, an operand of an `&&` / `||` chain — as
+// Fitzpatrick's "unary conditional expression" (Rule 6 / 7 / 9): one
+// condition, unless another arm already charged the same decision.
+// `scores_itself` says whether the peeled predicate is a comparison,
+// chain, ternary or other construct some arm of the language's
+// `compute` already counts, and must agree with those arms exactly: a
+// kind listed here and counted nowhere leaves its slot at zero, and one
+// counted there but missing here pays twice.
+//
+// The slots once paid only for an occupant that peeled down to a fixed
+// list of terminal kinds, so every kind missing from the list — `-x`,
+// `x + 1`, `this`, `*p`, a lambda — scored 0 against a cyclomatic
+// decision of 1 (#1520, #1526). Asking whether the decision is already
+// paid for covers every kind the grammar can put in the slot, including
+// ones a future grammar adds. Each language supplies only its peel step
+// and `scores_itself`, so the rule has this one home (lesson 59).
+pub(super) fn count_boolean_slot<'a>(
+    slot: &Node<'a>,
+    step: PeelStep<'a>,
+    scores_itself: fn(&Node<'a>) -> bool,
+    conditions: &mut f64,
+) {
+    if !scores_itself(&peel(slot, step).0) {
+        *conditions += 1.;
+    }
+}
+
+// The same rule for an operand outside a boolean slot — a call
+// argument, a `return` value, a ternary branch. Those are type-free, so
+// the operand is a slot only when the peel proves it boolean through a
+// negation layer: `f(!x)` scores one, `f(x)` and `f(-x)` none. A
+// negation is a slot whatever it negates (`!this`, `!-x`), exactly as
+// Ruby's negated ternary branch is (#1529).
+pub(super) fn count_negated_operand<'a>(
+    operand: &Node<'a>,
+    step: PeelStep<'a>,
+    scores_itself: fn(&Node<'a>) -> bool,
+    conditions: &mut f64,
+) {
+    let (node, proves_boolean) = peel(operand, step);
+    if proves_boolean && !scores_itself(&node) {
+        *conditions += 1.;
+    }
 }
 
 // Default no-op `Abc` impls. Audited in #188; the matrix below
@@ -1701,8 +1767,8 @@ mod tests {
         // Companion to `csharp_bool_returning_terminal_kinds_count`
         // (issue #372 / lesson #19). Java's grammar wraps every
         // if/while/do condition in `parenthesized_expression`, so
-        // the gap lived in `java_inspect_container`'s terminal-arm
-        // recognizer: `FieldAccess` (`cfg.flag`), `CastExpression`
+        // the gap lived in the former `java_inspect_container`'s
+        // terminal-arm recognizer: `FieldAccess` (`cfg.flag`), `CastExpression`
         // (`(boolean)v`), `ArrayAccess` (`flags[0]`), and
         // `InstanceofExpression` (`x instanceof Foo`) were never
         // counted. Java has no `await` or `is_pattern` analogues,
@@ -2724,7 +2790,7 @@ mod tests {
     fn groovy_while_and_do_while_conditions() {
         // Covers the WhileStatement and DoStatement arms in
         // `impl Abc for GroovyCode`. Each `while` / `do-while` has
-        // its condition inspected through `groovy_inspect_container`.
+        // its condition scored through `groovy_count_condition`.
         check_metrics::<GroovyParser>(
             "void f(boolean a, boolean b) {
                 while (a) {
@@ -2789,14 +2855,10 @@ mod tests {
     fn groovy_return_unary_boolean_literal() {
         // Companion to `groovy_if_while_boolean_literal_condition`:
         // a `!true` / `!false` operand inside a `return` statement
-        // routes through `groovy_inspect_container` (via
-        // `groovy_inspect_child(node, 1)` on the ReturnStatement).
-        // The `!` operator establishes boolean context, then the
-        // innermost-operand check matches `BooleanLiteral` — that
-        // helper's `BooleanLiteral` arm must be present or the
-        // count silently drops. Mutation-verified: removing
-        // `BooleanLiteral` from `groovy_inspect_container` leaves
-        // every other Groovy test passing.
+        // routes through `groovy_count_negated`. The `!` proves
+        // boolean context, and a `BooleanLiteral` does not score
+        // itself (`groovy_condition_scores_itself`), so the
+        // negated operand pays one condition.
         check_metrics::<GroovyParser>(
             "boolean f() {
                 return !true
@@ -2806,11 +2868,10 @@ mod tests {
             }",
             "foo.groovy",
             |metric| {
-                // Each `return !X` walks into
-                // `groovy_inspect_container` with a UnaryExpression
-                // wrapping a `BANG` + BooleanLiteral. The `!` arm
-                // seeds `has_boolean_content = true` (ReturnStatement
-                // is not a known-boolean parent), then the
+                // Each `return !X` walks into `groovy_count_negated`
+                // with a UnaryExpression wrapping a `BANG` +
+                // BooleanLiteral. The peel through `!` proves boolean
+                // context (a `return` is not a slot), then the
                 // BooleanLiteral operand contributes one condition.
                 // Two `return !X` → 2 conditions, no branches, no
                 // assignments.
@@ -2825,14 +2886,10 @@ mod tests {
     #[test]
     fn groovy_short_circuit_with_boolean_literal_operand() {
         // Companion to `groovy_if_while_boolean_literal_condition`:
-        // a bare `true` / `false` operand of `&&` / `||` lands in
-        // `groovy_count_unary_conditions`, which iterates the
-        // parent BinaryExpression's children. That helper must
-        // match the `BooleanLiteral` wrapper just like
-        // `groovy_count_condition` does — otherwise the operand
-        // silently scores zero. Mutation-verified: removing
-        // `BooleanLiteral` from the `groovy_count_unary_conditions`
-        // arm leaves every other Groovy test passing.
+        // a bare `true` / `false` operand of `&&` / `||` is a
+        // chain-operand slot scored through `groovy_count_condition`.
+        // A `BooleanLiteral` does not score itself, so the slot pays
+        // for it; otherwise the operand would silently score zero.
         check_metrics::<GroovyParser>(
             "void m(boolean x) {
                 if (x && true) { println 'a' }
@@ -2844,11 +2901,10 @@ mod tests {
                 // `groovy_count_token_condition`'s match list —
                 // they route through
                 // `groovy_walk_for_conditions::AMPAMP|PIPEPIPE`,
-                // which calls `groovy_count_unary_conditions` on
-                // the parent BinaryExpression. Each invocation
-                // counts every child that matches the terminal-
-                // operand kinds and whose parent is a
-                // BinaryExpression. For `x && true`: Identifier x
+                // which scores each operand of the parent
+                // BinaryExpression through `groovy_count_condition`.
+                // An operand pays one condition unless it scores
+                // itself. For `x && true`: Identifier x
                 // (+1) + BooleanLiteral true (+1) = 2. For
                 // `false || x`: BooleanLiteral false (+1) +
                 // Identifier x (+1) = 2. Total 4.
@@ -2891,7 +2947,7 @@ mod tests {
     fn groovy_return_with_conditions() {
         // Mirror of `java_return_with_conditions`: a parenthesised
         // or unary expression inside `return` flows through the
-        // `ReturnStatement` arm to `groovy_inspect_container`.
+        // `ReturnStatement` arm to `groovy_count_negated`.
         check_metrics::<GroovyParser>(
             "boolean f(boolean a) {
                 return (a)
@@ -2904,9 +2960,8 @@ mod tests {
                 // Only one of the two return forms surfaces a
                 // condition: `return !a` hits the UnaryExpression
                 // path and adds one; `return (a)` reaches
-                // `groovy_inspect_container` but the inner
-                // identifier `a` is not in a boolean-context-firing
-                // parent, so no condition is added.
+                // `groovy_count_negated` but no `!` proves the inner
+                // identifier `a` boolean, so no condition is added.
                 assert_eq!(metric.abc.conditions_sum(), 1);
             },
         );
@@ -3030,8 +3085,8 @@ mod tests {
     }
 
     /// C#'s `csharp_walk_for_statement` reads the loop condition off
-    /// the named `condition` field and routes a parenthesised or
-    /// `!`-prefixed one through `csharp_inspect_container`. Every other
+    /// the named `condition` field and scores a parenthesised or
+    /// `!`-prefixed one through `csharp_count_condition`. Every other
     /// C# `for` test uses a comparison (`i < n`), which the `LT` token
     /// arm counts without entering the walker.
     #[cfg(feature = "csharp")]
@@ -3593,7 +3648,7 @@ mod tests {
     fn objc_message_send_is_a_bool_terminal_in_condition_slots() {
         // `[obj ok]` is Objective-C's call, so in a condition slot it is
         // the unary condition `ok()` is (Fitzpatrick Rule 9). Until
-        // `message_expression` joined `cpp_bool_terminal_kinds!` every
+        // `message_expression` joined the former `cpp_bool_terminal_kinds!` every
         // row here scored zero conditions where its C-call twin scored
         // one — and #1276's `for` slot inherited the gap. Each row is a
         // message send as the *whole* slot (grammar-dispatch §11: a
@@ -3880,19 +3935,15 @@ mod tests {
     fn csharp_if_unary_not_condition() {
         // Two cases share one test:
         //
-        //   if (!x) { … }  — IfStatement is a known-boolean parent, so
-        //   the unary `!` arm in `csharp_inspect_container` is *one of
-        //   two* ways `has_boolean_content` gets set to true (the parent
-        //   seed sets it before the `!` does). A regression that broke
-        //   only the `is_not` branch wouldn't show up here.
+        //   if (!x) { … }  — the `if` predicate is a boolean slot, so
+        //   `csharp_count_condition` pays for it once the peel
+        //   (`csharp_wrapper_operand`) has taken the `!` off; the
+        //   slot would pay without the `!` too.
         //
-        //   return !x;  — ReturnStatement is *not* in the boolean-context
-        //   seed list (BinaryExpression | IfStatement | WhileStatement |
-        //   DoStatement | ForStatement | ConditionalExpression). So the
-        //   `!` wrapper is the *only* path that sets
-        //   `has_boolean_content = true`. Asserting the `return !x;`
-        //   case isolates the unary-unwrap logic from the parent-seed
-        //   path.
+        //   return !x;  — a `return` value is not a slot, so the `!`
+        //   is the *only* thing that makes the operand count, through
+        //   `csharp_count_negated`. Asserting the `return !x;`
+        //   case isolates the negation path from the slot path.
         check_metrics::<CsharpParser>(
             "class A {
                 void M(bool x) {
@@ -3904,10 +3955,9 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                // `if (!x)` contributes 1 condition (PrefixUnaryExpression
-                // path with parent IfStatement seeding has_boolean_content).
-                // `return !x;` contributes 1 condition (parent doesn't seed
-                // — the unary `!` is the only path that sets the flag).
+                // `if (!x)` contributes 1 condition (the slot pays for the
+                // peeled `x`). `return !x;` contributes 1 condition (not a
+                // slot — the unary `!` is what makes `x` count).
                 // → 2 conditions total. 1 branch from WriteLine().
                 assert_eq!(metric.abc.conditions_sum(), 2);
                 assert_eq!(metric.abc.branches_sum(), 1);
@@ -3930,11 +3980,9 @@ mod tests {
         // `if ((x))` puts a `ParenthesizedExpression` at child(2) of
         // the IfStatement (child(1) is the literal `(`, child(2) is
         // the inner parenthesised expression, child(3) is the literal
-        // `)`). `csharp_count_condition` must route that case to
-        // `csharp_inspect_container`, which then sees parent =
-        // IfStatement, seeds `has_boolean_content = true`, walks to
-        // the inner Identifier, and counts it. A regression that
-        // removed the paren arm would silently score 0.
+        // `)`). `csharp_count_condition` must peel that parenthesis
+        // (`csharp_wrapper_operand`) down to the inner Identifier,
+        // which does not score itself, so the slot pays once.
         check_metrics::<CsharpParser>(
             "class A {
                 void M(bool x) {
@@ -3954,8 +4002,8 @@ mod tests {
     #[test]
     fn csharp_bool_returning_terminal_kinds_count() {
         // Regression for issue #372 (lesson #19): before the fix,
-        // `csharp_count_condition` / `csharp_inspect_container` only
-        // recognised invocation / identifier / boolean literal as
+        // `csharp_count_condition` / the former `csharp_inspect_container`
+        // only recognised invocation / identifier / boolean literal as
         // terminal-bool operands, so the five idiomatic boolean
         // expressions in the `if (...)` slots below silently scored
         // zero conditions:
@@ -3966,7 +4014,7 @@ mod tests {
         //   - `v is not null`   — IsPatternExpression
         //   - `flags[0]`        — ElementAccessExpression
         //
-        // The `is` test has since moved out of the terminal set to an
+        // The `is` test has since moved out of the former terminal set to an
         // unconditional arm (#1461), so it no longer depends on the
         // slot to be counted. The total is unchanged, which is the
         // point of that change rather than an accident of it.
@@ -4027,10 +4075,9 @@ mod tests {
         // must therefore match `BooleanLiteral` (the wrapper),
         // mirroring the existing `csharp_walk_for_statement` arm.
         // Without that, every literal-condition statement scored 0
-        // conditions. The sibling `csharp_count_unary_conditions`
-        // arm is covered separately by
-        // `csharp_short_circuit_with_boolean_literal_operand` and
-        // `csharp_inspect_container` is covered by
+        // conditions. The `&&` / `||` chain-operand slot is covered
+        // separately by `csharp_short_circuit_with_boolean_literal_operand`
+        // and the negated-operand path (`csharp_count_negated`) by
         // `csharp_declarations_with_conditions` (`!true` / `!false`).
         check_metrics::<CsharpParser>(
             "class A {
@@ -4063,15 +4110,10 @@ mod tests {
     fn csharp_short_circuit_with_boolean_literal_operand() {
         // Regression for #371 (companion to
         // `csharp_if_while_boolean_literal_condition`): a bare
-        // `true` / `false` operand of `&&` / `||` lands in
-        // `csharp_count_unary_conditions`, which iterates the parent
-        // BinaryExpression's children. That helper must match the
-        // `BooleanLiteral` wrapper just like `csharp_count_condition`
-        // does — otherwise the operand silently scores zero. Mutation-
-        // verified: removing `BooleanLiteral` from the
-        // `csharp_count_unary_conditions` arm leaves every other test
-        // in the suite passing, so this is the only test guarding
-        // that helper's literal-operand path.
+        // `true` / `false` operand of `&&` / `||` is a chain-operand
+        // slot scored through `csharp_count_condition`. A
+        // `BooleanLiteral` does not score itself, so the slot pays for
+        // it — otherwise the operand silently scores zero.
         check_metrics::<CsharpParser>(
             "class A {
                 void M(bool x) {
@@ -4084,16 +4126,13 @@ mod tests {
                 // `&&` and `||` themselves are NOT in
                 // `csharp_count_token_condition`'s match list — they
                 // route through `csharp_walk_for_conditions::AMPAMP|
-                // PIPEPIPE`, which calls
-                // `csharp_count_unary_conditions` on the parent
-                // BinaryExpression. Each invocation counts every
-                // child that matches the terminal-operand kinds and
-                // whose parent is a BinaryExpression. For
+                // PIPEPIPE`, which scores each operand of the parent
+                // BinaryExpression through `csharp_count_condition`.
+                // An operand pays one condition unless it scores
+                // itself. For
                 // `x && true`: 1 (Identifier x) + 1 (BooleanLiteral
                 // true) = 2. For `false || x`: 1 (BooleanLiteral
-                // false) + 1 (Identifier x) = 2. Total 4. Without
-                // the BooleanLiteral arm only the two Identifier
-                // counts would land, giving 2.
+                // false) + 1 (Identifier x) = 2. Total 4.
                 assert_eq!(metric.abc.conditions_sum(), 4);
                 assert_eq!(metric.abc.branches_sum(), 2);
                 assert_eq!(metric.abc.assignments_sum(), 0);
@@ -4384,13 +4423,14 @@ mod tests {
     // The fixture carries the two overloads plus one `a < b` inside a
     // `binary_expression` and one `x is > 0 ? 2 : 3`, which the grammar
     // parses as a `relational_pattern` whose operand is the ternary (see
-    // the assertion). Every mis-aim lands on its own number: 6
-    // with neither gate, 4 if `RelationalPattern` is readmitted to the
-    // allowlist (#1383 dropped it), 2 if the gate swallows
-    // `BinaryExpression` too (only the ternary `?` and the `is` test
-    // survive), 0 if the fixture stops parsing. Each is one higher than
-    // before #1461, which added the `is` test as a count no gate on the
-    // `<` / `>` token can reach.
+    // the assertion). Every mis-aim lands on its own number: 7
+    // with neither gate, 5 if `RelationalPattern` is readmitted to the
+    // allowlist (#1383 dropped it), 3 if the gate swallows
+    // `BinaryExpression` too (only the ternary's `?` and slot and the
+    // `is` test survive), 0 if the fixture stops parsing. Each is two
+    // higher than before #1461 and #1526, which added the `is` test and
+    // the ternary's slot as counts no gate on the `<` / `>` token can
+    // reach.
     #[cfg(feature = "csharp")]
     #[test]
     fn csharp_operator_declaration_is_not_a_condition() {
@@ -4418,19 +4458,20 @@ mod tests {
                         "operator declaration {i} must score no condition"
                     );
                 }
-                // 3: the `a < b` comparison, the ternary `?`, and the
-                // `is` test. tree-sitter-c-sharp 0.23.5 parses
-                // `x is > 0 ? 2 : 3` as `x is > (0 ? 2 : 3)` — the ternary
-                // is the pattern's operand, so the pattern sits in no
-                // decision slot and its `>` still scores nothing (#1383),
-                // while the ternary's condition is the literal `0`.
-                // The third count is the enclosing `is_pattern_expression`
-                // itself, which since #1461 scores by use rather than only
-                // inside a boolean slot. C# itself binds the source
-                // `(x is > 0) ? 2 : 3`; a grammar that agrees still reads
-                // 3 here, by the same three counts in a different
-                // arrangement.
-                assert_eq!(class.spaces[2].metrics.abc.conditions(), 3);
+                // 4: the `a < b` comparison, the ternary `?`, its
+                // condition slot, and the `is` test. tree-sitter-c-sharp
+                // 0.23.5 parses `x is > 0 ? 2 : 3` as `x is > (0 ? 2 :
+                // 3)` — the ternary is the pattern's operand, so the
+                // pattern sits in no decision slot and its `>` still
+                // scores nothing (#1383), while the ternary's condition
+                // is the literal `0`, which pays as a slot since #1526.
+                // The fourth count is the enclosing
+                // `is_pattern_expression` itself, which since #1461
+                // scores by use rather than only inside a boolean slot.
+                // C# itself binds the source `(x is > 0) ? 2 : 3`; a
+                // grammar that agrees reads 3 here, because the `is`
+                // test in the condition slot already pays for it.
+                assert_eq!(class.spaces[2].metrics.abc.conditions(), 4);
             },
         );
     }
@@ -4992,8 +5033,8 @@ mod tests {
     // A relational *pattern* in the guard (`g`) is the other side of that
     // line: the operator itself still scores nothing, because the gate is
     // on the operator's parent — but since #1422 the guard is a condition
-    // slot, and an `is` test is one of `csharp_bool_terminal_kinds!()`, so
-    // the slot pays for it. That is what closed the gap this test used to
+    // slot, and an `is` test scores itself (`csharp_condition_scores_itself`),
+    // so the slot does not pay again. That is what closed the gap this test used to
     // carry a `FIXME(#1422)` for: `when n is > 5` now reads level with
     // `when n > 5` instead of one below it.
     //
@@ -5071,15 +5112,15 @@ mod tests {
     // can fail, which is what makes their repeated `> 0` legal.
     //
     // `paren` is not a fourth spelling for its own sake — it is the only
-    // member reaching the `WhenClause` seed added to
-    // `csharp_inspect_container`, since `when_clause` wraps a
-    // parenthesised guard in a real `parenthesized_expression` rather
-    // than the anonymous parens `catch_filter_clause` uses.
+    // member whose guard reaches the slot as a
+    // `parenthesized_expression` for the peel (`csharp_wrapper_operand`)
+    // to take off, since `when_clause` wraps a parenthesised guard in a
+    // real `parenthesized_expression` rather than the anonymous parens
+    // `catch_filter_clause` uses.
     //
     // `nullc` is #1459's row and the counter-example that falsified the
-    // claim above when it was first written. A `??` guard is a
-    // `binary_expression`, which the slot declines — it leaves an
-    // operator guard to the arm that already counts the operator — and
+    // claim above when it was first written. The slot leaves an
+    // operator guard to the arm that already counts the operator, and
     // no ABC arm counted `??`, so this one spelling read 2 where the
     // other four read 3. Counting the token levels it without touching
     // the slot; an unconditional `+1` in the slot instead would have
@@ -5090,7 +5131,7 @@ mod tests {
     // decision *in addition to* the guard clause, so the arm below
     // narrows the ABC-versus-cyclomatic gap from two to one rather than
     // closing it. The remaining one is the slot's standing policy of
-    // leaving a `binary_expression` to its operators, and `cmp` pays it
+    // leaving a counted operator to its arm, and `cmp` pays it
     // too — it just happens to break even there.
     #[cfg(feature = "csharp")]
     #[test]
@@ -5148,8 +5189,8 @@ mod tests {
     // The bare type test `x is int` is `is_expression` (391); only once
     // a pattern is involved (`x is int y`, `x is null`) does the grammar
     // emit `is_pattern_expression` (392). They are distinct kinds, and
-    // `csharp_bool_terminal_kinds!()` listed only the second, so the two
-    // spellings of one test disagreed: `if (x is int)` scored zero
+    // the former `csharp_bool_terminal_kinds!()` listed only the
+    // second, so the two spellings of one test disagreed: `if (x is int)` scored zero
     // conditions against a cyclomatic decision of one while
     // `if (x is int y)` scored one.
     //
@@ -5215,8 +5256,8 @@ mod tests {
     // operand it wraps scores (#1463).
     //
     // `postfix_unary_expression` was in neither
-    // `csharp_bool_terminal_kinds!()` nor the wrapper peel, so every
-    // spelling below scored **zero** conditions against a cyclomatic
+    // the former `csharp_bool_terminal_kinds!()` nor the wrapper peel,
+    // so every spelling below scored **zero** conditions against a cyclomatic
     // decision of one, while the bare `b` control scored one. In a
     // codebase with nullable reference types enabled the suffix is
     // everywhere, so the gap is not an exotic corner.
@@ -5224,8 +5265,8 @@ mod tests {
     // Both walker paths, per `.claude/rules/grammar-dispatch.md` §11:
     // `p*` go through the `if` predicate slot
     // (`csharp_count_condition`) and `c*` through the `&&` chain slot
-    // (`csharp_count_unary_conditions`), which reach
-    // `csharp_inspect_container` independently. A fixture of only one
+    // (also `csharp_count_condition`, per chain operand), which reach
+    // the peel independently. A fixture of only one
     // reads correct with the other path dead.
     //
     // The controls are load-bearing in both directions. `p` / `c` pin
@@ -5413,8 +5454,8 @@ mod tests {
     // `paren` carries the *double* parenthesis on purpose. The grammar
     // spells `catch_filter_clause`'s own parentheses as anonymous tokens
     // the way `if_statement` does, so `when (IsEven(x))` hands the slot a
-    // bare `invocation_expression` and never reaches the
-    // `CatchFilterClause` seed in `csharp_inspect_container`; only a
+    // bare `invocation_expression` with no parenthesis for the peel
+    // (`csharp_wrapper_operand`) to take off; only a
     // second pair of parentheses produces a `parenthesized_expression`
     // there.
     #[cfg(feature = "csharp")]
@@ -5542,8 +5583,8 @@ mod tests {
     // Why the guard is a condition *slot* and not a flat +1: a compound
     // guard keeps its sub-structure. `when a > 1 && b < 2` scores the
     // two comparisons through the token arm and nothing extra from the
-    // slot, because a `binary_expression` is not one of
-    // `csharp_bool_terminal_kinds!()` — so it reads one above `single`'s
+    // slot, because a `&&` chain scores itself
+    // (`csharp_condition_scores_itself`) — so it reads one above `single`'s
     // lone comparison rather than collapsing to the same number, and
     // cyclomatic agrees because it counts the `&&`.
     #[cfg(feature = "csharp")]
@@ -5982,8 +6023,8 @@ function f(int $a, int $b): int {
         // to the hidden grammar rule `_name`. At the pinned
         // tree-sitter-php version it is never emitted as a concrete
         // node — the visible `Name` (= 1) carries every name.
-        // We list `Name2` defensively in `php_bool_terminal_kinds!()`
-        // (lesson 34); if a future grammar bump promotes `_name`
+        // The former `php_bool_terminal_kinds!()` listed `Name2`
+        // defensively (lesson 34); if a future grammar bump promotes `_name`
         // to a visible rule, this assertion fails loudly.
         let src = "<?php\nfunction f($x) { if ($x) { foo($x); } }\n";
         let parser = PhpParser::new(
@@ -6002,8 +6043,8 @@ function f(int $a, int $b): int {
         // `scoped_property_access_expression` as the condition
         // node (kind_id 333 at the pinned grammar version — the
         // `*2` alias). Pre-fix, neither `ScopedPropertyAccessExpression`
-        // nor its alias was in `php_bool_terminal_kinds!()`. The
-        // walker reached the access node, found it non-terminal,
+        // nor its alias was in the former `php_bool_terminal_kinds!()`.
+        // The walker reached the access node, found it non-terminal,
         // and broke. Mirrors C#'s `MemberAccessExpression` rule
         // (lesson 19, #372).
         check_metrics::<PhpParser>(
@@ -6177,15 +6218,15 @@ function f(int $a, int $b): int {
             "foo.php",
             |metric| assert_eq!(metric.abc.conditions_sum(), 1),
         );
-        // Negation: reaches the terminal through
-        // `php_inspect_container`'s `!` unwrap.
+        // Negation: the slot peels the `!` (`php_wrapper_operand`) and
+        // pays for the operand beneath it.
         check_metrics::<PhpParser>(
             "<?php\nfunction f($a) { for (; !$a; ) {} }\n",
             "foo.php",
             |metric| assert_eq!(metric.abc.conditions_sum(), 1),
         );
-        // Parentheses: counts only because the `for_statement` parent
-        // seeds `has_boolean_content`, the seed #1276 found dead.
+        // Parentheses: counted because the slot peels them
+        // (`php_wrapper_operand`), the path #1276 found dead.
         check_metrics::<PhpParser>(
             "<?php\nfunction f($a) { for (; ($a); ) {} }\n",
             "foo.php",
@@ -9479,8 +9520,8 @@ end
         // Regression for #772: Python treats every non-zero number as
         // truthy, so `if 5:` and `x and 5` should each count their
         // numeric literal as a Fitzpatrick unary condition. Pre-fix
-        // `python_bool_terminal_kinds!()` listed `True` / `False` but
-        // omitted `Integer` / `Float`, so the walker dropped every
+        // the former `python_bool_terminal_kinds!()` listed `True` /
+        // `False` but omitted `Integer` / `Float`, so the walker dropped every
         // numeric-truthy operand (mirrors the Lua `Number` fix).
         check_metrics::<PythonParser>(
             "def f(a):\n    if 5:\n        pass\n    return a and 2\n",
@@ -9550,8 +9591,8 @@ end
     }
 
     /// `foo(not ready, value)` — the unary `not` inside an argument
-    /// list still contributes. Mirrors Java's
-    /// `java_count_unary_conditions` walk over argument lists.
+    /// list still contributes. Mirrors Java's `java_count_negated`
+    /// walk over argument lists.
     #[cfg(feature = "python")]
     #[test]
     fn python_unary_not_in_argument_list_counts() {
@@ -9644,9 +9685,9 @@ end
     // Issue #1161. Python counted the `conditional_expression` node but
     // never its condition slot, so `a if c() else b` reported 1 where
     // the equivalent `c() ? a : b` reports 2 everywhere else — and
-    // `python_inspect_container`'s `ConditionalExpression` boolean-
-    // context seed was unreachable, no call site having passed that
-    // parent.
+    // the former `python_inspect_container`'s `ConditionalExpression`
+    // boolean-context seed was unreachable, no call site having passed
+    // that parent.
     #[cfg(feature = "python")]
     #[test]
     fn python_ternary_condition_slot_counts_as_a_unary_condition() {
@@ -9659,10 +9700,9 @@ end
                 assert_eq!(metric.abc.conditions_sum(), 2);
             },
         );
-        // A parenthesised condition, pinning the seed line this fix made
-        // reachable: `(c)` is a `parenthesized_expression`, so only
-        // `python_inspect_container` can resolve it, and it counts the
-        // unwrapped terminal only when the parent seeds boolean context.
+        // A parenthesised condition: `(c)` is a `parenthesized_expression`,
+        // so only the peel (`python_wrapper_operand`) can resolve it to
+        // `c`, which the slot then pays for.
         // ternary (1) + `(c)` (1) = 2.
         check_metrics::<PythonParser>(
             "def f(a, b, c):\n    return a if (c) else b\n",
@@ -9705,12 +9745,12 @@ end
     // helper rather than a copy of `cpp_walk_ternary`: Python's branch
     // operands are counted by the top-level `NotOperator` /
     // `ComparisonOperator` arms, a different mechanism from every other
-    // language's walker. Routing the branch slots through
-    // `python_inspect_container` as the C family does would count a
-    // parenthesised operand that the identical unparenthesised
-    // expression scores at zero.
+    // language's walker. Routing the branch slots through a negated-
+    // operand walk as the C family does (`python_inspect_container`
+    // before #1526) would have counted a parenthesised operand that
+    // the identical unparenthesised expression scores at zero.
     //
-    // Both fixtures below are 2 today and 4 under such a copy, so a
+    // Both fixtures below are 2 today and were 4 under such a copy, so a
     // later "make Python consistent with the others" change cannot land
     // silently.
     #[cfg(feature = "python")]
@@ -10223,7 +10263,7 @@ end
         // pinned tree-sitter-rust version it is never emitted as a
         // concrete node — the visible `LetChain` (= 352) carries
         // every let-chain. We list `LetChain2` defensively in
-        // `rust_inspect_container` and `rust_count_unary_conditions`
+        // `rust_condition_scores_itself` and `rust_count_chain_operands`
         // (lesson 34); if a future grammar bump promotes
         // `_let_chain` to a visible rule, this assertion fails
         // loudly so the maintainer knows to verify the walker still
@@ -10244,7 +10284,7 @@ end
     fn rust_scoped_identifier_condition_counts() {
         // Regression for findings.md round-2 #1 (Rust):
         // `if crate::FLAG {}` parses with `scoped_identifier` as the
-        // condition node. Pre-fix, `rust_bool_terminal_kinds!()`
+        // condition node. Pre-fix, the former `rust_bool_terminal_kinds!()`
         // listed only `Identifier` so the walker reached the
         // `scoped_identifier` child, found it non-terminal /
         // non-paren / non-unary, and broke without counting.
@@ -10262,8 +10302,8 @@ end
         // Regression for findings.md round-2 #2 (Rust):
         // `if ready().await {}` parses with `await_expression` as
         // the condition node. Adding `Rust::AwaitExpression` to the
-        // terminal-bool set closes the parity gap with the C#
-        // reference (`csharp_bool_terminal_kinds!()`).
+        // former terminal-bool set closed the parity gap with the C#
+        // reference (the former `csharp_bool_terminal_kinds!()`).
         check_metrics::<RustParser>(
             "async fn ready() -> bool { true }\n\
              async fn f() { if ready().await { } }\n",
@@ -10329,9 +10369,9 @@ end
         // 1 condition (only the LetCondition). The bare-identifier
         // `a` operand was lost because Rust 2024 wraps let-chain
         // `&&` operands in a `LetChain` node (not `BinaryExpression`)
-        // and `rust_count_unary_conditions` only counted terminals
-        // under a `BinaryExpression` parent. Allowing `LetChain` /
-        // `LetChain2` as known-bool list parents fixes the loss.
+        // and the former `rust_count_unary_conditions` only counted
+        // terminals under a `BinaryExpression` parent. Allowing `LetChain` /
+        // `LetChain2` as known-bool list parents fixed the loss.
         // Expected: LetCondition (1) + walker on `a` (1) = 2.
         check_metrics::<RustParser>(
             "fn f(a: bool, y: Option<i32>) {\n\
@@ -11884,9 +11924,9 @@ end
         // when every operand is itself a relational expression
         // (`a == b`, `a > 0`, `b < 0`) the walker doesn't add
         // anything on top of the existing comparison-token tally
-        // — relational sub-expressions are not in
-        // `cpp_bool_terminal_kinds!()` and `cpp_inspect_container`
-        // does not recurse into them.
+        // — a relational sub-expression scores itself
+        // (`cpp_condition_scores_itself`), so its chain slot pays
+        // nothing on top.
         check_metrics::<CppParser>(
             "bool f(int a, int b) { return a == b && a > 0 || b < 0; }",
             "foo.cpp",
@@ -11948,8 +11988,8 @@ end
             assert_eq!(metric.abc.conditions_sum(), 4);
         });
         // No-double-count pin: `?` (1) + `>` (1) = 2, unchanged by the
-        // fix. The parenthesised condition unwraps to a
-        // `binary_expression`, which is not a boolean terminal, and
+        // fix. The parenthesised condition peels to a
+        // `binary_expression`, which scores itself, and
         // neither branch is negated — the `!` is the type-free proxy for
         // "this operand is boolean", so an unnegated branch contributes
         // nothing.
@@ -11958,19 +11998,17 @@ end
         });
         // Nested: outer `?` (1) + outer condition `a` (1) + inner `?`
         // (1) + inner condition `b` (1) = 4. The outer consequence is
-        // the inner ternary — neither a boolean terminal nor a
+        // the inner ternary — which scores itself, and is no
         // paren / `!` wrapper — so it adds nothing on its own and the
         // inner one is reached by the walk, not by descent.
         check_metrics::<CppParser>("void f() { x = a ? b ? c : d : e; }", "foo.cpp", |metric| {
             assert_eq!(metric.abc.conditions_sum(), 4);
         });
-        // A negated *condition* is the only input that reaches the
-        // walker's `else` fallback: `!a` is neither a boolean terminal
-        // (so the terminal arm skips it) nor an operand slot (so
-        // `cpp_inspect_container` is never called on it from anywhere
-        // else). Every other condition fixture in this file wraps a
-        // comparison, which the fallback resolves to 0 — delete the
-        // fallback and only this case moves. `?` (1) + `!a` (1) = 2.
+        // A negated *condition* is the input where the slot must peel a
+        // `!`: `cpp_wrapper_operand` takes `!a` down to `a`, which does
+        // not score itself, so the slot pays once. Every other condition
+        // fixture in this file wraps a comparison, which scores itself
+        // and so pays 0 from the slot. `?` (1) + `!a` (1) = 2.
         check_metrics::<CppParser>("void f() { x = !a ? b : c; }", "foo.cpp", |metric| {
             assert_eq!(metric.abc.conditions_sum(), 2);
         });
@@ -11991,7 +12029,7 @@ end
     }
 
     // `cpp_walk_ternary` is shared by the C, ObjC, and Mozcpp ABC impls
-    // exactly as `cpp_inspect_container` is, so each needs its own
+    // exactly as `cpp_count_condition` is, so each needs its own
     // dispatcher arm. Mozcpp owns no file extension and so gets no
     // integration-snapshot coverage at all — this parity assertion is
     // its only guard.
@@ -12029,9 +12067,9 @@ end
 
     // Issue #1276, C-family half. `cpp_walk_for_statement` is the
     // `for` header's counterpart to the `if` / `while` arms: the slot
-    // is a bare expression rather than a `condition_clause`, so it
-    // needs the top-level terminal check `cpp_walk_ternary` already
-    // had. Every fixture is a shape only that walker can classify —
+    // is a bare expression rather than a `condition_clause`, read by
+    // the same slot rule `cpp_walk_ternary` uses. Every fixture is a
+    // shape only that walker can classify —
     // a comparison-shaped condition proves nothing, the `<` token arm
     // counts it either way (grammar-dispatch §11).
     #[cfg(feature = "cpp")]
@@ -12041,13 +12079,13 @@ end
         check_metrics::<CppParser>("void f(int a) { for (; a; ) {} }", "foo.cpp", |metric| {
             assert_eq!(metric.abc.conditions_sum(), 1);
         });
-        // Negation: reaches the terminal through
-        // `cpp_inspect_container`'s `!` unwrap.
+        // Negation: the slot peels the `!` (`cpp_wrapper_operand`) and
+        // pays for the operand beneath it.
         check_metrics::<CppParser>("void f(int a) { for (; !a; ) {} }", "foo.cpp", |metric| {
             assert_eq!(metric.abc.conditions_sum(), 1);
         });
-        // Parentheses: counts only because the `for_statement` parent
-        // seeds `has_boolean_content` — the seed #1276 found dead.
+        // Parentheses: counted because the slot peels them
+        // (`cpp_wrapper_operand`) — the path #1276 found dead.
         check_metrics::<CppParser>("void f(int a) { for (; (a); ) {} }", "foo.cpp", |metric| {
             assert_eq!(metric.abc.conditions_sum(), 1);
         });
@@ -12257,8 +12295,8 @@ end
         // Regression for findings.md round-2 #1 (C++):
         // `if ((bool)ptr && ready) {}` had the `||` walker missing
         // the `(bool)ptr` operand because `CastExpression` was not
-        // in `cpp_bool_terminal_kinds!()`. Mirrors C#'s
-        // `csharp_bool_terminal_kinds!()` which lists
+        // in the former `cpp_bool_terminal_kinds!()`. Mirrors C#'s
+        // former `csharp_bool_terminal_kinds!()`, which listed
         // `CastExpression` (lesson 19, #372).
         check_metrics::<CppParser>(
             "void f(void* ptr, bool ready) { if ((bool)ptr && ready) { } }\n",
@@ -12279,10 +12317,10 @@ end
         // `qualified_identifier` under four kind_ids (573..576) per
         // the production-rule path; runtime kind for `ns::flag` is
         // 574 (`QualifiedIdentifier2`). Pre-fix the
-        // `cpp_bool_terminal_kinds!()` macro listed neither the
+        // former `cpp_bool_terminal_kinds!()` macro listed neither the
         // primary nor any alias, so `if (n::flag) {}` reported zero
-        // conditions. The macro now includes all four variants
-        // (lesson #2).
+        // conditions. The slot now pays for every variant, since none
+        // scores itself (lesson #2).
         check_metrics::<CppParser>(
             "namespace n { extern bool flag; }\n\
              void f() { if (n::flag) { } }\n",
@@ -12610,8 +12648,8 @@ end
         // Regression for #772: JS treats every non-zero number as
         // truthy, so `while (5)` and `x && 5` should each count their
         // numeric literal as a Fitzpatrick unary condition. Pre-fix
-        // `javascript_bool_terminal_kinds!()` listed `True` / `False`
-        // but omitted `Number`, so the walker dropped every numeric-
+        // the former `javascript_bool_terminal_kinds!()` listed `True` /
+        // `False` but omitted `Number`, so the walker dropped every numeric-
         // truthy operand (mirrors the Lua `Number` fix).
         check_metrics::<JavascriptParser>(
             "function f(x) { while (5) {} return x && 5; }",
@@ -12632,7 +12670,7 @@ end
         // Regression for #772: TS shares the JS truthy semantics. The
         // numeric *literal* `5` (kind `Number`) counts; the type-keyword
         // `number` (kind `Number2`, the `predefined_type`) must not —
-        // see `typescript_bool_terminal_kinds!`.
+        // see the former `typescript_bool_terminal_kinds!`.
         check_metrics::<TypescriptParser>(
             "function f(x: number) { while (5) {} return x && 5; }",
             "foo.ts",
@@ -12981,8 +13019,8 @@ end
         // Regression for findings.md round-2 #2 (JS):
         // `if (await ready()) {}` parses with `await_expression` as
         // the condition node inside the `parenthesized_expression`.
-        // `javascript_inspect_container` unwraps the paren but the
-        // await child was not in the terminal-bool set, so the
+        // The former `javascript_inspect_container` unwrapped the paren
+        // but the await child was not in the terminal-bool set, so the
         // walker broke without counting. Mirrors C# (lesson 19).
         check_metrics::<JavascriptParser>(
             "async function ready() { return true; }\n\
@@ -13004,10 +13042,10 @@ end
         // (191 primary, 208, 228 — `MemberExpression2/3`) depending
         // on the production rule path. The verifier in this audit
         // confirmed runtime kind for `o.x` is 208. Pre-fix the
-        // shared `js_family_bool_terminal_kinds!()` macro listed
+        // shared former `js_family_bool_terminal_kinds!()` macro listed
         // only the primary, so every `if (o.x) {}` / `o.x && o.y`
-        // condition silently reported zero. The per-language macro
-        // now includes all three aliases (lesson #2).
+        // condition silently reported zero. The slot now pays for all
+        // three aliases, none of which scores itself (lesson #2).
         check_metrics::<JavascriptParser>(
             "function f(o) {\n\
              \x20   if (o.x) {}                  // +1c\n\
@@ -13604,18 +13642,16 @@ end
         // `&&`, `||`, `//`, low-precedence `and`, `or`, `xor` are
         // NOT counted as conditions on their own (Fitzpatrick Rule
         // 5; #395) — instead each operand is counted as a unary
-        // conditional by the walker (Rule 9; #403). At the pinned
-        // tree-sitter-perl grammar version, only the four
-        // punctuation forms plus one keyword form parse under a
-        // `binary_expression` parent that triggers the walker; the
-        // other two keyword forms parse under a distinct grammar
-        // node and contribute zero. Net: 4 walker-firing lines × 2
-        // scalar-variable operands + 1 ternary node + 1 for the
-        // ternary's bare `$a` condition operand (#1102) = 10. The
-        // exact mix of "which two keyword forms are silent" is
-        // grammar-version-dependent; a future grammar bump that
-        // normalises the keyword forms' parent kind will shift this
-        // count to 14. See follow-up note above the test name.
+        // conditional by the walker (Rule 9; #403). The pinned
+        // tree-sitter-perl parses the low-precedence `and` as a
+        // two-operand `unary_expression` rather than a
+        // `binary_expression`; the walker reads the operands of either
+        // since #1526, which is what moved this count from 10 to 14.
+        // The low-precedence forms bind looser than `=`, so
+        // `$r = $a and $b` is `($r = $a) and $b`, and its left operand
+        // pays through the assignment's value.
+        // Net: 6 chain lines × 2 operands + 1 ternary node + 1 for the
+        // ternary's bare `$a` condition operand (#1102) = 14.
         check_metrics::<PerlParser>(
             "sub f {\n\
                  my $r;\n\
@@ -13632,13 +13668,9 @@ end
                 // 7 `=` tokens (one per reassignment line).
                 assert_eq!(metric.abc.assignments_sum(), 7);
                 assert_eq!(metric.abc.branches_sum(), 0);
-                // 4 walker-triggered lines × 2 operands + 1 ternary
-                // node + 1 for its bare `$a` condition operand = 10.
-                // The two remaining low-precedence keyword forms (one
-                // of `and`/`or`/`xor`) fall under a
-                // non-binary_expression parent in this grammar
-                // version and contribute zero via the walker.
-                assert_eq!(metric.abc.conditions_sum(), 10);
+                // 6 chain lines × 2 operands + 1 ternary node + 1 for
+                // its bare `$a` condition operand = 14.
+                assert_eq!(metric.abc.conditions_sum(), 14);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -13665,10 +13697,9 @@ end
             "foo.pl",
             |metric| assert_eq!(metric.abc.conditions_sum(), 2),
         );
-        // A negated *condition* takes the walker's `else` fallback —
-        // `!$a` is neither a boolean terminal nor a paren wrapper, so
-        // only `perl_inspect_container` can classify it. Delete the
-        // fallback and this reads 1. ternary (1) + `!$a` (1) = 2.
+        // A negated *condition*: the slot peels the `!`
+        // (`perl_wrapper_operand`) and pays for `$a`, which does not
+        // score itself. ternary (1) + `!$a` (1) = 2.
         check_metrics::<PerlParser>("sub f { my $x = !$a ? $b : $c; }", "foo.pl", |metric| {
             assert_eq!(metric.abc.conditions_sum(), 2);
         });
@@ -13885,7 +13916,7 @@ end
     fn perl_array_in_binary_operand_descends_to_scalar_context_value() {
         // Regression test for the code-review findings on the
         // Phase-2B Perl walker:
-        //   - Pre-fix-A: `perl_inspect_container` descended `Array`
+        //   - Pre-fix-A: the former `perl_inspect_container` descended `Array`
         //     via `node.child(1)` — the FIRST element — wrongly
         //     attributing `$x` for `($x, $y)` (semantically `$y`
         //     is the scalar-context value).
@@ -13992,7 +14023,7 @@ end
     // (#1467, the rule #1461 applied to five other languages). Each
     // `*_out` member and `ret` / `notm` / `grp` / `arg` / `smart` was 0
     // before the arm: only a boolean slot reached the pattern, through
-    // `perl_bool_terminal_kinds!()`. `mbare_out` is the `m{}` spelling, a
+    // the former `perl_bool_terminal_kinds!()`. `mbare_out` is the `m{}` spelling, a
     // sibling kind rather than an alias. `smart` levels a smartmatch
     // with its `=~` sibling: no arm counts `~~`, so the pattern does.
     //
@@ -14371,11 +14402,11 @@ end
         // non-false value as truthy, so `if 1 then ... end` and
         // `return a and 2` should each count their numeric literal
         // as a Fitzpatrick Rule 6 / 7 unary condition. Pre-fix,
-        // `lua_bool_terminal_kinds!()` listed `True` / `False` /
-        // `Nil` but omitted `Number`, so the walker dropped every
-        // numeric-truthy operand. The walker comment at the top of
-        // `lua_inspect_container` already promised numbers were
-        // terminal-bool kinds; this commit closes the gap.
+        // the former `lua_bool_terminal_kinds!()` listed `True` /
+        // `False` / `Nil` but omitted `Number`, so the walker dropped
+        // every numeric-truthy operand. The walker comment at the top
+        // of the former `lua_inspect_container` already promised
+        // numbers were terminal-bool kinds; this commit closed the gap.
         check_metrics::<LuaParser>(
             "function f(a)\n\
              \x20   if 1 then return 1 end\n\
@@ -14441,13 +14472,13 @@ end
             "foo.lua",
             |metric| {
                 // m1: `>=` (1). `not` wraps a paren'd
-                //     BinaryExpression — Lua's lua_inspect_container
-                //     reaches the inner BinaryExpression and stops,
-                //     no walker count. +1.
+                //     BinaryExpression — `lua_count_negated` peels it
+                //     to the comparison, which scores itself, so the
+                //     return value pays nothing extra. +1.
                 // m2: ReturnStatement → iterate expression_list →
-                //     inspect_container on the outermost paren →
-                //     unwraps to `x` in has_boolean_content-true
-                //     (seeded by the `not`). +1.
+                //     `lua_count_negated` peels the parens and the
+                //     `not` (which proves boolean) down to `x`, which
+                //     does not score itself. +1.
                 // m3: x and y → `and` walker counts both → +2.
                 // Sum: 4.
                 assert_eq!(metric.abc.conditions_sum(), 4);
@@ -15088,8 +15119,7 @@ end
 
     /// Fitzpatrick Rule 9: the short-circuit `&&` is not itself a condition,
     /// but each negated bare operand (`!$a`, `!$b`) in the chain is. Guards
-    /// the `irules_count_unary_conditions` / `irules_inspect_container`
-    /// walker — conditions 2.
+    /// the `irules_count_condition` chain-operand walk — conditions 2.
     #[cfg(feature = "irules")]
     #[test]
     fn irules_abc_negated_operands_in_chain() {
@@ -16276,7 +16306,7 @@ end
     }
 
     // #1461 item 1. The walrus is an *operand*, not an operator, so it
-    // joins `python_bool_terminal_kinds!()` and stays slot-scoped —
+    // joined the former `python_bool_terminal_kinds!()` and stays slot-scoped —
     // `b = (n := g())` outside a predicate is a binding, not a
     // decision. Inside one the slot tests `g()`'s truth, and
     // `if (n := g()):` scored 0 where the `if g():` it is a
@@ -17041,7 +17071,7 @@ mod numeric_bool_operands {
 ///   covered — a fixture carrying only the first would have left the
 ///   `m{}` half at zero and read as covered. Since #1467 they take the
 ///   other route: a gated arm in `PerlCode::compute` counts them by use,
-///   and they have left `perl_bool_terminal_kinds!()`.
+///   and they have left the former `perl_bool_terminal_kinds!()`.
 /// - **Ruby** `a in Integer` (`test_pattern`), the one-line pattern
 ///   test. Decided against `match_pattern` (`expr => pat`), which
 ///   raises rather than yielding a boolean.
@@ -17049,8 +17079,8 @@ mod numeric_bool_operands {
 ///   `__builtin_available` synonym (`available_expression`), the runtime
 ///   OS-version check. Not relational, but boolean by definition and
 ///   invisible to every comparison-token arm, so it measured short in
-///   exactly the same way (#1457). Its entry lands in the *name*-keyed
-///   `cpp_bool_terminal_kinds!()` that C, C++ and Mozcpp share, which is
+///   exactly the same way (#1457). Its entry landed in the *name*-keyed
+///   former `cpp_bool_terminal_kinds!()` that C, C++ and Mozcpp shared, which is
 ///   why `the_c_family_grammars_do_not_emit_available_expression` below
 ///   pins the inertness the other three rely on.
 ///
@@ -17291,7 +17321,7 @@ mod own_production_bool_constructs {
     ///
     /// They cannot ride the rows above, whose contract is "scores the
     /// control's `conditions` *and* the control's `cyclomatic`":
-    /// `groovy_bool_terminal_kinds!()` does not move cyclomatic, but
+    /// the boolean-slot rule (`groovy_count_condition`) does not move cyclomatic, but
     /// `?.` (`QMARKDOT`), `??.` (`QMARKQMARKDOT`) and `?[`
     /// (`QMARKLBRACK`) are already cyclomatic decisions in their own
     /// right (`src/metrics/cyclomatic/groovy.rs`), so each spelling
@@ -17372,27 +17402,39 @@ mod own_production_bool_constructs {
         );
     }
 
-    /// The arithmetic unary operators stay out of the boolean slot.
+    /// The arithmetic unary operators are values, not wrappers.
     ///
     /// `groovy_count_condition` routed every `unary_expression` to the
     /// peel while the peel handled only the `!` spelling, so the arm
     /// claimed `~a` / `-a` / `+a` and dropped them
-    /// (grammar-dispatch §7). #1466 made the arm ask the peel, which
-    /// removes the divergence without moving a number — so this test
-    /// cannot be verified by reverting the production change, and is
-    /// here to pin the *answer* those three spellings give against a
-    /// future peel that starts accepting them by accident.
+    /// (grammar-dispatch §7). Since #1526 the slot pays for any
+    /// predicate no other arm counts — Groovy truth makes `if (-a)` a
+    /// decision — so the three spellings score what `a` does. Outside a
+    /// slot they are no negation, so a call argument scores nothing for
+    /// them, while `!-a` scores its negation once.
     #[test]
     #[cfg(feature = "groovy")]
-    fn groovy_arithmetic_unary_is_not_a_condition() {
+    fn groovy_arithmetic_unary_is_a_value_not_a_wrapper() {
         let template = "def f(a) {\n  if ({}) { return 1 }\n}\n";
+        let call = "def f(a) {\n  g({})\n}\n";
 
         assert_eq!(conditions(LANG::Groovy, &template.replace("{}", "a")), 1);
         for spelling in ["~a", "-a", "+a"] {
             assert_eq!(
                 conditions(LANG::Groovy, &template.replace("{}", spelling)),
+                1,
+                "`{spelling}` in a slot pays as `a` does"
+            );
+            assert_eq!(
+                conditions(LANG::Groovy, &call.replace("{}", spelling)),
                 0,
-                "`{spelling}` is arithmetic, not a boolean operand"
+                "`{spelling}` outside a slot is not a negation"
+            );
+            let negated = format!("!{spelling}");
+            assert_eq!(
+                conditions(LANG::Groovy, &call.replace("{}", &negated)),
+                1,
+                "`{negated}` outside a slot is one negation"
             );
         }
     }
@@ -17451,77 +17493,6 @@ mod own_production_bool_constructs {
                 !ast_has_kind_id(&parser, absent_id),
                 "`{src}` now also emits `{absent_name}`; the two spellings have \
                  collapsed and one bare-match arm entry is dead"
-            );
-        }
-    }
-
-    /// `"available_expression"` must stay an Objective-C-only kind.
-    ///
-    /// Alone among the terminal sets, `cpp_bool_terminal_kinds!()` keys
-    /// on node-kind *names* so that C, C++, Mozcpp and Objective-C can
-    /// share one list despite assigning different ids to the same kinds
-    /// (#720 / #732). The price is that every entry is live in all four:
-    /// the Objective-C rows above say nothing about what the addition
-    /// did to the other three, and a grammar bump that gave any of them
-    /// an `available_expression` node would start counting it with no
-    /// test anywhere noticing.
-    ///
-    /// The Objective-C half is not decoration. Without it a fixture that
-    /// stopped parsing — or a typo'd kind name — would leave the
-    /// negative assertions passing for the wrong reason. Both halves
-    /// were verified by perturbing the probed kind name: to a typo,
-    /// which fails the positive, and to `if_statement`, which fails the
-    /// negatives.
-    #[test]
-    #[cfg(all(
-        feature = "objc",
-        any(feature = "c", feature = "cpp", feature = "mozcpp")
-    ))]
-    fn the_c_family_grammars_do_not_emit_available_expression() {
-        use crate::ParserTrait;
-
-        const SOURCE: &str = "int f(int a) {\n  if (@available(iOS 13.0, *)) { return 1; }\n}\n";
-
-        fn emits<P: ParserTrait>(path: &str) -> bool {
-            let parser = P::new(
-                SOURCE.as_bytes().to_vec(),
-                &std::path::PathBuf::from(path),
-                None,
-            );
-            parser
-                .root()
-                .preorder()
-                .any(|node| node.kind() == "available_expression")
-        }
-
-        assert!(
-            emits::<crate::ObjcParser>("f.m"),
-            "the fixture no longer parses to an `available_expression`; every \
-             Objective-C row above is now measuring some other node"
-        );
-
-        // The siblings are `#[cfg]`-gated array *elements* rather than
-        // conditional pushes, so the `any(…)` half of this test's gate
-        // makes the list non-empty by construction: a build reaching
-        // this line always has at least one row. That is the same
-        // non-vacuity guarantee the `checked > 0` counters elsewhere in
-        // this module buy at runtime, moved to compile time because here
-        // the row set is fixed rather than iterated over `LANG`.
-        let c_family = [
-            #[cfg(feature = "c")]
-            ("C", emits::<crate::CParser>("f.c")),
-            #[cfg(feature = "cpp")]
-            ("C++", emits::<crate::CppParser>("f.cpp")),
-            #[cfg(feature = "mozcpp")]
-            ("Mozcpp", emits::<crate::MozcppParser>("f.cpp")),
-        ];
-
-        for (language, emitted) in c_family {
-            assert!(
-                !emitted,
-                "{language} now emits `available_expression`, so the shared \
-                 `cpp_bool_terminal_kinds!()` entry is no longer inert there \
-                 and its ABC conditions have moved"
             );
         }
     }
@@ -17724,10 +17695,9 @@ mod perl_statement_modifier_parity {
 ///
 /// C#, Java, Kotlin, Rust and Go name no literal kind at all and stay
 /// that way: a bare literal in a boolean slot is a compile error there,
-/// so there is nothing to count. The C family is integer-truthy and
-/// does carry the same gap for `string_literal`, but it is the one
-/// group in that class with integration-corpus exposure, so it is
-/// deferred rather than decided (see `cpp_bool_terminal_kinds!`).
+/// so there is nothing to count. The C family is integer-truthy, and
+/// its slots have paid for a `string_literal` since #1526 made every
+/// slot pay for an occupant no other arm counts.
 ///
 /// Three things each row pins that a conditions comparison alone
 /// cannot:
@@ -18333,6 +18303,10 @@ mod wrapper_peel_routing {
         }
     }
 
+    /// Rust's slot pays for any predicate no other arm counted (#1526),
+    /// so the declined half reads the valid non-wrapper `b & b`: the
+    /// peel stops on it, the slot pays for it, and the call argument
+    /// below does not.
     #[test]
     #[cfg(feature = "rust")]
     fn rust_condition_slot_routes_what_the_peel_accepts() {
@@ -18344,14 +18318,15 @@ mod wrapper_peel_routing {
                 ("(b)", 1),
                 ("!b", 1),
                 ("!(b)", 1),
-                ("-b", 0),
-                ("(-b)", 0),
+                ("b & b", 1),
+                ("(b & b)", 1),
+                ("!(b & b)", 1),
             ],
         );
         assert_operands(
             LANG::Rust,
             "fn f(b: bool) { g(@); }\n",
-            &[("!b", 1), ("(b)", 0), ("-b", 0)],
+            &[("!b", 1), ("(b)", 0), ("b & b", 0), ("!(b & b)", 1)],
         );
     }
 
@@ -18377,9 +18352,11 @@ mod wrapper_peel_routing {
         );
     }
 
-    /// Java's `if` hands the peel its `condition` directly; the ternary
-    /// condition is the slot that goes through `java_count_condition`,
-    /// so it is the one under test. The `?` itself is the base 1.
+    /// The ternary condition is a slot like the `if` one; the `?` itself
+    /// is the base 1. Java's slot pays for any predicate no other arm
+    /// counted (#1526), so the declined half reads the valid non-wrapper
+    /// `b & b`: the peel stops on it, the slot pays for it, and the call
+    /// argument below does not.
     #[test]
     #[cfg(feature = "java")]
     fn java_condition_slot_routes_what_the_peel_accepts() {
@@ -18391,27 +18368,29 @@ mod wrapper_peel_routing {
                 ("(b)", 2),
                 ("!b", 2),
                 ("!(b)", 2),
-                ("-b", 1),
-                ("(-b)", 1),
+                ("b & b", 2),
+                ("(b & b)", 2),
             ],
         );
         assert_operands(
             LANG::Java,
             "class A { void f(boolean b) { g(@); } }\n",
-            &[("!b", 1), ("(b)", 0), ("-b", 0)],
+            &[("!b", 1), ("(b)", 0), ("b & b", 0), ("!(b & b)", 1)],
         );
     }
 
-    /// Python peels parentheses only: `not` is counted by its own
-    /// `NotOperator` arm, so `python_wrapper_operand` carries no
+    /// Python peels parentheses and the walrus only: `not` is counted by
+    /// its own `NotOperator` arm, so `python_wrapper_operand` carries no
     /// proves-boolean flag and there is no outside-a-slot half to pin.
+    /// Python is truthy-valued, so the slot pays for any predicate no
+    /// other arm counted, `-b` included (#1526), as Ruby's does.
     #[test]
     #[cfg(feature = "python")]
     fn python_condition_slot_routes_what_the_peel_accepts() {
         assert_operands(
             LANG::Python,
             "def f(b):\n    if @:\n        pass\n",
-            &[("b", 1), ("(b)", 1), ("((b))", 1), ("-b", 0), ("(-b)", 0)],
+            &[("b", 1), ("(b)", 1), ("((b))", 1), ("-b", 1), ("(-b)", 1)],
         );
     }
 
@@ -18567,6 +18546,8 @@ mod wrapper_peel_routing {
     #[test]
     #[cfg(feature = "lua")]
     fn lua_condition_slot_routes_what_the_peel_accepts() {
+        // Lua is truthy-valued, so the slot pays for any predicate no
+        // other arm counted, `-b` and `#b` included (#1526).
         assert_operands(
             LANG::Lua,
             "function f(b)\n  if @ then end\nend\n",
@@ -18575,9 +18556,9 @@ mod wrapper_peel_routing {
                 ("(b)", 1),
                 ("not b", 1),
                 ("not (b)", 1),
-                ("-b", 0),
-                ("#b", 0),
-                ("(-b)", 0),
+                ("-b", 1),
+                ("#b", 1),
+                ("(-b)", 1),
             ],
         );
         assert_operands(

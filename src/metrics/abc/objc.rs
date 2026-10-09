@@ -10,15 +10,16 @@
 )]
 
 use super::cpp::{
-    cpp_count_unary_conditions, cpp_inspect_slot, cpp_walk_for_statement, cpp_walk_ternary,
+    cpp_count_arguments, cpp_count_chain_operands, cpp_count_condition_slot, cpp_count_return,
+    cpp_walk_for_statement, cpp_walk_ternary,
 };
-use super::{Abc, Stats, wrapped_operand};
+use super::{Abc, Stats};
 use crate::*;
 
 // Objective-C ABC. ObjC is C plus message sends and `@`-directives, so
-// the walker is the C/C++ shape (it reuses the grammar-agnostic
-// `cpp_inspect_container` / `cpp_inspect_slot` / `cpp_count_unary_conditions`
-// helpers, which match on node-kind strings) with two ObjC additions:
+// the walker is the C/C++ shape (it reuses the grammar-agnostic C-family
+// slot helpers in `cpp.rs`, which match on node-kind strings) with two
+// ObjC additions:
 //   * the `B` (branch) dimension counts `message_expression`
 //     (`[obj msg:x]`) alongside C `call_expression`s — a message send is
 //     a call. ObjC has no `new` allocator (`[Foo alloc]` is itself a
@@ -60,7 +61,7 @@ impl Abc for ObjcCode {
             // inspected here rather than via the `ArgumentList` arm below.
             MessageExpression => {
                 stats.branches += 1.;
-                cpp_count_unary_conditions(node, &mut stats.conditions);
+                cpp_count_arguments(node, &mut stats.conditions);
             }
             // Comparison operators, `else` / `case` / `?` branch openers,
             // and the `@try` / `@catch` exception conditions. `&&` / `||`
@@ -91,22 +92,18 @@ impl Abc for ObjcCode {
             }
             AMPAMP | PIPEPIPE => {
                 if let Some(parent) = ancestors.parent(node) {
-                    cpp_count_unary_conditions(&parent, &mut stats.conditions);
+                    cpp_count_chain_operands(&parent, &mut stats.conditions);
                 }
             }
             // By role, never by index — see `impl Abc for CppCode` (#1455).
             IfStatement | WhileStatement | DoStatement => {
-                cpp_inspect_slot(
-                    node.child_by_field_name("condition"),
-                    node,
-                    &mut stats.conditions,
-                );
+                cpp_count_condition_slot(node, &mut stats.conditions);
             }
             ReturnStatement => {
-                cpp_inspect_slot(wrapped_operand(node), node, &mut stats.conditions);
+                cpp_count_return(node, &mut stats.conditions);
             }
             ArgumentList | ArgumentList2 => {
-                cpp_count_unary_conditions(node, &mut stats.conditions);
+                cpp_count_arguments(node, &mut stats.conditions);
             }
             // `a ? !b : !c` — the ternary's own `?` token is already
             // counted by the condition arm above; this walks the three

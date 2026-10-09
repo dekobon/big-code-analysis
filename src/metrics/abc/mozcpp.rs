@@ -10,9 +10,10 @@
 )]
 
 use super::cpp::{
-    cpp_count_unary_conditions, cpp_inspect_slot, cpp_walk_for_statement, cpp_walk_ternary,
+    cpp_count_arguments, cpp_count_chain_operands, cpp_count_condition_slot, cpp_count_return,
+    cpp_walk_for_statement, cpp_walk_ternary,
 };
-use super::{Abc, Stats, wrapped_operand};
+use super::{Abc, Stats};
 use crate::metrics::cyclomatic::cpp_operator_is_applied;
 use crate::*;
 
@@ -103,34 +104,25 @@ impl Abc for MozcppCode {
             // tokens, which the grammar gives kinds of their own.
             AMPAMP | PIPEPIPE | And | Or => {
                 if let Some(parent) = ancestors.parent(node) {
-                    cpp_count_unary_conditions(&parent, &mut stats.conditions);
+                    cpp_count_chain_operands(&parent, &mut stats.conditions);
                 }
             }
-            // Phase-2B (issue #403): condition slots. `if (...)` /
-            // `while (...)` / `do {…} while (...)` wrap their condition
-            // in a paren / `condition_clause` node that
-            // `cpp_inspect_container` unwraps, so `if (true)` and
-            // `return !x` each count one condition; bare `return x`
-            // reports zero. Every slot is read by role, never by index:
-            // `if constexpr (cond)` puts the keyword at child(1), and a
-            // comment shifts every later child (`do {} while /*c*/ (b);`,
-            // `return /*c*/ !b;` — #1455). `return` names no field; its
-            // value is its only operand.
+            // Phase-2B (issue #403): condition slots, read by grammar field
+            // in `cpp_count_condition_slot`. The slot pays for any
+            // predicate no other arm counts (#1526), so `if (true)`,
+            // `if (-x)` and `return !x` each count one condition; bare
+            // `return x` reports zero.
             IfStatement | WhileStatement | DoStatement => {
-                cpp_inspect_slot(
-                    node.child_by_field_name("condition"),
-                    node,
-                    &mut stats.conditions,
-                );
+                cpp_count_condition_slot(node, &mut stats.conditions);
             }
             ReturnStatement => {
-                cpp_inspect_slot(wrapped_operand(node), node, &mut stats.conditions);
+                cpp_count_return(node, &mut stats.conditions);
             }
             // `f(!a, !b)` — argument list walker. Two aliases —
             // `argument_list` is emitted as ArgumentList or
             // ArgumentList2 depending on production rule path.
             ArgumentList | ArgumentList2 => {
-                cpp_count_unary_conditions(node, &mut stats.conditions);
+                cpp_count_arguments(node, &mut stats.conditions);
             }
             // `a ? !b : !c` — the ternary's own `?` token is already
             // counted by the condition arm above; this walks the three

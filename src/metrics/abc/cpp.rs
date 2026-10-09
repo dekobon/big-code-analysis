@@ -9,186 +9,201 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, wrapped_operand};
-use crate::macros::cpp_bool_terminal_kinds;
+use super::{Abc, Stats, count_boolean_slot, count_negated_operand, is_operand, wrapped_operand};
 use crate::metrics::cyclomatic::cpp_operator_is_applied;
 use crate::*;
 
-// C++ ABC unary-conditional walker (Fitzpatrick Rule 9 in Figure 3;
-// see `rust_inspect_container` for the cross-language rationale).
-// Matches on node-kind NAMES so the helper is correct for every C-family
-// grammar: it is shared by the `CppCode` and `MozcppCode` ABC impls (#720),
-// and the Mozilla fork assigns different kind_ids to the same kinds (#732,
-// mirroring the npa fix in #731). Aliased kinds — `binary_expression`,
-// `parenthesized_expression`, `unary_expression` each have a second token-id
-// in the C++ grammar (under structured-binding / requires-clause production
-// rules) — all render to one base name, so a single string arm covers each
-// family: equivalent to the former `Cpp`-enum match for Cpp, and
-// grammar-agnostic for Mozcpp.
-pub(super) fn cpp_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
-    // bca: suppress(cognitive) — wrapper-peeling state machine, clearest whole
-    // One loop peels `(...)` / `!...` layers while carrying a single
-    // boolean-context flag, terminating on a terminal-bool kind. The flag
-    // must be readable at every step, so any split would have to thread it
-    // back out; the parts have no names a reader would draw. The siblings
-    // that also breach carry the same marker; the ones sitting at the limit
-    // are baselined instead, so growth still trips the gate (#1143).
-    let mut node = *container_node;
-    let mut node_kind = node.kind();
-    let parent_kind = parent.kind();
-    let mut has_boolean_content = matches!(
-        parent_kind,
-        "binary_expression" | "if_statement" | "while_statement" | "do_statement" | "for_statement"
-    ) || (parent_kind == "conditional_expression"
-        && parent
-            .child_by_field_name("condition")
-            .is_some_and(|condition| condition.id() == node.id()));
+// The C-family slot rule, shared by the `CCode`, `CppCode`, `MozcppCode`
+// and `ObjcCode` ABC impls (#720). Every kind is matched by NAME: the
+// Mozilla fork assigns different kind_ids to the same kinds (#732,
+// mirroring the npa fix in #731), and tree-sitter-cpp emits second ids
+// for `binary_expression`, `parenthesized_expression` and
+// `unary_expression` that all render to one base name, so a single
+// string arm covers each family (grammar-dispatch §1).
+//
+// One step of the value peel (see `PeelStep`). The `if` / `while` head
+// wrappers — C++'s `condition_clause`, whose condition is its `value`
+// field after an optional init-statement, and the C grammars'
+// `parenthesized_expression` — evaluate to what they hold; so do a
+// comma expression (its `right`), a cast (its `value`), a plain `=` (its
+// `right`, so `if (y = x > 1)` tests the comparison its own arm already
+// counts) and a C++ condition declaration (`if (bool y = x > 1)`, its
+// `value`, or `if (bool y{x > 1})`, whose one-element brace list holds
+// it). A compound assignment is not peeled: the slot
+// tests the updated value, not its right-hand side.
+//
+// `!` is the one wrapper that proves its operand boolean; `not` is its
+// ISO C++ alternative token ([lex.digraph]), which the C++ grammars give
+// a kind of its own. tree-sitter-c and tree-sitter-objc have no such
+// token — there `not` is an `<iso646.h>` macro the parser sees as an
+// identifier — so the extra name is inert for them. The other unary
+// operators (`-x`, `~x`, `*p`, `&v`) yield a value rather than wrapping a
+// test, so the peel stops on them and the slot pays.
+//
+// Every operand is read by role, never at child(1): a comment may sit
+// there (`if (/*c*/ b)`, #1455).
+fn cpp_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
+    let operator_is = |accept: &[&str]| {
+        node.child_by_field_name("operator")
+            .is_some_and(|op| accept.contains(&op.kind()))
+    };
+    let value = match node.kind() {
+        "parenthesized_expression" => wrapped_operand(node),
+        "condition_clause" | "cast_expression" | "declaration" => node.child_by_field_name("value"),
+        "initializer_list" => sole_operand(node),
+        "comma_expression" => node.child_by_field_name("right"),
+        "assignment_expression" if operator_is(&["="]) => node.child_by_field_name("right"),
+        "unary_expression" if operator_is(&["!", "not"]) => {
+            return node.child_by_field_name("argument").map(|o| (o, true));
+        }
+        _ => None,
+    };
+    value.map(|o| (o, false))
+}
 
-    loop {
-        // `condition_clause` is the C++-grammar wrapper around an
-        // `if (...)` / `while (...)` head — the same `(`, content, `)`
-        // shape as `parenthesized_expression`, plus an optional
-        // init-statement before the content. `do { ... } while (...)`'s
-        // trailing condition is a plain `parenthesized_expression`.
-        let is_clause = node_kind == "condition_clause";
-        let is_parens = is_clause || node_kind == "parenthesized_expression";
-        // `not` is the ISO C++ alternative token for `!` ([lex.digraph]);
-        // the C++ grammars give it a kind of its own, so testing `!`
-        // alone scored `if (not b)` zero where `if (!b)` scores one.
-        // tree-sitter-c and tree-sitter-objc have no such token — there
-        // `not` is an `<iso646.h>` macro the parser sees as an
-        // identifier — so the extra name is inert for them.
-        let is_not = node_kind == "unary_expression"
-            && node
-                .child(0)
-                .is_some_and(|c| matches!(c.kind(), "!" | "not"));
+// The only operand of a one-element brace list; `None` for any other
+// length, which holds no single value to test.
+fn sole_operand<'a>(list: &Node<'a>) -> Option<Node<'a>> {
+    let mut operands = list.children().filter(is_operand);
+    operands.next().filter(|_| operands.next().is_none())
+}
 
-        // By role, never at child(1): a comment may sit there
-        // (`if (/*c*/ b)`, #1455), and so may a clause's init-statement
-        // (`if (int y = f(); b)`), whose condition is the `value` field.
-        // Anything that is not a wrapper has no operand, which ends the
-        // peel through the same exit as a missing one.
-        let operand = if is_clause {
-            node.child_by_field_name("value")
-        } else if is_parens || is_not {
-            wrapped_operand(&node)
-        } else {
-            None
-        };
-        let Some(child) = operand else { break };
-        has_boolean_content |= is_not;
-        node = child;
-        node_kind = node.kind();
+// The comparison operators the C-family comparison-token arms count when
+// applied (`not_eq` and `<=>` exist in the C++ grammars only).
+const CPP_COMPARISONS: &[&str] = &["<", ">", "<=", ">=", "==", "!=", "not_eq", "<=>"];
 
-        if matches!(node_kind, cpp_bool_terminal_kinds!()) {
-            if has_boolean_content {
-                *conditions += 1.;
-            }
-            break;
+// Whether an arm of the C-family `compute` impls already charges `expr`
+// (already peeled) as a condition: a ternary (its `?`), an applied
+// comparison — in a `binary_expression`, or as the operator of a C++
+// fold, which `cpp_operator_is_applied` counts too — or an `&&` / `||`
+// chain, whose operands each pay through `cpp_count_condition`. A fold
+// over `&&` / `||` is not one: its pack operand is no slot (see
+// `cpp_count_chain_operands`), so the slot holding it pays.
+fn cpp_condition_scores_itself(expr: &Node) -> bool {
+    let operator_in = |accept: &[&str]| {
+        expr.child_by_field_name("operator")
+            .is_some_and(|op| accept.contains(&op.kind()))
+    };
+    match expr.kind() {
+        "conditional_expression" => true,
+        "binary_expression" => {
+            operator_in(CPP_COMPARISONS) || operator_in(&["&&", "||", "and", "or"])
+        }
+        "fold_expression" => operator_in(CPP_COMPARISONS),
+        _ => false,
+    }
+}
+
+// Scores one boolean slot — an `if` / `while` / `do` / `for` condition,
+// a ternary condition, an operand of an `&&` / `||` chain (see
+// `count_boolean_slot`). C and C++ test any scalar for non-zero, so
+// `if (-x)`, `if (*p)`, `if (x + 1)`, `if (this)` and `if (sizeof x)` are
+// each a decision, and each scored 0 while the slot paid only for a
+// fixed list of terminal kinds (#1526).
+fn cpp_count_condition(condition: &Node, conditions: &mut f64) {
+    count_boolean_slot(
+        condition,
+        cpp_wrapper_operand,
+        cpp_condition_scores_itself,
+        conditions,
+    );
+}
+
+// An operand outside a boolean slot — a `return` value, a call or
+// message argument, a ternary branch — scores only when a `!` proves it
+// boolean (see `count_negated_operand`), which keeps `(a > 0) ? b : -b`
+// at 2 (the `?` and the `>`).
+fn cpp_count_negated(operand: &Node, conditions: &mut f64) {
+    count_negated_operand(
+        operand,
+        cpp_wrapper_operand,
+        cpp_condition_scores_itself,
+        conditions,
+    );
+}
+
+// The condition slot of an `if` / `while` / `do` statement, read by the
+// grammar's `condition` field, never by index: `if constexpr (cond)`
+// puts the keyword at child(1), and a comment shifts every later child
+// (`do {} while /*c*/ (b);` — #1455).
+pub(super) fn cpp_count_condition_slot(statement: &Node, conditions: &mut f64) {
+    if let Some(condition) = statement.child_by_field_name("condition") {
+        cpp_count_condition(&condition, conditions);
+    }
+}
+
+// The value of a `return` statement, which names no field: it is the
+// statement's only operand (`return /*c*/ !b;` — #1455). The bare
+// `return;` has none.
+pub(super) fn cpp_count_return(statement: &Node, conditions: &mut f64) {
+    if let Some(value) = wrapped_operand(statement) {
+        cpp_count_negated(&value, conditions);
+    }
+}
+
+// Each operand of a call's `argument_list` or of an Objective-C message
+// is a negated operand (`f(!a, !b)`).
+pub(super) fn cpp_count_arguments(list: &Node, conditions: &mut f64) {
+    for operand in list.children().filter(is_operand) {
+        cpp_count_negated(&operand, conditions);
+    }
+}
+
+// Fitzpatrick Rule 9 (C++ in Figure 3, #403): each operand of an `&&` /
+// `||` chain is a boolean slot. `a && b || c` is a left-nested chain of
+// `binary_expression`s, so an operand that is itself a chain is paid by
+// its own operator's visit, and operands are read by field so a comment
+// beside the operator does not pay.
+//
+// A C++ fold (`(... && args)`) is the one other parent the operator
+// token has. Its operand is a pack, not a value, so it is no slot: only a
+// negated operand scores there, as it did before the chain walker read
+// fields (`cpp_count_arguments`).
+pub(super) fn cpp_count_chain_operands(chain: &Node, conditions: &mut f64) {
+    if chain.kind() != "binary_expression" {
+        cpp_count_arguments(chain, conditions);
+        return;
+    }
+    for field in ["left", "right"] {
+        if let Some(operand) = chain.child_by_field_name(field) {
+            cpp_count_condition(&operand, conditions);
         }
     }
 }
 
-// Phase-2B helpers (issue #403): condition-slot dispatcher for C++.
-// `if (cond)` / `while (cond)` / `return value` slots are
-// paren-wrapped in C++; `cpp_inspect_container` already handles the
-// `(...)` / `!...` unwrap chain and the boolean-context seed from
-// the parent kind. No top-level terminal counter is needed because
-// the paren wrapper provides the unwrap step.
-pub(super) fn cpp_inspect_slot(slot: Option<Node>, parent: &Node, conditions: &mut f64) {
-    if let Some(child) = slot {
-        cpp_inspect_container(&child, parent, conditions);
-    }
-}
-
-// Phase-2B (issues #403 / #1102): a ternary's condition and its two
-// branch operands are each a Fitzpatrick Rule 9 unary condition, exactly
-// as `java_walk_ternary` already counts them. Without this the C family
-// scored `a ? !b : !c` as 1 (the `?` token alone) against Java's 4, and
-// `cpp_inspect_container`'s `conditional_expression` boolean-context
-// seed was unreachable.
+// Phase-2B (issues #403 / #1102): a ternary's condition is a boolean
+// slot and each branch a negated operand, exactly as `java_walk_ternary`
+// counts them. Without this the C family scored `a ? !b : !c` as 1 (the
+// `?` token alone) against Java's 4.
 //
 // Slots are addressed by grammar FIELD, not by child index: the C-family
 // `conditional_expression` marks `consequence` optional to admit the GNU
 // elision `a ?: b`, which shifts the alternative from child(4) to
-// child(3). String-kind-based like its neighbours so the Mozilla fork's
-// differing kind_ids (#732) stay covered by this one implementation.
-//
-// The condition goes through `cpp_count_condition`, whose top-level
-// terminal check is what stops a bare `a ? … : …` scoring zero:
-// `cpp_inspect_container` alone only counts *after* unwrapping a
-// `(...)` / `!...` layer.
+// child(3).
 pub(super) fn cpp_walk_ternary(node: &Node, conditions: &mut f64) {
     if let Some(condition) = node.child_by_field_name("condition") {
-        cpp_count_condition(&condition, node, conditions);
+        cpp_count_condition(&condition, conditions);
     }
-    // Branch operands carry no terminal check: an unnegated branch is
-    // type-free and contributes nothing, which is what keeps
-    // `(a > 0) ? b : -b` at 2 (the `?` and the `>`).
     for field in ["consequence", "alternative"] {
         if let Some(branch) = node.child_by_field_name(field) {
-            cpp_inspect_container(&branch, node, conditions);
+            cpp_count_negated(&branch, conditions);
         }
-    }
-}
-
-// Classifies one condition-slot expression: a bare boolean terminal
-// counts directly, anything else is offered to the `(...)` / `!...`
-// unwrap chain. Shared by the ternary condition slot and the `for`
-// header's condition slot, which are the two places a C-family
-// condition arrives *unwrapped* — `if` / `while` / `do` hand
-// `cpp_inspect_container` a `condition_clause` or a
-// `parenthesized_expression` that supplies the unwrap step itself, so
-// they must NOT take the top-level terminal count (it is what keeps
-// `(a > 0) ? b : -b` at 2). Mirrors `csharp_count_condition`.
-fn cpp_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
-    if matches!(condition.kind(), cpp_bool_terminal_kinds!()) {
-        *conditions += 1.;
-    } else {
-        cpp_inspect_container(condition, parent, conditions);
     }
 }
 
 // Phase-2B (issues #403 / #1276): the `for (init; condition; update)`
-// condition slot is a Fitzpatrick Rule 9 unary condition, exactly like
-// the `if` / `while` slots the dispatchers already walk. Without this
-// the C family scored `for (; a; ) {}` zero where `if (a) {}` scores
-// one, and `cpp_inspect_container`'s `for_statement` boolean-context
-// seed was unreachable. Comparison-shaped conditions (`i < n`) were
-// never affected — the `<` token arm counts those.
+// condition slot, exactly like the `if` / `while` slots. Without this the
+// C family scored `for (; a; ) {}` zero where `if (a) {}` scores one.
 //
 // The slot is addressed by grammar FIELD. All three header slots are
 // optional, so every child index moves with the shape written, and a
-// comment inside the header moves them again (#1181).
-//
-// An empty condition (`for (;;)`) exposes no `condition` field, so it
-// counts zero with no special case — see the `Stats` doc comment's
-// cross-language empty-`for`-condition policy.
+// comment inside the header moves them again (#1181). An empty condition
+// (`for (;;)`) exposes no `condition` field, so it counts zero with no
+// special case — see the `Stats` doc comment's cross-language
+// empty-`for`-condition policy.
 pub(super) fn cpp_walk_for_statement(node: &Node, conditions: &mut f64) {
     if let Some(condition) = node.child_by_field_name("condition") {
-        cpp_count_condition(&condition, node, conditions);
-    }
-}
-
-pub(super) fn cpp_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
-    let list_kind = list_node.kind();
-    let mut cursor = list_node.cursor();
-
-    if cursor.goto_first_child() {
-        loop {
-            let node = cursor.node();
-            let node_kind = node.kind();
-
-            if matches!(node_kind, cpp_bool_terminal_kinds!()) && list_kind == "binary_expression" {
-                *conditions += 1.;
-            } else if node.is_named() {
-                cpp_inspect_container(&node, list_node, conditions);
-            }
-
-            if !cursor.goto_next_sibling() {
-                break;
-            }
-        }
+        cpp_count_condition(&condition, conditions);
     }
 }
 
@@ -316,34 +331,25 @@ impl Abc for CppCode {
             // tokens, which the grammar gives kinds of their own.
             AMPAMP | PIPEPIPE | And | Or => {
                 if let Some(parent) = ancestors.parent(node) {
-                    cpp_count_unary_conditions(&parent, &mut stats.conditions);
+                    cpp_count_chain_operands(&parent, &mut stats.conditions);
                 }
             }
-            // Phase-2B (issue #403): condition slots. `if (...)` /
-            // `while (...)` / `do {…} while (...)` wrap their condition
-            // in a paren / `condition_clause` node that
-            // `cpp_inspect_container` unwraps, so `if (true)` and
-            // `return !x` each count one condition; bare `return x`
-            // reports zero. Every slot is read by role, never by index:
-            // `if constexpr (cond)` puts the keyword at child(1), and a
-            // comment shifts every later child (`do {} while /*c*/ (b);`,
-            // `return /*c*/ !b;` — #1455). `return` names no field; its
-            // value is its only operand.
+            // Phase-2B (issue #403): condition slots, read by grammar field
+            // in `cpp_count_condition_slot`. The slot pays for any
+            // predicate no other arm counts (#1526), so `if (true)`,
+            // `if (-x)` and `return !x` each count one condition; bare
+            // `return x` reports zero.
             IfStatement | WhileStatement | DoStatement => {
-                cpp_inspect_slot(
-                    node.child_by_field_name("condition"),
-                    node,
-                    &mut stats.conditions,
-                );
+                cpp_count_condition_slot(node, &mut stats.conditions);
             }
             ReturnStatement => {
-                cpp_inspect_slot(wrapped_operand(node), node, &mut stats.conditions);
+                cpp_count_return(node, &mut stats.conditions);
             }
             // `f(!a, !b)` — argument list walker. Two aliases —
             // `argument_list` is emitted as ArgumentList or
             // ArgumentList2 depending on production rule path.
             ArgumentList | ArgumentList2 => {
-                cpp_count_unary_conditions(node, &mut stats.conditions);
+                cpp_count_arguments(node, &mut stats.conditions);
             }
             // `a ? !b : !c` — the ternary's own `?` token is already
             // counted by the condition arm above; this walks the three
@@ -365,18 +371,17 @@ impl Abc for CppCode {
 #[cfg(test)]
 #[allow(clippy::float_cmp)]
 mod tests {
-    use super::{cpp_count_unary_conditions, cpp_inspect_container};
+    use super::{cpp_count_chain_operands, cpp_count_condition_slot, cpp_count_negated};
     use crate::traits::ParserTrait;
     use crate::{CppParser, Node};
 
-    // The three `pub(super)` helpers in this file are the shared C-family
-    // ABC condition walker: the `CCode`, `ObjcCode`, and `MozcppCode` ABC
+    // The `pub(super)` helpers in this file are the shared C-family ABC
+    // condition walker: the `CCode`, `ObjcCode`, and `MozcppCode` ABC
     // impls all import and route through them (`use super::cpp::{…}` in
     // c.rs / objc.rs / mozcpp.rs). A regression here silently mis-counts
     // the ABC `C` (conditions) component across four languages at once, so
     // these tests exercise the helpers directly rather than only through
-    // the per-language `compute` paths — which also pins behaviour the
-    // whole-source integration tests reach only transitively.
+    // the per-language `compute` paths.
 
     #[cfg(feature = "cpp")]
     fn parse(src: &str) -> CppParser {
@@ -385,17 +390,6 @@ mod tests {
             std::path::Path::new("seam.cpp"),
             None,
         )
-    }
-
-    // `cpp_inspect_container` takes the container's parent explicitly
-    // rather than resolving it, because `Node::parent` costs `O(depth)`
-    // on the metric walk (#1096). These tests reach their container by
-    // search rather than by descent, so the authoritative lookup is what
-    // supplies it here.
-    #[cfg(feature = "cpp")]
-    fn parent_of<'a>(node: &Node<'a>) -> Node<'a> {
-        node.parent()
-            .expect("every fixture below places its container under a parent node")
     }
 
     // First node in pre-order (document order) whose kind name is `kind`.
@@ -415,74 +409,69 @@ mod tests {
         None
     }
 
-    // `a && b`: `cpp_count_unary_conditions` walks the `binary_expression`
-    // and counts each boolean-terminal operand once. `a` and `b` are both
-    // `identifier`s (members of `cpp_bool_terminal_kinds!`) and the `&&`
-    // token is anonymous, so the count is exactly 2.
+    // `a && b` / `a && -b`: each operand of the chain is one boolean
+    // slot, whatever kind it is, and the `&&` token itself pays nothing.
     #[cfg(feature = "cpp")]
     #[test]
-    fn count_unary_conditions_counts_each_boolean_operand() {
-        let p = parse("int f(int a, int b) { return a && b; }");
-        let bin = first_of_kind(p.root(), "binary_expression")
-            .expect("`a && b` parses to a binary_expression");
-        let mut conditions = 0.;
-        cpp_count_unary_conditions(&bin, &mut conditions);
-        assert_eq!(conditions, 2.);
+    fn chain_operands_each_pay_one_slot() {
+        for src in [
+            "int f(int a, int b) { return a && b; }",
+            "int f(int a, int b) { return a && -b; }",
+        ] {
+            let p = parse(src);
+            let bin = first_of_kind(p.root(), "binary_expression")
+                .expect("`a && b` parses to a binary_expression");
+            let mut conditions = 0.;
+            cpp_count_chain_operands(&bin, &mut conditions);
+            assert_eq!(conditions, 2., "{src}");
+        }
     }
 
-    // `if (a)`: the `condition_clause` wraps `( a )`. `cpp_inspect_container`
-    // seeds boolean context from the `if_statement` parent, unwraps the
-    // parens to the `a` identifier terminal, and counts it once.
+    // `if (a)`, `if (((a)))`, `if (!a)`, `if (-a)`: the slot peels every
+    // parenthesis and negation layer and pays once — not once per layer.
+    // `if (a > 1)` pays nothing here: the comparison token's own arm owns
+    // that decision.
     #[cfg(feature = "cpp")]
     #[test]
-    fn inspect_container_counts_parenthesized_condition() {
-        let p = parse("void f(int a) { if (a) {} }");
-        let cond = first_of_kind(p.root(), "condition_clause")
-            .expect("`if (...)` produces a condition_clause");
-        let mut conditions = 0.;
-        cpp_inspect_container(&cond, &parent_of(&cond), &mut conditions);
-        assert_eq!(conditions, 1.);
+    fn condition_slot_pays_once_unless_counted() {
+        for (src, expected) in [
+            ("void f(int a) { if (a) {} }", 1.),
+            ("void f(int a) { if (((a))) {} }", 1.),
+            ("void f(int a) { if (!a) {} }", 1.),
+            ("void f(int a) { if (-a) {} }", 1.),
+            ("void f(int a) { if (a > 1) {} }", 0.),
+        ] {
+            let p = parse(src);
+            let statement =
+                first_of_kind(p.root(), "if_statement").expect("the fixture holds an `if`");
+            let mut conditions = 0.;
+            cpp_count_condition_slot(&statement, &mut conditions);
+            assert_eq!(conditions, expected, "{src}");
+        }
     }
 
-    // `if (((a)))`: the unwrap loop strips every parenthesis layer and
-    // counts the single terminal `a` exactly once — not once per paren.
+    // `int x = (a);` / `int x = !a;`: outside a slot only a negation
+    // makes its operand a condition.
     #[cfg(feature = "cpp")]
     #[test]
-    fn inspect_container_unwraps_nested_parens_once() {
-        let p = parse("void f(int a) { if (((a))) {} }");
-        let cond = first_of_kind(p.root(), "condition_clause")
-            .expect("`if (...)` produces a condition_clause");
-        let mut conditions = 0.;
-        cpp_inspect_container(&cond, &parent_of(&cond), &mut conditions);
-        assert_eq!(conditions, 1.);
-    }
-
-    // `if (!a)`: the leading `!` drives the `is_not` branch, which marks the
-    // unwrap chain as boolean content before reaching the `a` terminal, so
-    // the negated operand is counted once.
-    #[cfg(feature = "cpp")]
-    #[test]
-    fn inspect_container_counts_negated_condition() {
-        let p = parse("void f(int a) { if (!a) {} }");
-        let cond = first_of_kind(p.root(), "condition_clause")
-            .expect("`if (...)` produces a condition_clause");
-        let mut conditions = 0.;
-        cpp_inspect_container(&cond, &parent_of(&cond), &mut conditions);
-        assert_eq!(conditions, 1.);
-    }
-
-    // `int x = (a);`: the `(a)` parenthesized_expression sits in an
-    // initializer, not a condition, so the `has_boolean_content` guard
-    // stays false and the unwrapped `a` terminal is NOT counted. This
-    // guard branch is awkward to reach through the full `compute` path.
-    #[cfg(feature = "cpp")]
-    #[test]
-    fn inspect_container_ignores_non_boolean_context() {
-        let p = parse("int g(int a) { int x = (a); return x; }");
-        let paren = first_of_kind(p.root(), "parenthesized_expression")
-            .expect("`(a)` parses to a parenthesized_expression");
-        let mut conditions = 0.;
-        cpp_inspect_container(&paren, &parent_of(&paren), &mut conditions);
-        assert_eq!(conditions, 0.);
+    fn negated_operand_counts_only_behind_a_negation() {
+        for (src, kind, expected) in [
+            (
+                "int g(int a) { int x = (a); return x; }",
+                "parenthesized_expression",
+                0.,
+            ),
+            (
+                "int g(int a) { int x = !a; return x; }",
+                "unary_expression",
+                1.,
+            ),
+        ] {
+            let p = parse(src);
+            let operand = first_of_kind(p.root(), kind).expect("the fixture holds the operand");
+            let mut conditions = 0.;
+            cpp_count_negated(&operand, &mut conditions);
+            assert_eq!(conditions, expected, "{src}");
+        }
     }
 }

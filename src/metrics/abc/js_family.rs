@@ -9,214 +9,163 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, wrapped_operand};
-use crate::macros::{
-    javascript_bool_terminal_kinds, mozjs_bool_terminal_kinds, tsx_bool_terminal_kinds,
-    typescript_bool_terminal_kinds,
+use super::{
+    Abc, Stats, count_boolean_slot, count_negated_operand, is_operand, last_operand,
+    wrapped_operand,
 };
 use crate::*;
 
-// JS / TS / TSX / Mozjs share an expression / statement vocabulary;
-// the helper macro below generates the per-language unary-conditional
-// walker pair (Fitzpatrick Rule 9 / Listing 2; issue #403). Each
-// `&&` / `||` token in the dispatcher routes through
-// `<lang>_count_unary_conditions` and counts the immediate operands
-// of the parent `binary_expression` once. Operands wrapped in `(…)` /
-// `!…` are unwrapped via `<lang>_inspect_container`. Terminal-bool
-// kinds include `Identifier`, the boolean literal tokens `True` /
-// `False`, plus `CallExpression` / `NewExpression` (object
-// construction in JS / TS) / `MemberExpression` / `SubscriptExpression`
-// — every expression kind whose evaluated value is implicitly boolean
-// in an `if` / `while` / ternary slot.
-macro_rules! impl_js_family_unary_walker {
-    (
-        $Lang:ident,
-        $inspect:ident,
-        $count:ident,
-        $count_condition:ident,
-        $walk_ternary:ident,
-        $walk_for:ident,
-        $terminals:path
-    ) => {
-        fn $inspect(container_node: &Node, parent: &Node, conditions: &mut f64) {
-            use $Lang::*;
-
-            let mut node = *container_node;
-            let mut node_kind = node.kind_id().into();
-            let parent_kind = parent.kind_id().into();
-            let mut has_boolean_content = matches!(
-                parent_kind,
-                BinaryExpression | IfStatement | WhileStatement | DoStatement | ForStatement
-            ) || (matches!(parent_kind, TernaryExpression)
-                && parent
-                    .child_by_field_name("condition")
-                    .is_some_and(|condition| condition.id() == node.id()));
-
-            loop {
-                let is_parens = matches!(node_kind, ParenthesizedExpression);
-                let is_not = matches!(node_kind, UnaryExpression)
-                    && node.child(0).is_some_and(|c| c.kind_id() == BANG as u16);
-
-                // The wrapper's only operand, not child(1): a comment may
-                // sit there (`(/*c*/ b)`, `! /*c*/ b` — #1455).
-                // Anything that is not a wrapper has no operand, which ends the
-                // peel through the same exit as a missing one.
-                let operand = if is_parens || is_not {
-                    wrapped_operand(&node)
-                } else {
-                    None
-                };
-                let Some(child) = operand else {
-                    break;
-                };
-                has_boolean_content |= is_not;
-                node = child;
-                node_kind = node.kind_id().into();
-
-                if matches!(node_kind, $terminals!()) {
-                    if has_boolean_content {
-                        *conditions += 1.;
-                    }
-                    break;
-                }
-            }
-        }
-
-        // Phase-2B (issues #403 / #1102): a ternary's condition and its
-        // two branch operands are each a Fitzpatrick Rule 9 unary
-        // condition, exactly as `java_walk_ternary` already counts them.
-        // Without this the JS family scored `a ? !b : !c` as 1 (the `?`
-        // token alone) against Java's 4, and `$inspect`'s
-        // `TernaryExpression` boolean-context seed was unreachable.
-        //
-        // Slots are addressed by grammar FIELD rather than by child
-        // index, so a grammar re-order cannot silently retarget them.
-        // The condition goes through `$count_condition`, whose top-level
-        // terminal check is what stops a bare `a ? … : …` scoring zero.
-        // Branch operands get no such check: an unnegated branch is
-        // type-free and contributes nothing, which is what keeps
-        // `(a > 0) ? b : -b` at 2 (the `?` and the `>`).
-        fn $walk_ternary(node: &Node, conditions: &mut f64) {
-            if let Some(condition) = node.child_by_field_name("condition") {
-                $count_condition(&condition, node, conditions);
-            }
-            for field in ["consequence", "alternative"] {
-                if let Some(branch) = node.child_by_field_name(field) {
-                    $inspect(&branch, node, conditions);
-                }
-            }
-        }
-
-        // Classifies one condition-slot expression: a bare boolean
-        // terminal counts directly, anything else is offered to the
-        // `(...)` / `!...` unwrap chain. Shared by the ternary condition
-        // slot and the `for` header's condition slot — the two places a
-        // JS-family condition arrives *unwrapped*. `if` / `while` / `do`
-        // hand `$inspect` a `parenthesized_expression` that supplies the
-        // unwrap step itself, so they must not take the top-level
-        // terminal count.
-        fn $count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
-            if matches!(condition.kind_id().into(), $terminals!()) {
-                *conditions += 1.;
-            } else {
-                $inspect(condition, parent, conditions);
-            }
-        }
-
-        // Phase-2B (issues #403 / #1276): the `for (init; condition;
-        // update)` condition slot is a Fitzpatrick Rule 9 unary
-        // condition, exactly like the `if` / `while` slots the
-        // dispatchers already walk. Without this the JS family scored
-        // `for (; a; ) {}` zero where `if (a) {}` scores one, and
-        // `$inspect`'s `ForStatement` boolean-context seed was
-        // unreachable. Comparison-shaped conditions (`i < n`) were never
-        // affected — the `<` token arm counts those.
-        //
-        // Addressed by grammar FIELD: the JS `for_statement` marks the
-        // condition field on *both* the expression and the `;` that
-        // terminates it, and the initializer's own shape (an
-        // `empty_statement`, an `expression_statement`, or a
-        // `lexical_declaration` that swallows its `;`) moves every child
-        // index. `child_by_field_name` returns the first such child,
-        // which is the expression.
-        //
-        // An empty condition (`for (;;)`) fills the slot with an
-        // `empty_statement` rather than leaving it absent — the one
-        // family where it does. That kind is neither a terminal nor a
-        // paren / `!` wrapper, so it falls through and counts zero,
-        // agreeing with every other language; see the `Stats` doc
-        // comment's cross-language empty-`for`-condition policy.
-        fn $walk_for(node: &Node, conditions: &mut f64) {
-            if let Some(condition) = node.child_by_field_name("condition") {
-                $count_condition(&condition, node, conditions);
-            }
-        }
-
-        fn $count(list_node: &Node, conditions: &mut f64) {
-            use $Lang::*;
-
-            let list_kind = list_node.kind_id().into();
-            let mut cursor = list_node.cursor();
-
-            if cursor.goto_first_child() {
-                loop {
-                    let node = cursor.node();
-                    let node_kind = node.kind_id().into();
-
-                    if matches!(node_kind, $terminals!()) && matches!(list_kind, BinaryExpression) {
-                        *conditions += 1.;
-                    } else if node.is_named() {
-                        $inspect(&node, list_node, conditions);
-                    }
-
-                    if !cursor.goto_next_sibling() {
-                        break;
-                    }
-                }
-            }
-        }
-    };
+// JS / TS / TSX / Mozjs share an expression / statement vocabulary, and
+// their grammars spell every kind below with the same name, so the slot
+// rule is written once over `node.kind()` rather than once per enum
+// (grammar-dispatch §1: TypeScript alone emits two ids for
+// `parenthesized_expression` and for `unary_expression`).
+//
+// One step of the value peel (see `PeelStep`). A parenthesis, a TS type
+// cast (`x as T`, `x satisfies T`, `<T>x`) and a non-null assertion
+// (`x!`) evaluate to their operand; a comma sequence to its last
+// operand; an assignment to its `right` value, so `if (y = x > 1)` tests
+// the comparison its own arm already counts. `!` is the one wrapper that
+// proves its operand boolean. The other unary operators (`-x`,
+// `typeof x`, `void x`) yield a value rather than wrapping a test, so the
+// peel stops on them and the slot pays. Every operand is read by role
+// rather than at child(1), where a comment may sit (`(/*c*/ b)`,
+// `! /*c*/ b` — #1455).
+fn js_family_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
+    match node.kind() {
+        "parenthesized_expression"
+        | "as_expression"
+        | "satisfies_expression"
+        | "non_null_expression" => wrapped_operand(node).map(|o| (o, false)),
+        "sequence_expression" | "type_assertion" => last_operand(node).map(|o| (o, false)),
+        "assignment_expression" => node.child_by_field_name("right").map(|o| (o, false)),
+        "unary_expression" => node
+            .child_by_field_name("operator")
+            .filter(|op| op.kind() == "!")
+            .and_then(|_| node.child_by_field_name("argument"))
+            .map(|o| (o, true)),
+        _ => None,
+    }
 }
 
-impl_js_family_unary_walker!(
-    Typescript,
-    typescript_inspect_container,
-    typescript_count_unary_conditions,
-    typescript_count_condition,
-    typescript_walk_ternary,
-    typescript_walk_for_statement,
-    typescript_bool_terminal_kinds
-);
+// Whether an arm of the `compute` macros below already charges `expr`
+// (already peeled) as a condition: a ternary (its `?`), a comparison,
+// `??` or `instanceof` (their token arms), or an `&&` / `||` chain, whose
+// operands each pay through `js_family_count_condition`. `in` is a
+// relational operator no arm counts, so a slot holding one pays for it.
+fn js_family_condition_scores_itself(expr: &Node) -> bool {
+    match expr.kind() {
+        "ternary_expression" => true,
+        "binary_expression" => expr.child_by_field_name("operator").is_some_and(|op| {
+            matches!(
+                op.kind(),
+                "==" | "==="
+                    | "!="
+                    | "!=="
+                    | "<"
+                    | ">"
+                    | "<="
+                    | ">="
+                    | "??"
+                    | "instanceof"
+                    | "&&"
+                    | "||"
+            )
+        }),
+        _ => false,
+    }
+}
 
-impl_js_family_unary_walker!(
-    Tsx,
-    tsx_inspect_container,
-    tsx_count_unary_conditions,
-    tsx_count_condition,
-    tsx_walk_ternary,
-    tsx_walk_for_statement,
-    tsx_bool_terminal_kinds
-);
+// Scores one boolean slot — an `if` / `while` / `do` / `for` condition,
+// a ternary condition, an operand of an `&&` / `||` chain (see
+// `count_boolean_slot`). JavaScript is truthy-valued, so `if (-x)`,
+// `if (this)`, `if (typeof x)` and `if (x + 1)` are each a decision, and
+// each scored 0 while the slot paid only for a fixed list of terminal
+// kinds (#1526).
+fn js_family_count_condition(condition: &Node, conditions: &mut f64) {
+    count_boolean_slot(
+        condition,
+        js_family_wrapper_operand,
+        js_family_condition_scores_itself,
+        conditions,
+    );
+}
 
-impl_js_family_unary_walker!(
-    Javascript,
-    javascript_inspect_container,
-    javascript_count_unary_conditions,
-    javascript_count_condition,
-    javascript_walk_ternary,
-    javascript_walk_for_statement,
-    javascript_bool_terminal_kinds
-);
+// An operand outside a boolean slot — a `return` value, a call
+// argument, a ternary branch — scores only when a `!` proves it boolean
+// (see `count_negated_operand`), which keeps `(a > 0) ? b : -b` at 2
+// (the `?` and the `>`).
+fn js_family_count_negated(operand: &Node, conditions: &mut f64) {
+    count_negated_operand(
+        operand,
+        js_family_wrapper_operand,
+        js_family_condition_scores_itself,
+        conditions,
+    );
+}
 
-impl_js_family_unary_walker!(
-    Mozjs,
-    mozjs_inspect_container,
-    mozjs_count_unary_conditions,
-    mozjs_count_condition,
-    mozjs_walk_ternary,
-    mozjs_walk_for_statement,
-    mozjs_bool_terminal_kinds
-);
+// Fitzpatrick Rule 9 (#403): each operand of an `&&` / `||` chain is a
+// boolean slot. `a && b || c` is a left-nested chain of
+// `binary_expression`s, so an operand that is itself a chain is paid by
+// its own operator's visit. Read by field: a comment beside the operator
+// is a named child too, and must not pay.
+fn js_family_count_chain_operands(chain: &Node, conditions: &mut f64) {
+    for field in ["left", "right"] {
+        if let Some(operand) = chain.child_by_field_name(field) {
+            js_family_count_condition(&operand, conditions);
+        }
+    }
+}
+
+// Phase-2B (issues #403 / #1102): a ternary's condition is a boolean
+// slot, and each branch operand a negated operand, exactly as
+// `java_walk_ternary` counts them. Without this the JS family scored
+// `a ? !b : !c` as 1 (the `?` token alone) against Java's 4. Slots are
+// addressed by grammar FIELD rather than by child index, so a grammar
+// re-order cannot silently retarget them.
+fn js_family_walk_ternary(node: &Node, conditions: &mut f64) {
+    if let Some(condition) = node.child_by_field_name("condition") {
+        js_family_count_condition(&condition, conditions);
+    }
+    for field in ["consequence", "alternative"] {
+        if let Some(branch) = node.child_by_field_name(field) {
+            js_family_count_negated(&branch, conditions);
+        }
+    }
+}
+
+// Phase-2B (issues #403 / #1276): the `for (init; condition; update)`
+// condition slot, exactly like the `if` / `while` slots. Without this
+// the JS family scored `for (; a; ) {}` zero where `if (a) {}` scores
+// one.
+//
+// Addressed by grammar FIELD: the JS `for_statement` marks the
+// condition field on *both* the expression and the `;` that terminates
+// it, and the initializer's own shape (an `empty_statement`, an
+// `expression_statement`, or a `lexical_declaration` that swallows its
+// `;`) moves every child index. `child_by_field_name` returns the first
+// such child, which is the expression.
+//
+// An empty condition fills the slot with an `empty_statement` (`for
+// (;;)`) or the bare `;` token rather than leaving it absent — the one
+// family where it does. Neither is a value, so neither is a slot, which
+// agrees with every other language; see the `Stats` doc comment's
+// cross-language empty-`for`-condition policy.
+fn js_family_walk_for(node: &Node, conditions: &mut f64) {
+    if let Some(condition) = node
+        .child_by_field_name("condition")
+        .filter(|slot| slot.is_named() && slot.kind() != "empty_statement")
+    {
+        js_family_count_condition(&condition, conditions);
+    }
+}
+
+// Each argument of a call is a negated operand (`f(!a, !b)`).
+fn js_family_count_arguments(arguments: &Node, conditions: &mut f64) {
+    for argument in arguments.children().filter(is_operand) {
+        js_family_count_negated(&argument, conditions);
+    }
+}
 
 // Generates the per-language predicate deciding whether an `=` token
 // initialises a `const` binding, whose initializer is part of the
@@ -300,11 +249,10 @@ impl_js_family_const_binding!(Mozjs, mozjs_eq_initializes_const_binding);
 // Fitzpatrick rules for both. Conditions capture every comparison and
 // control-flow arm (the original token-level set), plus Phase-2 walker
 // arms for `&&` / `||` operand counting and the
-// `IfStatement` / `WhileStatement` / `DoStatement` / `ReturnStatement`
-// / `Arguments` slots — each of those arms routes through the
-// language's `$inspect_container` (paren / unary unwrap) and
-// `$count_unary` (operand walker) helpers generated by
-// `impl_js_family_unary_walker!`.
+// `IfStatement` / `WhileStatement` / `DoStatement` / `ForStatement`
+// / ternary slots, which route through `js_family_count_condition`, and
+// the `ReturnStatement` / `Arguments` operands, which route through
+// `js_family_count_negated`.
 //
 // Declaration initializers: a plain `=` counts as an assignment unless
 // `$const_binding` finds it initialising a `const` binding (a compile-time
@@ -317,10 +265,6 @@ impl_js_family_const_binding!(Mozjs, mozjs_eq_initializes_const_binding);
 macro_rules! ts_abc_compute {
     (
         $lang:ident,
-        $count_unary:path,
-        $inspect_container:path,
-        $walk_ternary:path,
-        $walk_for:path,
         $const_binding:path
     ) => {
         fn compute<'a>(
@@ -425,8 +369,8 @@ macro_rules! ts_abc_compute {
                 // Fitzpatrick Rule 9: each operand of a `&&` / `||`
                 // chain is one condition (issue #403).
                 AMPAMP | PIPEPIPE => {
-                    if let Some(parent) = ancestors.parent(node) {
-                        $count_unary(&parent, &mut stats.conditions);
+                    if let Some(chain) = ancestors.parent(node) {
+                        js_family_count_chain_operands(&chain, &mut stats.conditions);
                     }
                 }
                 // Phase-2B (issue #403): condition slots. JS / TS
@@ -439,31 +383,31 @@ macro_rules! ts_abc_compute {
                 // read onto it (#1455).
                 IfStatement | WhileStatement | DoStatement => {
                     if let Some(cond) = node.child_by_field_name("condition") {
-                        $inspect_container(&cond, node, &mut stats.conditions);
+                        js_family_count_condition(&cond, &mut stats.conditions);
                     }
                 }
                 // `return value;` names no field; the value is its only
                 // operand. The bare `return;` form has none.
                 ReturnStatement => {
                     if let Some(value) = wrapped_operand(node) {
-                        $inspect_container(&value, node, &mut stats.conditions);
+                        js_family_count_negated(&value, &mut stats.conditions);
                     }
                 }
                 // Method-argument walker for `f(!a, !b)`.
                 Arguments => {
-                    $count_unary(node, &mut stats.conditions);
+                    js_family_count_arguments(node, &mut stats.conditions);
                 }
                 // `a ? !b : !c` — the ternary's own `?` token is
                 // already counted by the condition arm above; this
                 // walks the three operand slots (issue #1102).
                 TernaryExpression => {
-                    $walk_ternary(node, &mut stats.conditions);
+                    js_family_walk_ternary(node, &mut stats.conditions);
                 }
                 // `for (init; cond; update)` — the condition slot, read
                 // by grammar field (issue #1276). `for (;;)` fills the
                 // slot with an `empty_statement` and counts nothing.
                 ForStatement => {
-                    $walk_for(node, &mut stats.conditions);
+                    js_family_walk_for(node, &mut stats.conditions);
                 }
                 _ => {}
             }
@@ -472,25 +416,11 @@ macro_rules! ts_abc_compute {
 }
 
 impl Abc for TypescriptCode {
-    ts_abc_compute!(
-        Typescript,
-        typescript_count_unary_conditions,
-        typescript_inspect_container,
-        typescript_walk_ternary,
-        typescript_walk_for_statement,
-        typescript_eq_initializes_const_binding
-    );
+    ts_abc_compute!(Typescript, typescript_eq_initializes_const_binding);
 }
 
 impl Abc for TsxCode {
-    ts_abc_compute!(
-        Tsx,
-        tsx_count_unary_conditions,
-        tsx_inspect_container,
-        tsx_walk_ternary,
-        tsx_walk_for_statement,
-        tsx_eq_initializes_const_binding
-    );
+    ts_abc_compute!(Tsx, tsx_eq_initializes_const_binding);
 }
 
 // JavaScript / Mozjs share TypeScript's expression / statement
@@ -513,10 +443,6 @@ impl Abc for TsxCode {
 macro_rules! js_abc_compute {
     (
         $lang:ident,
-        $count_unary:path,
-        $inspect_container:path,
-        $walk_ternary:path,
-        $walk_for:path,
         $const_binding:path
     ) => {
         fn compute<'a>(
@@ -564,8 +490,8 @@ macro_rules! js_abc_compute {
                 // Fitzpatrick Rule 9: each operand of a `&&` / `||`
                 // chain is one condition (issue #403).
                 AMPAMP | PIPEPIPE => {
-                    if let Some(parent) = ancestors.parent(node) {
-                        $count_unary(&parent, &mut stats.conditions);
+                    if let Some(chain) = ancestors.parent(node) {
+                        js_family_count_chain_operands(&chain, &mut stats.conditions);
                     }
                 }
                 // Phase-2B (issue #403): condition slots. Same shape
@@ -573,28 +499,28 @@ macro_rules! js_abc_compute {
                 // arm-block for why each slot is read by role.
                 IfStatement | WhileStatement | DoStatement => {
                     if let Some(cond) = node.child_by_field_name("condition") {
-                        $inspect_container(&cond, node, &mut stats.conditions);
+                        js_family_count_condition(&cond, &mut stats.conditions);
                     }
                 }
                 ReturnStatement => {
                     if let Some(value) = wrapped_operand(node) {
-                        $inspect_container(&value, node, &mut stats.conditions);
+                        js_family_count_negated(&value, &mut stats.conditions);
                     }
                 }
                 Arguments => {
-                    $count_unary(node, &mut stats.conditions);
+                    js_family_count_arguments(node, &mut stats.conditions);
                 }
                 // `a ? !b : !c` — the ternary's own `?` token is
                 // already counted by the condition arm above; this
                 // walks the three operand slots (issue #1102).
                 TernaryExpression => {
-                    $walk_ternary(node, &mut stats.conditions);
+                    js_family_walk_ternary(node, &mut stats.conditions);
                 }
                 // `for (init; cond; update)` — the condition slot, read
                 // by grammar field (issue #1276). `for (;;)` fills the
                 // slot with an `empty_statement` and counts nothing.
                 ForStatement => {
-                    $walk_for(node, &mut stats.conditions);
+                    js_family_walk_for(node, &mut stats.conditions);
                 }
                 _ => {}
             }
@@ -603,23 +529,9 @@ macro_rules! js_abc_compute {
 }
 
 impl Abc for JavascriptCode {
-    js_abc_compute!(
-        Javascript,
-        javascript_count_unary_conditions,
-        javascript_inspect_container,
-        javascript_walk_ternary,
-        javascript_walk_for_statement,
-        javascript_eq_initializes_const_binding
-    );
+    js_abc_compute!(Javascript, javascript_eq_initializes_const_binding);
 }
 
 impl Abc for MozjsCode {
-    js_abc_compute!(
-        Mozjs,
-        mozjs_count_unary_conditions,
-        mozjs_inspect_container,
-        mozjs_walk_ternary,
-        mozjs_walk_for_statement,
-        mozjs_eq_initializes_const_binding
-    );
+    js_abc_compute!(Mozjs, mozjs_eq_initializes_const_binding);
 }

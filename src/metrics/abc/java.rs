@@ -9,30 +9,27 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, wrapped_operand};
-use crate::macros::java_bool_terminal_kinds;
+use super::{
+    Abc, Stats, count_boolean_slot, count_negated_operand, is_operand, peel, wrapped_operand,
+};
 use crate::*;
 
-// One step of the `(...)` / `!` peel: the operand a wrapper wraps, and
-// whether the wrapper itself proves that operand boolean (`return (!x);`
-// is boolean whatever `x` is; a parenthesis preserves the type). `None`
-// for anything this peel does not descend, which is also the answer
-// `java_count_condition` asks for, so the slot and the peel cannot
-// disagree about which kinds are wrappers (#1470; the Kotlin, Groovy
-// and C# instances of that disagreement were #1459, #1466 and #1463).
-// A `unary_expression` spelled `-x`, `+x` or `~x` is never a boolean
-// slot's operand, so the peel declines it.
+// One step of the value peel (see `PeelStep`): a parenthesis, a cast
+// (its `value`) and a `!` (its `operand`, proving it boolean). `(x)` and
+// `(boolean) x` preserve the type of what they wrap; `!x` is boolean
+// whatever `x` is. A `unary_expression` spelled `-x`, `+x` or `~x` yields
+// a value rather than wrapping a test, so the peel stops on it.
 //
 // The operand is read by role, not at child index one after the `(` or
 // the operator token: a comment may sit there (`(/*c*/ b)`, `! /*c*/ b`)
-// and scored the condition zero (#1455). `unary_expression` names its
-// `operand`; `parenthesized_expression` names nothing, so it takes the
-// first operand that is not an extra.
+// and scored the condition zero (#1455). `parenthesized_expression`
+// names nothing, so it takes the first operand that is not an extra.
 fn java_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     use Java::*;
 
     match node.kind_id().into() {
         ParenthesizedExpression => wrapped_operand(node).map(|o| (o, false)),
+        CastExpression => node.child_by_field_name("value").map(|o| (o, false)),
         UnaryExpression if node.child(0).is_some_and(|c| c.kind_id() == BANG as u16) => {
             node.child_by_field_name("operand").map(|o| (o, true))
         }
@@ -40,86 +37,87 @@ fn java_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     }
 }
 
-// Inspects the content of Java parenthesized expressions
-// and `Not` operators to find unary conditional expressions
-fn java_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
+// Whether an arm of `compute` already charges `expr` (already peeled) as
+// a condition: a comparison, a ternary (its `?`), an `instanceof` test
+// (their token arms) or an `&&` / `||` chain, whose operands each pay
+// through `java_count_condition`.
+//
+// An assignment is not peeled, because the `AssignmentExpression` arm
+// already scores its right-hand side as a negated operand: peeling
+// `if (y = !b)` down to `b` would pay the slot for the negation that arm
+// counts. So it scores itself exactly when its value does — through that
+// arm, or through its own operator's arm (`if (y = x > 1)`) — and a bare
+// `if ((y = b))` pays through the slot.
+fn java_condition_scores_itself(expr: &Node) -> bool {
     use Java::*;
 
-    let mut node = *container_node;
-
-    // Initializes the flag to true if the container is known to contain a boolean value
-    // `Guard` joined this list with #1454: a `case … when g ->` guard is
-    // a boolean slot exactly as an `if` condition is, so a parenthesised
-    // guard operand (`when (b)`) counts where the bare `when b` already
-    // did.
-    let mut has_boolean_content = match parent.kind_id().into() {
-        BinaryExpression | IfStatement | WhileStatement | DoStatement | ForStatement | Guard => {
-            true
-        }
-        TernaryExpression => parent
-            .child_by_field_name("condition")
-            .is_some_and(|condition| condition.id() == node.id()),
+    match expr.kind_id().into() {
+        TernaryExpression | InstanceofExpression => true,
+        BinaryExpression => expr.child_by_field_name("operator").is_some_and(|op| {
+            matches!(
+                op.kind_id().into(),
+                EQEQ | BANGEQ | LT | GT | LTEQ | GTEQ | AMPAMP | PIPEPIPE
+            )
+        }),
+        AssignmentExpression => expr.child_by_field_name("right").is_some_and(|right| {
+            let (value, proves_boolean) = peel(&right, java_wrapper_operand);
+            proves_boolean || java_condition_scores_itself(&value)
+        }),
         _ => false,
-    };
+    }
+}
 
-    // Looks inside parenthesized expressions and `Not` operators to find what they contain
-    while let Some((operand, proves_boolean)) = java_wrapper_operand(&node) {
-        has_boolean_content |= proves_boolean;
-        node = operand;
+// Scores one boolean slot — an `if` / `while` / `do` / `for` condition,
+// a ternary condition, a `case … when` guard, an operand of an `&&` /
+// `||` chain (see `count_boolean_slot`). A Java slot only admits a
+// `boolean`, and the terminal-kind list it used to pay for missed valid
+// ones: `if ((y = b))`, `if (a & b)`, `if (a ^ b)`, `if (a | b)` and a
+// boolean `switch` expression each scored 0 conditions against a
+// cyclomatic decision of 1 (#1526). It also pays for an ill-typed
+// `if (-x)`, which no valid program can tell apart (grammar-dispatch §6).
+fn java_count_condition(condition: &Node, conditions: &mut f64) {
+    count_boolean_slot(
+        condition,
+        java_wrapper_operand,
+        java_condition_scores_itself,
+        conditions,
+    );
+}
 
-        // Stops the exploration when the content is found. The terminal
-        // set includes `FieldAccess` (`obj.flag`), `CastExpression`
-        // (`(boolean)v`) and `ArrayAccess` (`flags[0]`) — every kind
-        // whose evaluated value is implicitly boolean in idiomatic
-        // Java, mirroring the C# fix in #372 (lesson #19).
-        // `InstanceofExpression` was a fifth until #1461 moved it to
-        // an unconditional arm: it is an operator, so it scores by use
-        // rather than only where this walker looks.
-        if matches!(node.kind_id().into(), java_bool_terminal_kinds!()) {
-            if has_boolean_content {
-                *conditions += 1.;
-            }
-            break;
+// An operand outside a boolean slot — a `return` value, an argument, a
+// declarator or assignment value, a lambda body, a ternary branch —
+// scores only when a `!` proves it boolean (see `count_negated_operand`).
+fn java_count_negated(operand: &Node, conditions: &mut f64) {
+    count_negated_operand(
+        operand,
+        java_wrapper_operand,
+        java_condition_scores_itself,
+        conditions,
+    );
+}
+
+// Fitzpatrick Rule 9 (#403): each operand of an `&&` / `||` chain is a
+// boolean slot. `a && b || c` is a left-nested chain of
+// `binary_expression`s, so an operand that is itself a chain is paid by
+// its own operator's visit. Read by field: a comment beside the operator
+// is a named child too, and must not pay.
+fn java_count_chain_operands(chain: &Node, conditions: &mut f64) {
+    for field in ["left", "right"] {
+        if let Some(operand) = chain.child_by_field_name(field) {
+            java_count_condition(&operand, conditions);
         }
     }
 }
 
-// Inspects a list of elements and counts any unary conditional expression found
-fn java_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
-    use Java::*;
+fn java_count_slot(slot: Option<Node>, conditions: &mut f64) {
+    if let Some(condition) = slot {
+        java_count_condition(&condition, conditions);
+    }
+}
 
-    let list_kind = list_node.kind_id().into();
-    let mut cursor = list_node.cursor();
-
-    // Scans the immediate children nodes of the argument node
-    if cursor.goto_first_child() {
-        loop {
-            // Gets the current child node and its kind
-            let node = cursor.node();
-            let node_kind = node.kind_id().into();
-
-            // Checks if the node is a unary condition. The terminal set
-            // includes `FieldAccess`, `CastExpression` and `ArrayAccess`
-            // so that bool-evaluating operands of `&&` / `||` chains are
-            // not silently zeroed out (mirrors the C# fix in #372;
-            // lesson #19). An `instanceof` operand contributes nothing
-            // here since #1461 — its own arm counts it wherever it
-            // appears, chain or no chain.
-            if matches!(node_kind, java_bool_terminal_kinds!())
-                && matches!(list_kind, BinaryExpression)
-            {
-                *conditions += 1.;
-            } else {
-                // Checks if the node is a unary condition container
-                java_inspect_container(&node, list_node, conditions);
-            }
-
-            // Moves the cursor to the next sibling node of the current node
-            // Exits the scan if there is no next sibling node
-            if !cursor.goto_next_sibling() {
-                break;
-            }
-        }
+fn java_count_negated_slot(slot: Option<Node>, conditions: &mut f64) {
+    if let Some(operand) = slot {
+        java_count_negated(&operand, conditions);
     }
 }
 
@@ -130,16 +128,6 @@ fn java_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 // avoid re-matching the same kind across categories. The arms are
 // mutually exclusive in the source language so a short-circuit chain
 // reproduces the original `match` semantics bit-for-bit.
-
-// Shared helper: passes a slot's occupant to `java_inspect_container`.
-// The container helper is a no-op on kinds other than
-// `ParenthesizedExpression` / `!`-prefixed `UnaryExpression`, so no
-// `matches!` guard is needed at the call site.
-fn java_inspect_slot(slot: Option<Node>, parent: &Node, conditions: &mut f64) {
-    if let Some(child) = slot {
-        java_inspect_container(&child, parent, conditions);
-    }
-}
 
 // Whether `eq_node` initialises a `final` binding, whose initializer is
 // part of the declaration and therefore not an ABC assignment: its
@@ -323,22 +311,29 @@ fn java_walk_for_conditions<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, s
     use Java::*;
     let conds = &mut stats.conditions;
     match node.kind_id().into() {
-        // Unary conditions in elements separated by `&&` / `||`.
+        // Each operand of an `&&` / `||` chain is a boolean slot.
         AMPAMP | PIPEPIPE => {
-            if let Some(parent) = ancestors.parent(node) {
-                java_count_unary_conditions(&parent, conds);
+            if let Some(chain) = ancestors
+                .parent(node)
+                .filter(|p| p.kind_id() == BinaryExpression)
+            {
+                java_count_chain_operands(&chain, conds);
             }
         }
-        // Unary conditions among method arguments.
-        ArgumentList => java_count_unary_conditions(node, conds),
+        // Negated operands among method arguments.
+        ArgumentList => {
+            for argument in node.children().filter(is_operand) {
+                java_count_negated(&argument, conds);
+            }
+        }
         // `if (cond)`, `while (cond)`, `do … while (cond);`, by grammar
         // field: a fixed index lands on a comment before the slot
         // (`if /*c*/ (b)`) and scores the condition zero (#1455).
         IfStatement | WhileStatement | DoStatement => {
-            java_inspect_slot(node.child_by_field_name("condition"), node, conds);
+            java_count_slot(node.child_by_field_name("condition"), conds);
         }
         // `return value;` names no field; the value is its only operand.
-        ReturnStatement => java_inspect_slot(wrapped_operand(node), node, conds),
+        ReturnStatement => java_count_negated_slot(wrapped_operand(node), conds),
         // The Java 21 pattern-switch guard (`case Integer i when g ->`),
         // modelled as a condition slot exactly like the `if` / `while`
         // slots above (#1454, transferring #1422's C# rule). Before
@@ -346,37 +341,21 @@ fn java_walk_for_conditions<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, s
         // it: `when i > 5` counted one via the comparison-token arm
         // while `when isEven(i)` and `when b` counted zero, so three
         // semantically identical guards produced two different numbers.
-        // As a slot every spelling contributes exactly one — a call /
-        // field access / bare identifier through
-        // `java_bool_terminal_kinds!()`, a comparison or (since #1461)
-        // an `instanceof` test through the arm that owns
-        // it — and a compound guard
-        // (`when a > 1 && b < 2`) keeps its sub-structure rather than
-        // collapsing to one.
+        // As a slot every spelling contributes exactly one, and a
+        // compound guard (`when a > 1 && b < 2`) keeps its
+        // sub-structure rather than collapsing to one.
         //
         // By role, not index (`.claude/rules/grammar-dispatch.md` §3):
         // `guard` is `seq('when', expression)` and node-types.json gives
-        // it no field, so the expression is located as the clause's
-        // named child rather than at a fixed offset. Every named child,
-        // not the first: tree-sitter `extra`s are named and may precede
-        // it, so `when /*c*/ g` hands a `comment` to a first-child read
-        // and silently restores the spelling-dependence this removes.
-        // Java's only extras at this pin are `line_comment` and
-        // `block_comment`, neither of them a
-        // `java_bool_terminal_kinds!()` member or a paren / `!` wrapper,
-        // so passing them through the slot adds nothing and the loop
-        // cannot double count a clause that holds one expression by
-        // construction.
-        Guard => {
-            for guard in node.children().filter(Node::is_named) {
-                java_count_condition(&guard, node, conds);
-            }
-        }
+        // it no field, so the expression is the clause's first operand
+        // that is not an `extra` — `when /*c*/ g` puts a comment before
+        // it, which would pay as a slot of its own.
+        Guard => java_count_slot(wrapped_operand(node), conds),
         // Declarator / assignment RHS and lambda body (`params -> body`),
         // by field for the same reason as the condition slots above.
-        VariableDeclarator => java_inspect_slot(node.child_by_field_name("value"), node, conds),
-        AssignmentExpression => java_inspect_slot(node.child_by_field_name("right"), node, conds),
-        LambdaExpression => java_inspect_slot(node.child_by_field_name("body"), node, conds),
+        VariableDeclarator => java_count_negated_slot(node.child_by_field_name("value"), conds),
+        AssignmentExpression => java_count_negated_slot(node.child_by_field_name("right"), conds),
+        LambdaExpression => java_count_negated_slot(node.child_by_field_name("body"), conds),
         TernaryExpression => java_walk_ternary(node, stats),
         ForStatement => java_walk_for_statement(node, stats),
         _ => {}
@@ -393,34 +372,10 @@ fn java_walk_ternary(node: &Node, stats: &mut Stats) {
     // That is the mirror image of the over-count the token-based seed
     // produced in the C family, from the same cause.
     if let Some(condition) = node.child_by_field_name("condition") {
-        java_count_condition(&condition, node, conds);
+        java_count_condition(&condition, conds);
     }
     for field in ["consequence", "alternative"] {
-        if let Some(branch) = node.child_by_field_name(field) {
-            java_inspect_container(&branch, node, conds);
-        }
-    }
-}
-
-// Classifies one condition-slot expression: a bare boolean terminal
-// counts directly, a `(...)` / `!...` wrapper is offered to the unwrap
-// chain, and anything else (a `binary_expression`, whose operator token
-// the dispatcher already counted) contributes nothing. The terminal set
-// mirrors `java_inspect_container` (issue #372 / lesson #19):
-// FieldAccess / CastExpression / ArrayAccess all evaluate to a boolean
-// in idiomatic Java condition slots. An `instanceof` predicate is
-// among the "anything else" since #1461 — its own arm counts it.
-// Mirrors
-// `csharp_count_condition` / `groovy_count_condition`.
-fn java_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
-    if matches!(condition.kind_id().into(), java_bool_terminal_kinds!()) {
-        *conditions += 1.;
-    } else if java_wrapper_operand(condition).is_some() {
-        // Asking the peel itself which kinds it unwraps, rather than
-        // restating the list here (#1470): a restated list that gained a
-        // kind the peel lacked would read as covering a shape the peel
-        // then dropped (`.claude/rules/grammar-dispatch.md` §7).
-        java_inspect_container(condition, parent, conditions);
+        java_count_negated_slot(node.child_by_field_name(field), conds);
     }
 }
 
@@ -439,7 +394,7 @@ fn java_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
 //     comment's cross-language empty-`for`-condition policy.
 fn java_walk_for_statement(node: &Node, stats: &mut Stats) {
     if let Some(condition) = node.child_by_field_name("condition") {
-        java_count_condition(&condition, node, &mut stats.conditions);
+        java_count_condition(&condition, &mut stats.conditions);
     }
 }
 

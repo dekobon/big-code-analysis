@@ -9,10 +9,11 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, last_operand, wrapped_operand};
-use crate::macros::{
-    csharp_bool_terminal_kinds, csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds,
+use super::{
+    Abc, Stats, count_boolean_slot, count_negated_operand, is_operand, last_operand, peel,
+    wrapped_operand,
 };
+use crate::macros::{csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds};
 use crate::*;
 
 // The operand a transparent wrapper wraps, and whether the wrapper
@@ -91,82 +92,94 @@ fn csharp_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
         // `expr!` — the null-forgiving operator. One kind id at the
         // pinned `=0.23.5`, no numbered aliases (§1).
         PostfixUnaryExpression if node.is_child(BANG as u16) => Some((node.child(0)?, false)),
+        // `(bool)x` — type-preserving for the slot's purpose, so a cast
+        // of a comparison pays once, through the comparison.
+        CastExpression => node.child_by_field_name("value").map(|o| (o, false)),
         _ => None,
     }
 }
 
-fn csharp_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
+// Whether an arm of `compute` already charges `expr` (already peeled) as
+// a condition: an applied comparison or `??` (the token arms), a ternary
+// (its `?`), an `is` test (its own arm), or an `&&` / `||` chain, whose
+// operands each pay through `csharp_count_condition`.
+//
+// An assignment is not peeled, because the `AssignmentExpression` arm
+// already scores its right-hand side as a negated operand: peeling
+// `if (y = !b)` down to `b` would pay the slot for the negation that arm
+// counts. It scores itself exactly when its value does, as Java's does.
+fn csharp_condition_scores_itself(expr: &Node) -> bool {
     use Csharp::*;
 
-    let mut node = *container_node;
-
-    // Seed the boolean-context flag from the parent: known-boolean
-    // contexts (loop / if / guard / binary expression) imply the
-    // contained expression evaluates as a condition. The two guard
-    // clauses joined this list with #1422 — a `when` guard is a boolean
-    // slot exactly as an `if` condition is, so `when (b)` and
-    // `catch (E e) when ((b))` count their parenthesised operand.
-    let mut has_boolean_content = match parent.kind_id().into() {
-        BinaryExpression | IfStatement | WhileStatement | DoStatement | ForStatement
-        | WhenClause | CatchFilterClause => true,
-        ConditionalExpression => parent
-            .child_by_field_name("condition")
-            .is_some_and(|condition| condition.id() == node.id()),
-        _ => false,
-    };
-
-    // Walk down through the transparent wrappers until we either hit the
-    // underlying operand or run out of nesting. They chain: `(!b!)`
-    // peels three to one `identifier`.
-    while let Some((operand, proves_boolean)) = csharp_wrapper_operand(&node) {
-        has_boolean_content |= proves_boolean;
-        node = operand;
-
-        // Found the innermost operand; count it if a boolean context
-        // was established up the chain. The `csharp_bool_terminal_kinds!()`
-        // set bundles invocation aliases, the `Identifier` /
-        // `BooleanLiteral` leaves, and the bool-evaluating kinds
-        // restored by #372 (member access / await / cast / element
-        // access). The two `is` tests left the set in #1461 for an
-        // unconditional arm, so a type-test operand contributes nothing
-        // here.
-        if matches!(node.kind_id().into(), csharp_bool_terminal_kinds!()) {
-            if has_boolean_content {
-                *conditions += 1.;
-            }
-            break;
+    match expr.kind_id().into() {
+        ConditionalExpression | IsExpression | IsPatternExpression => true,
+        BinaryExpression | BinaryExpression2 => {
+            expr.child_by_field_name("operator").is_some_and(|op| {
+                matches!(
+                    op.kind_id().into(),
+                    EQEQ | BANGEQ | LT | GT | LTEQ | GTEQ | QMARKQMARK | AMPAMP | PIPEPIPE
+                )
+            })
         }
+        AssignmentExpression => expr.child_by_field_name("right").is_some_and(|right| {
+            let (value, proves_boolean) = peel(&right, csharp_wrapper_operand);
+            proves_boolean || csharp_condition_scores_itself(&value)
+        }),
+        _ => false,
     }
 }
 
-fn csharp_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
-    use Csharp::*;
+// Scores one boolean slot — an `if` / `while` / `do` / `for` condition,
+// a ternary condition, a `when` / `catch … when` guard, an operand of an
+// `&&` / `||` chain (see `count_boolean_slot`). A C# slot only admits a
+// `bool`, and the terminal-kind list it used to pay for missed valid
+// ones: `if ((y = b))`, `if (a & b)`, `if (a ^ b)`, `if (a | b)` and a
+// boolean `switch` expression each scored 0 conditions against a
+// cyclomatic decision of 1 (#1526). It also pays for an ill-typed
+// `if (-x)`, which no valid program can tell apart (grammar-dispatch §6).
+fn csharp_count_condition(condition: &Node, conditions: &mut f64) {
+    count_boolean_slot(
+        condition,
+        csharp_wrapper_operand,
+        csharp_condition_scores_itself,
+        conditions,
+    );
+}
 
-    let list_kind = list_node.kind_id().into();
-    let mut cursor = list_node.cursor();
+// An operand outside a boolean slot — a `return` value, a declarator or
+// assignment value, a lambda body, a ternary branch — scores only when
+// a `!` proves it boolean (see `count_negated_operand`).
+fn csharp_count_negated(operand: &Node, conditions: &mut f64) {
+    count_negated_operand(
+        operand,
+        csharp_wrapper_operand,
+        csharp_condition_scores_itself,
+        conditions,
+    );
+}
 
-    if cursor.goto_first_child() {
-        loop {
-            let node = cursor.node();
-            let node_kind = node.kind_id().into();
+fn csharp_count_negated_slot(slot: Option<Node>, conditions: &mut f64) {
+    if let Some(operand) = slot {
+        csharp_count_negated(&operand, conditions);
+    }
+}
 
-            // `csharp_bool_terminal_kinds!()` bundles invocation aliases,
-            // `Identifier`, `BooleanLiteral`, and the bool-evaluating
-            // expression kinds restored by #372 (member access / await /
-            // cast / element access). An `is` operand contributes nothing
-            // here since #1461 — its own arm counts it wherever it
-            // appears, chain or no chain.
-            if matches!(node_kind, csharp_bool_terminal_kinds!())
-                && matches!(list_kind, BinaryExpression)
-            {
-                *conditions += 1.;
-            } else {
-                csharp_inspect_container(&node, list_node, conditions);
-            }
+// Each argument of a call is a negated operand.
+fn csharp_count_arguments(arguments: &Node, conditions: &mut f64) {
+    for argument in arguments.children().filter(is_operand) {
+        csharp_count_negated(&argument, conditions);
+    }
+}
 
-            if !cursor.goto_next_sibling() {
-                break;
-            }
+// Fitzpatrick Rule 9: each operand of an `&&` / `||` chain is a boolean
+// slot. `a && b || c` is a left-nested chain of `binary_expression`s, so
+// an operand that is itself a chain is paid by its own operator's visit.
+// Read by field: a comment beside the operator is a named child too, and
+// must not pay.
+fn csharp_count_chain_operands(chain: &Node, conditions: &mut f64) {
+    for field in ["left", "right"] {
+        if let Some(operand) = chain.child_by_field_name(field) {
+            csharp_count_condition(&operand, conditions);
         }
     }
 }
@@ -620,19 +633,21 @@ fn csharp_walk_for_conditions<'a>(
     let conds = &mut stats.conditions;
     match node.kind_id().into() {
         AMPAMP | PIPEPIPE => {
-            if let Some(parent) = ancestors.parent(node) {
-                csharp_count_unary_conditions(&parent, conds);
+            if let Some(chain) = ancestors
+                .parent(node)
+                .filter(|p| matches!(p.kind_id().into(), BinaryExpression | BinaryExpression2))
+            {
+                csharp_count_chain_operands(&chain, conds);
             }
         }
         // `compute` returns as soon as `csharp_count_token_branch` fires,
         // so since #1406 an `argument_list` under a `base_list` no longer
         // reaches this arm. Measured harmless: the arm is dead for *every*
         // argument list, because an `argument_list`'s children are
-        // `argument` wrappers that `csharp_inspect_container` rejects on
-        // the first iteration — `Helper(!b)` and `Helper((b))` both score
-        // zero conditions today. Repairing it means revisiting that
-        // exclusion, not just this arm.
-        ArgumentList => csharp_count_unary_conditions(node, conds),
+        // `argument` wrappers that `csharp_wrapper_operand` declines —
+        // `Helper(!b)` and `Helper((b))` both score zero conditions today.
+        // Repairing it means revisiting that exclusion, not just this arm.
+        ArgumentList => csharp_count_arguments(node, conds),
         // tree-sitter-c-sharp spells the parens of `if` / `while` /
         // `do … while` as anonymous tokens, NOT a wrapping
         // `parenthesized_expression` as in tree-sitter-java, so the
@@ -641,7 +656,7 @@ fn csharp_walk_for_conditions<'a>(
         // comment, since `if (/*c*/ b)` puts one at child(2) (#1455).
         IfStatement | WhileStatement | DoStatement => {
             if let Some(condition) = node.child_by_field_name("condition") {
-                csharp_count_condition(&condition, node, conds);
+                csharp_count_condition(&condition, conds);
             }
         }
         // C#'s two guard spellings, each modelled as a condition slot
@@ -650,13 +665,9 @@ fn csharp_walk_for_conditions<'a>(
         // inside it: `when x % 2 == 0` and `when x > 2` counted one via
         // the comparison-token arm while `when IsEven(x)` counted zero,
         // so three semantically identical guards produced two different
-        // numbers. As a slot every spelling contributes exactly one —
-        // a call / bare identifier through
-        // `csharp_bool_terminal_kinds!()`, a comparison or (since
-        // #1461) an `is` test through the arm that owns it — and a
-        // compound guard
-        // (`when a > 1 && b < 2`) keeps its sub-structure rather than
-        // collapsing to one.
+        // numbers. As a slot every spelling contributes exactly one,
+        // and a compound guard (`when a > 1 && b < 2`) keeps its
+        // sub-structure rather than collapsing to one.
         //
         // Suppressing the guard's operator instead would have reached
         // the same internal agreement one count *below* C#'s own
@@ -671,18 +682,12 @@ fn csharp_walk_for_conditions<'a>(
         // while `when_clause` has none (`when`, expr). Neither exposes
         // a field for the slot.
         //
-        // Every named child, not the first: tree-sitter `extra`s are
-        // named nodes and may precede the expression, so `when /*c*/ g`
-        // hands a `comment` to a first-child read and silently restores
-        // the spelling-dependence this fix removes. C#'s extras at this
-        // pin are `comment` plus nine `preproc_*` kinds — none of them a
-        // `csharp_bool_terminal_kinds!()` member, and none a paren or
-        // `!`-prefix wrapper — so passing them through the slot adds
-        // nothing and the loop cannot double count a clause that holds
-        // one expression by construction.
+        // The first operand that is not an `extra`: a comment may precede
+        // the expression (`when /*c*/ g`) and would pay as a slot of its
+        // own.
         WhenClause | CatchFilterClause => {
-            for guard in node.children().filter(Node::is_named) {
-                csharp_count_condition(&guard, node, conds);
+            if let Some(guard) = wrapped_operand(node) {
+                csharp_count_condition(&guard, conds);
             }
         }
         // The value slots, none of which a fixed index can address: a
@@ -691,12 +696,12 @@ fn csharp_walk_for_conditions<'a>(
         // `return` and a declarator name no field for the value, so the
         // first and last operand stand in: a `return` holds only its
         // value, and a declarator's initialiser follows its name.
-        ReturnStatement => csharp_inspect_slot(wrapped_operand(node), node, conds),
+        ReturnStatement => csharp_count_negated_slot(wrapped_operand(node), conds),
         crate::Csharp::VariableDeclarator | crate::Csharp::VariableDeclarator2 => {
-            csharp_inspect_slot(last_operand(node), node, conds);
+            csharp_count_negated_slot(last_operand(node), conds);
         }
-        AssignmentExpression => csharp_inspect_slot(node.child_by_field_name("right"), node, conds),
-        LambdaExpression => csharp_inspect_slot(node.child_by_field_name("body"), node, conds),
+        AssignmentExpression => csharp_count_negated_slot(node.child_by_field_name("right"), conds),
+        LambdaExpression => csharp_count_negated_slot(node.child_by_field_name("body"), conds),
         ConditionalExpression => csharp_walk_conditional(node, stats),
         ForStatement => csharp_walk_for_statement(node, stats),
         _ => {}
@@ -708,22 +713,18 @@ fn csharp_walk_for_conditions<'a>(
 // comment between a token and its operand shifted every positional
 // read). The cond-classifier match is shared with
 // `csharp_walk_for_conditions`'s `if`/`while`/`do` arms via
-// `csharp_count_condition`; the two branch slots go straight to
-// `csharp_inspect_container`, so a parenthesised or `!`-prefixed branch
-// contributes one condition just like a bare
-// invocation/identifier/boolean would.
+// `csharp_count_condition`; the two branch slots are negated operands,
+// so only a `!`-prefixed branch contributes a condition.
 fn csharp_walk_conditional(node: &Node, stats: &mut Stats) {
     let conds = &mut stats.conditions;
     // By grammar FIELD, not index — see `java_walk_ternary` for why the
     // positional form dropped a negated branch operand behind a comment
     // (#1181).
     if let Some(condition) = node.child_by_field_name("condition") {
-        csharp_count_condition(&condition, node, conds);
+        csharp_count_condition(&condition, conds);
     }
     for field in ["consequence", "alternative"] {
-        if let Some(branch) = node.child_by_field_name(field) {
-            csharp_inspect_container(&branch, node, conds);
-        }
+        csharp_count_negated_slot(node.child_by_field_name(field), conds);
     }
 }
 
@@ -736,7 +737,7 @@ fn csharp_walk_conditional(node: &Node, stats: &mut Stats) {
 // parenthesised expression, or `!`-prefixed unary expression.
 fn csharp_walk_for_statement(node: &Node, stats: &mut Stats) {
     if let Some(condition) = node.child_by_field_name("condition") {
-        csharp_count_condition(&condition, node, &mut stats.conditions);
+        csharp_count_condition(&condition, &mut stats.conditions);
     }
 }
 
@@ -759,29 +760,6 @@ impl Abc for CsharpCode {
             return;
         }
         csharp_walk_for_conditions(node, ancestors, stats);
-    }
-}
-
-// C# mirror of `java_inspect_slot` / `groovy_inspect_slot`: passes a
-// value slot's occupant to `csharp_inspect_container`, which is a no-op
-// on every kind `csharp_wrapper_operand` declines.
-fn csharp_inspect_slot(slot: Option<Node>, parent: &Node, conditions: &mut f64) {
-    if let Some(child) = slot {
-        csharp_inspect_container(&child, parent, conditions);
-    }
-}
-
-fn csharp_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
-    if matches!(condition.kind_id().into(), csharp_bool_terminal_kinds!()) {
-        *conditions += 1.;
-    } else if csharp_wrapper_operand(condition).is_some() {
-        // Asking the peel itself which kinds it unwraps, rather than
-        // restating the list here. The two spelled it separately until
-        // #1463, and either one gaining a wrapper kind the other did not
-        // would read as covered while the slot dropped it on the floor
-        // (`.claude/rules/grammar-dispatch.md` §7) — the shape that
-        // produced the Kotlin half of #1459.
-        csharp_inspect_container(condition, parent, conditions);
     }
 }
 
