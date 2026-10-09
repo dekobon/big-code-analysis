@@ -259,6 +259,8 @@ const C_FAMILY_IF_ROWS: &[(&str, u64, u64)] = &[
     ("!(b > 1)", 1, 1),
     ("b > 1", 1, 1),
     ("!b", 1, 1),
+    // A negated literal is a negation like any other (#1469).
+    ("!\"s\"", 1, 1),
     // A ternary predicate is counted by its own `?` and pays its
     // condition slot; the `if` slot must not pay a third time.
     ("a ? b : y", 2, 2),
@@ -301,6 +303,7 @@ fn assert_c_family_slots(lang: LANG) {
             ("-b", 0, 0),
             ("!b", 1, 0),
             ("!*p", 1, 0),
+            ("!\"s\"", 1, 0),
             ("!(b > 1)", 1, 0),
         ],
     );

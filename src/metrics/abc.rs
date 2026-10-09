@@ -18110,8 +18110,11 @@ mod perl_statement_modifier_parity {
 /// C#, Java, Kotlin, Rust and Go name no literal kind at all and stay
 /// that way: a bare literal in a boolean slot is a compile error there,
 /// so there is nothing to count. The C family is integer-truthy, and
-/// its slots have paid for a `string_literal` since #1526 made every
-/// slot pay for an occupant no other arm counts.
+/// #1462 deferred it for its corpus exposure. #1526 then closed its gap
+/// without naming a kind, by making every slot pay for an occupant no
+/// other arm counts; its rows here (#1469) pin that answer, because a
+/// kind `cpp_condition_scores_itself` wrongly claimed would drop a slot
+/// exactly as the missing terminal kind once did.
 ///
 /// Three things each row pins that a conditions comparison alone
 /// cannot:
@@ -18149,7 +18152,11 @@ mod perl_statement_modifier_parity {
     feature = "groovy",
     feature = "perl",
     feature = "ruby",
-    feature = "elixir"
+    feature = "elixir",
+    feature = "c",
+    feature = "cpp",
+    feature = "mozcpp",
+    feature = "objc"
 ))]
 mod literal_bool_operands {
     use crate::test_support::{assert_fixture_spells, metrics_verbatim};
@@ -18195,6 +18202,29 @@ mod literal_bool_operands {
     const JS_SLOTS: [Slot; 2] = [
         ("function f(a) {\n  return a && {};\n}\n", 2, 3),
         ("function f() {\n  if ({}) { return 1; }\n}\n", 1, 3),
+    ];
+
+    /// The five non-numeric literal kinds every C-family grammar shares,
+    /// then the grammar's own. The string and null spellings are passed
+    /// in because Objective-C writes its strings `@"s"` and C++ its null
+    /// `nullptr`; each still parses to the shared `string_literal` /
+    /// `null` kind, so the row stays one spelling per kind.
+    macro_rules! c_family_literals {
+        ($Lang:ident, $string:literal, $null:literal $(, $extra:expr)* $(,)?) => {
+            &[
+                ($string, crate::$Lang::StringLiteral as u16),
+                ("\"a\" \"b\"", crate::$Lang::ConcatenatedString as u16),
+                ("true", crate::$Lang::True as u16),
+                ("false", crate::$Lang::False as u16),
+                ($null, crate::$Lang::Null as u16),
+                $($extra,)*
+            ]
+        };
+    }
+
+    const C_FAMILY_SLOTS: [Slot; 2] = [
+        ("int f(int a) {\n  return a && {};\n}\n", 2, 3),
+        ("int f() {\n  if ({}) { return 1; }\n}\n", 1, 3),
     ];
 
     fn conditions(lang: LANG, source: &str) -> u64 {
@@ -18243,6 +18273,14 @@ mod literal_bool_operands {
             LANG::Ruby => assert_fixture_spells::<crate::RubyParser>(source, "f.rb", kinds),
             #[cfg(feature = "elixir")]
             LANG::Elixir => assert_fixture_spells::<crate::ElixirParser>(source, "f.ex", kinds),
+            #[cfg(feature = "c")]
+            LANG::C => assert_fixture_spells::<crate::CParser>(source, "f.c", kinds),
+            #[cfg(feature = "cpp")]
+            LANG::Cpp => assert_fixture_spells::<crate::CppParser>(source, "f.cpp", kinds),
+            #[cfg(feature = "mozcpp")]
+            LANG::Mozcpp => assert_fixture_spells::<crate::MozcppParser>(source, "f.cpp", kinds),
+            #[cfg(feature = "objc")]
+            LANG::Objc => assert_fixture_spells::<crate::ObjcParser>(source, "f.m", kinds),
             other => panic!("{other:?} has a case row but no parser arm"),
         }
     }
@@ -18291,6 +18329,17 @@ mod literal_bool_operands {
     ///   `quoted_atom` — a separate production from `atom`, so
     ///   `:"q a"` scored zero while `:atom` scored one — and the four
     ///   collection literals `list` / `tuple` / `map` / `bitstring`.
+    /// - C family: `string_literal` (one kind for `"s"`, `L"s"`, `u8"s"`
+    ///   and Objective-C's `@"s"`), `concatenated_string`, `true`,
+    ///   `false` and `null` (`NULL`, and C++'s `nullptr`, which the
+    ///   grammar wraps in a `null` node). C++ adds `raw_string_literal`
+    ///   and `user_defined_literal` (`"s"_x`, and `1.0_km` around a
+    ///   number); Objective-C adds its boxed forms — `array_literal`,
+    ///   `dictionary_literal`, `at_expression` (`@1`, `@YES`, `@(b)`,
+    ///   `@protocol(P)`), `selector_expression` and `encode_expression`.
+    ///   `char_literal` is numeric and pinned in the sibling module.
+    ///   Objective-C's `nil`, `YES` and `NO` parse as plain identifiers,
+    ///   so they need no row of their own.
     ///
     /// Shapes that measured short and are deliberately absent, none of
     /// them a literal: JavaScript's `this` and Groovy's
@@ -18444,6 +18493,51 @@ mod literal_bool_operands {
                     ("<<1>>", crate::Elixir::Bitstring as u16),
                 ],
                 8,
+            ),
+            LANG::C => (
+                C_FAMILY_SLOTS,
+                "b",
+                c_family_literals!(C, "\"s\"", "NULL"),
+                5,
+            ),
+            LANG::Cpp => (
+                C_FAMILY_SLOTS,
+                "b",
+                c_family_literals!(
+                    Cpp,
+                    "\"s\"",
+                    "nullptr",
+                    ("R\"(x)\"", crate::Cpp::RawStringLiteral as u16),
+                    ("\"s\"_x", crate::Cpp::UserDefinedLiteral as u16),
+                ),
+                7,
+            ),
+            LANG::Mozcpp => (
+                C_FAMILY_SLOTS,
+                "b",
+                c_family_literals!(
+                    Mozcpp,
+                    "\"s\"",
+                    "nullptr",
+                    ("R\"(x)\"", crate::Mozcpp::RawStringLiteral as u16),
+                    ("\"s\"_x", crate::Mozcpp::UserDefinedLiteral as u16),
+                ),
+                7,
+            ),
+            LANG::Objc => (
+                C_FAMILY_SLOTS,
+                "b",
+                c_family_literals!(
+                    Objc,
+                    "@\"s\"",
+                    "NULL",
+                    ("@[]", crate::Objc::ArrayLiteral as u16),
+                    ("@{}", crate::Objc::DictionaryLiteral as u16),
+                    ("@1", crate::Objc::AtExpression as u16),
+                    ("@selector(x)", crate::Objc::SelectorExpression as u16),
+                    ("@encode(int)", crate::Objc::EncodeExpression as u16),
+                ),
+                10,
             ),
             _ => return None,
         })
