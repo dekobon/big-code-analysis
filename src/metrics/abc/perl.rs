@@ -13,7 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, is_operand,
     last_operand, wrapped_operand,
 };
-use crate::lang_helpers::perl::perl_and_is_operator;
+use crate::lang_helpers::perl::{perl_and_is_operator, perl_not_is_key};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Perl.
@@ -68,6 +68,11 @@ use crate::*;
 // match the hidden `_unary_not` supertype (`P::UnaryNot`), which the
 // parser never emits (grammar-dispatch item 2).
 //
+// FIXME(#1541 upstream): an auto-quoted `not` key (`f(not => !$a)`)
+// parses as that same `unary_expression`, with the `=>` in an `ERROR`
+// beside the token. It is the list `("not", !$a)`, not a negation, so
+// it peels like one: to its last element, the value, proving nothing.
+//
 // No operand is read by index: a comment may sit before or after it
 // (`(# c` / `! # c`, #1455).
 fn perl_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
@@ -79,12 +84,13 @@ fn perl_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
         P::BinaryExpression if node.is_child(P::EQ as u16) => {
             last_operand(node).map(|o| (o, false))
         }
-        P::UnaryExpression
-            if node
-                .child_by_field_name("operator")
-                .is_some_and(|op| matches!(op.kind_id().into(), P::BANG | P::Not)) =>
-        {
-            wrapped_operand(node).map(|o| (o, true))
+        P::UnaryExpression => {
+            node.child_by_field_name("operator")
+                .and_then(|op| match op.kind_id().into() {
+                    P::Not if perl_not_is_key(&op, node) => last_operand(node).map(|o| (o, false)),
+                    P::BANG | P::Not => wrapped_operand(node).map(|o| (o, true)),
+                    _ => None,
+                })
         }
         _ => None,
     }

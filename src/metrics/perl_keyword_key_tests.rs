@@ -1,19 +1,20 @@
-//! An auto-quoted `and` key scores like any other key, and the
-//! low-precedence `and` operator still scores as one (#1539).
+//! An auto-quoted `and` or `not` key scores like any other key, and the
+//! `and` and `not` operators still score as operators (#1539, #1541).
 //!
 //! Perl quotes a bareword before `=>` and alone in a hash subscript, so
-//! `$h{and}` and `(and => 1)` hold the string `"and"` and no operator.
-//! tree-sitter-perl 1.1.2 lexes that bareword as the keyword anyway,
-//! and every metric that keys on the token scored a decision that is
-//! not there. `lang_helpers::perl::perl_and_is_operator` tells the two
-//! apart; these tests pin the metrics, not the error tree the grammar
-//! builds around the key (grammar-dispatch §6).
+//! `$h{and}` and `(not => 1)` hold a string key and no operator.
+//! tree-sitter-perl 1.1.2 lexes either bareword as the keyword anyway,
+//! and every metric that keys on the token scored an operator, or a
+//! decision, that is not there. `lang_helpers::perl::perl_and_is_operator`
+//! and `perl_not_is_key` tell the two apart; these tests pin the metrics,
+//! not the error tree the grammar builds around the key
+//! (grammar-dispatch §6).
 //!
 //! Every row pairs its fixture with a twin that spells the same program
-//! without the `and` token — an `or` key, which the grammar reads as a
-//! plain identifier, or a `&&` operator — and the twin is the oracle.
-//! The headline numbers are asserted outright as well, so a row cannot
-//! pass by both spellings drifting together.
+//! without the keyword token — an `or` key, which the grammar reads as a
+//! plain identifier, or a `&&` / `!` operator — and the twin is the
+//! oracle. The headline numbers are asserted outright as well, so a row
+//! cannot pass by both spellings drifting together.
 
 use std::cell::Cell;
 
@@ -166,6 +167,134 @@ fn perl_and_operator_still_scores_like_ampamp() {
         assert_eq!(want, decisions, "`{twin}` moved; re-derive the row");
         assert_eq!(
             measure(operator).0,
+            want,
+            "`{operator}` must score like `{twin}`"
+        );
+    }
+}
+
+/// Every valid spelling of a `not` key scores exactly as an `or` key
+/// does. Before #1541 each billed `not` as an operator where the twin
+/// bills an operand, and a `=>` key outside a boolean slot also scored
+/// an ABC condition, the peel reading it as `!` applied to its value.
+/// The peel must still reach that value, which a negation there proves
+/// boolean like any other.
+#[cfg(feature = "perl")]
+#[test]
+fn perl_not_key_scores_like_an_or_key() {
+    // `(or_twin, not_key, decisions, halstead)`.
+    let rows: [(&str, &str, Decisions, Halstead); 10] = [
+        (
+            "my %h; return $h{or};",
+            "my %h; return $h{not};",
+            [2, 0, 0],
+            [6, 8, 4, 4],
+        ),
+        (
+            "my %h; return $h{ or };",
+            "my %h; return $h{ not };",
+            [2, 0, 0],
+            [6, 8, 4, 4],
+        ),
+        (
+            "my $r; return $r->{or};",
+            "my $r; return $r->{not};",
+            [2, 0, 0],
+            [7, 10, 3, 4],
+        ),
+        (
+            "my %h = (or => 1); return 1;",
+            "my %h = (not => 1); return 1;",
+            [2, 0, 0],
+            [8, 9, 4, 5],
+        ),
+        (
+            "my $r = { or => 1 }; return 1;",
+            "my $r = { not => 1 }; return 1;",
+            [2, 0, 0],
+            [8, 10, 4, 5],
+        ),
+        (
+            "f(x => 1, or => 2);",
+            "f(x => 1, not => 2);",
+            [2, 0, 0],
+            [6, 7, 5, 6],
+        ),
+        ("f(or => 1);", "f(not => 1);", [2, 0, 0], [5, 5, 3, 4]),
+        (
+            "return (or => 1);",
+            "return (not => 1);",
+            [2, 0, 0],
+            [6, 6, 3, 3],
+        ),
+        // The key's value is still a slot: the `!` proves it boolean.
+        ("f(or => !$a);", "f(not => !$a);", [2, 1, 0], [7, 7, 3, 4]),
+        (
+            "my $y = $c ? 1 : (or => 2);",
+            "my $y = $c ? 1 : (not => 2);",
+            [3, 2, 1],
+            [10, 11, 6, 6],
+        ),
+    ];
+    for (twin, key, decisions, halstead) in rows {
+        assert_eq!(
+            key.replace("not", "or"),
+            twin,
+            "`{key}` drifted from its twin"
+        );
+        let want = measure(twin);
+        assert_eq!(
+            want,
+            (decisions, halstead),
+            "`{twin}` moved; re-derive the row"
+        );
+        assert_eq!(measure(key), want, "`{key}` must score like `{twin}`");
+    }
+}
+
+/// A real `not` keeps scoring as `!` does, in all four metrics: alone,
+/// in a condition, applied to a list, as a call argument the negation
+/// proves boolean, ahead of a low-precedence `and`, and as the value of
+/// a `not` key, where the key's recovery node sits one level up. `not`
+/// and `!` are distinct operators, but each fixture spells only one of
+/// them, so the Halstead counts agree too.
+#[cfg(feature = "perl")]
+#[test]
+fn perl_not_operator_still_scores_like_bang() {
+    // `(bang_twin, not_operator, decisions, halstead)`.
+    let rows: [(&str, &str, Decisions, Halstead); 6] = [
+        ("!$a;", "not $a;", [2, 0, 0], [5, 5, 2, 2]),
+        (
+            "if (!$a) { return 1; } return 0;",
+            "if (not $a) { return 1; } return 0;",
+            [3, 1, 1],
+            [8, 11, 4, 4],
+        ),
+        ("!($a);", "not($a);", [2, 0, 0], [6, 6, 2, 2]),
+        ("f(!$a);", "f(not $a);", [2, 1, 0], [6, 6, 2, 3]),
+        (
+            "return (!$a && $b);",
+            "return (not $a and $b);",
+            [3, 2, 1],
+            [8, 9, 3, 3],
+        ),
+        (
+            "my %h = (or => !$a); return 1;",
+            "my %h = (not => not $a); return 1;",
+            [2, 0, 0],
+            [10, 11, 5, 5],
+        ),
+    ];
+    for (twin, operator, decisions, halstead) in rows {
+        assert!(operator.contains("not"), "`{operator}` lost its `not`");
+        let want = measure(twin);
+        assert_eq!(
+            want,
+            (decisions, halstead),
+            "`{twin}` moved; re-derive the row"
+        );
+        assert_eq!(
+            measure(operator),
             want,
             "`{operator}` must score like `{twin}`"
         );

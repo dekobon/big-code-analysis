@@ -243,7 +243,7 @@ value = 51602.8394982239
 path = "big-code-analysis-ast/src/getter/perl.rs"
 qualified = "PerlCode::get_op_type"
 metric = "halstead.effort"
-value = 113405.25979564841
+value = 120979.88227622502
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/php.rs"

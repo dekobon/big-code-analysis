@@ -2,7 +2,7 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
-use crate::lang_helpers::perl::perl_and_is_operator;
+use crate::lang_helpers::perl::{perl_and_is_operator, perl_not_is_key};
 
 impl Getter for PerlCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
@@ -47,6 +47,15 @@ impl Getter for PerlCode {
                 if !ancestors
                     .parent(node)
                     .is_some_and(|parent| perl_and_is_operator(node, &parent)) =>
+            {
+                TokenRole::Operand
+            }
+            // FIXME(#1541 upstream): the same for an auto-quoted `not`
+            // key (`$h{not}`, `(not => 1)`); see `perl_not_is_key`.
+            P::Not
+                if ancestors
+                    .parent(node)
+                    .is_some_and(|parent| perl_not_is_key(node, &parent)) =>
             {
                 TokenRole::Operand
             }
