@@ -9,7 +9,7 @@
 # rather than a census of every scanned file (#1192 made the
 # scan recursive, which would otherwise have added 126 zeroes).
 
-src/metrics/abc.rs 27
+src/metrics/abc.rs 26
 src/metrics/cyclomatic.rs 1
 src/metrics/npa.rs 12
 src/metrics/npm.rs 23

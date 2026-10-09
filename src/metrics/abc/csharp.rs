@@ -166,7 +166,21 @@ fn csharp_count_negated_slot(slot: Option<Node>, conditions: &mut f64) {
 
 // Each argument of a call is a negated operand.
 fn csharp_count_arguments(arguments: &Node, conditions: &mut f64) {
-    count_each_operand(arguments, csharp_count_negated, conditions);
+    count_each_operand(arguments, csharp_count_argument, conditions);
+}
+
+// tree-sitter-c-sharp wraps every argument in an `argument` node —
+// `seq(optional(seq(field('name', …), ':')), optional('ref' | 'out' |
+// 'in'), expression | declaration_expression)` — so the value is its
+// last operand, after any named-argument label (`name: !a`) or
+// passing-mode keyword. Handing the wrapper itself to the peel scored
+// every argument zero, `G(!a)` included (#1537). The value is located
+// by role rather than by index because both prefixes are optional
+// (grammar-dispatch §3).
+fn csharp_count_argument(argument: &Node, conditions: &mut f64) {
+    if let Some(value) = last_operand(argument) {
+        csharp_count_negated(&value, conditions);
+    }
 }
 
 // ABC token-level helpers for C#. Mirror of Java's helper layout with
@@ -629,13 +643,11 @@ fn csharp_walk_for_conditions<'a>(
                 count_field_operands(&chain, csharp_count_condition, conds);
             }
         }
-        // `compute` returns as soon as `csharp_count_token_branch` fires,
-        // so since #1406 an `argument_list` under a `base_list` no longer
-        // reaches this arm. Measured harmless: the arm is dead for *every*
-        // argument list, because an `argument_list`'s children are
-        // `argument` wrappers that `csharp_wrapper_operand` declines —
-        // `Helper(!b)` and `Helper((b))` both score zero conditions today.
-        // Repairing it means revisiting that exclusion, not just this arm.
+        // Every `argument_list` but the one a `base_list` holds directly:
+        // that one is itself the branch, so `compute` scores its
+        // arguments on the branch path instead. A `bracketed_argument_list`
+        // (an indexer, `o[!a]`) is a distinct kind and is not walked, as
+        // Java's array index is not.
         ArgumentList => csharp_count_arguments(node, conds),
         // tree-sitter-c-sharp spells the parens of `if` / `while` /
         // `do … while` as anonymous tokens, NOT a wrapping
@@ -743,6 +755,14 @@ impl Abc for CsharpCode {
             return;
         }
         if csharp_count_token_branch(node, ancestors, stats) {
+            // `class S(bool a) : Base(!a)`: the `argument_list` under the
+            // `base_list` is the branch node itself, so the walk below
+            // never sees it. The record spelling nests its list inside a
+            // `primary_constructor_base_type` and reaches the walk, so
+            // without this the two spellings of one base call disagree.
+            if node.kind_id() == Csharp::ArgumentList {
+                csharp_count_arguments(node, &mut stats.conditions);
+            }
             return;
         }
         if csharp_count_token_condition(node, ancestors, stats) {

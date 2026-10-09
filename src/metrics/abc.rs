@@ -617,7 +617,9 @@ mod tests {
     #[cfg(any(
         feature = "c",
         feature = "cpp",
+        feature = "csharp",
         feature = "go",
+        feature = "java",
         feature = "javascript",
         feature = "mozcpp",
         feature = "mozjs",
@@ -3306,8 +3308,83 @@ mod tests {
                 void F(bool a, bool b, bool c) {}
             }",
             "foo.cs",
-            |metric| insta::assert_json_snapshot!(metric.abc),
+            |metric| {
+                // expected: `==` +1, `<` +1, and the negated argument
+                // `!x.Equals(y)` +1 — it scored 0 until #1537, when every
+                // C# argument reached the peel still in its `argument`
+                // wrapper.
+                assert_eq!(metric.abc.conditions_sum(), 3);
+                insta::assert_json_snapshot!(metric.abc);
+            },
         );
+    }
+
+    // #1537: every C# argument is wrapped in an `argument` node that the
+    // negation peel declined, so a negated argument scored 0 where every
+    // other C-family language scores 1. Each row is a C# call next to its
+    // Java twin, which takes the expected value from outside the fix.
+    #[cfg(all(feature = "csharp", feature = "java"))]
+    #[test]
+    fn csharp_negated_call_argument_matches_java() {
+        let rows = [
+            ("G(!a);", "g(!a);", 1),
+            ("G((!a));", "g((!a));", 1),
+            ("G(!a, !b);", "g(!a, !b);", 2),
+            ("G(a, !b);", "g(a, !b);", 1),
+            ("new B(!a);", "new B(!a);", 1),
+            ("G(-a);", "g(-a);", 0),
+            // A negated comparison pays once, for its `>`; a chain pays
+            // per operand. Neither argument may pay again as a negation.
+            ("G(!(a > b));", "g(!(a > b));", 1),
+            ("G(!a && b);", "g(!a && b);", 2),
+        ];
+        for (csharp, java, expected) in rows {
+            let cs = abc_conditions(
+                LANG::Csharp,
+                &format!("class A {{ void M() {{ {csharp} }} }}"),
+            );
+            let jv = abc_conditions(LANG::Java, &format!("class A {{ void m() {{ {java} }} }}"));
+            assert_eq!(jv, expected, "Java twin `{java}`");
+            assert_eq!(cs, expected, "C# `{csharp}` against Java `{java}`");
+        }
+    }
+
+    // The C#-only spellings around an argument. The value is the
+    // `argument` wrapper's last operand, so a named-argument label, a
+    // passing-mode keyword or a comment before it must not hide it.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_negated_call_argument_spellings() {
+        let rows = [
+            // A named argument: the value follows `name` and `:`.
+            ("class A { void M() { G(name: !a); } }", 1),
+            // A comment between the label and the value sits inside the
+            // `argument` wrapper, so a positional read of the value lands
+            // on it. A comment before or after a whole argument is a
+            // sibling of the wrapper instead and never reaches this read.
+            ("class A { void M() { G(name: /*c*/ !a); } }", 1),
+            // `ref` / `out` / `in` precede a variable, never a negation. A
+            // control only: 0 is also what the pre-#1537 walk scored, so
+            // this row cannot fail for any defect the fix addresses.
+            ("class A { void M() { G(ref x, out var y, in z); } }", 0),
+            // The lambda arm pays for its `!a` body; the argument holding
+            // the lambda is not a negation and must not pay again.
+            ("class A { void M() { G(x => !a); } }", 1),
+            // `: base(!a)` — a `constructor_initializer`'s list reaches the
+            // walk like any call's.
+            ("class A : B { A(bool a) : base(!a) {} }", 1),
+            // The two primary-constructor base calls: the record nests its
+            // list in a `primary_constructor_base_type`, the class's list
+            // is the branch node itself and is scored on the branch path.
+            ("record R(bool a) : Base(!a);", 1),
+            ("class S(bool a) : Base(!a) {}", 1),
+            // An indexer's `bracketed_argument_list` is not a call, as
+            // Java's array index is not.
+            ("class A { void M() { var q = o[!a]; } }", 0),
+        ];
+        for (src, expected) in rows {
+            assert_eq!(abc_conditions(LANG::Csharp, src), expected, "{src}");
+        }
     }
 
     #[cfg(feature = "csharp")]
