@@ -14536,8 +14536,8 @@ end
     // reads what it read before. `bound_out` / `nbound` pin the gate on
     // `=~` / `!~` — the operator token scores, the pattern under it does
     // not — and `ctrl_out` is the `==` control the rest level with.
-    // `s///`, `tr///` and `qr//` are not matches and stay at 0; whether
-    // the first two should score by use is #1540.
+    // `s///`, `tr///` and `qr//` are not matches and stay at 0; the
+    // bound `s///` / `tr///` agree (#1540, the test below).
     #[cfg(feature = "perl")]
     #[test]
     fn perl_bare_match_is_a_condition_by_use() {
@@ -14591,6 +14591,81 @@ end
                         ("subst", 0, 1),
                         ("tr1", 0, 1),
                         ("qrx", 0, 1),
+                    ],
+                );
+            },
+        );
+    }
+
+    // A substitution or transliteration bound with `=~` / `!~` is the
+    // same edit as its bare form on `$_`, so it scores by use exactly as
+    // that twin does: 0 (#1540). Each `*_s` / `*_tr` / `*_y` row below
+    // was 1 through the operator token before the gate; `count` (an
+    // assigned count) and `sr` (a `/r` copy, a value) are uses too. A
+    // match keeps its 1 whatever spells it — a pattern, `qr//`, or a
+    // variable holding one. The `if_*` rows are the slot side: each pays
+    // once, as its bare twin `if_s` does, because
+    // `perl_condition_scores_itself` stops claiming a rewrite binding in
+    // the same change; `tern_s` and `neg_s` reach that predicate through
+    // a ternary condition and a `!`-proved `return` operand.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_bound_rewrite_scores_like_its_bare_twin() {
+        check_func_space::<PerlParser, _>(
+            "sub ctrl { my ($x) = @_; $x; return $x; }\n\
+             sub m_bare { my ($x) = @_; /re/; return $x; }\n\
+             sub m_bound { my ($x) = @_; $x =~ /re/; return $x; }\n\
+             sub m_nbound { my ($x) = @_; $x !~ /re/; return $x; }\n\
+             sub m_qr { my ($x) = @_; $x =~ qr/re/; return $x; }\n\
+             sub m_var { my ($x, $q) = @_; $x =~ $q; return $x; }\n\
+             sub s_bare { my ($x) = @_; s/a/b/; return $x; }\n\
+             sub s_bound { my ($x) = @_; $x =~ s/a/b/; return $x; }\n\
+             sub s_nbound { my ($x) = @_; $x !~ s/a/b/; return $x; }\n\
+             sub tr_bare { my ($x) = @_; tr/a/b/; return $x; }\n\
+             sub tr_bound { my ($x) = @_; $x =~ tr/a/b/; return $x; }\n\
+             sub tr_nbound { my ($x) = @_; $x !~ tr/a/b/; return $x; }\n\
+             sub y_bound { my ($x) = @_; $x =~ y/a/b/; return $x; }\n\
+             sub count { my ($x) = @_; my $n = ($x =~ s/a/b/g); return $x; }\n\
+             sub sr { my ($x) = @_; my $r = $x =~ s/a/b/r; return $r; }\n\
+             sub if_s { my ($x) = @_; if (s/a/b/) { g(); } return $x; }\n\
+             sub if_m { my ($x) = @_; if ($x =~ /re/) { g(); } return $x; }\n\
+             sub if_bs { my ($x) = @_; if ($x =~ s/a/b/) { g(); } return $x; }\n\
+             sub if_nbs { my ($x) = @_; if ($x !~ s/a/b/) { g(); } return $x; }\n\
+             sub if_btr { my ($x) = @_; if ($x =~ tr/a/b/) { g(); } return $x; }\n\
+             sub if_by { my ($x) = @_; if ($x =~ y/a/b/) { g(); } return $x; }\n\
+             sub if_bsr { my ($x) = @_; if ($x =~ s/a/b/r) { g(); } return $x; }\n\
+             sub tern_s { my ($x) = @_; return ($x =~ s/a/b/) ? 1 : 0; }\n\
+             sub neg_s { my ($x) = @_; return !($x =~ s/a/b/); }\n",
+            "foo.pl",
+            |space| {
+                assert_members_score(
+                    &space,
+                    &[
+                        ("ctrl", 0, 1),
+                        ("m_bare", 1, 1),
+                        ("m_bound", 1, 1),
+                        ("m_nbound", 1, 1),
+                        ("m_qr", 1, 1),
+                        ("m_var", 1, 1),
+                        ("s_bare", 0, 1),
+                        ("s_bound", 0, 1),
+                        ("s_nbound", 0, 1),
+                        ("tr_bare", 0, 1),
+                        ("tr_bound", 0, 1),
+                        ("tr_nbound", 0, 1),
+                        ("y_bound", 0, 1),
+                        ("count", 0, 1),
+                        ("sr", 0, 1),
+                        ("if_s", 1, 2),
+                        ("if_m", 1, 2),
+                        ("if_bs", 1, 2),
+                        ("if_nbs", 1, 2),
+                        ("if_btr", 1, 2),
+                        ("if_by", 1, 2),
+                        ("if_bsr", 1, 2),
+                        // The ternary node plus its condition slot.
+                        ("tern_s", 2, 2),
+                        ("neg_s", 1, 1),
                     ],
                 );
             },

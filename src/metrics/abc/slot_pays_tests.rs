@@ -1055,8 +1055,8 @@ fn perl_elsif_is_an_else_and_a_slot() {
 /// (all three spellings), an anonymous sub, and the array and hash
 /// variables in both their named and dereferencing forms. `@$b` was
 /// the case #1475 called the clearest defect, since `@a` scored and it
-/// did not. Each pays a slot; whether `s///` and `tr///` count outside
-/// one is a separate question (#1540), which this test does not settle.
+/// did not. Each pays a slot, the `=~` / `!~`-bound rewrites included:
+/// outside one they score nothing (#1540), so the slot is all they pay.
 #[test]
 #[cfg(feature = "perl")]
 fn perl_1475_constructs_pay_their_slot() {
@@ -1069,7 +1069,17 @@ fn perl_1475_constructs_pay_their_slot() {
         ],
         "$b",
         &[
-            "s/x/y/", "tr/a/b/", "y/a/b/", "sub {1}", "@a", "@$b", "%h", "%$h",
+            "s/x/y/",
+            "tr/a/b/",
+            "y/a/b/",
+            "$b =~ s/x/y/",
+            "$b !~ s/x/y/",
+            "$b =~ tr/a/b/",
+            "sub {1}",
+            "@a",
+            "@$b",
+            "%h",
+            "%$h",
         ],
     );
 }

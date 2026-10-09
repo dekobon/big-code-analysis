@@ -33,7 +33,8 @@ use crate::*;
 //   already contributed the branch.
 // - Conditions: numeric and string comparison operators (`==`, `!=`,
 //   `<`, `>`, `<=`, `>=`, `<=>`, `eq`, `ne`, `lt`, `gt`, `le`, `ge`,
-//   `cmp`, `=~`, `!~`), a bare `/re/` / `m{re}` match against `$_`,
+//   `cmp`, and `=~` / `!~` binding a match rather than an `s///` /
+//   `tr///` edit), a bare `/re/` / `m{re}` match against `$_`,
 //   the ternary operator (`TernaryExpression`),
 //   and each `elsif` / `else` clause of an `if` / `unless`
 //   statement. Each condition slot pays one condition unless an arm
@@ -105,9 +106,10 @@ fn perl_condition_scores_itself(expr: &Node) -> bool {
         P::TernaryExpression | P::PatternMatcher | P::PatternMatcherM => true,
         P::BinaryExpression | P::UnaryExpression => {
             perl_is_logical_chain(expr)
-                || expr.children().any(|token| {
-                    matches!(
-                        token.kind_id().into(),
+                || expr.children().any(|token| match token.kind_id().into() {
+                    P::EQTILDE | P::BANGTILDE => !perl_binding_rewrites(expr),
+                    kind => matches!(
+                        kind,
                         P::EQEQ
                             | P::BANGEQ
                             | P::LT
@@ -122,13 +124,33 @@ fn perl_condition_scores_itself(expr: &Node) -> bool {
                             | P::Le
                             | P::Ge
                             | P::Cmp
-                            | P::EQTILDE
-                            | P::BANGTILDE
-                    )
+                    ),
                 })
         }
         _ => false,
     }
+}
+
+// Whether a `=~` / `!~` binding applies a substitution or transliteration
+// (`$x =~ s/a/b/`, `$x =~ tr/a/b/`, `$x =~ y/a/b/`) rather than a match.
+// Those edit `$x` and yield a count, so by use they are no test, exactly
+// as the bare `s///` / `tr///` on `$_` are not (#1540) — while a match
+// (`/re/`, `m{re}`, `qr//`, or a variable holding a pattern) is. A slot
+// still pays for a rewrite binding through `perl_count_condition`,
+// because this predicate also keeps `perl_condition_scores_itself` from
+// claiming it. The grammar names no `left` / `right` field on a
+// `binary_expression`, so the right operand is read as its last.
+//
+// `$x !~ s///r` and `$x !~ tr///r` parse the same way but are Perl
+// compile errors ("Using !~ with s///r doesn't make sense"); valid input
+// cannot tell how they score, so no test pins them (grammar-dispatch §6).
+fn perl_binding_rewrites(binding: &Node) -> bool {
+    last_operand(binding).is_some_and(|rhs| {
+        matches!(
+            rhs.kind_id().into(),
+            Perl::SubstitutionPatternS | Perl::TransliterationTrOrY
+        )
+    })
 }
 
 // Scores one boolean slot — an `if` / `elsif` / `unless` / `while` /
@@ -378,7 +400,8 @@ impl Abc for PerlCode {
         // grammar can hand us, neither being reasoning a reader must
         // do. Adding the guarded `<` / `>` arm for #1297 took the
         // count from 14 to 15, the statement-modifier arm for #1464
-        // to 16, and the bare-match arm for #1467 to 17; each arm is
+        // to 16, the bare-match arm for #1467 to 17, and the `=~` /
+        // `!~` rewrite gate for #1540 added one more; each arm is
         // independent and self-describing like every other, and there
         // is no semantic boundary to split this lookup on.
         use Perl as P;
@@ -453,9 +476,16 @@ impl Abc for PerlCode {
             | P::Le
             | P::Ge
             | P::Cmp
-            | P::EQTILDE
-            | P::BANGTILDE
             | P::ElseClause => {
+                stats.conditions += 1.;
+            }
+            // `=~` / `!~` bind a match, a test, or a rewrite, an edit
+            // that scores only in a slot (see `perl_binding_rewrites`).
+            P::EQTILDE | P::BANGTILDE
+                if !ancestors
+                    .parent(node)
+                    .is_some_and(|binding| perl_binding_rewrites(&binding)) =>
+            {
                 stats.conditions += 1.;
             }
             // Counts `<` / `>` only as the operator token of a
@@ -487,9 +517,9 @@ impl Abc for PerlCode {
             // `my $r = ($x =~ /^#/)`. `perl_condition_scores_itself`
             // lists it, or every slot would score it a second time.
             // `s///` and `tr///` stay out: they edit `$_` and yield a
-            // count. A slot still pays for either (#1475), but by use the
-            // bound `$x =~ s///` scores through `=~` and the bare form
-            // does not — the disagreement #1540 tracks.
+            // count, so by use they are no test. A slot still pays for
+            // either (#1475), and the bound `$x =~ s///` agrees with the
+            // bare form (#1540, `perl_binding_rewrites`).
             P::PatternMatcher | P::PatternMatcherM
                 if !perl_pattern_is_bound_or_delimiter(node, code, ancestors) =>
             {
