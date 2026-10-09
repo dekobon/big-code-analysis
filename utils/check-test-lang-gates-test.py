@@ -1541,6 +1541,89 @@ mod tests {
                 target.read_text(),
             )
 
+    def _fixture_root(self, directory: str, source: str) -> pathlib.Path:
+        root = pathlib.Path(directory)
+        (root / "src").mkdir()
+        (root / "big-code-analysis-ast" / "src").mkdir(parents=True)
+        (root / "big-code-analysis-ast" / "src" / "langs.rs").write_text(
+            LANGS_FIXTURE
+        )
+        (root / "src" / "fixture.rs").write_text(source)
+        return root
+
+    def test_fix_keeps_a_helpers_hand_written_feature(self) -> None:
+        """A marker names a need the derivation cannot see.
+
+        `--fix` replaced the helper's plain gate with the `any(…)` of the
+        needs it derives, dropping `typescript` — the glob-picked build the
+        marker exists for, and the #1528 `E0425` again — while the next
+        check called the marker stale. The feature now survives the
+        rewrite, and a hand-written feature still in an `any(…)` gate is
+        live, so the rewritten tree passes.
+        """
+        source = """#[cfg(test)]
+mod tests {
+    // test-lang-gates: hand-written(typescript) — a glob picks it
+    #[cfg(any(feature = "rust", feature = "typescript"))]
+    fn shared() {}
+
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_case() {
+        check_metrics::<RustParser>("fn f() {}", "f.rs", |m| {});
+        shared();
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_case() {
+        check_metrics::<PythonParser>("a = 1", "f.py", |m| {});
+        shared();
+    }
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = self._fixture_root(directory, source)
+            err = io.StringIO()
+            with contextlib.redirect_stdout(io.StringIO()):
+                with contextlib.redirect_stderr(err):
+                    self.assertEqual(gate.main(["--root", str(root)]), 1)
+                self.assertIn("fn shared\n      unguarded: python\n", err.getvalue())
+                with contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(gate.main(["--root", str(root), "--fix"]), 0)
+                    self.assertEqual(gate.main(["--root", str(root)]), 0)
+            self.assertIn(
+                "    // test-lang-gates: hand-written(typescript) — a glob picks it\n"
+                '    #[cfg(any(feature = "python", feature = "rust", '
+                'feature = "typescript"))]\n'
+                "    fn shared() {}\n",
+                (root / "src" / "fixture.rs").read_text(),
+            )
+
+    def test_fix_reports_what_it_cannot_repair(self) -> None:
+        """`--fix` repairs the unguarded direction only.
+
+        It printed `inserted 0 marker(s)` and exited 0 over a tree whose
+        over-gated test it cannot touch, so a `--fix` run read as clean.
+        It now ends with the full check's verdict.
+        """
+        source = """#[cfg(test)]
+mod tests {
+    #[cfg(all(feature = "rust", feature = "python"))]
+    #[test]
+    fn rust_only() {
+        check_metrics::<RustParser>("fn f() {}", "f.rs", |m| {});
+    }
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = self._fixture_root(directory, source)
+            err = io.StringIO()
+            with contextlib.redirect_stdout(io.StringIO()):
+                with contextlib.redirect_stderr(err):
+                    self.assertEqual(gate.main(["--root", str(root), "--fix"]), 1)
+            self.assertIn("gated on, but never uses: python", err.getvalue())
+
     def test_both_directions_are_reported_in_one_run(self) -> None:
         """They are independent defects in independent items.
 

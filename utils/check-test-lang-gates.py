@@ -1903,8 +1903,30 @@ def stale_markers(
     return [
         (item, stale)
         for item in items
-        if (stale := item.hand_written - over_declared(item, needs))
+        if (stale := item.hand_written - _still_load_bearing(item, needs))
     ]
+
+
+def _still_load_bearing(item: Item, needs: dict[int, frozenset[str]]) -> frozenset[str]:
+    """The hand-written features ``item``'s marker still has a reason for.
+
+    A test's `all(…)` gate requires each feature it names, so a marker is
+    live while its feature is over-declared. A helper's `any(…)` gate
+    requires none of its features on its own, so `over_declared` is
+    always empty there; for a non-test item the marker is live while the
+    feature is still in the item's own gate and the derivation has not
+    learnt to see it. The union check in `offenders` counts exactly those
+    features as needs, and calling them stale would leave a gate that no
+    edit satisfies (#1528).
+    """
+    if item.is_test_fn:
+        return over_declared(item, needs)
+    declared = " ".join(item.own_predicates)
+    return frozenset(
+        feature
+        for feature in item.hand_written
+        if feature not in needs[item.index] and f'"{feature}"' in declared
+    )
 
 
 def callers_by_callee(items: list[Item]) -> dict[int, list[int]]:
@@ -1975,8 +1997,16 @@ def stranded_by_callers(
     build; without the intersection the helper reads as stranded in all
     of them, and the `any(required)` marker `--fix` writes can never
     clear it. A real caller's languages are in ``required`` already,
-    since needs propagate over the same links — which is also why the
-    marker `--fix` writes always clears whatever this reports.
+    since needs propagate over the same links, so the `any(…)` marker
+    `--fix` writes clears whatever this reports — when it can replace the
+    helper's gate. A gate `--fix` must stack on instead (an `all(…)`, a
+    `not(…)`, a non-language atom) can still conjoin it away; the fix
+    loop then reports non-convergence rather than looping.
+
+    A helper whose body names no language has an empty ``required`` and
+    is never reported, even when its own gate excludes a caller's build
+    (`#[cfg(not(feature = "python"))]` called from a `python` test). No
+    marker could be derived for it, and the shape has no instance here.
     """
     stranded: set[str] = set()
     for index in callers.get(item.index, []):
@@ -2051,7 +2081,12 @@ def offenders(
             if pinned:
                 found.append((item, pinned))
                 continue
-            disabled = frozenset().union(*(disabled_closure(f) for f in required))
+            # A hand-written feature is a need the derivation cannot see (a
+            # language picked by a glob), so a build enabling only it is a
+            # build the item belongs in, not one it leaked into.
+            disabled = frozenset().union(
+                *(disabled_closure(f) for f in required | item.hand_written)
+            )
             if predicate is None or evaluate_predicate(predicate, disabled):
                 found.append((item, required))
                 continue
@@ -2159,6 +2194,22 @@ def apply_fixes(
             continue
         if not item.is_test_fn:
             _drop_widenable_gates(lines, item)
+            # The dropped gate may have carried a feature its marker says
+            # the derivation cannot see (a language picked by a glob).
+            # Rebuilding from `needs` alone would drop it and gate the
+            # helper out of that caller's build — the #1528 defect again.
+            if item.hand_written:
+                predicate = (
+                    _render(
+                        needed_features(items, item, needs) | item.hand_written,
+                        item.path,
+                        "any",
+                    )
+                    if _is_language_disjunction(predicate)
+                    else _combine_gates(
+                        [predicate, _render(item.hand_written, item.path, "any")]
+                    )
+                )
         lines[item.attr_line - 1 : item.attr_line - 1] = wrap_marker(
             predicate, item.indent
         )
@@ -2367,8 +2418,8 @@ def main(argv: list[str] | None = None) -> int:
         for _ in range(FIX_PASSES):
             pass_fixed = 0
             try:
-                per_pass = scan_tree(args.root, table).items()
-                for relative, items in per_pass:
+                per_file = scan_tree(args.root, table)
+                for relative, items in per_file.items():
                     needs = resolve_needs(items)
                     found = offenders(items, needs)
                     if found:
@@ -2388,7 +2439,11 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
         print(f"test-lang-gates: inserted {fixed} marker(s)")
-        return 0
+        # `--fix` repairs only the unguarded direction. Fall through to the
+        # full check, so a gate it cannot fix — too wide, or a stale
+        # hand-written marker — still fails the run rather than printing a
+        # count and exiting 0. The loop ended on a pass that wrote nothing,
+        # so that pass's scan is the tree as it now stands.
 
     checked = 0
     failures: list[tuple[str, Item, frozenset[str]]] = []
