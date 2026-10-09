@@ -396,8 +396,10 @@ impl Abc for PerlCode {
             // written (#1467) — `my $r = /^#/` levels with
             // `my $r = ($x =~ /^#/)`. `perl_condition_scores_itself`
             // lists it, or every slot would score it a second time.
-            // `s///` and `tr///` stay out: they edit
-            // `$_` and yield a count, a policy question left to #1475.
+            // `s///` and `tr///` stay out: they edit `$_` and yield a
+            // count. A slot still pays for either (#1475), but by use the
+            // bound `$x =~ s///` scores through `=~` and the bare form
+            // does not — the disagreement #1540 tracks.
             P::PatternMatcher | P::PatternMatcherM
                 if !perl_pattern_is_bound_or_delimiter(node, code, ancestors) =>
             {

@@ -41,6 +41,32 @@ fn assert_rows(lang: LANG, template: &str, rows: &[(&str, u64, u64)]) {
     }
 }
 
+/// Asserts each of #1475's constructs pays its `if` slot and its `&&`
+/// chain-operand slot exactly as the identifier `control` does: one
+/// condition and one decision in the `if`, two of each in the chain.
+/// The control row runs first, so a template that stopped measuring
+/// fails there rather than in every construct row.
+#[cfg(any(
+    feature = "csharp",
+    feature = "groovy",
+    feature = "perl",
+    feature = "ruby",
+    feature = "elixir"
+))]
+#[track_caller]
+fn assert_level_with_control(
+    lang: LANG,
+    [if_slot, chain_slot]: [&str; 2],
+    control: &str,
+    constructs: &[&str],
+) {
+    let predicates = || std::iter::once(control).chain(constructs.iter().copied());
+    let in_if: Vec<_> = predicates().map(|p| (p, 1, 1)).collect();
+    assert_rows(lang, if_slot, &in_if);
+    let in_chain: Vec<_> = predicates().map(|p| (p, 2, 2)).collect();
+    assert_rows(lang, chain_slot, &in_chain);
+}
+
 #[test]
 #[cfg(feature = "python")]
 fn python_slots_pay_for_any_predicate() {
@@ -179,6 +205,13 @@ fn assert_js_family_slots(lang: LANG) {
             ("!-b", 1, 0),
             ("!(b > 1)", 1, 0),
         ],
+    );
+    // A call argument is no slot either; the negation still counts,
+    // and `this` scores like an identifier there too (#1475).
+    assert_rows(
+        lang,
+        &function.replace(SLOT, "g(PRED);"),
+        &[("b", 0, 0), ("!b", 1, 0), ("!this", 1, 0)],
     );
 }
 
@@ -695,6 +728,31 @@ fn csharp_slots_pay_for_any_predicate() {
     );
 }
 
+/// The C# spellings #1475 measured at zero before #1526 made every slot
+/// pay: `default(bool)`, the `checked` wrapper (and its `unchecked`
+/// twin), an assignment whose value is a call, and an object creation
+/// converted to `bool` by a user-defined operator.
+#[test]
+#[cfg(feature = "csharp")]
+fn csharp_1475_constructs_pay_their_slot() {
+    let function = "class C { bool y; bool f(bool a, bool b) { PRED return a; } }";
+    assert_level_with_control(
+        LANG::Csharp,
+        [
+            &function.replace(SLOT, "if (PRED) { g(); }"),
+            &function.replace(SLOT, "if (a && (PRED)) { g(); }"),
+        ],
+        "b",
+        &[
+            "default(bool)",
+            "checked(b)",
+            "unchecked(b)",
+            "y = C()",
+            "new Wrapper()",
+        ],
+    );
+}
+
 /// PHP is truthy-valued, so every predicate is a decision. `??` is no
 /// condition token in PHP, so a slot holding one pays for it.
 #[test]
@@ -890,6 +948,24 @@ fn groovy_slots_pay_for_any_predicate() {
     );
 }
 
+/// #1475's Groovy rows: an object creation, which JS and PHP already
+/// counted, and a spread-dot navigation, whose list result is tested
+/// for emptiness.
+#[test]
+#[cfg(feature = "groovy")]
+fn groovy_1475_constructs_pay_their_slot() {
+    let function = "class C { def f(a, b) { PRED; return a } }\n";
+    assert_level_with_control(
+        LANG::Groovy,
+        [
+            &function.replace(SLOT, "if (PRED) { g() }"),
+            &function.replace(SLOT, "if (a && (PRED)) { g() }"),
+        ],
+        "b",
+        &["new Foo()", "a*.b"],
+    );
+}
+
 /// Perl is truthy-valued, so every predicate is a decision.
 #[test]
 #[cfg(feature = "perl")]
@@ -972,6 +1048,60 @@ fn perl_elsif_is_an_else_and_a_slot() {
         LANG::Perl,
         "sub f { my ($a, $b, $x) = @_; if ($a) { g(); } elsif (PRED) { g(); } }\n",
         &[("$b", 3, 2), ("-$x", 3, 2), ("$x > 1", 3, 2)],
+    );
+}
+
+/// #1475's Perl rows: the substitution and transliteration operators
+/// (all three spellings), an anonymous sub, and the array and hash
+/// variables in both their named and dereferencing forms. `@$b` was
+/// the case #1475 called the clearest defect, since `@a` scored and it
+/// did not. Each pays a slot; whether `s///` and `tr///` count outside
+/// one is a separate question (#1540), which this test does not settle.
+#[test]
+#[cfg(feature = "perl")]
+fn perl_1475_constructs_pay_their_slot() {
+    let function = "sub f { my ($a, $b, $h) = @_; my @a; my %h; PRED }\n";
+    assert_level_with_control(
+        LANG::Perl,
+        [
+            &function.replace(SLOT, "if (PRED) { g(); }"),
+            &function.replace(SLOT, "if ($a && (PRED)) { g(); }"),
+        ],
+        "$b",
+        &[
+            "s/x/y/", "tr/a/b/", "y/a/b/", "sub {1}", "@a", "@$b", "%h", "%$h",
+        ],
+    );
+}
+
+/// #1475's Ruby rows: both lambda spellings and a range.
+#[test]
+#[cfg(feature = "ruby")]
+fn ruby_1475_constructs_pay_their_slot() {
+    assert_level_with_control(
+        LANG::Ruby,
+        [
+            "def f(a, b)\n  if PRED\n    g\n  end\nend\n",
+            "def f(a, b)\n  if a && (PRED)\n    g\n  end\nend\n",
+        ],
+        "b",
+        &["lambda {}", "-> {}", "(1..2)"],
+    );
+}
+
+/// #1475's Elixir rows: an anonymous function and a function capture.
+#[test]
+#[cfg(feature = "elixir")]
+fn elixir_1475_constructs_pay_their_slot() {
+    let function = "defmodule M do\n  def f(a, b) do\n    PRED\n  end\nend\n";
+    assert_level_with_control(
+        LANG::Elixir,
+        [
+            &function.replace(SLOT, "if PRED do\n      g()\n    end"),
+            &function.replace(SLOT, "if a && (PRED) do\n      g()\n    end"),
+        ],
+        "b",
+        &["fn -> 1 end", "&f/1"],
     );
 }
 

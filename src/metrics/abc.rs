@@ -14451,7 +14451,7 @@ end
     // `=~` / `!~` — the operator token scores, the pattern under it does
     // not — and `ctrl_out` is the `==` control the rest level with.
     // `s///`, `tr///` and `qr//` are not matches and stay at 0; whether
-    // the first two should score is #1475.
+    // the first two should score by use is #1540.
     #[cfg(feature = "perl")]
     #[test]
     fn perl_bare_match_is_a_condition_by_use() {
@@ -18114,7 +18114,9 @@ mod perl_statement_modifier_parity {
 /// without naming a kind, by making every slot pay for an occupant no
 /// other arm counts; its rows here (#1469) pin that answer, because a
 /// kind `cpp_condition_scores_itself` wrongly claimed would drop a slot
-/// exactly as the missing terminal kind once did.
+/// exactly as the missing terminal kind once did. Its `true`, `false`
+/// and `null` rows are the exception to "measured short": the former
+/// set already named them, and they stay so the pin covers every kind.
 ///
 /// Three things each row pins that a conditions comparison alone
 /// cannot:
@@ -18341,15 +18343,14 @@ mod literal_bool_operands {
     ///   Objective-C's `nil`, `YES` and `NO` parse as plain identifiers,
     ///   so they need no row of their own.
     ///
-    /// Shapes that measured short and are deliberately absent, none of
-    /// them a literal: JavaScript's `this` and Groovy's
+    /// Shapes that measured short and are not rows here, none of them a
+    /// literal: JavaScript's `this` and Groovy's
     /// `object_creation_expression` (recorded in #1462); Perl's
     /// `s///` and `tr///` (operations on `$_` evaluating to a count),
-    /// `anonymous_function` and `array_dereference`; and Ruby's
-    /// `lambda`. Elixir's `anonymous_function` and `&f/1` capture were
-    /// on this list until #1527 moved its slots off a terminal-kind set,
-    /// after which every operand scores unless an operator already
-    /// counts it.
+    /// `anonymous_function` and `array_dereference`; Ruby's `lambda`;
+    /// and Elixir's `anonymous_function` and `&f/1` capture. Every one
+    /// pays its slot since #1526 (Elixir's since #1527), and
+    /// `slot_pays_tests` pins them against an identifier control (#1475).
     fn cases(lang: LANG) -> Option<Case> {
         Some(match lang {
             LANG::Javascript => (JS_SLOTS, "b", js_literals!(Javascript, String2), 7),

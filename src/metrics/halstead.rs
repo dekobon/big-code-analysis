@@ -3020,6 +3020,37 @@ mod tests {
         assert_ops_operands::<GroovyParser>(src, "foo.groovy", 3, vec!["greet", "name", "$name"]);
     }
 
+    // `Groovy::Identifier2` (141) is the grammar's external token
+    // `_gstring_dollar_path` — the `$a.b` path of a dollar interpolation —
+    // whose public symbol is `identifier`, so the parser reports it as
+    // the unsuffixed `Identifier` and never as 141 (#1475). That is why
+    // the operand arm lists `Identifier` but not `Identifier2`; if a
+    // grammar bump starts emitting 141, the dotted path drops out of N2
+    // with no error.
+    //
+    // expected: operands `greet`, `name` (param), `$name.b` (the whole
+    // path, one node) → n2 = 3, N2 = 3.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_gstring_dollar_path_is_the_public_identifier() {
+        let src = "def greet(name) {\n  return \"Hi $name.b\"\n}\n";
+        let parser = GroovyParser::new(src.as_bytes().to_vec(), &PathBuf::from("foo.groovy"), None);
+        assert!(
+            ast_has_kind_id(&parser, Groovy::GstringDollarInterpolation as u16),
+            "the fixture no longer spells a dollar interpolation",
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Groovy::Identifier2 as u16),
+            "the hidden `_gstring_dollar_path` token is now emitted as \
+             `Identifier2`; add it to the Groovy operand arm",
+        );
+        check_metrics::<GroovyParser>(src, "foo.groovy", |metric| {
+            assert_eq!(metric.halstead.unique_operands(), 3);
+            assert_eq!(metric.halstead.total_operands(), 3);
+        });
+        assert_ops_operands::<GroovyParser>(src, "foo.groovy", 3, vec!["greet", "name", "$name.b"]);
+    }
+
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_plain_string_still_operand() {
