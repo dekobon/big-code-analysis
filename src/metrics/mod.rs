@@ -4,7 +4,7 @@
 //! traits, and its `Stats` accumulator. See the crate-level docs for an
 //! overview of the metric suite.
 
-use crate::SpaceKind;
+use crate::{Node, SpaceKind};
 
 /// Assignment / Branch / Condition counts.
 pub mod abc;
@@ -103,6 +103,46 @@ mod cpp_alternative_tokens_tests;
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn average(sum: f64, count: usize) -> f64 {
     sum / count.max(1) as f64
+}
+
+/// How far the C++ `requires` clause or `requires` expression the walk
+/// is inside reaches, so `cyclomatic`, `cognitive` and `abc` can leave
+/// it unscored in `O(1)` per node.
+///
+/// A constraint is checked at compile time, and a requires-expression's
+/// requirements are never evaluated at all, so neither branches. The
+/// grammar parses `requires A<T> && B<T>` as a `constraint_conjunction`,
+/// which no metric arm matches, but `requires (A<T> && B<T>)` as an
+/// ordinary `binary_expression`. Asking each operator whether it sits in
+/// a clause by climbing to one made a long `&&` chain quadratic (#1533),
+/// so the answer is carried down the walk instead.
+///
+/// It is exact because the walk is pre-order: a clause is visited before
+/// its descendants, and every node visited after the clause starts
+/// before the clause's end byte if and only if it is a descendant. A
+/// nested clause ends within the outer one, so the outer reach already
+/// covers it. Each space keeps its own reach in its metric `Stats`;
+/// C++ lambdas open no space, so a lambda written in a constraint
+/// scores nothing either. Never serialized or merged: it is walk state.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ConstraintReach {
+    end_byte: usize,
+}
+
+impl ConstraintReach {
+    /// Whether `node` lies in a constraint, recording the reach of the
+    /// one `node` opens when `opens_constraint` says it is a
+    /// `requires_clause` or `requires_expression`.
+    #[inline]
+    pub(crate) fn covers(&mut self, node: &Node, opens_constraint: bool) -> bool {
+        if node.start_byte() < self.end_byte {
+            return true;
+        }
+        if opens_constraint {
+            self.end_byte = node.end_byte();
+        }
+        opens_constraint
+    }
 }
 
 /// Whether the object-oriented member metrics — `wmc`, `npm`, `npa` —

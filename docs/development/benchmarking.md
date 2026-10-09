@@ -152,6 +152,10 @@ Read it as follows.
 | `nom/deep-attribute-run` | Rust | depth | the same scan on the diagonal: depth and one attribute run together (#1446) | linear |
 | `nom/nested-cfg-predicate` | Rust | depth | the `cfg(...)` predicate classifier (#1105) | linear |
 | `halstead/wide-distinct-fn` | Rust | width | per-child work at the space-merge boundary (#1106) | linear |
+| `cyclomatic/cpp-plus-chain` | C++ | depth | shape control for the three rows below | linear |
+| `cyclomatic/cpp-and-chain` | C++ | depth | the `&&` / `||` applied-operator gate (#1533) | linear |
+| `cognitive/cpp-and-chain` | C++ | depth | the boolean-sequence arm on the same chain (#1533) | linear |
+| `abc/cpp-and-chain` | C++ | depth | ABC's chain arm on the same chain (#1533) | linear |
 
 Four of these were quadratic when the harness landed, and they shared
 one cause: `tree_sitter` stores no parent pointer, so `Node::parent`
@@ -340,6 +344,21 @@ patch — the only failing probe in that run, at 507.4 ms against
 45.6 ms on the 16 000-sibling cell. Do not harmonise the two width
 ladders; the shorter one cannot see this class.
 
+The three `*/cpp-and-chain` probes guard a climb that no earlier probe
+could see, because none of them is a C++ boolean chain (#1533). A
+parenthesised `requires (A<T> && B<T>)` parses as an ordinary
+`binary_expression`, and the first attempt to exclude it from
+cyclomatic, cognitive and ABC climbed from every `&&` to the enclosing
+`requires_clause`. In a left-nested `a && a && …` the operator at depth
+*k* has *k* chain ancestors, so the climb cost an 8 000-term chain 4.4 s
+against 0.06 s before it was reverted. With that climb reinstated behind
+a local patch the three probes fit 1.97, 1.97 and 1.95 —
+`cyclomatic/cpp-and-chain` reads 0.74 ms clean and 104.6 ms climbing at
+depth 4 000 — while `cyclomatic/cpp-plus-chain`, the same chain through
+`+`, holds at 0.92 and every other probe stays inside its bound. Each
+metric has its own probe because each reaches the chain through its own
+arm, and a climb added to one of them would leave the other two flat.
+
 Treat the linear bounds above as covering the walk's ancestor *chain*
 threading, not every `O(depth)` lookup in the crate.
 
@@ -437,7 +456,7 @@ a walk's chain bookkeeping, not just around a change to its cost. The
 [attribute-row]: https://github.com/dekobon/big-code-analysis/issues/1431
 [space-merge]: https://github.com/dekobon/big-code-analysis/issues/1106
 
-The ten control probes are what make the other readings mean
+The eleven control probes are what make the other readings mean
 something.
 
 - `nom/nested-while`, `nom/nested-fn` and `nom/nested-fn-rows` are
@@ -450,8 +469,8 @@ something.
   difference is the cost of `Loc`'s per-space row sets.
 - `loc/nested-while`, `cognitive/nested-while`,
   `nom/nested-declared-function`, `halstead/nested-paren`,
-  `abc/nested-block`, `cyclomatic/nested-and` and `loc/nested-fn` are
-  **shape** controls: each is the same nesting as the ancestor-walk
+  `abc/nested-block`, `cyclomatic/nested-and`, `cyclomatic/cpp-plus-chain`
+  and `loc/nested-fn` are **shape** controls: each is the same nesting as the ancestor-walk
   probe it sits next to, with the one node that triggers the walk
   removed. Before [#1084][parent-walk] each fitted near 1.0 where its
   counterpart fitted near 2.0, which is what attributed the quadratic

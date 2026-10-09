@@ -25,8 +25,12 @@ impl Cognitive for MozcppCode {
 
         // Macro expansion is not tracked; macros are treated as opaque tokens.
         let mut nesting = get_nesting_from_map(node, nesting_map);
+        // A requires clause scores nothing — see the Cpp twin (#1533).
+        let opens = matches!(node.kind_id().into(), RequiresClause | RequiresExpression);
+        let in_constraint = stats.constraint.covers(node, opens);
 
         match node.kind_id().into() {
+            _ if in_constraint => {}
             IfStatement if !Self::is_else_if(node, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
@@ -45,8 +49,9 @@ impl Cognitive for MozcppCode {
             GotoStatement | Else => {
                 increment_by_one(stats);
             }
-            // `and` / `or` keyed to `&&` / `||` — see the Cpp twin (#1522).
-            BinaryExpression2 => {
+            // `and` / `or` keyed to `&&` / `||`, and a fold one sequence —
+            // see the Cpp twin (#1522, #1533).
+            BinaryExpression2 | FoldExpression => {
                 compute_booleans_keyed(node, stats, |id| match id.into() {
                     AMPAMP | And => Some(AMPAMP as u16),
                     PIPEPIPE | Or => Some(PIPEPIPE as u16),

@@ -3219,8 +3219,10 @@ the known chain through `binary_expression` ancestors to look for a
 ancestor, so 8,000 terms took 4.4s in a debug build, and 0.09s once
 reverted. `make
 pre-commit` passed, no `bench-scaling` probe is a C++ boolean chain, and
-a timed review run caught it. The exclusion was reverted;
-doing it in linear time needs the clause recorded as walk state.
+a timed review run caught it. The exclusion was reverted, and came
+back in #1533 as walk state — the clause's end byte, recorded when the
+walk enters it — behind three `*/cpp-and-chain` probes that fit 1.97
+with the climb reinstated.
 
 ---
 

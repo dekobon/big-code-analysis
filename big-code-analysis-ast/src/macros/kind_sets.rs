@@ -70,9 +70,9 @@ macro_rules! csharp_var_declarator_kinds {
 // expression kinds whose evaluated value is implicitly boolean in an
 // `if` / `while` / `&&` / `||` operand slot for that language.
 //
-// Only Go and Kotlin still pay a slot through such a list. Every other
-// language's slot pays one condition unless an arm inside the predicate
-// already did (`count_boolean_slot` in `src/metrics/abc.rs`, #1526),
+// Only Go still pays a slot through such a list. Every other language's
+// slot pays one condition unless an arm inside the predicate already did
+// (`count_boolean_slot` in `src/metrics/abc.rs`, #1526; Kotlin #1533),
 // because each list kept missing kinds — `-x`, `x + 1`, `this`, `*p` —
 // that scored 0 against a cyclomatic decision of 1.
 //
@@ -88,8 +88,7 @@ macro_rules! csharp_var_declarator_kinds {
 // it, while the comparison token beside them scored in both. Each now
 // has an unconditional arm in its language's ABC `compute` and is
 // listed in neither place twice — which would score it twice
-// (`.claude/rules/grammar-dispatch.md` §5). The five affected sets say
-// which of their members moved.
+// (`.claude/rules/grammar-dispatch.md` §5).
 //
 // The line is the construct's *value*, not its type. A cast, a type
 // assertion and an `@available` query all yield something the slot
@@ -114,55 +113,5 @@ macro_rules! go_bool_terminal_kinds {
             | $crate::Go::SelectorExpression
             | $crate::Go::IndexExpression
             | $crate::Go::TypeAssertionExpression
-    };
-}
-
-// Terminal-bool operand kinds for Kotlin's ABC unary-conditional walker
-// (Fitzpatrick Rule 9; issue #557). tree-sitter-kotlin-ng parses `a &&
-// b` as a flat `binary_expression` with `&&` / `||` operator tokens, so
-// bare boolean operands surface as leaf expressions: `identifier` (which
-// also covers the `true` / `false` keyword literals — the grammar emits
-// them as `identifier`, verified by AST dump), `call_expression`
-// (`ready()`), `navigation_expression` (`o.flag`), `index_expression`
-// (`arr[0]`), and `this_expression`. Comparison operands (`x > 0`) are
-// themselves `binary_expression` nodes, so they are absent from this set
-// and contribute nothing — matching the paper's "only unary conditions".
-//
-// `infix_expression` is a call to an infix function, and Kotlin spells
-// boolean `and` / `or` / `xor` that way — `a and b` is `a.and(b)`. It
-// belongs here for the same reason `call_expression` does, and its
-// absence was a regression of #1421 rather than a pre-existing gap: the
-// blanket per-entry count that fix removed had been covering it, so
-// `when { a and b -> … }` fell from one condition to zero while the
-// `if (a and b)` it is supposed to agree with still scored one. The set
-// does not discriminate on return type — `f()` counts in a boolean slot
-// whatever it returns — so a non-boolean infix call in a boolean slot is
-// out of scope here for the same reason.
-//
-// `is_expression` (`a is String`, `a !is String`) and `in_expression`
-// (`a in 1..2`, `a !in 1..2`) are the two relational forms the grammar
-// spells as their own production rather than as a `binary_expression`,
-// so the comparison-token arms never see them. #1421 added them here
-// and #1461 moved them to an unconditional arm in
-// `src/metrics/abc/kotlin.rs`, slot-scoping having scored
-// `val b = a is String` zero beside `val b = a == c`'s one — see the
-// operands-not-operators note on the Phase-2 block below.
-//
-// Nothing else in the Kotlin impl counts either, and the node is the
-// half to count rather than the token: `!is` / `!in` are their own
-// spellings of the same production, and a bare `in` token is also the
-// `for (x in xs)` header's. `bca dump` confirms a subject-ful `when`
-// arm spells its patterns `range_test` / `type_test` rather than these
-// two, so the entry's own count and this arm never both fire (§5).
-#[macro_export]
-#[doc(hidden)]
-macro_rules! kotlin_bool_terminal_kinds {
-    () => {
-        $crate::Kotlin::Identifier
-            | $crate::Kotlin::CallExpression
-            | $crate::Kotlin::NavigationExpression
-            | $crate::Kotlin::IndexExpression
-            | $crate::Kotlin::ThisExpression
-            | $crate::Kotlin::InfixExpression
     };
 }

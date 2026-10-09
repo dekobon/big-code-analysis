@@ -25,14 +25,20 @@ use super::*;
 // disjunction (`requires A<T> && B<T>`), which are compile-time
 // constraint checks, not runtime branches; each scored a decision
 // (#1525). `cpp_operator_is_applied` admits only a `binary_expression`
-// and a fold's operator. A compile-time expression the grammar parses
-// as `binary_expression` (`static_assert`, `noexcept(…)`, a template
-// argument, a concept body, a parenthesised `requires (A && B)`) still
-// counts, as `if constexpr` does and as cognitive scores it.
+// and a fold's operator.
+//
+// A requires clause or requires-expression scores no decision, however
+// it is written: the parenthesised `requires (A<T> && B<T>)` parses as
+// an ordinary `binary_expression`, and a requires-expression's
+// requirements are never evaluated (#1533). Any other compile-time
+// expression the grammar parses as `binary_expression` (`static_assert`,
+// `noexcept(…)`, a template argument, a concept body) still counts, as
+// `if constexpr` does and as cognitive scores it.
 impl_cyclomatic_c_family!(
     CppCode,
     Cpp,
     ConditionalExpression,
     [AMPAMP, PIPEPIPE, And, Or],
-    applied_if = cpp_operator_is_applied
+    applied_if = cpp_operator_is_applied,
+    constraints = [RequiresClause, RequiresExpression],
 );

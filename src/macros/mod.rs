@@ -144,6 +144,5 @@ pub(crate) use implement_metric_trait;
 // `crate::macros::<name>`.
 pub(crate) use big_code_analysis_ast::{
     csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds, csharp_var_decl_kinds,
-    csharp_var_declarator_kinds, go_bool_terminal_kinds, kotlin_bool_terminal_kinds,
-    with_any_parser,
+    csharp_var_declarator_kinds, go_bool_terminal_kinds, with_any_parser,
 };

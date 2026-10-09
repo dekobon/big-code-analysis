@@ -26,6 +26,7 @@ use std::fmt;
 use crate::checker::Checker;
 
 use crate::macros::implement_metric_trait;
+use crate::metrics::ConstraintReach;
 
 use crate::*;
 
@@ -151,6 +152,7 @@ pub struct Stats {
     conditions_min: f64,
     conditions_max: f64,
     space_count: usize,
+    constraint: ConstraintReach,
 }
 
 impl Default for Stats {
@@ -169,6 +171,7 @@ impl Default for Stats {
             conditions_min: f64::MAX,
             conditions_max: 0.,
             space_count: 1,
+            constraint: ConstraintReach::default(),
         }
     }
 }
@@ -4793,8 +4796,10 @@ mod tests {
     // binary fold `eq` 2 (one per spelling of its single operator).
     // `idiom` is the control — its `==` sits in a `binary_expression`
     // inside the fold and counts there, while the fold's own `&&` is not
-    // a comparison. `neg` is the same twice-spelled operator under the
-    // `||` chain arm: its `!a` operand scored once per spelling, 2.
+    // a comparison: it scores what its twin `(a == 0) && (a == 0)` does,
+    // 2 (#1533). `neg` is the same twice-spelled operator under the `||`
+    // chain arm: it scores what `true || !a` does, 2, where walking the
+    // fold once per spelling would pay 4.
     //
     // The census also pins §2: every `binary_expression` here carries the
     // `BinaryExpression2` id and the pre-alias `BinaryExpression` is never
@@ -4826,7 +4831,7 @@ mod tests {
             ],
         );
         check_func_space::<P, _>(src, "foo.cpp", |space| {
-            for (name, want) in [("lt", 1), ("le", 1), ("eq", 1), ("idiom", 1), ("neg", 1)] {
+            for (name, want) in [("lt", 1), ("le", 1), ("eq", 1), ("idiom", 2), ("neg", 2)] {
                 assert_eq!(
                     child_space(&space, name).metrics.abc.conditions(),
                     want,
@@ -6641,6 +6646,12 @@ function f(int $a, int $b): int {
     // `Any`, and `(a as? Boolean)!!` back to a `Boolean`. The kind
     // anchors are what stop a later edit from trimming a spelling out
     // and turning its member into a silent copy of `bare`.
+    //
+    // Since #1533 the slot pays for any operand it cannot see a
+    // comparison or chain inside, so `bang`, `paren`, `cast` and `chain`
+    // score 1 with or without the peel. `bangCmp` and `castCmp` are what
+    // still need it: unpeeled, the wrapper pays as a value on top of the
+    // `>` it hides, and they read 2.
     #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_condition_slot_peels_null_assertions_and_casts() {
@@ -6656,6 +6667,8 @@ function f(int $a, int $b): int {
                 fun safe(a: Any): Int = when { (a as? Boolean)!! -> 1; else -> 0 }
                 fun cmt(a: Boolean): Int = when { ! /*c*/ a -> 1; else -> 0 }
                 fun iff(a: Boolean?): Int { if (a!!) { return 1 }; return 0 }
+                fun bangCmp(a: Int): Int = when { (a > 5)!! -> 1; else -> 0 }
+                fun castCmp(a: Int): Int = when { (a > 5) as Boolean -> 1; else -> 0 }
             }";
         assert_kotlin_class_members(
             src,
@@ -6663,13 +6676,14 @@ function f(int $a, int $b): int {
                 (Kotlin::WhenSubject as u16, 0, "`when` subjects"),
                 (
                     Kotlin::BANGBANG as u16,
-                    5,
-                    "the `!!` null assertions of `bang` / `paren` / `chain` / `safe` / `iff`",
+                    6,
+                    "the `!!` null assertions of `bang` / `paren` / `chain` / `safe` / `iff` / \
+                     `bangCmp`",
                 ),
                 (
                     Kotlin::AsExpression as u16,
-                    3,
-                    "the casts of `cast` / `chain` / `safe`",
+                    4,
+                    "the casts of `cast` / `chain` / `safe` / `castCmp`",
                 ),
                 (Kotlin::AsQMARK as u16, 1, "`safe`'s safe cast"),
                 (
@@ -6679,8 +6693,8 @@ function f(int $a, int $b): int {
                 ),
                 (
                     Kotlin::ParenthesizedExpression as u16,
-                    2,
-                    "the parenthesised operands of `paren` / `safe`",
+                    4,
+                    "the parenthesised operands of `paren` / `safe` / `bangCmp` / `castCmp`",
                 ),
             ],
             &[
@@ -6708,6 +6722,9 @@ function f(int $a, int $b): int {
                 ("cmt", 1, 2),
                 // The `if` slot, which has read 0 since #773.
                 ("iff", 1, 2),
+                // The `>` pays; the peel keeps the wrapper from paying too.
+                ("bangCmp", 1, 2),
+                ("castCmp", 1, 2),
             ],
         );
     }
@@ -6798,7 +6815,7 @@ function f(int $a, int $b): int {
     }
 
     // A subject-less condition reaches the slot through the same
-    // `kotlin_inspect_container` unwrapping an `if` predicate does, which
+    // `kotlin_wrapper_operand` peel an `if` predicate does, which
     // is what separates this design from suppressing the entry's
     // operator. `notted` and `paren` unwrap to a bare terminal and score
     // through the slot; `notCmp` and `parenCmp` unwrap to a
@@ -6807,11 +6824,11 @@ function f(int $a, int $b): int {
     // land on 1, which no blanket `+1` can produce for the second pair —
     // they read 2 before the fix.
     //
-    // `paren` is the member that reaches the `WhenEntry` seed added to
-    // `kotlin_inspect_container`'s boolean-context set; without it the
-    // parenthesised operand is not in a slot the walker calls boolean and
-    // `paren` drops to 0. `notted` cannot stand in for it — a `!`
-    // operator proves boolean content on its own.
+    // `paren` once reached the slot only through a `WhenEntry` seed in the
+    // retired walker's boolean-context set, and dropped to 0 without it.
+    // On the shared slot (#1533) it pins that a `when` entry peels a
+    // parenthesis as `if ((a))` does; `notted` cannot stand in for it,
+    // since a `!` is a wrapper of its own.
     #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_subjectless_when_condition_wrappers_count_once() {
@@ -6918,7 +6935,8 @@ function f(int $a, int $b): int {
     // specific: they are the call sites that prove it reaches the `if` /
     // `while` predicate slot too.
     //
-    // #1421 counted them through `kotlin_bool_terminal_kinds!()` and
+    // #1421 counted them through the former
+    // `kotlin_bool_terminal_kinds!()` and
     // #1461 moved them to an unconditional arm, which leaves every
     // number below unchanged — the slot no longer counts the test and
     // the arm does. `kotlin_is_and_in_score_outside_a_boolean_slot` is
@@ -6958,9 +6976,8 @@ function f(int $a, int $b): int {
 
     // Kotlin spells boolean `and` / `or` / `xor` as infix *functions*, so
     // `a and b` parses as `infix_expression` — not `binary_expression`,
-    // and not any token arm. It belongs in
-    // `kotlin_bool_terminal_kinds!()` for the same reason
-    // `call_expression` does: `a and b` is `a.and(b)`.
+    // and not any token arm. A slot pays for it for the same reason it
+    // pays for a `call_expression`: `a and b` is `a.and(b)`.
     //
     // This was a regression of #1421, not a pre-existing gap, and it is
     // the third shape the blanket per-entry count turned out to be
@@ -7275,57 +7292,60 @@ function f(int $a, int $b): int {
         );
     }
 
-    // `kotlin_inspect_container` has two callers, and #1459's fixture
-    // members all reach it through the *slot*
-    // (`kotlin_count_condition`). This is the other one: the `&&` / `||`
-    // walker, which routes any named non-terminal operand through the
-    // same peel. The two wrappers #1459 taught it therefore have a
+    // The wrapper peel has two callers, and #1459's fixture members all
+    // reach it through the *slot* (`kotlin_count_condition`). This is the
+    // other one: the `&&` / `||` walker (`kotlin_count_chain_operands`),
+    // which hands each operand to the same slot. The two wrappers #1459
+    // taught it therefore have a
     // second, structurally independent path into the count, and a
     // fixture covering only the slot leaves it untested
     // (`.claude/rules/grammar-dispatch.md` §11).
     //
-    // Each chain is one identifier plus one wrapped operand, so 2 is
-    // "the walker peeled the wrapper" and 1 is "it gave up on it" —
-    // which is what both lines scored before #1459. The bare `a && b`
-    // control is `kotlin_unary_conditions_in_chain`'s shape at 2, so a
-    // regression cannot be read as the chain itself changing.
+    // Each chain is one identifier plus one wrapped comparison, so 2 is
+    // "the walker peeled the wrapper to the comparison, which pays for
+    // itself" and 3 is "it paid the wrapper as a value as well". Since
+    // the slot pays for any operand it cannot see a comparison inside
+    // (#1533), a wrapped bare identifier scores 2 either way, so only a
+    // wrapped comparison tells the peel from its absence. The bare
+    // `a && b` control is `kotlin_unary_conditions_in_chain`'s shape at
+    // 2, so a regression cannot be read as the chain itself changing.
     #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_chain_operands_peel_null_assertions_and_casts() {
         // Anchored per row, because the assertion alone cannot tell the
-        // wrapper from its operand: `a && b` scores the same 2 / 3 as
+        // wrapper from its operand: `a && x > 1` scores the same 2 / 3 as
         // every row here, so trimming the `!!` or the cast out of a
         // fixture would leave this green with its subject gone
         // (`.claude/rules/testing.md`, "Perturb the fixture as well as
         // the production line").
         for (chain, spelling, anchors) in [
             (
-                "a && b!!",
+                "a && (x > 1)!!",
                 "null assertion",
                 &[(Kotlin::BANGBANG as u16, 1usize, "the `!!`")][..],
             ),
             (
-                "a && b as Boolean",
+                "a && (x > 1) as Boolean",
                 "cast",
                 &[(Kotlin::AsExpression as u16, 1, "the `as` cast")][..],
             ),
             (
-                "a && (b!!)",
+                "a && ((x > 1)!!)",
                 "parenthesised null assertion",
                 &[
                     (Kotlin::BANGBANG as u16, 1, "the `!!`"),
-                    (Kotlin::ParenthesizedExpression as u16, 1, "the parens"),
+                    (Kotlin::ParenthesizedExpression as u16, 2, "the parens"),
                 ][..],
             ),
         ] {
-            let src = format!("fun f(a: Boolean, b: Any) {{ if ({chain}) {{ println(\"x\") }} }}");
+            let src = format!("fun f(a: Boolean, x: Int) {{ if ({chain}) {{ println(\"x\") }} }}");
             assert_fixture_spells::<KotlinParser>(&src, "foo.kt", anchors);
             check_func_space::<KotlinParser, _>(&src, "foo.kt", |space| {
                 let f = child_space(&space, "f");
                 assert_eq!(
                     f.metrics.abc.conditions(),
                     2,
-                    "`{chain}`: the identifier plus the {spelling} operand"
+                    "`{chain}`: the identifier plus the comparison under the {spelling}"
                 );
                 assert_eq!(f.metrics.cyclomatic.cyclomatic(), 3, "`{chain}`: decisions");
             });
@@ -7413,7 +7433,7 @@ function f(int $a, int $b): int {
     #[test]
     fn kotlin_parenthesised_bare_predicate_is_one_condition() {
         // A parenthesised bare predicate (`if ((flag))`) is unwrapped by
-        // `kotlin_inspect_container` and still counts one condition (#773).
+        // `kotlin_wrapper_operand` and still counts one condition (#773).
         // expected: 1.
         check_metrics::<KotlinParser>(
             "fun m(flag: Boolean) { if ((flag)) { println(\"x\") } }",

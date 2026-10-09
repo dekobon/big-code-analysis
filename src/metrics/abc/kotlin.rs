@@ -9,8 +9,7 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, wrapped_operand};
-use crate::macros::kotlin_bool_terminal_kinds;
+use super::{Abc, Stats, count_boolean_slot, wrapped_operand};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Kotlin syntax. Kotlin shares the
@@ -121,115 +120,73 @@ fn kotlin_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     }
 }
 
-// Kotlin ABC unary-conditional walker (Fitzpatrick Rule 9; issue #557).
-// tree-sitter-kotlin-ng parses `a && b || c` as a left-nested chain of
-// flat `binary_expression` nodes carrying `&&` / `||` operator tokens,
-// the same shape as the Java template. Negation surfaces as a
-// `unary_expression` whose `operator` field is the `!` token; the
-// condition slot may also be wrapped in `parenthesized_expression`, a
-// postfix `!!` null assertion, or an `as` cast. All are unwrapped by
-// `kotlin_inspect_container` to reach the inner bare operand, and they
-// chain: `(a!! as Boolean)` peels three wrappers to one `identifier`.
-fn kotlin_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
+// Whether an arm of `compute` already charges `expr` (already peeled) as
+// a condition: a comparison, an elvis `?:` or an `&&` / `||` chain
+// (their operator tokens, a chain's operands each paying through
+// `kotlin_count_condition`), an `is` / `in` test, a safe cast `as?`, an
+// `if` expression (its `else`), a `try` (its `try` and `catch`), or a
+// `when` with an entry other than `else ->`, each of which pays.
+//
+// A `when` of nothing but `else ->` charges nothing, so the slot holding
+// it pays: `if (when (a) { else -> true })` scored zero against the
+// `if`'s decision while the slot paid only for a fixed list of terminal
+// kinds, the rule every other C-like language left with #1526 (#1533).
+const KOTLIN_SELF_SCORING_OPERATORS: [Kotlin; 11] = [
+    Kotlin::LT,
+    Kotlin::GT,
+    Kotlin::LTEQ,
+    Kotlin::GTEQ,
+    Kotlin::EQEQ,
+    Kotlin::EQEQEQ,
+    Kotlin::BANGEQ,
+    Kotlin::BANGEQEQ,
+    Kotlin::QMARKCOLON,
+    Kotlin::AMPAMP,
+    Kotlin::PIPEPIPE,
+];
+
+fn kotlin_condition_scores_itself(expr: &Node) -> bool {
     use Kotlin::*;
 
-    let mut node = *container_node;
-    // A parenthesised / negated operand only contributes when it sits in
-    // a boolean-evaluating slot. The chain wrapper (`binary_expression`)
-    // and the control-flow headers all qualify; a `!`-operator anywhere
-    // also proves the operand is boolean (`if (!x)`). `WhenEntry` joined
-    // the list with #1421: a subject-less `when` arm's condition is an
-    // ordinary boolean expression, so `when { (a) -> … }` is the same
-    // slot as `if ((a))`.
-    let mut has_boolean_content = matches!(
-        parent.kind_id().into(),
-        BinaryExpression
-            | IfExpression
-            | WhileStatement
-            | DoWhileStatement
-            | ForStatement
-            | WhenEntry
+    match expr.kind_id().into() {
+        IfExpression | TryExpression | IsExpression | InExpression => true,
+        AsExpression => expr.is_child(AsQMARK as u16),
+        BinaryExpression => expr
+            .child_by_field_name("operator")
+            .is_some_and(|op| KOTLIN_SELF_SCORING_OPERATORS.contains(&op.kind_id().into())),
+        WhenExpression => expr.children().any(|entry| {
+            entry.kind_id() == WhenEntry as u16
+                && !crate::metrics::cyclomatic::kotlin_when_entry_is_else(&entry)
+        }),
+        _ => false,
+    }
+}
+
+// Scores one boolean slot — an `if` / `while` / `do-while` condition, a
+// subject-less `when` entry's condition, an operand of an `&&` / `||`
+// chain (see `count_boolean_slot`). A wrapper — parentheses, `!`, `!!`,
+// `as` — is peeled to what it wraps, so `if ((a!! as Boolean))` pays
+// once, and a comparison or chain pays through its own arms instead.
+// Without the slot, idiomatic bare predicates reported 0 ABC conditions
+// against Kotlin's own cyclomatic decision (#773).
+fn kotlin_count_condition(condition: &Node, conditions: &mut f64) {
+    count_boolean_slot(
+        condition,
+        kotlin_wrapper_operand,
+        kotlin_condition_scores_itself,
+        conditions,
     );
-
-    while let Some((operand, proves_boolean)) = kotlin_wrapper_operand(&node) {
-        has_boolean_content |= proves_boolean;
-        node = operand;
-
-        if matches!(node.kind_id().into(), kotlin_bool_terminal_kinds!()) {
-            if has_boolean_content {
-                *conditions += 1.;
-            }
-            break;
-        }
-    }
 }
 
-// Counts each operand of a Kotlin `&&` / `||` chain that no token arm
-// already owns. Mirrors `java_count_unary_conditions`: a comparison
-// operand is a nested `binary_expression`, absent from
-// `kotlin_bool_terminal_kinds!()`, and contributes nothing here because
-// its operator token was counted directly; bare identifiers / calls /
-// member accesses each add one. An `is` / `in` operand is in the same
-// position as a comparison since #1461 — its own arm counts it, here or
-// anywhere. Inner chain links and `!` / paren wrappers are routed through
-// `kotlin_inspect_container`.
-fn kotlin_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
-    use Kotlin::*;
-
-    let list_kind = list_node.kind_id().into();
-    let mut cursor = list_node.cursor();
-
-    if cursor.goto_first_child() {
-        loop {
-            let node = cursor.node();
-            let node_kind = node.kind_id().into();
-
-            if matches!(node_kind, kotlin_bool_terminal_kinds!())
-                && matches!(list_kind, BinaryExpression)
-            {
-                *conditions += 1.;
-            } else if node.is_named() {
-                kotlin_inspect_container(&node, list_node, conditions);
-            }
-
-            if !cursor.goto_next_sibling() {
-                break;
-            }
-        }
-    }
-}
-
-// Count the bare-predicate condition of a Kotlin `if`/`while`/`do-while`
-// as one condition — Fitzpatrick's "unary conditional expression",
-// mirroring `ruby_count_condition` / `rust_count_condition`.
-// tree-sitter-kotlin-ng exposes the predicate via the `condition` field on
-// `if_expression`, `while_statement`, and `do_while_statement`, so the
-// field lookup is position-independent across all three forms. Since
-// #1421 it also scores a subject-less `when` entry's condition, which is
-// an `if` predicate in all but spelling. A bare terminal (`if (flag)`)
-// counts directly; an `is` / `in` test does not, since #1461 gave it an
-// arm of its own that fires here and outside a predicate alike. A
-// comparison or boolean chain (`if (a == b)`, `if (a && b)`) is a nested
-// `binary_expression` already counted by the comparison-token and
-// `&&`/`||` walker arms, so it adds
-// nothing here. A predicate wrapped in parentheses, a negation, a
-// postfix `!!` null assertion or an `as` cast (`if ((flag))`,
-// `if (!flag)`, `if (flag!!)`, `if (v as Boolean)`) is unwrapped by
-// `kotlin_inspect_container`. Without this
-// arm, idiomatic Kotlin bare predicates reported 0 ABC conditions while
-// Kotlin's own cyclomatic counted the decision, breaking the
-// conditions >= decisions invariant (#469/#473/#456/#696); issue #773.
-fn kotlin_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
-    if matches!(condition.kind_id().into(), kotlin_bool_terminal_kinds!()) {
-        *conditions += 1.;
-    } else if kotlin_wrapper_operand(condition).is_some() {
-        // Asking the peel itself which kinds it unwraps, rather than
-        // restating the list here. The two spelled the list separately
-        // until #1459, and that is how `unary_expression` came to be
-        // routed here while the peel handled only half of it — the slot
-        // read as covering a shape the peel dropped on the floor
-        // (`.claude/rules/grammar-dispatch.md` §7).
-        kotlin_inspect_container(condition, parent, conditions);
+// Fitzpatrick Rule 9 (#557): each operand of an `&&` / `||` chain is a
+// boolean slot. `a && b || c` is a left-nested chain of
+// `binary_expression`s, so an operand that is itself a chain is paid by
+// its own operator's visit. Read by field, so a comment beside the
+// operator does not pay.
+fn kotlin_count_chain_operands(chain: &Node, conditions: &mut f64) {
+    let operands = ["left", "right"].map(|field| chain.child_by_field_name(field));
+    for operand in operands.iter().flatten() {
+        kotlin_count_condition(operand, conditions);
     }
 }
 
@@ -304,7 +261,7 @@ fn kotlin_count_when_entry<'a>(
     if kotlin_enclosing_when_has_subject(entry, ancestors) {
         *conditions += 1.;
     } else if let Some(condition) = entry.child_by_field_name("condition") {
-        kotlin_count_condition(&condition, entry, conditions);
+        kotlin_count_condition(&condition, conditions);
     }
 }
 
@@ -477,7 +434,7 @@ impl Abc for KotlinCode {
             // by the token arms above — so no double-count (#773).
             IfExpression | WhileStatement | DoWhileStatement => {
                 if let Some(condition) = node.child_by_field_name("condition") {
-                    kotlin_count_condition(&condition, node, &mut stats.conditions);
+                    kotlin_count_condition(&condition, &mut stats.conditions);
                 }
             }
             // A `when` entry is a decision point except for the `else ->`
@@ -533,7 +490,7 @@ impl Abc for KotlinCode {
             // inspects the parent `binary_expression`.
             AMPAMP | PIPEPIPE => {
                 if let Some(parent) = ancestors.parent(node) {
-                    kotlin_count_unary_conditions(&parent, &mut stats.conditions);
+                    kotlin_count_chain_operands(&parent, &mut stats.conditions);
                 }
             }
             _ => {}

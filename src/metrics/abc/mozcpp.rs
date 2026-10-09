@@ -30,6 +30,10 @@ impl Abc for MozcppCode {
         // Mozilla-fork clone.
         use Mozcpp::*;
 
+        // A requires clause pays no condition — see the Cpp twin (#1533).
+        let opens = matches!(node.kind_id().into(), RequiresClause | RequiresExpression);
+        let in_constraint = stats.constraint.covers(node, opens);
+
         match node.kind_id().into() {
             // `assignment_expression` covers both plain `=` and every
             // compound form (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`,
@@ -71,6 +75,8 @@ impl Abc for MozcppCode {
             CallExpression | CallExpression2 | NewExpression => {
                 stats.branches += 1.;
             }
+            // Only the A and B arms above apply in a constraint.
+            _ if in_constraint => {}
             // `else` opens an alternative branch path; `case`
             // (non-default) adds one per switch arm; `?` opens a
             // ternary; `try` / `catch` count per Fitzpatrick (and
@@ -101,8 +107,8 @@ impl Abc for MozcppCode {
             // `or` are the same operators spelled as ISO alternative
             // tokens, which the grammar gives kinds of their own.
             //
-            // Gated like the comparisons, so an unparenthesised
-            // requires-clause constraint and a binary fold's second
+            // Gated like the comparisons, so a `constraint_conjunction`
+            // and a binary fold's second
             // operator spelling score nothing; the derivation is on the
             // Cpp twin.
             AMPAMP | PIPEPIPE | And | Or if cpp_operator_is_applied(node, ancestors) => {

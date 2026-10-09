@@ -21,6 +21,7 @@ use std::fmt;
 
 use crate::checker::Checker;
 use crate::macros::implement_metric_trait;
+use crate::metrics::ConstraintReach;
 use crate::*;
 
 /// The `Cyclomatic` metric.
@@ -53,6 +54,7 @@ pub struct Stats {
     cyclomatic_modified: f64,
     cyclomatic_modified_max: f64,
     cyclomatic_modified_min: f64,
+    constraint: ConstraintReach,
 }
 
 impl Default for Stats {
@@ -67,6 +69,7 @@ impl Default for Stats {
             cyclomatic_modified: 1.,
             cyclomatic_modified_max: 0.,
             cyclomatic_modified_min: f64::MAX,
+            constraint: ConstraintReach::default(),
         }
     }
 }
@@ -302,13 +305,18 @@ where
 /// `applied_if = <fn(&Node, Ancestors) -> bool>` gates the short-circuit
 /// arm on the token's ancestry, for a grammar that spells the operator
 /// token in productions where it applies nothing (C++'s `int&& x`).
+///
+/// `constraints = [<kinds>]` names the nodes whose whole subtree scores
+/// no decision, tracked by [`ConstraintReach`] so the test is `O(1)` per
+/// node: C++'s compile-time `requires` clause and expression.
 macro_rules! impl_cyclomatic_c_family {
     (
         $code:ty,
         $lang:ident,
         $ternary:ident,
         [$($short_circuit:ident),+ $(,)?]
-        $(, applied_if = $applied:path)? $(,)?
+        $(, applied_if = $applied:path)?
+        $(, constraints = [$($constraint:ident),+ $(,)?])? $(,)?
     ) => {
         impl Cyclomatic for $code {
             fn compute<'a>(
@@ -318,6 +326,12 @@ macro_rules! impl_cyclomatic_c_family {
                 stats: &mut Stats,
             ) {
                 use $lang::*;
+                $(
+                    let opens = matches!(node.kind_id().into(), $($constraint)|+);
+                    if stats.constraint.covers(node, opens) {
+                        return;
+                    }
+                )?
                 match node.kind_id().into() {
                     Case => stats.cyclomatic += 1.,
                     SwitchStatement => stats.cyclomatic_modified += 1.,
@@ -351,9 +365,9 @@ macro_rules! impl_cyclomatic_c_family {
 ///
 /// It answers from the parent alone, so it stays O(1) per token. A
 /// parenthesised constraint (`requires (A<T> && B<T>)`) parses as an
-/// ordinary `binary_expression` and counts, like `static_assert`:
-/// telling it apart needs the enclosing `requires_clause`, and climbing
-/// to it from every token made a long `&&` chain quadratic.
+/// ordinary `binary_expression` and passes; the callers leave it out
+/// through [`ConstraintReach`], because climbing to the enclosing
+/// `requires_clause` from every token made a long `&&` chain quadratic.
 ///
 /// An allowlist, so a grammar bump adding a production fails closed and
 /// a token reparented under `{ERROR}` stops counting. Compared by kind
@@ -6490,7 +6504,7 @@ f() {
     /// exactly `decisions` more than `twin`, so the expected value comes
     /// from the twin rather than from the gate under test (#1525).
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
-    const CPP_SHORT_CIRCUIT_ROWS: [(&str, &str, usize, usize, u64); 30] = [
+    const CPP_SHORT_CIRCUIT_ROWS: [(&str, &str, usize, usize, u64); 38] = [
         // Reference declarators, one per production that spells `&&`.
         ("void f(int&& x) {}", "void f(int& x) {}", 0, 1, 0),
         ("void f(int&&) {}", "void f(int&) {}", 0, 1, 0),
@@ -6561,35 +6575,81 @@ f() {
             0,
         ),
         // Parenthesised, the same constraints parse as ordinary
-        // expressions and count like `static_assert(A && B)`: telling them
-        // apart needs the enclosing `requires_clause`, and climbing to it
-        // per token made long chains quadratic. A fold counts once.
+        // expressions, nested, negated or folded; a requires-expression's
+        // requirements are never evaluated, and a nested requirement is
+        // another clause. None branches, a lambda written in one included:
+        // C++ lambdas open no space of their own (#1533).
         (
             "template<class T> requires (A<T> && B<T>) void f() {}",
             "template<class T> requires (A<T>) void f() {}",
             0,
             1,
-            1,
+            0,
         ),
         (
             "template<class T> requires (A<T> && B<T>) && C<T> void f() {}",
             "template<class T> requires (A<T>) and C<T> void f() {}",
             0,
             2,
-            1,
+            0,
         ),
         (
             "template<class T> void f() requires (A<T> || (B<T> && C<T>)) {}",
             "template<class T> void f() requires (A<T> || (B<T>)) {}",
             0,
             1,
+            0,
+        ),
+        (
+            "template<class T> requires (!(A<T> && B<T>)) void f() {}",
+            "template<class T> requires (!(A<T> & B<T>)) void f() {}",
+            0,
             1,
+            0,
         ),
         (
             "template<class... T> requires (... && A<T>) void f() {}",
             "template<class... T> requires (A<T>) void f() {}",
             0,
             1,
+            0,
+        ),
+        (
+            "template<class T> requires requires(T a) { a && a; } void f() {}",
+            "template<class T> requires requires(T a) { a & a; } void f() {}",
+            0,
+            1,
+            0,
+        ),
+        (
+            "template<class T> concept C = requires(T a) { requires (A<T> && B<T>); a || a; };",
+            "template<class T> concept C = requires(T a) { requires (A<T> & B<T>); a | a; };",
+            0,
+            1,
+            0,
+        ),
+        (
+            "template<class T> requires ([] { return X<T> && Y<T>; }()) void f() {}",
+            "template<class T> requires ([] { return X<T> & Y<T>; }()) void f() {}",
+            0,
+            1,
+            0,
+        ),
+        // The clause ends where it ends: the body after it still counts,
+        // whichever side of the declarator the clause is written on, and
+        // when it starts on the clause's last byte.
+        (
+            "template<class T> bool f(int a) requires (A<T> && B<T>){ return a && a; }",
+            "template<class T> bool f(int a) requires (A<T> & B<T>){ return a & a; }",
+            0,
+            2,
+            1,
+        ),
+        (
+            "template<class T> requires (A<T> && B<T>) bool f(int a) { return a && a; }",
+            "template<class T> requires (A<T> & B<T>) bool f(int a) { return a & a; }",
+            0,
+            2,
             1,
         ),
         // Applied operators: one decision each.
@@ -6637,11 +6697,27 @@ f() {
             1,
         ),
         ("#if A && B\n#endif", "#if A & B\n#endif", 0, 1, 1),
-        // A compile-time `binary_expression` still counts, as
-        // `if constexpr` does.
+        // Any other compile-time `binary_expression` still counts, as
+        // `if constexpr` does: `static_assert` and a concept body.
+        // An operator written right against a requires-expression's
+        // closing brace starts on its end byte and lies outside it.
+        (
+            "void f() { static_assert(requires { a; }&& x); }",
+            "void f() { static_assert(requires { a; }& x); }",
+            0,
+            1,
+            1,
+        ),
         (
             "void f() { static_assert(A && B); }",
             "void f() { static_assert(A & B); }",
+            0,
+            1,
+            1,
+        ),
+        (
+            "template<class T> concept C = A<T> && B<T>;",
+            "template<class T> concept C = A<T> & B<T>;",
             0,
             1,
             1,

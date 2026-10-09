@@ -31,6 +31,7 @@ use crate::lang_helpers::elixir::{elixir_call_keyword, elixir_is_method_macro};
 use crate::lang_helpers::python::python_is_lambda;
 use crate::lang_helpers::tcl::tcl_command_name;
 use crate::macros::implement_metric_trait;
+use crate::metrics::ConstraintReach;
 use crate::*;
 
 // TODO: Find a way to increment the cognitive complexity value
@@ -53,6 +54,7 @@ pub struct Stats {
     nesting: usize,
     total_space_functions: usize,
     boolean_seq: BoolSequence,
+    constraint: ConstraintReach,
 }
 
 impl Default for Stats {
@@ -65,6 +67,7 @@ impl Default for Stats {
             nesting: 0,
             total_space_functions: 1,
             boolean_seq: BoolSequence::default(),
+            constraint: ConstraintReach::default(),
         }
     }
 }
@@ -11339,33 +11342,84 @@ end",
         );
     }
 
-    /// An unparenthesised requires-clause constraint is a
-    /// `constraint_conjunction` and starts no boolean sequence. A
-    /// parenthesised one parses as an ordinary `binary_expression` and
-    /// scores like the `static_assert` twin in `g`: excluding it would
-    /// need the enclosing `requires_clause`, and climbing to it per node
-    /// made long chains quadratic. So the file reads 0 + 1 + 1.
+    /// A fold applies its operator once, so it is one boolean sequence,
+    /// as cyclomatic counts it one decision: each scores what its spelled
+    /// twin does, binary folds and folds inside a chain included. Every
+    /// fold scored 0 (#1533).
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    fn assert_cpp_fold_scores_like_its_twin<P: MetricSuite>() {
+        for (fold, twin, want) in [
+            ("return (... && a);", "return a && a;", 1),
+            ("return (a || ...);", "return a || a;", 1),
+            ("return (true && ... && a);", "return true && a;", 1),
+            ("return (... and a) || b;", "return (a and a) || b;", 2),
+            ("return x && (... && a);", "return x && (a && a);", 1),
+            (
+                "if ((... || a)) { g(); } return 0;",
+                "if (a || a) { g(); } return 0;",
+                2,
+            ),
+            ("return (... == a);", "return a == a;", 0),
+        ] {
+            for body in [fold, twin] {
+                let src = format!("template <class... T> bool f(T... a) {{ {body} }}");
+                check_func_space::<P, _>(&src, "foo.cpp", |space| {
+                    assert_eq!(space.metrics.cognitive.cognitive_sum(), want, "{src}");
+                });
+            }
+        }
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_fold_scores_like_its_twin() {
+        assert_cpp_fold_scores_like_its_twin::<CppParser>();
+    }
+
+    /// Mozcpp owns no file extension; this pins its clone of the arm.
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_fold_scores_like_its_twin() {
+        assert_cpp_fold_scores_like_its_twin::<MozcppParser>();
+    }
+
+    /// A requires clause starts no boolean sequence and opens no nesting,
+    /// however it is written: unparenthesised it is a
+    /// `constraint_conjunction`, parenthesised an ordinary
+    /// `binary_expression`, and a requires-expression's requirements are
+    /// never evaluated (#1533). The twins that still count are the
+    /// `static_assert` in `g`, the concept body `C`, and the `&&` in
+    /// `h`'s body, which pins that the clause's reach ends where the
+    /// clause does. So the file reads 1 + 1 + 1, every `f` zero.
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const CPP_REQUIRES_FIXTURE: &str = "\
 template<class T> requires A<T> && B<T> void f1(T) {}
 template<class T> requires (A<T> && B<T>) void f2(T) {}
+template<class T> requires (!(A<T> || B<T>)) void f3(T) {}
+template<class... T> requires (... && A<T>) void f4(T...) {}
+template<class T> requires (A<T> && B<T>) && C<T> void f5(T) {}
+template<class T> requires (X ? A<T> : B<T>) void f6(T) {}
+template<class T> requires requires(T a) { a && a; } void f7(T) {}
+template<class T> requires ([] { return A<T> && B<T>; }()) void f8(T) {}
 template<class T> void g(T) { static_assert(A<T> && B<T>); }
+template<class T> concept C = A<T> && B<T>;
+template<class T> bool h(T a) requires (A<T> || B<T>) { return a && a; }
 ";
 
     #[cfg(feature = "cpp")]
     #[test]
-    fn cpp_requires_constraint_scores_as_parsed() {
+    fn cpp_requires_constraint_scores_nothing() {
         check_metrics::<CppParser>(CPP_REQUIRES_FIXTURE, "foo.cpp", |metric| {
-            assert_eq!(metric.cognitive.cognitive_sum(), 2);
+            assert_eq!(metric.cognitive.cognitive_sum(), 3);
         });
     }
 
     /// Mozcpp owns no file extension; this pins its clone of the arm.
     #[cfg(feature = "mozcpp")]
     #[test]
-    fn mozcpp_requires_constraint_scores_as_parsed() {
+    fn mozcpp_requires_constraint_scores_nothing() {
         check_metrics::<MozcppParser>(CPP_REQUIRES_FIXTURE, "foo.cpp", |metric| {
-            assert_eq!(metric.cognitive.cognitive_sum(), 2);
+            assert_eq!(metric.cognitive.cognitive_sum(), 3);
         });
     }
 }

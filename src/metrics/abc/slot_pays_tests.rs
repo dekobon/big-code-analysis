@@ -343,28 +343,67 @@ fn assert_cpp_slots(lang: LANG) {
     );
     // A fold over a comparison is counted by its operator, as
     // `cpp_operator_is_applied` decides; the slot must not pay again.
+    // A fold over `&&` / `||` applies its operator once, so it scores
+    // one application, each row level with the spelled twin below it —
+    // a unary fold's unwritten side is one more operand (#1533).
+    // `(... && a)` scored 1 in a slot and 0 in a `return`.
+    //
+    // `(predicate, conditions, decisions)` in a `return`; the `if` adds
+    // one decision and no condition.
+    let folds = [
+        ("(... == a)", 1, 0),
+        ("(a < ... < 0)", 1, 0),
+        ("(... && a)", 2, 1),
+        ("a && a", 2, 1),
+        ("(a || ...)", 2, 1),
+        ("a || a", 2, 1),
+        ("(true && ... && a)", 2, 1),
+        ("true && a", 2, 1),
+        ("(... && !a)", 2, 1),
+        ("!a && !a", 2, 1),
+        ("(0 || ... || !a)", 2, 1),
+        ("0 || !a", 2, 1),
+        ("(... && (a > 0))", 2, 1),
+        ("(a > 0) && (a > 0)", 2, 1),
+    ];
+    assert_rows(
+        lang,
+        "template <class... T> bool f(T... a) { return PRED; }",
+        &folds,
+    );
+    let in_slot: Vec<_> = folds.iter().map(|&(p, c, d)| (p, c, d + 1)).collect();
     assert_rows(
         lang,
         "template <class... T> bool f(T... a) { if (PRED) { g(); } return 0; }",
-        &[("(... == a)", 1, 1), ("(a < ... < 0)", 1, 1)],
+        &in_slot,
     );
-    // An unparenthesised requires-clause constraint is a
-    // `constraint_conjunction` and scores nothing. Parenthesised, it
-    // parses as an ordinary expression and scores like one, as
-    // `static_assert(A && B)` does: excluding it would need the enclosing
-    // `requires_clause`, and climbing to it from every token made long
-    // `&&` chains quadratic. The fold row is the gap #1533 tracks.
+    // A requires clause pays no condition however it is written:
+    // unparenthesised it is a `constraint_conjunction`, parenthesised an
+    // ordinary expression, and a requires-expression's requirements are
+    // never evaluated (#1533). Cyclomatic agrees in the second column.
+    let constraints = &[
+        ("A<T> && B<T>", 0, 0),
+        ("(A<T> && B<T>)", 0, 0),
+        ("(A<T> || (B<T> && C<T>))", 0, 0),
+        ("(!(A<T> && B<T>))", 0, 0),
+        ("(!A<T>)", 0, 0),
+        ("(... && A<T>)", 0, 0),
+        ("(sizeof(T) > 4)", 0, 0),
+        ("(X ? A<T> : B<T>)", 0, 0),
+        ("requires(T b) { b && b; }", 0, 0),
+    ];
     assert_rows(
         lang,
         "template <class T> void f(T a) requires PRED {}",
-        &[
-            ("A<T> && B<T>", 0, 0),
-            ("(A<T> && B<T>)", 2, 1),
-            ("(A<T> || (B<T> && C<T>))", 3, 2),
-            ("(!(A<T> && B<T>))", 2, 1),
-            ("(... && A<T>)", 0, 1),
-            ("(sizeof(T) > 4)", 1, 0),
-        ],
+        constraints,
+    );
+    // The clause's reach ends with it: the body that follows still
+    // scores its `a && a`, two conditions and one decision.
+    let with_body: Vec<_> = constraints.iter().map(|&(p, _, _)| (p, 2, 1)).collect();
+    assert_rows(
+        lang,
+        "template <class T> bool f(T a) requires PRED { return a && a; }",
+        &with_body,
     );
 }
 
@@ -526,6 +565,54 @@ fn java_slots_pay_for_any_predicate() {
         LANG::Java,
         &function.replace(SLOT, "g(PRED);"),
         &[("a & b", 0, 0), ("!(a & b)", 1, 0)],
+    );
+}
+
+/// Kotlin joined the shared slot in #1533. A `when` whose only entry is
+/// `else ->` charges nothing of its own, so the slot holding it pays: it
+/// scored 0 against the slot's decision. Its twin is `true`, the value
+/// such a `when` evaluates to. A `when` with any other entry, an `if`
+/// expression (its `else`), a `try` (its `try` / `catch`) and an elvis
+/// (its `?:`) each pay through their own arms, and the slot does not pay
+/// again; the infix `a and b` is an eager call, a value like `f()`.
+#[test]
+#[cfg(feature = "kotlin")]
+fn kotlin_slots_pay_for_any_predicate() {
+    let function = "fun f(a: Boolean, b: Boolean, x: Int, nb: Boolean?, o: Any) { PRED }";
+    let rows = &[
+        ("b", 1, 1),
+        ("true", 1, 1),
+        ("when (x) { else -> true }", 1, 1),
+        ("(when (x) { else -> true })", 1, 1),
+        ("!when (x) { else -> true }", 1, 1),
+        ("when (x) { 1 -> true else -> false }", 1, 2),
+        ("when { a -> true else -> false }", 1, 2),
+        ("if (a) b else false", 2, 2),
+        ("try { b } catch (e: Exception) { false }", 2, 2),
+        ("nb ?: false", 1, 2),
+        ("x > 1", 1, 1),
+        ("(x > 1)!!", 1, 1),
+        ("o is String", 1, 1),
+        ("o as? Boolean ?: false", 2, 2),
+        ("a && b", 2, 2),
+        ("a and b", 1, 1),
+        ("-x > 0", 1, 1),
+    ];
+    for slot in [
+        "if (PRED) { g() }",
+        "while (PRED) { g() }",
+        "do { g() } while (PRED)",
+        "when { PRED -> g() }",
+    ] {
+        assert_rows(LANG::Kotlin, &function.replace(SLOT, slot), rows);
+    }
+    // A chain operand is a slot too, beside the `&&`'s own decision and
+    // the `a` operand's condition.
+    let in_chain: Vec<_> = rows.iter().map(|&(p, c, d)| (p, c + 1, d + 1)).collect();
+    assert_rows(
+        LANG::Kotlin,
+        &function.replace(SLOT, "if (a && (PRED)) { g() }"),
+        &in_chain,
     );
 }
 

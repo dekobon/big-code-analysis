@@ -472,6 +472,31 @@ pub fn nested_arrows(depth: usize) -> String {
     )
 }
 
+/// C++: `bool f(bool a){ return a && a && … && a; }`.
+///
+/// `&&` is left-associative, so the chain parses as a left-nested
+/// `binary_expression` one level deeper per operand: the operator at
+/// depth *k* sits under *k* chain ancestors. A per-token question about
+/// what *encloses* the chain — "is this inside a `requires` clause?" —
+/// answered by climbing those ancestors is `O(depth)` per operator and
+/// `O(depth^2)` over the chain. That is the climb #1533 records, which
+/// cost an 8 000-term chain 4.4 s against 0.06 s.
+#[must_use]
+pub fn cpp_and_chain(depth: usize) -> String {
+    format!("bool f(bool a){{ return {}a; }}\n", "a && ".repeat(depth))
+}
+
+/// C++: `int f(int a){ return a + a + … + a; }`.
+///
+/// The shape control for [`cpp_and_chain`]: the same left-nested
+/// `binary_expression`, built from an operator no short-circuit arm
+/// matches, so a regression that moves the chain probes and not this
+/// one is in those arms rather than in walking a deep expression.
+#[must_use]
+pub fn cpp_plus_chain(depth: usize) -> String {
+    format!("int f(int a){{ return {}a; }}\n", "a + ".repeat(depth))
+}
+
 /// The walk a probe times.
 ///
 /// Two seams reach the AST walker — `Ast::metrics` and `Ast::ops` — and
@@ -1286,6 +1311,83 @@ pub const PROBES: &[Probe] = &[
                     507.4 ms. A depth probe cannot see it whatever it \
                     nests: the cost is per popped child, and a nesting \
                     shape has one child per space at every depth.",
+    },
+    Probe {
+        name: "cyclomatic/cpp-plus-chain",
+        lang: LANG::Cpp,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Cyclomatic],
+            reading: |m| m.cyclomatic.cyclomatic_sum(),
+        },
+        render: cpp_plus_chain,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "Shape control for the three `*/cpp-and-chain` probes: \
+                    the same left-nested chain through `+`, which no \
+                    short-circuit arm matches. The reading is the \
+                    function's base decision and the file's, 2 at every \
+                    depth; the scaling signal is the timing.",
+    },
+    Probe {
+        name: "cyclomatic/cpp-and-chain",
+        lang: LANG::Cpp,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Cyclomatic],
+            reading: |m| m.cyclomatic.cyclomatic_sum(),
+        },
+        render: cpp_and_chain,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1533: every C++ `&&` / `||` asks \
+                    `cpp_operator_is_applied` whether it applies the \
+                    operator. Asking whether the chain sits in a \
+                    `requires` clause by climbing to it costs the \
+                    chain's depth per operator, so 769319cb made a long \
+                    chain quadratic in all three metrics that ask. \
+                    Reinstating that climb takes this probe from 1.00 to \
+                    1.97 (0.74 ms to 104.6 ms at depth 4 000) and its two \
+                    `*/cpp-and-chain` siblings to 1.97 and 1.95, while \
+                    `cyclomatic/cpp-plus-chain`, the same chain without \
+                    the arm, holds at 0.92.",
+    },
+    Probe {
+        name: "cognitive/cpp-and-chain",
+        lang: LANG::Cpp,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Cognitive],
+            reading: |m| m.cognitive.cognitive_sum(),
+        },
+        render: cpp_and_chain,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1533: cognitive's boolean-sequence arm runs on every \
+                    `binary_expression` of the chain, so a per-node climb \
+                    to an enclosing `requires` clause is quadratic here \
+                    as it is for the operator tokens. The reading is the \
+                    one sequence the chain starts, 1 at every depth.",
+    },
+    Probe {
+        name: "abc/cpp-and-chain",
+        lang: LANG::Cpp,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Abc],
+            reading: |m| m.abc.conditions_sum(),
+        },
+        render: cpp_and_chain,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1533: ABC's `&&` / `||` arm shares \
+                    `cpp_operator_is_applied` with cyclomatic, so it \
+                    inherits any climb added there. The reading is the \
+                    chain's operand count.",
     },
 ];
 

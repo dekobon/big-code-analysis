@@ -25,8 +25,14 @@ impl Cognitive for CppCode {
 
         // Macro expansion is not tracked; macros are treated as opaque tokens.
         let mut nesting = get_nesting_from_map(node, nesting_map);
+        // A requires clause or requires-expression is compile-time and
+        // branches nothing, parenthesised or not, so nothing in one
+        // scores; cyclomatic and ABC agree (#1533).
+        let opens = matches!(node.kind_id().into(), RequiresClause | RequiresExpression);
+        let in_constraint = stats.constraint.covers(node, opens);
 
         match node.kind_id().into() {
+            _ if in_constraint => {}
             IfStatement if !Self::is_else_if(node, ancestors) => {
                 increase_nesting(stats, &mut nesting);
             }
@@ -49,8 +55,10 @@ impl Cognitive for CppCode {
             // `||` ([lex.digraph]) and get kinds of their own, so each is
             // keyed to its symbol: a chain that mixes the spellings of
             // one operator is one sequence, as it is when spelled alike
-            // (#1522).
-            BinaryExpression2 => {
+            // (#1522). A fold applies its operator once, so `(... && a)`
+            // is one sequence too, as cyclomatic counts it once (#1533);
+            // a binary fold's second spelling continues it.
+            BinaryExpression2 | FoldExpression => {
                 compute_booleans_keyed(node, stats, |id| match id.into() {
                     AMPAMP | And => Some(AMPAMP as u16),
                     PIPEPIPE | Or => Some(PIPEPIPE as u16),

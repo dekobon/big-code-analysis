@@ -74,11 +74,10 @@ const CPP_COMPARISONS: &[&str] = &["<", ">", "<=", ">=", "==", "!=", "not_eq", "
 
 // Whether an arm of the C-family `compute` impls already charges `expr`
 // (already peeled) as a condition: a ternary (its `?`), an applied
-// comparison — in a `binary_expression`, or as the operator of a C++
-// fold, which `cpp_operator_is_applied` counts too — or an `&&` / `||`
-// chain, whose operands each pay through `cpp_count_condition`. A fold
-// over `&&` / `||` is not one: its pack operand is no slot (see
-// `cpp_count_chain_operands`), so the slot holding it pays.
+// comparison, or an `&&` / `||` chain, whose operands each pay through
+// `cpp_count_condition`. A C++ fold over any of those operators is
+// charged by its `operator` field token as one application of it (see
+// `cpp_count_chain_operands`), so the slot holding it does not pay.
 fn cpp_condition_scores_itself(expr: &Node) -> bool {
     let operator_in = |accept: &[&str]| {
         expr.child_by_field_name("operator")
@@ -86,10 +85,9 @@ fn cpp_condition_scores_itself(expr: &Node) -> bool {
     };
     match expr.kind() {
         "conditional_expression" => true,
-        "binary_expression" => {
+        "binary_expression" | "fold_expression" => {
             operator_in(CPP_COMPARISONS) || operator_in(&["&&", "||", "and", "or"])
         }
-        "fold_expression" => operator_in(CPP_COMPARISONS),
         _ => false,
     }
 }
@@ -155,19 +153,37 @@ pub(super) fn cpp_count_arguments(list: &Node, conditions: &mut f64) {
 // its own operator's visit, and operands are read by field so a comment
 // beside the operator does not pay.
 //
-// A C++ fold (`(... && args)`) is the one other parent the operator
-// token has. Its operand is a pack, not a value, so it is no slot: only a
-// negated operand scores there, as it did before the chain walker read
-// fields (`cpp_count_arguments`).
+// A C++ fold is the one other parent an applied operator token has, and
+// it applies its operator once — cyclomatic counts it once — whatever
+// the pack's size. So it scores one application, as the comparison fold
+// `(... == a)` scores what `a == b` does (#1533): each written operand is
+// a slot, so `(true && ... && a)` scores what `true && a` does, and a
+// unary fold's unwritten side is one more operand, so `(... && a)` and
+// `(... && (a > 0))` score what `a && a` and `(a > 0) && (a > 0)` do.
+//
+// Nothing else applies the operator. The C and Objective-C `&&` arms are
+// ungated, but their grammars spell `&&` in no other production, so a
+// token reparented by error recovery reaches here and, as the gated C++
+// arms do, scores nothing.
 pub(super) fn cpp_count_chain_operands(chain: &Node, conditions: &mut f64) {
-    if chain.kind() != "binary_expression" {
-        cpp_count_arguments(chain, conditions);
-        return;
-    }
-    for field in ["left", "right"] {
-        if let Some(operand) = chain.child_by_field_name(field) {
-            cpp_count_condition(&operand, conditions);
+    match chain.kind() {
+        "binary_expression" => {
+            let operands = ["left", "right"].map(|field| chain.child_by_field_name(field));
+            for operand in operands.iter().flatten() {
+                cpp_count_condition(operand, conditions);
+            }
         }
+        "fold_expression" => {
+            let mut written = 0;
+            for operand in chain.children().filter(is_operand) {
+                cpp_count_condition(&operand, conditions);
+                written += 1;
+            }
+            if written == 1 {
+                *conditions += 1.;
+            }
+        }
+        _ => {}
     }
 }
 
@@ -224,6 +240,12 @@ impl Abc for CppCode {
         // across helpers with no semantic boundary to split on.
         use Cpp::*;
 
+        // A requires clause or requires-expression is compile-time and
+        // pays no condition, parenthesised or not; cyclomatic and
+        // cognitive agree (#1533).
+        let opens = matches!(node.kind_id().into(), RequiresClause | RequiresExpression);
+        let in_constraint = stats.constraint.covers(node, opens);
+
         match node.kind_id().into() {
             // `assignment_expression` covers both plain `=` and every
             // compound form (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`,
@@ -265,6 +287,10 @@ impl Abc for CppCode {
             CallExpression | CallExpression2 | NewExpression => {
                 stats.branches += 1.;
             }
+            // Inside a constraint only the A and B arms above apply: a
+            // call is still a branch, as it is in the unparenthesised
+            // `requires A<T> && (f<T>())` and in `static_assert`.
+            _ if in_constraint => {}
             // `else` opens an alternative branch path; `case`
             // (non-default) adds one per switch arm; `?` opens a
             // ternary; `try` / `catch` count per Fitzpatrick (and
@@ -328,11 +354,12 @@ impl Abc for CppCode {
             // `or` are the same operators spelled as ISO alternative
             // tokens, which the grammar gives kinds of their own.
             //
-            // The same applied-operator gate as cyclomatic: an
-            // unparenthesised requires-clause constraint scores nothing,
-            // and a binary fold `(0 || ... || !a)` spells its one
-            // operator twice, so only the `operator` field token walks
-            // the fold — the second spelling paid `!a` again.
+            // The same applied-operator gate as cyclomatic: a
+            // `constraint_conjunction` scores nothing (a parenthesised
+            // constraint never reaches here), and a binary fold
+            // `(0 || ... || !a)` spells its one operator twice, so only
+            // the `operator` field token walks the fold — the second
+            // spelling paid `!a` again.
             AMPAMP | PIPEPIPE | And | Or if cpp_operator_is_applied(node, ancestors) => {
                 if let Some(parent) = ancestors.parent(node) {
                     cpp_count_chain_operands(&parent, &mut stats.conditions);
