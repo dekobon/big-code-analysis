@@ -4399,6 +4399,63 @@ mod tests {
 
     #[cfg(feature = "perl")]
     #[test]
+    fn perl_comment_leader_is_not_an_operator_1549() {
+        // tree-sitter-perl emits a comment's leading `#` as a `#` token
+        // under `comments`, and the getter listed it as an operator, so
+        // every comment billed one `#` (#1549). The oracle is the same
+        // source with its comments deleted, which must score identically.
+        // `$#a` and `qw#…#` are kept to pin that dropping `#` leaves the
+        // distinct `$#` operator and the `qw` delimiters alone.
+        //
+        // expected: operators `sub`, `{}`, `my`, `=`, `;` × 2, `return`,
+        // `$#` × 2, `+` → n1 = 8, N1 = 10. Operands `f`, `@a`, `x`, `y`,
+        // `a` × 2 → n2 = 5, N2 = 6. Before the fix the commented row
+        // added `#` → n1 = 9, N1 = 13. Once excluded, a comment feeds no
+        // axis to anchor on, so only the revert run guards the fixture:
+        // keep its comments.
+        for (source, label) in [
+            (
+                "sub f {\n  # leading\n  my @a = qw#x y#; # tail\n  return $#a + $#a; # tail\n}\n",
+                "commented",
+            ),
+            (
+                "sub f {\n  my @a = qw#x y#;\n  return $#a + $#a;\n}\n",
+                "comment-free twin",
+            ),
+        ] {
+            assert_halstead_counts::<PerlParser>(source, "foo.pl", [8, 10, 5, 6], label);
+        }
+    }
+
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_bare_pattern_text_bills_no_operator_1549() {
+        // The bare `/…/` form keeps its pattern text in a
+        // `regex_pattern_content` that spells `#`, `[`, `]` and `\` as
+        // anonymous tokens, three of which an operator arm listed, so
+        // `/a#b[c]\#/` billed `#`, `[]` and `\` operators. `m//` and
+        // `qr//` emit no node for the same text, so they are the oracle:
+        // all three spellings must score as `/abc/` does in
+        // `perl_every_pattern_value_spelling_scores_alike`.
+        //
+        // expected per variant: operators `$` × 2, `=~` × 2, `and`, `;`
+        // → n1 = 4, N1 = 6; operands `$s` × 2 and the pattern × 2 →
+        // n2 = 2, N2 = 4. Before the fix the bare row scored n1 = 7,
+        // N1 = 14. The `#`, `[c]` and `\#` feed no axis once excluded,
+        // so nothing anchors them and only the revert run guards the
+        // fixture: keep them in the bare row.
+        for pattern in [r"/a#b[c]\#/", r"m/a#b[c]\#/", r"qr/a#b[c]\#/"] {
+            assert_halstead_counts::<PerlParser>(
+                &format!("$s =~ {pattern} and $s =~ {pattern};\n"),
+                "foo.pl",
+                [4, 6, 2, 4],
+                &format!("pattern {pattern}"),
+            );
+        }
+    }
+
+    #[cfg(feature = "perl")]
+    #[test]
     fn perl_every_pattern_operation_spelling_scores_alike() {
         // The other half of the split (#1314). Substitution and
         // transliteration are operations applied to a target, so they

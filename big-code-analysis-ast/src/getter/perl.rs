@@ -44,6 +44,19 @@ impl Getter for PerlCode {
             {
                 TokenRole::Unknown
             }
+            // The bare form's pattern text is one operand, billed on the
+            // `PatternMatcher` wrapper, but the grammar spells four of its
+            // characters as anonymous tokens under `regex_pattern_content`:
+            // `[`, `]`, `\` and `#`. They are literal regex text, which
+            // `m//` and `qr//` emit no node for, so `/[a]/` billed a `[]`
+            // operator that `m/[a]/` does not (#1549). `#` is also in no
+            // operator arm, because its only other position is a comment's
+            // leading `#` under `comments`, and a comment is not code.
+            // `$#a` and the `#` delimiters of `qw#…#` / `s#a#b#` are
+            // distinct token kinds.
+            _ if ancestors.parent_has_kind(node, P::RegexPatternContent as u16) => {
+                TokenRole::Unknown
+            }
             // Control-flow and declaration keywords. `Perl::Sub` is the
             // `sub` keyword (token id 16); `Perl::SUB` is the `__SUB__`
             // literal (token id 7) — that one is an operand, not an
@@ -57,7 +70,7 @@ impl Getter for PerlCode {
             // Punctuation acting as operators
             | P::SEMI | P::COMMA | P::COLON | P::COLONCOLON | P::LBRACE | P::LBRACK
             | P::LPAREN | P::DOT | P::DOTDOT | P::DOTDOTDOT | P::FatComma | P::DASHGT
-            | P::QMARK | P::BSLASH | P::DOLLAR | P::DOLLARHASH | P::AT | P::PERCENT | P::HASH
+            | P::QMARK | P::BSLASH | P::DOLLAR | P::DOLLARHASH | P::AT | P::PERCENT
             // Arithmetic / comparison / logical / bitwise / assignment operators
             | P::EQ | P::PLUS | P::DASH | P::STAR | P::SLASH | P::STARSTAR | P::BANG
             | P::TILDE | P::EQTILDE | P::BANGTILDE | P::EQEQ | P::BANGEQ | P::LT | P::GT

@@ -135,7 +135,7 @@ big-code-analysis-ast/src/getter/java.rs 5
 big-code-analysis-ast/src/getter/kotlin.rs 4
 big-code-analysis-ast/src/getter/lua.rs 3
 big-code-analysis-ast/src/getter/mozcpp.rs 4
-big-code-analysis-ast/src/getter/perl.rs 3
+big-code-analysis-ast/src/getter/perl.rs 4
 big-code-analysis-ast/src/getter/php.rs 11
 big-code-analysis-ast/src/getter/python.rs 7
 big-code-analysis-ast/src/getter/ruby.rs 4

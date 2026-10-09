@@ -622,7 +622,10 @@ tokens involved the same way they spell real operators:
   and a Perl or Ruby pattern each contribute *one operand* — the
   literal — and no operator for the punctuation around it. Otherwise
   the score would move with the author's choice of delimiter, which
-  says nothing about the code. Tcl and iRules need one extra step to
+  says nothing about the code. The same holds for punctuation the
+  grammar spells *inside* a literal: Perl's bare `/[a]#/` bills no `[]`
+  or `#`, matching `m/[a]#/`, whose text the grammar does not split
+  into tokens (#1549). Tcl and iRules need one extra step to
   honour this, because their grammars spell a braced literal and a
   braced script body the same way: whether `{a b}` is a block or a
   quoted value depends on the command it is passed to, so the

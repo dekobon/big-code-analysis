@@ -323,13 +323,13 @@ const DASH_KEY_ROWS: [(&str, &str, [u64; 4], Halstead); 18] = [
         [2, 0, 0, 0],
         [6, 8, 4, 4],
     ),
-    // A comment in the subscript. Its `#` bills as an operator in both
-    // spellings (#1549).
+    // A comment in the subscript bills nothing, so this scores as the
+    // row above. Its `#` billed an operator until #1549 (7, 9).
     (
         "my %h; return $h{'-foo' # why\n};",
         "my %h; return $h{-foo # why\n};",
         [2, 0, 0, 0],
-        [7, 9, 4, 4],
+        [6, 8, 4, 4],
     ),
     (
         "my $r; return $r->{'-foo'};",
