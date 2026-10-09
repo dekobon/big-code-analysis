@@ -138,7 +138,13 @@ impl Getter for CsharpCode {
             // spells inheritance (`class D : B`) holds the base type's
             // identifier and no `base` keyword, so nothing bills this
             // text twice.
-            Identifier | Base
+            //
+            // `ImplicitParameter` is the parameter of `x => x`: a
+            // childless leaf where `(x) => x` puts an `identifier` inside
+            // a `parameter_list`, so the bare spelling dropped its name
+            // from both Halstead halves (#1544). Nothing containing it
+            // is classified.
+            Identifier | Base | ImplicitParameter
             | IntegerLiteral | RealLiteral | BooleanLiteral | NullLiteral
             | CharacterLiteral | StringLiteral | VerbatimStringLiteral | RawStringLiteral
                 => TokenRole::Operand,

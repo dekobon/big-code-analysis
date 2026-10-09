@@ -4038,10 +4038,6 @@ mod tests {
     /// `static` and `async` in both of their kind spellings: the keyword
     /// leaf under a method's `modifier` wrapper, and the childless
     /// `modifier` the grammar aliases a lambda's keyword to (#1482).
-    ///
-    /// The lambdas take parenthesised parameters because the bare
-    /// `y => y` spelling is an `implicit_parameter`, which no Halstead
-    /// half bills, and that gap is not what this fixture measures.
     #[cfg(feature = "csharp")]
     const CSHARP_LAMBDA_MODIFIER_BOTH_SPELLINGS: &str = "class L {
     static void N() { }
@@ -4051,6 +4047,39 @@ mod tests {
         var b = async (int y) => y;
     }
 }";
+
+    /// A C# lambda's bare parameter (`x => x`) is the operand its
+    /// parenthesised twin (`(x) => x`) bills (#1544). Each row is one
+    /// lambda in a method body; the twins differ only by the `()` the
+    /// parenthesised spelling writes, so the operand halves must match
+    /// and the operator halves differ by exactly that one `()`.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_implicit_lambda_parameter_is_an_operand() {
+        let wrap = |lambda: &str| {
+            format!("class C {{\n    void M() {{\n        var f = {lambda};\n    }}\n}}\n")
+        };
+        // Operators: class, {} x2, void, () x1 (M's parameter list), =,
+        // =>, ; — n1 = 7, N1 = 8 — plus the lambda's own `()` in the
+        // parenthesised spelling. Operands: C, M, f, and the parameter
+        // twice; `var` is an unclassified `implicit_type`. `_ => 0`
+        // names `_` once and adds the literal `0`.
+        //
+        // Before #1544 the bare rows read (7, 8, 4, 4) for both: `x`
+        // lost one occurrence, and `_` left the vocabulary entirely.
+        for (lambda, expected) in [
+            ("x => x", [7, 8, 4, 5]),
+            ("(x) => x", [7, 9, 4, 5]),
+            ("_ => 0", [7, 8, 5, 5]),
+            ("(_) => 0", [7, 9, 5, 5]),
+        ] {
+            assert_halstead_counts::<CsharpParser>(&wrap(lambda), "foo.cs", expected, lambda);
+        }
+
+        // The bare parameter is billed under its own text, not under
+        // the kind name, and as an operand only.
+        assert_keywords_are_operands_only::<CsharpParser>(&wrap("_ => 0"), "foo.cs", &["_"]);
+    }
 
     /// A lambda's `static` / `async` is the same operator as the
     /// declaration's, counted once in `n1` across both spellings
