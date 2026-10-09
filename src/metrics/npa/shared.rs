@@ -668,19 +668,70 @@ pub(crate) fn ruby_in_clause_counts(in_clause: &Node, source: &[u8]) -> bool {
     })
 }
 
-/// Whether `node` is a `when` `binary_operator` — the shape a repeated
-/// guard's alternatives nest through.
+/// Whether `node` is a `binary_operator` applying `operator`.
 ///
 /// `binary_operator` carries three kind aliases at this pin so it is
 /// matched by rule name rather than by enumerating ids
-/// (grammar-dispatch §1); `when` has exactly one id.
-fn elixir_is_when_operator(node: &Node) -> bool {
+/// (grammar-dispatch §1); `when` and `<-` each have exactly one id.
+fn elixir_is_binary_operator(node: &Node, operator: Elixir) -> bool {
     const BINARY_OPERATOR: &str = "binary_operator";
 
     node.kind() == BINARY_OPERATOR
         && node
             .child_by_field_name("operator")
-            .is_some_and(|operator| operator.kind_id() == Elixir::When as u16)
+            .is_some_and(|token| token.kind_id() == operator as u16)
+}
+
+/// Whether `node` is a `when` `binary_operator` — the shape a repeated
+/// guard's alternatives nest through.
+fn elixir_is_when_operator(node: &Node) -> bool {
+    elixir_is_binary_operator(node, Elixir::When)
+}
+
+/// Whether the two ancestors `up` yields first are a `with` Call's
+/// `arguments` and the Call itself — the position of a `with` clause.
+///
+/// `arguments` carries five kind aliases at this pin, so it is matched
+/// by rule name (grammar-dispatch §1).
+fn elixir_is_with_argument<'a>(mut up: impl Iterator<Item = Node<'a>>, code: &'a [u8]) -> bool {
+    up.next()
+        .is_some_and(|arguments| arguments.kind() == "arguments")
+        && up.next().is_some_and(|call| {
+            crate::lang_helpers::elixir::elixir_call_keyword(&call, code) == Some("with")
+        })
+}
+
+/// Whether `node`, a `<-` token, is the operator of one of a `with`'s
+/// `pattern <- expr` clauses: a decision, since the value either
+/// matches the pattern or short-circuits to the `else` clauses (#1535).
+/// It is the shape a Rust `if let` or `?` has, both of which pay one
+/// decision in standard and modified cyclomatic alike.
+///
+/// Only a direct argument of a `with` qualifies. The same token is a
+/// `for` comprehension's generator (`for x <- xs`), which filters
+/// rather than short-circuits and is deliberately left alone — `for`
+/// already pays one decision for its loop — and a bitstring
+/// generator (`for <<c <- s>>`) sits inside a `bitstring`, not under
+/// `arguments`.
+///
+/// Position alone is the gate, so it needs no separate test that the
+/// token is applied (#1534): in every shape probed where it is not —
+/// named (`with &<-/2`) or stranded by error recovery (`with(<-)`,
+/// `with a, <- b`) — it sits under an `operator_identifier`, whose
+/// parent is never the `with`'s `arguments`.
+///
+/// A clause wrapped in parentheses after a space (`with (a <- b) do`)
+/// parses through a `block` and is not recognised; Elixir drops the
+/// parentheses, so it is a clause, but the spelling is rare.
+///
+/// Shared by the `Cyclomatic` and `Abc` impls for `ElixirCode`
+/// (grammar-dispatch §7).
+pub(crate) fn elixir_arrow_is_with_clause<'a>(
+    node: &Node<'a>,
+    code: &'a [u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    elixir_is_with_argument(ancestors.iter(node).skip(1).map(|(a, _)| a), code)
 }
 
 /// The one alternative a guard's `when` token introduces.
@@ -718,8 +769,9 @@ pub(crate) fn elixir_when_alternative<'a>(when_operator: &Node<'a>) -> Option<No
 /// tells a guard from a typespec, and the allowlist below is that
 /// position set at the pinned grammar: the `left` slot of a
 /// `stab_clause` (`case` / `cond` / `fn` / `receive` / `with`'s `else`
-/// / `try`'s handlers), or an argument of a definition Call that takes
-/// a guarded head.
+/// / `try`'s handlers), the pattern of a `with` clause
+/// (`{:ok, a} when is_integer(a) <- g(x)`, #1535), or an argument of a
+/// definition Call that takes a guarded head.
 ///
 /// `arguments` carries five kind aliases at this pin and
 /// `binary_operator` three, so both are matched by rule name rather
@@ -752,10 +804,6 @@ pub(crate) fn elixir_when_is_guard<'a>(
     code: &'a [u8],
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
-    use Elixir as E;
-
-    const ARGUMENTS: &str = "arguments";
-
     let mut chain = ancestors.iter(node);
     // The token's parent is the `when` operator node itself; the first
     // ancestor above the chain of `when` operators is the position that
@@ -772,13 +820,45 @@ pub(crate) fn elixir_when_is_guard<'a>(
     let Some((parent, _)) = above else {
         return false;
     };
+    elixir_is_guard_position(
+        &operator,
+        &parent,
+        chain.map(|(ancestor, _)| ancestor),
+        code,
+    )
+}
+
+/// Whether `parent` — the first ancestor above the chain of `when`
+/// operators that `operator` tops — holds that chain in a guard
+/// position; `up` yields the ancestors above `parent`. The second step
+/// of [`elixir_when_is_guard`], after the climb.
+fn elixir_is_guard_position<'a>(
+    operator: &Node<'a>,
+    parent: &Node<'a>,
+    mut up: impl Iterator<Item = Node<'a>>,
+    code: &'a [u8],
+) -> bool {
+    use Elixir as E;
+
+    const ARGUMENTS: &str = "arguments";
+
     if parent.kind_id() == E::StabClause as u16 {
         return parent
             .child_by_field_name("left")
             .is_some_and(|left| left.id() == operator.id());
     }
+    // A guard on the pattern of a `with` clause. `when` binds tighter
+    // than `<-`, so it parses as the clause's `left`; a `when` on the
+    // right would be a guard outside any guard position, which Elixir
+    // rejects, so the side is not checked. The guard of a `for`
+    // generator (`for x when x > 1 <- xs`) is a filter, which the
+    // comprehension's own decision already covers exactly as a bare
+    // filter (`for x <- xs, x > 1`) is — so it is not a guard here.
+    if elixir_is_binary_operator(parent, E::LTDASH) {
+        return elixir_is_with_argument(up, code);
+    }
     parent.kind() == ARGUMENTS
-        && chain.next().is_some_and(|(call, _)| {
+        && up.next().is_some_and(|call| {
             crate::lang_helpers::elixir::elixir_call_keyword(&call, code).is_some_and(|keyword| {
                 crate::lang_helpers::elixir::elixir_is_method_macro(keyword)
                     || matches!(keyword, "defguard" | "defguardp")
@@ -812,9 +892,16 @@ pub(crate) fn elixir_sole_unguarded_pattern<'a>(node: &Node<'a>) -> Option<Node<
     patterns.next().is_none().then_some(sole)
 }
 
+/// Whether `pattern` is a bare `_`. Elixir has no wildcard token — `_`
+/// parses as an ordinary `identifier` — so the bytes decide.
+fn elixir_is_bare_wildcard(pattern: &Node, code: &[u8]) -> bool {
+    pattern.kind_id() == Elixir::Identifier as u16 && pattern.utf8_text(code) == Some("_")
+}
+
 /// Returns `true` when `node` is a construct's free default clause:
-/// a bare `_ ->` catch-all outside an anonymous fn, or an unguarded
-/// `true ->` directly under a `cond`.
+/// a bare `_ ->` catch-all outside a head-skipping construct (an
+/// anonymous fn or a `for … reduce:`), or an unguarded `true ->`
+/// directly under a `cond`.
 ///
 /// Both shapes hinge on the clause's sole unguarded pattern, and
 /// [`elixir_sole_unguarded_pattern`]'s child scan allocates a cursor
@@ -829,12 +916,13 @@ pub(crate) fn elixir_sole_unguarded_pattern<'a>(node: &Node<'a>) -> Option<Node<
 /// and keeps counting, matching Rust's bare-`_`-only `MatchArm` rule;
 /// guarded wildcards never reach the text check because
 /// [`elixir_sole_unguarded_pattern`] rejects them. The exclusion does
-/// NOT apply when the clause's container is an `anonymous_function`:
-/// a multi-clause `fn` is a dispatch like `case` — n clauses are n−1
-/// decisions — and its free base path is already granted by the
-/// head-clause skip (#776), so excluding a trailing `_ ->` too would
-/// leave `fn 0 -> :a; _ -> :b end` at zero decisions while the
-/// identical `case` reports one.
+/// NOT apply when `skips_head` — the clause's container is an
+/// `anonymous_function` or a `for … reduce:`: such a multi-clause
+/// dispatch is like `case` — n clauses are n−1 decisions — and its free
+/// base path is already granted by the head-clause skip (#776, #1535),
+/// so excluding a trailing `_ ->` too would leave
+/// `fn 0 -> :a; _ -> :b end` at zero decisions while the identical
+/// `case` reports one.
 ///
 /// `true ->` under `cond`: the exclusion is *shape-based* — any
 /// unguarded `true ->` whose parent is the `do_block` of a `Call`
@@ -849,6 +937,7 @@ fn elixir_is_default_clause<'a>(
     node: &Node<'a>,
     code: &'a [u8],
     ancestors: Ancestors<'a, '_>,
+    skips_head: bool,
 ) -> bool {
     use Elixir as E;
 
@@ -856,44 +945,56 @@ fn elixir_is_default_clause<'a>(
         return false;
     };
     match pattern.kind_id().into() {
-        // Bare `_` catch-all — free everywhere except under an
-        // anonymous fn, whose free base path the head-clause skip
-        // already provides.
-        E::Identifier => {
-            pattern.utf8_text(code) == Some("_")
-                && ancestors
-                    .parent(node)
-                    .is_none_or(|parent| parent.kind_id() != E::AnonymousFunction as u16)
-        }
+        // Bare `_` catch-all — free everywhere except where the
+        // head-clause skip already provides the free base path.
+        E::Identifier => !skips_head && elixir_is_bare_wildcard(&pattern, code),
         // Unguarded `true` — free only as `cond`'s designated
         // default; the O(1) parent/grandparent checks run after the
         // text compare so non-`true` booleans bail early.
         E::Boolean => {
-            pattern.utf8_text(code) == Some("true") && elixir_is_cond_clause(node, code, ancestors)
+            pattern.utf8_text(code) == Some("true")
+                && elixir_do_section_call(node, code, ancestors).is_some_and(|call| {
+                    crate::lang_helpers::elixir::elixir_call_keyword(&call, code) == Some("cond")
+                })
         }
         _ => false,
     }
 }
 
-/// Returns `true` when `node` is the first `stab_clause` child of an
-/// `anonymous_function` parent — the closure's head clause rather than a
-/// pattern-dispatch branch.
+/// Whether `node`'s clauses-owner grants a free head clause: an
+/// `anonymous_function` (#776), or a `for … reduce:` comprehension
+/// (#1535), whose accumulator clauses are an anonymous fn in all but
+/// spelling — a single `acc -> …` always matches, and only the 2nd+
+/// clauses dispatch.
 ///
-/// The grammar shape is `anonymous_function → fn stab_clause+ end`, so
-/// the first child whose kind is `stab_clause` (skipping the `fn` token)
-/// is the head. Multi-clause `fn`s thus skip only their first clause;
-/// every other construct's clauses have a block parent and never match
-/// here (issue #776).
-fn elixir_is_anonymous_fn_head_clause<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-    use Elixir as E;
+/// A `for` holds clauses in its `do` section only under `reduce:`;
+/// without it the section is a plain body. So the Call's keyword alone
+/// identifies the shape, with no need to find the `reduce:` pair.
+fn elixir_clauses_skip_head<'a>(
+    node: &Node<'a>,
+    code: &'a [u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    ancestors.parent_has_kind(node, Elixir::AnonymousFunction as u16)
+        || elixir_do_section_call(node, code, ancestors).is_some_and(|call| {
+            crate::lang_helpers::elixir::elixir_call_keyword(&call, code) == Some("for")
+        })
+}
 
+/// Returns `true` when `node` is its parent's first `stab_clause` —
+/// the head clause of a construct [`elixir_clauses_skip_head`] names.
+///
+/// The parent is the `anonymous_function` (`fn stab_clause+ end`), the
+/// `do_block` (`do stab_clause+ end`) or the keyword form's
+/// parenthesised `block`; in each the first child whose kind is
+/// `stab_clause` (skipping the `fn` / `do` / `(` token) is the head.
+fn elixir_is_first_clause<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     ancestors
         .parent(node)
-        .filter(|parent| parent.kind_id() == E::AnonymousFunction as u16)
         .and_then(|parent| {
             parent
                 .children()
-                .find(|child| child.kind_id() == E::StabClause as u16)
+                .find(|child| child.kind_id() == Elixir::StabClause as u16)
         })
         .is_some_and(|first| first.id() == node.id())
 }
@@ -907,7 +1008,10 @@ fn elixir_is_anonymous_fn_head_clause<'a>(node: &Node<'a>, ancestors: Ancestors<
 /// An anonymous fn's head clause is the closure's definition, not a
 /// dispatch: the closure opens its own function space whose base path
 /// already covers it, so counting it too would score a trivial
-/// `fn x -> x end` as a decision (#776).
+/// `fn x -> x end` as a decision (#776). A `for … reduce:`'s first
+/// accumulator clause is skipped for the same reason: the `for` already
+/// pays its one decision, and a single `acc -> …` clause always matches
+/// (#1535).
 ///
 /// The parent is allowlisted because the grammar puts a `stab_clause`
 /// in one more position: a parenthesised `block`, which is how a
@@ -944,9 +1048,57 @@ pub(crate) fn elixir_clause_is_decision<'a>(
                 .is_some_and(|pair| elixir_is_section_pair(&pair, code, SECTION_KEYS)),
             _ => false,
         });
-    in_section
-        && !elixir_is_anonymous_fn_head_clause(node, ancestors)
-        && !elixir_is_default_clause(node, code, ancestors)
+    if !in_section {
+        return false;
+    }
+    let skips_head = elixir_clauses_skip_head(node, code, ancestors);
+    if skips_head && elixir_is_first_clause(node, ancestors) {
+        return false;
+    }
+    !elixir_is_default_clause(node, code, ancestors, skips_head)
+}
+
+/// Whether a `with` Call's `else` clauses dispatch: whether at least one
+/// of them is a decision rather than the free bare `_ ->` default.
+///
+/// Modified cyclomatic collapses a clause construct's arms into one
+/// decision, which for `case` / `cond` / `try` is the container paying
+/// once. A `with`'s decisions are its `<-` clauses, each paid on its own
+/// in both tiers as a Rust `if let` is; its `else` is the dispatch over
+/// the failed value, which collapses into one decision exactly when it
+/// holds one — so `else _ -> 0`, which picks nothing, stays free in
+/// modified as it is in standard, like Rust's `if let … else` (#1535).
+/// Spelled in either form: the block form's `else_block`, or the
+/// keyword form's `else:` pair whose value is a parenthesised `block`.
+///
+/// In a `with`'s `else` the default-clause rule reduces to the bare
+/// `_`: `true ->` is free only under a `cond`, and the head skip only
+/// under a `fn` or `reduce:`, so [`elixir_clause_is_decision`] agrees
+/// clause by clause with the test below.
+pub(crate) fn elixir_with_else_dispatches(call: &Node, code: &[u8]) -> bool {
+    use Elixir as E;
+
+    call.children().any(|child| {
+        let section = match child.kind_id().into() {
+            E::DoBlock => child
+                .children()
+                .find(|c| c.kind_id() == E::ElseBlock as u16),
+            _ if child.kind() == "arguments" => child
+                .children()
+                .filter(|c| c.kind_id() == E::Keywords as u16)
+                .flat_map(|keywords| keywords.children())
+                .find(|pair| elixir_is_section_pair(pair, code, &["else:"]))
+                .and_then(|pair| pair.child_by_field_name("value")),
+            _ => None,
+        };
+        section.is_some_and(|section| {
+            section.children().any(|clause| {
+                clause.kind_id() == E::StabClause as u16
+                    && !elixir_sole_unguarded_pattern(&clause)
+                        .is_some_and(|pattern| elixir_is_bare_wildcard(&pattern, code))
+            })
+        })
+    })
 }
 
 /// The keyword spellings of the clause sections a `do … end` block
@@ -965,29 +1117,26 @@ fn elixir_is_section_pair(pair: &Node, code: &[u8], keys: &[&str]) -> bool {
             .is_some_and(|key| keys.contains(&key.trim_end()))
 }
 
-/// Whether `node` (a `stab_clause`) is one arm of a `cond`: it sits in
-/// the `do` section of a `Call` spelling `cond`, either the block form's
-/// `do_block` (whose parent is the call) or the keyword form's
-/// `do: (…)` block (`block` → `pair` → `keywords` → `arguments` → call).
-fn elixir_is_cond_clause<'a>(
+/// The `Call` whose `do` section holds `node` (a `stab_clause`): the
+/// block form's `do_block` (whose parent is the call) or the keyword
+/// form's `do: (…)` block (`block` → `pair` → `keywords` → `arguments`
+/// → call). The caller asks the Call's keyword (`cond`, `for`).
+fn elixir_do_section_call<'a>(
     node: &Node<'a>,
     code: &'a [u8],
     ancestors: Ancestors<'a, '_>,
-) -> bool {
+) -> Option<Node<'a>> {
     use Elixir as E;
 
     let mut up = ancestors.iter(node).map(|(ancestor, _)| ancestor);
-    let call = match up.next().map(|parent| parent.kind_id().into()) {
+    match up.next().map(|parent| parent.kind_id().into()) {
         Some(E::DoBlock) => up.next(),
         Some(E::Block) => up
             .next()
             .filter(|pair| elixir_is_section_pair(pair, code, &["do:"]))
             .and_then(|_| up.nth(2)),
         _ => None,
-    };
-    call.is_some_and(|call| {
-        crate::lang_helpers::elixir::elixir_call_keyword(&call, code) == Some("cond")
-    })
+    }
 }
 
 // A `visibility_modifier` node counts as public unless it has a direct

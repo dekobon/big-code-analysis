@@ -19,22 +19,25 @@ impl Cyclomatic for ElixirCode {
     // The split between standard and modified CCN mirrors the C-family
     // case/switch treatment: per-arm `stab_clause` nodes contribute
     // standard, while the multi-arm container Calls (`case`/`cond`/
-    // `with`/`try`) contribute modified. Single-branch keyword Calls
-    // (`if`/`unless`/`for`/`while`) contribute to both. Short-circuit
-    // booleans (`&&`, `||`, `and`, `or`) contribute to both.
+    // `try`) contribute modified. Single-branch keyword Calls
+    // (`if`/`unless`/`for`/`while`) contribute to both, as do a `with`'s
+    // `<-` clauses and short-circuit booleans (`&&`, `||`, `and`, `or`).
     fn compute<'a>(
         node: &Node<'a>,
         code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        // bca: suppress(cyclomatic, halstead) — kind dispatch table; each gated arm is one rule
         use Elixir as E;
 
         match node.kind_id().into() {
             // Per-arm decisions: each `stab_clause` is one arm of a
             // `case`/`cond`/`with`/anonymous-fn body or a `rescue`/
-            // `catch` handler. Standard-only — modified counts the
-            // container Call once.
+            // `catch` handler. Standard-only: modified counts a
+            // `case`/`cond`/`try` container Call once, a `with` once
+            // only when its `else` dispatches (the `"with"` arm below),
+            // and gives a multi-clause `fn` or `reduce` nothing.
             //
             // The exception is the *first* `stab_clause` of an
             // `anonymous_function` (`fn … -> … end`): it is the
@@ -44,9 +47,9 @@ impl Cyclomatic for ElixirCode {
             // `getter::elixir` → `SpaceKind::Function`), so counting the
             // head clause too over-reports a trivial `fn x -> x end` as
             // 2 (issue #776). Only the 2nd+ clauses of a multi-clause
-            // `fn` are real branches. `case`/`cond`/`with` arms have a
-            // `do_block` parent — not `anonymous_function` — so they are
-            // unaffected and keep counting.
+            // `fn` are real branches. A `for … reduce:`'s accumulator
+            // clauses take the same skip (#1535): a single `acc -> …`
+            // always matches. `case`/`cond`/`with` arms keep counting.
             //
             // Two further clause shapes are the construct's default arm
             // and are excluded to match the sibling family — Rust's
@@ -99,6 +102,19 @@ impl Cyclomatic for ElixirCode {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }
+            // A `with`'s `pattern <- expr` clause either matches or
+            // short-circuits to the `else`, so each is a decision
+            // (#1535) — the Rust `if let` / `?` twin pays one in both
+            // tiers. The clauses run in sequence rather than being
+            // alternatives of one dispatch, so modified does not
+            // collapse them. A `for` generator's `<-` is excluded by
+            // the gate: the `for` already pays its loop decision.
+            E::LTDASH
+                if crate::metrics::npa::elixir_arrow_is_with_clause(node, code, ancestors) =>
+            {
+                stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
+            }
             // Short-circuit booleans add a decision point in both
             // metrics — where applied. `&and/2`, `&||/2` and
             // `Kernel.||(a, b)` only name the operator and decide
@@ -128,7 +144,15 @@ impl Cyclomatic for ElixirCode {
                         // (the container collapses to a single decision).
                         // Per-arm `stab_clause`s already contribute to
                         // standard above.
-                        "case" | "cond" | "with" | "try" => {
+                        "case" | "cond" | "try" => {
+                            stats.cyclomatic_modified += 1.;
+                        }
+                        // A `with`'s decisions are its `<-` clauses,
+                        // counted above in both tiers. What modified
+                        // collapses is its `else`, the dispatch over
+                        // the failed value — once, and only when that
+                        // dispatch picks between anything (#1535).
+                        "with" if crate::metrics::npa::elixir_with_else_dispatches(node, code) => {
                             stats.cyclomatic_modified += 1.;
                         }
                         _ => {}

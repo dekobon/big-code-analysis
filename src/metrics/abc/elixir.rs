@@ -254,8 +254,8 @@ impl Abc for ElixirCode {
     // (`==`, `===`, `!=`, `!==`, `<`, `>`, `<=`, `>=`, `in`, `not in`),
     // the boolean slots scored by `elixir_count_condition` (`if` /
     // `unless` predicates, guards, chain operands), one per clause of a
-    // clause construct (`elixir_count_clause`), and the `else` of an
-    // `if` / `unless` (Rule 5).
+    // clause construct (`elixir_count_clause`) and per `<-` clause of a
+    // `with`, and the `else` of an `if` / `unless` (Rule 5).
     // `for` / `while` are looping forms — not condition-shaped per
     // the issue body's literal list — so we omit them.
     //
@@ -449,6 +449,15 @@ impl Abc for ElixirCode {
             }
             E::StabClause if npa::elixir_clause_is_decision(node, code, ancestors) => {
                 elixir_count_clause(node, &mut stats.conditions);
+            }
+            // A `with`'s `pattern <- expr` clause is a pattern-match
+            // condition (Rule 9), the decision `Cyclomatic` counts
+            // through the same gate (#1535). One flat condition: a
+            // pattern is never an operator that scores itself, and a
+            // guard on it (`{:ok, a} when g <- x`) pays its own slot
+            // through the `when` arm, as a guarded clause's does.
+            E::LTDASH if npa::elixir_arrow_is_with_clause(node, code, ancestors) => {
+                stats.conditions += 1.;
             }
             _ => {}
         }

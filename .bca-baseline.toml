@@ -1038,6 +1038,12 @@ metric = "nexits"
 value = 6.0
 
 [[entry]]
+path = "src/metrics/npa/shared.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 558.0
+
+[[entry]]
 path = "src/ops.rs"
 qualified = "ops_inner"
 metric = "halstead.effort"

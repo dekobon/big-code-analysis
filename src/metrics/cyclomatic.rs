@@ -6084,22 +6084,172 @@ f() {
     }
 
     // `with` chains use `<-` arrows, which parse as `binary_operator`
-    // nodes — NOT `stab_clause`s — so the `with`-head clauses do not
-    // contribute to standard CCN per-arm. The fallthrough `else`
-    // branch, when present, contains `stab_clause`s that count for
-    // standard. The `with` Call itself is a multi-arm container Call
-    // that contributes once to modified CCN.
+    // nodes — NOT `stab_clause`s — and each is a decision in both tiers
+    // (#1535). The fallthrough `else` branch, when present, contains
+    // `stab_clause`s that count for standard, and collapses into one
+    // modified decision.
     #[cfg(feature = "elixir")]
     #[test]
-    fn elixir_with_else_only_counts_else_arms() {
+    fn elixir_with_counts_arrow_clauses_and_else_arms() {
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def f(x) do\n    with {:ok, v} <- fetch(x),\n         {:ok, w} <- fetch(v) do\n      {:ok, w}\n    else\n      :error -> :nope\n      other -> {:bad, other}\n    end\n  end\nend\n",
             "foo.ex",
             |metric| {
-                // standard: 3 entries + 2 else-block stabs = 5
-                // modified: 3 entries + 1 with Call = 4
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
+                // standard: 3 entries + 2 `<-` clauses + 2 else-block
+                // stabs = 7 (#1535 added the `<-` clauses)
+                // modified: 3 entries + 2 `<-` clauses + 1 else
+                // dispatch = 6
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 7);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 6);
+            },
+        );
+    }
+
+    // A `with`'s `<-` clauses and a `for … reduce:`'s head clause
+    // (#1535). Each row is one `def`, read as (cyclomatic, modified,
+    // abc.conditions); the function's base path is the 1.
+    //
+    // Expected values, from the twins rather than the fix (measured,
+    // `--no-config`, as cyclomatic / modified / ABC conditions):
+    // - `w1`: one `<-` is one decision, Rust's
+    //   `if let Ok(a) = g(x) { a }` — 2/2/1, and `g(x)?` is 2/2/0.
+    // - `w2` / `w2d`: two `<-` are two, Rust's nested `if let` — 3/3/2.
+    //   `w2d`'s `else _ -> 0` picks between nothing, so it is free in
+    //   both tiers, as Rust's `else { 0 }` is.
+    // - `w1e`: the `else {:error, e} ->` arm pays per clause as a
+    //   `case` arm does, and its dispatch collapses into one modified
+    //   decision: 1 + `<-` + arm = 3, and 3 modified. `w1n`'s named
+    //   `e ->` binds, so it is no bare `_` and scores the same. `w1g`'s
+    //   guarded `_ when x > 1 ->` is a decision with a guard on it:
+    //   1 + `<-` + clause + guard = 4, and modified collapses only the
+    //   clause — 4.
+    // - `w2e`: 1 + two `<-` + two arms = 5; modified 1 + 2 + 1 = 4.
+    // - `wg`: the guard is one more decision on the `<-`, Rust's
+    //   `if let Ok(a) = g(x) && a > 0` — 3/3/2.
+    // - `wb`: a bare match `b = …` in a `with` cannot fail over to the
+    //   `else`, so it is no clause — 2/2/1, `w1`'s value.
+    // - `wk` / `wke`: the keyword form scores as the block form does.
+    // - `r1` / `rk1`: a single reduce clause always matches, so the
+    //   reduce scores what `fp`, the `for` without one, does — 2/2/0.
+    // - `r2` / `r2d`: two reduce clauses are one decision, n−1 as a
+    //   multi-clause `fn` is (#776), the trailing `_ ->` included —
+    //   3/2/1. `rk2` is `r2` in the keyword form.
+    // - `fp` / `ff` / `fg` / `fb`: a `for` generator's `<-` is not a
+    //   `with` clause, nor is a guard on it (`fg` scores as the bare
+    //   filter `ff`), nor a bitstring generator's — each scores the
+    //   `for`'s one decision, as before #1535.
+    // - `c`: `case {:ok, a} / _`, the Rust `match` twin — 2/2/1.
+    //
+    // ABC conditions sit at `cyclomatic - 1` on every row but the
+    // `for`s, whose loop decision ABC deliberately does not count.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_with_arrow_clauses_and_reduce_head_1535() {
+        let src = "defmodule M do
+  def w1(x) do
+    with {:ok, a} <- g(x) do a end
+  end
+  def w2(x) do
+    with {:ok, a} <- g(x), {:ok, b} <- h(a) do b end
+  end
+  def w2d(x) do
+    with {:ok, a} <- g(x), {:ok, b} <- h(a) do b else _ -> 0 end
+  end
+  def w1e(x) do
+    with {:ok, a} <- g(x) do a else {:error, e} -> e end
+  end
+  def w1n(x) do
+    with {:ok, a} <- g(x) do a else e -> e end
+  end
+  def w1g(x) do
+    with {:ok, a} <- g(x) do a else _ when x > 1 -> 0 end
+  end
+  def w2e(x) do
+    with {:ok, a} <- g(x), {:ok, b} <- h(a) do
+      b
+    else
+      {:error, e} -> e
+      :nope -> 0
+    end
+  end
+  def wg(x) do
+    with {:ok, a} when is_integer(a) <- g(x) do a end
+  end
+  def wb(x) do
+    with {:ok, a} <- g(x), b = a + 1 do b end
+  end
+  def wk(x), do: with({:ok, a} <- g(x), do: a, else: (_ -> 0))
+  def wke(x), do: with({:ok, a} <- g(x), do: a, else: ({:error, e} -> e))
+  def r1(xs) do
+    for x <- xs, reduce: 0 do
+      acc -> acc + x
+    end
+  end
+  def rk1(xs), do: for(x <- xs, reduce: 0, do: (acc -> acc + x))
+  def r2(xs) do
+    for x <- xs, reduce: 0 do
+      0 -> x
+      acc -> acc + x
+    end
+  end
+  def r2d(xs) do
+    for x <- xs, reduce: 0 do
+      0 -> x
+      _ -> 1
+    end
+  end
+  def rk2(xs), do: for(x <- xs, reduce: 0, do: (0 -> x; acc -> acc + x))
+  def fp(xs), do: for(x <- xs, do: x)
+  def ff(xs), do: for(x <- xs, x > 1, do: x)
+  def fg(xs), do: for(x when x > 1 <- xs, do: x)
+  def fb(s), do: for(<<c <- s>>, do: c)
+  def c(x) do
+    case g(x) do
+      {:ok, a} -> a
+      _ -> 0
+    end
+  end
+end
+";
+        let expected: &[(&str, u64, u64, u64)] = &[
+            ("w1", 2, 2, 1),
+            ("w2", 3, 3, 2),
+            ("w2d", 3, 3, 2),
+            ("w1e", 3, 3, 2),
+            ("w1n", 3, 3, 2),
+            ("w1g", 4, 4, 3),
+            ("w2e", 5, 4, 4),
+            ("wg", 3, 3, 2),
+            ("wb", 2, 2, 1),
+            ("wk", 2, 2, 1),
+            ("wke", 3, 3, 2),
+            ("r1", 2, 2, 0),
+            ("rk1", 2, 2, 0),
+            ("r2", 3, 2, 1),
+            ("r2d", 3, 2, 1),
+            ("rk2", 3, 2, 1),
+            ("fp", 2, 2, 0),
+            ("ff", 2, 2, 1),
+            ("fg", 2, 2, 1),
+            ("fb", 2, 2, 0),
+            ("c", 2, 2, 1),
+        ];
+        check_func_space_only::<ElixirParser, _>(
+            src,
+            "foo.ex",
+            &[Metric::Cyclomatic, Metric::Abc],
+            |space| {
+                let module = &space.spaces[0];
+                assert_eq!(module.spaces.len(), expected.len(), "fixture members");
+                for &(name, cyclomatic, modified, conditions) in expected {
+                    let f = child_space(module, name);
+                    let measured = (
+                        f.metrics.cyclomatic.cyclomatic(),
+                        f.metrics.cyclomatic.cyclomatic_modified(),
+                        f.metrics.abc.conditions(),
+                    );
+                    assert_eq!(measured, (cyclomatic, modified, conditions), "{name}");
+                }
             },
         );
     }
