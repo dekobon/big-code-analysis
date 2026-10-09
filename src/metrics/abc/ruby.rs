@@ -33,40 +33,19 @@ use crate::*;
 //   list — the named clause nodes `Else` / `Elsif` / `When` (see
 //   `ruby_count_when` for a subject-less `case`) and the
 //   `?` ternary marker, plus `Rescue` (the rescue clause) and rescue
-//   modifiers. `if` / `unless` themselves are not counted (the head
-//   condition appears as the inner comparison); the `Then` clause is
-//   an implicit grammar wrapper around every `if` / `elsif` body and
-//   is NOT counted as a separate arm.
+//   modifiers. An `if` / `unless` / `while` / `until` predicate pays
+//   one condition unless another arm already charged it — see
+//   `ruby_count_condition`; the `Then` clause is an implicit grammar
+//   wrapper around every `if` / `elsif` body and is NOT counted as a
+//   separate arm.
 
-// The kinds whose `condition` field is a boolean slot: the block and
-// modifier `if` / `unless` / `while` / `until` forms and the `case … in`
-// guards. Shared by `compute`'s slot arm, which routes the condition,
-// and `ruby_inspect_container`'s seed, which must treat the same slot as
-// boolean. The seed once restated the list without the modifier kinds,
-// so `g if (b)` scored 0 where `if (b) then g end` scored 1 (#1521).
-macro_rules! ruby_condition_slot_kinds {
-    () => {
-        Ruby::If
-            | Ruby::Unless
-            | Ruby::While
-            | Ruby::Until
-            | Ruby::IfModifier
-            | Ruby::UnlessModifier
-            | Ruby::WhileModifier
-            | Ruby::UntilModifier
-            | Ruby::Guard
-            | Ruby::IfGuard
-            | Ruby::UnlessGuard
-    };
-}
-
-// One step of the `(...)` / negation peel: the operand a wrapper wraps,
+// One step of the value peel: the operand a wrapper evaluates to,
 // and whether the wrapper itself proves that operand boolean. `None`
-// for anything that is not a wrapper this peel descends, which is also
-// the answer `ruby_count_condition` asks for — it routes exactly the
-// kinds this function accepts, so the two cannot disagree (#1470; the
-// Kotlin, Groovy and C# instances of that disagreement were #1459,
-// #1466 and #1463).
+// for anything that is not a wrapper this peel descends. The chain
+// walker and `ruby_condition_scores_itself` both descend through this
+// one function, so what the slot decides is already paid for and what
+// the walker actually counts cannot disagree (#1470; the Kotlin, Groovy
+// and C# instances of that disagreement were #1459, #1466 and #1463).
 //
 // Both spellings of the same negation. `not` and `!` differ in
 // precedence but not in meaning, and ABC counts the negation, not the
@@ -83,11 +62,20 @@ macro_rules! ruby_condition_slot_kinds {
 // a list. Both are read by role because a comment may sit before the
 // operand — `(# c` or `! # c` — and a positional or first-named-child
 // read handed the comment to the slot (#1455).
+//
+// `begin … end` evaluates to its last statement exactly as `(…)` does,
+// and an assignment to its `right` value (#1520). Both are peeled so
+// `ruby_condition_scores_itself` sees the comparison inside
+// `if begin a > 1 end` / `if (y = a > 1)` — without that, the slot
+// would pay a second time for a decision the comparison token already
+// counted. A `begin` whose last child is a `rescue` / `else` / `ensure`
+// clause peels to that clause, which is no terminal, so the peel stops.
 fn ruby_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     use Ruby::*;
 
     match node.kind_id().into() {
-        ParenthesizedStatements => last_operand(node).map(|o| (o, false)),
+        ParenthesizedStatements | Begin => last_operand(node).map(|o| (o, false)),
+        Assignment | Assignment2 => node.child_by_field_name("right").map(|o| (o, false)),
         Unary | Unary2 | Unary3 | Unary4 | Unary5 => node
             .child_by_field_name("operator")
             .filter(|op| matches!(op.kind_id().into(), BANG | Not))
@@ -102,39 +90,20 @@ fn ruby_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 // `binary` nodes carrying `&&` / `||` / `and` / `or` operator tokens
 // (the `binary` kind is aliased `Binary`..`Binary3` per lesson #2, so
 // every alias must be matched). Negation surfaces as `unary`
-// (`Unary`..`Unary5`); the condition slot may be wrapped in
+// (`Unary`..`Unary5`); an operand may be wrapped in
 // `parenthesized_statements`. Both are unwrapped one layer at a time by
 // `ruby_wrapper_operand`.
+//
+// Its callers are the chain walker (an operand of a `binary`, which is
+// boolean context) and the ternary's two branch slots, which are
+// type-free: an unnegated branch contributes nothing — see
+// `ruby_walk_ternary` (#1161). Condition slots no longer reach here;
+// `ruby_count_condition` scores them whole (#1520).
 fn ruby_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
     use Ruby::*;
 
     let mut node = *container_node;
-    let parent_kind = parent.kind_id().into();
-    // A ternary seeds boolean context for its condition slot alone: the
-    // two branch operands are type-free, so an unnegated branch must
-    // contribute nothing — see `ruby_walk_ternary` (#1161).
-    //
-    // The slot is identified by grammar FIELD, not by the neighbouring
-    // `?` / `:` token. The token form had two weaknesses this avoids: a
-    // comment between the token and the operand is the previous sibling
-    // instead, which flips the seed on for a branch slot; and the test
-    // inverts on failure, so Ruby's second `:` id (`COLON2`, unreachable
-    // at tree-sitter-ruby 0.23.1 but one grammar bump away) would
-    // silently turn every parenthesised alternative into a condition.
-    // Both were live across the C family, PHP, Perl and the JS family
-    // until #1181 moved them all onto this form; the cross-language
-    // regression test is `ternary_comment_invariance` in `abc.rs`.
-    // The three guard kinds joined the slot list with #1454: a `case … in`
-    // arm's `if` / `unless` guard is a boolean slot exactly as an `if`
-    // predicate is, so a parenthesised guard operand (`in [x] if (b)`)
-    // counts where the bare `in [x] if b` already did. `Guard` is the
-    // hidden `_guard` supertype, listed defensively (§2).
-    let mut has_boolean_content = matches!(parent_kind, Binary | Binary2 | Binary3)
-        || matches!(parent_kind, ruby_condition_slot_kinds!())
-        || (matches!(parent_kind, Conditional)
-            && parent
-                .child_by_field_name("condition")
-                .is_some_and(|condition| condition.id() == node.id()));
+    let mut has_boolean_content = matches!(parent.kind_id().into(), Binary | Binary2 | Binary3);
 
     while let Some((operand, proves_boolean)) = ruby_wrapper_operand(&node) {
         has_boolean_content |= proves_boolean;
@@ -178,31 +147,25 @@ fn ruby_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     }
 }
 
-// Count the bare-predicate condition of a Ruby `if`/`unless`/`while`/
-// `until` (block or modifier form) as one condition — Fitzpatrick's
-// "unary conditional expression" (Rule 6 / 7), mirroring Rust's
-// `rust_count_condition`. tree-sitter-ruby exposes the predicate via the
-// `condition` field for every form (block `if cond ... end` and modifier
-// `body if cond`), so the field lookup is position-independent. A bare
-// terminal (`if flag`) counts directly; a comparison / boolean chain
-// (`if a == b`, `if a && b`) is a nested `binary` node already counted by
-// the comparison-operator and `&&`/`||` walker arms, so it adds nothing
-// here. A parenthesised or negated predicate (`if (flag)`, `if !flag`) is
-// unwrapped by `ruby_inspect_container`. Without this arm, idiomatic Ruby
-// bare predicates reported 0 ABC conditions while Ruby's own cyclomatic
-// counted them, breaking the conditions >= decisions invariant
-// (#469/#473/#456); issue #696.
-fn ruby_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
-    if matches!(condition.kind_id().into(), ruby_bool_terminal_kinds!()) {
+// Scores one boolean slot — the predicate of every `if` / `unless` /
+// `while` / `until` form (block and modifier), a `case … in` guard, a
+// ternary condition, and each pattern of a subject-less `when` — as
+// Fitzpatrick's "unary conditional expression" (Rule 6 / 7): one
+// condition, unless another arm already charged the same decision
+// (a comparison, a pattern test, a ternary, or a chain with a counted
+// operand; see `ruby_condition_scores_itself`).
+//
+// The slot once paid only for a predicate that peeled down to
+// `ruby_bool_terminal_kinds!()`, so `if Foo::Bar`, `if self`, `if -x`,
+// `if defined?(x)`, `if (y = x)`, `if x + 1` and `g if begin b end` each
+// scored 0 against a cyclomatic decision of 1, while the same expression
+// as a subject-less `when` scored 1 (#1520). Asking whether the decision
+// is already paid for, rather than whether the predicate is a known
+// terminal, covers every kind the grammar can put in the slot, including
+// ones a future grammar adds.
+fn ruby_count_condition(condition: &Node, conditions: &mut f64) {
+    if !ruby_condition_scores_itself(condition) {
         *conditions += 1.;
-    } else if ruby_wrapper_operand(condition).is_some() {
-        // Asking the peel itself which kinds it unwraps, rather than
-        // restating the list here (#1470). A restated list that gained
-        // a kind the peel lacked would read as covering a shape the
-        // peel then dropped on the floor (`.claude/rules/
-        // grammar-dispatch.md` §7) — the Kotlin and Groovy defects of
-        // #1459 / #1466.
-        ruby_inspect_container(condition, parent, conditions);
     }
 }
 
@@ -237,15 +200,7 @@ macro_rules! ruby_comparison_kinds {
 // A worklist rather than recursion: a left-nested chain is as deep as
 // it is long, and the input is untrusted source.
 //
-// It answers "is the decision already paid for", not "is this a boolean
-// slot", which is why a subject-less `when` asks this rather than routing
-// through `ruby_count_condition`. That slot scores zero for any shape
-// outside `ruby_bool_terminal_kinds!()` — `Foo::Bar`, `self`, `-x`,
-// `defined?(x)`, `(y = x)`, `*xs`, `1..2` — so delegating to it would
-// have moved each of those `when`s from 1 to 0 against an unchanged
-// cyclomatic decision (measured for #1453). The `if` forms of those
-// shapes do score 0 today; that is the slot's gap (#1520), not this
-// arm's to copy.
+// Every boolean slot asks this through `ruby_count_condition`.
 fn ruby_condition_scores_itself(expr: &Node) -> bool {
     use Ruby::*;
 
@@ -318,11 +273,8 @@ fn ruby_count_when<'a>(when: &Node<'a>, ancestors: Ancestors<'a, '_>, conditions
     // `pattern` wraps exactly one expression, so an extra (a comment) can
     // sit beside it under the `when` but never inside it.
     for pattern in when.children().filter(|c| c.kind_id() == Ruby::Pattern) {
-        if pattern
-            .child(0)
-            .is_some_and(|expr| !ruby_condition_scores_itself(&expr))
-        {
-            *conditions += 1.;
+        if let Some(expr) = pattern.child(0) {
+            ruby_count_condition(&expr, conditions);
         }
     }
 }
@@ -349,7 +301,7 @@ fn ruby_count_when<'a>(when: &Node<'a>, ancestors: Ancestors<'a, '_>, conditions
 // from 2 to 3.
 fn ruby_walk_ternary(node: &Node, conditions: &mut f64) {
     if let Some(condition) = node.child_by_field_name("condition") {
-        ruby_count_condition(&condition, node, conditions);
+        ruby_count_condition(&condition, conditions);
     }
     // Branch operands carry no terminal check: an unnegated branch is
     // type-free and contributes nothing, which is what keeps
@@ -389,11 +341,11 @@ impl Abc for RubyCode {
             // comparison-token arm while `in [x] if x.even?` and
             // `in [x] if b` counted zero, so three semantically
             // identical guards produced two different numbers. As a slot
-            // every spelling contributes exactly one — a call /
-            // identifier / ivar / element reference through
-            // `ruby_bool_terminal_kinds!()`, a comparison through the
-            // token arm that already owns it — and a compound guard
-            // keeps its sub-structure rather than collapsing to one.
+            // every spelling contributes exactly one — the slot's own
+            // one for anything no other arm counts, or a comparison
+            // through the token arm that already owns it — and a
+            // compound guard keeps its sub-structure rather than
+            // collapsing to one.
             //
             // `Guard` is the hidden `_guard` supertype (§2, lesson #34);
             // it is listed for the same defensive reason
@@ -403,9 +355,10 @@ impl Abc for RubyCode {
             // a guard contains are anonymous tokens distinct from the
             // `If` / `Unless` statement kinds this arm matches, so a
             // guard reaches the slot exactly once.
-            ruby_condition_slot_kinds!() => {
+            If | Unless | While | Until | IfModifier | UnlessModifier | WhileModifier
+            | UntilModifier | Guard | IfGuard | UnlessGuard => {
                 if let Some(cond) = node.child_by_field_name("condition") {
-                    ruby_count_condition(&cond, node, &mut stats.conditions);
+                    ruby_count_condition(&cond, &mut stats.conditions);
                 }
             }
             Call | Call2 | Call3 | Call4 | Super | Yield | Yield2 => {

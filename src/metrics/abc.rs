@@ -8951,9 +8951,10 @@ end
     // pays exactly as an `if` predicate would.
     //
     // `scope`, `neg`, `splat` and `arith` are why the clause asks "is this
-    // already paid for" rather than routing through `ruby_count_condition`:
-    // that `if` slot scores each of these 0, so delegating to it would
-    // have dropped all four from 1 to 0 against an unchanged decision.
+    // already paid for" rather than "is this a known terminal": the `if`
+    // slot asked the second question and scored each of these 0 until
+    // #1520 moved it onto the clause's question — see
+    // `ruby_condition_slot_pays_what_no_other_arm_counted`.
     #[cfg(feature = "ruby")]
     #[test]
     fn ruby_subjectless_case_when_condition_wrappers_count_once() {
@@ -9101,6 +9102,130 @@ end
                 ("or_mixed", 2, 3),
             ],
         );
+    }
+
+    // #1520: every Ruby condition slot — block and modifier `if` /
+    // `unless` / `while` / `until`, a `case … in` guard, a ternary
+    // condition — pays one condition unless another arm already charged
+    // the same decision. The slot used to pay only for a predicate that
+    // peeled down to a known boolean terminal, so the first block below
+    // scored 0 for one decision each, while the same expression as a
+    // subject-less `when` scored 1 (`ruby_subjectless_case_when_condition_
+    // wrappers_count_once`). Every row sits at `conditions == cyclomatic
+    // - 1` except `tern` and `ifelse`, which agree with each other one
+    // above it: ABC counts the `?` / `else` arm and cyclomatic does not.
+    //
+    // The second block must not move, or the slot is paying twice: each
+    // predicate's comparison or chain operand is already counted by its
+    // own arm. `begin_cmp` and `assign_cmp` are why the peel looks through
+    // `begin … end` and an assignment's value — without that the slot
+    // would see a non-terminal and pay on top of the `>`. `chain_neg` has
+    // no counted operand (the Rule 9 walker skips `-a`), so the slot
+    // pays, exactly as `when -a && -b` does.
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_condition_slot_pays_what_no_other_arm_counted() {
+        let src = "def scope
+  if Foo::Bar then 1 end
+end
+def zelf
+  if self then 1 end
+end
+def neg(x)
+  if -x then 1 end
+end
+def defd(x)
+  if defined?(x) then 1 end
+end
+def assign(x)
+  if (y = x) then y end
+end
+def arith(x)
+  if x + 1 then 1 end
+end
+def blk(b)
+  g if begin b end
+end
+def unl
+  g unless Foo::Bar
+end
+def til(x)
+  g until -x
+end
+def whl
+  while self do g end
+end
+def guard(x)
+  case x
+  in [y] if -y then 1
+  end
+end
+def tern(x)
+  -x ? 1 : 2
+end
+def ifelse(x)
+  if -x then 1 else 2 end
+end
+def cmp(x)
+  if x > 1 then 1 end
+end
+def begin_cmp(x)
+  if begin x > 1 end then 1 end
+end
+def assign_cmp(x)
+  if (y = x > 1) then y end
+end
+def notted(x)
+  if !x then 1 end
+end
+def chain(a, b)
+  if a && b then 1 end
+end
+def chain_neg(a, b)
+  if -a && -b then 1 end
+end
+";
+        assert_fixture_spells::<RubyParser>(
+            src,
+            "foo.rb",
+            &[
+                (Ruby::ScopeResolution2 as u16, 2, "`Foo::Bar`"),
+                (Ruby::Zelf as u16, 2, "`self`"),
+                (Ruby::Begin as u16, 2, "`begin … end`"),
+                (Ruby::Assignment as u16, 2, "parenthesised assignments"),
+                (Ruby::Conditional as u16, 1, "`tern`'s ternary"),
+                (Ruby::IfGuard as u16, 1, "`guard`'s guard"),
+            ],
+        );
+        check_func_space::<RubyParser, _>(src, "foo.rb", |space| {
+            assert_members_score(
+                &space,
+                &[
+                    // (member, abc.conditions, cyclomatic); each of the
+                    // first twelve was one lower.
+                    ("scope", 1, 2),
+                    ("zelf", 1, 2),
+                    ("neg", 1, 2),
+                    ("defd", 1, 2),
+                    ("assign", 1, 2),
+                    ("arith", 1, 2),
+                    ("blk", 1, 2),
+                    ("unl", 1, 2),
+                    ("til", 1, 2),
+                    ("whl", 1, 2),
+                    ("guard", 2, 3),
+                    ("tern", 2, 2),
+                    ("ifelse", 2, 2),
+                    ("cmp", 1, 2),
+                    ("begin_cmp", 1, 2),
+                    ("assign_cmp", 1, 2),
+                    ("notted", 1, 2),
+                    ("chain", 2, 3),
+                    // Was 0.
+                    ("chain_neg", 1, 3),
+                ],
+            );
+        });
     }
 
     // The other half of #1453: a subject-ful clause must not move. It
@@ -16183,7 +16308,9 @@ mod keyword_negation_parity {
 /// paths (grammar-dispatch §11) and Perl's defect showed in both: the
 /// operands of a `&&` chain, and the predicate of an `if`. A fixture of
 /// only the first leaves `perl_count_condition` and `ruby_count_condition`
-/// untested.
+/// untested. Since #1520 Ruby's predicate pays for any operand no other
+/// arm counts, terminal or not, so for Ruby only the chain half can tell
+/// a kind missing from the set; the predicate half pins the slot itself.
 ///
 /// The recorded cyclomatic figure is the same 3 for both slots — one file
 /// space, one function space, one decision — while conditions differ (2
@@ -17900,7 +18027,10 @@ mod wrapper_peel_routing {
 
     /// Ruby has no counted call-argument slot, so the outside-a-slot
     /// half reads a ternary *branch*, which is type-free: only a
-    /// negation there proves its operand boolean.
+    /// negation there proves its operand boolean. That branch is also
+    /// where the declined half lives for Ruby: its condition slot pays
+    /// for any predicate no other arm counted, `-b` included (#1520), so
+    /// `if -b` scores 1 rather than 0.
     #[test]
     #[cfg(feature = "ruby")]
     fn ruby_condition_slot_routes_what_the_peel_accepts() {
@@ -17913,8 +18043,8 @@ mod wrapper_peel_routing {
                 ("!b", 1),
                 ("not b", 1),
                 ("!(b)", 1),
-                ("-b", 0),
-                ("(-b)", 0),
+                ("-b", 1),
+                ("(-b)", 1),
             ],
         );
         assert_operands(
@@ -17939,12 +18069,14 @@ mod wrapper_peel_routing {
 
     /// A subject-less `when` whose pattern is a chain owes its clause
     /// condition unless some operand of the chain is counted by another
-    /// arm. `-a && -b` and `(a = 1) && (b = 2)` have no such operand —
-    /// the Rule 9 walker counts plain operands only — so the clause pays,
-    /// as it does for a bare `when -a`; treating every chain as paid
-    /// scored them 0 (found by review of #1453). The other rows keep the
-    /// double count #1453 removed out: a counted operand anywhere in the
-    /// chain, at any depth, pays for it.
+    /// arm. `-a && -b` has no such operand — the Rule 9 walker counts
+    /// plain operands only — so the clause pays, as it does for a bare
+    /// `when -a`; treating every chain as paid scored it 0 (found by
+    /// review of #1453). The other rows keep the double count #1453
+    /// removed out: a counted operand anywhere in the chain, at any
+    /// depth, pays for it. An assignment operand is its value (#1520),
+    /// so `(a = 1) && (b = 2)` is `1 && 2`: two counted operands, and
+    /// the clause adds nothing.
     #[test]
     #[cfg(feature = "ruby")]
     fn ruby_subjectless_when_chain_pays_only_through_a_counted_operand() {
@@ -17954,7 +18086,7 @@ mod wrapper_peel_routing {
             &[
                 ("-a", 1),
                 ("-a && -b", 1),
-                ("(a = 1) && (b = 2)", 1),
+                ("(a = 1) && (b = 2)", 2),
                 ("-a || -b || -c", 1),
                 ("-a && b", 1),
                 ("a > 1 && -b", 1),
