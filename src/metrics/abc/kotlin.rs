@@ -124,13 +124,14 @@ fn kotlin_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 // a condition: a comparison, an elvis `?:` or an `&&` / `||` chain
 // (their operator tokens, a chain's operands each paying through
 // `kotlin_count_condition`), an `is` / `in` test, a safe cast `as?`, an
-// `if` expression (its `else`), a `try` (its `try` and `catch`), or a
-// `when` with an entry other than `else ->`, each of which pays.
+// `if` expression (its `else`, as a C-family ternary pays its `?`) or a
+// `try` (its `try` and `catch`), each of which pays.
 //
-// A `when` of nothing but `else ->` charges nothing, so the slot holding
-// it pays: `if (when (a) { else -> true })` scored zero against the
-// `if`'s decision while the slot paid only for a fixed list of terminal
-// kinds, the rule every other C-like language left with #1526 (#1533).
+// A `when` is not one: its entries pay as clauses, and the slot holding
+// it pays the decision of using the result, as the slot holding Java's
+// `switch`, C#'s `switch` expression or Rust's `match` does. So
+// `if (when (x) { 1 -> true; else -> false })` scores 2 like those
+// twins (it scored 1), and `if (when (a) { else -> true })` 1 (#1533).
 const KOTLIN_SELF_SCORING_OPERATORS: [Kotlin; 11] = [
     Kotlin::LT,
     Kotlin::GT,
@@ -154,10 +155,6 @@ fn kotlin_condition_scores_itself(expr: &Node) -> bool {
         BinaryExpression => expr
             .child_by_field_name("operator")
             .is_some_and(|op| KOTLIN_SELF_SCORING_OPERATORS.contains(&op.kind_id().into())),
-        WhenExpression => expr.children().any(|entry| {
-            entry.kind_id() == WhenEntry as u16
-                && !crate::metrics::cyclomatic::kotlin_when_entry_is_else(&entry)
-        }),
         _ => false,
     }
 }
@@ -428,10 +425,10 @@ impl Abc for KotlinCode {
             // `if`/`while`/`do-while` is one unary condition. The
             // `condition` field locates the predicate position-
             // independently across all three forms. `kotlin_count_condition`
-            // counts a bare terminal directly and routes paren/negation
-            // wrappers through `kotlin_inspect_container`, while a comparison
-            // or `&&`/`||` predicate is a `binary_expression` already counted
-            // by the token arms above — so no double-count (#773).
+            // peels paren / `!` / `!!` / `as` wrappers and pays for any
+            // predicate `kotlin_condition_scores_itself` does not name; a
+            // comparison or `&&`/`||` chain pays through its own arms
+            // instead — so no double-count (#773, #1526).
             IfExpression | WhileStatement | DoWhileStatement => {
                 if let Some(condition) = node.child_by_field_name("condition") {
                     kotlin_count_condition(&condition, &mut stats.conditions);

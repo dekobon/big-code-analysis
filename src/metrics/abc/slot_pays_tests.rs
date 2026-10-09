@@ -571,10 +571,13 @@ fn java_slots_pay_for_any_predicate() {
 /// Kotlin joined the shared slot in #1533. A `when` whose only entry is
 /// `else ->` charges nothing of its own, so the slot holding it pays: it
 /// scored 0 against the slot's decision. Its twin is `true`, the value
-/// such a `when` evaluates to. A `when` with any other entry, an `if`
-/// expression (its `else`), a `try` (its `try` / `catch`) and an elvis
-/// (its `?:`) each pay through their own arms, and the slot does not pay
-/// again; the infix `a and b` is an eager call, a value like `f()`.
+/// such a `when` evaluates to. A `when` with other entries pays per entry
+/// and the slot pays as well, as the slot holding Java's `switch`, C#'s
+/// `switch` expression or Rust's `match` does (each scores 2 for the
+/// one-case form). An `if` expression (its `else`, like a ternary's `?`),
+/// a `try` (its `try` / `catch`) and an elvis (its `?:`) pay through
+/// their own arms, and the slot does not pay again; the infix `a and b`
+/// is an eager call, a value like `f()`.
 #[test]
 #[cfg(feature = "kotlin")]
 fn kotlin_slots_pay_for_any_predicate() {
@@ -585,8 +588,8 @@ fn kotlin_slots_pay_for_any_predicate() {
         ("when (x) { else -> true }", 1, 1),
         ("(when (x) { else -> true })", 1, 1),
         ("!when (x) { else -> true }", 1, 1),
-        ("when (x) { 1 -> true else -> false }", 1, 2),
-        ("when { a -> true else -> false }", 1, 2),
+        ("when (x) { 1 -> true else -> false }", 2, 2),
+        ("when { a -> true else -> false }", 2, 2),
         ("if (a) b else false", 2, 2),
         ("try { b } catch (e: Exception) { false }", 2, 2),
         ("nb ?: false", 1, 2),

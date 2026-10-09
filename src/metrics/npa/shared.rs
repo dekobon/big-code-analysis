@@ -913,7 +913,11 @@ fn elixir_is_anonymous_fn_head_clause<'a>(node: &Node<'a>, ancestors: Ancestors<
 /// in one more position: a parenthesised `block`, which is how a
 /// typespec spells a function type (`@spec f((any -> any)) :: list`).
 /// That is type syntax and branches on nothing, the same reason
-/// [`elixir_when_is_guard`] excludes a typespec's `when` (#1531).
+/// [`elixir_when_is_guard`] excludes a typespec's `when` (#1531). The
+/// keyword form of a clause construct (`case(x, do: (1 -> :a; …))`)
+/// holds its clauses in the same parenthesised `block`, so a `block`
+/// counts when it is the value of a section pair
+/// ([`elixir_is_section_pair`]).
 ///
 /// Shared by the `Cyclomatic` and `Abc` impls for `ElixirCode`, which
 /// both score a clause construct per clause and must agree on which
@@ -925,34 +929,65 @@ pub(crate) fn elixir_clause_is_decision<'a>(
 ) -> bool {
     use Elixir as E;
 
-    ancestors.parent(node).is_some_and(|parent| {
-        matches!(
-            parent.kind_id().into(),
+    let mut up = ancestors.iter(node).map(|(ancestor, _)| ancestor);
+    let in_section = up
+        .next()
+        .is_some_and(|parent| match parent.kind_id().into() {
             E::DoBlock
-                | E::ElseBlock
-                | E::AfterBlock
-                | E::RescueBlock
-                | E::CatchBlock
-                | E::AnonymousFunction
-        )
-    }) && !elixir_is_anonymous_fn_head_clause(node, ancestors)
+            | E::ElseBlock
+            | E::AfterBlock
+            | E::RescueBlock
+            | E::CatchBlock
+            | E::AnonymousFunction => true,
+            E::Block => up
+                .next()
+                .is_some_and(|pair| elixir_is_section_pair(&pair, code, SECTION_KEYS)),
+            _ => false,
+        });
+    in_section
+        && !elixir_is_anonymous_fn_head_clause(node, ancestors)
         && !elixir_is_default_clause(node, code, ancestors)
 }
 
-/// Whether `node` (a `stab_clause`) is one arm of a `cond`: its parent
-/// is the `do_block` of a `Call` spelling `cond`.
+/// The keyword spellings of the clause sections a `do … end` block
+/// spells as `do_block` / `else_block` / `after_block` / `rescue_block`
+/// / `catch_block`.
+const SECTION_KEYS: &[&str] = &["do:", "else:", "after:", "rescue:", "catch:"];
+
+/// Whether `pair` is a keyword-form section (`do: (…)`) whose key is one
+/// of `keys`. The key token's text carries its colon and the whitespace
+/// after it, so it is trimmed before comparing.
+fn elixir_is_section_pair(pair: &Node, code: &[u8], keys: &[&str]) -> bool {
+    pair.kind_id() == Elixir::Pair as u16
+        && pair
+            .child_by_field_name("key")
+            .and_then(|key| key.utf8_text(code))
+            .is_some_and(|key| keys.contains(&key.trim_end()))
+}
+
+/// Whether `node` (a `stab_clause`) is one arm of a `cond`: it sits in
+/// the `do` section of a `Call` spelling `cond`, either the block form's
+/// `do_block` (whose parent is the call) or the keyword form's
+/// `do: (…)` block (`block` → `pair` → `keywords` → `arguments` → call).
 fn elixir_is_cond_clause<'a>(
     node: &Node<'a>,
     code: &'a [u8],
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
-    let mut chain = ancestors.iter(node);
-    chain
-        .next()
-        .is_some_and(|(parent, _)| parent.kind_id() == Elixir::DoBlock as u16)
-        && chain.next().is_some_and(|(grandparent, _)| {
-            crate::lang_helpers::elixir::elixir_call_keyword(&grandparent, code) == Some("cond")
-        })
+    use Elixir as E;
+
+    let mut up = ancestors.iter(node).map(|(ancestor, _)| ancestor);
+    let call = match up.next().map(|parent| parent.kind_id().into()) {
+        Some(E::DoBlock) => up.next(),
+        Some(E::Block) => up
+            .next()
+            .filter(|pair| elixir_is_section_pair(pair, code, &["do:"]))
+            .and_then(|_| up.nth(2)),
+        _ => None,
+    };
+    call.is_some_and(|call| {
+        crate::lang_helpers::elixir::elixir_call_keyword(&call, code) == Some("cond")
+    })
 }
 
 // A `visibility_modifier` node counts as public unless it has a direct

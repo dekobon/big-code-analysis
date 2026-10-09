@@ -152,6 +152,8 @@ Read it as follows.
 | `nom/deep-attribute-run` | Rust | depth | the same scan on the diagonal: depth and one attribute run together (#1446) | linear |
 | `nom/nested-cfg-predicate` | Rust | depth | the `cfg(...)` predicate classifier (#1105) | linear |
 | `halstead/wide-distinct-fn` | Rust | width | per-child work at the space-merge boundary (#1106) | linear |
+| `abc/wide-let-declarators` | JavaScript | width | ABC's structural `const` check per `let` declarator (#1277) | linear |
+| `loc/wide-cfg-test-mod` | Rust | width | the `exclude_tests` prune arm's row bookkeeping (#1417) | linear |
 | `cyclomatic/cpp-plus-chain` | C++ | depth | shape control for the three rows below | linear |
 | `cyclomatic/cpp-and-chain` | C++ | depth | the `&&` / `||` applied-operator gate (#1533) | linear |
 | `cognitive/cpp-and-chain` | C++ | depth | the boolean-sequence arm on the same chain (#1533) | linear |
@@ -351,7 +353,7 @@ parenthesised `requires (A<T> && B<T>)` parses as an ordinary
 cyclomatic, cognitive and ABC climbed from every `&&` to the enclosing
 `requires_clause`. In a left-nested `a && a && …` the operator at depth
 *k* has *k* chain ancestors, so the climb cost an 8 000-term chain 4.4 s
-against 0.06 s before it was reverted. With that climb reinstated behind
+in a debug build, against 0.09 s once reverted. With that climb reinstated behind
 a local patch the three probes fit 1.97, 1.97 and 1.95 —
 `cyclomatic/cpp-and-chain` reads 0.74 ms clean and 104.6 ms climbing at
 depth 4 000 — while `cyclomatic/cpp-plus-chain`, the same chain through

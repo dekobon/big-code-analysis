@@ -24,11 +24,15 @@ for historical reference.
 
 ## [Unreleased]
 
-Every entry under **Fixed** changes ABC values for valid input, mostly
-`conditions` (one Elixir case changes `assignments`), except two C++
-entries: the alternative-token entry for #1522 moves cyclomatic,
-cognitive and Halstead only, and the `&&` entry for #1525 moves
-cyclomatic, plus ABC for a binary fold.
+Most entries under **Fixed** change ABC values for valid input, mostly
+`conditions` (one Elixir case changes `assignments`). Some also or only
+move other metrics, and say so: the C++ alternative-token entry (#1522)
+moves cyclomatic, cognitive and Halstead; the C++ `&&` entry (#1525)
+moves cyclomatic, and ABC only for a binary fold; the `requires` entry
+(#1533) moves cyclomatic and cognitive too, and the fold entry (#1533)
+cognitive; the word-operator entry (#1530) moves cognitive only; and the
+Elixir clause entry (#1531) moves cyclomatic for a typespec function
+type and a keyword-form `cond` catch-all.
 
 ### Fixed
 
@@ -131,10 +135,9 @@ cyclomatic, plus ABC for a binary fold.
   (`requires A<T> && B<T>`) each added a decision. A binary fold
   `(0 && ... && a)` now counts once rather than twice, and ABC no
   longer scores a negated fold operand (`(0 || ... || !a)`) once per
-  spelling of the operator. Compile-time
-  expressions parsed as ordinary expressions, such as
-  `static_assert(A && B)` or a parenthesised constraint
-  `requires (A<T> && B<T>)`, still count, as `if constexpr` does. In the
+  spelling of the operator. Compile-time expressions parsed as ordinary
+  expressions, such as `static_assert(A && B)`, still count, as
+  `if constexpr` does. In the
   DeepSpeech corpus, openfst and kenlm headers lose one decision per
   rvalue reference.
 - **Every ABC boolean slot pays one condition unless its predicate is
@@ -153,6 +156,49 @@ cyclomatic, plus ABC for a binary fold.
   like Ruby's `elsif` and Java's `else if`. Perl's `$a and $b` now
   counts both operands, and a Rust let-chain counts each operand once.
   In the corpora, pdf.js, DeepSpeech and serde files gain conditions.
+- **Nothing inside a C++ or Mozcpp `requires` clause scores a decision**
+  (#1533). A parenthesised constraint (`requires (A<T> && B<T>)`), a
+  nested, negated or folded one, and a `requires` expression scored
+  cyclomatic 1, cognitive 1 and ABC 2 where the unparenthesised
+  `requires A<T> && B<T>` scored nothing; every spelling now scores 0
+  in all three. A call inside a constraint is still an ABC branch, and
+  `static_assert(A && B)` and a concept body (`concept C = A<T> &&
+  B<T>`) still count. The check costs O(1) per node, so a long `&&`
+  chain stays linear. It adds a private field to the library's
+  `cyclomatic::Stats`, `cognitive::Stats` and `abc::Stats`; the field is
+  never serialized or merged.
+- **A C++ or Mozcpp `&&` / `||` fold scores like its spelled-out twin**
+  (#1533). `(... && a)` scores like `a && a` and `(true && ... && a)`
+  like `true && a`: one decision, one cognitive increment and two ABC
+  conditions, where cognitive scored 0 and ABC 0 in a `return` or 1 in
+  an `if`.
+- **A Kotlin `when` in a condition slot scores like Java's `switch`**
+  (#1533). Kotlin's condition slots now use the rule the other languages
+  share, so the slot pays for a `when` it holds:
+  `if (when (a) { else -> true })` scores 1 condition (it scored 0) and
+  `if (when (x) { 1 -> true; else -> false })` 2 (it scored 1), as the
+  same predicate does with Java's `switch`, C#'s `switch` expression and
+  Rust's `match`. No other Kotlin value moves.
+- **Elixir ABC scores one condition per clause and counts `else`**
+  (#1531). `case`, a `with`'s `else`, `receive` (and its `after`), the
+  `try` handlers and a multi-clause anonymous `fn` paid one condition
+  for the whole construct; each clause cyclomatic counts as a decision
+  now pays one, and an unguarded catch-all (`_ ->`) pays nothing, like
+  `cond`'s `true ->`. The `else` of an `if` / `unless` now pays
+  Fitzpatrick Rule 5's condition in both the `do … else … end` and the
+  `else:` forms, as Ruby, Java, Python and Go do. A comparison operator
+  that is only named (`&==/2`, `Kernel.==(a, b)`) no longer scores. Elixir
+  cyclomatic no longer counts a typespec function type (`(any -> any)`)
+  as a decision. The keyword forms (`case(x, do: (1 -> :a; …))`,
+  `cond(do: (…))`, `receive`, `try`, `with`'s `else:`) score exactly as
+  their `do … end` forms, so a keyword-form `cond`'s `true ->` catch-all
+  is no longer a cyclomatic decision.
+- **A word-spelled `and` / `or` continues its symbol's cognitive boolean
+  sequence** (#1530). In Ruby, PHP, Perl, Elixir and iRules,
+  `a && b and c` scored two sequences where `a && b && c` scores one;
+  `and` now keys to `&&` and `or` to `||`, as C++ does since #1522.
+  Perl's low-precedence `and`, which cognitive never counted because the
+  grammar parses it as a `unary_expression`, now scores like `&&`.
 
 ## [2.3.0] - 2026-10-07
 

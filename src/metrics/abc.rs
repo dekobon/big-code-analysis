@@ -11728,6 +11728,86 @@ end
         assert_eq!(metrics.cyclomatic.cyclomatic_sum(), 1);
     }
 
+    // The keyword form of each clause construct holds its clauses in a
+    // parenthesised `block` under a `do:` / `else:` / `rescue:` pair, the
+    // shape a typespec function type also has. Excluding `block` for the
+    // typespec dropped every keyword-form clause (`ck` read 1/4, and `rk`
+    // 0/3); each `*k` row must equal its `*b` block-form twin, `dk`'s
+    // `true ->` included (it was a decision in the keyword form).
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_keyword_form_clauses_match_block_form() {
+        let src = "defmodule M do
+  def ck(x), do: case(x, do: (1 -> :a; 2 -> :b; 3 -> :c))
+  def cb(x) do
+    case x do
+      1 -> :a
+      2 -> :b
+      3 -> :c
+    end
+  end
+  def dk(x), do: cond(do: (x > 1 -> :a; x < 0 -> :b; true -> :c))
+  def db(x) do
+    cond do
+      x > 1 -> :a
+      x < 0 -> :b
+      true -> :c
+    end
+  end
+  def rk(), do: receive(do: ({:a, y} -> y; {:b, z} -> z))
+  def rb() do
+    receive do
+      {:a, y} -> y
+      {:b, z} -> z
+    end
+  end
+  def tk(), do: try(do: g(), rescue: (e in RuntimeError -> e; _ -> 2))
+  def tb() do
+    try do
+      g()
+    rescue
+      e in RuntimeError -> e
+      _ -> 2
+    end
+  end
+  def wk(x), do: with({:ok, a} <- x, do: a, else: ({:error, e} -> e; _ -> 0))
+  def wb(x) do
+    with {:ok, a} <- x do
+      a
+    else
+      {:error, e} -> e
+      _ -> 0
+    end
+  end
+end
+";
+        assert_fixture_spells::<ElixirParser>(
+            src,
+            "foo.ex",
+            &[
+                (Elixir::Block as u16, 5, "the five keyword-form sections"),
+                (Elixir::StabClause as u16, 24, "clauses, 12 per spelling"),
+            ],
+        );
+        check_func_space::<ElixirParser, _>(src, "foo.ex", |space| {
+            assert_members_score(
+                &space.spaces[0],
+                &[
+                    ("ck", 3, 4),
+                    ("cb", 3, 4),
+                    ("dk", 2, 3),
+                    ("db", 2, 3),
+                    ("rk", 2, 3),
+                    ("rb", 2, 3),
+                    ("tk", 1, 2),
+                    ("tb", 1, 2),
+                    ("wk", 1, 2),
+                    ("wb", 1, 2),
+                ],
+            );
+        });
+    }
+
     // Fitzpatrick Rule 5 counts the `else` of an `if` / `unless` (#1531),
     // in both of Elixir's spellings. Expected values are the twins':
     // Ruby's `if b … else … end`, Java's `if (b) {} else {}`, Python's
@@ -17283,22 +17363,22 @@ mod numeric_bool_operands {
 ///
 /// Every language here spells at least one boolean test as a dedicated
 /// node rather than as a `binary_expression`, so no comparison-token
-/// arm ever sees it. A kind missing from `<lang>_bool_terminal_kinds!()`
-/// scores **zero**, silently, and zero is indistinguishable from a
-/// construct that legitimately scores zero — which is why the headline
+/// arm ever sees it. A kind missing from the former per-language
+/// terminal-kind sets scored **zero**, silently, and zero is
+/// indistinguishable from a legitimate zero — which is why the headline
 /// claim of each case is a *comparison* against an identifier control
 /// in the identical slot rather than an absolute number.
 ///
 /// The constructs, and the route each fix took:
 ///
-/// - **Groovy** `a in l` / `a !in l` (`membership_expression`) joins
-///   the terminal set. The other four — `a === b` / `a !== b`
-///   (`identity_expression`) and `s =~ /p/` / `s ==~ /p/`
-///   (`regex_find_expression`, `regex_match_expression`) — are counted
-///   as operator tokens in `groovy_count_token_condition` instead, so
-///   they also score outside a boolean slot as `==` already did. Both
-///   macro and arm carry the reasoning; the rule that matters here is
-///   that a construct takes exactly one of the two routes, never both
+/// - **Groovy** `a in l` / `a !in l` (`membership_expression`), counted
+///   as a node by `groovy_count_token_condition`. The other four —
+///   `a === b` / `a !== b` (`identity_expression`) and `s =~ /p/` /
+///   `s ==~ /p/` (`regex_find_expression`, `regex_match_expression`) —
+///   are counted there as operator tokens, so all five score outside a
+///   boolean slot as `==` does, and `groovy_condition_scores_itself`
+///   lists each so the slot holding one does not pay again; a construct
+///   takes exactly one of the two routes, never both
 ///   (`.claude/rules/grammar-dispatch.md` §5).
 /// - **Perl** `/^#/` (`pattern_matcher`) and `m{^#}`
 ///   (`pattern_matcher_m`), the two spellings of a match against the
@@ -17326,25 +17406,21 @@ mod numeric_bool_operands {
 /// #1461 item 2 exists to decide, so it is left to that issue rather
 /// than settled by inclusion here.
 ///
-/// Two slots per language, because the sets feed two independent walker
+/// Two slots per language, because they are two independent walker
 /// paths (§11) and every construct above measured short in **both**: the
 /// operands of a `&&` chain, and the predicate of an `if`. A fixture of
 /// only one leaves the other untested.
 ///
-/// Each row also carries the construct's negated spelling. That is not
-/// redundancy: `<lang>_inspect_container` is a *third* consumer of every
-/// terminal set, reached only after a `(…)` or `!…` wrapper is peeled,
-/// and it is the consumer that decides whether the peeled operand sits
-/// in boolean context at all. Without a negated row, Groovy's and
-/// Rust's `inspect_container` arms were the site no fixture here
-/// exercised.
+/// Each row also carries the construct's negated spelling, which reaches
+/// the construct only through the language's value peel: the `!…` /
+/// `(…)` wrapper is peeled before `count_boolean_slot` asks
+/// `<lang>_condition_scores_itself` whether the operand already paid.
+/// Without a negated row the peel is the path no fixture here exercises.
 ///
-/// Even with it, no language exercises all three consumers through
-/// these two slots, and which one is missed differs by language. Perl
-/// is no longer one of them: since #1467 its rows score through the
-/// by-use arm, not through any consumer of the terminal set, and since
-/// #1529 Ruby has no terminal set: its chain operands and its slots both
-/// score through `ruby_count_condition`.
+/// Since #1526 no language here has a terminal-kind set: the chain
+/// operands and the slots both score through the shared
+/// `count_boolean_slot` rule, and Perl's rows score through the by-use
+/// arm (#1467).
 ///
 /// The `cyclomatic` half of `every_construct_scores_its_recorded_values`
 /// is what rules out a regression that moved both metrics together:

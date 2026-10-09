@@ -480,7 +480,8 @@ pub fn nested_arrows(depth: usize) -> String {
 /// what *encloses* the chain — "is this inside a `requires` clause?" —
 /// answered by climbing those ancestors is `O(depth)` per operator and
 /// `O(depth^2)` over the chain. That is the climb #1533 records, which
-/// cost an 8 000-term chain 4.4 s against 0.06 s.
+/// cost an 8 000-term chain 4.4 s in a debug build, against 0.09 s once
+/// reverted.
 #[must_use]
 pub fn cpp_and_chain(depth: usize) -> String {
     format!("bool f(bool a){{ return {}a; }}\n", "a && ".repeat(depth))
@@ -1346,8 +1347,10 @@ pub const PROBES: &[Probe] = &[
                     `cpp_operator_is_applied` whether it applies the \
                     operator. Asking whether the chain sits in a \
                     `requires` clause by climbing to it costs the \
-                    chain's depth per operator, so 769319cb made a long \
-                    chain quadratic in all three metrics that ask. \
+                    chain's depth per operator, so the first \
+                    requires-clause exclusion, added in #1526's review, \
+                    made a long chain quadratic in all three metrics \
+                    that ask. \
                     Reinstating that climb takes this probe from 1.00 to \
                     1.97 (0.74 ms to 104.6 ms at depth 4 000) and its two \
                     `*/cpp-and-chain` siblings to 1.97 and 1.95, while \
