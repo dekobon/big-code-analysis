@@ -711,6 +711,14 @@ tokens involved the same way they spell real operators:
   call `M(ref x)`, and `static (int x) => x` bills the same `static`
   as `static void M()`. A repeated operator keyword adds to
   `total_operators` but not to `unique_operators` (#1418, #1482).
+- **JSX element text is an operand.** In JavaScript, Mozjs and TSX,
+  the `hi` of `<p>hi</p>` counts the way a string's contents do. It is
+  keyed on its text with leading and trailing whitespace trimmed, so a
+  line of text at two indentation depths is one operand, and the
+  spaces between two tags on one line count as nothing. Whitespace
+  *inside* a multi-line text is kept. A character reference (`&amp;`) splits the text
+  into separate operands (`a &amp; b` is three). Inside an attribute
+  string, the reference is part of that string's one operand (#1483).
 - **An overloaded operator's name is an operator.** The `+` of
   `operator +` was always one, and the names a grammar spells as whole
   tokens now agree: C#'s `operator true` / `operator false`, and C++'s

@@ -127,6 +127,35 @@ macro_rules! get_operator {
 // the *field definition* `#x = 1` had never been counted at all — no
 // wrapper covered it — so this fixes that half too.)
 //
+// `jsx: [<text kind>, <entity kind>]` (JavaScript, MozJS, TSX) bills
+// the content of a JSX element (#1483). A `jsx_text` node is an
+// operand, the way a string's contents are; it is childless and no
+// node containing it (`jsx_element`) is classified, so nothing bills it
+// twice. Two refinements need the source bytes and so live in the
+// `get_op_type_with_code` / `get_operand_id` overrides the parameter
+// also emits:
+//
+//   * A whitespace-only `jsx_text` is `Unknown`. The scanner emits no
+//     token for whitespace that starts with a newline, but same-line
+//     spaces between tags (`<a/> <b/>`) are a node of their own, and
+//     billing them would make `N2` follow the source's layout.
+//   * The operand is keyed on the text with its surrounding whitespace
+//     trimmed. A token keeps the newlines and indentation around it, so
+//     `Start` at two indentation depths would otherwise be two distinct
+//     operands. This is the same shape as Kotlin's #454 narrowing.
+//
+// An `html_character_reference` (`&amp;`) splits the text around it
+// into siblings, so `a &amp; b` is three operands: `a`, `&amp;` and
+// `b`. Each node is one vocabulary entry, and the entity denotes a
+// character the surrounding text does not, so it is not folded into
+// either neighbour. The same kind also sits inside a JSX attribute's
+// `string`, which is already the operand, so it is billed only when
+// its parent is not a string.
+//
+// `Checker::is_string` deliberately does not list `jsx_text`: `find
+// string` reports delimited string literals, the set the alterator
+// flattens (#283), and element text is undelimited markup content.
+//
 // The `TemplateString` interpolation guard is shared verbatim (issue
 // #192): a bare `` `...` `` mirrors a `"..."` operand, but an
 // interpolated template must yield `Unknown` because its inner
@@ -145,7 +174,8 @@ macro_rules! impl_js_family_get_op_type {
         $lang:ident,
         op_extras: [$($op_extra:ident),* $(,)?],
         operand_extras: [$($operand_extra:ident),* $(,)?]
-        $(, predefined_void: $predefined_type:ident)? $(,)?
+        $(, predefined_void: $predefined_type:ident)?
+        $(, jsx: [$jsx_text:ident, $jsx_entity:ident])? $(,)?
     ) => {
         fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
             use $lang::*;
@@ -262,9 +292,47 @@ macro_rules! impl_js_family_get_op_type {
                 TemplateString => {
                     Self::string_operand_type(node, &[TemplateSubstitution as u16])
                 }
+                $(
+                    $jsx_text => TokenRole::Operand,
+                    $jsx_entity
+                        if !ancestors
+                            .parent(node)
+                            .is_some_and(|p| matches!(p.kind_id().into(), String | String2)) =>
+                    {
+                        TokenRole::Operand
+                    }
+                )?
                 _ => TokenRole::Unknown,
             }
         }
+
+        $(
+            fn get_op_type_with_code<'a>(
+                node: &Node<'a>,
+                code: &[u8],
+                ancestors: Ancestors<'a, '_>,
+            ) -> TokenRole {
+                if node.kind_id() == $lang::$jsx_text as u16
+                    && code[node.start_byte()..node.end_byte()].trim_ascii().is_empty()
+                {
+                    return TokenRole::Unknown;
+                }
+                Self::get_op_type(node, ancestors)
+            }
+
+            fn get_operand_id<'a>(
+                node: &Node<'a>,
+                code: &'a [u8],
+                _ancestors: Ancestors<'a, '_>,
+            ) -> &'a [u8] {
+                let text = &code[node.start_byte()..node.end_byte()];
+                if node.kind_id() == $lang::$jsx_text as u16 {
+                    text.trim_ascii()
+                } else {
+                    text
+                }
+            }
+        )?
     };
 }
 

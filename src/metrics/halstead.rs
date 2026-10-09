@@ -472,7 +472,7 @@ implement_metric_trait!(Halstead, PreprocCode, CcommentCode);
     clippy::too_many_lines
 )]
 mod tests {
-    use std::collections::HashSet;
+    use std::collections::{BTreeSet, HashSet};
     use std::path::PathBuf;
 
     use crate::test_support::{ast_has_kind_id, check_metrics_only_shim, for_each_node_with_chain};
@@ -512,12 +512,15 @@ mod tests {
         feature = "groovy",
         feature = "irules",
         feature = "java",
+        feature = "javascript",
         feature = "kotlin",
         feature = "mozcpp",
+        feature = "mozjs",
         feature = "objc",
         feature = "perl",
         feature = "ruby",
         feature = "tcl",
+        feature = "typescript",
     ))]
     fn ops_of<T: crate::MetricSuite>(source: &str, file: &str) -> crate::ops::Ops {
         let path = PathBuf::from(file);
@@ -1713,6 +1716,139 @@ mod tests {
                 assert_eq!(metric.halstead.unique_operands(), 2);
                 assert_eq!(metric.halstead.total_operands(), 3);
             },
+        );
+    }
+
+    /// One JSX shape per row of #1483's decision: the source, the
+    /// expected `n2` / `N2`, and the deduplicated operand vocabulary.
+    /// Every row is a single element bound to `a`, so the operands
+    /// outside the element's content are always `a` plus the tag names.
+    #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+    const JSX_TEXT_CASES: &[(&str, &str, [u64; 2], &[&str])] = &[
+        // Element text is one operand. N2: a, p x2 (both tags), hi.
+        ("text", "const a = <p>hi</p>;\n", [3, 4], &["a", "p", "hi"]),
+        // The same-line space between `<b/>` and `<i/>` is a jsx_text
+        // node of its own, and bills nothing. Billing it would key an
+        // empty operand: (5, 6).
+        (
+            "whitespace",
+            "const a = <p><b/> <i/></p>;\n",
+            [4, 5],
+            &["a", "p", "b", "i"],
+        ),
+        // `Start` at two indentation depths is one distinct operand,
+        // because the key is the trimmed text. Untrimmed: (5, 7).
+        (
+            "indentation",
+            "const a = (\n  <p>\n    Start\n    <span>\n      Start\n    </span>\n  </p>\n);\n",
+            [4, 7],
+            &["a", "p", "span", "Start"],
+        ),
+        // An entity splits the text into three siblings, each an
+        // operand. Without the entity arm: (4, 5).
+        (
+            "entity in text",
+            "const a = <p>x &amp; y</p>;\n",
+            [5, 6],
+            &["a", "p", "x", "&amp;", "y"],
+        ),
+        // Inside an attribute string the entity is part of the string
+        // operand and bills nothing of its own. Without the parent
+        // guard: (5, 5).
+        (
+            "entity in attribute",
+            "const a = <p title=\"x &amp; y\" />;\n",
+            [4, 4],
+            &["a", "p", "title", "\"x &amp; y\""],
+        ),
+        // An expression child is unchanged by #1483: its identifier was
+        // already an operand.
+        (
+            "expression",
+            "const a = <p>{v}</p>;\n",
+            [3, 4],
+            &["a", "p", "v"],
+        ),
+    ];
+
+    /// Asserts every row of [`JSX_TEXT_CASES`] under parser `T`, through
+    /// the metrics store (`n2` / `N2`) and the `--ops` vocabulary.
+    #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+    #[track_caller]
+    fn assert_jsx_text_operands<T: crate::MetricSuite>(file: &str) {
+        for (label, source, expected, vocabulary) in JSX_TEXT_CASES {
+            crate::test_support::check_func_space_only::<T, _>(
+                source,
+                file,
+                &[crate::Metric::Halstead],
+                |space| {
+                    let halstead = &space.metrics.halstead;
+                    assert_eq!(
+                        [halstead.unique_operands(), halstead.total_operands()],
+                        *expected,
+                        "{file}: {label}"
+                    );
+                },
+            );
+            let ops = ops_of::<T>(source, file);
+            let got: BTreeSet<&str> = ops.operands.iter().map(String::as_str).collect();
+            let want: BTreeSet<&str> = vocabulary.iter().copied().collect();
+            assert_eq!(got, want, "{file}: {label} operand vocabulary");
+        }
+    }
+
+    /// Regression for #1483: JSX element text and its character
+    /// references are operands. One row per grammar, so reverting one
+    /// invocation's `jsx:` argument fails its own row.
+    #[cfg(all(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+    #[test]
+    fn jsx_text_is_an_operand() {
+        // A whitespace-only node bills nothing, so no count can tell the
+        // "whitespace" row's fixture from one that stopped spelling the
+        // same-line space. Pin the node's presence directly.
+        let (_, source, _, _) = JSX_TEXT_CASES
+            .iter()
+            .find(|(label, ..)| *label == "whitespace")
+            .expect("the whitespace row exists");
+        let parser =
+            JavascriptParser::new(source.as_bytes().to_vec(), &PathBuf::from("foo.jsx"), None);
+        assert!(
+            parser.root().preorder().any(|n| {
+                n.kind_id() == Javascript::JsxText as u16
+                    && source.as_bytes()[n.start_byte()..n.end_byte()]
+                        .trim_ascii()
+                        .is_empty()
+            }),
+            "the whitespace row must carry a whitespace-only jsx_text node"
+        );
+
+        assert_jsx_text_operands::<JavascriptParser>("foo.jsx");
+        assert_jsx_text_operands::<MozjsParser>("foo.js");
+        assert_jsx_text_operands::<TsxParser>("foo.tsx");
+    }
+
+    /// The `.ts` grammar's enum carries `JsxText` in the externals it
+    /// shares with TSX, but no production emits it, which is why the
+    /// TypeScript invocation passes no `jsx:` argument (#1483). Pinned
+    /// so a grammar that starts emitting it cannot go unbilled quietly.
+    #[cfg(feature = "typescript")]
+    #[test]
+    fn typescript_never_emits_jsx_text() {
+        let parser = TypescriptParser::new(
+            b"const a = <p>hi</p>;\nlet b = <T>(x);\n".to_vec(),
+            &PathBuf::from("foo.ts"),
+            None,
+        );
+        // The positive half: the parse reached the angle-bracket syntax
+        // TSX would read as JSX, so the absence below is a property of
+        // the grammar rather than of a parse that produced nothing.
+        assert!(
+            ast_has_kind_id(&parser, Typescript::TypeAssertion as u16),
+            "fixture lost the `<T>(x)` type assertion"
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Typescript::JsxText as u16),
+            "the .ts grammar now emits jsx_text; give its invocation a `jsx:` argument"
         );
     }
 

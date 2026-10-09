@@ -54,10 +54,13 @@ impl Getter for JavascriptCode {
     // JSX closing / self-closing tag delimiters. See the macro's
     // `$op_extras` note: they are per-language extras because
     // TypeScript, which shares this macro, has no JSX (#1395).
+    // `jsx:` bills element text and its entities as operands, for the
+    // same reason (#1483).
     impl_js_family_get_op_type!(
         Javascript,
         op_extras: [OptionalChain, LTSLASH, SLASHGT],
         operand_extras: [Identifier2, String2],
+        jsx: [JsxText, HtmlCharacterReference],
     );
 
     get_operator!(Javascript);

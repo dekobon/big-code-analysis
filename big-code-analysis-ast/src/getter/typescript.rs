@@ -72,6 +72,9 @@ impl Getter for TypescriptCode {
     // once (#1261). `Checker::is_string` no longer matches the keyword
     // either, so the #313 parity rationale is retired rather than
     // contradicted.
+    //
+    // No `jsx:` argument: the `.ts` grammar's enum carries `JsxText` in
+    // its shared externals, but no production emits it (#1483).
     impl_js_family_get_op_type!(
         Typescript,
         op_extras: [QMARKDOT, PredefinedType],
