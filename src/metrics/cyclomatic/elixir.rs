@@ -7,6 +7,10 @@
 )]
 
 use super::*;
+use crate::metrics::elixir_decisions::{
+    elixir_arrow_is_with_clause, elixir_clause_is_decision, elixir_when_is_guard,
+    elixir_with_else_dispatches,
+};
 
 impl Cyclomatic for ElixirCode {
     // Elixir's control-flow constructs are not distinct grammar
@@ -72,9 +76,7 @@ impl Cyclomatic for ElixirCode {
             // `case`. Guarded forms (`_ when g ->`, `true when g ->`)
             // and named discards (`_x ->`) are real decisions and
             // still count.
-            E::StabClause
-                if crate::metrics::npa::elixir_clause_is_decision(node, code, ancestors) =>
-            {
+            E::StabClause if elixir_clause_is_decision(node, code, ancestors) => {
                 stats.cyclomatic += 1.;
             }
             // A guard is a decision the construct it guards does not
@@ -98,7 +100,7 @@ impl Cyclomatic for ElixirCode {
             // No double count (§5): the token fires once per `when`,
             // and the `binary_operator` that wraps it is not matched by
             // any arm here.
-            E::When if crate::metrics::npa::elixir_when_is_guard(node, code, ancestors) => {
+            E::When if elixir_when_is_guard(node, code, ancestors) => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }
@@ -109,9 +111,7 @@ impl Cyclomatic for ElixirCode {
             // alternatives of one dispatch, so modified does not
             // collapse them. A `for` generator's `<-` is excluded by
             // the gate: the `for` already pays its loop decision.
-            E::LTDASH
-                if crate::metrics::npa::elixir_arrow_is_with_clause(node, code, ancestors) =>
-            {
+            E::LTDASH if elixir_arrow_is_with_clause(node, code, ancestors) => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }
@@ -152,7 +152,7 @@ impl Cyclomatic for ElixirCode {
                         // collapses is its `else`, the dispatch over
                         // the failed value — once, and only when that
                         // dispatch picks between anything (#1535).
-                        "with" if crate::metrics::npa::elixir_with_else_dispatches(node, code) => {
+                        "with" if elixir_with_else_dispatches(node, code) => {
                             stats.cyclomatic_modified += 1.;
                         }
                         _ => {}

@@ -11,6 +11,10 @@
 
 use super::{Abc, Stats, count_boolean_slot, count_field_operands, last_operand, wrapped_operand};
 use crate::lang_helpers::elixir::{elixir_applying_operator, elixir_call_keyword};
+use crate::metrics::elixir_decisions::{
+    elixir_arrow_is_with_clause, elixir_clause_is_decision, elixir_sole_unguarded_pattern,
+    elixir_when_alternative, elixir_when_is_guard,
+};
 use crate::*;
 
 /// The grammar rule an applied binary operator hangs off. Matched by
@@ -136,7 +140,7 @@ fn elixir_count_condition(condition: &Node, conditions: &mut f64) {
 // required — so the `if let`'s else is unreachable at the pin rather
 // than untested.
 fn elixir_count_guard(when_operator: &Node, conditions: &mut f64) {
-    if let Some(alternative) = npa::elixir_when_alternative(when_operator) {
+    if let Some(alternative) = elixir_when_alternative(when_operator) {
         elixir_count_condition(&alternative, conditions);
     }
 }
@@ -160,7 +164,7 @@ fn elixir_count_guard(when_operator: &Node, conditions: &mut f64) {
 // match, and a guard pays its own slot through the `when` arm, as the
 // two `Cyclomatic` decisions it carries.
 fn elixir_count_clause(clause: &Node, conditions: &mut f64) {
-    match npa::elixir_sole_unguarded_pattern(clause) {
+    match elixir_sole_unguarded_pattern(clause) {
         Some(pattern) => elixir_count_condition(&pattern, conditions),
         None => *conditions += 1.,
     }
@@ -361,7 +365,7 @@ impl Abc for ElixirCode {
             // is not re-plumbed out of the predicate because that
             // predicate's whole job (§7) is to be one boolean the `Abc`
             // and `Cyclomatic` impls share.
-            E::When if npa::elixir_when_is_guard(node, code, ancestors) => {
+            E::When if elixir_when_is_guard(node, code, ancestors) => {
                 if let Some(operator) = ancestors.parent(node) {
                     elixir_count_guard(&operator, &mut stats.conditions);
                 }
@@ -447,7 +451,7 @@ impl Abc for ElixirCode {
                     count_field_operands(&chain, elixir_count_condition, &mut stats.conditions);
                 }
             }
-            E::StabClause if npa::elixir_clause_is_decision(node, code, ancestors) => {
+            E::StabClause if elixir_clause_is_decision(node, code, ancestors) => {
                 elixir_count_clause(node, &mut stats.conditions);
             }
             // A `with`'s `pattern <- expr` clause is a pattern-match
@@ -456,7 +460,7 @@ impl Abc for ElixirCode {
             // pattern is never an operator that scores itself, and a
             // guard on it (`{:ok, a} when g <- x`) pays its own slot
             // through the `when` arm, as a guarded clause's does.
-            E::LTDASH if npa::elixir_arrow_is_with_clause(node, code, ancestors) => {
+            E::LTDASH if elixir_arrow_is_with_clause(node, code, ancestors) => {
                 stats.conditions += 1.;
             }
             _ => {}

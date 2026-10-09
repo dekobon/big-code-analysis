@@ -33,6 +33,8 @@ pub mod tokens;
 /// Weighted Methods per Class.
 pub mod wmc;
 
+mod elixir_decisions;
+
 // Gated on the union of every feature any test in the module names —
 // the `FIXTURES` rows plus the `bash` / `lua` / `c` row set that
 // `a_language_with_no_member_construct_emits_neither_block` uses. The
