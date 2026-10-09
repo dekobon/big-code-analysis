@@ -69,6 +69,9 @@ mod container_scope_tests;
 #[cfg(any(feature = "cpp", feature = "mozcpp"))]
 #[path = "cpp_alternative_tokens_tests.rs"]
 mod cpp_alternative_tokens_tests;
+#[cfg(test)]
+#[path = "perl_and_key_tests.rs"]
+mod perl_and_key_tests;
 
 /// Divides a metric sum by a count, guarding the divisor with `.max(1)`.
 ///

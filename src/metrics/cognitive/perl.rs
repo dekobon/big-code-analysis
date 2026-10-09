@@ -12,6 +12,7 @@
 )]
 
 use super::*;
+use crate::lang_helpers::perl::perl_is_and_key_misparse;
 
 /// Folds a Perl `binary_expression`'s (or, for low-precedence `and`,
 /// `unary_expression`'s) short-circuit operator children
@@ -92,8 +93,10 @@ impl Cognitive for PerlCode {
             // `unary_expression` (with `not`), while `or` / `xor` are a
             // `binary_expression`; without the second kind every `and`
             // scored nothing here while cyclomatic and ABC counted it
-            // (#1530).
-            P::BinaryExpression | P::UnaryExpression => {
+            // (#1530). FIXME(#1539 upstream): an auto-quoted `and` key
+            // (`(and => 1)`) is a `unary_expression` led by that token,
+            // and holds no operator.
+            P::BinaryExpression | P::UnaryExpression if !perl_is_and_key_misparse(node) => {
                 compute_perl_booleans(node, stats);
             }
             P::FunctionDefinition | P::FunctionDefinitionWithoutSub => {

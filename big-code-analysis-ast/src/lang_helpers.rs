@@ -17,6 +17,7 @@ pub mod elixir;
 // Crate-private: this dialect's only helper is a kind table the three
 // classifiers in this crate share, and nothing outside names it.
 pub(crate) mod irules;
+pub mod perl;
 pub mod python;
 pub mod tcl;
 // Crate-private for the same reason as `irules` above: the braced-word

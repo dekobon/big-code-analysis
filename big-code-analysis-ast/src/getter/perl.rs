@@ -2,6 +2,7 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
+use crate::lang_helpers::perl::perl_and_is_operator;
 
 impl Getter for PerlCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
@@ -36,6 +37,18 @@ impl Getter for PerlCode {
                 if ancestors.parent_has_kind(node, P::PatternMatcher as u16) =>
             {
                 TokenRole::Unknown
+            }
+            // FIXME(#1539 upstream): an auto-quoted `and` key (`$h{and}`,
+            // `(and => 1)`) lexes as the operator keyword. It is a
+            // string key, so it bills what `$h{or}` bills: the
+            // `identifier` operand the grammar gives every other
+            // bareword key.
+            P::And
+                if !ancestors
+                    .parent(node)
+                    .is_some_and(|parent| perl_and_is_operator(node, &parent)) =>
+            {
+                TokenRole::Operand
             }
             // Control-flow and declaration keywords. `Perl::Sub` is the
             // `sub` keyword (token id 16); `Perl::SUB` is the `__SUB__`

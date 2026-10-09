@@ -13,6 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, is_operand,
     last_operand, wrapped_operand,
 };
+use crate::lang_helpers::perl::perl_and_is_operator;
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Perl.
@@ -102,33 +103,30 @@ fn perl_condition_scores_itself(expr: &Node) -> bool {
 
     match expr.kind_id().into() {
         P::TernaryExpression | P::PatternMatcher | P::PatternMatcherM => true,
-        P::BinaryExpression | P::UnaryExpression => expr.children().any(|token| {
-            matches!(
-                token.kind_id().into(),
-                P::EQEQ
-                    | P::BANGEQ
-                    | P::LT
-                    | P::GT
-                    | P::LTEQ
-                    | P::GTEQ
-                    | P::LTEQGT
-                    | P::Eq
-                    | P::Ne
-                    | P::Lt
-                    | P::Gt
-                    | P::Le
-                    | P::Ge
-                    | P::Cmp
-                    | P::EQTILDE
-                    | P::BANGTILDE
-                    | P::AMPAMP
-                    | P::PIPEPIPE
-                    | P::SLASHSLASH
-                    | P::And
-                    | P::Or
-                    | P::Xor
-            )
-        }),
+        P::BinaryExpression | P::UnaryExpression => {
+            perl_is_logical_chain(expr)
+                || expr.children().any(|token| {
+                    matches!(
+                        token.kind_id().into(),
+                        P::EQEQ
+                            | P::BANGEQ
+                            | P::LT
+                            | P::GT
+                            | P::LTEQ
+                            | P::GTEQ
+                            | P::LTEQGT
+                            | P::Eq
+                            | P::Ne
+                            | P::Lt
+                            | P::Gt
+                            | P::Le
+                            | P::Ge
+                            | P::Cmp
+                            | P::EQTILDE
+                            | P::BANGTILDE
+                    )
+                })
+        }
         _ => false,
     }
 }
@@ -242,11 +240,10 @@ fn perl_is_logical_chain(node: &Node) -> bool {
     matches!(
         node.kind_id().into(),
         P::BinaryExpression | P::UnaryExpression
-    ) && node.children().any(|token| {
-        matches!(
-            token.kind_id().into(),
-            P::AMPAMP | P::PIPEPIPE | P::SLASHSLASH | P::And | P::Or | P::Xor
-        )
+    ) && node.children().any(|token| match token.kind_id().into() {
+        P::And => perl_and_is_operator(&token, node),
+        P::AMPAMP | P::PIPEPIPE | P::SLASHSLASH | P::Or | P::Xor => true,
+        _ => false,
     })
 }
 
@@ -280,12 +277,11 @@ fn perl_walk_ternary(node: &Node, condition_absorbed: bool, conditions: &mut f64
 // the two-operand `unary_expression` it parses `$a and $b` as, which the
 // field-less walk is what scores at all — it scored 0.
 //
-// `leading_absorbed`: see `perl_misparse_absorbs_leading_operand`.
+// `leading_absorbed`: see `perl_misparse_absorbs_leading_operand`. The
+// `chain` is the operator token's parent, which is no chain when the
+// token sits in an `ERROR` or is an auto-quoted `and` key (#1539).
 fn perl_count_chain_operands(chain: &Node, leading_absorbed: bool, conditions: &mut f64) {
-    if matches!(
-        chain.kind_id().into(),
-        Perl::BinaryExpression | Perl::UnaryExpression
-    ) {
+    if perl_is_logical_chain(chain) {
         for operand in chain
             .children()
             .filter(is_operand)

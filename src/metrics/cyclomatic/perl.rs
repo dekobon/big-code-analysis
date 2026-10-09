@@ -7,12 +7,13 @@
 )]
 
 use super::*;
+use crate::lang_helpers::perl::perl_and_is_operator;
 
 impl Cyclomatic for PerlCode {
     fn compute<'a>(
         node: &Node<'a>,
         _code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
         use Perl as P;
@@ -41,9 +42,19 @@ impl Cyclomatic for PerlCode {
             | P::AMPAMPEQ
             | P::PIPEPIPEEQ
             | P::SLASHSLASHEQ
-            | P::And
             | P::Or
             | P::TernaryExpression => {
+                stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
+            }
+            // FIXME(#1539 upstream): an auto-quoted `and` key lexes as
+            // the operator token; only one with a left operand is a
+            // decision.
+            P::And
+                if ancestors
+                    .parent(node)
+                    .is_some_and(|parent| perl_and_is_operator(node, &parent)) =>
+            {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }
