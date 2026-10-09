@@ -732,6 +732,14 @@ tokens involved the same way they spell real operators:
   subscript's `[]` as a second operator, as Ruby does for `def [](i)`
   (#1296). C++'s coroutine keywords `co_return` and `co_yield` are
   operators as `return` is (#1547).
+- **Only written tokens count.** When tree-sitter cannot parse a
+  construct, its error recovery may insert zero-width tokens the source
+  does not contain: a `;`, a `)`, an identifier. None of them is billed
+  in either half. Before #1546 an inserted identifier became an operand
+  whose text is the empty string. One case is a C++ destructor called
+  through a template name (`p->~T<A>()`), which tree-sitter-cpp cannot
+  parse. Another is a statement-position `typename` cast, which made
+  every inserted `;` a second `;` operator.
 - **A named operator is one operand.** Elixir names an operator
   without applying it in a capture (`&==/2`, `&and/2`) or a remote
   call (`Kernel.||(a, b)`), and its grammar wraps the token in an

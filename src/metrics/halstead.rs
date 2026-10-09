@@ -383,6 +383,17 @@ fn compute_halstead<'a, T: Getter + Checker>(
     ancestors: Ancestors<'a, '_>,
     halstead_maps: &mut HalsteadMaps<'a>,
 ) {
+    // Halstead counts the tokens written, and a zero-width node spells
+    // none, so it bills neither half (#1546). Error recovery is where
+    // they come from: every MISSING node tree-sitter inserts for a token
+    // the source lacks (a `;`, a `)`, an identifier) is zero-width, and
+    // so is the identifier C#'s and Elixir's recovery builds without
+    // flagging it MISSING. Checked here rather than per getter because
+    // every getter that classifies the kind would otherwise bill it, an
+    // identifier as the empty-string operand.
+    if node.start_byte() == node.end_byte() {
+        return;
+    }
     match T::get_op_type_with_code(node, code, ancestors) {
         TokenRole::Operator => {
             if T::is_primitive(node) {
@@ -10080,6 +10091,165 @@ S s; int a = s[1]; auto t = co_await s;
                 ops.operators
             );
         }
+    }
+
+    /// Regression for #1546: a zero-width node is billed in neither
+    /// Halstead half. Error recovery inserts one for a token the source
+    /// lacks, usually flagged MISSING, and every getter that classifies
+    /// the kind billed it — an identifier as the empty-string operand.
+    /// One fixture per language, each a parse on which recovery inserts
+    /// an operand-classified zero-width node; before the fix every row
+    /// billed `""`. C#'s and Elixir's are not flagged MISSING, which is
+    /// why the guard keys on width: an `is_missing()` guard leaves those
+    /// two rows billing `""`. The rows pin no counts, since the recovery trees
+    /// are the grammars' to change (grammar-dispatch §6);
+    /// `cpp_missing_tokens_in_valid_code_are_not_billed` anchors two.
+    #[cfg(any(
+        feature = "bash",
+        feature = "c",
+        feature = "cpp",
+        feature = "csharp",
+        feature = "elixir",
+        feature = "go",
+        feature = "groovy",
+        feature = "irules",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
+        feature = "lua",
+        feature = "mozcpp",
+        feature = "mozjs",
+        feature = "objc",
+        feature = "perl",
+        feature = "php",
+        feature = "python",
+        feature = "ruby",
+        feature = "rust",
+        feature = "tcl",
+        feature = "typescript",
+    ))]
+    #[test]
+    fn zero_width_nodes_bill_neither_halstead_half() {
+        fn has_zero_width_node(node: tree_sitter::Node) -> bool {
+            node.start_byte() == node.end_byte() || {
+                let mut cursor = node.walk();
+                node.children(&mut cursor).any(has_zero_width_node)
+            }
+        }
+
+        let cases: &[(LANG, &str, &str)] = &[
+            #[cfg(feature = "bash")]
+            (LANG::Bash, "foo.sh", "echo a $( )\n"),
+            #[cfg(feature = "c")]
+            (LANG::C, "foo.c", "int x; void () { x = 1; }\n"),
+            #[cfg(feature = "cpp")]
+            (LANG::Cpp, "foo.cpp", "void f(S *s) {\n  s->~D<F>();\n}\n"),
+            #[cfg(feature = "csharp")]
+            (LANG::Csharp, "foo.cs", "class A { int = 1; }\n"),
+            #[cfg(feature = "elixir")]
+            (LANG::Elixir, "foo.ex", "x = a.\n"),
+            #[cfg(feature = "go")]
+            (LANG::Go, "foo.go", "package m\nfunc f() { a.() }\n"),
+            #[cfg(feature = "groovy")]
+            (LANG::Groovy, "foo.groovy", "def x = a.\n"),
+            #[cfg(feature = "irules")]
+            (
+                LANG::Irules,
+                "foo.irule",
+                "when HTTP_REQUEST { set x [expr {1 + }] }\n",
+            ),
+            #[cfg(feature = "java")]
+            (LANG::Java, "Foo.java", "class A { int = 1; }\n"),
+            #[cfg(feature = "javascript")]
+            (LANG::Javascript, "foo.js", "let {a: } = b;\n"),
+            #[cfg(feature = "kotlin")]
+            (LANG::Kotlin, "foo.kt", "fun f(: Int) {}\n"),
+            #[cfg(feature = "lua")]
+            (LANG::Lua, "foo.lua", "x = a.\n"),
+            #[cfg(feature = "mozcpp")]
+            (
+                LANG::Mozcpp,
+                "foo.cpp",
+                "void f(S *s) {\n  s->~D<F>();\n}\n",
+            ),
+            #[cfg(feature = "mozjs")]
+            (LANG::Mozjs, "foo.jsm", "let {a: } = b;\n"),
+            #[cfg(feature = "objc")]
+            (LANG::Objc, "foo.m", "@interface A\n- (void)f:;\n@end\n"),
+            #[cfg(feature = "perl")]
+            (LANG::Perl, "foo.pl", "sub { $x = ; }\n"),
+            #[cfg(feature = "php")]
+            (LANG::Php, "foo.php", "<?php $x = $a->;\n"),
+            #[cfg(feature = "python")]
+            (LANG::Python, "foo.py", "for in x:\n  pass\n"),
+            #[cfg(feature = "ruby")]
+            (LANG::Ruby, "foo.rb", "x = a.\n"),
+            #[cfg(feature = "rust")]
+            (LANG::Rust, "foo.rs", "fn f() { let x = a.; }\n"),
+            #[cfg(feature = "tcl")]
+            (LANG::Tcl, "foo.tcl", "puts [expr {1 + }]\n"),
+            #[cfg(feature = "typescript")]
+            (LANG::Typescript, "foo.ts", "let {a: } = b;\n"),
+            #[cfg(feature = "typescript")]
+            (LANG::Tsx, "foo.tsx", "let {a: } = b;\n"),
+        ];
+        crate::test_support::assert_fixtures_present(cases);
+
+        let mut billed = Vec::new();
+        for (lang, file, source) in cases {
+            let ast = crate::test_support::parse_named(*lang, file, source);
+            assert!(
+                has_zero_width_node(ast.as_tree_sitter().root_node()),
+                "{lang:?}: `{source}` no longer recovers with a zero-width node; find another fixture"
+            );
+            let ops = ast.ops().expect("ops walk must yield a top-level Ops");
+            assert!(
+                !ops.operands.is_empty(),
+                "{lang:?}: `{source}` billed no operand at all"
+            );
+            billed.extend(ops.operands.iter().any(String::is_empty).then_some(*lang));
+        }
+        assert!(
+            billed.is_empty(),
+            "a zero-width node was billed as the empty operand in {billed:?}"
+        );
+    }
+
+    /// Asserts two valid C++ programs that tree-sitter-cpp 0.23.4 can only
+    /// parse by inserting MISSING tokens bill only the tokens written
+    /// (#1546), under parser `T`. Both come from the DeepSpeech corpus.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    #[track_caller]
+    fn assert_cpp_missing_tokens_unbilled<T: crate::MetricSuite>(label: &str) {
+        // `openfst/dfs-visit.h:75`: an explicit destructor call through a
+        // template name. Recovery reads `s->~D<F` as comparisons and
+        // inserts a MISSING identifier inside the trailing `()`.
+        // Operators (n1 = 9, N1 = 10): `void`, `()` 2, `*`, `{}`, `->`,
+        // `~`, `<`, `>`, `;`. Operands (n2 = 5, N2 = 6): `f`, `S`, `s` 2,
+        // `D`, `F`. Before #1546: (9, 10, 6, 7), the extra being `""`.
+        let destructor = "void f(S *s) {\n  s->~D<F>();\n}\n";
+        assert_halstead_counts::<T>(destructor, "foo.cpp", [9, 10, 5, 6], label);
+        let ops = ops_of::<T>(destructor, "foo.cpp");
+        assert_eq!(ops.operands, ["D", "F", "S", "f", "s"], "{label}");
+
+        // `kenlm/lm/search_trie.cc:286`: a `typename` functional cast
+        // used as a statement. Recovery inserts a MISSING `)` after
+        // `quant_` and a MISSING `;` after `order`. Operators (n1 = 8,
+        // N1 = 10): `void`, `()` 3, `{}`, `::`, `,`, `-`, `.`, the one
+        // written `;`. Operands (n2 = 7, N2 = 7): `f`, `MiddlePointer`,
+        // `quant_`, `order`, `2`, `Write`, `w`. Before #1546 the MISSING
+        // `;` was a second `;`: (8, 11, 7, 7).
+        let cast = "void f() {\n  typename Quant::MiddlePointer(quant_, order - 2).Write(w);\n}\n";
+        assert_halstead_counts::<T>(cast, "foo.cpp", [8, 10, 7, 7], label);
+    }
+
+    /// Regression for #1546 on the two C++ clones. Mozcpp owns no file
+    /// extension, so this row is its only coverage.
+    #[cfg(all(feature = "cpp", feature = "mozcpp"))]
+    #[test]
+    fn cpp_missing_tokens_in_valid_code_are_not_billed() {
+        assert_cpp_missing_tokens_unbilled::<CppParser>("cpp");
+        assert_cpp_missing_tokens_unbilled::<MozcppParser>("mozcpp");
     }
 
     /// Regression for #1547: `co_return` and `co_yield` are Halstead
