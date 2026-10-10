@@ -705,7 +705,8 @@ tokens involved the same way they spell real operators:
   no notion of a decision, so a `<` is the same vocabulary entry
   whether it is a comparison, a JSX tag delimiter, a Lua `<const>`
   attribute, the declared name of a C# `operator <`, or a Perl `<FH>`
-  readline — and `bca ops` reports every one of them. This is the deliberate counterpart to
+  readline — and `bca ops` reports every one of them. This is the
+  deliberate counterpart to
   [the ABC deviation](#abc-per-language-deviations) that excludes the same
   tokens from `conditions`: ABC asks whether a branch is taken, and
   these are not branches; Halstead asks what alphabet the source uses,
@@ -752,28 +753,31 @@ tokens involved the same way they spell real operators:
   literal's receiver. Groovy reserves these words, so as a member name
   or a label (`x.int`, `[int: 1]`) they stay operands. Java's
   `boolean` is listed as `boolean` rather than its node kind
-  `boolean_type`, so both languages report it alike. #1561 made TypeScript's type-level operator
-  keywords operators, as their value-level siblings `as`, `typeof`
-  and `extends` already were: `satisfies`, `keyof`, `infer`, and the
-  `is` and `asserts` of a type predicate. #1563 made TypeScript's
-  member modifiers operators, as C# and Kotlin bill theirs: `public`,
-  `private`, `protected`, `override`, `readonly`, `abstract`,
-  `accessor` and `static`, each the keyword and never its
-  `accessibility_modifier` or `override_modifier` wrapper. JavaScript
-  bills `static` too. The same words used as names (`let readonly = 1`,
-  `obj.static`) stay operands. #1564 made Kotlin's `typealias`, `init`,
-  `where`, `by`, `get` and `set` operators, as C# bills its `get`,
-  `set`, `init` and `where`. The `@get:` and `@set:` annotation targets
-  bill nothing, like `@field:`. The backing `field` in an accessor is an
-  operand, and the words used as names (`val by = 1`, `x.get(i)`) stay
-  operands. #1565 made Java and Groovy bill every modifier, where they
-  had billed only `abstract`, `final`, `transient` and `synchronized`:
-  the visibility keywords, `static`, `native`, `strictfp`, `volatile`,
-  `sealed` and `non-sealed`, plus the `permits` clause keyword beside
-  `extends` and `implements`. Java's are the keywords, never their
-  `modifiers` wrapper. The `static` of `import static` and `requires
-  static` bills nothing, as `import` does not, and the words used as
-  names (`var sealed = 1`) stay operands.
+  `boolean_type`, so both languages report it alike. #1561 made
+  TypeScript's type-level operator keywords operators, as their
+  value-level siblings `as`, `typeof` and `extends` already were:
+  `satisfies`, `keyof`, `infer`, and the `is` and `asserts` of a type
+  predicate. #1563 made TypeScript's member modifiers operators, as C#
+  and Kotlin bill theirs: `public`, `private`, `protected`, `override`,
+  `readonly`, `abstract`, `accessor` and `static`, each the keyword and
+  never its `accessibility_modifier` or `override_modifier` wrapper.
+  JavaScript and Mozjs bill `static` too. Their grammars lex
+  `static get` followed by a newline as one `static get` token, which
+  bills as one operator, so that spelling scores one entry where
+  `static get y()` on one line bills `static` and `get`. The same words used as names
+  (`let readonly = 1`, `obj.static`) stay operands. #1564 made Kotlin's
+  `typealias`, `init`, `where`, `by`, `get` and `set` operators, as C#
+  bills its `get`, `set`, `init` and `where`. The `@get:` and `@set:`
+  annotation targets bill nothing, like `@field:`. The backing `field`
+  in an accessor is an operand, and the words used as names
+  (`val by = 1`, `x.get(i)`) stay operands. #1565 made Java and Groovy bill every
+  modifier, where they had billed only `abstract`, `final`, `transient`,
+  `synchronized` and `default`: the visibility keywords, `static`,
+  `native`, `strictfp`, `volatile`, `sealed` and `non-sealed`, plus the
+  `permits` clause keyword beside `extends` and `implements`. Java's are
+  the keywords, never their `modifiers` wrapper. The `static` of
+  `import static` and `requires static` bills nothing, as `import` does not, and
+  the words used as names (`var sealed = 1`) stay operands.
 - **Angle brackets that enclose types are one bracket pair.** The `<`
   and `>` around type arguments and type parameters count as one `<>`
   operator, billed at the `<` as `()` is at the `(`, and the `>` counts
@@ -783,8 +787,8 @@ tokens involved the same way they spell real operators:
   `template <class T>` and `std::vector<int>`; and the type-argument
   and type-parameter lists of Java, Groovy, C#, Kotlin, TypeScript and
   TSX, plus C#'s `delegate*<int, void>` pointer type and Kotlin's
-  `super<A>` (#1567). Objective-C has four generic lists: `NSArray<NSString *>`,
-  `id<NSCopying>`, the protocol list in
+  `super<A>` (#1567). Objective-C has four generic lists:
+  `NSArray<NSString *>`, `id<NSCopying>`, the protocol list in
   `@interface A : NSObject <NSCopying>`, and a type passed as a call
   argument, `f(NSArray<NSString *>)`. A comparison's `<` and `>` and a shift's `<<` and `>>` stay
   separate operators, and a C++ `>>` that closes two template lists
@@ -798,9 +802,9 @@ tokens involved the same way they spell real operators:
   grammar parses as an assignment and which still bills `<>` and `=`. Go's generics use square
   brackets and already billed `[]`. Angle brackets around anything
   other than types still bill `<` and `>`: the JSX, Lua and Perl
-  constructs above. So does a Kotlin generic call with arguments, `id<Int>(a)`,
-  which tree-sitter-kotlin-ng parses as two comparisons (#1394), and a
-  generic inside a Rust macro call, `vec![Vec::<u8>::new()]`, whose
+  constructs above. So does a Kotlin generic call with arguments,
+  `id<Int>(a)`, which tree-sitter-kotlin-ng parses as two comparisons
+  (#1394), and a generic inside a Rust macro call, `vec![Vec::<u8>::new()]`, whose
   token tree tree-sitter-rust leaves unparsed; a `>>` closing two lists
   there bills as the shift.
   Before #1559 each bracket billed under the comparison's own entry,

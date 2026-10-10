@@ -611,6 +611,14 @@ pub trait Checker {
     }
     /// Whether `node` is a primitive type name (`int`, `double`, …),
     /// which Halstead keys by text so each distinct primitive counts once.
+    ///
+    /// Precondition: call this only for a node
+    /// [`Getter::get_op_type_with_code`] has already classified as
+    /// [`TokenRole::Operator`]. An impl that cannot read the source may
+    /// answer by kind alone: Groovy's returns `true` for every
+    /// `identifier` and `type_identifier`, which is right only because
+    /// its getter bills those kinds as operators for a primitive
+    /// spelling and nothing else.
     #[inline]
     #[must_use]
     fn is_primitive(_node: &Node) -> bool {

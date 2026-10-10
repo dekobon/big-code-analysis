@@ -3754,17 +3754,16 @@ mod tests {
             ),
             ("argument list", "f(a, b);", "() , ;", "a b f"),
         ];
-        let sorted = |words: &[String]| {
-            let mut words: Vec<&str> = words.iter().map(String::as_str).collect();
-            words.sort_unstable();
-            words.join(" ")
-        };
         for (label, source, operators, operands) in ROWS {
+            // `bca ops` sorts its vocabulary, so the observation is
+            // compared as returned; the rows are written in that order.
+            let operators: Vec<&str> = operators.split(' ').collect();
+            let operands: Vec<&str> = operands.split(' ').collect();
             let ops = ops_of::<CsharpParser>(source, "foo.cs");
-            assert_eq!(sorted(&ops.operators), *operators, "{label}: {source:?}");
-            assert_eq!(sorted(&ops.operands), *operands, "{label}: {source:?}");
-            let n1 = operators.split(' ').count() as u64;
-            let n2 = operands.split(' ').count() as u64;
+            assert_eq!(ops.operators, operators, "{label}: {source:?}");
+            assert_eq!(ops.operands, operands, "{label}: {source:?}");
+            let n1 = operators.len() as u64;
+            let n2 = operands.len() as u64;
             assert_halstead_counts::<CsharpParser>(source, "foo.cs", [n1, n1, n2, n2], label);
         }
     }
@@ -6716,9 +6715,9 @@ end",
 
     /// #1565: Groovy bills every modifier, as Java now does. Its grammar
     /// has no `modifiers` wrapper, so each leaf sits directly under its
-    /// declaration. `void` and `int` are type names and bill as
-    /// operands, so they are absent from these operator counts. The last
-    /// two rows are controls.
+    /// declaration. The rows declare with `def`, so the only primitive
+    /// type counted is `void`, an operator since #1568. The last two
+    /// rows are controls.
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_modifiers_are_operators_1565() {
@@ -6822,6 +6821,27 @@ end",
                 "sealed", "permits", "static", "public", "native", "volatile", "private",
             ],
         );
+    }
+
+    /// #1565's oracle: Groovy accepts Java's modifier-heavy fixture
+    /// verbatim, and the two languages bill it alike, vocabulary and
+    /// multiplicities. Neither side's expectation is typed by the fix
+    /// alone: a modifier one getter drops shows as a disagreement.
+    #[cfg(all(feature = "groovy", feature = "java"))]
+    #[test]
+    fn groovy_modifiers_match_java_1565() {
+        let source = "public abstract class C { private static final int a = 1; \
+                      protected transient int b; public synchronized void m() {} }\n";
+        let groovy = ops_of::<GroovyParser>(source, "foo.groovy");
+        let java = ops_of::<JavaParser>(source, "Foo.java");
+        assert_eq!(groovy.operators, java.operators);
+        assert_eq!(groovy.operands, java.operands);
+        // `public` x2, `abstract`, `class`, `{}` x2, `private`, `static`,
+        // `final`, `int` x2, `=`, `;` x2, `protected`, `transient`,
+        // `synchronized`, `void`, `()`
+        let rows = [("modifier fixture", source, [15, 19])];
+        assert_operator_rows::<GroovyParser>("foo.groovy", &rows);
+        assert_operator_rows::<JavaParser>("Foo.java", &rows);
     }
 
     /// #1552 rows shared by the two C++ clones. The template-parameter

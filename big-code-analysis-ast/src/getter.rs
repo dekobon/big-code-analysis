@@ -232,10 +232,11 @@ pub trait Getter {
     /// counts the alphabet a program is written in and has no notion of
     /// a decision, so a `<` is the same vocabulary entry whether it
     /// opens a JSX tag, brackets a Lua `<const>` attribute, names a C#
-    /// `operator <` overload, or delimits a Perl `<FH>` readline. Every impl that classifies
-    /// punctuation at all bills `(`, `{`, `[`, `,`, `;`, `.` and `:` on
-    /// exactly that reading, for each glyph its language spells. Python
-    /// and Rust were the last two exceptions, closed by #1486.
+    /// `operator <` overload, or delimits a Perl `<FH>` readline. Every
+    /// impl that classifies punctuation at all bills `(`, `{`, `[`, `,`,
+    /// `;`, `.` and `:` on exactly that reading, for each glyph its
+    /// language spells. Python and Rust were the last two exceptions,
+    /// closed by #1486.
     ///
     /// A *decision* metric gates the same token by role, and is
     /// supposed to disagree: ABC's `conditions` counts a `<` only under

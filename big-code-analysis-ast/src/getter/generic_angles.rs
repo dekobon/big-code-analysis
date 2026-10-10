@@ -13,12 +13,13 @@ pub(crate) const ANGLE_PAIR: &str = "<>";
 /// nodes whose `<` / `>` enclose types rather than compare, and the
 /// bracket tokens themselves.
 ///
-/// Angle brackets that enclose types are one bracket pair, billed like `()`, `[]` and
-/// `{}` (#1395): the opener carries the pair as [`ANGLE_PAIR`] and the
-/// closer bills nothing (#1559). The grammars give the brackets the
-/// same kind ids as the comparison operators, so only the parent tells
-/// the two apart, and the opener is keyed by text rather than by kind
-/// to keep it out of the comparison `<`'s vocabulary entry.
+/// Angle brackets that enclose types are one bracket pair, billed like
+/// `()`, `[]` and `{}` (#1395): the opener carries the pair as
+/// [`ANGLE_PAIR`] and the closer bills nothing (#1559). The grammars
+/// give the brackets the same kind ids as the comparison operators, so
+/// only the parent tells the two apart, and the opener is keyed by text
+/// rather than by kind to keep it out of the comparison `<`'s
+/// vocabulary entry.
 pub(crate) struct GenericAngleKinds {
     /// The nodes whose brackets enclose types: type-argument,
     /// type-parameter and template lists, each grammar's other spelling

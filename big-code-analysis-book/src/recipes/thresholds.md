@@ -137,17 +137,19 @@ functions.
 Most languages need no override. The cases that do fall into three groups.
 
 **Procedural languages with large dispatch functions.** C, Tcl, Bash, Lua, Perl, and Go all run two
-to three times the defaults. These languages lack exceptions or discourage them, so error handling
-is inline branching, and they favour long `switch`-style dispatch over polymorphism. The default
-`cognitive` limit flags 5% to 15% of their functions, against 3% in the median language. Raise
-`cognitive` first. `halstead.effort` carries the rest of the excess for C, Go, and Lua; Tcl, Bash,
-and Perl measure close to the default on it.
+to three times the `cognitive` default and above the `cyclomatic` one. These languages lack
+exceptions or discourage them, so error handling is inline branching, and they favour long
+`switch`-style dispatch over polymorphism. The default `cognitive` limit flags 5% to 15% of their
+functions, against 3% in the median language. Raise `cognitive` first. `halstead.effort` carries the
+rest of the excess for C, Go, and Lua; Tcl, Bash, and Perl measure close to the default on it.
 
 In a single-language repository this is the whole `[thresholds]` table; in a mixed one it belongs
 under the language it describes, or it drags every other language up with it.
 
 ```toml
-# Gating C. The same shape suits Tcl, Bash, Lua, Perl, and Go.
+# Gating C. Tcl, Bash, Lua, Perl, and Go share its cognitive and
+# cyclomatic shape, but not its effort: Go and Lua measure near 90000,
+# and Tcl, Bash, and Perl near the default.
 [thresholds.lang.c]
 cognitive = 30
 cyclomatic = 20

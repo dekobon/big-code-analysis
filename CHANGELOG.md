@@ -31,9 +31,9 @@ for historical reference.
   (`<T as Trait>::f`, `<T>::f`), C# function pointer types
   (`delegate*<int, void>`) and Kotlin's qualified `super<A>` each
   billed the comparison `<` and `>` before. `N1` falls by one per
-  occurrence; `n1` changes where a comparison `<` or `>` remains beside
-  the new `<>`. Kotlin's `id<Int>(a)` (#1394) and the Rust macro token
-  tree stay exceptions.
+  occurrence; `n1` loses any `<` or `>` that no comparison still uses,
+  and gains `<>` unless `<>` is already present. Kotlin's `id<Int>(a)`
+  (#1394) and the Rust macro token tree stay exceptions.
 - **Java class literals bill their parts instead of one operand spelled
   by the whole literal** (#1566). JLS §15.8.2 defines `Foo.class` as an
   expression, not a literal, so `java.util.List.class` bills three `.`
@@ -60,8 +60,10 @@ for historical reference.
   (#1563): `public`, `private`, `protected`, `override`, `readonly`,
   `abstract` and `accessor`, as C# and Kotlin do, counting each keyword
   once and never its `accessibility_modifier` / `override_modifier`
-  wrapper. JavaScript, TypeScript and TSX bill `static`. The same words
-  used as names (`let readonly = 1`, `obj.static`) stay operands.
+  wrapper. JavaScript, Mozjs, TypeScript and TSX bill `static`; the
+  JavaScript and Mozjs one-token `static get` (a `static get` followed
+  by a newline) bills as one operator. The same words used as names
+  (`let readonly = 1`, `obj.static`) stay operands.
 - **Kotlin bills `typealias`, `init`, `where`, `by`, `get` and `set` as
   operators** (#1564), as C# bills `get`, `set`, `init` and `where`.
   Each counts once, as the keyword and never as its wrapper node. The

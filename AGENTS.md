@@ -711,8 +711,8 @@ Three things to know before quoting a number at anyone:
 - **These are language-agnostic defaults, and no language is
   agnostic.** Measured 97.5th-percentile `cognitive` runs from 4 (C#)
   to 50 (C). C, Tcl, Bash, Lua, Perl, and Go want roughly double the
-  defaults; Java, Ruby, Kotlin, C#, and Elixir sit far under them. The
-  per-language table lives in
+  `cognitive` default; Java, Ruby, Kotlin, C#, and Elixir sit far
+  under it. The per-language table lives in
   [Choosing thresholds](big-code-analysis-book/src/recipes/thresholds.md).
 - **The right limit depends on the job.** A blocking CI gate, an agent
   edit loop, a legacy triage pass, and a safety-critical build want

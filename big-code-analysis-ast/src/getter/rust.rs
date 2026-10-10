@@ -6,10 +6,11 @@ use super::*;
 // `for_lifetimes` (`for<'a> fn(&'a u8)`) and `use_bounds`
 // (`impl Tr + use<'a, T>`) are generic-parameter lists under other
 // names, and a qualified path's `bracketed_type` (`<T as Tr>::f`,
-// `<T>::f`) encloses a type (#1567). `LT2` is the `token(prec(1, '<'))` spelling `type_arguments`
-// and `use_bounds` open with; the parser reports it as `LT`, so it is
-// listed defensively, here and in the operator arm, and its absence is
-// pinned by `rust_generic_opener_alias_never_reaches_kind_id`.
+// `<T>::f`) encloses a type (#1567). `LT2` is the
+// `token(prec(1, '<'))` spelling `type_arguments` and `use_bounds` open
+// with; the parser reports it as `LT`, so it is listed defensively,
+// here and in the operator arm, and its absence is pinned by
+// `rust_generic_opener_alias_never_reaches_kind_id`.
 const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
     lists: &[
         Rust::TypeArguments as u16,

@@ -64,6 +64,11 @@ fn csharp_comparison_misparse<'a>(list: &Node<'a>, ancestors: Ancestors<'a, '_>)
 // `integer_literal` token. An expression width bills in both
 // (`f"{x:>{w}}"` bills `w`). The format string after `:` (`F2`) is
 // string content and has no node to bill.
+//
+// On invalid input with no expression before the delimiter
+// (`$"{x,}"`, `$"{:F2}"`) error recovery leaves the `,` / `:` outside
+// any clause node, so it bills. Valid C# always has both, so this is
+// documented rather than tested (grammar-dispatch §6).
 fn is_interpolation_clause_delimiter<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     let clause = match node.kind_id().into() {
         Csharp::COLON => Csharp::InterpolationFormatClause,
