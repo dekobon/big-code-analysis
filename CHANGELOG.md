@@ -370,6 +370,29 @@ derived before these changes. Their re-derivation is tracked in #1569.
   only to such calls is checked the same way.
 - **Perl's fat comma lists as `=>` in `bca ops`**, not as the grammar's
   `fat_comma` node name. Rendering only; no count moves.
+- **A trailing Perl `,` or `=>` in a condition adds no condition**
+  (#1526). `if ($a > 1,)` and `if ($a > 1 =>)` scored 2 against 1 for
+  `if ($a > 1)`, which Perl reduces them to: the grammar names its
+  separators, and the trailing one was read as the list's value.
+- **A Perl pattern keeps its role inside parentheses** (#1467, #1540).
+  `$x =~ (/foo/)` and `split((/foo/), $x)` scored the match their bare
+  forms do not, and `$x =~ (s/a/b/)` scored the `=~` that
+  `$x =~ s/a/b/` does not. `/foo/ =~ $x`, where the pattern matches
+  `$_` before its result is bound, now scores 2 rather than 1.
+- **Only Perl's builtin `split` exempts its delimiter** (#1467).
+  `My::split(/foo/, $x)` scored 0; it now scores the match, as
+  `My::other(/foo/, $x)` does. `CORE::split` is still the builtin.
+- **A Kotlin parameter named `vararg` stays a name behind a comment**
+  (#1558). `fun f(vararg /*note*/: Int)` billed a `vararg` operator
+  that `fun f(vararg: Int)` does not.
+- **A Perl file test before a commented or line-broken `=>` stays a
+  file test** (#1545). Perl quotes `-f` before `=>` only across spaces
+  and tabs, so `(-f # c⏎ => 7)` and `(-f⏎ => 7)` run as `(-f, 7)`, but
+  both billed a `-f` key operand.
+- **Wide Perl and Kotlin lists no longer make the walk quadratic**
+  (#1545, #1558, #1467). A call with thousands of `-foo => …` keys, a
+  function with thousands of modified parameters, and a list of
+  thousands of patterns each took seconds; all three are now linear.
 
 ## [2.3.0] - 2026-10-07
 
