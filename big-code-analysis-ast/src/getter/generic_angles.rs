@@ -10,18 +10,22 @@ use crate::{Ancestors, Node};
 pub(crate) const ANGLE_PAIR: &str = "<>";
 
 /// The kinds one grammar spells its generic angle brackets with: the
-/// list nodes whose `<` / `>` delimit type arguments or parameters
-/// rather than compare, and the bracket tokens themselves.
+/// nodes whose `<` / `>` enclose types rather than compare, and the
+/// bracket tokens themselves.
 ///
-/// A list's brackets are one bracket pair, billed like `()`, `[]` and
+/// Angle brackets that enclose types are one bracket pair, billed like `()`, `[]` and
 /// `{}` (#1395): the opener carries the pair as [`ANGLE_PAIR`] and the
 /// closer bills nothing (#1559). The grammars give the brackets the
 /// same kind ids as the comparison operators, so only the parent tells
 /// the two apart, and the opener is keyed by text rather than by kind
 /// to keep it out of the comparison `<`'s vocabulary entry.
 pub(crate) struct GenericAngleKinds {
-    /// The list nodes: type-argument, type-parameter and template
-    /// lists, plus each grammar's other spelling of a generic list.
+    /// The nodes whose brackets enclose types: type-argument,
+    /// type-parameter and template lists, each grammar's other spelling
+    /// of a generic list, and the single-type brackets of a Rust
+    /// qualified path (`<T as Tr>::f`), a C# function pointer
+    /// (`delegate*<int, void>`) and a Kotlin `super<A>` (#1567). Each
+    /// has `<` / `>` only as its own brackets.
     pub(crate) lists: &'static [u16],
     /// The `<` kinds, with any alias the grammar declares for it.
     pub(crate) openers: &'static [u16],

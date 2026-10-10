@@ -232,8 +232,7 @@ pub trait Getter {
     /// counts the alphabet a program is written in and has no notion of
     /// a decision, so a `<` is the same vocabulary entry whether it
     /// opens a JSX tag, brackets a Lua `<const>` attribute, names a C#
-    /// `operator <` overload, disambiguates a Kotlin `super<A>`, or
-    /// delimits a Perl `<FH>` readline. Every impl that classifies
+    /// `operator <` overload, or delimits a Perl `<FH>` readline. Every impl that classifies
     /// punctuation at all bills `(`, `{`, `[`, `,`, `;`, `.` and `:` on
     /// exactly that reading, for each glyph its language spells. Python
     /// and Rust were the last two exceptions, closed by #1486.
@@ -241,7 +240,7 @@ pub trait Getter {
     /// A *decision* metric gates the same token by role, and is
     /// supposed to disagree: ABC's `conditions` counts a `<` only under
     /// a `binary_expression` (#1274, #1275, #1280, #1297), so each of
-    /// the five constructs above scores zero there while `bca ops`
+    /// the four constructs above scores zero there while `bca ops`
     /// still reports the bracket. #1395 settled that the two answers
     /// are both correct rather than a drift to be reconciled;
     /// `tests/parity/abc_halstead_bracket_parity.rs` fails if a later

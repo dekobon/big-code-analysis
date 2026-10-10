@@ -3,10 +3,13 @@
 
 use super::*;
 
+// A function pointer type's `<>` (`delegate*<int, void>`) encloses
+// its parameter and return types (#1567).
 const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
     lists: &[
         Csharp::TypeArgumentList as u16,
         Csharp::TypeParameterList as u16,
+        Csharp::FunctionPointerType as u16,
     ],
     openers: &[Csharp::LT as u16],
     closers: &[Csharp::GT as u16],

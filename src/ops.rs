@@ -1552,6 +1552,19 @@ mod tests {
             &["fn", "<>", "()", ":", "->", "impl", "+", "use", "{}"],
             [9, 10],
         );
+        // A qualified path's `bracketed_type` encloses a type, `<>` with
+        // or without `as` (#1567). `<>` three times (two qualified paths
+        // and `Vec<u8>`), `()` three times, `::` and `;` twice; `as` still
+        // bills and the comparison `>` stays. Unfixed: [12, 19].
+        check_generic_pair(
+            LANG::Rust,
+            "foo.rs",
+            "fn q() -> bool { <Vec<u8> as Default>::default(); <T>::g(); a > b }\n",
+            &[
+                "fn", "()", "->", "bool", "{}", "<>", "u8", "as", "::", ";", ">",
+            ],
+            [11, 17],
+        );
     }
 
     // expected: `<>` three times, `;` and `{}` twice each.
@@ -1590,6 +1603,21 @@ mod tests {
                 "class", "<>", ";", "{}", "bool", "()", "return", "<", "&&", ">",
             ],
             [10, 14],
+        );
+        // A function pointer type's brackets enclose its parameter and
+        // return types, `<>` with or without a calling convention (#1567).
+        // `;` three times; `{}`, `delegate`, `*`, `<>`, `int`, `,` and
+        // `void` twice. Unfixed: [16, 28], `<` and `>` three times each.
+        check_generic_pair(
+            LANG::Csharp,
+            "foo.cs",
+            "unsafe class C { delegate*<int, void> p; delegate* unmanaged[Cdecl]<int, void> q; \
+             bool M() { return a < b && c > d; } }\n",
+            &[
+                "unsafe", "class", "{}", "delegate", "*", "<>", "int", ",", "void", ";", "[]",
+                "bool", "()", "return", "<", "&&", ">",
+            ],
+            [17, 26],
         );
     }
 
@@ -1650,6 +1678,18 @@ mod tests {
             "fun <T> f(v: List<List<T>>): Boolean { return a < b && c > d }\n",
             &["fun", "<>", "()", ":", "{}", "return", "<", "&&", ">"],
             [9, 12],
+        );
+        // A qualified `super<A>` encloses the supertype it names (#1567).
+        // `()` three times (`A()`, `f()`, `.f()`), `:` and `{}` twice.
+        // Unfixed: [10, 16], `<` and `>` twice each.
+        check_generic_pair(
+            LANG::Kotlin,
+            "foo.kt",
+            "class C : A() { fun f(): Boolean { super<A>.f(); return x < y && x > y } }\n",
+            &[
+                "class", ":", "()", "{}", "fun", "<>", ".", "return", "<", "&&", ">",
+            ],
+            [11, 15],
         );
     }
 

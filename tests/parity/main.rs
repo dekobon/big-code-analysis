@@ -27,7 +27,6 @@ mod support;
 #[cfg(any(
     feature = "csharp",
     feature = "javascript",
-    feature = "kotlin",
     feature = "lua",
     feature = "mozjs",
     feature = "perl",

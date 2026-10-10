@@ -49,12 +49,14 @@ use super::support::{metrics_space, ops_space};
 /// for each rather than a `None` arm asserting they have no such
 /// construct, which would be false. What this pins is the policy, and a
 /// policy flip lands in a shared getter macro or a shared ABC arm,
-/// which these seven rows already reach. Generic and template brackets
-/// are the one family left out on purpose: Halstead bills them as a
-/// single `<>` pair since #1559, which the `*_generic_angles_*` tests in
-/// `src/ops.rs` pin per language.
+/// which these six rows already reach. Angle brackets that enclose
+/// types are the one family left out on purpose: Halstead bills them as
+/// a single `<>` pair since #1559, which the `*_generic_angles_*` tests
+/// in `src/ops.rs` pin per language. Kotlin's `super<A>` joined that
+/// family in #1567; its ABC half is
+/// `kotlin_super_type_argument_is_not_a_condition`.
 //
-// Two gates, one condition. The `mod` gate in `main.rs` names the seven
+// Two gates, one condition. The `mod` gate in `main.rs` names the six
 // languages with a `Some` row and is the one that decides whether any of
 // this compiles: edit it when a row is added or removed. This gate and
 // the test's are the whole-roster union `check-test-lang-gates` derives
@@ -146,22 +148,6 @@ fn fixture(lang: LANG) -> Option<(&'static str, &'static str, &'static [&'static
             ]
             .as_slice(),
             22,
-        ),
-        // A qualified super call disambiguates its supertype with the
-        // same two bare tokens. `override` bills as Kotlin's other
-        // modifiers do since #1558.
-        //
-        // expected N1 = 14: the header's `class`, `:`, `()` and `{}`,
-        // then `override`, `fun`, the parameter `()`, the return-type
-        // `:`, the body `{}`, `return`, `<`, `>`, `.` and the call's `()`.
-        LANG::Kotlin => (
-            "class B : A() {\n    override fun g(): Int { return super<A>.g() }\n}\n",
-            "kt",
-            [
-                "()", ".", ":", "<", ">", "class", "fun", "override", "return", "{}",
-            ]
-            .as_slice(),
-            14,
         ),
         // A filehandle readline. `<STDIN>` is deliberately not the
         // fixture: the grammar lexes it as one `standard_input` token,
@@ -262,7 +248,7 @@ fn a_non_comparison_bracket_is_a_halstead_operator_and_not_an_abc_condition() {
     }
 
     // Every language is feature-gated, so a build enabling none of the
-    // seven leaves a zero-iteration loop and a test that reports green
+    // six leaves a zero-iteration loop and a test that reports green
     // while asserting nothing. What keeps this from firing spuriously
     // is the `#[cfg(any(…))]` on this file's `mod` declaration in
     // `tests/parity/main.rs`, which names exactly the features whose

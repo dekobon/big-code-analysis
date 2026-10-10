@@ -175,10 +175,14 @@ fn kotlin_next_token_is_inserted<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '
         })
 }
 
-// `super<A>` (a `super_expression`) names a supertype rather than
-// listing type arguments, so its brackets stay `<` and `>`.
+// A qualified `super<A>` (a `super_expression`) encloses the supertype
+// it names (#1567).
 const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
-    lists: &[Kotlin::TypeArguments as u16, Kotlin::TypeParameters as u16],
+    lists: &[
+        Kotlin::TypeArguments as u16,
+        Kotlin::TypeParameters as u16,
+        Kotlin::SuperExpression as u16,
+    ],
     openers: &[Kotlin::LT as u16],
     closers: &[Kotlin::GT as u16],
     is_misparse: never_misparsed,
