@@ -708,6 +708,8 @@ tokens involved the same way they spell real operators:
   slice, dict and annotation `:`, and Rust's annotation, field, bound
   and label `:`, which is a separate operator from `::`. Both languages
   left these out until #1486, so their Halstead scores rose with it.
+  Python's `class` keyword followed in #1550: it is now billed like
+  `def`, as Ruby, Kotlin, C# and PHP bill their `class`.
 - **An alternative spelling is an operator of its own.** C++ spells
   `&&` equally as `and`, `!=` as `not_eq` and so on through all eleven
   [alternative tokens](https://en.cppreference.com/w/cpp/language/operator_alternative).

@@ -261,7 +261,7 @@ value = 96592.02057608281
 path = "big-code-analysis-ast/src/getter/python.rs"
 qualified = "PythonCode::get_op_type"
 metric = "halstead.effort"
-value = 64442.20035097394
+value = 64665.475362488345
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/ruby.rs"

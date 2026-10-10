@@ -5940,8 +5940,16 @@ end",
             ("with block", "with o:\n    pass\n", [3, 3]),
             // `try`, `except`, `:` twice, `pass` twice
             ("try block", "try:\n    pass\nexcept E:\n    pass\n", [4, 6]),
-            // `:`, `pass` — the `class` keyword itself is not billed
-            ("class block", "class C:\n    pass\n", [2, 2]),
+            // `class`, `:`, `pass` — the keyword is billed like `def`
+            // (#1550)
+            ("class block", "class C:\n    pass\n", [3, 3]),
+            // `class` twice, `()`, `:` twice, `pass` — one `class` per
+            // keyword, nothing for the `ClassDefinition` wrapper
+            (
+                "nested class",
+                "class C(B):\n    class D:\n        pass\n",
+                [4, 6],
+            ),
             // `;`
             ("statement separator", "a; b\n", [1, 1]),
         ];

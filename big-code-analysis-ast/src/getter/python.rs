@@ -85,7 +85,11 @@ impl Getter for PythonCode {
             // `lambda`: count only the keyword token (Lambda3=73), not the
             // Lambda/Lambda2 expression nodes that wrap it, to avoid the same
             // node+keyword double count fixed for await (#413).
-            | Lambda3 => {
+            | Lambda3
+            // `class`, the declaration keyword beside `def`. Only the leaf:
+            // its `ClassDefinition` wrapper is not listed, so the pair
+            // cannot double-count (#1550).
+            | Class => {
                 TokenRole::Operator
             }
             Identifier | Integer | Float | True | False | None => TokenRole::Operand,
