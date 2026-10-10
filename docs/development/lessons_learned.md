@@ -138,6 +138,7 @@ number and the higher number stays as a redirect.
 | [92](#92-an-optimizations-rationale-can-encode-the-waste-it-optimizes-for) | An optimization's rationale can encode the waste it optimizes for |
 | [93](#93-a-gate-that-reads-a-typed-accessor-is-invisible-to-the-front-ends-that-read-the-wire) | A gate that reads a typed accessor is invisible to the front-ends that read the wire |
 | [94](#94-a-sweep-that-finds-nothing-only-rules-out-what-its-predicate-can-express) | A sweep that finds nothing only rules out what its predicate can express |
+| [95](#95-error-recovery-inserts-tokens-that-is_missing-does-not-flag) | Skip invented tokens by width, not `is_missing()` — valid code triggers it too |
 
 ---
 
@@ -1480,6 +1481,14 @@ from TS's `is_string` (and TSX's `String3`) rather than adding it to
 `operand_extras`, and #1474 did the same for PHP's `String2`. A keyword
 is not a literal in either predicate, which is the resolution to reach
 for when the cross-walk turns one of these up.
+
+**A token arm narrowed without its slot predicate** (#1540). The first
+draft of the fix narrowed Perl ABC's `=~` arm so that a bound
+substitution (`$x =~ s///`) no longer scored as a test by use. Because
+`perl_condition_scores_itself` still listed `=~` as scoring itself, the
+slot paid nothing, and `if ($x =~ s///)` fell from 1 to 0. The fix that
+shipped gates both on one shared predicate. A perturbation of each side
+fails a different subset of tests.
 
 ---
 
@@ -3879,5 +3888,42 @@ helper was gated out of a build its Go-only caller compiled in. It asked
 only whether a helper is ever compiled *without* a language it needs,
 never whether it is compiled wherever a caller is, though the derivation
 already listed `go` among the helper's needs (#1528).
+
+---
+
+## 95. Error recovery inserts tokens that `is_missing()` does not flag
+
+**Lesson:** A guard meant to skip what the parser invented rather than
+what the author wrote must key on **width** (`start_byte() ==
+end_byte()`), not on `Node::is_missing()`. Prove it with one malformed
+fixture per grammar the guard covers. Do not assume the trap needs
+invalid input: grammars cannot parse every valid program, and they
+recover from the gap the same way.
+
+When tree-sitter recovers from a parse error, it can insert a token the
+source lacks, such as a `;`, a `)` or an identifier. The inserted token
+has zero width. Most are flagged MISSING. Some grammars' recovery also
+builds zero-width identifiers *without* that flag. A classifier treats
+either kind as an ordinary leaf, so the result is a plausible count,
+not an error. Fixtures written from code the grammar handles never
+contain one.
+
+**An operand spelled `""` in every language** (#1546).
+
+- Every getter that classified identifiers billed an inserted identifier
+  as an empty-text operand. An inserted `;` or `)` became a second
+  operator.
+- Most instances were *valid* C++ that tree-sitter-cpp 0.23.4 cannot
+  parse, such as a `typename` functional cast used as a statement, or the
+  templated destructor call `dfs_state->~DfsState<FST>()`. There were
+  roughly 9,900 inserted `;` across DeepSpeech.
+- The obvious fix, skipping `is_missing()` nodes, cleared C++ but left C#
+  and Elixir billing `""`, because their recovery builds the identifier
+  unflagged. A sweep with one malformed fixture per grammar showed it.
+  `compute_halstead` now skips any zero-width node, since a zero-width
+  node spells no token.
+- Width answers "was a token written", not "is the input malformed":
+  valid trees contain zero-width nodes too, such as an empty Bash heredoc
+  body.
 
 ---

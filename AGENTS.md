@@ -568,6 +568,23 @@ metric-value-only (no structural changes). Run `cargo insta test
 one at a time can shift `assertion_line` fields, causing a cascade
 where previously-matching snapshots become stale.
 
+Three traps in that loop:
+
+- **The corpus runner aborts after its first panics**, so a plain run
+  reports only part of what moved. #1296 showed 16 of 254 files.
+  Collect with `INSTA_FORCE_PASS=1 cargo test --no-fail-fast` before
+  counting or reviewing.
+- **A forced pass also hides inline snapshots.** An
+  `assert_json_snapshot!(…, @"…")` that moved passes and leaves only a
+  `src/**/.*.pending-snap` file, not a `.snap.new`. Review both kinds
+  (#1552).
+- **`cargo insta test --accept` accepts every pending snapshot it finds
+  in the workspace**, not only the ones its own run produced. That
+  includes corpus snapshots left by an earlier forced run (#1486). The
+  per-test-file advice above holds only when nothing else is pending.
+  Otherwise review everything that is pending, or accept a filtered set
+  with `cargo insta accept --snapshot <file>`.
+
 **Anchor every `insta::assert_json_snapshot!` call.** A bare
 `insta::assert_json_snapshot!(metric.X)` records whatever production
 emitted at acceptance time — including bugs (see issue #95 and lesson 2

@@ -182,6 +182,19 @@ where the wrapper's span contains the leaf's, listing both is a no-op,
 because `LineSet::insert` / `insert_range` and
 `check_comment_ends_on_code_line` are all idempotent.
 
+**Skip invented tokens by width, not by `is_missing()`.** Error recovery
+inserts zero-width tokens for what the source lacks. It does so on
+*valid* code the grammar cannot parse, as well as on invalid code. Some
+grammars build these tokens without the MISSING flag: the C# and Elixir
+zero-width identifiers are the known cases. So a guard meaning "this
+node spells no written token" must test `start_byte() == end_byte()`,
+and needs one malformed fixture per grammar it covers.
+
+Width is not a malformed-input test: valid trees have zero-width nodes
+too, such as an empty Bash heredoc body. #1546 billed an operand spelled
+`""` in all 23 languages, and its `is_missing()`-only fix still failed
+C# and Elixir (lesson 95).
+
 **Decide a grammar-reachable but language-invalid shape on what the
 change buys for *valid* input.** Grammars are routinely more permissive
 than their languages, so "the parser can produce this" does not settle

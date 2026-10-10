@@ -118,6 +118,26 @@ equally common: two candidate rankings in #1465 were merely *different
 valid orderings* rather than defects, and the honest fix was to trim the
 test comment's claim.
 
+**Re-run the perturbations when two predicates merge.** When two guards
+are folded into one shared predicate, re-run the perturbation for every
+test that guarded either one. A test can stop discriminating without
+failing, because the merged paths can offset each other. During #1539,
+once Perl ABC's `and` gate was shared, removing it left one slot row
+reading 1: the slot dropped by one and the chain walk gained one. The
+row's comment still claimed to guard `perl_condition_scores_itself`,
+and only a re-run perturbation showed it no longer did. The comment was
+corrected under #1539.
+
+**Run a perturbation sweep of an imported Python module with
+`python3 -B`.** CPython reuses a cached `.pyc` when the source's mtime
+(to the second) and size both match. A same-length edit such as `min` →
+`max`, restored within the same second, therefore runs stale bytecode on
+the next import. In #1562 that produced "isolated test fails, full run
+passes" results that described the cache, not the code. Delete the
+module's `__pycache__` before the sweep, then run every step with
+`python3 -B` (or `PYTHONDONTWRITEBYTECODE=1`). `-B` stops new writes, but
+a `.pyc` written before the sweep is still read.
+
 After restoring, `git status` / `git diff --stat` must show exactly
 the edits you intend — nothing extra, nothing missing.
 
