@@ -693,7 +693,12 @@ tokens involved the same way they spell real operators:
   `:` that opens a Python format spec (`f"{x:>10}"`) counts nothing
   either, because the spec after it is string content (#1486). Nor
   does the self-documenting `=` of `f"{x=}"`, which prints the
-  expression's text and assigns nothing (#1551).
+  expression's text and assigns nothing (#1551). C#'s format `:` and
+  alignment `,` (`$"{x,8:F2}"`) count nothing for the same reason
+  (#1573), but the alignment is an expression and keeps its own
+  vocabulary: `8` is an operand, and `{x,-w}` counts `-` and `w`. A
+  Python literal width (`f"{x:>10}"`) is format-spec text and counts
+  nothing.
 - **A delimiter around *syntax* is an operator, whatever it delimits.**
   The rule above is about a literal's own punctuation, and it stops
   there. Halstead counts the vocabulary a program is written in and has

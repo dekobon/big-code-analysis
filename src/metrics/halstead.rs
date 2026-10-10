@@ -3704,6 +3704,71 @@ mod tests {
         );
     }
 
+    /// #1573: an interpolation's alignment `,` and format `:` delimit the
+    /// field, as Python's format-spec `:` does (#1486), and bill nothing.
+    /// The alignment value is an ordinary expression, so `8`, `Width`
+    /// and `-w` keep their vocabulary. The guard reads the token's
+    /// parent: the last seven rows put the same `,` / `:` inside and
+    /// outside a hole in a position that is not a clause, and each keeps
+    /// billing. Pre-fix, every row with a clause billed one extra `,`
+    /// and/or `:`.
+    ///
+    /// Each row is `(label, source, operators, operands)`, the two
+    /// vocabularies space-separated. No row repeats a token, so the
+    /// expected `[n1, N1, n2, N2]` is the two vocabulary sizes, each twice.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_interpolation_clause_delimiters_are_not_operators_1573() {
+        const ROWS: &[(&str, &str, &str, &str)] = &[
+            ("control", "s = $\"{x}\";", "; =", "s x"),
+            ("format", "s = $\"{x:F2}\";", "; =", "s x"),
+            ("alignment", "s = $\"{x,8}\";", "; =", "8 s x"),
+            ("both", "s = $\"{x,8:F2}\";", "; =", "8 s x"),
+            // a `const` width is a `constant_expression` the spec allows
+            ("named width", "s = $\"{x,Width}\";", "; =", "Width s x"),
+            ("negated width", "s = $\"{x,-w}\";", "- ; =", "s w x"),
+            // the format string's `,` is text, not a token
+            ("comma in format", "s = $\"{x:#,##0}\";", "; =", "s x"),
+            ("raw", "s = $$\"\"\"{{x,8:F2}}\"\"\";", "; =", "8 s x"),
+            ("verbatim", "s = $@\"{x:F2}\";", "; =", "s x"),
+            ("call in hole", "s = $\"{f(a, b)}\";", "() , ; =", "a b f s"),
+            (
+                "ternary in hole",
+                "s = $\"{(a ? b : c)}\";",
+                "() : ; = ?",
+                "a b c s",
+            ),
+            (
+                "named arg in hole",
+                "s = $\"{f(x: 1)}\";",
+                "() : ; =",
+                "1 f s x",
+            ),
+            ("ternary", "s = a ? b : c;", ": ; = ?", "a b c s"),
+            ("named argument", "f(x: 1);", "() : ;", "1 f x"),
+            (
+                "case label",
+                "switch (x) { case 1: break; }",
+                "() : ; break case switch {}",
+                "1 x",
+            ),
+            ("argument list", "f(a, b);", "() , ;", "a b f"),
+        ];
+        let sorted = |words: &[String]| {
+            let mut words: Vec<&str> = words.iter().map(String::as_str).collect();
+            words.sort_unstable();
+            words.join(" ")
+        };
+        for (label, source, operators, operands) in ROWS {
+            let ops = ops_of::<CsharpParser>(source, "foo.cs");
+            assert_eq!(sorted(&ops.operators), *operators, "{label}: {source:?}");
+            assert_eq!(sorted(&ops.operands), *operands, "{label}: {source:?}");
+            let n1 = operators.split(' ').count() as u64;
+            let n2 = operands.split(' ').count() as u64;
+            assert_halstead_counts::<CsharpParser>(source, "foo.cs", [n1, n1, n2, n2], label);
+        }
+    }
+
     // C# half of #1380 — see `java_self_and_super_references_are_operands`
     // for the structural argument. `base` moves with `this`: both are
     // receivers of a member access.

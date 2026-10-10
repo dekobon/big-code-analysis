@@ -49,6 +49,32 @@ fn csharp_comparison_misparse<'a>(list: &Node<'a>, ancestors: Ancestors<'a, '_>)
         )
 }
 
+// Whether `node` is the `,` opening an interpolation's alignment
+// (`$"{x,8}"`) or the `:` opening its format string (`$"{x:F2}"`).
+// Both delimit the field, as the `{` / `}` braces do, which #1314 left
+// unbilled in every interpolating language; Python's format-spec `:`
+// went the same way in #1486 (#1573). The guard reads the parent, so a
+// ternary `:`, a named-argument `:` or an argument-list `,` written
+// inside the hole (`$"{f(a, b)}"`) keeps billing.
+//
+// The alignment *value* is a `constant_expression` and walks as one:
+// `{x,8}` bills `8` and `{x,-W}` bills `-` and `W`. That is where C#
+// and Python differ: a Python literal width (`f"{x:>10}"`) is
+// format-spec text and bills nothing, while C#'s `8` is an
+// `integer_literal` token. An expression width bills in both
+// (`f"{x:>{w}}"` bills `w`). The format string after `:` (`F2`) is
+// string content and has no node to bill.
+fn is_interpolation_clause_delimiter<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+    let clause = match node.kind_id().into() {
+        Csharp::COLON => Csharp::InterpolationFormatClause,
+        Csharp::COMMA => Csharp::InterpolationAlignmentClause,
+        _ => return false,
+    };
+    ancestors
+        .parent(node)
+        .is_some_and(|parent| parent.kind_id() == clause as u16)
+}
+
 impl Getter for CsharpCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
         use Csharp::*;
@@ -94,7 +120,9 @@ impl Getter for CsharpCode {
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Csharp::*;
 
-        if GENERIC_ANGLES.is_closer(node, ancestors) {
+        if GENERIC_ANGLES.is_closer(node, ancestors)
+            || is_interpolation_clause_delimiter(node, ancestors)
+        {
             return TokenRole::Unknown;
         }
 
