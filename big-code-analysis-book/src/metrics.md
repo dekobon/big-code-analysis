@@ -715,7 +715,8 @@ tokens involved the same way they spell real operators:
   the JavaScript family, C, C++ and Objective-C followed in #1552 with
   their type-declaration keywords: `class`, `struct`, `union`, `enum`,
   `interface`, `record`, `trait`, `@interface`, `@implementation` and
-  `@protocol`. Java's `C.class` is not billed: it stays one operand.
+  `@protocol`. The `class` tail of Java's `C.class` is an operand, not
+  this keyword (#1566, below).
   Kotlin's `interface` followed in #1556, and since #1558 Kotlin bills
   every modifier, as C# does: the `enum` of
   `enum class`, `data`, `sealed`, the visibility keywords, `open`,
@@ -732,10 +733,15 @@ tokens involved the same way they spell real operators:
   TypeScript type name an operand (`x: Foo`, `interface I`,
   `Map<K, V>`), as C#, Rust and the C family already did. Java followed
   in #1560: `Foo f`, `implements I`, `List<Foo>` and each segment of
-  `java.util.List` bill their names as operands. A type inside a class
-  literal (`Foo.class`) does not, since the literal is already one
-  operand, and neither does the inferred type `var`, which C# bills
-  nothing for either. #1561 made TypeScript's type-level operator
+  `java.util.List` bill their names as operands. The inferred type
+  `var` does not, as C# bills nothing for its own. Since #1566 a Java
+  class literal bills its parts rather than one operand spelled by its
+  whole text, since JLS §15.8.2 defines it as an expression rather than
+  a literal: in `java.util.List.class` and `Foo[].class` each name and
+  the `class` tail are operands and each `.` and `[]` an operator, as
+  Groovy's `Foo.class` and Kotlin's and PHP's `Foo::class` bill theirs.
+  The `int` of `int.class` and the `void` of `void.class` stay
+  operators, as Java bills them everywhere. #1561 made TypeScript's type-level operator
   keywords operators, as their value-level siblings `as`, `typeof`
   and `extends` already were: `satisfies`, `keyof`, `infer`, and the
   `is` and `asserts` of a type predicate. #1563 made TypeScript's

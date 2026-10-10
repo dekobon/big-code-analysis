@@ -96,26 +96,14 @@ impl Getter for JavaCode {
         // https://www.geeksforgeeks.org/software-engineering-halsteads-software-metrics/?msclkid=5e181114abef11ecbb03527e95a34828
         match node.kind_id().into() {
             // `class` declares a class (billed below, #1552) except as the
-            // tail of a class literal (`C.class`): that `class_literal` is
-            // already one operand keyed by its whole text, so billing its
-            // leaf too would pay the same bytes twice (grammar-dispatch
-            // section 5, the compound-leaf guard).
-            Class if ancestors.parent_has_kind(node, ClassLiteral as u16) => TokenRole::Unknown,
-            // A type name is an operand (#1560, the operand arm below)
-            // except inside a class literal, whose whole text is already
-            // one operand — the `class` guard above, for the same
-            // reason. The type sits there directly (`Foo.class`) or
-            // under an array or scoped type (`Foo[].class`,
-            // `java.util.List.class`), so the climb skips those two.
-            TypeIdentifier
-                if ancestors
-                    .iter(node)
-                    .map(|(ancestor, _)| ancestor.kind_id())
-                    .find(|&id| id != ArrayType as u16 && id != ScopedTypeIdentifier as u16)
-                    == Some(ClassLiteral as u16) =>
-            {
-                TokenRole::Unknown
-            }
+            // tail of a class literal (`C.class`), where it is an operand:
+            // JLS §15.8.2 makes the literal a primary expression, not a
+            // literal (§3.10), so its parts bill as they would anywhere
+            // else — the type name an operand, the primitive or `void`
+            // and the `.` / `[]` operators — and the `class` tail is the
+            // operand they act on, as Kotlin's and PHP's `Foo::class` and
+            // Groovy's `Foo.class` bill theirs (#1566).
+            Class if ancestors.parent_has_kind(node, ClassLiteral as u16) => TokenRole::Operand,
             // `static` is a modifier (below, #1565) except in an import
             // or module directive (`import static`, `requires static`),
             // whose own keyword — `import`, `requires` — bills nothing
@@ -189,10 +177,11 @@ impl Getter for JavaCode {
             // Go, Groovy and TypeScript bill type names: a field or
             // parameter type, an `implements` / `extends` entry, a type
             // parameter, a generic argument, each segment of
-            // `java.util.List` (the `.` bills as itself). It is the one
+            // `java.util.List` (the `.` bills as itself), and since #1566
+            // the type of a class literal (`Foo.class`). It is the one
             // type-name kind and no listed node wraps it, so each name
             // bills once.
-            Identifier | TypeIdentifier | NullLiteral | ClassLiteral | True | False
+            Identifier | TypeIdentifier | NullLiteral | True | False
             | StringLiteral | CharacterLiteral | HexIntegerLiteral | OctalIntegerLiteral
             | BinaryIntegerLiteral | DecimalIntegerLiteral | HexFloatingPointLiteral
             | DecimalFloatingPointLiteral | This => {

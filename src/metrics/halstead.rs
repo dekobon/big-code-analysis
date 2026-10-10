@@ -6203,8 +6203,8 @@ end",
     }
 
     /// #1552: Java's type-declaration keywords are operators, as C#'s
-    /// are. The class-literal row pins the guard: `C.class` is one
-    /// operand, and its `class` leaf bills nothing of its own.
+    /// are. The class-literal row pins the guard: the `class` tail of
+    /// `C.class` is an operand (#1566), not a declaration keyword.
     #[cfg(feature = "java")]
     #[test]
     fn java_declaration_keywords_are_operators_1552() {
@@ -6220,7 +6220,7 @@ end",
             // `@interface`, `{}`
             ("annotation type", "@interface N {}\n", [2, 2]),
             // `class`, `{}`, `=`, `.`, `;` — one `class`: the literal's
-            // is part of the `C.class` operand
+            // tail is an operand (#1566)
             ("class literal", "class U { Object o = C.class; }\n", [5, 5]),
         ];
         assert_operator_rows::<JavaParser>("Foo.java", ROWS);
@@ -6229,9 +6229,9 @@ end",
     /// #1560: a Java type name is an operand, as in C#, Rust, the C
     /// family, Go, Groovy and TypeScript. Each row isolates one position
     /// of the single `type_identifier` kind. The class-literal rows pin
-    /// that a type inside `Foo.class` is not billed again on top of the
-    /// literal's own operand, whether it sits there directly or under an
-    /// array or scoped type; the `var` rows, that the inferred-type
+    /// that a type inside `Foo.class` bills like any other (#1566),
+    /// whether it sits there directly or under an array or scoped type,
+    /// beside the literal's `class` tail; the `var` rows, that the inferred-type
     /// keyword bills nothing while a variable named `var` stays an
     /// operand.
     #[cfg(feature = "java")]
@@ -6258,23 +6258,23 @@ end",
             ),
             // `C`, `m`, `Ex`
             ("throws", "class C { void m() throws Ex {} }\n", [3, 3]),
-            // `C`, `Object`, `a`, `Foo.class`
+            // `C`, `Object`, `a`, `Foo`, `class`
             (
                 "class literal",
                 "class C { Object a = Foo.class; }\n",
-                [4, 4],
+                [5, 5],
             ),
-            // `C`, `Object`, `a`, `Foo[].class`
+            // `C`, `Object`, `a`, `Foo`, `class`
             (
                 "array class literal",
                 "class C { Object a = Foo[].class; }\n",
-                [4, 4],
+                [5, 5],
             ),
-            // `C`, `Object`, `a`, `java.util.List.class`
+            // `C`, `Object`, `a`, `java`, `util`, `List`, `class`
             (
                 "scoped class literal",
                 "class C { Object a = java.util.List.class; }\n",
-                [4, 4],
+                [7, 7],
             ),
             // `C`, `m`, `x`, `1` — no `var`
             (
@@ -6290,6 +6290,131 @@ end",
             ),
         ];
         assert_operand_rows::<JavaParser>("Foo.java", ROWS);
+    }
+
+    /// One class literal's own vocabulary: the source spelling, then the
+    /// operators and operands it adds to the fixture's frame.
+    #[cfg(any(feature = "groovy", feature = "java"))]
+    type ClassLiteralParts = (
+        &'static str,
+        &'static [&'static str],
+        &'static [&'static str],
+    );
+
+    /// #1566: the class-literal shapes Java and Groovy spell alike. The
+    /// expected parts are what Groovy — untouched by #1566 — already
+    /// billed for `Foo.class`: the type name an operand, the `.` and
+    /// `[]` operators, and the `class` tail an operand. Both tests below
+    /// read this one table, so the two languages cannot drift apart.
+    #[cfg(any(feature = "groovy", feature = "java"))]
+    const SHARED_CLASS_LITERALS: &[ClassLiteralParts] = &[
+        ("Foo.class", &["."], &["Foo", "class"]),
+        ("Foo[].class", &[".", "[]"], &["Foo", "class"]),
+        (
+            "java.util.List.class",
+            &["."],
+            &["List", "class", "java", "util"],
+        ),
+    ];
+
+    /// Asserts each literal's operator and operand vocabularies inside
+    /// `frame`, which spells the fixture around it and contributes
+    /// `frame_ops` / `frame_operands` of its own.
+    #[cfg(any(feature = "groovy", feature = "java"))]
+    #[track_caller]
+    fn assert_class_literal_parts<T: crate::MetricSuite>(
+        file: &str,
+        frame: fn(&str) -> String,
+        frame_ops: &[&str],
+        frame_operands: &[&str],
+        rows: &[ClassLiteralParts],
+    ) {
+        let merged = |frame: &[&str], parts: &[&str]| {
+            let mut all: Vec<String> = frame.iter().chain(parts).map(|s| (*s).to_owned()).collect();
+            all.sort_unstable();
+            all.dedup();
+            all
+        };
+        for (literal, ops, operands) in rows {
+            let got = ops_of::<T>(&frame(literal), file);
+            assert_eq!(
+                got.operators,
+                merged(frame_ops, ops),
+                "operators of {literal}"
+            );
+            assert_eq!(
+                got.operands,
+                merged(frame_operands, operands),
+                "operands of {literal}"
+            );
+        }
+    }
+
+    /// #1566: a Java class literal bills its parts. JLS §15.8.2 makes it
+    /// a primary expression rather than a literal (§3.10 lists none), so
+    /// the type name is an operand as anywhere else, `.` and `[]` are
+    /// operators, and the `class` tail is the operand they act on — the
+    /// split Kotlin's and PHP's `Foo::class` and Groovy's `Foo.class`
+    /// already made. Before the fix the literal billed as one operand
+    /// spelled by its whole text while `.`, `[]` and a primitive inside
+    /// it also billed as operators. The shared rows take their expected
+    /// values from Groovy; the primitive and `void` rows are Java's own,
+    /// since Groovy still bills `int` and `void` as operands (#1568).
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_class_literal_bills_its_parts_1566() {
+        const FRAME_OPS: &[&str] = &[";", "=", "class", "{}"];
+        const FRAME_OPERANDS: &[&str] = &["C", "Object", "c"];
+        let frame = |literal: &str| format!("class C {{ Object c = {literal}; }}\n");
+        assert_class_literal_parts::<JavaParser>(
+            "Foo.java",
+            frame,
+            FRAME_OPS,
+            FRAME_OPERANDS,
+            SHARED_CLASS_LITERALS,
+        );
+        assert_class_literal_parts::<JavaParser>(
+            "Foo.java",
+            frame,
+            FRAME_OPS,
+            FRAME_OPERANDS,
+            &[
+                ("int.class", &[".", "int"], &["class"]),
+                ("void.class", &[".", "void"], &["class"]),
+            ],
+        );
+        // The totals pin the multiplicities a vocabulary cannot: the frame
+        // bills four operators (`class`, `{}`, `=`, `;`) and three operands
+        // (`C`, `Object`, `c`), and each literal adds its parts once —
+        // `java.util.List.class` its three `.` and four names.
+        assert_halstead_rows::<JavaParser>(
+            "Foo.java",
+            &[
+                ("int", "class C { Object c = int.class; }\n", [6, 4]),
+                ("array", "class C { Object c = Foo[].class; }\n", [6, 5]),
+                (
+                    "scoped",
+                    "class C { Object c = java.util.List.class; }\n",
+                    [7, 7],
+                ),
+                ("void", "class C { Object c = void.class; }\n", [6, 4]),
+            ],
+            |h| [h.total_operators(), h.total_operands()],
+        );
+    }
+
+    /// #1566's oracle: Groovy bills the shared class-literal shapes the
+    /// way Java now does. A Groovy field needs no `;`.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_class_literal_bills_its_parts_1566() {
+        assert_class_literal_parts::<GroovyParser>(
+            "foo.groovy",
+            |literal| format!("class C {{ Object c = {literal} }}\n"),
+            &["=", "class", "{}"],
+            &["C", "Object", "c"],
+            SHARED_CLASS_LITERALS,
+        );
     }
 
     /// #1552: Groovy's type-declaration keywords are operators, as
