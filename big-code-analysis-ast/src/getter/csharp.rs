@@ -10,7 +10,41 @@ const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
     ],
     openers: &[Csharp::LT as u16],
     closers: &[Csharp::GT as u16],
+    is_misparse: csharp_comparison_misparse,
 };
+
+// Whether `list` holds the two comparisons of a call argument
+// (`F(a < b, c > d)`) that tree-sitter-c-sharp reads as a declaration
+// typed `a<b, c>` and named `d`. The C# specification keeps the type
+// arguments only where the token after `>` allows it (§6.2.5), and an
+// identifier allows it only after `is`, `case`, `out` or in a tuple —
+// so a declaration typed by a generic name is two comparisons when it is
+// a call or indexer argument without `out`. `F(out List<int> x)`,
+// `(List<int> p, int q) = …` and `o is List<int> x` keep their pair. A
+// member access before the `<` (`F(x.a < b, c > d)`) wraps the generic
+// name in `qualified_name`s, which the climb passes. The `>=` spelling
+// (`F(a < b, c >= d)`) parses as an assignment instead and is not undone.
+fn csharp_comparison_misparse<'a>(list: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+    let mut up = ancestors.iter(list).map(|(node, _)| node);
+    if up
+        .next()
+        .is_none_or(|name| name.kind_id() != Csharp::GenericName as u16)
+    {
+        return false;
+    }
+    let mut up = up.skip_while(|node| node.kind_id() == Csharp::QualifiedName as u16);
+    let (Some(declaration), Some(argument), Some(arguments)) = (up.next(), up.next(), up.next())
+    else {
+        return false;
+    };
+    declaration.kind_id() == Csharp::DeclarationExpression as u16
+        && argument.kind_id() == Csharp::Argument as u16
+        && !argument.is_child(Csharp::Out as u16)
+        && matches!(
+            arguments.kind_id().into(),
+            Csharp::ArgumentList | Csharp::BracketedArgumentList
+        )
+}
 
 impl Getter for CsharpCode {
     fn get_space_kind(node: &Node) -> SpaceKind {

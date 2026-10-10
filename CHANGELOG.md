@@ -41,14 +41,21 @@ move for most Python, Rust, C, C++, Java, JavaScript, TypeScript,
 Kotlin, Groovy and C# code. Python and Rust rise most, from #1486. The
 generic `<>` pair (#1559) lowers effort for most code that uses
 generics. Several **Fixed** entries also move only Halstead and are
-marked as such.
+marked as such. If you gate `halstead.effort` or `mi.*` with `bca
+check`, expect new offenders in Python, Rust, Java, C# and C++ code,
+and refresh `.bca-baseline.toml`. The `bca init` default for
+`halstead.effort` and the book's per-language calibration table were
+derived before these changes. Their re-derivation is tracked in #1569.
 
 ### Added
 
 - **`Getter::get_operator_spelling`** (#1559), a defaulted trait method
-  that lets a getter bill an operator under a fixed text key when its
-  grammar gives two operators the same kind id. It is additive: existing
-  implementations compile unchanged.
+  in `big-code-analysis-ast` that lets a getter bill an operator under a
+  fixed text key when its grammar gives two operators the same kind id.
+  It is additive: existing implementations compile unchanged. Like the
+  rest of `big-code-analysis-ast`, it is outside the stability contract
+  (see `STABILITY.md`). Nothing new reaches the `big-code-analysis`
+  crate's public surface.
 
 ### Changed
 
@@ -72,14 +79,18 @@ marked as such.
   `namespace`, `module`, `declare` and `global`. Every TypeScript
   `type_identifier`, including alias and interface names, annotations
   and generic arguments, is now an operand. `template <class T>` and
-  `template <typename T>` bill alike.
+  `template <typename T>` bill alike. A binding named `type` in an export
+  clause (`export { type }`) is not billed as the keyword.
 - **Java type names are Halstead operands** (#1560), as in C#, Rust and
   TypeScript. A class literal's interior and the inferred `var` stay
   unbilled.
 - **Kotlin bills its declaration modifiers and `interface`** (#1556,
   #1558): `enum`, `data`, `sealed`, the visibility keywords, `open`,
   `override`, `suspend`, `reified`, variance `out` and the rest. Before
-  this, only `class` and `object` were billed.
+  this, only `class` and `object` were billed. The same words used as
+  names bill no operator, including where the grammar fails to parse
+  the name (`open = !open`, `val suspend = 1`, a parameter named
+  `vararg`).
 - **TypeScript bills `satisfies`, `keyof`, `infer`, `is` and
   `asserts`** (#1561).
 - **Generic angle brackets bill as one `<>` pair** (#1559) in Rust (type
@@ -87,11 +98,16 @@ marked as such.
   Groovy, C#, TypeScript, TSX, Kotlin, C++ templates and Objective-C
   (lightweight generics, protocol lists and `id<P>`). The opening `<`
   bills `<>` and the closing `>` bills nothing, the same convention as
-  `()`, `[]` and `{}`. Comparisons and shifts are unchanged. N1 falls
+  `()`, `[]` and `{}`. Comparisons and shifts are unchanged, with two
+  exceptions where the grammar reads a comparison as a generic list.
+  The first is a C++ comparison that tree-sitter-cpp reads as a template
+  argument list (`x = a < b || c > (d)`). The second is a C# call
+  argument pair spelled with `>=` (`F(a < b, c >= d)`), which the
+  grammar parses as an assignment. Both bill as `<>`. N1 falls
   for code that uses generics, and effort fell in about 87% of the moved
   C++ and Rust corpus files.
 - **Perl and PHP `xor` scores as a value, not a decision** (#1536), like
-  `^` and the eager `xor` of Java, C++ and Kotlin. It adds no
+  Java's `^` and the eager `xor` of C++ and Kotlin. It adds no
   cyclomatic or cognitive increment, and the boolean slot holding it
   pays one ABC condition. PHP `xor` moves in all three metrics.
 - **Rust `let`-`else` is a decision** (#1542, #1548). It adds one
@@ -291,7 +307,12 @@ marked as such.
   - A `-bareword` key (`$h{-foo}`, `(-text => 1)`) was read as a file
     test, which billed a fragment of the word (`oo`) and an ABC branch.
   Each key now scores like its quoted or `or` twin, and real operators
-  and file tests are unchanged.
+  and file tests are unchanged. ABC still reads the value after an
+  `and`, `not`, `-and` or `-not` key, so `f(and => !$a)` pays the
+  negation's condition. A `-and` / `-not` key keeps its sign however it
+  is spaced (`(- not => 1)`), and a real subtraction before a key
+  (`(1 - and => 2)`) keeps its `-`. A `-bareword` key whose letter is
+  no file-test letter (`-name`) still scores as a negated bareword.
 - **Perl `$x =~ s///` and `tr///` no longer score a condition by use**
   (#1540), matching bare `s///`. A substitution is an edit, not a test.
   Inside a boolean slot it still counts once, and pattern matches are
@@ -304,10 +325,15 @@ marked as such.
   (#1536). `[ X -a Y ]`, `[ X ] && [ Y ]` and `[[ X && Y ]]` now agree
   in cyclomatic, ABC and cognitive. `-a` / `-o` are logical connectives,
   not ABC comparisons, and `=` inside a test is an ABC comparison. It
-  stays an assignment in `(( … ))`.
+  stays an assignment in `(( … ))`. A run of `=` or `=~` tests joined by
+  one connective, which the grammar nests around the connectives, is one
+  cognitive sequence, like its `==` twin.
 - **An Elixir named operator is billed once** (#1534). `&==/2`,
   `&and/2` and `Kernel.||(a, b)` billed both an operand and an operator,
-  and a named `&&` / `||` / `and` / `or` added a cyclomatic decision.
+  and a captured `&&` / `||` / `and` / `or` (`&||/2`) added a cyclomatic
+  decision. A remote call on `Kernel` (`Kernel.||(a, b)`) applies the
+  operator and keeps its decision. The same call on a user module
+  (`Foo.||(a, b)`) is an ordinary function call and decides nothing.
 - **C# lambda modifiers and implicit parameters are billed** (#1482,
   #1544). A lambda's or anonymous method's `static` / `async` is an
   operator, keyed as the declaration spelling is. The bare parameter of
@@ -316,9 +342,12 @@ marked as such.
   covers C# `operator true` / `operator false` (previously operands),
   and C++ / Mozcpp `operator[]`, `operator()`, `operator""_x`,
   `operator co_await` and the `operator` keyword (previously billed
-  nowhere). `co_await`, `co_return` and `co_yield` in an expression are
-  operators too, and NExits counts `co_return` and `co_yield` as exits
-  (#1547).
+  nowhere); `bca ops` lists the C++ names as `operator[]` and
+  `operator()`, apart from a subscript's `[]` and a call's `()`. So are
+  `co_await` in an expression and the `co_return` and `co_yield`
+  statements, which NExits now counts as exits (#1547). ABC reads a
+  `co_return` value as it reads a `return` value, so `co_return !x` pays
+  one condition.
 - **JSX element text is a Halstead operand** (#1483), keyed on its
   trimmed text, in JavaScript, Mozjs and TSX. Whitespace-only text is
   ignored, and a character reference such as `&amp;` in element content
@@ -337,7 +366,10 @@ marked as such.
   lowers `cyclomatic.sum` by one base per removed space.
 - **`make check-test-lang-gates` catches a helper gated out of a build
   its caller compiles in** (#1562), when the caller names its parsers
-  only inside an inner `#[cfg]` block.
+  only inside an inner `#[cfg]` block. A `const` fixture table passed
+  only to such calls is checked the same way.
+- **Perl's fat comma lists as `=>` in `bca ops`**, not as the grammar's
+  `fat_comma` node name. Rendering only; no count moves.
 
 ## [2.3.0] - 2026-10-07
 

@@ -27,13 +27,27 @@ pub(crate) struct GenericAngleKinds {
     pub(crate) openers: &'static [u16],
     /// The `>` kinds, likewise.
     pub(crate) closers: &'static [u16],
+    /// Whether a list node, given its ancestor chain, holds comparisons
+    /// the grammar misparsed as a generic list, whose brackets then keep
+    /// billing as the comparisons they are. [`never_misparsed`] for a
+    /// grammar with no such shape this can tell from a real list.
+    pub(crate) is_misparse: for<'a, 'b> fn(&Node<'a>, Ancestors<'a, 'b>) -> bool,
+}
+
+/// The [`GenericAngleKinds::is_misparse`] of a grammar whose generic
+/// lists hold no misparse this can tell apart. C++ is one: tree-sitter-cpp
+/// reads `a < b || c > (d)` as a template argument list, but so does a
+/// valid template call spelled the same, and only name lookup tells them
+/// apart.
+pub(crate) fn never_misparsed(_: &Node, _: Ancestors) -> bool {
+    false
 }
 
 impl GenericAngleKinds {
     fn parent_is_list<'a>(&self, node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-        ancestors
-            .parent(node)
-            .is_some_and(|parent| self.lists.contains(&parent.kind_id()))
+        ancestors.iter(node).next().is_some_and(|(list, above)| {
+            self.lists.contains(&list.kind_id()) && !(self.is_misparse)(&list, above)
+        })
     }
 
     /// Whether `node` closes a generic list, and so bills nothing.

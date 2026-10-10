@@ -4,7 +4,7 @@
 use super::*;
 use crate::lang_helpers::perl::{
     perl_and_is_operator, perl_dash_signs_keyword_key, perl_file_test_is_dash_key,
-    perl_is_dash_key_word, perl_not_is_key,
+    perl_is_dash_key_word, perl_key_is_signed, perl_not_is_key,
 };
 
 impl Getter for PerlCode {
@@ -254,12 +254,14 @@ impl Getter for PerlCode {
     /// file test (`(-x => 1)`) has swallowed the `=>` and the value into
     /// its node, so the key is the sign and the word after it; a
     /// `-and` / `-not` key gets back the sign its `-` token stopped
-    /// billing. Only a key reaches here as an operand, so the byte
-    /// before `and` / `not` is that sign whenever it is a `-`.
+    /// billing, spelled the same however the two are spaced, since Perl
+    /// keys `(- not => 1)` as `"-not"` too. The sign is read off the tree
+    /// (`perl_key_is_signed`), not the byte before the key, which can
+    /// equally be an infix `-` or the end of a comment.
     fn get_operand_id<'a>(
         node: &Node<'a>,
         code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
+        ancestors: Ancestors<'a, '_>,
     ) -> &'a [u8] {
         let (start, end) = (node.start_byte(), node.end_byte());
         match node.kind_id().into() {
@@ -270,11 +272,8 @@ impl Getter for PerlCode {
                     .count();
                 &code[start..=start + word]
             }
-            Perl::And | Perl::Not
-                if start.checked_sub(1).is_some_and(|sign| code[sign] == b'-') =>
-            {
-                &code[start - 1..end]
-            }
+            Perl::And if perl_key_is_signed(node, ancestors) => b"-and",
+            Perl::Not if perl_key_is_signed(node, ancestors) => b"-not",
             _ => &code[start..end],
         }
     }
@@ -289,7 +288,8 @@ impl Getter for PerlCode {
     /// `substitution_pattern_s` and `transliteration_tr_or_y` among
     /// the operators, which reads as a bug rather than as `s///`.
     /// `tr///` covers `y///` too — one kind, one glyph, because they
-    /// are synonyms.
+    /// are synonyms. `=>` is the named `fat_comma` node for the same
+    /// reason.
     #[inline]
     fn get_operator_id_as_str(id: u16) -> &'static str {
         let typ = id.into();
@@ -299,6 +299,7 @@ impl Getter for PerlCode {
             Perl::LBRACE => "{}",
             Perl::SubstitutionPatternS => "s///",
             Perl::TransliterationTrOrY => "tr///",
+            Perl::FatComma => "=>",
             _ => typ.into(),
         }
     }

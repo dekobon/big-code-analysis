@@ -14,6 +14,7 @@ const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
     ],
     openers: &[Cpp::LT as u16],
     closers: &[Cpp::GT as u16, Cpp::GT2 as u16],
+    is_misparse: never_misparsed,
 };
 
 impl Getter for CppCode {
@@ -173,9 +174,9 @@ impl Getter for CppCode {
             //
             // `LPARENRPAREN` / `LBRACKRBRACK` are kinds of their own, not
             // the `LPAREN` / `LBRACK` of a call or subscript, so declaring
-            // `operator[]` and applying `s[1]` are two `n1` entries that
-            // `bca ops` both renders `[]` — the same choice Ruby makes for
-            // its `def [](i)` method names.
+            // `operator[]` and applying `s[1]` are two `n1` entries, which
+            // `bca ops` renders `operator[]` and `[]` (see
+            // `get_operator_id_as_str`).
             | LPARENRPAREN | LBRACKRBRACK | DQUOTEDQUOTE | CoAwait | Operator
             // `co_return` and `co_yield` are the coroutine spellings of
             // `return` and of handing a value back, so they bill as
@@ -285,5 +286,21 @@ impl Getter for CppCode {
         GENERIC_ANGLES.opener_spelling(node, ancestors)
     }
 
-    get_operator!(Cpp);
+    // `get_operator!`'s three bracket arms, plus the two overloaded
+    // operator names (#1296). The grammar names `LPARENRPAREN` /
+    // `LBRACKRBRACK` `()` / `[]`, the same text a call's and a
+    // subscript's opener render as, so `bca ops` would list one spelling
+    // for two `n1` entries. Rendering each as the operator it names keeps
+    // every listed operator distinct (lesson 4).
+    fn get_operator_id_as_str(id: u16) -> &'static str {
+        let typ = id.into();
+        match typ {
+            Cpp::LPAREN => "()",
+            Cpp::LBRACK => "[]",
+            Cpp::LBRACE => "{}",
+            Cpp::LPARENRPAREN => "operator()",
+            Cpp::LBRACKRBRACK => "operator[]",
+            _ => typ.into(),
+        }
+    }
 }

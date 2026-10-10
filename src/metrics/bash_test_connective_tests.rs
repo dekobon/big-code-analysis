@@ -78,7 +78,7 @@ fn bash_test_connectives_score_like_their_twins_1536() {
         // `-a` and `-o` key to the symbols they stand for: a run of one
         // is a single sequence. The grammar nests `=`, `==` and `!=`
         // around the connectives (`"$a" = (1 -o "$b") = …`), so these
-        // rows also pin `bash_sequence_end`; `[[ … = … || … ]]` scored 3
+        // rows also pin `ComparisonRuns`; `[[ … = … || … ]]` scored 3
         // before #1536 for the same reason.
         (
             r#"if [ "$a" = 1 -o "$b" = 2 -o "$c" = 3 ]; then :; fi"#,
@@ -145,6 +145,66 @@ fn bash_test_connective_gates_keep_their_controls_1536() {
             r#"if [[ ( "$a" = 1 || "$b" = 2 ) && ( "$c" = 3 || "$d" = 4 ) ]]; then :; fi"#,
             r#"if [[ ( "$a" == 1 || "$b" == 2 ) && ( "$c" == 3 || "$d" == 4 ) ]]; then :; fi"#,
             [6, 5, 4],
+        ),
+    ];
+    for (body, twin, decisions) in rows {
+        assert_eq!(
+            measure(twin),
+            decisions,
+            "`{twin}` moved; re-derive the row"
+        );
+        assert_eq!(
+            measure(body),
+            decisions,
+            "`{body}` must score like `{twin}`"
+        );
+    }
+}
+
+/// An outer comparison run resumes after a nested one: past the `&&`
+/// group, `"$c" = 3` continues the `||` run `"$b" = 2` restarted, so the
+/// two are one sequence. The mis-nested tree scores a mixed run in
+/// textual order (`ComparisonRuns`), one more than the `==` twin's 3, so
+/// the value here is the one the ancestor climb `ComparisonRuns`
+/// replaced scored; a tracker that forgot the outer run at the group
+/// scores 5.
+#[cfg(feature = "bash")]
+#[test]
+fn bash_comparison_run_resumes_after_a_nested_run_1536() {
+    assert_eq!(
+        measure(
+            r#"if [[ "$a" = 1 || ( "$x" = 5 && "$y" = 6 ) || "$b" = 2 || "$c" = 3 || "$d" = 4 ]]; then :; fi"#
+        ),
+        [8, 7, 4]
+    );
+}
+
+/// `=~` shares `=`'s precedence, so tree-sitter-bash mis-nests a run of
+/// regex matches the same way (`"$a" =~ ($re || "$b") =~ …`), and the run
+/// must stay one sequence, as its `==` twin's is. The other two rows pin
+/// what the run tracking and the `=` count reproduce: a run that resumes
+/// after a nested one keeps its sequences, and an assignment inside a
+/// test's `$(( … ))` is no comparison.
+#[cfg(feature = "bash")]
+#[test]
+fn bash_comparison_runs_score_like_their_twins_1536() {
+    // `(body, twin, decisions)`; `twin` spells the same test another
+    // way and must agree.
+    let rows: [(&str, &str, Decisions); 3] = [
+        (
+            r#"if [[ "$a" =~ $re || "$b" =~ $re || "$c" =~ $re ]]; then :; fi"#,
+            r#"if [[ "$a" == $re || "$b" == $re || "$c" == $re ]]; then :; fi"#,
+            [5, 4, 2],
+        ),
+        (
+            "if [[ ( $a = 1 || $b = 2 ) && $c = 3 || $d = 4 ]]; then :; fi",
+            "if [[ ( $a == 1 || $b == 2 ) && $c == 3 || $d == 4 ]]; then :; fi",
+            [6, 5, 4],
+        ),
+        (
+            "if [[ $(( x = 1 )) -eq 1 ]]; then :; fi",
+            "if [[ $(( x + 1 )) -eq 1 ]]; then :; fi",
+            [3, 2, 1],
         ),
     ];
     for (body, twin, decisions) in rows {

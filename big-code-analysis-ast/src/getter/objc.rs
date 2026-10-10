@@ -9,11 +9,13 @@ use crate::c_declarator::declarator_name;
 // `protocol_reference_list` (`id<NSCopying>`), `parameterized_arguments`
 // (`@interface A : NSObject <NSCopying>`), and `argument_list`, whose
 // `Type<…>` alternative (`f(NSArray<NSString *>)`) holds the brackets as
-// direct children. A comparison's `<` / `>` is always the child of a
-// `binary_expression` or `preproc_binary_expression`, so none of the
-// four can claim one. `LT2` is the
+// direct children. A well-formed comparison's `<` / `>` is the child of
+// a `binary_expression` or `preproc_binary_expression`; the one
+// exception is `objc_argument_list_misparse`. `LT2` is the
 // `token.immediate` `<` that `argument_list`'s form opens with; the
-// parser reports it as `LT`, so it is listed defensively. The call's
+// parser reports it as `LT`, so it is listed defensively, here and in
+// the operator arm, and its absence is pinned by
+// `objc_generic_opener_alias_never_reaches_kind_id`. The call's
 // `argument_list` is `ArgumentList2`; `ArgumentList` is
 // `preproc_call_expression`'s alias, which holds no angle brackets.
 const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
@@ -25,7 +27,18 @@ const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
     ],
     openers: &[Objc::LT as u16, Objc::LT2 as u16],
     closers: &[Objc::GT as u16],
+    is_misparse: objc_argument_list_misparse,
 };
+
+// Whether `list` is an `argument_list` holding two comparisons that
+// tree-sitter-objc read as its `Type<…>` form: an unspaced
+// `g(a<b, c>d)`, where a `<` glued to the first argument opens the form.
+// The real form is the whole argument list, so `f(NSArray<NSString *>)`
+// parses cleanly, while the misparse leaves an `ERROR` after the `>`, or
+// a MISSING `)` (`g(i<n, j>=0)`) that only `has_error` sees.
+fn objc_argument_list_misparse(list: &Node, _ancestors: Ancestors) -> bool {
+    list.kind_id() == Objc::ArgumentList2 as u16 && list.has_error()
+}
 
 impl Getter for ObjcCode {
     fn get_func_space_name<'a, 'tree>(
@@ -134,7 +147,7 @@ impl Getter for ObjcCode {
             DOT | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return | Break
             | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do | EQ
             | AMPAMP | PIPEPIPE | DASH | DASHDASH | DASHGT | PLUS | PLUSPLUS | SLASH | PERCENT
-            | PIPE | AMP | LTLT | TILDE | LT | LTEQ | EQEQ | BANGEQ | GTEQ | GT | PLUSEQ
+            | PIPE | AMP | LTLT | TILDE | LT | LT2 | LTEQ | EQEQ | BANGEQ | GTEQ | GT | PLUSEQ
             | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ | GTGTEQ | LTLTEQ | AMPEQ | CARET
             | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | PrimitiveType | TypeSpecifier
             | Sizeof | Signed | Unsigned | Long | Short | In | AT | ATtry | ATcatch | ATfinally

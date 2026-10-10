@@ -7,6 +7,7 @@ const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
     lists: &[Java::TypeArguments as u16, Java::TypeParameters as u16],
     openers: &[Java::LT as u16],
     closers: &[Java::GT as u16],
+    is_misparse: never_misparsed,
 };
 
 impl Getter for JavaCode {

@@ -93,10 +93,12 @@ pub fn elixir_do_block_call_children<'a>(
 ///
 /// An operator token also *names* the operator: `&==/2`, `&and/2` and
 /// `Kernel.||(a, b)` hold it inside an `operator_identifier`, and the
-/// single-token `atom` / `keyword` spell it too. None of those compares,
-/// chains or decides anything, and under error recovery the parent can
-/// be an `ERROR` with no operands, so every decision metric keys on this
-/// parent rather than on the token (#1531, #1534).
+/// single-token `atom` / `keyword` spell it too. None of those is a
+/// `binary_operator` with operands to compare or chain, and under error
+/// recovery the parent can be an `ERROR` with no operands, so every
+/// decision metric keys on this parent rather than on the token (#1531,
+/// #1534). A remote call that names the operator still *applies* it,
+/// though; see [`elixir_remote_call_applies`].
 ///
 /// Matched by rule name rather than by `kind_id`: the grammar aliases
 /// `binary_operator` to three ids (`Elixir::BinaryOperator` through
@@ -110,4 +112,41 @@ pub fn elixir_applying_operator<'a>(
     ancestors
         .parent(op)
         .filter(|parent| parent.kind() == "binary_operator")
+}
+
+/// Whether `op`, an operator token, is the name of a remote call on
+/// `Kernel` with arguments: `Kernel.||(a, b)`, or `x |> Kernel.||(y)`,
+/// which the pipe rewrites to it. Such a call expands the `Kernel` macro
+/// exactly as `a || b` does, so it short-circuits and decides as the
+/// operator does, where a capture (`&Kernel.||/2`, a call with no
+/// arguments) only names it. It has no `binary_operator`, so it carries no
+/// `left` / `right` operands either.
+///
+/// The receiver must spell `Kernel` (or `Elixir.Kernel`): a user module
+/// may define `||/2` as an ordinary function, and `Foo.||(a, b)` neither
+/// short-circuits nor decides.
+///
+/// Matched by rule name: `dot` and `arguments` are aliased to several
+/// ids each (grammar-dispatch §1).
+#[must_use]
+pub fn elixir_remote_call_applies<'a>(
+    op: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    let mut up = ancestors.iter(op).map(|(node, _)| node);
+    up.next()
+        .is_some_and(|name| name.kind() == "operator_identifier")
+        && up.next().is_some_and(|dot| {
+            dot.kind() == "dot"
+                && dot.child_by_field_name("left").is_some_and(|receiver| {
+                    matches!(
+                        code.get(receiver.start_byte()..receiver.end_byte()),
+                        Some(b"Kernel" | b"Elixir.Kernel")
+                    )
+                })
+        })
+        && up.next().is_some_and(|call| {
+            call.kind() == "call" && call.children().any(|child| child.kind() == "arguments")
+        })
 }

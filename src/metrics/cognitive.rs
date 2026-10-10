@@ -55,6 +55,7 @@ pub struct Stats {
     total_space_functions: usize,
     boolean_seq: BoolSequence,
     constraint: ConstraintReach,
+    bash_runs: bash::ComparisonRuns,
 }
 
 impl Default for Stats {
@@ -68,6 +69,7 @@ impl Default for Stats {
             total_space_functions: 1,
             boolean_seq: BoolSequence::default(),
             constraint: ConstraintReach::default(),
+            bash_runs: bash::ComparisonRuns::default(),
         }
     }
 }

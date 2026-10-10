@@ -7,7 +7,8 @@ use super::*;
 // (`impl Tr + use<'a, T>`) are generic-parameter lists under other
 // names. `LT2` is the `token(prec(1, '<'))` spelling `type_arguments`
 // and `use_bounds` open with; the parser reports it as `LT`, so it is
-// listed defensively.
+// listed defensively, here and in the operator arm, and its absence is
+// pinned by `rust_generic_opener_alias_never_reaches_kind_id`.
 const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
     lists: &[
         Rust::TypeArguments as u16,
@@ -17,6 +18,7 @@ const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
     ],
     openers: &[Rust::LT as u16, Rust::LT2 as u16],
     closers: &[Rust::GT as u16],
+    is_misparse: never_misparsed,
 };
 
 impl Getter for RustCode {
@@ -88,7 +90,7 @@ impl Getter for RustCode {
             // statement-heavy code.
             LPAREN | LBRACE | LBRACK | As | EQGT | PLUS | STAR | Async | Await | Break
             | Continue | Else | For | If | In | Let | Loop | Match | Return | Unsafe | While
-            | EQ | COMMA | DASHGT | QMARK | LT | GT | AMP | MutableSpecifier | DOTDOT
+            | EQ | COMMA | DASHGT | QMARK | LT | LT2 | GT | AMP | MutableSpecifier | DOTDOT
             | DOTDOTEQ | DASH | AMPAMP | PIPE | CARET | EQEQ | BANGEQ | LTEQ | GTEQ | LTLT
             | GTGT | PERCENT | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ | AMPEQ | PIPEEQ
             | CARETEQ | LTLTEQ | GTGTEQ | Move | DOT | PrimitiveType | PrimitiveType2

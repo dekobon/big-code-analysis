@@ -6,7 +6,9 @@ use super::*;
 // `method_type_parameters` is the method-level spelling of
 // `type_parameters` (`<T> T id(T x)`). `LT2` is the `token.immediate`
 // `<` that `type_parameters` and `type_arguments` open with; the parser
-// reports it as `LT`, so it is listed defensively.
+// reports it as `LT`, so it is listed defensively, here and in the
+// operator arm, and its absence is pinned by
+// `groovy_generic_opener_alias_never_reaches_kind_id`.
 const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
     lists: &[
         Groovy::TypeArguments as u16,
@@ -15,6 +17,7 @@ const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
     ],
     openers: &[Groovy::LT as u16, Groovy::LT2 as u16],
     closers: &[Groovy::GT as u16],
+    is_misparse: never_misparsed,
 };
 
 impl Getter for GroovyCode {
@@ -203,7 +206,7 @@ impl Getter for GroovyCode {
             // Separators / brackets.
             | SEMI | COMMA | COLONCOLON | DOT | DASHGT | LBRACE | LBRACK | LPAREN
             // Java-compatible operators (arithmetic, bitwise, comparison, assignment).
-            | EQ | LT | GT | BANG | TILDE | QMARK | COLON | EQEQ | LTEQ | GTEQ | BANGEQ
+            | EQ | LT | LT2 | GT | BANG | TILDE | QMARK | COLON | EQEQ | LTEQ | GTEQ | BANGEQ
             | AMPAMP | PIPEPIPE | PLUSPLUS | DASHDASH | PLUS | DASH | STAR | SLASH | AMP
             | PIPE | CARET | PERCENT | LTLT | GTGT | GTGTGT | PLUSEQ | DASHEQ | STAREQ
             | SLASHEQ | AMPEQ | PIPEEQ | CARETEQ | PERCENTEQ | LTLTEQ | GTGTEQ | GTGTGTEQ

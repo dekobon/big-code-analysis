@@ -922,6 +922,149 @@ mod tests {
         self.assertEqual(needs[_named(items, "ts_only").index], {"typescript"})
         self.assertEqual(gate.offenders(items, needs), [])
 
+    NESTED_ARM = """
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "python")]
+    fn shared() {}
+
+    #[cfg(any(feature = "python", feature = "typescript"))]
+    #[test]
+    fn nested_arm_case() {
+        #[cfg(%s)]
+        {
+            shared();
+            %s
+            check::<PythonParser>();
+            #[cfg(feature = "typescript")]
+            check::<TsxParser>();
+        }
+    }
+}
+"""
+
+    def test_a_call_beside_a_nested_arm_does_not_take_the_arms_languages(
+        self,
+    ) -> None:
+        """The arm sits inside the call's innermost extent, not around it.
+
+        `shared()` is made only where `python` is, so a `python`-gated
+        helper is right. Unioning the extent's lines handed it the nested
+        arm's `typescript` too, and reported it stranded on that leg. The
+        second row is the call made directly in an `any(...)` block, live
+        on both legs: a `python`-only helper there is a real `E0425`.
+        """
+        self.assertEqual(
+            _offending(self.NESTED_ARM % ('feature = "python"', "")),
+            [],
+        )
+        self.assertEqual(
+            _offending(
+                self.NESTED_ARM
+                % (
+                    'any(feature = "python", feature = "typescript")',
+                    '#[cfg(feature = "python")]',
+                )
+            ),
+            [("shared", ["typescript"])],
+        )
+
+    GUARD_NAMING_NO_PARSER = """
+#[cfg(test)]
+mod tests {
+    %s
+    fn shared() {}
+
+    #[test]
+    fn plain() {
+        %s
+        shared();
+    }
+
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_case() {
+        check_metrics::<RustParser>("fn f() {}", "f.rs", |m| {});
+        shared();
+    }
+}
+"""
+
+    def test_a_guard_whose_extent_names_no_language_keeps_the_call(
+        self,
+    ) -> None:
+        """No languages to hand over, so the call stays unconditional.
+
+        `plain` is in every build and calls `shared` wherever its guard
+        holds, so a `rust`-only `shared` is gated out from under it on
+        the guard's own leg (`E0425`) -- the gate must refuse that and
+        accept the ungated helper, as it did before #1562.
+        """
+        for guard in (
+            '#[cfg(feature = "python")]',
+            '#[cfg(feature = "vcs-git")]',
+            '#[cfg(not(feature = "python"))]',
+            '#[cfg(any(feature = "python", feature = "typescript"))]',
+            '#[cfg(all(feature = "python", feature = "vcs-git"))]',
+        ):
+            items = _scan(self.GUARD_NAMING_NO_PARSER % ("", guard))
+            needs = gate.resolve_needs(items)
+            self.assertEqual(needs[_named(items, "shared").index], set(), guard)
+            self.assertEqual(gate.offenders(items, needs), [], guard)
+            narrow = _scan(
+                self.GUARD_NAMING_NO_PARSER % ('#[cfg(feature = "rust")]', guard)
+            )
+            self.assertEqual(
+                [
+                    (i.name, sorted(w))
+                    for i, w in gate.over_gated(narrow, gate.resolve_needs(narrow))
+                ],
+                [("shared", ["rust"])],
+                guard,
+            )
+
+    GUARDED_REFERENCES = """
+#[cfg(test)]
+mod tests {
+    #[cfg(any(feature = "python", feature = "typescript"))]
+    fn shared<T: crate::MetricSuite>(_: &[u8]) {}
+
+    #[cfg(%s)]
+    const ROWS: &[u8] = &[];
+
+    #[cfg(any(feature = "python", feature = "typescript"))]
+    #[test]
+    fn guarded_case() {
+        #[cfg(feature = "python")]
+        shared::<PythonParser>(ROWS);
+        #[cfg(feature = "typescript")]
+        shared::<TsxParser>(ROWS);
+    }
+}
+"""
+
+    def test_a_table_used_only_under_guarded_calls_takes_their_languages(
+        self,
+    ) -> None:
+        """#1562's `const` half: `C_TYPEDEF_ROWS` beside `assert_operator_rows`.
+
+        Every use of `ROWS` sits under an inner `#[cfg]`. Read as a use by
+        an always-compiled caller, that cleared its needs, so a gate
+        missing `typescript` printed OK over an `E0425` on that leg, and
+        the over-gate check misreported `python` as never used.
+        """
+        source = self.GUARDED_REFERENCES % 'feature = "python"'
+        self.assertEqual(_offending(source), [("ROWS", ["typescript"])])
+        items = _scan(source)
+        self.assertEqual(gate.over_gated(items, gate.resolve_needs(items)), [])
+        self.assertEqual(
+            _offending(
+                self.GUARDED_REFERENCES
+                % 'any(feature = "python", feature = "typescript")'
+            ),
+            [],
+        )
+
     def test_a_cycle_terminates_and_reports_each_narrow_link(self) -> None:
         """Each half of the cycle is reached from the other's test.
 

@@ -11,9 +11,11 @@
 
 use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, is_operand,
-    last_operand, wrapped_operand,
+    last_operand, peel, wrapped_operand,
 };
-use crate::lang_helpers::perl::{perl_and_is_operator, perl_is_dash_key_word, perl_not_is_key};
+use crate::lang_helpers::perl::{
+    perl_and_is_operator, perl_dash_signs_keyword_key, perl_is_dash_key_word, perl_not_is_key,
+};
 use crate::*;
 
 // Fitzpatrick's ABC rules adapted for Perl.
@@ -75,6 +77,12 @@ use crate::*;
 // parses as that same `unary_expression`, with the `=>` in an `ERROR`
 // beside the token. It is the list `("not", !$a)`, not a negation, so
 // it peels like one: to its last element, the value, proving nothing.
+// FIXME(#1539 upstream): an auto-quoted `and` key (`f(and => !$a)`) is
+// the same shape led by `and`, and peels the same way; a real `and`
+// has a left operand, so `perl_and_is_operator` tells the two apart.
+// FIXME(#1545 upstream): a `-and` / `-not` key nests that shape as the
+// operand of a `-` (`f(-not => !$a)`); the sign is part of the key, so
+// the peel steps through it to the key.
 //
 // No operand is read by index: a comment may sit before or after it
 // (`(# c` / `! # c`, #1455).
@@ -91,6 +99,12 @@ fn perl_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
             node.child_by_field_name("operator")
                 .and_then(|op| match op.kind_id().into() {
                     P::Not if perl_not_is_key(&op, node) => last_operand(node).map(|o| (o, false)),
+                    P::And if !perl_and_is_operator(&op, node) => {
+                        last_operand(node).map(|o| (o, false))
+                    }
+                    P::DASH if perl_dash_signs_keyword_key(&op, node) => {
+                        wrapped_operand(node).map(|o| (o, false))
+                    }
                     P::BANG | P::Not => wrapped_operand(node).map(|o| (o, true)),
                     _ => None,
                 })
@@ -153,13 +167,18 @@ fn perl_condition_scores_itself(expr: &Node) -> bool {
 // `$x !~ s///r` and `$x !~ tr///r` parse the same way but are Perl
 // compile errors ("Using !~ with s///r doesn't make sense"); valid input
 // cannot tell how they score, so no test pins them (grammar-dispatch §6).
+//
+// Only a `binary_expression` binds: under error recovery the token's
+// parent can be an `ERROR` holding the whole file, whose last operand is
+// no right operand, and reading it per token was quadratic.
 fn perl_binding_rewrites(binding: &Node) -> bool {
-    last_operand(binding).is_some_and(|rhs| {
-        matches!(
-            rhs.kind_id().into(),
-            Perl::SubstitutionPatternS | Perl::TransliterationTrOrY
-        )
-    })
+    binding.kind_id() == Perl::BinaryExpression as u16
+        && last_operand(binding).is_some_and(|rhs| {
+            matches!(
+                rhs.kind_id().into(),
+                Perl::SubstitutionPatternS | Perl::TransliterationTrOrY
+            )
+        })
 }
 
 // Scores one boolean slot — an `if` / `elsif` / `unless` / `while` /
@@ -217,50 +236,71 @@ fn perl_count_slot(slot: Option<Node>, conditions: &mut f64) {
 // suffices: those operators occur only in `binary_expression`, apart
 // from the readline `<FH>` brackets, whose interior is never an
 // expression.
+//
+// Two guards keep the walk linear, and neither moves a count. A slot
+// that would pay nothing anyway (its occupant scores itself — on a
+// left-nested `$a || $b || …` spine, every slot but the bottom one) is
+// answered at once, so each spine is climbed once, from its bottom; and
+// only a `binary_expression`, or an `ERROR` recovered from one, can hold
+// a chaining operator, so a block, list or file the climb stops at is
+// not scanned child by child. Without them every spine node climbed to
+// the top and every chain scanned its statement list, both quadratic.
 fn perl_misparse_absorbs_leading_operand<'a>(
     node: &Node<'a>,
-    mut ancestors: impl Iterator<Item = Node<'a>>,
+    ancestors: impl Iterator<Item = Node<'a>>,
 ) -> bool {
     use Perl as P;
 
+    if perl_leading_slot(node)
+        .is_none_or(|lead| perl_condition_scores_itself(&peel(&lead, perl_wrapper_operand).0))
+    {
+        return false;
+    }
     let mut child = *node;
-    ancestors
-        .find(|parent| {
-            let leading = match parent.kind_id().into() {
-                P::TernaryExpression => parent.child_by_field_name("condition"),
-                _ if perl_is_logical_chain(parent) => wrapped_operand(parent),
-                _ => None,
-            };
-            let on_spine = leading.is_some_and(|lead| lead.id() == child.id());
-            if on_spine {
-                child = *parent;
-            }
-            !on_spine
-        })
-        .is_some_and(|parent| {
-            parent
-                .children()
-                .take_while(|sibling| sibling.id() != child.id())
-                .filter(|sibling| !sibling.as_tree_sitter().is_extra())
-                .last()
-                .is_some_and(|operator| {
-                    matches!(
-                        operator.kind_id().into(),
-                        P::LT
-                            | P::GT
-                            | P::LTEQ
-                            | P::GTEQ
-                            | P::Lt
-                            | P::Gt
-                            | P::Le
-                            | P::Ge
-                            | P::EQEQ
-                            | P::BANGEQ
-                            | P::Eq
-                            | P::Ne
-                    )
-                })
-        })
+    for parent in ancestors {
+        if perl_leading_slot(&parent).is_some_and(|lead| lead.id() == child.id()) {
+            child = parent;
+            continue;
+        }
+        if parent.kind_id() != P::BinaryExpression as u16 && !parent.is_error() {
+            return false;
+        }
+        return parent
+            .children()
+            .take_while(|sibling| sibling.id() != child.id())
+            .filter(|sibling| !sibling.as_tree_sitter().is_extra())
+            .last()
+            .is_some_and(|operator| {
+                matches!(
+                    operator.kind_id().into(),
+                    P::LT
+                        | P::GT
+                        | P::LTEQ
+                        | P::GTEQ
+                        | P::Lt
+                        | P::Gt
+                        | P::Le
+                        | P::Ge
+                        | P::EQEQ
+                        | P::BANGEQ
+                        | P::Eq
+                        | P::Ne
+                )
+            });
+    }
+    false
+}
+
+// The leading boolean slot of a spine node — a ternary's condition or a
+// logical chain's first operand — or `None` for any other node.
+fn perl_leading_slot<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+    if node.kind_id() == Perl::TernaryExpression as u16 {
+        node.child_by_field_name("condition")
+    } else if perl_is_logical_chain(node) {
+        wrapped_operand(node)
+    } else {
+        None
+    }
 }
 
 // A `&&` / `||` / `//` / `and` / `or` chain. tree-sitter-perl spells

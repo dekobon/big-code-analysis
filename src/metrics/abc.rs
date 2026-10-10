@@ -12811,6 +12811,51 @@ end
         );
     }
 
+    // #1547: `co_return` is a coroutine's `return`, so ABC reads its value
+    // the same way. Each row's expected value is its `return` twin's. A
+    // `co_yield` hands a value back without returning, as the JS family's
+    // `yield` does, and scores no value slot either.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    fn assert_co_return_scores_like_return(lang: LANG) {
+        let source = |body: &str| format!("task f(bool a) {{ {body} }}\n");
+        let rows = [
+            ("co_return !a;", "return !a;", 1),
+            ("co_return /*c*/ !a;", "return /*c*/ !a;", 1),
+            ("co_return a;", "return a;", 0),
+            ("co_return;", "return;", 0),
+        ];
+        for (coroutine, twin, expected) in rows {
+            assert_eq!(
+                abc_conditions(lang, &source(twin)),
+                expected,
+                "{lang:?} `{twin}`"
+            );
+            assert_eq!(
+                abc_conditions(lang, &source(coroutine)),
+                expected,
+                "{lang:?} `{coroutine}`"
+            );
+        }
+        assert_eq!(
+            abc_conditions(lang, &source("co_yield !a;")),
+            0,
+            "{lang:?} co_yield"
+        );
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_co_return_value_scores_like_return_1547() {
+        assert_co_return_scores_like_return(LANG::Cpp);
+    }
+
+    // Mozcpp owns no file extension, so this is its only coverage.
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_co_return_value_scores_like_return_1547() {
+        assert_co_return_scores_like_return(LANG::Mozcpp);
+    }
+
     #[cfg(feature = "cpp")]
     #[test]
     fn cpp_short_circuit_with_boolean_literal_operand() {

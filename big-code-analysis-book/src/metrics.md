@@ -722,7 +722,10 @@ tokens involved the same way they spell real operators:
   `enum class`, `data`, `sealed`, the visibility keywords, `open`,
   `override`, `suspend`, `reified`, `out` and the rest each count once,
   as the keyword and never as its `modifiers` wrapper. The same words
-  used as names (`val open = 1`) stay operands. #1557 added C++'s `namespace`, `template`, `typename`,
+  used as names bill no operator: where the grammar parses the name
+  (`val open = 1`) it is an operand, and where it cannot (`open = !open`
+  at the start of a statement, `val suspend = 1`, a parameter named
+  `vararg`) the word bills nothing. #1557 added C++'s `namespace`, `template`, `typename`,
   `typedef` and `using` (C and Objective-C bill `typedef` too), so
   `template <class T>` and `template <typename T>` each bill their
   keyword and score alike. It also added TypeScript's `type`,
@@ -749,13 +752,23 @@ tokens involved the same way they spell real operators:
   `@interface A : NSObject <NSCopying>`, and a type passed as a call
   argument, `f(NSArray<NSString *>)`. A comparison's `<` and `>` and a shift's `<<` and `>>` stay
   separate operators, and a C++ `>>` that closes two template lists
-  parses as two `>`, so it bills nothing. Go's generics use square
+  parses as two `>`, so it bills nothing. The rule follows the parse:
+  where tree-sitter-cpp reads comparisons as a template argument list,
+  as in `x = a < b || c > (d)`, their brackets bill as `<>` too, since
+  only name lookup tells that from a template call spelled the same.
+  The comparisons Objective-C and C# misread as a call argument's
+  generic list, `g(a<b, c>d)` and `F(a < b, c > d)`, keep `<` and `>`.
+  The exception is C#'s `>=` spelling, `F(a < b, c >= d)`, which the
+  grammar parses as an assignment and which still bills `<>` and `=`. Go's generics use square
   brackets and already billed `[]`. Angle brackets around anything
   other than a generic list still bill `<` and `>`: a Rust
   `<T as Trait>::` path, a C# `delegate*<int, void>` pointer type and
   a Kotlin `super<A>`, as well as the JSX, Lua and Perl constructs
   above. So does a Kotlin generic call with arguments, `id<Int>(a)`,
-  which tree-sitter-kotlin-ng parses as two comparisons (#1394).
+  which tree-sitter-kotlin-ng parses as two comparisons (#1394), and a
+  generic inside a Rust macro call, `vec![Vec::<u8>::new()]`, whose
+  token tree tree-sitter-rust leaves unparsed; a `>>` closing two lists
+  there bills as the shift.
   Before #1559 each bracket billed under the comparison's own entry,
   so `Vec<u8>` and `a < b` shared one. Every generic now costs
   one operator occurrence less, so `N1` falls in any code that uses
@@ -815,14 +828,16 @@ tokens involved the same way they spell real operators:
   through a template name (`p->~T<A>()`), which tree-sitter-cpp cannot
   parse. Another is a statement-position `typename` cast, which made
   every inserted `;` a second `;` operator.
-- **A named operator is one operand.** Elixir names an operator
-  without applying it in a capture (`&==/2`, `&and/2`) or a remote
-  call (`Kernel.||(a, b)`), and its grammar wraps the token in an
+- **A named operator is one operand.** Elixir names an operator in a
+  capture (`&==/2`, `&and/2`) and as the function of a remote call
+  (`Kernel.||(a, b)`), and its grammar wraps the token in an
   `operator_identifier`. That wrapper is the operand, as `foo` is in
   `&foo/2`, so the token inside it adds no operator; `&==/2` scores
-  what `&foo/2` does. A named `&&` / `||` / `and` / `or` is no
-  decision either (#1534). This differs from a C# `operator <`, whose
-  `<` has no wrapper and so stays the operator the rule above makes it.
+  what `&foo/2` does. A captured `&&` / `||` / `and` / `or` is no
+  decision either (#1534), but the remote call applies the operator,
+  so `Kernel.||(a, b)` is a cyclomatic decision as `a || b` is. This
+  differs from a C# `operator <`, whose `<` has no wrapper and so stays
+  the operator the rule above makes it.
 
 ### Derived metrics
 

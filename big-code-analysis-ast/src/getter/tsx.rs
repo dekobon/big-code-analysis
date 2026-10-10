@@ -7,6 +7,7 @@ const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
     lists: &[Tsx::TypeArguments as u16, Tsx::TypeParameters as u16],
     openers: &[Tsx::LT as u16],
     closers: &[Tsx::GT as u16],
+    is_misparse: never_misparsed,
 };
 
 impl Getter for TsxCode {
@@ -86,7 +87,8 @@ impl Getter for TsxCode {
     // Java bill theirs; their `*_declaration` wrappers stay unlisted.
     //
     // `Type` / `Namespace` / `Module2` / `Declare` / `Global` and the
-    // `TypeIdentifier` operand: see the TS invocation (#1557).
+    // `TypeIdentifier` operand: see the TS invocation (#1557), as for
+    // `export_type_name`.
     //
     // `Satisfies` / `Keyof` / `Infer` / `Is` / `Asserts2`, the type-level
     // operator keywords: see the TS invocation (#1561).
@@ -103,6 +105,7 @@ impl Getter for TsxCode {
         operand_extras: [Identifier2, String2, TypeIdentifier],
         predefined_void: PredefinedType,
         generic_angles: GENERIC_ANGLES,
+        export_type_name: [Type, ExportClause, ExportSpecifier],
         jsx: [JsxText, HtmlCharacterReference],
     );
 

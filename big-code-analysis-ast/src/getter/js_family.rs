@@ -79,6 +79,11 @@
 //     trimmed. A token keeps the newlines and indentation around it, so
 //     `Start` at two indentation depths would otherwise be two distinct
 //     operands. This is the same shape as Kotlin's #454 narrowing.
+//     Only the ends are trimmed: a multi-line text keeps its inner
+//     newlines and indentation, so the same lines at two depths, or
+//     wrapped differently, stay distinct operands although JSX joins
+//     them into one string. Folding them needs an owned key, and
+//     `get_operand_id` returns a slice of the source.
 //
 // An `html_character_reference` (`&amp;`) splits the text around it
 // into siblings, so `a &amp; b` is three operands: `a`, `&amp;` and
@@ -112,6 +117,7 @@ macro_rules! impl_js_family_get_op_type {
         operand_extras: [$($operand_extra:ident),* $(,)?]
         $(, predefined_void: $predefined_type:ident)?
         $(, generic_angles: $generic_angles:ident)?
+        $(, export_type_name: [$type_keyword:ident, $export_clause:ident, $export_specifier:ident])?
         $(, jsx: [$jsx_text:ident, $jsx_entity:ident])? $(,)?
     ) => {
         fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
@@ -119,6 +125,31 @@ macro_rules! impl_js_family_get_op_type {
 
             $(
                 if $generic_angles.is_closer(node, ancestors) {
+                    return TokenRole::Unknown;
+                }
+            )?
+
+            // TS/TSX only: a binding *named* `type` in an export clause
+            // (`export { type }`, `export { type as kind }`). The grammar's
+            // `export_specifier` has no slot for that name, unlike
+            // `import_specifier`, so it recovers the keyword leaf under an
+            // `ERROR` in the clause, or beside one in the specifier, and
+            // the `type` operator would bill a binding name. A type-only
+            // specifier (`export { type Foo }`) parses cleanly and still
+            // bills, as does the `type` of `export type * from "m"`, whose
+            // `ERROR` hangs from the statement rather than the clause.
+            $(
+                if node.kind_id() == $type_keyword as u16 && {
+                    let mut up = ancestors.iter(node).map(|(ancestor, _)| ancestor);
+                    up.next().is_some_and(|parent| {
+                        if parent.is_error() {
+                            up.next()
+                                .is_some_and(|clause| clause.kind_id() == $export_clause as u16)
+                        } else {
+                            parent.kind_id() == $export_specifier as u16 && parent.has_error()
+                        }
+                    })
+                } {
                     return TokenRole::Unknown;
                 }
             )?

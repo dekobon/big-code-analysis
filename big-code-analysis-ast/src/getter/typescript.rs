@@ -10,6 +10,7 @@ const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
     ],
     openers: &[Typescript::LT as u16],
     closers: &[Typescript::GT as u16],
+    is_misparse: never_misparsed,
 };
 
 impl Getter for TypescriptCode {
@@ -94,9 +95,11 @@ impl Getter for TypescriptCode {
     // `Module` is the `module` declaration node that wraps it, so it
     // stays unlisted. Each word is contextual, but used as a name
     // (`let type = 1`, `module.exports`) the grammar emits an
-    // `identifier`, never the keyword leaf, so no parent gate is
-    // needed. `type` also bills in `import type` / `export type`,
-    // where it is the same leaf.
+    // `identifier`, never the keyword leaf. The one exception is a
+    // binding named `type` in an export clause (`export { type }`),
+    // which the grammar recovers as the keyword leaf; `export_type_name`
+    // leaves that leaf unbilled. `type` also bills in `import type` /
+    // `export type`, where it is the same leaf.
     //
     // `TypeIdentifier` is the operand extra: every type *name* — a
     // class, interface or alias name, a type parameter, an annotation
@@ -137,6 +140,7 @@ impl Getter for TypescriptCode {
         operand_extras: [TypeIdentifier],
         predefined_void: PredefinedType,
         generic_angles: GENERIC_ANGLES,
+        export_type_name: [Type, ExportClause, ExportSpecifier],
     );
 
     get_operator!(Typescript);

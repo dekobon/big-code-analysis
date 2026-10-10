@@ -763,14 +763,10 @@ fn preprocess_harvest_feeds_the_macro_masking_pass() {
 /// failing (`.claude/rules/testing.md`, "Perturb the fixture as well as
 /// the production line"). Inside, the `proc` is load-bearing for the
 /// expected sequence.
-// test-lang-gates: hand-written(tcl) — a source fixture for this
-//     grammar, and its text is a string
 #[cfg(feature = "tcl")]
 const TCL_SCRIPT_AND_LITERALS: &str = "proc p {x} { puts \"q\" }\nlappend l {a b}\n";
 
 /// The iRules twin, which already had the quoted word inside the body.
-// test-lang-gates: hand-written(irules) — a source fixture for this
-//     grammar, and its text is a string
 #[cfg(feature = "irules")]
 const IRULES_SCRIPT_AND_LITERALS: &str =
     "when HTTP_REQUEST { log local0. \"hi\" }\nlappend l {x y}\n";

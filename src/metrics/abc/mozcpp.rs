@@ -124,7 +124,9 @@ impl Abc for MozcppCode {
             IfStatement | WhileStatement | DoStatement => {
                 cpp_count_condition_slot(node, &mut stats.conditions);
             }
-            ReturnStatement => {
+            // `co_return` reads its value as `return` does; the
+            // derivation is on the Cpp twin (#1547).
+            ReturnStatement | CoReturnStatement => {
                 cpp_count_return(node, &mut stats.conditions);
             }
             // `f(!a, !b)` — argument list walker. Two aliases —

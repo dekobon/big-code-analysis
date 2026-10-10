@@ -80,8 +80,11 @@ fn measure_with_branches(body: &str) -> ([u64; 4], Halstead) {
 #[cfg(feature = "perl")]
 #[test]
 fn perl_and_key_scores_like_an_or_key() {
-    // `(or_twin, and_key, decisions)`.
-    let rows: [(&str, &str, Decisions); 7] = [
+    // `(or_twin, and_key, decisions)`. Three rows read the key's *value*:
+    // the ABC peel steps through an `and` key to it, as it does through a
+    // `not` key, so a negated value pays its condition. The last is a
+    // real subtraction before the key, whose `-` still bills.
+    let rows: [(&str, &str, Decisions); 12] = [
         ("my %h; return $h{or};", "my %h; return $h{and};", [2, 0, 0]),
         (
             "my %h; return $h{ or };",
@@ -109,6 +112,29 @@ fn perl_and_key_scores_like_an_or_key() {
             [2, 0, 0],
         ),
         ("f(x => 1, or => 2);", "f(x => 1, and => 2);", [2, 0, 0]),
+        ("f(or => !$a);", "f(and => !$a);", [2, 1, 0]),
+        (
+            "my $y = $c ? 1 : (or => !$a);",
+            "my $y = $c ? 1 : (and => !$a);",
+            [3, 3, 1],
+        ),
+        (
+            "if (or => $x > 1) { return 1; } return 0;",
+            "if (and => $x > 1) { return 1; } return 0;",
+            [3, 1, 1],
+        ),
+        (
+            "my @a = (1 - or => 2);",
+            "my @a = (1 - and => 2);",
+            [2, 0, 0],
+        ),
+        // The infix `-` is the byte before the first key but signs
+        // neither: both keys are spelled `and`.
+        (
+            "my @a = ($x - or => 2, or => 3);",
+            "my @a = ($x - and => 2, and => 3);",
+            [2, 0, 0],
+        ),
     ];
     for (twin, key, decisions) in rows {
         assert_eq!(
@@ -194,7 +220,7 @@ fn perl_and_operator_still_scores_like_ampamp() {
 #[test]
 fn perl_not_key_scores_like_an_or_key() {
     // `(or_twin, not_key, decisions, halstead)`.
-    let rows: [(&str, &str, Decisions, Halstead); 10] = [
+    let rows: [(&str, &str, Decisions, Halstead); 13] = [
         (
             "my %h; return $h{or};",
             "my %h; return $h{not};",
@@ -245,6 +271,29 @@ fn perl_not_key_scores_like_an_or_key() {
             "my $y = $c ? 1 : (not => 2);",
             [3, 2, 1],
             [10, 11, 6, 6],
+        ),
+        // A real subtraction before the key: the `-` is infix, no sign,
+        // and still bills.
+        (
+            "my @a = ($x - or => 2);",
+            "my @a = ($x - not => 2);",
+            [2, 0, 0],
+            [9, 9, 5, 5],
+        ),
+        // A comment ending in `-` before the key signs nothing.
+        (
+            "my %h = (\n  # -----\n  or => 1,\n  or => 2,\n);",
+            "my %h = (\n  # -----\n  not => 1,\n  not => 2,\n);",
+            [2, 0, 0],
+            [8, 10, 5, 6],
+        ),
+        // A `not` key after an earlier keyword key parses as `not` applied
+        // to a zero-width bareword the recovery invents.
+        (
+            "f(and => 1, or => 2);",
+            "f(and => 1, not => 2);",
+            [2, 0, 0],
+            [6, 7, 5, 6],
         ),
     ];
     for (twin, key, decisions, halstead) in rows {
@@ -316,7 +365,7 @@ fn perl_not_operator_still_scores_like_bang() {
 /// cognitive], halstead)` rows for
 /// `perl_dash_key_scores_like_its_quoted_twin`.
 #[cfg(feature = "perl")]
-const DASH_KEY_ROWS: [(&str, &str, [u64; 4], Halstead); 18] = [
+const DASH_KEY_ROWS: [(&str, &str, [u64; 4], Halstead); 20] = [
     (
         "my %h; return $h{'-foo'};",
         "my %h; return $h{-foo};",
@@ -428,15 +477,31 @@ const DASH_KEY_ROWS: [(&str, &str, [u64; 4], Halstead); 18] = [
         [2, 1, 0, 0],
         [6, 7, 5, 6],
     ),
+    // The ABC peel steps through the sign to the key and on to its
+    // value, so a negated value pays its condition, as its twin's does.
+    (
+        "f('-and' => !$a);",
+        "f(-and => !$a);",
+        [2, 1, 1, 0],
+        [7, 7, 3, 4],
+    ),
+    (
+        "f('-not' => !$a);",
+        "f(-not => !$a);",
+        [2, 1, 1, 0],
+        [7, 7, 3, 4],
+    ),
 ];
 
-/// Every valid spelling of a `-bareword` key scores exactly as its
-/// quoted twin does, in all four metrics (#1545). tree-sitter-perl
-/// reads `-foo` as the file test `-f` on a bareword `oo`, `-x => 1` as
-/// the file test `-x` swallowing the `=>`, and `-not` as a `-` applied
-/// to the keyword. Before the fix each `-foo` billed the operand `oo`
-/// and an ABC branch for calling it, and each `-not` / `-and` billed a
-/// `-` operator.
+/// Each `-bareword` key below scores exactly as its quoted twin does, in
+/// all four metrics (#1545). tree-sitter-perl reads `-foo` as the file
+/// test `-f` on a bareword `oo`, `-x => 1` as the file test `-x`
+/// swallowing the `=>`, and `-not` as a `-` applied to the keyword.
+/// Before the fix each `-foo` billed the operand `oo` and an ABC branch
+/// for calling it, and each `-not` / `-and` billed a `-` operator. A key
+/// whose letter is no file-test letter (`-name`) is not among them: it
+/// parses as a `-` applied to a bareword, which still bills the `-` and
+/// an ABC branch for the word, as every bareword key does.
 ///
 /// The rows pairing a key with a second key equal to the misparsed
 /// word (`ext`, `not`) or to itself (`-x` twice) pin the operand's
@@ -452,6 +517,36 @@ fn perl_dash_key_scores_like_its_quoted_twin() {
         assert_eq!(
             want,
             (decisions, halstead),
+            "`{twin}` moved; re-derive the row"
+        );
+        assert_eq!(
+            measure_with_branches(key),
+            want,
+            "`{key}` must score like `{twin}`"
+        );
+    }
+}
+
+/// A `-and` / `-not` key keeps its sign when whitespace separates the
+/// two: Perl keys `(- not => 1)` as `"-not"`, so it must not share a
+/// vocabulary entry with the plain `not` key beside it. The twins'
+/// values are `DASH_KEY_ROWS`' for the glued spelling.
+#[cfg(feature = "perl")]
+#[test]
+fn perl_spaced_dash_key_keeps_its_sign() {
+    for (twin, key) in [
+        ("f('-not' => 1, not => 2);", "f(- not => 1, not => 2);"),
+        ("f('-and' => 1, and => 2);", "f(- and => 1, and => 2);"),
+        // A comment between the sign and the key leaves it signed.
+        (
+            "f('-not' => 1, not => 2);",
+            "f(- # c\n not => 1, not => 2);",
+        ),
+    ] {
+        let want = measure_with_branches(twin);
+        assert_eq!(
+            want,
+            ([2, 1, 0, 0], [6, 7, 5, 6]),
             "`{twin}` moved; re-derive the row"
         );
         assert_eq!(

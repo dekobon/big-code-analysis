@@ -35,6 +35,9 @@ pub mod wmc;
 
 mod elixir_decisions;
 
+#[cfg(test)]
+#[path = "bash_test_connective_tests.rs"]
+mod bash_test_connective_tests;
 // Gated on the union of every feature any test in the module names —
 // the `FIXTURES` rows plus the `bash` / `lua` / `c` row set that
 // `a_language_with_no_member_construct_emits_neither_block` uses. The
@@ -43,9 +46,6 @@ mod elixir_decisions;
 // the `FIXTURES` features would delete that Bash/Lua/C test from a build
 // enabling exactly the languages it exists to cover
 // (`.claude/rules/testing.md`, #1286).
-#[cfg(test)]
-#[path = "bash_test_connective_tests.rs"]
-mod bash_test_connective_tests;
 #[cfg(test)]
 #[cfg(any(
     feature = "bash",

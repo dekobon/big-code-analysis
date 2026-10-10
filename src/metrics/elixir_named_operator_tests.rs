@@ -1,12 +1,14 @@
 //! A *named* Elixir operator scores like any other name (#1534).
 //!
-//! `&==/2`, `&and/2` and `Kernel.||(a, b)` name an operator without
-//! applying it: the grammar wraps the token in an `operator_identifier`.
-//! Halstead billed both the wrapper (an operand) and the token inside it
-//! (an operator), and cyclomatic counted a named `&&` / `||` / `and` /
-//! `or` as a decision. Every row pairs the fixture with a twin naming an
-//! ordinary function, which is the oracle; the twin's numbers are
-//! asserted outright too, so a row cannot pass by both drifting.
+//! `&==/2`, `&and/2` and `Kernel.||(a, b)` name an operator: the grammar
+//! wraps the token in an `operator_identifier`. Halstead billed both the
+//! wrapper (an operand) and the token inside it (an operator), and
+//! cyclomatic counted a captured `&&` / `||` / `and` / `or` as a decision.
+//! Every row pairs the fixture with a twin naming an ordinary function,
+//! which is the oracle; the twin's numbers are asserted outright too, so
+//! a row cannot pass by both drifting. A remote call (`Kernel.||(a, b)`)
+//! still applies the operator, so it keeps the decision; it is in the
+//! applied table below.
 
 use std::cell::Cell;
 
@@ -58,10 +60,7 @@ fn names_an_operator(source: &str) -> bool {
         std::path::Path::new("foo.exs"),
         None,
     );
-    parser
-        .root()
-        .preorder()
-        .any(|node| node.kind_id() == Elixir::OperatorIdentifier as u16)
+    crate::test_support::ast_has_kind_id(&parser, Elixir::OperatorIdentifier as u16)
 }
 
 /// Each named operator bills one operand — its `operator_identifier` —
@@ -83,7 +82,8 @@ fn elixir_named_operator_scores_like_a_named_function() {
         ("a = &foo/1", "a = &!/1", [3, 3, 3, 3]),
         ("a = &foo/2", "a = &+/2", [3, 3, 3, 3]),
         ("a = Kernel.foo(x, y)", "a = Kernel.==(x, y)", [4, 4, 5, 5]),
-        ("a = Kernel.foo(x, y)", "a = Kernel.||(x, y)", [4, 4, 5, 5]),
+        // A capture through the module names the operator too.
+        ("a = &Kernel.foo/2", "a = &Kernel.||/2", [4, 4, 4, 4]),
         // `..` is a childless `operator_identifier`: the wrapper is the
         // only node that can bill it, which is why it is the keeper.
         ("a = foo", "a = ..", [1, 1, 2, 2]),
@@ -115,17 +115,28 @@ fn elixir_named_operators_are_distinct_operands() {
 }
 
 /// An applied operator keeps its operator and its operands, and a
-/// short-circuit one keeps its decision in both tiers.
+/// short-circuit one keeps its decision in both tiers. A remote call
+/// naming a short-circuit operator, directly or through a pipe, expands
+/// the `Kernel` macro and so decides as `x || y` does, while billing its
+/// name as the operand a remote call's function name is. The same call on
+/// a user module (`Foo.||`) is an ordinary function call and decides
+/// nothing.
 #[cfg(feature = "elixir")]
 #[test]
 fn elixir_applied_operator_keeps_its_operator() {
     // `(source, halstead, cyclomatic)`.
-    let rows: [(&str, Halstead, Cyclomatic); 5] = [
+    let rows: [(&str, Halstead, Cyclomatic); 11] = [
         ("a = x == y", [2, 2, 3, 3], [1, 1]),
         ("a = x in y", [2, 2, 3, 3], [1, 1]),
         ("a = not x", [2, 2, 2, 2], [1, 1]),
         ("a = x and y", [2, 2, 3, 3], [2, 2]),
         ("a = x || y", [2, 2, 3, 3], [2, 2]),
+        ("a = Kernel.||(x, y)", [4, 4, 5, 5], [2, 2]),
+        ("a = Kernel.&&(x, y)", [4, 4, 5, 5], [2, 2]),
+        ("a = x |> Kernel.||(y)", [4, 4, 5, 5], [2, 2]),
+        ("a = Elixir.Kernel.||(x, y)", [4, 4, 5, 5], [2, 2]),
+        ("a = Foo.||(x, y)", [4, 4, 5, 5], [1, 1]),
+        ("a = x |> Foo.||(y)", [4, 4, 5, 5], [1, 1]),
     ];
     for (source, halstead, cyclomatic) in rows {
         assert_eq!(measure(source), (halstead, cyclomatic), "`{source}`");

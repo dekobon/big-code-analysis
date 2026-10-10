@@ -12,6 +12,7 @@ const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
     ],
     openers: &[Mozcpp::LT as u16],
     closers: &[Mozcpp::GT as u16, Mozcpp::GT2 as u16],
+    is_misparse: never_misparsed,
 };
 
 impl Getter for MozcppCode {
@@ -175,5 +176,17 @@ impl Getter for MozcppCode {
         GENERIC_ANGLES.opener_spelling(node, ancestors)
     }
 
-    get_operator!(Mozcpp);
+    // The overloaded operator names render as the operator they name;
+    // the derivation is on the Cpp twin (#1296).
+    fn get_operator_id_as_str(id: u16) -> &'static str {
+        let typ = id.into();
+        match typ {
+            Mozcpp::LPAREN => "()",
+            Mozcpp::LBRACK => "[]",
+            Mozcpp::LBRACE => "{}",
+            Mozcpp::LPARENRPAREN => "operator()",
+            Mozcpp::LBRACKRBRACK => "operator[]",
+            _ => typ.into(),
+        }
+    }
 }

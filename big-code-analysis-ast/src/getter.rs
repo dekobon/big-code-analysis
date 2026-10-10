@@ -17,7 +17,7 @@ use crate::lang_helpers::tcl_family::{
 };
 use crate::space_kind::SpaceKind;
 use crate::traits::Search;
-use generic_angles::GenericAngleKinds;
+use generic_angles::{GenericAngleKinds, never_misparsed};
 use js_family::impl_js_family_get_op_type;
 
 use crate::*;
@@ -322,7 +322,8 @@ pub trait Getter {
     /// different operator; `None` keys it by kind. A generic list's `<`
     /// is the case (#1559): it has the comparison's kind but is keyed as
     /// the `"<>"` pair, as `()`, `[]` and `{}` are. Consulted only for a
-    /// node [`get_op_type`](Self::get_op_type) calls an operator.
+    /// node [`get_op_type_with_code`](Self::get_op_type_with_code) calls
+    /// an operator.
     #[inline]
     #[must_use]
     fn get_operator_spelling<'a>(

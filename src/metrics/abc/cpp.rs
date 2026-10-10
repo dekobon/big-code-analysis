@@ -369,7 +369,11 @@ impl Abc for CppCode {
             IfStatement | WhileStatement | DoStatement => {
                 cpp_count_condition_slot(node, &mut stats.conditions);
             }
-            ReturnStatement => {
+            // `co_return` is a coroutine's `return` (#1547), so its value
+            // is read the same way: `co_return !x` counts one. `co_yield`
+            // hands back a value without returning, as the JS family's
+            // `yield` does, and like it scores no value slot.
+            ReturnStatement | CoReturnStatement => {
                 cpp_count_return(node, &mut stats.conditions);
             }
             // `f(!a, !b)` — argument list walker. Two aliases —

@@ -10,7 +10,7 @@
 )]
 
 use super::{Abc, Stats};
-use crate::lang_helpers::bash::{bash_eq_is_comparison, bash_test_connective};
+use crate::lang_helpers::bash::{bash_test_connective, bash_test_eq_count};
 use crate::*;
 
 impl Abc for BashCode {
@@ -72,9 +72,10 @@ impl Abc for BashCode {
                 stats.conditions += 1.;
             }
             // `=` compares strings inside `[ … ]` / `[[ … ]]`, exactly as
-            // `==` does, and assigns inside `(( … ))` (#1536).
-            Bash::EQ if bash_eq_is_comparison(node, ancestors) => {
-                stats.conditions += 1.;
+            // `==` does, and assigns inside `(( … ))` (#1536). Each test
+            // counts its own, once, from the top.
+            Bash::TestCommand => {
+                stats.conditions += bash_test_eq_count(node) as f64;
             }
             // `<` and `>` are comparisons only inside a `binary_expression`.
             // The same two tokens spell an I/O redirection (`cmd > out`,

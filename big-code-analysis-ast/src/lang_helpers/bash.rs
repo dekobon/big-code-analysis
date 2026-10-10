@@ -2,7 +2,7 @@
 //! `[ … ]` / `[[ … ]]` test.
 
 use crate::Bash;
-use crate::node::{Ancestors, Node};
+use crate::node::Node;
 
 /// The `&&` / `||` a `[ … ]` connective stands for: `Some(AMPAMP)` for
 /// `-a` and `Some(PIPEPIPE)` for `-o`, when `op`, a child of `parent`,
@@ -31,27 +31,37 @@ pub fn bash_test_connective(op: &Node, parent: &Node, code: &[u8]) -> Option<Bas
     }
 }
 
-/// Whether `eq`, a Bash `=` token, is the string comparison of a
-/// `[ … ]` / `[[ … ]]` test rather than an assignment.
+/// How many `=` string comparisons `test`, a `[ … ]` / `[[ … ]]`
+/// `test_command`, holds.
 ///
-/// Both spellings are a `binary_expression`: `[ "$a" = 1 ]` compares
-/// and `(( x = 1 ))` assigns. Climbing out of the test's expression
-/// tree must therefore reach the `test_command` itself. The climb
-/// passes through `binary_expression` because tree-sitter-bash nests
-/// `=` wrongly — `[ "$a" = 1 -a "$b" = 2 ]` parses as
+/// Both spellings of `=` are a `binary_expression`: `[ "$a" = 1 ]`
+/// compares and `(( x = 1 ))` assigns. So an `=` compares exactly when
+/// the test reaches it through expression nodes alone. The descent
+/// passes through `binary_expression` because tree-sitter-bash nests `=`
+/// wrongly — `[ "$a" = 1 -a "$b" = 2 ]` parses as
 /// `"$a" = (1 -a "$b") = 2` — and through the unary and parenthesized
-/// forms (`[[ ! ( "$a" = 1 ) ]]`). A `variable_assignment`'s `=` has no
-/// expression parent, so the climb stops at once there.
+/// forms (`[[ ! ( "$a" = 1 ) ]]`). It stops at anything else, so the
+/// assignment in `[[ $(( x = 1 )) -eq 1 ]]` is not counted.
+///
+/// Counted from the test down rather than by climbing from each `=` to
+/// its test: on the mis-nested spine a climb per `=` is `O(depth)`, and a
+/// long `[ … = … -o … ]` made the walk quadratic. The descent is an
+/// explicit stack, since that spine is as deep as the test is long.
 #[must_use]
-pub fn bash_eq_is_comparison<'a>(eq: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-    ancestors
-        .iter(eq)
-        .map(|(ancestor, _)| ancestor)
-        .find(|ancestor| {
-            !matches!(
-                ancestor.kind(),
+pub fn bash_test_eq_count(test: &Node) -> usize {
+    let mut count = 0;
+    let mut pending = vec![*test];
+    while let Some(expression) = pending.pop() {
+        for child in expression.children() {
+            if child.kind_id() == Bash::EQ as u16 {
+                count += 1;
+            } else if matches!(
+                child.kind(),
                 "binary_expression" | "unary_expression" | "parenthesized_expression"
-            )
-        })
-        .is_some_and(|ancestor| ancestor.kind_id() == Bash::TestCommand as u16)
+            ) {
+                pending.push(child);
+            }
+        }
+    }
+    count
 }

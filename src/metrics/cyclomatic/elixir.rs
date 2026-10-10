@@ -116,12 +116,19 @@ impl Cyclomatic for ElixirCode {
                 stats.cyclomatic_modified += 1.;
             }
             // Short-circuit booleans add a decision point in both
-            // metrics — where applied. `&and/2`, `&||/2` and
-            // `Kernel.||(a, b)` only name the operator and decide
-            // nothing (#1534); ABC and cognitive gate on the same parent.
+            // metrics — where applied. `&and/2` and `&||/2` only name the
+            // operator and decide nothing (#1534); ABC and cognitive gate
+            // on the same parent. A remote call naming it,
+            // `Kernel.||(a, b)`, applies the macro and decides like
+            // `a || b`; a user module's `Foo.||(a, b)` is an ordinary
+            // call and does not. ABC and cognitive still score the
+            // `Kernel` call 0, as they did before #1534.
             E::AMPAMP | E::PIPEPIPE | E::And | E::Or
                 if crate::lang_helpers::elixir::elixir_applying_operator(node, ancestors)
-                    .is_some() =>
+                    .is_some()
+                    || crate::lang_helpers::elixir::elixir_remote_call_applies(
+                        node, code, ancestors,
+                    ) =>
             {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;

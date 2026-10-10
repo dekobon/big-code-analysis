@@ -826,6 +826,12 @@ class Item:
     guarded_calls: tuple[tuple[str, frozenset[str]], ...]
     #: Every identifier in the body, for resolving `const` / `type`.
     references: frozenset[str]
+    #: `references` and `guarded_calls` again, for a referent with no
+    #: call shape (a `const` fixture table): what sits outside every
+    #: inner `#[cfg(feature = …)]`, and `(name, languages)` per
+    #: identifier inside one.
+    unguarded_references: frozenset[str]
+    guarded_references: tuple[tuple[str, frozenset[str]], ...]
     parent_index: int | None
     #: Index into the file's item list; the parent link is by index so
     #: the dataclass stays comparable and printable.
@@ -1073,6 +1079,9 @@ def scan_source(
                 macro_calls = frozenset(
                     m.group(1) for m in CALL_RE.finditer(macro_body)
                 )
+                macro_references = frozenset(
+                    m.group(1) for m in REFERENCE_RE.finditer(macro_body)
+                )
                 items.append(
                     Item(
                         path=path,
@@ -1105,9 +1114,9 @@ def scan_source(
                         calls=macro_calls,
                         unguarded_calls=macro_calls,
                         guarded_calls=(),
-                        references=frozenset(
-                            m.group(1) for m in REFERENCE_RE.finditer(macro_body)
-                        ),
+                        references=macro_references,
+                        unguarded_references=macro_references,
+                        guarded_references=(),
                         parent_index=stack[-1][0] if stack else None,
                         index=len(items),
                         in_test_scope=(
@@ -1283,21 +1292,71 @@ def scan_source(
         # so pairing a call with the outer extent too would hand `a` in
         # `{ #[cfg(js)] a(); #[cfg(ts)] b(); }` the `ts` its own gate
         # rightly lacks, and report it stranded on that leg.
+        #
+        # The innermost extent's lines still include any arm nested
+        # inside it, so its set is then filtered to the languages whose
+        # own build compiles the call: `a` in `#[cfg(js)] { a();
+        # #[cfg(ts)] b(); }` keeps `js` and loses `ts`, while a call made
+        # directly in an `any(js, ts)` block keeps both. An `all(…)` guard
+        # compiles in no single-language build, so it keeps the whole set.
+        #
+        # A guarded line with nothing to hand its callee stays an
+        # unconditional use, as before #1562: dropping it from both sets
+        # left the callee gated on its other callers alone, so a
+        # `#[cfg(feature = "vcs-git")]` or parser-less `python` guard read
+        # a `rust`-only helper as correct (`E0425` on that leg). A `not(…)`
+        # gate is false in the all-on build `skipped` reads it against, so
+        # its languages say nothing about when the call runs.
+        #
+        # A `const` table passed to a guarded call is live exactly where
+        # that call is, so the line's references are attributed the same
+        # way as its calls.
+        #
+        # Every line of one innermost extent gets the same answer, so it is
+        # computed once per extent; per line, rescanning every extent made
+        # the gate quadratic in a test module's gated items.
         guarded_calls: list[tuple[str, frozenset[str]]] = []
+        guarded_references: list[tuple[str, frozenset[str]]] = []
+        unattributed: set[int] = set()
+        # Smallest first, so `setdefault` keeps each line's innermost
+        # extent; a stable sort settles a tie as `min` would, by order.
+        innermost: dict[int, tuple[int, int]] = {}
+        for first, last, _ in sorted(extents, key=lambda extent: extent[1] - extent[0]):
+            for row in range(first, last + 1):
+                innermost.setdefault(row, (first, last))
+        attribution: dict[tuple[int, int], frozenset[str] | None] = {}
         for n in guarded:
-            first, last = min(
-                ((f, l) for f, l, _ in extents if f <= n <= l),
-                key=lambda span: span[1] - span[0],
-            )
-            languages = frozenset().union(
-                *(skipped.get(k, ()) for k in range(first, last + 1))
-            )
-            if languages:
+            span = innermost[n]
+            if span not in attribution:
+                first, last = span
+                languages = frozenset().union(
+                    *(skipped.get(k, ()) for k in range(first, last + 1))
+                )
+
+                def compiles_alone(feature: str, gates: list[str] = guarded[n]) -> bool:
+                    disabled = KNOWN_FEATURES - enabled_closure(feature)
+                    return all(evaluate_predicate(g, disabled) for g in gates)
+
+                kept = frozenset(filter(compiles_alone, languages))
+                if kept or any(map(compiles_alone, KNOWN_FEATURES)):
+                    languages = kept
+                negated = any(
+                    re.search(r"\bnot\s*\(", p) for f, l, p in extents if (f, l) == span
+                )
+                attribution[span] = languages if languages and not negated else None
+            languages = attribution[span]
+            if languages is not None:
                 guarded_calls.extend(
                     (call.group(1), languages) for call in CALL_RE.finditer(lines[n])
                 )
+                guarded_references.extend(
+                    (ref.group(1), languages) for ref in REFERENCE_RE.finditer(lines[n])
+                )
+            else:
+                unattributed.add(n)
         unguarded_body = "\n".join(
-            "" if n in guarded else lines[n] for n in range(index, body_end + 1)
+            "" if n in guarded and n not in unattributed else lines[n]
+            for n in range(index, body_end + 1)
         )
 
         item = Item(
@@ -1328,6 +1387,10 @@ def scan_source(
             ),
             guarded_calls=tuple(guarded_calls),
             references=frozenset(m.group(1) for m in REFERENCE_RE.finditer(body)),
+            unguarded_references=frozenset(
+                m.group(1) for m in REFERENCE_RE.finditer(unguarded_body)
+            ),
+            guarded_references=tuple(guarded_references),
             parent_index=parent_index,
             index=len(items),
             in_test_scope=in_test_scope,
@@ -1648,6 +1711,13 @@ def resolve_needs(items: list[Item]) -> dict[int, frozenset[str]]:
             needs[callee_index] |= {
                 f for f in languages if not gate_excludes(predicate, f)
             }
+        # The same for a referent with no call shape: a `const` table
+        # passed to a guarded call is live exactly where that call is.
+        for name, languages in item.guarded_references:
+            index = _resolve_call(items, scopes, item, name)
+            if index is None or items[index].kind == "fn" or items[index].is_test_fn:
+                continue
+            needs[index] |= {f for f in languages if not gate_excludes(predicate, f)}
 
     # A referent with even one unconditional caller must stay
     # unconditional itself, whatever its other callers need. Without
@@ -1709,7 +1779,12 @@ def resolve_needs(items: list[Item]) -> dict[int, frozenset[str]]:
                     continue
                 # A call behind an inner `#[cfg]` is made only where that
                 # gate holds, so it makes nothing always-compiled (#1562).
-                if items[index].kind == "fn" and name not in item.unguarded_calls:
+                unguarded = (
+                    item.unguarded_calls
+                    if items[index].kind == "fn"
+                    else item.unguarded_references
+                )
+                if name not in unguarded:
                     continue
                 unconditional.add(index)
                 needs[index] = set()

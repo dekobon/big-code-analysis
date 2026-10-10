@@ -495,6 +495,20 @@ mod tests {
         );
     }
 
+    /// The fat comma is a named node, so the generic fallback rendered
+    /// its kind name, `fat_comma`; it lists as the `=>` written.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_fat_comma_renders_as_written() {
+        check_ops(
+            LANG::Perl,
+            "my %h = (a => 1);",
+            "foo.pl",
+            &mut ["()", ";", "=", "=>", "my"],
+            &mut ["%h", "1", "a"],
+        );
+    }
+
     #[cfg(feature = "python")]
     #[test]
     fn python_function_ops() {
@@ -1485,15 +1499,14 @@ mod tests {
         feature = "typescript",
     ))]
     fn check_generic_pair(lang: LANG, file: &str, source: &str, operators: &[&str], n1: [u64; 2]) {
-        let source = Source::new(lang, source.as_bytes()).with_name(Some(file.to_owned()));
-        let ast = Ast::parse(source).expect("language feature enabled");
+        let ast = crate::test_support::parse_named(lang, file, source);
         let ops = ast.ops().expect("ops walk must yield a top-level Ops");
         let mut expected = operators.to_vec();
         expected.sort_unstable();
         assert_eq!(ops.operators, expected, "{lang:?} vocabulary");
 
         let space = ast
-            .metrics(crate::MetricsOptions::default())
+            .metrics(crate::MetricsOptions::default().with_only(&[crate::Metric::Halstead]))
             .expect("metrics walk");
         let halstead = &space.metrics.halstead;
         assert_eq!(
@@ -1658,6 +1671,89 @@ mod tests {
     // `argument_list` type form `g(NSArray<NSString *>)` — and never `>`.
     // `*` four times, `()` and `||` twice; `@end` and `id` bill nothing.
     // Without the pair, `<` and `>` would each bill six times: [10, 25].
+    // expected: the spaced twin `g(a < b, c > d)`, two comparisons.
+    // Unspaced, tree-sitter-objc reads the arguments as an
+    // `argument_list`'s `Type<…>` form with an `ERROR` after the `>`, and
+    // they must keep billing `<` and `>`; the clean `g(NSArray<NSString *>)`
+    // stays one pair.
+    #[cfg(feature = "objc")]
+    #[test]
+    fn objc_misparsed_comparisons_stay_comparisons_1559() {
+        const COMPARISONS: &[&str] = &["()", ",", ";", "<", ">", "int", "return", "void", "{}"];
+        check_generic_pair(
+            LANG::Objc,
+            "foo.m",
+            "int f(void) { return g(a < b, c > d); }\n",
+            COMPARISONS,
+            [9, 10],
+        );
+        check_generic_pair(
+            LANG::Objc,
+            "foo.m",
+            "int f(void) { return g(a<b, c>d); }\n",
+            COMPARISONS,
+            [9, 10],
+        );
+        check_generic_pair(
+            LANG::Objc,
+            "foo.m",
+            "int f(void) { return g(NSArray<NSString *>); }\n",
+            &["()", "*", ";", "<>", "int", "return", "void", "{}"],
+            [8, 9],
+        );
+    }
+
+    // expected: the reading before #1559, which billed the two
+    // comparisons as `<` and `>`. By the C# specification the identifier
+    // after the `>` makes `F(a < b, c > d)` two arguments, though the
+    // grammar parses a declaration typed `a<b, c>`. An `out` declaration
+    // is a real generic and stays one pair.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_misparsed_comparisons_stay_comparisons_1559() {
+        check_generic_pair(
+            LANG::Csharp,
+            "foo.cs",
+            "class A { void M() { F(a < b, c > d); } }\n",
+            &["()", ",", ";", "<", ">", "class", "void", "{}"],
+            [8, 10],
+        );
+        // A member access before the `<` wraps the generic name in a
+        // `qualified_name`; the comparisons are the same.
+        check_generic_pair(
+            LANG::Csharp,
+            "foo.cs",
+            "class A { void M() { F(x.a < b, c > d); } }\n",
+            &["()", ",", ".", ";", "<", ">", "class", "void", "{}"],
+            [9, 11],
+        );
+        check_generic_pair(
+            LANG::Csharp,
+            "foo.cs",
+            "class A { void M() { F(out List<int> x); } }\n",
+            &["()", ";", "<>", "class", "int", "out", "void", "{}"],
+            [8, 10],
+        );
+        // A deconstruction's declarations are `argument`s of a
+        // `tuple_expression`, not of an argument list: a real generic.
+        check_generic_pair(
+            LANG::Csharp,
+            "foo.cs",
+            "class A { void M() { (List<int> p, int q) = (1, 2); } }\n",
+            &["()", ",", ";", "<>", "=", "class", "int", "void", "{}"],
+            [9, 14],
+        );
+        // A using alias's generic name sits two levels under the root, too
+        // shallow for the argument-list shape.
+        check_generic_pair(
+            LANG::Csharp,
+            "foo.cs",
+            "using X = List<int>;\n",
+            &[";", "<>", "=", "int", "using"],
+            [5, 5],
+        );
+    }
+
     #[cfg(feature = "objc")]
     #[test]
     fn objc_generic_angles_are_one_pair_1559() {

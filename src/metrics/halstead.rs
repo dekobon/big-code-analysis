@@ -4758,6 +4758,73 @@ mod tests {
         );
     }
 
+    /// Asserts a grammar's wrapped generic-list opener, `LT2`, never
+    /// reaches a node, so the `LT` its getter pairs as `<>` is the only
+    /// `<` a list opens with (#1559, grammar-dispatch §2). `lists` are the
+    /// lists the wrapped token opens; the positive control counts their
+    /// `LT` openers, so the assertion cannot pass on a fixture that
+    /// stopped producing those lists.
+    #[cfg(any(feature = "groovy", feature = "objc", feature = "rust"))]
+    #[track_caller]
+    fn assert_generic_opener_folds_to_lt<P: crate::ParserTrait>(
+        source: &str,
+        [lt, lt2]: [u16; 2],
+        lists: &[&str],
+        openers: usize,
+        label: &str,
+    ) {
+        let parser = P::new(source.as_bytes().to_vec(), &PathBuf::from("foo"), None);
+        assert!(
+            !ast_has_kind_id(&parser, lt2),
+            "{label}::LT2 must stay collapsed to {label}::LT",
+        );
+        let found = parser
+            .root()
+            .preorder()
+            .filter(|n| n.kind_id() == lt && n.parent().is_some_and(|p| lists.contains(&p.kind())))
+            .count();
+        assert_eq!(
+            found, openers,
+            "{label}: each generic-list opener must be an `LT`"
+        );
+    }
+
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_generic_opener_alias_never_reaches_kind_id() {
+        assert_generic_opener_folds_to_lt::<RustParser>(
+            "fn u<T>(x: Vec<T>) -> impl Sized + use<T> { x }\n",
+            [Rust::LT as u16, Rust::LT2 as u16],
+            &["type_arguments", "use_bounds"],
+            2,
+            "Rust",
+        );
+    }
+
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_generic_opener_alias_never_reaches_kind_id() {
+        assert_generic_opener_folds_to_lt::<GroovyParser>(
+            "class A<T> { List<T> v }\n",
+            [Groovy::LT as u16, Groovy::LT2 as u16],
+            &["type_parameters", "type_arguments"],
+            2,
+            "Groovy",
+        );
+    }
+
+    #[cfg(feature = "objc")]
+    #[test]
+    fn objc_generic_opener_alias_never_reaches_kind_id() {
+        assert_generic_opener_folds_to_lt::<ObjcParser>(
+            "int f(void) { return g(NSArray<NSString *>); }\n",
+            [Objc::LT as u16, Objc::LT2 as u16],
+            &["argument_list"],
+            1,
+            "Objc",
+        );
+    }
+
     #[cfg(feature = "perl")]
     #[test]
     fn perl_readline_brackets_are_operators() {
@@ -6372,8 +6439,10 @@ end",
 
     /// #1558: Kotlin bills its modifier keywords as C# bills its own,
     /// one family per row, each keyword the leaf and never
-    /// its `*_modifier` wrapper. The last row is the control: the same
-    /// words used as names are operands, and add no operator.
+    /// its `*_modifier` wrapper. The "names" row is the control: the same
+    /// words used as names are operands, and add no operator. The rows
+    /// after it are names the grammar fails to parse, whose recovery keeps
+    /// the keyword leaf, and their control.
     #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_modifiers_are_operators_1558() {
@@ -6440,6 +6509,42 @@ end",
                 "names",
                 "val open = 1\nval out = 2\nval value = 3\n",
                 [2, 6],
+            ),
+            // The rows below are names the grammar fails to parse. Its
+            // recovery keeps the keyword leaf, which must bill nothing;
+            // each expected value is what the source scored before #1558.
+            // `class`, `{}` x2, `var`, `=` x2, `fun`, `()`: `open = !open`
+            // recovers into an `ERROR` holding `inheritance_modifier`.
+            (
+                "name stranded in an ERROR",
+                "class Drawer {\n    var open = false\n    fun toggle() { open = !open }\n}\n",
+                [6, 8],
+            ),
+            // `val`: `suspend` never parses as a name.
+            ("suspend as a name", "val suspend = 1\n", [1, 1]),
+            // `fun`, `()`, `:` x2, `=`: a modifier list followed by an
+            // inserted zero-width parameter name.
+            (
+                "parameter named vararg",
+                "fun f(vararg: Int): Int = vararg\n",
+                [4, 5],
+            ),
+            // `class`, `()`, `:`
+            ("class parameter named open", "class C(open: Int)\n", [3, 3]),
+            // `val`, `=`, `{}`, `:`
+            (
+                "lambda parameter named open",
+                "val l = { open: Int -> open }\n",
+                [4, 4],
+            ),
+            // Control for the gate: a real `suspend` in a function type's
+            // `type_modifiers` and in a declaration's `modifiers` bills
+            // twice. `val`, `:`, `suspend` x2, `()` x2, `->`, `=`, `{}` x2,
+            // `fun`.
+            (
+                "suspend modifiers",
+                "val f: suspend () -> Unit = {}\nsuspend fun g() {}\n",
+                [8, 11],
             ),
         ];
         assert_operator_rows::<KotlinParser>("foo.kt", ROWS);
@@ -6524,8 +6629,12 @@ end",
     }
 
     /// #1557: the TypeScript declaration keywords #1552 left out. The
-    /// last row pins that each word, used as a *name*, stays an operand:
-    /// the grammar emits an `identifier` there, never the keyword leaf.
+    /// "keywords as names" row pins that each word, used as a *name*,
+    /// stays an operand: the grammar emits an `identifier` there. The two
+    /// exported-binding rows are the one place it emits the `type` leaf
+    /// for a name, which must bill nothing; the last two rows are their
+    /// controls, a type-only specifier and re-export whose `type` still
+    /// bills.
     #[cfg(feature = "typescript")]
     const TS_DECLARATION_KEYWORD_ROWS: &[(&str, &str, [u64; 2])] = &[
         // `type`, `=`, `number`, `;`
@@ -6553,6 +6662,34 @@ end",
             "keywords as names",
             "let type = 1;\nmodule.exports = declare;\n",
             [4, 6],
+        ),
+        // `const`, `=`, `;` twice, `export`, `{}` — no keyword. The
+        // grammar recovers an exported binding named `type` as the
+        // keyword leaf, under an `ERROR` or beside one in the specifier.
+        (
+            "exported binding named type",
+            "const type = 1;\nexport { type };\n",
+            [5, 6],
+        ),
+        (
+            "renamed exported binding named type",
+            "const type = 1;\nexport { type as kind };\n",
+            [5, 6],
+        ),
+        // `export`, `{}`, `type`, `from`, `;` — a type-only specifier
+        // parses cleanly, so its keyword still bills.
+        (
+            "type-only export specifier",
+            "export { type Foo } from \"m\";\n",
+            [5, 5],
+        ),
+        // `export`, `type`, `*`, `from`, `;` — the pinned grammar fails
+        // TS 5.0's type-only re-export into an `ERROR` that hangs from the
+        // statement, not from an export clause, and its keyword bills.
+        (
+            "type-only re-export",
+            "export type * from \"./types\";\n",
+            [5, 5],
         ),
     ];
 
@@ -10931,15 +11068,18 @@ S s; int a = s[1]; auto t = co_await s;
         assert_halstead_counts::<T>(CPP_OPERATOR_NAMES, "ops.cpp", [17, 40, 6, 9], label);
 
         // `operator[]` / `operator()` are kinds of their own, so they sit
-        // beside the subscript `[` and the parameter-list `(` as a second
-        // `[]` / `()` entry — two operators, as Ruby's `def [](i)` is.
+        // beside the subscript `[` and the parameter-list `(` as two more
+        // operators, each rendered as the operator it names so that every
+        // listed entry is distinct.
         let ops = ops_of::<T>(CPP_OPERATOR_NAMES, "ops.cpp");
         for (name, entries) in [
             ("operator", 1),
             ("co_await", 1),
             ("\"\"", 1),
-            ("[]", 2),
-            ("()", 2),
+            ("operator[]", 1),
+            ("operator()", 1),
+            ("[]", 1),
+            ("()", 1),
         ] {
             assert_eq!(
                 ops.operators.iter().filter(|o| *o == name).count(),
@@ -10995,9 +11135,11 @@ S s; int a = s[1]; auto t = co_await s;
     /// an operand-classified zero-width node; before the fix every row
     /// billed `""`. C#'s and Elixir's are not flagged MISSING, which is
     /// why the guard keys on width: an `is_missing()` guard leaves those
-    /// two rows billing `""`. The rows pin no counts, since the recovery trees
-    /// are the grammars' to change (grammar-dispatch §6);
-    /// `cpp_missing_tokens_in_valid_code_are_not_billed` anchors two.
+    /// two rows billing `""`. Each row names its zero-width operand's
+    /// kind and flag, so the two unflagged rows keep discriminating. The
+    /// rows pin no counts, since the recovery trees are the grammars' to
+    /// change (grammar-dispatch §6); the operator half, an inserted `;` or
+    /// `)`, is anchored by `cpp_missing_tokens_in_valid_code_are_not_billed`.
     #[cfg(any(
         feature = "bash",
         feature = "c",
@@ -11024,77 +11166,161 @@ S s; int a = s[1]; auto t = co_await s;
     ))]
     #[test]
     fn zero_width_nodes_bill_neither_halstead_half() {
-        fn has_zero_width_node(node: tree_sitter::Node) -> bool {
-            node.start_byte() == node.end_byte() || {
-                let mut cursor = node.walk();
-                node.children(&mut cursor).any(has_zero_width_node)
-            }
-        }
-
-        let cases: &[(LANG, &str, &str)] = &[
+        // `(language, file, source, kind, is_missing)`: the last two name
+        // the zero-width operand each fixture's recovery inserts, so a
+        // grammar bump that recovers some other way fails the row rather
+        // than passing it on an unrelated zero-width node.
+        let cases: &[(LANG, &str, &str, &str, bool)] = &[
             #[cfg(feature = "bash")]
-            (LANG::Bash, "foo.sh", "echo a $( )\n"),
+            (LANG::Bash, "foo.sh", "echo a $( )\n", "word", true),
             #[cfg(feature = "c")]
-            (LANG::C, "foo.c", "int x; void () { x = 1; }\n"),
+            (
+                LANG::C,
+                "foo.c",
+                "int x; void () { x = 1; }\n",
+                "identifier",
+                true,
+            ),
             #[cfg(feature = "cpp")]
-            (LANG::Cpp, "foo.cpp", "void f(S *s) {\n  s->~D<F>();\n}\n"),
+            (
+                LANG::Cpp,
+                "foo.cpp",
+                "void f(S *s) {\n  s->~D<F>();\n}\n",
+                "identifier",
+                true,
+            ),
             #[cfg(feature = "csharp")]
-            (LANG::Csharp, "foo.cs", "class A { int = 1; }\n"),
+            (
+                LANG::Csharp,
+                "foo.cs",
+                "class A { int = 1; }\n",
+                "identifier",
+                false,
+            ),
             #[cfg(feature = "elixir")]
-            (LANG::Elixir, "foo.ex", "x = a.\n"),
+            (LANG::Elixir, "foo.ex", "x = a.\n", "identifier", false),
             #[cfg(feature = "go")]
-            (LANG::Go, "foo.go", "package m\nfunc f() { a.() }\n"),
+            (
+                LANG::Go,
+                "foo.go",
+                "package m\nfunc f() { a.() }\n",
+                "type_identifier",
+                true,
+            ),
             #[cfg(feature = "groovy")]
-            (LANG::Groovy, "foo.groovy", "def x = a.\n"),
+            (
+                LANG::Groovy,
+                "foo.groovy",
+                "def x = a.\n",
+                "identifier",
+                true,
+            ),
             #[cfg(feature = "irules")]
             (
                 LANG::Irules,
                 "foo.irule",
                 "when HTTP_REQUEST { set x [expr {1 + }] }\n",
+                "number",
+                true,
             ),
             #[cfg(feature = "java")]
-            (LANG::Java, "Foo.java", "class A { int = 1; }\n"),
+            (
+                LANG::Java,
+                "Foo.java",
+                "class A { int = 1; }\n",
+                "identifier",
+                true,
+            ),
             #[cfg(feature = "javascript")]
-            (LANG::Javascript, "foo.js", "let {a: } = b;\n"),
+            (
+                LANG::Javascript,
+                "foo.js",
+                "let {a: } = b;\n",
+                "identifier",
+                true,
+            ),
             #[cfg(feature = "kotlin")]
-            (LANG::Kotlin, "foo.kt", "fun f(: Int) {}\n"),
+            (
+                LANG::Kotlin,
+                "foo.kt",
+                "fun f(: Int) {}\n",
+                "identifier",
+                true,
+            ),
             #[cfg(feature = "lua")]
-            (LANG::Lua, "foo.lua", "x = a.\n"),
+            (LANG::Lua, "foo.lua", "x = a.\n", "identifier", true),
             #[cfg(feature = "mozcpp")]
             (
                 LANG::Mozcpp,
                 "foo.cpp",
                 "void f(S *s) {\n  s->~D<F>();\n}\n",
+                "identifier",
+                true,
             ),
             #[cfg(feature = "mozjs")]
-            (LANG::Mozjs, "foo.jsm", "let {a: } = b;\n"),
+            (
+                LANG::Mozjs,
+                "foo.jsm",
+                "let {a: } = b;\n",
+                "identifier",
+                true,
+            ),
             #[cfg(feature = "objc")]
-            (LANG::Objc, "foo.m", "@interface A\n- (void)f:;\n@end\n"),
+            (
+                LANG::Objc,
+                "foo.m",
+                "@interface A\n- (void)f:;\n@end\n",
+                "identifier",
+                true,
+            ),
             #[cfg(feature = "perl")]
-            (LANG::Perl, "foo.pl", "sub { $x = ; }\n"),
+            (LANG::Perl, "foo.pl", "sub { $x = ; }\n", "identifier", true),
             #[cfg(feature = "php")]
-            (LANG::Php, "foo.php", "<?php $x = $a->;\n"),
+            (LANG::Php, "foo.php", "<?php $x = $a->;\n", "name", true),
             #[cfg(feature = "python")]
-            (LANG::Python, "foo.py", "for in x:\n  pass\n"),
+            (
+                LANG::Python,
+                "foo.py",
+                "for in x:\n  pass\n",
+                "identifier",
+                true,
+            ),
             #[cfg(feature = "ruby")]
-            (LANG::Ruby, "foo.rb", "x = a.\n"),
+            (LANG::Ruby, "foo.rb", "x = a.\n", "identifier", true),
             #[cfg(feature = "rust")]
-            (LANG::Rust, "foo.rs", "fn f() { let x = a.; }\n"),
+            (
+                LANG::Rust,
+                "foo.rs",
+                "fn f() { let x = a.; }\n",
+                "field_identifier",
+                true,
+            ),
             #[cfg(feature = "tcl")]
-            (LANG::Tcl, "foo.tcl", "puts [expr {1 + }]\n"),
+            (LANG::Tcl, "foo.tcl", "puts [expr {1 + }]\n", "number", true),
             #[cfg(feature = "typescript")]
-            (LANG::Typescript, "foo.ts", "let {a: } = b;\n"),
+            (
+                LANG::Typescript,
+                "foo.ts",
+                "let {a: } = b;\n",
+                "identifier",
+                true,
+            ),
             #[cfg(feature = "typescript")]
-            (LANG::Tsx, "foo.tsx", "let {a: } = b;\n"),
+            (LANG::Tsx, "foo.tsx", "let {a: } = b;\n", "identifier", true),
         ];
         crate::test_support::assert_fixtures_present(cases);
 
         let mut billed = Vec::new();
-        for (lang, file, source) in cases {
+        for (lang, file, source, kind, missing) in cases {
             let ast = crate::test_support::parse_named(*lang, file, source);
             assert!(
-                has_zero_width_node(ast.as_tree_sitter().root_node()),
-                "{lang:?}: `{source}` no longer recovers with a zero-width node; find another fixture"
+                ast.root_node().preorder().any(|node| {
+                    node.start_byte() == node.end_byte()
+                        && node.kind() == *kind
+                        && node.is_missing() == *missing
+                }),
+                "{lang:?}: `{source}` no longer recovers with a zero-width `{kind}` \
+                 (is_missing: {missing}); find another fixture"
             );
             let ops = ast.ops().expect("ops walk must yield a top-level Ops");
             assert!(

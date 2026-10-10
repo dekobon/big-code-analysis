@@ -148,11 +148,14 @@ fn mozcpp_bodiless_specifiers_open_no_space_1555() {
     assert_only_bodied_specifiers_open_spaces::<crate::MozcppParser>();
 }
 
-/// #1555: `is_func_space` and `get_space_kind` agree on every struct /
-/// class specifier node, checked node by node because the space tree
-/// alone cannot see the getter half — it only labels spaces the checker
-/// already opened. The oracle is independent of the `body` field: a
-/// specifier defines a type exactly when its text has a `{`.
+/// #1555: `promotes_to_func_space_with_code` and
+/// `get_space_kind_with_code` — the spellings the walker calls — agree on
+/// every struct / class specifier node, checked node by node because the
+/// space tree alone cannot see the getter half: it only labels spaces the
+/// checker already opened. Today both forward to `is_func_space` /
+/// `get_space_kind`, so only a `_with_code` override could split them
+/// (grammar-dispatch §7). The oracle is independent of the `body` field:
+/// a specifier defines a type exactly when its text has a `{`.
 #[cfg(any(feature = "cpp", feature = "mozcpp"))]
 fn assert_specifier_predicates_agree<T: MetricSuite>(struct_id: u16, class_id: u16) {
     use crate::checker::Checker;
@@ -180,9 +183,13 @@ fn assert_specifier_predicates_agree<T: MetricSuite>(struct_id: u16, class_id: u
         } else {
             bodiless += 1;
         }
-        assert_eq!(T::Checker::is_func_space(&node), has_body, "{node:?}");
         assert_eq!(
-            T::Getter::get_space_kind(&node),
+            T::Checker::promotes_to_func_space_with_code(&node, code, Ancestors::unknown()),
+            has_body,
+            "{node:?}"
+        );
+        assert_eq!(
+            T::Getter::get_space_kind_with_code(&node, code, Ancestors::unknown()),
             if has_body { kind } else { SpaceKind::Unknown },
             "{node:?}"
         );
@@ -2005,8 +2012,6 @@ mod metric_selection_parity {
     // multi-clause `if` (cognitive, cyclomatic, abc, halstead, tokens),
     // an early `return` (nexits), parameters (nargs), and a comment
     // (loc). It is the fixture the non-vacuity assertion below leans on.
-    // test-lang-gates: hand-written(rust) — a source fixture for
-    //     this grammar, and its text is a string
     #[cfg(feature = "rust")]
     const RUST: &str = "\
 pub struct Counter {
@@ -2035,8 +2040,6 @@ fn choose(a: u32, b: u32) -> u32 {
 }
 ";
 
-    // test-lang-gates: hand-written(java) — a source fixture for
-    //     this grammar, and its text is a string
     #[cfg(feature = "java")]
     const JAVA: &str = "\
 public class Shape {
@@ -2052,8 +2055,6 @@ public class Shape {
 }
 ";
 
-    // test-lang-gates: hand-written(python) — a source fixture for
-    //     this grammar, and its text is a string
     #[cfg(feature = "python")]
     const PYTHON: &str = "\
 class Bag:
