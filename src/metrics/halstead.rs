@@ -6529,6 +6529,21 @@ end",
                 "fun f(vararg: Int): Int = vararg\n",
                 [4, 5],
             ),
+            // The same row with a comment before the inserted name: an
+            // extra, so the name is still the next token. It scored
+            // [5, 6], a phantom `vararg` operator.
+            (
+                "parameter named vararg, commented",
+                "fun f(vararg /*note*/: Int): Int = vararg\n",
+                [4, 5],
+            ),
+            // Control: a real `vararg` before a commented parameter keeps
+            // its operator. `vararg`, `fun`, `()`, `:`, `{}`.
+            (
+                "vararg modifier, commented",
+                "fun f(vararg /*note*/ x: Int) {}\n",
+                [5, 5],
+            ),
             // `class`, `()`, `:`
             ("class parameter named open", "class C(open: Int)\n", [3, 3]),
             // `val`, `=`, `{}`, `:`

@@ -146,24 +146,33 @@ fn kotlin_modifier_was_written_as_one<'a>(node: &Node<'a>, ancestors: Ancestors<
     host.is_some_and(|host| !host.is_error()) && !kotlin_next_token_is_inserted(node, ancestors)
 }
 
-// Whether the first token after `node` is zero-width: one error recovery
-// inserted where the source has none.
+// Whether the first token after `node`, comments aside, is zero-width:
+// one error recovery inserted where the source has none. A comment
+// between the two is a sibling extra, so `vararg /*c*/: Int` must step
+// over it to reach the inserted name, as `vararg: Int` does. A node
+// never opens with an extra, which the parser hangs on the level above,
+// so the descent takes each first child as it is.
 //
 // Every parameter's modifier asks, and the climb reaches
 // `function_value_parameters`, so the sibling is found without a scan
 // from the list's start: that made a long parameter list quadratic.
 fn kotlin_next_token_is_inserted<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     let mut current = *node;
-    for (parent, _) in ancestors.iter(node) {
-        if let Some(mut next) = parent.children_after(&current).next() {
+    ancestors
+        .iter(node)
+        .find_map(|(parent, _)| {
+            let next = parent
+                .children_after(&current)
+                .find(|sibling| !sibling.as_tree_sitter().is_extra());
+            current = parent;
+            next
+        })
+        .is_some_and(|mut next| {
             while let Some(first) = next.child(0) {
                 next = first;
             }
-            return next.start_byte() == next.end_byte();
-        }
-        current = parent;
-    }
-    false
+            next.start_byte() == next.end_byte()
+        })
 }
 
 // `super<A>` (a `super_expression`) names a supertype rather than
