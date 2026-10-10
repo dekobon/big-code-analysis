@@ -24,6 +24,71 @@ for historical reference.
 
 ## [Unreleased]
 
+### Changed
+
+- **Halstead bills angle brackets that enclose types as one `<>`
+  operator**, like a generic list's (#1567). Rust qualified paths
+  (`<T as Trait>::f`, `<T>::f`), C# function pointer types
+  (`delegate*<int, void>`) and Kotlin's qualified `super<A>` each
+  billed the comparison `<` and `>` before. `N1` falls by one per
+  occurrence; `n1` changes where a comparison `<` or `>` remains beside
+  the new `<>`. Kotlin's `id<Int>(a)` (#1394) and the Rust macro token
+  tree stay exceptions.
+- **Java class literals bill their parts instead of one operand spelled
+  by the whole literal** (#1566). JLS §15.8.2 defines `Foo.class` as an
+  expression, not a literal, so `java.util.List.class` bills three `.`
+  operators plus the operands `java`, `util`, `List` and `class`;
+  `Foo[].class` bills `[]`, `.`, `Foo` and `class`; `int.class` bills
+  `int`, `.` and `class`. Groovy's `Foo.class` and Kotlin's and PHP's
+  `Foo::class` already scored this way. Before, the literal's `.`, `[]`
+  and primitive also billed beside the whole-text operand, so each
+  literal paid for part of its text twice.
+- **`bca ops` lists Java's `boolean` as `boolean` instead of its node
+  kind `boolean_type`** (#1568), so Java and Groovy report the same
+  vocabulary for identical source. Java's Halstead counts are
+  unchanged.
+- **The `halstead.effort` default was re-measured after the vocabulary
+  changes** (#1569), on a rebuilt 41-repository, 20-language corpus. It
+  stays at 50,000, flagging 2.2% of functions in the median language.
+  The book's per-language `halstead.effort` column is regenerated, and
+  the corpus is recorded with commit SHAs in
+  `docs/development/threshold_corpus.md` so it can be reproduced.
+
+### Fixed
+
+- **TypeScript and TSX bill their member modifiers as operators**
+  (#1563): `public`, `private`, `protected`, `override`, `readonly`,
+  `abstract` and `accessor`, as C# and Kotlin do, counting each keyword
+  once and never its `accessibility_modifier` / `override_modifier`
+  wrapper. JavaScript, TypeScript and TSX bill `static`. The same words
+  used as names (`let readonly = 1`, `obj.static`) stay operands.
+- **Kotlin bills `typealias`, `init`, `where`, `by`, `get` and `set` as
+  operators** (#1564), as C# bills `get`, `set`, `init` and `where`.
+  Each counts once, as the keyword and never as its wrapper node. The
+  `@get:` / `@set:` annotation targets count nothing, like `@field:`.
+  The words used as names (`val by = 1`, `x.get(i)`) and the accessor's
+  backing `field` stay operands.
+- **Java and Groovy bill every modifier as an operator** (#1565), as C#
+  and Kotlin do. Before, only `abstract`, `final`, `transient`,
+  `synchronized` and `default` billed. Now `public`, `private`,
+  `protected`, `static`, `native`, `strictfp`, `volatile`, `sealed`,
+  `non-sealed` and the `permits` clause keyword bill as well, each as
+  its keyword and never as Java's `modifiers` wrapper. The `static` of
+  `import static` and `requires static` bills nothing, as `import` does
+  not, and the words used as names (`var sealed = 1`, Groovy's
+  `[static: 1]`) stay operands.
+- **Groovy bills the primitive type names as operators keyed by their
+  spelling** (#1568): `boolean`, `byte`, `char`, `double`, `float`,
+  `int`, `long`, `short` and `void`, as Java does, covering declared
+  types, class-literal receivers (`int.class`) and uninitialised locals.
+  Where Groovy allows the reserved word as a name (`x.int`, `x?.int`,
+  `x::int`, `[int: 1]`, `f(int: 1)`) it stays an operand.
+- **C# no longer bills an interpolated string's alignment `,` or format
+  `:`** (`$"{x,8:F2}"`) as operators (#1573), matching Python's
+  format-spec `:`. The alignment value still counts: `8` is an operand,
+  and `{x,-w}` counts `-` and `w`. A `,` or `:` inside the hole — a call
+  argument list, ternary or named argument — still counts.
+
 ## [2.3.1] - 2026-10-10
 
 For the `big-code-analysis` crate this release changes metric values
