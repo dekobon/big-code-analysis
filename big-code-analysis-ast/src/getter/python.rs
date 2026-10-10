@@ -3,6 +3,27 @@
 
 use super::*;
 
+/// The role of a `{` or `:`, which Python spells both as syntax and
+/// inside an f-string's replacement field.
+///
+/// As syntax each is an operator (#1486). The interpolation opener
+/// (`f"{x}"`, and a nested `{w}` inside a format spec) is spelling, not
+/// an operation — the six interpolating languages settled that in #1314
+/// and Python follows them. The `:` that opens a format spec
+/// (`f"{x:>10}"`) introduces the format mini-language, whose text is
+/// string content and counts as nothing, so its delimiter does not
+/// count either.
+fn brace_or_colon_role(kind: Python, parent: Option<Python>) -> TokenRole {
+    use Python::*;
+
+    match (kind, parent) {
+        (LBRACE, Some(Interpolation | FormatExpression)) | (COLON, Some(FormatSpecifier)) => {
+            TokenRole::Unknown
+        }
+        _ => TokenRole::Operator,
+    }
+}
+
 impl Getter for PythonCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
         match node.kind_id().into() {
@@ -16,7 +37,17 @@ impl Getter for PythonCode {
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Python::*;
 
-        match node.kind_id().into() {
+        let kind: Python = node.kind_id().into();
+        // Bracket openers, `;` and `:` are vocabulary like every other
+        // getter's (#1395, #1486); only the f-string replacement-field
+        // spellings are withdrawn. An early return rather than an arm,
+        // because the match below is one rustfmt declines to format.
+        if matches!(kind, LBRACE | COLON) {
+            let parent = ancestors.parent(node).map(|p| p.kind_id().into());
+            return brace_or_colon_role(kind, parent);
+        }
+
+        match kind {
             // The `not` / `in` / `is` leaf tokens are operators on their own
             // (`not x`, `a in b`, `a is b`, `for x in y`), but the grammar
             // also nests them inside the compound `not in` (Notin) and
@@ -34,7 +65,8 @@ impl Getter for PythonCode {
             | AT | And | Or | PLUS | DASH | SLASH | PERCENT | SLASHSLASH | STARSTAR | PIPE
             | AMP | CARET | LTLT | TILDE | LT | LTEQ | EQEQ | BANGEQ | GTEQ | GT | LTGT
             | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | ATEQ | SLASHSLASHEQ | PERCENTEQ | STARSTAREQ
-            | GTGTEQ | LTLTEQ | AMPEQ | CARETEQ | PIPEEQ | Yield | Print
+            | GTGTEQ | LTLTEQ | AMPEQ | CARETEQ | PIPEEQ | Yield | Print | LPAREN | LBRACK
+            | SEMI
             // `not in` / `is not` compounds count as one operator each; the
             // inner Not/In/Is leaves are suppressed by the parent-guard arm
             // above (#413).
@@ -92,7 +124,5 @@ impl Getter for PythonCode {
         }
     }
 
-    fn get_operator_id_as_str(id: u16) -> &'static str {
-        Into::<Python>::into(id).into()
-    }
+    get_operator!(Python);
 }

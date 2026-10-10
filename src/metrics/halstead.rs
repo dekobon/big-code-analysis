@@ -809,28 +809,31 @@ mod tests {
                  c = 3 + 3",
             "foo.py",
             |metric| {
-                // unique operators: def, =, +
-                // operators: def, def, def, =, =, =, +, +, +
+                // unique operators: def, (), :, =, +
+                // operators: def, (), : for each of the three headers,
+                //   then =, =, =, +, +, + (the `()` and `:` since #1486)
                 // unique operands: foo, bar, toto, a, b, c, 1, 2, 3
                 // operands: foo, bar, toto, a, b, c, 1, 1, 2, a, 3, 3
+                assert_eq!(metric.halstead.unique_operators(), 5);
+                assert_eq!(metric.halstead.total_operators(), 15);
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
                 {
-                  "unique_operators": 3,
-                  "total_operators": 9,
+                  "unique_operators": 5,
+                  "total_operators": 15,
                   "unique_operands": 9,
                   "total_operands": 12,
-                  "length": 21,
-                  "estimated_program_length": 33.284212515144276,
-                  "purity_ratio": 1.584962500721156,
-                  "vocabulary": 12,
-                  "volume": 75.28421251514428,
-                  "difficulty": 2.0,
-                  "level": 0.5,
-                  "effort": 150.56842503028855,
-                  "time": 8.364912501682698,
-                  "bugs": 0.0094341190071077
+                  "length": 27,
+                  "estimated_program_length": 40.13896548741762,
+                  "purity_ratio": 1.4866283513858378,
+                  "vocabulary": 14,
+                  "volume": 102.79858289555531,
+                  "difficulty": 3.3333333333333335,
+                  "level": 0.3,
+                  "effort": 342.6619429851844,
+                  "time": 19.03677461028802,
+                  "bugs": 0.01632259960095138
                 }
                 "#
                 );
@@ -1272,9 +1275,12 @@ mod tests {
                 // operand counts pin the rest of the Halstead state.
                 // Grew from 30 → 33 with the issue #394 fix: `const`,
                 // `type`, and `struct` keywords are now classified as
-                // operators (one occurrence each).
-                assert_eq!(metric.halstead.unique_operators(), 33);
-                assert_eq!(metric.halstead.total_operators(), 121);
+                // operators (one occurrence each). #1486 adds the
+                // annotation `:` — one entry, 23 occurrences: `C`, the
+                // two fields, `p`, the four params of `f`, and the
+                // fifteen `let` bindings.
+                assert_eq!(metric.halstead.unique_operators(), 34);
+                assert_eq!(metric.halstead.total_operators(), 144);
                 // u_operands / operands grew (was 31/50 before #390): the
                 // fix now classifies TypeIdentifier (`T`, `S`, `Option`)
                 // and FieldIdentifier (struct fields `x`, `y`) as operands
@@ -1293,7 +1299,7 @@ mod tests {
         // `TokenRole::Unknown`, so the field names were not counted
         // as operands. Both C++ and Go already classify FieldIdentifier
         // as an operand. After the fix:
-        //   unique operators: fn, (), {}, let, =, +, ;, .
+        //   unique operators: fn, (), {}, let, =, +, ;, ., ,, :
         //   unique operands : main, p, Point, x, y, sum, 0, 1
         // Field names `x` and `y` each appear twice (`p.x + p.y` and
         // the struct literal `Point { x: 0, y: 1 }`).
@@ -1310,24 +1316,28 @@ mod tests {
                 // fix, +Point, +x, +y → 8 distinct names.
                 assert_eq!(metric.halstead.unique_operands(), 8);
                 assert_eq!(metric.halstead.total_operands(), 12);
+                // N1: fn, (), {} ×2, let ×2, = ×2, +, ; ×2, . ×2, `,`,
+                // and the struct literal's two field `:` (#1486) = 16.
+                assert_eq!(metric.halstead.unique_operators(), 10);
+                assert_eq!(metric.halstead.total_operators(), 16);
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
                 {
-                  "unique_operators": 9,
-                  "total_operators": 14,
+                  "unique_operators": 10,
+                  "total_operators": 16,
                   "unique_operands": 8,
                   "total_operands": 12,
-                  "length": 26,
-                  "estimated_program_length": 52.529325012980806,
-                  "purity_ratio": 2.0203586543454155,
-                  "vocabulary": 17,
-                  "volume": 106.27403387250882,
-                  "difficulty": 6.75,
-                  "level": 0.14814814814814814,
-                  "effort": 717.3497286394346,
-                  "time": 39.85276270219081,
-                  "bugs": 0.026711567292222575
+                  "length": 28,
+                  "estimated_program_length": 57.219280948873624,
+                  "purity_ratio": 2.043545748174058,
+                  "vocabulary": 18,
+                  "volume": 116.75790004038474,
+                  "difficulty": 7.5,
+                  "level": 0.13333333333333333,
+                  "effort": 875.6842503028855,
+                  "time": 48.64912501682697,
+                  "bugs": 0.03051010983631521
                 }
                 "#
                 );
@@ -1347,7 +1357,8 @@ mod tests {
         //
         // Also covers issue #394: `::` is now an operator. The snippet
         // has two `::` tokens (`Vec::new`, `HashMap::new`), so n1 grew
-        // from 10 → 11 and N1 from 17 → 19.
+        // from 10 → 11 and N1 from 17 → 19. #1486 then billed the two
+        // annotation `:` tokens as their own entry: 12 and 21.
         check_metrics::<RustParser>(
             "fn main() {
               let v: Vec<i32> = Vec::new();
@@ -1362,31 +1373,71 @@ mod tests {
                 assert_eq!(metric.halstead.total_operands(), 11);
                 // `::` appears twice (Vec::new, HashMap::new); without
                 // the #394 fix u_operators was 10 and operators 17.
-                assert_eq!(metric.halstead.unique_operators(), 11);
-                assert_eq!(metric.halstead.total_operators(), 19);
+                // `:` appears twice and stays distinct from `::`.
+                assert_eq!(metric.halstead.unique_operators(), 12);
+                assert_eq!(metric.halstead.total_operators(), 21);
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
                 {
-                  "unique_operators": 11,
-                  "total_operators": 19,
+                  "unique_operators": 12,
+                  "total_operators": 21,
                   "unique_operands": 8,
                   "total_operands": 11,
-                  "length": 30,
-                  "estimated_program_length": 62.05374780501027,
-                  "purity_ratio": 2.068458260167009,
-                  "vocabulary": 19,
-                  "volume": 127.43782540330756,
-                  "difficulty": 7.5625,
-                  "level": 0.1322314049586777,
-                  "effort": 963.7485546125134,
-                  "time": 53.54158636736186,
-                  "bugs": 0.03252279825177962
+                  "length": 32,
+                  "estimated_program_length": 67.01955000865388,
+                  "purity_ratio": 2.0943609377704338,
+                  "vocabulary": 20,
+                  "volume": 138.3016990363956,
+                  "difficulty": 8.25,
+                  "level": 0.12121212121212122,
+                  "effort": 1140.9890170502638,
+                  "time": 63.38827872501466,
+                  "bugs": 0.03639706698498207
                 }
                 "#
                 );
             },
         );
+    }
+
+    /// #1486: Rust's single `:` is vocabulary in every position it is
+    /// spelled, and stays a separate entry from `::`.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_colon_is_operator_1486() {
+        const ROWS: &[(&str, &str, [u64; 2])] = &[
+            // `let`, `:`, `u8`, `=`, `;`
+            ("let annotation", "let x: u8 = 1;\n", [5, 5]),
+            // `struct`, `{}`, `:`, `u8`
+            ("field declaration", "struct S { a: u8 }\n", [4, 4]),
+            // `const`, `:` twice, `=`, `{}`, `;`
+            ("field initializer", "const C: S = S { a: 1 };\n", [5, 6]),
+            // `fn`, `{}` twice, `()`, `let`, `{}` (pattern), `:`, `=`, `;`
+            ("field pattern", "fn f() { let S { a: b } = s; }\n", [7, 8]),
+            // `fn`, `()`, `:`, `u8`, `{}`
+            ("parameter", "fn f(x: u8) {}\n", [5, 5]),
+            // `fn`, `<`, `:`, `>`, `()`, `{}`
+            ("trait bound", "fn f<T: Clone>() {}\n", [6, 6]),
+            // `fn`, `<`, `>`, `()`, `where`, `:`, `{}`
+            ("where clause", "fn f<T>() where T: Clone {}\n", [7, 7]),
+            // `fn`, `()`, `{}` twice, `:`, `loop`, `break`, `;`
+            ("loop label", "fn f() { 'a: loop { break 'a; } }\n", [7, 8]),
+            // `fn`, `()`, `{}`, `let`, `=`, `|` twice, `:`, `u8`, `;`
+            (
+                "closure parameter",
+                "fn f() { let c = |q: u8| q; }\n",
+                [9, 10],
+            ),
+            // `fn`, `()` twice, `{}`, `let`, `:`, `<`, `u8`, `>`, `=`,
+            // `::`, `;` — `:` and `::` are two entries
+            (
+                "beside a path",
+                "fn f() { let v: Vec<u8> = Vec::new(); }\n",
+                [11, 12],
+            ),
+        ];
+        assert_operator_rows::<RustParser>("foo.rs", ROWS);
     }
 
     #[cfg(feature = "rust")]
@@ -2546,20 +2597,26 @@ mod tests {
     #[cfg(feature = "python")]
     #[test]
     fn python_wrong_operators() {
+        // Not valid Python — the parser recovers `()` as a tuple, the `[`
+        // as a bare token and `{}` as a dict — but each opener is still a
+        // delimiter the source spells, so since #1486 the three are
+        // billed once each as `()`, `[]` and `{}`. The closers never are.
         check_metrics::<PythonParser>("()[]{}", "foo.py", |metric| {
+            assert_eq!(metric.halstead.unique_operators(), 3);
+            assert_eq!(metric.halstead.total_operators(), 3);
             insta::assert_json_snapshot!(
                 metric.halstead,
                 @r#"
             {
-              "unique_operators": 0,
-              "total_operators": 0,
+              "unique_operators": 3,
+              "total_operators": 3,
               "unique_operands": 0,
               "total_operands": 0,
-              "length": 0,
-              "estimated_program_length": 0.0,
-              "purity_ratio": 0.0,
-              "vocabulary": 0,
-              "volume": 0.0,
+              "length": 3,
+              "estimated_program_length": 4.754887502163468,
+              "purity_ratio": 1.584962500721156,
+              "vocabulary": 3,
+              "volume": 4.754887502163468,
               "difficulty": 0.0,
               "level": 0.0,
               "effort": 0.0,
@@ -2579,24 +2636,28 @@ mod tests {
                  pass",
             "foo.py",
             |metric| {
+                // expected operators: def, (), :, pass — one each (#1486
+                // added the `()` and the block `:`).
+                assert_eq!(metric.halstead.unique_operators(), 4);
+                assert_eq!(metric.halstead.total_operators(), 4);
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
                 {
-                  "unique_operators": 2,
-                  "total_operators": 2,
+                  "unique_operators": 4,
+                  "total_operators": 4,
                   "unique_operands": 1,
                   "total_operands": 1,
-                  "length": 3,
-                  "estimated_program_length": 2.0,
-                  "purity_ratio": 0.6666666666666666,
-                  "vocabulary": 3,
-                  "volume": 4.754887502163468,
-                  "difficulty": 1.0,
-                  "level": 1.0,
-                  "effort": 4.754887502163468,
-                  "time": 0.26416041678685936,
-                  "bugs": 0.0009425525573729414
+                  "length": 5,
+                  "estimated_program_length": 8.0,
+                  "purity_ratio": 1.6,
+                  "vocabulary": 5,
+                  "volume": 11.60964047443681,
+                  "difficulty": 2.0,
+                  "level": 0.5,
+                  "effort": 23.21928094887362,
+                  "time": 1.289960052715201,
+                  "bugs": 0.002712967490108627
                 }
                 "#
                 );
@@ -5718,12 +5779,13 @@ end",
             "async def f():\n    await a()\n    await b()\n    await c()\n",
             "foo.py",
             |metric| {
-                // expected operators: async, def, await  (3 unique)
-                //   await used three times -> N1 counts: async(1) def(1) await(3) = 5
+                // expected operators: async, def, (), :, await  (5 unique)
+                //   N1: async(1) def(1) await(3) = 5, plus the four call
+                //   and parameter-list `(` and the block `:` (#1486) = 10.
                 //   Before #413, Await + Await2 both matched, so `await` was a
-                //   distinct operator twice: n1=4, N1=8.
-                assert_eq!(metric.halstead.unique_operators(), 3);
-                assert_eq!(metric.halstead.total_operators(), 5);
+                //   distinct operator twice: one more unique and three more total.
+                assert_eq!(metric.halstead.unique_operators(), 5);
+                assert_eq!(metric.halstead.total_operators(), 10);
             },
         );
     }
@@ -5735,10 +5797,11 @@ end",
     #[test]
     fn python_lambda_counted_once() {
         check_metrics::<PythonParser>("g = lambda x: x + 1\n", "foo.py", |metric| {
-            // expected operators: =, lambda, +  (3 unique, each used once)
+            // expected operators: =, lambda, :, +  (4 unique, each used
+            // once; the parameter-list `:` since #1486).
             // Before #413, lambda was absent: only =, + were counted.
-            assert_eq!(metric.halstead.unique_operators(), 3);
-            assert_eq!(metric.halstead.total_operators(), 3);
+            assert_eq!(metric.halstead.unique_operators(), 4);
+            assert_eq!(metric.halstead.total_operators(), 4);
         });
     }
 
@@ -5752,11 +5815,12 @@ end",
             "match x:\n    case 1:\n        pass\n    case _:\n        pass\n",
             "foo.py",
             |metric| {
-                // expected operators: match, case, pass  (3 unique)
-                //   match(1) + case(2) + pass(2) = 5 total occurrences.
+                // expected operators: match, case, pass, :  (4 unique)
+                //   match(1) + case(2) + pass(2) + one block `:` per
+                //   header (3, #1486) = 8 total occurrences.
                 // Before #413, neither match nor case was counted (only pass).
-                assert_eq!(metric.halstead.unique_operators(), 3);
-                assert_eq!(metric.halstead.total_operators(), 5);
+                assert_eq!(metric.halstead.unique_operators(), 4);
+                assert_eq!(metric.halstead.total_operators(), 8);
             },
         );
     }
@@ -5770,10 +5834,11 @@ end",
             "def f():\n    global a\n    nonlocal b\n",
             "foo.py",
             |metric| {
-                // expected operators: def, global, nonlocal  (3 unique)
+                // expected operators: def, (), :, global, nonlocal
+                //   (5 unique, each once; `()` and `:` since #1486)
                 // Before #413, nonlocal was absent: only def, global counted.
-                assert_eq!(metric.halstead.unique_operators(), 3);
-                assert_eq!(metric.halstead.total_operators(), 3);
+                assert_eq!(metric.halstead.unique_operators(), 5);
+                assert_eq!(metric.halstead.total_operators(), 5);
             },
         );
     }
@@ -5789,20 +5854,117 @@ end",
             "a not in b\na is not b\nnot c\nd in e\nf is g\nfor h in i:\n    pass\n",
             "foo.py",
             |metric| {
-                // expected operators (7 unique):
+                // expected operators (8 unique):
                 //   "not in" (compound, once), "is not" (compound, once),
                 //   "not" (standalone `not c`, once),
                 //   "in" (standalone `d in e` + `for h in i` = twice),
                 //   "is" (standalone `f is g`, once),
-                //   "for" (once), "pass" (once)
-                // Total occurrences: 1+1+1+2+1+1+1 = 8.
+                //   "for" (once), "pass" (once), and the `for` header's
+                //   block ":" (once, #1486)
+                // Total occurrences: 1+1+1+2+1+1+1+1 = 9.
                 // Before #413, `a not in b` counted not+in (two) and
                 // `a is not b` counted is+not (two); the compounds were
                 // never classified.
-                assert_eq!(metric.halstead.unique_operators(), 7);
-                assert_eq!(metric.halstead.total_operators(), 8);
+                assert_eq!(metric.halstead.unique_operators(), 8);
+                assert_eq!(metric.halstead.total_operators(), 9);
             },
         );
+    }
+
+    /// Asserts `[n1, N1]` for each `(label, source, expected)` row, one
+    /// parse per row so a row's counts are its own.
+    #[cfg(any(feature = "python", feature = "rust"))]
+    fn assert_operator_rows<T: crate::MetricSuite>(file: &str, rows: &[(&str, &str, [u64; 2])]) {
+        for (label, source, expected) in rows {
+            crate::test_support::check_func_space_only::<T, _>(
+                source,
+                file,
+                &[crate::Metric::Halstead],
+                |space| {
+                    let halstead = &space.metrics.halstead;
+                    assert_eq!(
+                        [halstead.unique_operators(), halstead.total_operators()],
+                        *expected,
+                        "{label}: {source:?}"
+                    );
+                },
+            );
+        }
+    }
+
+    /// #1486: Python's bracket openers, `;` and `:` are vocabulary, as
+    /// they are in every other getter (#1395). Each row isolates one
+    /// position, so the expected `[n1, N1]` is derivable from the row
+    /// alone; a bracket pair bills its opener once, as `()` / `[]` / `{}`.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_punctuation_is_vocabulary_1486() {
+        const ROWS: &[(&str, &str, [u64; 2])] = &[
+            // `()`
+            ("call", "f(x)\n", [1, 1]),
+            // `()`, `=`
+            ("keyword argument", "f(a=1)\n", [2, 2]),
+            // `()`, `*`, `,`, `**`
+            ("splat arguments", "f(*a, **k)\n", [4, 4]),
+            // `[]`
+            ("index", "a[1]\n", [1, 1]),
+            // `[]`, `:` twice
+            ("slice", "a[1:2:3]\n", [2, 3]),
+            // `{}`, `:`
+            ("dict", "{k: v}\n", [2, 2]),
+            // `{}`, `,`
+            ("set", "{1, 2}\n", [2, 2]),
+            // `[]`, `,` twice, `()`
+            ("list and tuple", "[1, (2, 3)]\n", [3, 4]),
+            // `()`, `for`, `in`
+            ("generator", "(x for x in y)\n", [3, 3]),
+            // `{}`, `:`, `for`, `in`
+            ("dict comprehension", "{k: v for k in y}\n", [4, 4]),
+            // `()`, `:=` — the walrus is its own token, not a `:`
+            ("walrus", "(n := 3)\n", [2, 2]),
+            // `lambda`, `:`
+            ("lambda", "lambda x: x\n", [2, 2]),
+            // `def`, `()`, `:` twice, `->`, `pass`
+            ("annotations", "def f(x: int) -> int:\n    pass\n", [5, 6]),
+            // `:`, `=`
+            ("annotated assignment", "x: int = 1\n", [2, 2]),
+            // `@`, `def`, `()`, `:`, `pass`
+            ("decorator", "@d\ndef f():\n    pass\n", [5, 5]),
+            // `if`, `:`, `pass`
+            ("if block", "if x:\n    pass\n", [3, 3]),
+            // `while`, `:`, `pass`
+            ("while block", "while x:\n    pass\n", [3, 3]),
+            // `for`, `in`, `:`, `pass`
+            ("for block", "for i in y:\n    pass\n", [4, 4]),
+            // `with`, `:`, `pass`
+            ("with block", "with o:\n    pass\n", [3, 3]),
+            // `try`, `except`, `:` twice, `pass` twice
+            ("try block", "try:\n    pass\nexcept E:\n    pass\n", [4, 6]),
+            // `:`, `pass` — the `class` keyword itself is not billed
+            ("class block", "class C:\n    pass\n", [2, 2]),
+            // `;`
+            ("statement separator", "a; b\n", [1, 1]),
+        ];
+        assert_operator_rows::<PythonParser>("foo.py", ROWS);
+    }
+
+    /// #1486: an f-string replacement field's `{` and format-spec `:` are
+    /// spelling, not operations, like every other language's
+    /// interpolation opener (#1314) — the f-string rows bill nothing.
+    /// The guard reads the token's *parent*, so a dict written inside a
+    /// replacement field keeps its own `{}` and `:`.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_f_string_delimiters_are_not_operators_1486() {
+        const ROWS: &[(&str, &str, [u64; 2])] = &[
+            ("interpolation opener", "f\"{x}\"\n", [0, 0]),
+            ("format spec colon", "f\"{x:>10}\"\n", [0, 0]),
+            ("nested format expression", "f\"{a:{w}}\"\n", [0, 0]),
+            // `{}`, `:`, `[]` of the dict and its subscript, nothing of
+            // the replacement field around them
+            ("dict inside a field", "f\"{ {k: v}[k] }\"\n", [3, 3]),
+        ];
+        assert_operator_rows::<PythonParser>("foo.py", ROWS);
     }
 
     #[cfg(feature = "bash")]

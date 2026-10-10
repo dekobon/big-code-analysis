@@ -609,9 +609,12 @@ notation for the same four counts.
 big-code-analysis records these four numbers in
 `src/metrics/halstead.rs` per function and per file. The per-language
 trait classifies tokens as operator vs. operand on a token-by-token
-basis; the rules deliberately exclude pure layout punctuation like
-parentheses and statement separators, which is why the Halstead
-totals are *not* the same as the Tokens count.
+basis. Punctuation counts as an operator: a bracket pair is one
+operator, billed once at its opener and listed by `bca ops` as `()`,
+`[]` or `{}`, and `,`, `;`, `.` and `:` count once per occurrence.
+Closing brackets, comments and a literal's own delimiters count as
+nothing, which is why the Halstead totals are *not* the same as the
+Tokens count.
 
 Seven classification rules are worth knowing because they are choices
 rather than consequences, and because several grammars spell the
@@ -684,9 +687,11 @@ tokens involved the same way they spell real operators:
   belongs to it — so the list would be incomplete by construction and
   would make three behaviours where there are two.
 - **A string-interpolation opener is not an operator.** `"{$x}"` in
-  PHP, `"#{x}"` in Ruby and Elixir, `"${x}"` in Kotlin and Groovy and
-  `$"{x}"` in C# all count the interpolated expression's own operators
-  and nothing for the opener itself.
+  PHP, `"#{x}"` in Ruby and Elixir, `"${x}"` in Kotlin and Groovy,
+  `$"{x}"` in C# and `f"{x}"` in Python all count the interpolated
+  expression's own operators and nothing for the opener itself. The
+  `:` that opens a Python format spec (`f"{x:>10}"`) counts nothing
+  either, because the spec after it is string content (#1486).
 - **A delimiter around *syntax* is an operator, whatever it delimits.**
   The rule above is about a literal's own punctuation, and it stops
   there. Halstead counts the vocabulary a program is written in and has
@@ -699,6 +704,10 @@ tokens involved the same way they spell real operators:
   tokens from `conditions`: ABC asks whether a branch is taken, and
   these are not branches; Halstead asks what alphabet the source uses,
   and these are part of it. Expect the two metrics to disagree here.
+  The same reading bills Python's `(`, `[`, `{`, `;` and block,
+  slice, dict and annotation `:`, and Rust's annotation, field, bound
+  and label `:`, which is a separate operator from `::`. Both languages
+  left these out until #1486, so their Halstead scores rose with it.
 - **An alternative spelling is an operator of its own.** C++ spells
   `&&` equally as `and`, `!=` as `not_eq` and so on through all eleven
   [alternative tokens](https://en.cppreference.com/w/cpp/language/operator_alternative).

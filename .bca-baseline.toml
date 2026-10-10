@@ -189,19 +189,19 @@ value = 6.0
 path = "big-code-analysis-ast/src/ast.rs"
 qualified = "build"
 metric = "halstead.effort"
-value = 87299.1671815905
+value = 95280.22256472526
 
 [[entry]]
 path = "big-code-analysis-ast/src/c_macro.rs"
 qualified = "replace"
 metric = "halstead.effort"
-value = 82074.58162485641
+value = 87076.53005268889
 
 [[entry]]
 path = "big-code-analysis-ast/src/c_macro.rs"
 qualified = "step_normal"
 metric = "halstead.effort"
-value = 66515.67234293568
+value = 70691.13308026636
 
 [[entry]]
 path = "big-code-analysis-ast/src/c_macro.rs"
@@ -222,46 +222,52 @@ metric = "nargs"
 value = 5.0
 
 [[entry]]
+path = "big-code-analysis-ast/src/getter.rs"
+qualified = "Getter::is_braced_literal_slot"
+metric = "halstead.effort"
+value = 50566.900032069454
+
+[[entry]]
 path = "big-code-analysis-ast/src/getter/bash.rs"
 qualified = "BashCode::get_op_type"
 metric = "halstead.effort"
-value = 57421.05047463073
+value = 61150.53156222458
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/elixir.rs"
 qualified = "ElixirCode::get_op_type"
 metric = "halstead.effort"
-value = 76992.47971865896
+value = 81284.21083173114
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/irules.rs"
 qualified = "IrulesCode::get_op_type"
 metric = "halstead.effort"
-value = 51602.8394982239
+value = 54835.65543871385
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/perl.rs"
 qualified = "PerlCode::get_op_type"
 metric = "halstead.effort"
-value = 131183.3292815811
+value = 137407.31980126494
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/php.rs"
 qualified = "PhpCode::get_op_type"
 metric = "halstead.effort"
-value = 92711.94569253008
+value = 96592.02057608281
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/python.rs"
 qualified = "PythonCode::get_op_type"
 metric = "halstead.effort"
-value = 48346.66496041094
+value = 64442.20035097394
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter/ruby.rs"
 qualified = "RubyCode::get_op_type"
 metric = "halstead.effort"
-value = 120805.48245794396
+value = 127317.70075099175
 
 [[entry]]
 path = "big-code-analysis-ast/src/node.rs"
@@ -273,7 +279,7 @@ value = 36.0
 path = "big-code-analysis-ast/src/parser.rs"
 qualified = "Parser<T>::filters"
 metric = "halstead.effort"
-value = 85508.52631578948
+value = 92491.6833558545
 
 [[entry]]
 path = "big-code-analysis-ast/src/preproc.rs"
@@ -303,19 +309,19 @@ value = 7.0
 path = "big-code-analysis-cli/src/baseline.rs"
 qualified = "Baseline::from_str"
 metric = "halstead.effort"
-value = 58410.89968953587
+value = 62587.95570171439
 
 [[entry]]
 path = "big-code-analysis-cli/src/baseline_diff.rs"
 qualified = "BaselineDiff::compute"
 metric = "halstead.effort"
-value = 118801.67275912332
+value = 124425.17843774539
 
 [[entry]]
 path = "big-code-analysis-cli/src/check_format.rs"
 qualified = "write_github_annotations"
 metric = "halstead.effort"
-value = 47834.17129195417
+value = 51030.97459989012
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
@@ -327,13 +333,19 @@ value = 136001.1105471366
 path = "big-code-analysis-cli/src/commands/analyze.rs"
 qualified = "run_command_metrics"
 metric = "halstead.effort"
-value = 69608.24451083591
+value = 74146.94504520179
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands/analyze.rs"
+qualified = "run_command_ops"
+metric = "halstead.effort"
+value = 49966.059463762176
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/analyze.rs"
 qualified = "write_aggregate"
 metric = "halstead.effort"
-value = 54210.895759662584
+value = 57901.393538811906
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check.rs"
@@ -357,7 +369,7 @@ value = 6.0
 path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "run_check"
 metric = "halstead.effort"
-value = 63636.29428662941
+value = 67343.38425539367
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check/effective_config.rs"
@@ -405,13 +417,13 @@ value = 39.06404996924922
 path = "big-code-analysis-cli/src/commands/report.rs"
 qualified = "run_command_report"
 metric = "halstead.effort"
-value = 63112.954051595756
+value = 67793.18512453695
 
 [[entry]]
 path = "big-code-analysis-cli/src/diff.rs"
 qualified = "materialize_tree"
 metric = "halstead.effort"
-value = 60390.01093335322
+value = 63004.79514502588
 
 [[entry]]
 path = "big-code-analysis-cli/src/diff.rs"
@@ -504,6 +516,12 @@ metric = "nargs"
 value = 6.0
 
 [[entry]]
+path = "big-code-analysis-cli/src/dispatch.rs"
+qualified = "validate_and_resolve_file"
+metric = "halstead.effort"
+value = 48161.176757774374
+
+[[entry]]
 path = "big-code-analysis-cli/src/html_report.rs"
 qualified = "generate_html_report_with_vcs"
 metric = "nargs"
@@ -555,7 +573,13 @@ value = 7.0
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "legacy_hint"
 metric = "halstead.effort"
-value = 59351.805921378844
+value = 62321.99298455441
+
+[[entry]]
+path = "big-code-analysis-cli/src/manifest.rs"
+qualified = "Manifest::merge_check"
+metric = "halstead.effort"
+value = 49443.19551903411
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report.rs"
@@ -615,13 +639,13 @@ value = 7.0
 path = "big-code-analysis-cli/src/threshold_suggestion.rs"
 qualified = "closest_names"
 metric = "halstead.effort"
-value = 55785.628204736706
+value = 58505.309528447164
 
 [[entry]]
 path = "big-code-analysis-cli/src/threshold_suggestion.rs"
 qualified = "edit_distance_with_cutoff"
 metric = "halstead.effort"
-value = 66737.04848699087
+value = 70743.85391258422
 
 [[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"
@@ -825,7 +849,7 @@ value = 747.0
 path = "big-code-analysis-py/src/vcs.rs"
 qualified = "options_from"
 metric = "halstead.effort"
-value = 47661.70050580648
+value = 50629.47325240143
 
 [[entry]]
 path = "big-code-analysis-py/src/vcs.rs"
@@ -846,10 +870,16 @@ metric = "nargs"
 value = 5.0
 
 [[entry]]
+path = "big-code-analysis-web/src/web/negotiate.rs"
+qualified = "negotiate"
+metric = "halstead.effort"
+value = 49354.63340093155
+
+[[entry]]
 path = "big-code-analysis-web/src/web/server.rs"
 qualified = "run_parse"
 metric = "halstead.effort"
-value = 82478.1543040951
+value = 87922.2135069964
 
 [[entry]]
 path = "big-code-analysis-web/src/web/server.rs"
@@ -873,7 +903,7 @@ value = 5.0
 path = "big-code-analysis-web/src/web/vcs.rs"
 qualified = "options_from"
 metric = "halstead.effort"
-value = 51846.28098938873
+value = 55077.016098147826
 
 [[entry]]
 path = "big-code-analysis-web/src/web/vcs.rs"
@@ -886,6 +916,12 @@ path = "src/metrics/abc/kotlin.rs"
 qualified = "KotlinCode::compute"
 metric = "cyclomatic"
 value = 20.0
+
+[[entry]]
+path = "src/metrics/abc/ruby.rs"
+qualified = "RubyCode::compute"
+metric = "halstead.effort"
+value = 48099.42954412001
 
 [[entry]]
 path = "src/metrics/abc/rust.rs"
@@ -1029,7 +1065,13 @@ value = 5.0
 path = "src/metrics/loc/perl.rs"
 qualified = "PerlCode::compute"
 metric = "halstead.effort"
-value = 51486.205050501565
+value = 54607.47985931332
+
+[[entry]]
+path = "src/metrics/npa/php.rs"
+qualified = "PhpCode::compute"
+metric = "halstead.effort"
+value = 50326.64993163575
 
 [[entry]]
 path = "src/metrics/npa/python.rs"
@@ -1041,7 +1083,7 @@ value = 6.0
 path = "src/ops.rs"
 qualified = "ops_inner"
 metric = "halstead.effort"
-value = 67661.84803230887
+value = 73118.98435042621
 
 [[entry]]
 path = "src/output/checkstyle.rs"
@@ -1053,7 +1095,7 @@ value = 7.0
 path = "src/output/code_climate.rs"
 qualified = "write_code_climate"
 metric = "halstead.effort"
-value = 60596.13916454601
+value = 65397.75866742601
 
 [[entry]]
 path = "src/output/dump.rs"
@@ -1125,7 +1167,7 @@ value = 111.87939935484101
 path = "src/output/funcspace_row.rs"
 qualified = "metric_values"
 metric = "halstead.effort"
-value = 80351.11907066956
+value = 86304.11475310498
 
 [[entry]]
 path = "src/spaces.rs"
@@ -1155,7 +1197,7 @@ value = 5.0
 path = "src/spaces/compute.rs"
 qualified = "compute_per_node"
 metric = "halstead.effort"
-value = 63007.70094399036
+value = 68533.65287917512
 
 [[entry]]
 path = "src/spaces/compute.rs"
@@ -1167,7 +1209,7 @@ value = 7.0
 path = "src/spaces/compute.rs"
 qualified = "metrics_inner"
 metric = "halstead.effort"
-value = 116715.6053686016
+value = 123785.03296627598
 
 [[entry]]
 path = "src/spaces/compute.rs"
@@ -1185,13 +1227,19 @@ value = 6.0
 path = "src/vcs/bus_factor.rs"
 qualified = "compute"
 metric = "halstead.effort"
-value = 47694.803479864124
+value = 51947.0591918485
 
 [[entry]]
 path = "src/vcs/bus_factor.rs"
 qualified = "greedy_truck_factor"
 metric = "cognitive"
 value = 15.0
+
+[[entry]]
+path = "src/vcs/bus_factor.rs"
+qualified = "greedy_truck_factor"
+metric = "halstead.effort"
+value = 47960.96527182218
 
 [[entry]]
 path = "src/vcs/bus_factor.rs"
@@ -1227,7 +1275,7 @@ value = 6.0
 path = "src/vcs/git/cached.rs"
 qualified = "build_cached"
 metric = "halstead.effort"
-value = 74812.5424082547
+value = 78921.96719178827
 
 [[entry]]
 path = "src/vcs/git/cached.rs"
@@ -1257,13 +1305,13 @@ value = 6.0
 path = "src/vcs/git/diff_parse.rs"
 qualified = "unquote_git_path"
 metric = "halstead.effort"
-value = 71494.28221151498
+value = 74373.33475054632
 
 [[entry]]
 path = "src/vcs/git/history.rs"
 qualified = "collect_events"
 metric = "halstead.effort"
-value = 48928.29416311421
+value = 52128.25957334215
 
 [[entry]]
 path = "src/vcs/git/history.rs"
@@ -1300,6 +1348,12 @@ path = "src/vcs/git/history.rs"
 qualified = "process_commit"
 metric = "nexits"
 value = 9.0
+
+[[entry]]
+path = "src/vcs/git/jit.rs"
+qualified = "collect_touched"
+metric = "halstead.effort"
+value = 49957.782203054114
 
 [[entry]]
 path = "src/vcs/git/jit.rs"
@@ -1341,7 +1395,7 @@ value = 6.0
 path = "src/vcs/git/jit.rs"
 qualified = "history_features"
 metric = "halstead.effort"
-value = 52560.02538757721
+value = 56372.217728048636
 
 [[entry]]
 path = "src/vcs/git/jit.rs"
@@ -1380,6 +1434,12 @@ metric = "nexits"
 value = 5.0
 
 [[entry]]
+path = "src/vcs/jit.rs"
+qualified = "score"
+metric = "halstead.effort"
+value = 48585.950863463186
+
+[[entry]]
 path = "src/vcs/options.rs"
 qualified = "parse_iso8601"
 metric = "nexits"
@@ -1398,22 +1458,28 @@ metric = "nargs"
 value = 5.0
 
 [[entry]]
+path = "src/vcs/replay.rs"
+qualified = "replay"
+metric = "halstead.effort"
+value = 49393.80551407597
+
+[[entry]]
 path = "src/vcs/score.rs"
 qualified = "apply_percentile"
 metric = "halstead.effort"
-value = 68450.87280037583
+value = 71674.67451821786
 
 [[entry]]
 path = "src/vcs/stats.rs"
 qualified = "Accumulator::finalize"
 metric = "halstead.effort"
-value = 79569.58843331039
+value = 89416.15847479667
 
 [[entry]]
 path = "src/vcs/stats.rs"
 qualified = "Accumulator::record"
 metric = "halstead.effort"
-value = 56240.27018612609
+value = 59083.201813811575
 
 [[entry]]
 path = "src/vcs/trend.rs"
@@ -1425,4 +1491,4 @@ value = 5.0
 path = "src/wire.rs"
 qualified = "CodeMetrics::from"
 metric = "halstead.effort"
-value = 49790.15156224738
+value = 55821.36704417831

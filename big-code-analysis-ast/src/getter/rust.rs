@@ -76,9 +76,9 @@ impl Getter for RustCode {
             | PrimitiveType3 | PrimitiveType4 | PrimitiveType5 | PrimitiveType6
             | PrimitiveType7 | PrimitiveType8 | PrimitiveType9 | PrimitiveType10
             | PrimitiveType11 | PrimitiveType12 | PrimitiveType13 | PrimitiveType14
-            | PrimitiveType15 | PrimitiveType16 | PrimitiveType17 | Fn | SEMI | COLONCOLON
-            | Const | Static | Enum | Struct | Trait | Impl | Use | Mod | Pub | Type | Union
-            | Where | Extern | Dyn => TokenRole::Operator,
+            | PrimitiveType15 | PrimitiveType16 | PrimitiveType17 | Fn | SEMI | COLON
+            | COLONCOLON | Const | Static | Enum | Struct | Trait | Impl | Use | Mod | Pub
+            | Type | Union | Where | Extern | Dyn => TokenRole::Operator,
             // FieldIdentifier (e.g. `p.x`) and TypeIdentifier (e.g. `Vec`,
             // `HashMap`) are operand-class names — C++ and Go classify them
             // the same way (see arms ~588 and ~862 below). Omitting them

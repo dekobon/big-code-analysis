@@ -523,16 +523,16 @@ fn soft_limit_is_derived_by_metric_direction() {
 /// expression, `breaches_limit(v.value, ceiling, v.lower_is_worse)`.
 ///
 /// The test above cannot reach it: `mi.original=20` is a floor that every
-/// one-line fixture function (all measure ≈147-149) clears, so its
+/// one-line fixture function (all measure ≈145-148) clears, so its
 /// population is empty at both tiers and the partition never runs.
 /// Hard-coding `false` there — the pre-#1166 "higher is worse" assumption
 /// — failed none of the suite's 5053 tests.
 ///
-/// A floor of `147.5` splits the fixture's three measured values
-/// (146.9456 ×3, 147.7445 ×6, 148.655 ×20): three sit below it and
-/// breach, all 29 sit below the derived `155.264` soft floor. Read with
+/// A floor of `146` splits the fixture's three measured values
+/// (145.7045 ×3, 146.5454 ×6, 147.5134 ×20): three sit below it and
+/// breach, all 29 sit below the derived `153.684` soft floor. Read with
 /// the direction inverted the hard tier would instead collect the 26
-/// *above* 147.5, so the two readings share no count.
+/// *above* 146, so the two readings share no count.
 ///
 /// Both metrics are explained in one run, and both carry a *non-empty*
 /// population — which is the second thing this pins. Every other
@@ -551,7 +551,7 @@ fn a_lower_is_worse_metric_partitions_offenders_by_direction() {
         "--paths",
         "lib.rs",
         "--explain-threshold",
-        "mi.original=147.5",
+        "mi.original=146",
         "--explain-threshold",
         &candidate,
     ]));

@@ -461,7 +461,7 @@ mod tests {
             "if True:
                  a = 1 + 2",
             "foo.py",
-            &mut ["if", "=", "+"],
+            &mut ["if", ":", "=", "+"],
             &mut ["True", "a", "1", "2"],
         );
     }
@@ -507,8 +507,24 @@ mod tests {
                      b = 2 + a
                  c = 3 + 3",
             "foo.py",
-            &mut ["def", "=", "+"],
+            &mut ["def", "()", ":", "=", "+"],
             &mut ["foo", "bar", "toto", "a", "b", "c", "1", "2", "3"],
+        );
+    }
+
+    /// #1486: Python bills a call's parentheses the way the JS family
+    /// does — one `()` entry for the pair, rendered as the pair. Before
+    /// it, Python reported no operator here at all.
+    #[cfg(all(feature = "javascript", feature = "python"))]
+    #[test]
+    fn python_call_parens_pair_like_javascript() {
+        check_ops(LANG::Python, "f(x)", "foo.py", &mut ["()"], &mut ["f", "x"]);
+        check_ops(
+            LANG::Javascript,
+            "f(x)",
+            "foo.js",
+            &mut ["()"],
+            &mut ["f", "x"],
         );
     }
 
@@ -562,7 +578,7 @@ mod tests {
             LANG::Rust,
             "let: usize a = 5; let b: f32 = 7.0; let c: i32 = 3;",
             "foo.rs",
-            &mut ["let", "usize", "=", ";", "f32", "i32"],
+            &mut ["let", ":", "usize", "=", ";", "f32", "i32"],
             &mut ["a", "b", "c", "5", "7.0", "3"],
         );
     }
