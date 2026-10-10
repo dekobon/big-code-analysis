@@ -200,3 +200,44 @@ fn cpp_and_mozcpp_agree_on_this() {
         "`this` must be billed as an operand: {cpp:?}"
     );
 }
+
+#[cfg(all(feature = "cpp", feature = "mozcpp"))]
+#[test]
+fn cpp_and_mozcpp_agree_on_modifiers() {
+    // #1578 added the declaration modifiers to the operator arm of both
+    // `CppCode::get_op_type` and its `MozcppCode` clone. Mozcpp owns no
+    // file extension, so nothing else at the metric level exercises its
+    // copy.
+    //
+    // The fixture carries one of each wrapper the grammar puts a
+    // modifier in — `access_specifier`, `storage_class_specifier`,
+    // `virtual_specifier`, `type_qualifier` — beside a linkage
+    // specification whose `"C"` must stay an operand.
+    let source = "class C { public: static int a; virtual void f() const override final; \
+                  mutable int b; };\n\
+                  extern \"C\" inline constexpr int g() { return 1; }\n";
+
+    let cpp = metric_sums(LANG::Cpp, source, "cpp");
+    let mozcpp = metric_sums(LANG::Mozcpp, source, "cpp");
+    assert_eq!(
+        cpp, mozcpp,
+        "Cpp and Mozcpp must agree on modifier classification"
+    );
+
+    let get = |key: &str| metric(&cpp, key);
+    // Operators: `class`, `{` x2, `public`, `:`, `static`, `int` x3,
+    // `;` x5, `virtual`, `void`, `(` x2, `const`, `override`, `final`,
+    // `mutable`, `extern`, `inline`, `constexpr`, `return` -> N1 = 26.
+    // Before #1578 the ten modifiers billed nothing and this was 16.
+    assert_eq!(
+        get("halstead.operators"),
+        26,
+        "each modifier must bill once as an operator: {cpp:?}"
+    );
+    // Operands: `C`, `a`, `f`, `b`, `"C"`, `g`, `1` -> N2 = 7.
+    assert_eq!(
+        get("halstead.operands"),
+        7,
+        "no modifier may bill as an operand: {cpp:?}"
+    );
+}

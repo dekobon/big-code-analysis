@@ -602,10 +602,12 @@ mod tests {
     /// among the operands would pass on that. The operator side is what
     /// pins the removal.
     #[cfg(any(
+        feature = "cpp",
         feature = "csharp",
         feature = "groovy",
         feature = "java",
         feature = "kotlin",
+        feature = "mozcpp",
         feature = "typescript"
     ))]
     #[track_caller]
@@ -6917,6 +6919,273 @@ end",
         assert_operator_rows::<CParser>("foo.c", ROWS);
     }
 
+    /// #1578: C bills each storage class, function specifier and type
+    /// qualifier as its keyword leaf, never as the
+    /// `storage_class_specifier` / `type_qualifier` wrapper. Before the
+    /// fix none of them billed.
+    #[cfg(feature = "c")]
+    #[test]
+    fn c_modifiers_are_operators_1578() {
+        const ROWS: &[(&str, &str, [u64; 2])] = &[
+            // `static`, `extern`, `register`, `auto`, `int` x4, `;` x4
+            (
+                "storage classes",
+                "static int a;\nextern int b;\nregister int c;\nauto int d;\n",
+                [6, 12],
+            ),
+            // `const`, `volatile`, `int` x3, `;` x3, `*`, `restrict`,
+            // `_Atomic`
+            (
+                "qualifiers",
+                "const volatile int a;\nint * restrict p;\n_Atomic int g;\n",
+                [7, 11],
+            ),
+            // `inline`, `int`, `()` x2, `void` x3, `;` x2, `_Noreturn`
+            (
+                "function specifiers",
+                "inline int f(void);\n_Noreturn void g(void);\n",
+                [6, 10],
+            ),
+            // `__inline`, `int` x3, `()`, `void`, `;` x3, `__thread`, `*`,
+            // `__restrict__`: each vendor spelling is its own operator
+            (
+                "vendor spellings",
+                "__inline int f(void);\n__thread int t;\nint * __restrict__ q;\n",
+                [8, 12],
+            ),
+            // `int`, `*`, `const`, `=`, `;`: a pointer's own qualifier
+            ("pointer qualifier", "int * const p = 0;\n", [5, 5]),
+            // `_Alignas`, `()`, `int`, `;`
+            ("alignas", "_Alignas(8) int m;\n", [4, 4]),
+            // `int`, `=`, `__extension__`, `;`: the expression prefix
+            ("extension expression", "int q = __extension__ 1;\n", [4, 4]),
+        ];
+        assert_operator_rows::<CParser>("foo.c", ROWS);
+    }
+
+    /// #1578: the issue's C fixture, by vocabulary.
+    #[cfg(feature = "c")]
+    #[test]
+    fn c_modifier_vocabulary_1578() {
+        let ops = ops_of::<CParser>(
+            "static inline const volatile int a = 1;\nextern int b;\nregister int c;\n",
+            "foo.c",
+        );
+        assert_eq!(
+            ops.operators,
+            [
+                ";", "=", "const", "extern", "inline", "int", "register", "static", "volatile",
+            ]
+        );
+        assert_eq!(ops.operands, ["1", "a", "b", "c"]);
+    }
+
+    /// #1578 rows shared by the two C++ clones: C's modifiers plus C++'s
+    /// own. Each bills as its keyword leaf, never as the
+    /// `access_specifier` / `virtual_specifier` / `type_qualifier` /
+    /// `explicit_function_specifier` wrapper.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const CPP_MODIFIER_ROWS: &[(&str, &str, [u64; 2])] = &[
+        // `class`, `{}`, `public`, `protected`, `private`, `:` x3,
+        // `int` x3, `;` x4
+        (
+            "access labels",
+            "class C { public: int a; protected: int b; private: int c; };\n",
+            [8, 15],
+        ),
+        // `struct`, `{}`, `static`, `int` x2, `;` x4, `mutable`,
+        // `virtual`, `void`, `()`, `const`, `override`, `final`
+        (
+            "member modifiers",
+            "struct S { static int a; mutable int b; virtual void f() const override final; };\n",
+            [12, 16],
+        ),
+        // `struct`, `{}`, `friend`, `class`, `;` x3, `explicit`, `()`,
+        // `int`
+        (
+            "friend and explicit",
+            "struct S { friend class D; explicit S(int); };\n",
+            [8, 10],
+        ),
+        // `extern`, `inline`, `constexpr`, `int`, `()`, `{}`, `return`,
+        // `;`: the `"C"` is an operand
+        (
+            "linkage specification",
+            "extern \"C\" inline constexpr int g() { return 1; }\n",
+            [8, 8],
+        ),
+        // `consteval`, `int` x2, `()`, `;` x2, `constinit`,
+        // `thread_local`, `=`
+        (
+            "C++20 specifiers",
+            "consteval int h();\nconstinit thread_local int t = 1;\n",
+            [7, 9],
+        ),
+        // `void` x2, `()` x3, `noexcept` x2, `;` x2: the leaf bills, the
+        // `noexcept` wrapper does not
+        (
+            "exception specification",
+            "void k() noexcept;\nvoid k2() noexcept(true);\n",
+            [4, 9],
+        ),
+        // `struct`, `final`, `{}` x3, `;` x3, `class` x2, `:` x2,
+        // `public`, `private`, `virtual`
+        (
+            "base clauses",
+            "struct B final {};\nclass E : public B {};\nclass F : private virtual B {};\n",
+            [9, 15],
+        ),
+        // `void`, `()` x2, `{}` x2, `if`, `constexpr`
+        (
+            "if constexpr",
+            "void f() { if constexpr (true) {} }\n",
+            [5, 7],
+        ),
+        // `inline`, `namespace`, `{}`
+        ("inline namespace", "inline namespace v1 {}\n", [3, 3]),
+        // `int` x2, `=` x2, `;` x2: the contextual words as names add
+        // no operator
+        (
+            "contextual names",
+            "int override = 1;\nint final = override;\n",
+            [3, 6],
+        ),
+    ];
+
+    /// One call per clone, so reverting either arm fails its own row;
+    /// Mozcpp owns no file extension, so this is its only lib coverage.
+    #[cfg(all(feature = "cpp", feature = "mozcpp"))]
+    #[test]
+    fn cpp_modifiers_are_operators_1578() {
+        assert_operator_rows::<CppParser>("foo.cpp", CPP_MODIFIER_ROWS);
+        assert_operator_rows::<MozcppParser>("foo.cpp", CPP_MODIFIER_ROWS);
+    }
+
+    /// #1578: the issue's C++ fixture, by vocabulary, in both clones,
+    /// plus `override` and `final` used as names. No getter edit makes
+    /// that second half fail, since the arms carry no guard on those
+    /// words: it pins the grammar emitting an `identifier` for a name,
+    /// so a bump that routes one to the keyword kind trips it.
+    #[cfg(all(feature = "cpp", feature = "mozcpp"))]
+    #[test]
+    fn cpp_modifier_vocabulary_1578() {
+        const SOURCE: &str = "class C { public: static int a; \
+             virtual void f() const override final; mutable int b; };\n\
+             extern \"C\" inline constexpr int g() { return 1; }\n";
+        const NAMES: &str = "int override = 1;\nint final() { return override; }\n";
+        let expected_operators = [
+            "()",
+            ":",
+            ";",
+            "class",
+            "const",
+            "constexpr",
+            "extern",
+            "final",
+            "inline",
+            "int",
+            "mutable",
+            "override",
+            "public",
+            "return",
+            "static",
+            "virtual",
+            "void",
+            "{}",
+        ];
+        let expected_operands = ["\"C\"", "1", "C", "a", "b", "f", "g"];
+
+        let cpp = ops_of::<CppParser>(SOURCE, "foo.cpp");
+        assert_eq!(cpp.operators, expected_operators);
+        assert_eq!(cpp.operands, expected_operands);
+        let mozcpp = ops_of::<MozcppParser>(SOURCE, "foo.cpp");
+        assert_eq!(mozcpp.operators, expected_operators);
+        assert_eq!(mozcpp.operands, expected_operands);
+
+        assert_keywords_are_operands_only::<CppParser>(NAMES, "foo.cpp", &["override", "final"]);
+        assert_keywords_are_operands_only::<MozcppParser>(NAMES, "foo.cpp", &["override", "final"]);
+    }
+
+    /// #1578: every modifier spelling the arms list bills under its own
+    /// name, one fixture line apiece, so dropping any one kind from an
+    /// arm fails its own entry. The row tests above pin the counts; this
+    /// one pins the spellings they leave out.
+    #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp"))]
+    #[track_caller]
+    fn assert_modifier_spellings_bill<T: crate::MetricSuite>(file: &str, rows: &[(&str, &str)]) {
+        for (spelling, source) in rows {
+            let ops = ops_of::<T>(source, file);
+            assert!(
+                ops.operators.iter().any(|o| o == spelling),
+                "{file}: `{spelling}` must be an operator in {source:?}; operators were {:?}",
+                ops.operators
+            );
+            assert!(
+                !ops.operands.iter().any(|o| o == spelling),
+                "{file}: `{spelling}` must not be an operand; operands were {:?}",
+                ops.operands
+            );
+        }
+    }
+
+    /// The spellings C and C++ share, each in a declaration both
+    /// grammars parse without error.
+    #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp"))]
+    const C_FAMILY_MODIFIER_SPELLINGS: &[(&str, &str)] = &[
+        ("static", "static int a;\n"),
+        ("extern", "extern int a;\n"),
+        ("register", "register int a;\n"),
+        ("inline", "inline int f(void);\n"),
+        ("__inline", "__inline int f(void);\n"),
+        ("__inline__", "__inline__ int f(void);\n"),
+        ("__forceinline", "__forceinline int f(void);\n"),
+        ("thread_local", "thread_local int a;\n"),
+        ("__thread", "__thread int a;\n"),
+        ("const", "const int a = 1;\n"),
+        ("constexpr", "constexpr int a = 1;\n"),
+        ("volatile", "volatile int a;\n"),
+        ("restrict", "int * restrict p;\n"),
+        ("__restrict__", "int * __restrict__ p;\n"),
+        ("_Atomic", "_Atomic int a;\n"),
+        ("_Noreturn", "_Noreturn void f(void);\n"),
+        ("noreturn", "noreturn void f(void);\n"),
+        ("_Nonnull", "int * _Nonnull p;\n"),
+        ("alignas", "alignas(8) int a;\n"),
+        ("_Alignas", "_Alignas(8) int a;\n"),
+        ("__extension__", "__extension__ int a;\n"),
+    ];
+
+    #[cfg(feature = "c")]
+    #[test]
+    fn c_modifier_spellings_bill_1578() {
+        assert_modifier_spellings_bill::<CParser>("foo.c", C_FAMILY_MODIFIER_SPELLINGS);
+        // C's storage class `auto`; C++ has none (see the Cpp arm).
+        assert_modifier_spellings_bill::<CParser>("foo.c", &[("auto", "auto int a;\n")]);
+    }
+
+    #[cfg(all(feature = "cpp", feature = "mozcpp"))]
+    #[test]
+    fn cpp_modifier_spellings_bill_1578() {
+        const CPP_ONLY: &[(&str, &str)] = &[
+            ("virtual", "struct S { virtual void f(); };\n"),
+            ("mutable", "struct S { mutable int a; };\n"),
+            ("constinit", "constinit int a = 1;\n"),
+            ("consteval", "consteval int f() { return 1; }\n"),
+            ("explicit", "struct S { explicit S(int); };\n"),
+            ("friend", "struct S { friend class D; };\n"),
+            ("public", "class C { public: int a; };\n"),
+            ("private", "class C { private: int a; };\n"),
+            ("protected", "class C { protected: int a; };\n"),
+            ("override", "struct S { void f() override; };\n"),
+            ("final", "struct S final {};\n"),
+            ("noexcept", "void f() noexcept;\n"),
+        ];
+        for rows in [C_FAMILY_MODIFIER_SPELLINGS, CPP_ONLY] {
+            assert_modifier_spellings_bill::<CppParser>("foo.cpp", rows);
+            assert_modifier_spellings_bill::<MozcppParser>("foo.cpp", rows);
+        }
+    }
+
     /// #1552: ObjC bills C's `struct` and its own class and protocol
     /// declaration keywords. `@class` already billed its `@` and stays
     /// as it was.
@@ -11895,13 +12164,13 @@ S s; int a = s[1]; auto t = co_await s;
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     #[track_caller]
     fn assert_cpp_operator_names<T: crate::MetricSuite>(label: &str) {
-        // Operators (n1 = 17, N1 = 40): `operator` 5 (four
+        // Operators (n1 = 18, N1 = 41): `operator` 5 (four
         // `operator_name`s and the `operator_cast`); the names `[]` 1,
         // `()` 1, `""` 1; `co_await` 2 (the name and the expression);
         // the `(` of a parameter list 5; `;` 9; `int` 3; `long` 3;
         // `bool` 2; `=` 2; `{` 1; `void` 1; `unsigned` 1; `::` 1; the
-        // subscript `[` 1; `struct` 1 (#1552). `auto` and `const` are in
-        // no arm.
+        // subscript `[` 1; `struct` 1 (#1552); the trailing `const` 1
+        // (#1578). `auto` is in no arm.
         //
         // Operands (n2 = 6, N2 = 9): `s` 3, `S` 2 (the qualifier in
         // `S::operator bool` is a namespace identifier, which #1096
@@ -11909,7 +12178,7 @@ S s; int a = s[1]; auto t = co_await s;
         //
         // Before #1296: (12, 30, 6, 9) with `struct`, the five operator
         // kinds billed nowhere.
-        assert_halstead_counts::<T>(CPP_OPERATOR_NAMES, "ops.cpp", [17, 40, 6, 9], label);
+        assert_halstead_counts::<T>(CPP_OPERATOR_NAMES, "ops.cpp", [18, 41, 6, 9], label);
 
         // `operator[]` / `operator()` are kinds of their own, so they sit
         // beside the subscript `[` and the parameter-list `(` as two more

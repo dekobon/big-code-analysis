@@ -136,6 +136,14 @@ impl Getter for MozcppCode {
             // The type-declaration keywords — the derivation is on the
             // Cpp twin (#1552, #1557).
             | Class | Struct | Union | Enum | Namespace | Template | Typename | Typedef | Using
+            // The declaration modifiers — the derivation is on the Cpp
+            // twin (#1578). The Gecko `MOZ_*` annotation macros stay
+            // unbilled, as attributes do.
+            | Static | Extern | Register | Inline | Inline2 | Inline3 | Forceinline
+            | ThreadLocal | Thread | Const | Constexpr | Volatile | Restrict | Restrict2
+            | Atomic | Noreturn | Noreturn2 | Nonnull | Alignas | Alignas2 | Extension
+            | Virtual | Mutable | Constinit | Consteval | Explicit | Friend | Public | Private
+            | Protected | Override | Final | Noexcept2
                 => TokenRole::Operator,
             // `CharLiteral` — the full derivation lives on the same arm
             // in `src/getter/c.rs` (#1316): the wrapper is the only

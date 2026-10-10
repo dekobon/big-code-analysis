@@ -203,6 +203,34 @@ impl Getter for CppCode {
             // spellings of `template <class T>` still score alike, now
             // both billed.
             | Class | Struct | Union | Enum | Namespace | Template | Typename | Typedef | Using
+            // C's storage classes, function specifiers and type
+            // qualifiers (#1578; the derivation is on the C arm), plus
+            // C++'s own modifiers: `virtual`, `mutable`, `constinit`,
+            // `consteval`, `explicit`, `friend`, the access specifiers
+            // and the `override` / `final` virt-specifiers, and the
+            // `noexcept` of an exception specification. Each is the
+            // keyword leaf of an unclassified wrapper
+            // (`storage_class_specifier`, `type_qualifier`,
+            // `virtual_specifier`, `access_specifier`,
+            // `explicit_function_specifier`, the `noexcept` node that
+            // `Noexcept` names and `Noexcept2` is the leaf of) or sits
+            // bare in its declaration (`virtual`, `friend`), so each
+            // bills once. An access label bills as Java's `public` does,
+            // beside the `:` that already billed. `const` bills in a
+            // member-function trailer and a pointer declarator alike,
+            // and `constexpr` in `if constexpr`, which it qualifies.
+            //
+            // `override` and `final` are contextual: used as a name
+            // (`int override = 1;`) they parse as an `identifier` and
+            // stay operands, so they need no guard. `auto` is not here:
+            // in C++ it is a placeholder type, not a storage class, and
+            // the grammar emits it only under
+            // `placeholder_type_specifier`.
+            | Static | Extern | Register | Inline | Inline2 | Inline3 | Forceinline
+            | ThreadLocal | Thread | Const | Constexpr | Volatile | Restrict | Restrict2
+            | Atomic | Noreturn | Noreturn2 | Nonnull | Alignas | Alignas2 | Extension
+            | Virtual | Mutable | Constinit | Consteval | Explicit | Friend | Public | Private
+            | Protected | Override | Final | Noexcept2
                 => TokenRole::Operator,
             // `CharLiteral` — the full derivation lives on the same arm
             // in `src/getter/c.rs` (#1316): the wrapper is the only

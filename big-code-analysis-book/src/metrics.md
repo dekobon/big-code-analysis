@@ -777,7 +777,21 @@ tokens involved the same way they spell real operators:
   `permits` clause keyword beside `extends` and `implements`. Java's are
   the keywords, never their `modifiers` wrapper. The `static` of
   `import static` and `requires static` bills nothing, as `import` does not, and
-  the words used as names (`var sealed = 1`) stay operands.
+  the words used as names (`var sealed = 1`) stay operands. #1578 made
+  C, C++ and Mozcpp bill every storage class, function specifier and
+  type qualifier: `static`, `extern`, `register`, `inline`,
+  `thread_local`, `const`, `volatile`, `restrict`, `_Atomic`,
+  `constexpr`, `alignas` and their vendor spellings (`__inline`,
+  `__restrict__`, `__thread`), plus C++'s `virtual`, `mutable`,
+  `constinit`, `consteval`, `explicit`, `friend`, the access labels,
+  `override`, `final` and `noexcept`. Each is the keyword, never its
+  `storage_class_specifier`, `type_qualifier` or `virtual_specifier`
+  wrapper, so the `const` of `void f() const` and of `int * const p`
+  each bill once. C bills its storage class `auto`. C++'s `auto` is a
+  placeholder type and stays unbilled. `extern "C"` bills `extern` and
+  keeps `"C"` an operand. Attributes, the MS calling conventions and
+  the Gecko `MOZ_*` macros bill nothing, and `override` and `final`
+  used as names (`int override = 1;`) stay operands.
 - **Angle brackets that enclose types are one bracket pair.** The `<`
   and `>` around type arguments and type parameters count as one `<>`
   operator, billed at the `<` as `()` is at the `(`, and the `>` counts

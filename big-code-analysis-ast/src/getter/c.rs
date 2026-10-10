@@ -86,7 +86,25 @@ impl Getter for CCode {
             // C++-only forms, so leaving them out here would score a
             // header differently by the grammar that parsed it. The
             // derivation is on the Cpp arm.
-            | Struct | Union | Enum | Typedef => TokenRole::Operator,
+            | Struct | Union | Enum | Typedef
+            // Storage classes, function specifiers and type qualifiers,
+            // billed as every class language bills its modifiers
+            // (#1578). Each is the keyword leaf of an unclassified
+            // `storage_class_specifier` / `type_qualifier` /
+            // `alignas_qualifier`, so it bills once, as `const` does in
+            // a pointer declarator (`int * const p`). The vendor
+            // spellings (`__inline`, `__restrict__`, `__thread`, …) are
+            // kinds of their own and bill under their own name. `auto`
+            // is a storage class in C, the only place this grammar
+            // emits it. `__extension__` bills in an expression too,
+            // where it is the prefix of an `extension_expression`.
+            // Attributes (`__attribute__`, `__declspec`, `[[…]]`) and
+            // the MS calling conventions stay unbilled: they annotate a
+            // declaration rather than spell part of it.
+            | Static | Extern | Register | Auto | Inline | Inline2 | Inline3 | Forceinline
+            | ThreadLocal | Thread | Const | Constexpr | Volatile | Restrict | Restrict2
+            | Atomic | Noreturn | Noreturn2 | Nonnull | Alignas | Alignas2 | Extension
+                => TokenRole::Operator,
             // `CharLiteral` joins the operand list here for the whole
             // C family — `cpp.rs`, `mozcpp.rs` and `objc.rs` carry the
             // same arm and point back at this note (#1316). Before it a
