@@ -43,6 +43,19 @@ impl Checker for GroovyCode {
         )
     }
 
+    // A primitive type is a name kind spelled `int`, `void`, … (#1568),
+    // which only the bytes can tell, and this predicate gets none. It is
+    // consulted only for a node `GroovyCode::get_op_type_with_code`
+    // already billed as an operator, and that bills these two kinds as
+    // one only for a primitive spelling, so the kind alone suffices to
+    // key each primitive by its text.
+    fn is_primitive(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Groovy::Identifier | Groovy::TypeIdentifier
+        )
+    }
+
     fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         matches!(node.kind_id().into(), Groovy::Closure)
     }

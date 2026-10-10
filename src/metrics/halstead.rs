@@ -2946,20 +2946,15 @@ mod tests {
                 // place of Java's `MessageFormat.format(...)`. amaanq's
                 // grammar inherits Java's tokenisation, so n1/N1/n2/N2
                 // shapes match Java up to those substitutions.
-                // The dekobon grammar parses primitive type names
-                // (`void`, `int`, `String`) as `type_identifier`
-                // rather than as distinct keyword tokens, so they
-                // count as operands here — the prior amaanq grammar
-                // treated them as operators. Net shift: −2 unique
-                // operators (`void`, `int`), +2 unique operands
-                // (`void`, `int` were the only two type_identifiers
-                // not already counted as operands, since `String`
-                // was already an identifier in the prior grammar's
-                // counting).
-                // `class` is the ninth unique operator since #1552, and
-                // `static` the tenth since #1565.
-                assert_eq!(metric.halstead.unique_operators(), 10);
-                assert_eq!(metric.halstead.unique_operands(), 13);
+                // The dekobon grammar parses the primitive type names
+                // `void` and `int` as `type_identifier`, the kind of
+                // `String`; since #1568 their spelling bills them as
+                // operators, as Java's keyword tokens are, while
+                // `String` stays an operand.
+                // `class` is an operator since #1552, `static` since
+                // #1565, and `void` and `int` since #1568.
+                assert_eq!(metric.halstead.unique_operators(), 12);
+                assert_eq!(metric.halstead.unique_operands(), 11);
                 // `bugs` is `effort.powf(2/3) / 3000`, and the platform libm's
                 // `powf` differs in the last ulp: macOS rendered this value
                 // as `…92342184` where Linux and Windows gave `…923421845`.
@@ -2969,20 +2964,20 @@ mod tests {
                     { ".bugs" => insta::rounded_redaction(12) },
                     @r#"
                 {
-                  "unique_operators": 10,
-                  "total_operators": 24,
-                  "unique_operands": 13,
-                  "total_operands": 23,
+                  "unique_operators": 12,
+                  "total_operators": 26,
+                  "unique_operands": 11,
+                  "total_operands": 21,
                   "length": 47,
-                  "estimated_program_length": 81.32499728470782,
-                  "purity_ratio": 1.730319091163996,
+                  "estimated_program_length": 81.07329781366414,
+                  "purity_ratio": 1.7249637832694498,
                   "vocabulary": 23,
                   "volume": 212.60741193467962,
-                  "difficulty": 8.846153846153847,
-                  "level": 0.11304347826086956,
-                  "effort": 1880.7578748067813,
-                  "time": 104.48654860037674,
-                  "bugs": 0.050788728209
+                  "difficulty": 11.454545454545455,
+                  "level": 0.0873015873015873,
+                  "effort": 2435.3212639790577,
+                  "time": 135.29562577661432,
+                  "bugs": 0.06033688972
                 }
                 "#
                 );
@@ -3009,36 +3004,38 @@ mod tests {
             |metric| {
                 // The dekobon grammar consolidates the 8 primitive
                 // type names (`byte`, `short`, `int`, `long`, `char`,
-                // `float`, `double`, `boolean`) under `type_identifier`
-                // — so they count as operands, not as distinct
-                // operators. Likewise numeric literals collapse to one
-                // `NumberLiteral` shape (no Hex/Octal/Binary/Decimal
-                // split), and `'x'` parses as `StringLiteral` (Groovy
-                // single-quoted strings) rather than as
-                // `CharacterLiteral`. Operators remaining in this
-                // fixture: `=`, the `class` keyword (#1552) and the
-                // class-body braces (only `{` is in the operator set).
-                // True/false collapse under one `BooleanLiteral`.
-                assert_eq!(metric.halstead.unique_operators(), 3);
-                assert_eq!(metric.halstead.unique_operands(), 27);
+                // `float`, `double`, `boolean`) under `type_identifier`;
+                // since #1568 each bills as a distinct operator keyed by
+                // its text, as Java's `java_primitive_ops` twin does.
+                // Numeric literals collapse to one `NumberLiteral` shape
+                // (no Hex/Octal/Binary/Decimal split), and `'x'` parses
+                // as `StringLiteral` (Groovy single-quoted strings)
+                // rather than as `CharacterLiteral`.
+                // expected: operators `=` x9, `class`, `{}` and the eight
+                // primitives (`boolean` twice) — n1 11, N1 20; operands
+                // `Prims`, the nine names and nine values — n2 19, N2 19.
+                assert_eq!(metric.halstead.unique_operators(), 11);
+                assert_eq!(metric.halstead.total_operators(), 20);
+                assert_eq!(metric.halstead.unique_operands(), 19);
+                assert_eq!(metric.halstead.total_operands(), 19);
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
                 {
-                  "unique_operators": 3,
-                  "total_operators": 11,
-                  "unique_operands": 27,
-                  "total_operands": 28,
+                  "unique_operators": 11,
+                  "total_operators": 20,
+                  "unique_operands": 19,
+                  "total_operands": 19,
                   "length": 39,
-                  "estimated_program_length": 133.1368500605771,
-                  "purity_ratio": 3.413765386168644,
+                  "estimated_program_length": 118.76437056043838,
+                  "purity_ratio": 3.045240270780471,
                   "vocabulary": 30,
                   "volume": 191.36873322873222,
-                  "difficulty": 1.5555555555555556,
-                  "level": 0.6428571428571428,
-                  "effort": 297.6846961335835,
-                  "time": 16.53803867408797,
-                  "bugs": 0.014861058740943886
+                  "difficulty": 5.5,
+                  "level": 0.18181818181818182,
+                  "effort": 1052.5280327580272,
+                  "time": 58.47377959766818,
+                  "bugs": 0.0344906352248725
                 }
                 "#
                 );
@@ -3123,10 +3120,13 @@ mod tests {
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_closure_operators_and_operands() {
-        check_metrics::<GroovyParser>("def double = { x -> x * 2 }", "foo.groovy", |metric| {
+        // `twice`, not the original `double`: Groovy reserves the
+        // primitive type names, so `def double` is not valid Groovy and
+        // `double` would bill as the primitive operator (#1568).
+        check_metrics::<GroovyParser>("def twice = { x -> x * 2 }", "foo.groovy", |metric| {
             // Closure with arrow-style parameter list.
             // Distinct operators: def, =, {}, ->, * = 5.
-            // Distinct operands: double, x, 2 = 3.
+            // Distinct operands: twice, x, 2 = 3.
             assert_eq!(metric.halstead.unique_operators(), 5);
             assert_eq!(metric.halstead.unique_operands(), 3);
         });
@@ -6304,7 +6304,9 @@ end",
     /// #1566: the class-literal shapes Java and Groovy spell alike. The
     /// expected parts are what Groovy — untouched by #1566 — already
     /// billed for `Foo.class`: the type name an operand, the `.` and
-    /// `[]` operators, and the `class` tail an operand. Both tests below
+    /// `[]` operators, and the `class` tail an operand. A primitive or
+    /// `void` receiver is an operator keyed by its spelling, as Java's
+    /// keyword is; Groovy joined that half in #1568. Both tests below
     /// read this one table, so the two languages cannot drift apart.
     #[cfg(any(feature = "groovy", feature = "java"))]
     const SHARED_CLASS_LITERALS: &[ClassLiteralParts] = &[
@@ -6315,6 +6317,9 @@ end",
             &["."],
             &["List", "class", "java", "util"],
         ),
+        ("int.class", &[".", "int"], &["class"]),
+        ("int[].class", &[".", "[]", "int"], &["class"]),
+        ("void.class", &[".", "void"], &["class"]),
     ];
 
     /// Asserts each literal's operator and operand vocabularies inside
@@ -6358,8 +6363,8 @@ end",
     /// already made. Before the fix the literal billed as one operand
     /// spelled by its whole text while `.`, `[]` and a primitive inside
     /// it also billed as operators. The shared rows take their expected
-    /// values from Groovy; the primitive and `void` rows are Java's own,
-    /// since Groovy still bills `int` and `void` as operands (#1568).
+    /// values from Groovy, whose primitive and `void` rows joined them
+    /// in #1568.
     #[cfg(feature = "java")]
     #[test]
     fn java_class_literal_bills_its_parts_1566() {
@@ -6372,16 +6377,6 @@ end",
             FRAME_OPS,
             FRAME_OPERANDS,
             SHARED_CLASS_LITERALS,
-        );
-        assert_class_literal_parts::<JavaParser>(
-            "Foo.java",
-            frame,
-            FRAME_OPS,
-            FRAME_OPERANDS,
-            &[
-                ("int.class", &[".", "int"], &["class"]),
-                ("void.class", &[".", "void"], &["class"]),
-            ],
         );
         // The totals pin the multiplicities a vocabulary cannot: the frame
         // bills four operators (`class`, `{}`, `=`, `;`) and three operands
@@ -6417,6 +6412,97 @@ end",
         );
     }
 
+    /// #1568: a Groovy primitive type bills as the operator Java's
+    /// keyword does, keyed by its spelling, in every position the
+    /// grammar gives it: a `type_identifier` where a type is declared,
+    /// a plain `identifier` where the grammar misreads an uninitialised
+    /// local (`int t` parses as two expression statements). Each row's
+    /// operators are what the Java twin of the issue fixture bills, which
+    /// `groovy_primitive_type_matches_java_1568` checks directly.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_primitive_types_are_operators_1568() {
+        const ROWS: &[(&str, &[&str], &[&str])] = &[
+            (
+                "class A { boolean m() { int x = 1; } }\n",
+                &["()", ";", "=", "boolean", "class", "int", "{}"],
+                &["1", "A", "m", "x"],
+            ),
+            (
+                "void m(long a, char b) {}\n",
+                &["()", ",", "char", "long", "void", "{}"],
+                &["a", "b", "m"],
+            ),
+            (
+                "def m() { short s\n  double d }\n",
+                &["()", "def", "double", "short", "{}"],
+                &["d", "m", "s"],
+            ),
+            (
+                "byte[] a = (float) b as byte\n",
+                &["()", "=", "[]", "as", "byte", "float"],
+                &["a", "b"],
+            ),
+            // A user type's name stays an operand, however close its
+            // spelling: only the exact keyword bills.
+            (
+                "Integer a\nInt b\ninte c\n",
+                &[],
+                &["Int", "Integer", "a", "b", "c", "inte"],
+            ),
+        ];
+        for (source, operators, operands) in ROWS {
+            let ops = ops_of::<GroovyParser>(source, "foo.groovy");
+            assert_eq!(ops.operators, *operators, "operators of {source:?}");
+            assert_eq!(ops.operands, *operands, "operands of {source:?}");
+        }
+    }
+
+    /// #1568's oracle: the issue's fixture scores the same in Groovy and
+    /// Java, vocabulary and multiplicities alike.
+    #[cfg(all(feature = "groovy", feature = "java"))]
+    #[test]
+    fn groovy_primitive_type_matches_java_1568() {
+        let source = "class A { boolean m() { int x = 1; } }\n";
+        let groovy = ops_of::<GroovyParser>(source, "foo.groovy");
+        let java = ops_of::<JavaParser>(source, "Foo.java");
+        assert_eq!(groovy.operators, java.operators);
+        assert_eq!(groovy.operands, java.operands);
+        // `()`, `;`, `=`, `boolean`, `class`, `int`, `{}` x2 / `A`, `m`,
+        // `x`, `1`
+        assert_halstead_rows::<GroovyParser>(
+            "foo.groovy",
+            &[("issue fixture", source, [8, 4])],
+            |h| [h.total_operators(), h.total_operands()],
+        );
+        assert_halstead_rows::<JavaParser>("Foo.java", &[("issue fixture", source, [8, 4])], |h| {
+            [h.total_operators(), h.total_operands()]
+        });
+    }
+
+    /// #1568: Groovy reserves the primitive type names, so one can name
+    /// something only as a member selector after a `.`-family operator
+    /// or as a map or named-argument label. Each position stays an
+    /// operand; each row is its own source so a selector kind dropped
+    /// from the gate fails by name.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_primitive_spelled_names_stay_operands_1568() {
+        for source in [
+            "x.int\n",
+            "x?.int\n",
+            "x??.int\n",
+            "x*.int\n",
+            "x.@int\n",
+            "x.&int\n",
+            "x::int\n",
+            "def m = [int: 1]\n",
+            "f(int: 1)\n",
+        ] {
+            assert_keywords_are_operands_only::<GroovyParser>(source, "foo.groovy", &["int"]);
+        }
+    }
+
     /// #1552: Groovy's type-declaration keywords are operators, as
     /// Java's are. `String.class` is a `field_access` whose `class` is a
     /// plain identifier, so it stays an operand with no guard needed.
@@ -6432,8 +6518,8 @@ end",
             ("trait", "trait T {}\n", [2, 2]),
             // `enum`, `{}`
             ("enum", "enum E { A }\n", [2, 2]),
-            // `record`, `()`, `{}`
-            ("record", "record R(int x) {}\n", [3, 3]),
+            // `record`, `()`, `int`, `{}` — as Java's row, since #1568
+            ("record", "record R(int x) {}\n", [4, 4]),
             // `def`, `=`, `.` — no `class`
             ("class reference", "def a = String.class\n", [3, 3]),
             // `=` twice: a script-level `record` / `trait` used as a name
@@ -6586,12 +6672,12 @@ end",
                 [8, 9],
             ),
             // `class`, `{}` x3, `native`, `synchronized`, `strictfp`,
-            // `()` x3
+            // `void` x3 (#1568), `()` x3
             (
                 "method modifiers",
                 "class C {\n  native void n()\n  synchronized void s() {}\n  \
                  strictfp void f() {}\n}\n",
-                [6, 10],
+                [7, 13],
             ),
             // `sealed`, `class` x2, `permits`, `{}` x2, `non-sealed`,
             // `extends`
@@ -6606,12 +6692,12 @@ end",
                 "sealed interface I permits A {}\nsealed trait T permits A {}\n",
                 [5, 8],
             ),
-            // `class`, `{}` x3, `static` x2, `()`: an initializer and a
-            // script-level method
+            // `class`, `{}` x3, `static` x2, `void` (#1568), `()`: an
+            // initializer and a script-level method
             (
                 "static initializer and method",
                 "class C {\n  static {}\n}\nstatic void top() {}\n",
-                [4, 7],
+                [5, 8],
             ),
             // `.` x3: no `static`, as `import` bills nothing
             (

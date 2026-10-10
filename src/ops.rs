@@ -947,19 +947,8 @@ mod tests {
             // true/false appear as operands; `class` is billed since #1552
             // and `public` since #1565.
             &mut [
-                "public",
-                "class",
-                "{}",
-                ";",
-                "=",
-                "byte",
-                "short",
-                "int",
-                "long",
-                "char",
-                "float",
-                "double",
-                "boolean_type",
+                "public", "class", "{}", ";", "=", "byte", "short", "int", "long", "char", "float",
+                "double", "boolean",
             ],
             &mut [
                 "Prims", "a", "b", "c", "d", "e", "f", "g", "h", "i", "1", "2", "3", "4", "'x'",
@@ -1576,22 +1565,13 @@ mod tests {
             "foo.java",
             "class A<T> { List<List<T>> v; boolean m() { return a < b && c > d; } }\n",
             &[
-                "class",
-                "<>",
-                ";",
-                "{}",
-                "boolean_type",
-                "()",
-                "return",
-                "<",
-                "&&",
-                ">",
+                "class", "<>", ";", "{}", "boolean", "()", "return", "<", "&&", ">",
             ],
             [10, 14],
         );
     }
 
-    // expected: as Java, with `bool` for `boolean_type`.
+    // expected: as Java, with `bool` for `boolean`.
     #[cfg(feature = "csharp")]
     #[test]
     fn csharp_generic_angles_are_one_pair_1559() {
@@ -1703,9 +1683,9 @@ mod tests {
             "foo.groovy",
             "class A<T> { List<List<T>> v; def <U> boolean m() { return a < b && c > d } }\n",
             &[
-                "class", "<>", ";", "{}", "def", "()", "return", "<", "&&", ">",
+                "class", "<>", ";", "{}", "def", "boolean", "()", "return", "<", "&&", ">",
             ],
-            [10, 14],
+            [11, 15],
         );
     }
 

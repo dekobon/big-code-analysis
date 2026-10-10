@@ -740,7 +740,14 @@ tokens involved the same way they spell real operators:
   the `class` tail are operands and each `.` and `[]` an operator, as
   Groovy's `Foo.class` and Kotlin's and PHP's `Foo::class` bill theirs.
   The `int` of `int.class` and the `void` of `void.class` stay
-  operators, as Java bills them everywhere. #1561 made TypeScript's type-level operator
+  operators, as Java bills them everywhere. Groovy, whose grammar
+  parses a primitive type as a name, bills it the same way since
+  #1568: `int`, `boolean`, `void` and the other primitives are
+  operators keyed by their spelling, as a declared type and as a class
+  literal's receiver. Groovy reserves these words, so as a member name
+  or a label (`x.int`, `[int: 1]`) they stay operands. Java's
+  `boolean` is listed as `boolean` rather than its node kind
+  `boolean_type`, so both languages report it alike. #1561 made TypeScript's type-level operator
   keywords operators, as their value-level siblings `as`, `typeof`
   and `extends` already were: `satisfies`, `keyof`, `infer`, and the
   `is` and `asserts` of a type predicate. #1563 made TypeScript's

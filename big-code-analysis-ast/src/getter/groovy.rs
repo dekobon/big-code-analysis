@@ -48,6 +48,47 @@ fn contextual_keyword_owns<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) ->
     })
 }
 
+/// Java's eight primitive type keywords and `void`, which Groovy
+/// reserves as Java does.
+const PRIMITIVE_TYPES: &[&str] = &[
+    "boolean", "byte", "char", "double", "float", "int", "long", "short", "void",
+];
+
+/// Whether `node` spells a primitive type, which bills as a text-keyed
+/// operator as Java's primitive keywords do (#1568).
+///
+/// The pinned grammar has no primitive node: a declared type is a
+/// `type_identifier` (`int x = 1`, `void m()`), and a class literal's
+/// receiver (`int.class`) or an uninitialised local (`int t`, which
+/// parses as two expression statements) is a plain `identifier`. Groovy
+/// reserves these keywords, so a name can spell one only as a member
+/// selector after a `.`-family operator (`x.int`, `x?.int`, `x::int`) or
+/// as a map or named-argument label (`[int: 1]`, `f(int: 1)`); those
+/// stay operands.
+fn spells_primitive_type<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    use Groovy::*;
+
+    if !matches!(node.kind_id().into(), Identifier | TypeIdentifier)
+        || !node_text(code, node).is_some_and(|text| PRIMITIVE_TYPES.contains(&text))
+    {
+        return false;
+    }
+    ancestors.parent(node).is_none_or(|parent| {
+        let is_first_child = parent.child(0).is_some_and(|first| first.id() == node.id());
+        match parent.kind_id().into() {
+            FieldAccess
+            | SafeNavigationExpression
+            | SafeChainDotExpression
+            | SpreadDotExpression
+            | DirectFieldAccessExpression
+            | MethodPointerExpression
+            | MethodReferenceExpression => is_first_child,
+            MapEntry | NamedArgument => !is_first_child,
+            _ => true,
+        }
+    })
+}
+
 impl Getter for GroovyCode {
     /// Names the space, synthesising one for constructs that carry no
     /// name token (#1184).
@@ -301,6 +342,20 @@ impl Getter for GroovyCode {
 
             _ => TokenRole::Unknown,
         }
+    }
+
+    // Only the bytes tell `int` from `Integer`, so the byte-less
+    // `get_op_type` above still answers `Operand` for a primitive; the
+    // walk calls this spelling (grammar-dispatch section 7).
+    fn get_op_type_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> TokenRole {
+        if spells_primitive_type(node, code, ancestors) {
+            return TokenRole::Operator;
+        }
+        Self::get_op_type(node, ancestors)
     }
 
     fn get_operator_spelling<'a>(

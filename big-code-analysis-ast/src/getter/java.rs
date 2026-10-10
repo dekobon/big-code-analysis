@@ -226,6 +226,9 @@ impl Getter for JavaCode {
             Java::LBRACK => "[]",
             Java::LBRACE => "{}",
             Java::VoidType => "void",
+            // The kind is `boolean_type`; spelled as written, as Groovy's
+            // text-keyed primitives are (#1568).
+            Java::BooleanType => "boolean",
             _ => typ.into(),
         }
     }
