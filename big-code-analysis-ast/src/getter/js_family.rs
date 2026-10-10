@@ -24,6 +24,10 @@
 //     are extras rather than members of the shared arm because
 //     TypeScript is the one grammar of the four with no JSX and
 //     therefore no such variants to name.
+//   * JavaScript / MozJS: `Staticget`, the one-token `static get`
+//     these grammars alone have (#1563).
+//   * TypeScript / TSX: the declaration keywords, type-level operator
+//     keywords and member modifiers listed at each invocation.
 //
 // `$operand_extras` per language:
 //   * JavaScript / MozJS / TSX: `Identifier2`, `String2` — anonymous
@@ -237,6 +241,14 @@ macro_rules! impl_js_family_get_op_type {
                 // groups across languages, skewing n1/n2 for accessor-heavy
                 // code (#695).
                 | Set | Get
+                // `static` is a class-member modifier, billed as C# and
+                // Kotlin bill theirs (#1563; Java's and Groovy's are
+                // #1565). It is the bare leaf in a field, a method and
+                // a `static { … }` block alike, with no modifier
+                // wrapper, and one kind in all four grammars. Used as a
+                // name (`obj.static`, `static()`, a field named
+                // `static`) the grammar emits an identifier instead.
+                | Static
                 $(| $op_extra)* => TokenRole::Operator,
                 // `Regex` is the literal's own node and contributes one
                 // operand, the way Ruby's `Regex` and Elixir's `Sigil`

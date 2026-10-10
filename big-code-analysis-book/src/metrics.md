@@ -739,7 +739,13 @@ tokens involved the same way they spell real operators:
   nothing for either. #1561 made TypeScript's type-level operator
   keywords operators, as their value-level siblings `as`, `typeof`
   and `extends` already were: `satisfies`, `keyof`, `infer`, and the
-  `is` and `asserts` of a type predicate.
+  `is` and `asserts` of a type predicate. #1563 made TypeScript's
+  member modifiers operators, as C# and Kotlin bill theirs: `public`,
+  `private`, `protected`, `override`, `readonly`, `abstract`,
+  `accessor` and `static`, each the keyword and never its
+  `accessibility_modifier` or `override_modifier` wrapper. JavaScript
+  bills `static` too. The same words used as names (`let readonly = 1`,
+  `obj.static`) stay operands.
 - **A generic list's angle brackets are one bracket pair.** The `<`
   and `>` around type arguments and type parameters count as one `<>`
   operator, billed at the `<` as `()` is at the `(`, and the `>` counts

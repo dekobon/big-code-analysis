@@ -131,11 +131,30 @@ impl Getter for TypescriptCode {
     // type assertion wraps a `type_arguments` node, so it is a pair too;
     // a comparison's `<` / `>` sit under `binary_expression` and stay
     // their own operators.
+    //
+    // #1563 bills the member modifiers, as C# and Kotlin bill theirs:
+    // `public`, `private`, `protected`, `override`, `readonly`,
+    // `abstract` and `accessor`, beside the `static` the macro bills for
+    // the whole family and the `declare` above. Each is its keyword
+    // leaf, one kind apiece. `public` / `private` / `protected` sit
+    // under an `accessibility_modifier` and `override` under an
+    // `override_modifier`; both wrappers stay unlisted, so a modifier
+    // bills once. The same leaves bill outside a class too: a parameter
+    // property (`constructor(private x)`), `readonly T[]`, a mapped
+    // type's `-readonly`, `abstract class` and `abstract new () => T`.
+    // Used as a name (`let readonly = 1`, `o.public`, `abstract()` in an
+    // expression, a field named `static`) the grammar emits an
+    // identifier. The pinned grammar misreads a few valid name
+    // spellings as the keyword under or beside an ERROR — a statement
+    // `abstract();`, a field `abstract;` or `accessor = 1`, and an
+    // object-type member `abstract: T` — so those bill the operator.
+    // They billed nothing before, and none occurs in the corpora.
     impl_js_family_get_op_type!(
         Typescript,
         op_extras: [
             QMARKDOT, PredefinedType, Interface, Enum, Type, Namespace, Module2, Declare, Global,
-            Satisfies, Keyof, Infer, Is, Asserts2,
+            Satisfies, Keyof, Infer, Is, Asserts2, Public, Private, Protected, Override, Readonly,
+            Abstract, Accessor,
         ],
         operand_extras: [TypeIdentifier],
         predefined_void: PredefinedType,

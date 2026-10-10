@@ -605,7 +605,8 @@ mod tests {
         feature = "csharp",
         feature = "groovy",
         feature = "java",
-        feature = "kotlin"
+        feature = "kotlin",
+        feature = "typescript"
     ))]
     #[track_caller]
     fn assert_keywords_are_operands_only<T: crate::MetricSuite>(
@@ -6789,6 +6790,206 @@ end",
         ];
         assert_operator_rows::<TypescriptParser>("foo.ts", ROWS);
         assert_operator_rows::<TsxParser>("foo.tsx", ROWS);
+    }
+
+    /// #1563: TypeScript bills its member modifiers as C# and Kotlin bill
+    /// theirs, each as the keyword leaf and never as the
+    /// `accessibility_modifier` / `override_modifier` wrapper. The rows
+    /// after the class members are the same leaves outside a class; the
+    /// last two are the words used as names, which add no operator.
+    #[cfg(feature = "typescript")]
+    const TS_MEMBER_MODIFIER_ROWS: &[(&str, &str, [u64; 2])] = &[
+        // `class`, `{}`, `public`, `private`, `protected`, `=` x3, `;` x3
+        (
+            "visibility",
+            "class C {\n  public a = 1;\n  private b = 2;\n  protected c = 3;\n}\n",
+            [7, 11],
+        ),
+        // `class`, `extends`, `{}`, `static`, `readonly`, `override`,
+        // `=` x2, `;` x2
+        (
+            "static, readonly, override",
+            "class D extends B {\n  static readonly x = 1;\n  override y = 2;\n}\n",
+            [8, 10],
+        ),
+        // `abstract` x2, `class`, `{}`, `()`, `:`, `void`, `;`
+        (
+            "abstract",
+            "abstract class A {\n  abstract m(): void;\n}\n",
+            [7, 8],
+        ),
+        // `class`, `{}`, `accessor`, `=`, `;`
+        ("accessor", "class E {\n  accessor q = 1;\n}\n", [5, 5]),
+        // `class`, `{}` x3, `static` x2, `()`
+        (
+            "static block and method",
+            "class F {\n  static {}\n  static m() {}\n}\n",
+            [4, 7],
+        ),
+        // `class`, `{}` x2, `()`, `private`, `readonly`, `:` x2, `number`,
+        // `,`, `public`, `string`
+        (
+            "parameter properties",
+            "class G {\n  constructor(private readonly p: number, public o: string) {}\n}\n",
+            [10, 12],
+        ),
+        // `type`, `=`, `readonly`, `string`, `[]`, `;`
+        ("readonly type", "type R = readonly string[];\n", [6, 6]),
+        // `type`, `=`, `{}`, `-`, `readonly`, `[]`, `in`, `:`, `;`
+        (
+            "mapped type modifier",
+            "type M = { -readonly [k in K]: T };\n",
+            [9, 9],
+        ),
+        // `type`, `=`, `abstract`, `new`, `()`, `=>`, `void`, `;`
+        (
+            "abstract constructor type",
+            "type A = abstract new () => void;\n",
+            [8, 8],
+        ),
+        // `let`, `const` x2, `=` x3, `;` x4, `.`, `()`, `{}`, `:` x5,
+        // `,` x4 — no modifier
+        (
+            "names",
+            "let readonly = 1;\nobj.static;\nconst a = abstract();\n\
+             const o = { public: 1, private: 2, protected: 3, override: 4, accessor: 5 };\n",
+            [9, 22],
+        ),
+        // `class`, `{}` x2, `static`, `=`, `;` x2, `()` — the modifier
+        // bills once; the field named `static`, the method named
+        // `readonly` and the field named `public` bill none
+        (
+            "member names",
+            "class K {\n  static static = 1;\n  readonly() {}\n  public;\n}\n",
+            [6, 8],
+        ),
+    ];
+
+    #[cfg(feature = "typescript")]
+    #[test]
+    fn typescript_member_modifiers_are_operators_1563() {
+        assert_operator_rows::<TypescriptParser>("foo.ts", TS_MEMBER_MODIFIER_ROWS);
+        assert_operator_rows::<TsxParser>("foo.tsx", TS_MEMBER_MODIFIER_ROWS);
+    }
+
+    /// #1563: the issue's own fixture, by vocabulary. Every modifier
+    /// reaches the operator list once, by its word and never by its
+    /// wrapper's kind name, and the names stay the only operands.
+    #[cfg(feature = "typescript")]
+    #[test]
+    fn typescript_member_modifier_vocabulary_1563() {
+        const SOURCE: &str = "abstract class C {\n  declare x: number;\n  \
+                              public static readonly y = 1;\n  private z = 2;\n  \
+                              protected override w = 3;\n  abstract m(): void;\n  \
+                              accessor q = 4;\n}\n";
+        const OPERATORS: &[&str] = &[
+            "()",
+            ":",
+            ";",
+            "=",
+            "abstract",
+            "accessor",
+            "class",
+            "declare",
+            "number",
+            "override",
+            "private",
+            "protected",
+            "public",
+            "readonly",
+            "static",
+            "void",
+            "{}",
+        ];
+        const OPERANDS: &[&str] = &["1", "2", "3", "4", "C", "m", "q", "w", "x", "y", "z"];
+        for (file, ops) in [
+            ("foo.ts", ops_of::<TypescriptParser>(SOURCE, "foo.ts")),
+            ("foo.tsx", ops_of::<TsxParser>(SOURCE, "foo.tsx")),
+        ] {
+            assert_eq!(ops.operators, OPERATORS, "{file}");
+            assert_eq!(ops.operands, OPERANDS, "{file}");
+        }
+    }
+
+    /// #1563: the modifier words used as names are operands and never
+    /// operators, in an expression, a member access, a call, an object
+    /// key and a class member name. No getter edit makes this fail: the
+    /// modifier arms key on the keyword kinds, and the grammar emits an
+    /// identifier for each name. It pins that grammar property, so a
+    /// grammar bump or a text-keyed arm that bills a name trips it.
+    #[cfg(feature = "typescript")]
+    #[test]
+    fn typescript_modifier_words_as_names_are_operands_1563() {
+        const SOURCE: &str = "let readonly = 1;\nobj.static;\nconst a = abstract();\n\
+                              const o = { public: 1, private: 2, protected: 3, override: 4, \
+                              accessor: 5 };\nclass K { static() {} }\n";
+        const KEYWORDS: &[&str] = &[
+            "readonly",
+            "static",
+            "abstract",
+            "public",
+            "private",
+            "protected",
+            "override",
+            "accessor",
+        ];
+        assert_keywords_are_operands_only::<TypescriptParser>(SOURCE, "foo.ts", KEYWORDS);
+        assert_keywords_are_operands_only::<TsxParser>(SOURCE, "foo.tsx", KEYWORDS);
+    }
+
+    /// #1563: JavaScript's `static` bills as TypeScript's does, in a
+    /// field, a method and a `static { … }` block. `static get` with the
+    /// name on the next line is one token, so it is one operator. The
+    /// last row is the word used as names, which adds no operator.
+    #[cfg(any(feature = "javascript", feature = "mozjs"))]
+    const JS_STATIC_ROWS: &[(&str, &str, [u64; 2])] = &[
+        // `class`, `{}`, `static`, `=`, `;`
+        ("static field", "class K {\n  static x = 1;\n}\n", [5, 5]),
+        // `class`, `{}` x3, `static` x2, `()`
+        (
+            "static method and block",
+            "class K {\n  static m() {}\n  static {}\n}\n",
+            [4, 7],
+        ),
+        // `class`, `{}` x2, `static`, `get`, `()`
+        (
+            "static getter",
+            "class K {\n  static get y() {}\n}\n",
+            [5, 6],
+        ),
+        // `class`, `{}` x2, `static get`, `()`
+        (
+            "static get before a newline",
+            "class K {\n  static get\n  y() {}\n}\n",
+            [4, 5],
+        ),
+        // `.`, `;` x3, `()`, `var`, `=`, `{}`, `:` — no `static`
+        (
+            "names",
+            "obj.static;\nstatic();\nvar o = { static: 1 };\n",
+            [7, 9],
+        ),
+    ];
+
+    #[cfg(any(feature = "javascript", feature = "mozjs"))]
+    #[test]
+    fn javascript_static_is_an_operator_1563() {
+        const NAMES: &str = "obj.static;\nstatic();\nvar o = { static: 1 };\n\
+                             class K { static static = 1; }\n";
+        #[cfg(feature = "javascript")]
+        {
+            assert_operator_rows::<JavascriptParser>("foo.js", JS_STATIC_ROWS);
+            let ops = ops_of::<JavascriptParser>(NAMES, "foo.js");
+            assert!(ops.operands.iter().any(|o| o == "static"), "{ops:?}");
+            assert!(ops.operators.iter().any(|o| o == "static"), "{ops:?}");
+        }
+        #[cfg(feature = "mozjs")]
+        {
+            assert_operator_rows::<MozjsParser>("foo.js", JS_STATIC_ROWS);
+            let ops = ops_of::<MozjsParser>(NAMES, "foo.js");
+            assert!(ops.operands.iter().any(|o| o == "static"), "{ops:?}");
+            assert!(ops.operators.iter().any(|o| o == "static"), "{ops:?}");
+        }
     }
 
     #[cfg(feature = "bash")]

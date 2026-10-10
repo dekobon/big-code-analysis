@@ -55,10 +55,11 @@ impl Getter for MozjsCode {
     // `$op_extras` note: they are per-language extras because
     // TypeScript, which shares this macro, has no JSX (#1395).
     // `jsx:` bills element text and its entities as operands, for the
-    // same reason (#1483).
+    // same reason (#1483). `Staticget`: see the JavaScript invocation
+    // (#1563).
     impl_js_family_get_op_type!(
         Mozjs,
-        op_extras: [OptionalChain, LTSLASH, SLASHGT],
+        op_extras: [OptionalChain, LTSLASH, SLASHGT, Staticget],
         operand_extras: [Identifier2, String2],
         jsx: [JsxText, HtmlCharacterReference],
     );

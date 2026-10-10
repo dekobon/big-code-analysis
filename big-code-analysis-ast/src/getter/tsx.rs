@@ -93,6 +93,9 @@ impl Getter for TsxCode {
     // `Satisfies` / `Keyof` / `Infer` / `Is` / `Asserts2`, the type-level
     // operator keywords: see the TS invocation (#1561).
     //
+    // `Public` through `Accessor`, the member modifiers: see the TS
+    // invocation (#1563).
+    //
     // `generic_angles`: see the TS invocation (#1559). A JSX tag's `<` /
     // `>` hang from the JSX element nodes, not from a generic list, so
     // they stay `<` and `>`.
@@ -100,7 +103,8 @@ impl Getter for TsxCode {
         Tsx,
         op_extras: [
             QMARKDOT, PredefinedType, Interface, Enum, Type, Namespace, Module2, Declare, Global,
-            Satisfies, Keyof, Infer, Is, Asserts2, LTSLASH, SLASHGT,
+            Satisfies, Keyof, Infer, Is, Asserts2, Public, Private, Protected, Override, Readonly,
+            Abstract, Accessor, LTSLASH, SLASHGT,
         ],
         operand_extras: [Identifier2, String2, TypeIdentifier],
         predefined_void: PredefinedType,

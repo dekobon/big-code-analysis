@@ -56,9 +56,14 @@ impl Getter for JavascriptCode {
     // TypeScript, which shares this macro, has no JSX (#1395).
     // `jsx:` bills element text and its entities as operands, for the
     // same reason (#1483).
+    //
+    // `Staticget` is one token spelling `static get` followed by a
+    // newline, the static getter whose name starts the next line. It is
+    // billed beside the shared `static` (#1563) so that form bills a
+    // modifier rather than nothing; being one node it is one operator.
     impl_js_family_get_op_type!(
         Javascript,
-        op_extras: [OptionalChain, LTSLASH, SLASHGT],
+        op_extras: [OptionalChain, LTSLASH, SLASHGT, Staticget],
         operand_extras: [Identifier2, String2],
         jsx: [JsxText, HtmlCharacterReference],
     );
