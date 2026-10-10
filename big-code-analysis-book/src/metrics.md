@@ -717,7 +717,8 @@ tokens involved the same way they spell real operators:
   `interface`, `record`, `trait`, `@interface`, `@implementation` and
   `@protocol`. Java's `C.class` is not billed: it stays one operand.
   Kotlin's `interface` followed in #1556, and since #1558 Kotlin bills
-  its modifiers as Java, Groovy and C# bill theirs: the `enum` of
+  every modifier, as C# does (Java and Groovy bill `abstract` and
+  `final` but no visibility keyword or `static`, #1565): the `enum` of
   `enum class`, `data`, `sealed`, the visibility keywords, `open`,
   `override`, `suspend`, `reified`, `out` and the rest each count once,
   as the keyword and never as its `modifiers` wrapper. The same words
@@ -727,7 +728,12 @@ tokens involved the same way they spell real operators:
   keyword and score alike. It also added TypeScript's `type`,
   `namespace`, `module`, `declare` and `global`, and made every
   TypeScript type name an operand (`x: Foo`, `interface I`,
-  `Map<K, V>`), as C#, Rust and the C family already did.
+  `Map<K, V>`), as C#, Rust and the C family already did. Java followed
+  in #1560: `Foo f`, `implements I`, `List<Foo>` and each segment of
+  `java.util.List` bill their names as operands. A type inside a class
+  literal (`Foo.class`) does not, since the literal is already one
+  operand, and neither does the inferred type `var`, which C# bills
+  nothing for either.
 - **An alternative spelling is an operator of its own.** C++ spells
   `&&` equally as `and`, `!=` as `not_eq` and so on through all eleven
   [alternative tokens](https://en.cppreference.com/w/cpp/language/operator_alternative).

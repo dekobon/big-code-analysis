@@ -2672,25 +2672,26 @@ mod tests {
             "foo.java",
             |metric| {
                 // Operators (n1=12): class {} void () [] , . ; int = + /
-                // Operands (n2=12): Main main args a b c avg 5 3 MessageFormat format "{0}"
+                // Operands (n2=13): Main main string args a b c avg 5 3 MessageFormat format "{0}"
+                // (`string` is the parameter's type name, an operand since #1560)
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
                 {
                   "unique_operators": 12,
                   "total_operators": 27,
-                  "unique_operands": 12,
-                  "total_operands": 22,
-                  "length": 49,
-                  "estimated_program_length": 86.03910001730775,
-                  "purity_ratio": 1.7559000003532192,
-                  "vocabulary": 24,
-                  "volume": 224.66316253533665,
-                  "difficulty": 11.0,
-                  "level": 0.09090909090909091,
-                  "effort": 2471.294787888703,
-                  "time": 137.29415488270573,
-                  "bugs": 0.060929616893854746
+                  "unique_operands": 13,
+                  "total_operands": 23,
+                  "length": 50,
+                  "estimated_program_length": 91.12526634448807,
+                  "purity_ratio": 1.8225053268897613,
+                  "vocabulary": 25,
+                  "volume": 232.19280948873623,
+                  "difficulty": 10.615384615384615,
+                  "level": 0.09420289855072464,
+                  "effort": 2464.8159776496614,
+                  "time": 136.93422098053674,
+                  "bugs": 0.06082308053869885
                 }
                 "#
                 );
@@ -5928,7 +5929,7 @@ end",
     }
 
     /// Asserts `[n2, N2]` for each row.
-    #[cfg(feature = "typescript")]
+    #[cfg(any(feature = "java", feature = "typescript"))]
     fn assert_operand_rows<T: crate::MetricSuite>(file: &str, rows: &[(&str, &str, [u64; 2])]) {
         assert_halstead_rows::<T>(file, rows, |h| [h.unique_operands(), h.total_operands()]);
     }
@@ -6140,6 +6141,72 @@ end",
         assert_operator_rows::<JavaParser>("Foo.java", ROWS);
     }
 
+    /// #1560: a Java type name is an operand, as in C#, Rust, the C
+    /// family, Go, Groovy and TypeScript. Each row isolates one position
+    /// of the single `type_identifier` kind. The class-literal rows pin
+    /// that a type inside `Foo.class` is not billed again on top of the
+    /// literal's own operand, whether it sits there directly or under an
+    /// array or scoped type; the `var` rows, that the inferred-type
+    /// keyword bills nothing while a variable named `var` stays an
+    /// operand.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_type_names_are_operands_1560() {
+        const ROWS: &[(&str, &str, [u64; 2])] = &[
+            // `C`, `I` x2, `Foo`, `f`
+            (
+                "field type and implements",
+                "class C implements I { Foo f; }\ninterface I {}\n",
+                [4, 5],
+            ),
+            // `C`, `java`, `util`, `List`, `Foo`, `l`
+            (
+                "scoped and generic",
+                "class C { java.util.List<Foo> l; }\n",
+                [6, 6],
+            ),
+            // `C`, `T` x2, `Comparable`
+            (
+                "type parameter",
+                "class C<T extends Comparable<T>> {}\n",
+                [3, 4],
+            ),
+            // `C`, `m`, `Ex`
+            ("throws", "class C { void m() throws Ex {} }\n", [3, 3]),
+            // `C`, `Object`, `a`, `Foo.class`
+            (
+                "class literal",
+                "class C { Object a = Foo.class; }\n",
+                [4, 4],
+            ),
+            // `C`, `Object`, `a`, `Foo[].class`
+            (
+                "array class literal",
+                "class C { Object a = Foo[].class; }\n",
+                [4, 4],
+            ),
+            // `C`, `Object`, `a`, `java.util.List.class`
+            (
+                "scoped class literal",
+                "class C { Object a = java.util.List.class; }\n",
+                [4, 4],
+            ),
+            // `C`, `m`, `x`, `1` — no `var`
+            (
+                "inferred type",
+                "class C { void m() { var x = 1; } }\n",
+                [4, 4],
+            ),
+            // `C`, `m`, `var`, `1` — the variable's name
+            (
+                "variable named var",
+                "class C { void m() { int var = 1; } }\n",
+                [4, 4],
+            ),
+        ];
+        assert_operand_rows::<JavaParser>("Foo.java", ROWS);
+    }
+
     /// #1552: Groovy's type-declaration keywords are operators, as
     /// Java's are. `String.class` is a `field_access` whose `class` is a
     /// plain identifier, so it stays an operand with no guard needed.
@@ -6263,7 +6330,7 @@ end",
     /// #1556: Kotlin's `interface` bills as its `class` and `object`
     /// do. The modifier rows score one above the bare keyword since
     /// #1558: `enum` in `enum class` is a `class_modifier` like `data`
-    /// and `sealed`, and Kotlin bills its modifiers as Java does.
+    /// and `sealed`, and Kotlin bills its modifiers as C# does.
     #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_declaration_keywords_are_operators_1556() {
@@ -6290,8 +6357,8 @@ end",
         assert_operator_rows::<KotlinParser>("foo.kt", ROWS);
     }
 
-    /// #1558: Kotlin bills its modifier keywords as Java, Groovy and C#
-    /// bill theirs, one family per row, each keyword the leaf and never
+    /// #1558: Kotlin bills its modifier keywords as C# bills its own,
+    /// one family per row, each keyword the leaf and never
     /// its `*_modifier` wrapper. The last row is the control: the same
     /// words used as names are operands, and add no operator.
     #[cfg(feature = "kotlin")]

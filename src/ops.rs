@@ -894,6 +894,8 @@ mod tests {
             &mut [
                 "Main",
                 "main",
+                // the parameter's type name (#1560)
+                "string",
                 "args",
                 "a",
                 "b",

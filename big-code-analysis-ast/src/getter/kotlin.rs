@@ -222,10 +222,11 @@ impl Getter for KotlinCode {
             // `class_declaration` wrapper stays unlisted.
             | Class | Interface | Fun | Object | Val | Var | In | Is | As | AsQMARK | BANGis
             | BANGin | Constructor
-            // Operator: modifier keywords, as Java, Groovy and C# bill
-            // theirs (#1558). Each is the keyword leaf; its
-            // `*_modifier` / `modifiers` wrappers stay unlisted, so one
-            // modifier bills once (grammar-dispatch section 5). Every
+            // Operator: modifier keywords, as C# bills all of its own
+            // (#1558; Java and Groovy bill only some, #1565). Each is
+            // the keyword leaf; its `*_modifier` / `modifiers` wrappers
+            // stay unlisted, so one modifier bills once
+            // (grammar-dispatch section 5). Every
             // keyword has exactly one kind, so `kind_id` keys it without
             // splitting it across the two `n1` maps. `Annotation2` is the
             // `annotation` of `annotation class`; `Annotation` is an `@N`

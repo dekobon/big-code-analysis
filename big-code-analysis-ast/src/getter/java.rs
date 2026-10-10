@@ -90,6 +90,21 @@ impl Getter for JavaCode {
             // leaf too would pay the same bytes twice (grammar-dispatch
             // section 5, the compound-leaf guard).
             Class if ancestors.parent_has_kind(node, ClassLiteral as u16) => TokenRole::Unknown,
+            // A type name is an operand (#1560, the operand arm below)
+            // except inside a class literal, whose whole text is already
+            // one operand — the `class` guard above, for the same
+            // reason. The type sits there directly (`Foo.class`) or
+            // under an array or scoped type (`Foo[].class`,
+            // `java.util.List.class`), so the climb skips those two.
+            TypeIdentifier
+                if ancestors
+                    .iter(node)
+                    .map(|(ancestor, _)| ancestor.kind_id())
+                    .find(|&id| id != ArrayType as u16 && id != ScopedTypeIdentifier as u16)
+                    == Some(ClassLiteral as u16) =>
+            {
+                TokenRole::Unknown
+            }
             // Operator: control flow
             | If | Else | Switch | Case | Try | Catch | Throw | Throws | Throws2 | For
             | While | Continue | Break | Do | Finally
@@ -135,8 +150,16 @@ impl Getter for JavaCode {
             // `csharp.rs`, deliberately: a parameter name is an operand
             // everywhere here, while a *member* named by a keyword sits
             // with `operator +`.
-            Identifier | NullLiteral | ClassLiteral | True | False | StringLiteral
-            | CharacterLiteral | HexIntegerLiteral | OctalIntegerLiteral
+            //
+            // `TypeIdentifier` joined in #1560, as C#, Rust, the C family,
+            // Go, Groovy and TypeScript bill type names: a field or
+            // parameter type, an `implements` / `extends` entry, a type
+            // parameter, a generic argument, each segment of
+            // `java.util.List` (the `.` bills as itself). It is the one
+            // type-name kind and no listed node wraps it, so each name
+            // bills once.
+            Identifier | TypeIdentifier | NullLiteral | ClassLiteral | True | False
+            | StringLiteral | CharacterLiteral | HexIntegerLiteral | OctalIntegerLiteral
             | BinaryIntegerLiteral | DecimalIntegerLiteral | HexFloatingPointLiteral
             | DecimalFloatingPointLiteral | This => {
                 TokenRole::Operand
@@ -145,6 +168,25 @@ impl Getter for JavaCode {
                 TokenRole::Unknown
             },
         }
+    }
+
+    // `var x = …` parses `var` as a `type_identifier` (it is a reserved
+    // type name, not a keyword token), so the #1560 operand arm would
+    // bill an operand spelled `var` that names no type. It stays
+    // unbilled, as C#'s `var` (an `implicit_type` wrapping its own
+    // keyword) is; a variable *named* `var` is an `identifier` and is
+    // unaffected. Only the bytes tell the two type names apart, so the
+    // byte-less `get_op_type` above still answers `Operand` for it; the
+    // walk calls this spelling (grammar-dispatch section 7).
+    fn get_op_type_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> TokenRole {
+        if node.kind_id() == Java::TypeIdentifier && node_text(code, node) == Some("var") {
+            return TokenRole::Unknown;
+        }
+        Self::get_op_type(node, ancestors)
     }
 
     fn get_operator_id_as_str(id: u16) -> &'static str {
