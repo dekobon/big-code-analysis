@@ -63,8 +63,10 @@ impl Getter for MozcppCode {
         match node.kind_id().into() {
             FunctionDefinition | FunctionDefinition2 | FunctionDefinition3
             | FunctionDefinition4 => SpaceKind::Function,
-            StructSpecifier => SpaceKind::Struct,
-            ClassSpecifier => SpaceKind::Class,
+            // Bodiless specifiers open no space (#1555); see
+            // `cpp_specifier_has_body`.
+            StructSpecifier if crate::checker::cpp_specifier_has_body(node) => SpaceKind::Struct,
+            ClassSpecifier if crate::checker::cpp_specifier_has_body(node) => SpaceKind::Class,
             NamespaceDefinition => SpaceKind::Namespace,
             TranslationUnit => SpaceKind::Unit,
             _ => SpaceKind::Unknown,

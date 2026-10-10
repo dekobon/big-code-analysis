@@ -21,18 +21,22 @@ impl Checker for MozcppCode {
     // will silently drop those nodes from FuncSpace creation the next
     // time a grammar bump starts emitting them (see lesson 2 in
     // `docs/development/lessons_learned.md`).
+    //
+    // A struct / class specifier opens a space only when it has a body,
+    // gated by the same predicate as `get_space_kind` (#1555).
     fn is_func_space(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Mozcpp::TranslationUnit
-                | Mozcpp::FunctionDefinition
-                | Mozcpp::FunctionDefinition2
-                | Mozcpp::FunctionDefinition3
-                | Mozcpp::FunctionDefinition4
-                | Mozcpp::StructSpecifier
-                | Mozcpp::ClassSpecifier
-                | Mozcpp::NamespaceDefinition
-        )
+        match node.kind_id().into() {
+            Mozcpp::StructSpecifier | Mozcpp::ClassSpecifier => cpp_specifier_has_body(node),
+            kind => matches!(
+                kind,
+                Mozcpp::TranslationUnit
+                    | Mozcpp::FunctionDefinition
+                    | Mozcpp::FunctionDefinition2
+                    | Mozcpp::FunctionDefinition3
+                    | Mozcpp::FunctionDefinition4
+                    | Mozcpp::NamespaceDefinition
+            ),
+        }
     }
 
     // Issue #285 contract: keep this in sync with `is_func_space` and

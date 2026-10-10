@@ -818,6 +818,19 @@ pub fn csharp_member_has_accessors(node: &Node) -> bool {
     csharp_accessor_count(node) > 0
 }
 
+/// Returns `true` when a C++ `struct_specifier` / `class_specifier`
+/// defines a type body (`struct S { … }`) rather than only naming one.
+/// A forward declaration (`struct S;`) and an elaborated type specifier
+/// (`struct S *p;`, the parameter type in `void f(struct S *q)`) carry no
+/// `body` field.
+///
+/// Shared by the C++ and Mozcpp `is_func_space` and `get_space_kind`, so
+/// a bodiless specifier neither opens a space nor is labelled one (#1555).
+#[must_use]
+pub(crate) fn cpp_specifier_has_body(node: &Node) -> bool {
+    node.child_by_field_name("body").is_some()
+}
+
 /// Whether `node` is a bare keyword token the C# grammar *aliased* to
 /// `modifier`, rather than the `modifier` rule itself.
 ///

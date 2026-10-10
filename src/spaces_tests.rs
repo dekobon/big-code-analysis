@@ -91,6 +91,125 @@ fn cpp_function_definition_is_classified_as_function() {
     );
 }
 
+/// #1555 fixture: five bodiless specifiers (two forward declarations,
+/// an elaborated variable type, and two elaborated parameter types)
+/// beside four bodied definitions, including the `final` / base-clause,
+/// template and anonymous forms whose `body` follows optional preambles.
+#[cfg(any(feature = "cpp", feature = "mozcpp"))]
+const CPP_BODILESS_SPECIFIERS: &str = "struct S;
+struct S *p;
+class Fwd;
+void f(struct S *q);
+void g(class Fwd *r) {}
+struct T {} t;
+class C final : public Fwd { int x; };
+template <class U> struct X {};
+struct {} anon;
+";
+
+/// #1555: only a struct / class specifier with a body opens a space. The
+/// bodiless ones used to open one each, at unit level even when they sat
+/// in a parameter list.
+#[cfg(any(feature = "cpp", feature = "mozcpp"))]
+fn assert_only_bodied_specifiers_open_spaces<T: MetricSuite>() {
+    check_func_space::<T, _>(CPP_BODILESS_SPECIFIERS, "fwd.cpp", |root| {
+        let top: Vec<(SpaceKind, Option<&str>, usize)> = root
+            .spaces
+            .iter()
+            .map(|s| (s.kind, s.name.as_deref(), s.start_line))
+            .collect();
+        assert_eq!(
+            top,
+            vec![
+                (SpaceKind::Function, Some("g"), 5),
+                (SpaceKind::Struct, Some("T"), 6),
+                (SpaceKind::Class, Some("C"), 7),
+                (SpaceKind::Struct, Some("X"), 8),
+                (SpaceKind::Struct, None, 9),
+            ],
+            "top-level spaces (kind, name, line); got {top:?}"
+        );
+        assert!(
+            root.spaces.iter().all(|s| s.spaces.is_empty()),
+            "no space nests below these: `g`'s `class Fwd` parameter type opens none"
+        );
+    });
+}
+
+#[cfg(feature = "cpp")]
+#[test]
+fn cpp_bodiless_specifiers_open_no_space_1555() {
+    assert_only_bodied_specifiers_open_spaces::<CppParser>();
+}
+
+#[cfg(feature = "mozcpp")]
+#[test]
+fn mozcpp_bodiless_specifiers_open_no_space_1555() {
+    assert_only_bodied_specifiers_open_spaces::<crate::MozcppParser>();
+}
+
+/// #1555: `is_func_space` and `get_space_kind` agree on every struct /
+/// class specifier node, checked node by node because the space tree
+/// alone cannot see the getter half — it only labels spaces the checker
+/// already opened. The oracle is independent of the `body` field: a
+/// specifier defines a type exactly when its text has a `{`.
+#[cfg(any(feature = "cpp", feature = "mozcpp"))]
+fn assert_specifier_predicates_agree<T: MetricSuite>(struct_id: u16, class_id: u16) {
+    use crate::checker::Checker;
+    use crate::getter::Getter;
+
+    let parser = T::new(
+        CPP_BODILESS_SPECIFIERS.as_bytes().to_vec(),
+        &std::path::PathBuf::from("fwd.cpp"),
+        None,
+    );
+    let code = CPP_BODILESS_SPECIFIERS.as_bytes();
+    let (mut bodied, mut bodiless) = (0, 0);
+    for node in parser.root().preorder() {
+        let id = node.kind_id();
+        let kind = if id == struct_id {
+            SpaceKind::Struct
+        } else if id == class_id {
+            SpaceKind::Class
+        } else {
+            continue;
+        };
+        let has_body = code[node.start_byte()..node.end_byte()].contains(&b'{');
+        if has_body {
+            bodied += 1;
+        } else {
+            bodiless += 1;
+        }
+        assert_eq!(T::Checker::is_func_space(&node), has_body, "{node:?}");
+        assert_eq!(
+            T::Getter::get_space_kind(&node),
+            if has_body { kind } else { SpaceKind::Unknown },
+            "{node:?}"
+        );
+    }
+    assert_eq!((bodied, bodiless), (4, 5), "fixture specifier census");
+}
+
+#[cfg(feature = "cpp")]
+#[test]
+fn cpp_specifier_space_predicates_agree_1555() {
+    use crate::Cpp;
+    assert_specifier_predicates_agree::<CppParser>(
+        Cpp::StructSpecifier as u16,
+        Cpp::ClassSpecifier as u16,
+    );
+}
+
+#[cfg(feature = "mozcpp")]
+#[test]
+fn mozcpp_specifier_space_predicates_agree_1555() {
+    use crate::Mozcpp;
+    assert_specifier_predicates_agree::<crate::MozcppParser>(
+        Mozcpp::StructSpecifier as u16,
+        Mozcpp::ClassSpecifier as u16,
+    );
+}
+
 #[cfg(feature = "cpp")]
 #[test]
 fn cpp_scope_resolution_operator() {

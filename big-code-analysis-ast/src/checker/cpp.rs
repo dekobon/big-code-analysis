@@ -21,18 +21,22 @@ impl Checker for CppCode {
     // will silently drop those nodes from FuncSpace creation the next
     // time a grammar bump starts emitting them (see lesson 2 in
     // `docs/development/lessons_learned.md`).
+    //
+    // A struct / class specifier opens a space only when it has a body,
+    // gated by the same predicate as `get_space_kind` (#1555).
     fn is_func_space(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Cpp::TranslationUnit
-                | Cpp::FunctionDefinition
-                | Cpp::FunctionDefinition2
-                | Cpp::FunctionDefinition3
-                | Cpp::FunctionDefinition4
-                | Cpp::StructSpecifier
-                | Cpp::ClassSpecifier
-                | Cpp::NamespaceDefinition
-        )
+        match node.kind_id().into() {
+            Cpp::StructSpecifier | Cpp::ClassSpecifier => cpp_specifier_has_body(node),
+            kind => matches!(
+                kind,
+                Cpp::TranslationUnit
+                    | Cpp::FunctionDefinition
+                    | Cpp::FunctionDefinition2
+                    | Cpp::FunctionDefinition3
+                    | Cpp::FunctionDefinition4
+                    | Cpp::NamespaceDefinition
+            ),
+        }
     }
 
     // Issue #285 contract: keep this in sync with `is_func_space` and
