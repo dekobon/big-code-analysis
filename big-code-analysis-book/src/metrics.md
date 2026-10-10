@@ -711,7 +711,13 @@ tokens involved the same way they spell real operators:
   and label `:`, which is a separate operator from `::`. Both languages
   left these out until #1486, so their Halstead scores rose with it.
   Python's `class` keyword followed in #1550: it is now billed like
-  `def`, as Ruby, Kotlin, C# and PHP bill their `class`.
+  `def`, as Ruby, Kotlin, C# and PHP bill their `class`. Java, Groovy,
+  the JavaScript family, C, C++ and Objective-C followed in #1552 with
+  their type-declaration keywords: `class`, `struct`, `union`, `enum`,
+  `interface`, `record`, `trait`, `@interface`, `@implementation` and
+  `@protocol`. A `class` that declares no class is not billed: Java's
+  `C.class` stays one operand, and C++'s `template <class T>` scores
+  like `template <typename T>`.
 - **An alternative spelling is an operator of its own.** C++ spells
   `&&` equally as `and`, `!=` as `not_eq` and so on through all eleven
   [alternative tokens](https://en.cppreference.com/w/cpp/language/operator_alternative).

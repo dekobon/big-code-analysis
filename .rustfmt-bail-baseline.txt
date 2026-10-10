@@ -129,9 +129,9 @@ big-code-analysis-ast/src/getter/cpp.rs 4
 big-code-analysis-ast/src/getter/csharp.rs 9
 big-code-analysis-ast/src/getter/elixir.rs 3
 big-code-analysis-ast/src/getter/go.rs 1
-big-code-analysis-ast/src/getter/groovy.rs 7
+big-code-analysis-ast/src/getter/groovy.rs 9
 big-code-analysis-ast/src/getter/irules.rs 6
-big-code-analysis-ast/src/getter/java.rs 5
+big-code-analysis-ast/src/getter/java.rs 6
 big-code-analysis-ast/src/getter/kotlin.rs 4
 big-code-analysis-ast/src/getter/lua.rs 3
 big-code-analysis-ast/src/getter/mozcpp.rs 4

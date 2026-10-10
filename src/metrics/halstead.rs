@@ -1106,13 +1106,13 @@ mod tests {
     #[test]
     fn cpp_dot_star_is_halstead_operator() {
         check_metrics::<CppParser>("struct S { void operator.*(int); };", "foo.cpp", |metric| {
-            // Unique operators with fix: {}, ;, (), int, void, .*, and
-            //   the `operator` keyword (#1296).
+            // Unique operators with fix: {}, ;, (), int, void, .*, the
+            //   `operator` keyword (#1296) and `struct` (#1552).
             //   `.*` is the regression target — without the fix it
-            //   falls through to `Unknown` and `u_operators` is 6.
+            //   falls through to `Unknown` and `u_operators` is 7.
             // Unique operands: S
             let s = &metric.halstead;
-            assert_eq!(s.unique_operators(), 7);
+            assert_eq!(s.unique_operators(), 8);
             assert_eq!(s.unique_operands(), 1);
         });
     }
@@ -1135,12 +1135,12 @@ mod tests {
             "foo.cpp",
             |metric| {
                 // Unique operators with fix: {}, ;, (), int, void, ->*,
-                //   and the `operator` keyword (#1296).
+                //   the `operator` keyword (#1296) and `struct` (#1552).
                 //   `->*` is the regression target — without the fix it
-                //   falls through to `Unknown` and `u_operators` is 6.
+                //   falls through to `Unknown` and `u_operators` is 7.
                 // Unique operands: S
                 let s = &metric.halstead;
-                assert_eq!(s.unique_operators(), 7);
+                assert_eq!(s.unique_operators(), 8);
                 assert_eq!(s.unique_operands(), 1);
             },
         );
@@ -2296,10 +2296,9 @@ mod tests {
     //
     // expected, for `class C { #x = 1; m() { return this.#x; } }`:
     //
-    // * Operators: `{`×2 (class body, method body), `=`, `;`×2, `(`,
-    //   `return`, `.` — 8 total, 6 unique. (`class` is not in the
-    //   JS-family operator arm, so it contributes nothing; that is
-    //   pre-existing and unrelated.)
+    // * Operators: `class`, `{`×2 (class body, method body), `=`,
+    //   `;`×2, `(`, `return`, `.` — 9 total, 7 unique. (`class` joined
+    //   the JS-family operator arm in #1552.)
     // * Operands: `C`, `#x`, `1`, `m`, `this`, `#x` — 6 total, 5
     //   unique under JS/MozJS. Under TS/TSX the class *name* `C`
     //   parses as `type_identifier`, which those getters do not
@@ -2311,14 +2310,14 @@ mod tests {
         #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
         const SRC: &str = "class C { #x = 1; m() { return this.#x; } }";
         let check_js = |m: crate::CodeMetrics| {
-            assert_eq!(m.halstead.unique_operators(), 6);
-            assert_eq!(m.halstead.total_operators(), 8);
+            assert_eq!(m.halstead.unique_operators(), 7);
+            assert_eq!(m.halstead.total_operators(), 9);
             assert_eq!(m.halstead.unique_operands(), 5);
             assert_eq!(m.halstead.total_operands(), 6);
         };
         let check_ts = |m: crate::CodeMetrics| {
-            assert_eq!(m.halstead.unique_operators(), 6);
-            assert_eq!(m.halstead.total_operators(), 8);
+            assert_eq!(m.halstead.unique_operators(), 7);
+            assert_eq!(m.halstead.total_operators(), 9);
             assert_eq!(m.halstead.unique_operands(), 4);
             assert_eq!(m.halstead.total_operands(), 5);
         };
@@ -2679,26 +2678,26 @@ mod tests {
             }",
             "foo.java",
             |metric| {
-                // Operators (n1=11): {} void () [] , . ; int = + /
+                // Operators (n1=12): class {} void () [] , . ; int = + /
                 // Operands (n2=12): Main main args a b c avg 5 3 MessageFormat format "{0}"
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
                 {
-                  "unique_operators": 11,
-                  "total_operators": 26,
+                  "unique_operators": 12,
+                  "total_operators": 27,
                   "unique_operands": 12,
                   "total_operands": 22,
-                  "length": 48,
-                  "estimated_program_length": 81.07329781366414,
-                  "purity_ratio": 1.6890270377846697,
-                  "vocabulary": 23,
-                  "volume": 217.13097389073664,
-                  "difficulty": 10.083333333333334,
-                  "level": 0.09917355371900825,
-                  "effort": 2189.4039867315946,
-                  "time": 121.63355481842193,
-                  "bugs": 0.05620341201461669
+                  "length": 49,
+                  "estimated_program_length": 86.03910001730775,
+                  "purity_ratio": 1.7559000003532192,
+                  "vocabulary": 24,
+                  "volume": 224.66316253533665,
+                  "difficulty": 11.0,
+                  "level": 0.09090909090909091,
+                  "effort": 2471.294787888703,
+                  "time": 137.29415488270573,
+                  "bugs": 0.060929616893854746
                 }
                 "#
                 );
@@ -2725,25 +2724,26 @@ mod tests {
             |metric| {
                 // Verifies all 8 Java primitive-type keywords (byte, short, int, long,
                 // char, float, double, boolean) are counted as distinct operators, and
-                // that true/false are counted as operands.
+                // that true/false are counted as operands. The other four operators
+                // are `class` (#1552), `{}`, `=` and `;`.
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
                 {
-                  "unique_operators": 11,
-                  "total_operators": 28,
+                  "unique_operators": 12,
+                  "total_operators": 29,
                   "unique_operands": 19,
                   "total_operands": 19,
-                  "length": 47,
-                  "estimated_program_length": 118.76437056043838,
-                  "purity_ratio": 2.526901501285923,
-                  "vocabulary": 30,
-                  "volume": 230.62385799360038,
-                  "difficulty": 5.5,
-                  "level": 0.18181818181818182,
-                  "effort": 1268.4312189648022,
-                  "time": 70.46840105360012,
-                  "bugs": 0.03905920146699976
+                  "length": 48,
+                  "estimated_program_length": 123.730172764082,
+                  "purity_ratio": 2.5777119325850415,
+                  "vocabulary": 31,
+                  "volume": 237.80142289857,
+                  "difficulty": 6.0,
+                  "level": 0.16666666666666666,
+                  "effort": 1426.80853739142,
+                  "time": 79.26714096619,
+                  "bugs": 0.04224635182363915
                 }
                 "#
                 );
@@ -2762,14 +2762,15 @@ mod tests {
     #[test]
     fn java_self_and_super_references_are_operands() {
         let source = "class T {\n    int f() { return this.x + super.y; }\n}";
-        // Operators (n1=7, N1=9): {} x2, int, (), return, . x2, +, ;
+        // Operators (n1=8, N1=10): class (#1552), {} x2, int, (),
+        // return, . x2, +, ;
         // Operands (n2=6, N2=6): T, f, this, x, super, y
-        // Before the fix this read (9, 11, 4, 4) — `this` and `super`
+        // Before the fix this read (10, 12, 4, 4) — `this` and `super`
         // billed into the operator side of both counts.
         assert_halstead_counts::<JavaParser>(
             source,
             "foo.java",
-            [7, 9, 6, 6],
+            [8, 10, 6, 6],
             "java self/super references",
         );
         assert_keywords_are_operands_only::<JavaParser>(source, "foo.java", &["this", "super"]);
@@ -2944,26 +2945,32 @@ mod tests {
                 // not already counted as operands, since `String`
                 // was already an identifier in the prior grammar's
                 // counting).
-                assert_eq!(metric.halstead.unique_operators(), 8);
+                // `class` is the ninth unique operator since #1552.
+                assert_eq!(metric.halstead.unique_operators(), 9);
                 assert_eq!(metric.halstead.unique_operands(), 13);
+                // `bugs` is `effort.powf(2/3) / 3000`, and the platform libm's
+                // `powf` differs in the last ulp: macOS rendered this value
+                // as `…92342184` where Linux and Windows gave `…923421845`.
+                // Round it so the snapshot pins the metric, not the libm.
                 insta::assert_json_snapshot!(
                     metric.halstead,
+                    { ".bugs" => insta::rounded_redaction(12) },
                     @r#"
                 {
-                  "unique_operators": 8,
-                  "total_operators": 22,
+                  "unique_operators": 9,
+                  "total_operators": 23,
                   "unique_operands": 13,
                   "total_operands": 23,
-                  "length": 45,
-                  "estimated_program_length": 72.10571633583419,
-                  "purity_ratio": 1.6023492519074265,
-                  "vocabulary": 21,
-                  "volume": 197.65428402504423,
-                  "difficulty": 7.076923076923077,
-                  "level": 0.14130434782608697,
-                  "effort": 1398.7841638695438,
-                  "time": 77.71023132608576,
-                  "bugs": 0.04169134280255714
+                  "length": 46,
+                  "estimated_program_length": 76.63504134881501,
+                  "purity_ratio": 1.665979159756848,
+                  "vocabulary": 22,
+                  "volume": 205.13385445731566,
+                  "difficulty": 7.961538461538462,
+                  "level": 0.12560386473429952,
+                  "effort": 1633.1810720255517,
+                  "time": 90.73228177919731,
+                  "bugs": 0.046227630923
                 }
                 "#
                 );
@@ -2997,29 +3004,29 @@ mod tests {
                 // split), and `'x'` parses as `StringLiteral` (Groovy
                 // single-quoted strings) rather than as
                 // `CharacterLiteral`. Operators remaining in this
-                // fixture: `=` and `class`-body braces (only `{` is in
-                // the operator set). True/false collapse under one
-                // `BooleanLiteral`.
-                assert_eq!(metric.halstead.unique_operators(), 2);
+                // fixture: `=`, the `class` keyword (#1552) and the
+                // class-body braces (only `{` is in the operator set).
+                // True/false collapse under one `BooleanLiteral`.
+                assert_eq!(metric.halstead.unique_operators(), 3);
                 assert_eq!(metric.halstead.unique_operands(), 27);
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
                 {
-                  "unique_operators": 2,
-                  "total_operators": 10,
+                  "unique_operators": 3,
+                  "total_operators": 11,
                   "unique_operands": 27,
                   "total_operands": 28,
-                  "length": 38,
-                  "estimated_program_length": 130.38196255841365,
-                  "purity_ratio": 3.4311042778529908,
-                  "vocabulary": 29,
-                  "volume": 184.60327781484773,
-                  "difficulty": 1.037037037037037,
-                  "level": 0.9642857142857143,
-                  "effort": 191.44043625243467,
-                  "time": 10.635579791801925,
-                  "bugs": 0.01107221547116606
+                  "length": 39,
+                  "estimated_program_length": 133.1368500605771,
+                  "purity_ratio": 3.413765386168644,
+                  "vocabulary": 30,
+                  "volume": 191.36873322873222,
+                  "difficulty": 1.5555555555555556,
+                  "level": 0.6428571428571428,
+                  "effort": 297.6846961335835,
+                  "time": 16.53803867408797,
+                  "bugs": 0.014861058740943886
                 }
                 "#
                 );
@@ -5873,7 +5880,19 @@ end",
 
     /// Asserts `[n1, N1]` for each `(label, source, expected)` row, one
     /// parse per row so a row's counts are its own.
-    #[cfg(any(feature = "python", feature = "rust"))]
+    #[cfg(any(
+        feature = "c",
+        feature = "cpp",
+        feature = "groovy",
+        feature = "java",
+        feature = "javascript",
+        feature = "mozcpp",
+        feature = "mozjs",
+        feature = "objc",
+        feature = "python",
+        feature = "rust",
+        feature = "typescript"
+    ))]
     fn assert_operator_rows<T: crate::MetricSuite>(file: &str, rows: &[(&str, &str, [u64; 2])]) {
         for (label, source, expected) in rows {
             crate::test_support::check_func_space_only::<T, _>(
@@ -5984,6 +6003,188 @@ end",
             ("walrus inside a field", "f\"{(y := 1)}\"\n", [2, 2]),
         ];
         assert_operator_rows::<PythonParser>("foo.py", ROWS);
+    }
+
+    /// #1552: a JS-family `class` keyword bills as `function` does, once
+    /// per keyword. Shared by the four grammars of the macro; each runs
+    /// its own call so a grammar whose `Class2` stops being the keyword
+    /// leaf fails alone. Before #1552 every row billed one fewer.
+    #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+    const JS_FAMILY_CLASS_ROWS: &[(&str, &str, [u64; 2])] = &[
+        // `class`, `{}`
+        ("declaration", "class C {}\n", [2, 2]),
+        // `const`, `=`, `class`, `{}`, `;` — the class *expression*
+        // node wraps the keyword and bills nothing of its own
+        ("expression", "const D = class {};\n", [5, 5]),
+        // `class` twice, `extends`, `{}` twice
+        ("two classes", "class A {}\nclass B extends A {}\n", [3, 5]),
+    ];
+
+    #[cfg(any(feature = "javascript", feature = "mozjs"))]
+    #[test]
+    fn js_class_keyword_is_an_operator_1552() {
+        #[cfg(feature = "javascript")]
+        assert_operator_rows::<JavascriptParser>("foo.js", JS_FAMILY_CLASS_ROWS);
+        #[cfg(feature = "mozjs")]
+        assert_operator_rows::<MozjsParser>("foo.js", JS_FAMILY_CLASS_ROWS);
+    }
+
+    /// #1552 for the two TypeScript grammars: the shared `class` rows,
+    /// plus their own `interface` and `enum` declaration keywords.
+    #[cfg(feature = "typescript")]
+    #[test]
+    fn typescript_declaration_keywords_are_operators_1552() {
+        const ROWS: &[(&str, &str, [u64; 2])] = &[
+            // `interface`, `{}`
+            ("interface", "interface I {}\n", [2, 2]),
+            // `enum`, `{}`
+            ("enum", "enum E { A }\n", [2, 2]),
+        ];
+        assert_operator_rows::<TypescriptParser>("foo.ts", JS_FAMILY_CLASS_ROWS);
+        assert_operator_rows::<TypescriptParser>("foo.ts", ROWS);
+        assert_operator_rows::<TsxParser>("foo.tsx", JS_FAMILY_CLASS_ROWS);
+        assert_operator_rows::<TsxParser>("foo.tsx", ROWS);
+    }
+
+    /// #1552: Java's type-declaration keywords are operators, as C#'s
+    /// are. The class-literal row pins the guard: `C.class` is one
+    /// operand, and its `class` leaf bills nothing of its own.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_declaration_keywords_are_operators_1552() {
+        const ROWS: &[(&str, &str, [u64; 2])] = &[
+            // `class`, `{}`
+            ("class", "class C {}\n", [2, 2]),
+            // `interface`, `{}`
+            ("interface", "interface I {}\n", [2, 2]),
+            // `enum`, `{}`
+            ("enum", "enum E { A }\n", [2, 2]),
+            // `record`, `()`, `int`, `{}`
+            ("record", "record R(int x) {}\n", [4, 4]),
+            // `@interface`, `{}`
+            ("annotation type", "@interface N {}\n", [2, 2]),
+            // `class`, `{}`, `=`, `.`, `;` — one `class`: the literal's
+            // is part of the `C.class` operand
+            ("class literal", "class U { Object o = C.class; }\n", [5, 5]),
+        ];
+        assert_operator_rows::<JavaParser>("Foo.java", ROWS);
+    }
+
+    /// #1552: Groovy's type-declaration keywords are operators, as
+    /// Java's are. `String.class` is a `field_access` whose `class` is a
+    /// plain identifier, so it stays an operand with no guard needed.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_declaration_keywords_are_operators_1552() {
+        const ROWS: &[(&str, &str, [u64; 2])] = &[
+            // `class`, `{}`
+            ("class", "class C {}\n", [2, 2]),
+            // `interface`, `{}`
+            ("interface", "interface I {}\n", [2, 2]),
+            // `trait`, `{}`
+            ("trait", "trait T {}\n", [2, 2]),
+            // `enum`, `{}`
+            ("enum", "enum E { A }\n", [2, 2]),
+            // `record`, `()`, `{}`
+            ("record", "record R(int x) {}\n", [3, 3]),
+            // `def`, `=`, `.` — no `class`
+            ("class reference", "def a = String.class\n", [3, 3]),
+            // `=` twice: a script-level `record` / `trait` used as a name
+            // falls into error recovery with the keyword leaf, which is
+            // not a declaration and bills nothing
+            ("contextual names", "record = 3\ntrait = 4\n", [1, 2]),
+        ];
+        assert_operator_rows::<GroovyParser>("foo.groovy", ROWS);
+    }
+
+    /// #1552 rows shared by the two C++ clones. The template-parameter
+    /// rows pin the guard: `class T` is `typename T`'s synonym, and the
+    /// two spellings score alike.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const CPP_DECLARATION_KEYWORD_ROWS: &[(&str, &str, [u64; 2])] = &[
+        // `class`, `{}`, `;`
+        ("class", "class C {};\n", [3, 3]),
+        // `struct`, `{}`, `;`
+        ("struct", "struct S {};\n", [3, 3]),
+        // `union`, `{}`, `int`, `;` twice
+        ("union", "union U { int a; };\n", [4, 5]),
+        // `enum`, `{}`, `;`
+        ("enum", "enum E { A };\n", [3, 3]),
+        // `enum`, `class`, `{}`, `;`
+        ("enum class", "enum class F { B };\n", [4, 4]),
+        // `struct`, `;` — an elaborated type bills its keyword
+        ("elaborated type", "struct S s;\n", [2, 2]),
+        // `<`, `>`, `struct`, `{}`, `;` — no `class`
+        (
+            "class parameter",
+            "template <class T> struct W {};\n",
+            [5, 5],
+        ),
+        (
+            "typename parameter",
+            "template <typename T> struct W {};\n",
+            [5, 5],
+        ),
+        // `<`, `=`, `int`, `>`, `struct`, `{}`, `;`
+        (
+            "optional class parameter",
+            "template <class T = int> struct W {};\n",
+            [7, 7],
+        ),
+        // `<`, `>`, `struct`, `{}`, `;` — `...` is an operand
+        (
+            "variadic class parameter",
+            "template <class... T> struct W {};\n",
+            [5, 5],
+        ),
+    ];
+
+    /// One call per clone, so reverting either arm fails its own row;
+    /// Mozcpp owns no file extension, so this is its only coverage.
+    #[cfg(all(feature = "cpp", feature = "mozcpp"))]
+    #[test]
+    fn cpp_declaration_keywords_are_operators_1552() {
+        assert_operator_rows::<CppParser>("foo.cpp", CPP_DECLARATION_KEYWORD_ROWS);
+        assert_operator_rows::<MozcppParser>("foo.cpp", CPP_DECLARATION_KEYWORD_ROWS);
+    }
+
+    /// #1552: C bills `struct` / `union` / `enum` as C++ does, so a
+    /// header scores the same whichever grammar parses it.
+    #[cfg(feature = "c")]
+    #[test]
+    fn c_declaration_keywords_are_operators_1552() {
+        const ROWS: &[(&str, &str, [u64; 2])] = &[
+            // `struct`, `{}`, `int`, `;` twice
+            ("struct", "struct S { int a; };\n", [4, 5]),
+            // `union`, `{}`, `int`, `;` twice
+            ("union", "union U { int a; };\n", [4, 5]),
+            // `enum`, `{}`, `;`
+            ("enum", "enum E { A };\n", [3, 3]),
+            // `struct`, `;`
+            ("elaborated type", "struct S s;\n", [2, 2]),
+        ];
+        assert_operator_rows::<CParser>("foo.c", ROWS);
+    }
+
+    /// #1552: ObjC bills C's `struct` and its own class and protocol
+    /// declaration keywords. `@class` already billed its `@` and stays
+    /// as it was.
+    #[cfg(feature = "objc")]
+    #[test]
+    fn objc_declaration_keywords_are_operators_1552() {
+        const ROWS: &[(&str, &str, [u64; 2])] = &[
+            // `@interface`, `:`
+            ("interface", "@interface C : NSObject\n@end\n", [2, 2]),
+            // `@implementation`
+            ("implementation", "@implementation C\n@end\n", [1, 1]),
+            // `@protocol`
+            ("protocol", "@protocol P\n@end\n", [1, 1]),
+            // `struct`, `{}`, `int`, `;` twice
+            ("struct", "struct S { int a; };\n", [4, 5]),
+            // `@`, `;` — unchanged by #1552
+            ("forward class", "@class Fwd;\n", [2, 2]),
+        ];
+        assert_operator_rows::<ObjcParser>("foo.m", ROWS);
     }
 
     #[cfg(feature = "bash")]
@@ -9887,13 +10088,14 @@ f() {
     #[cfg(feature = "objc")]
     #[test]
     fn objc_nsstring_literal_is_one_operand() {
-        // expected: [n1, N1, n2, N2]. Before the guard the first two rows
-        // read [8, 8, 5, 5] and [8, 9, 6, 6] — one `@` operator per
-        // literal; the boxing control is unchanged.
+        // expected: [n1, N1, n2, N2], each operator count including the
+        // wrapper's `@implementation` (#1552). Before the guard the first
+        // two rows read [9, 9, 5, 5] and [9, 10, 6, 6] — one `@` operator
+        // per literal; the boxing control is unchanged.
         let cases = [
-            ("NSString *s = @\"str\";", [7, 7, 5, 5]),
-            ("NSString *t = @\"x\" @\"y\";", [7, 7, 6, 6]),
-            ("NSNumber *n = @42;", [8, 8, 5, 5]),
+            ("NSString *s = @\"str\";", [8, 8, 5, 5]),
+            ("NSString *t = @\"x\" @\"y\";", [8, 8, 6, 6]),
+            ("NSNumber *n = @42;", [9, 9, 5, 5]),
         ];
         for (body, counts) in cases {
             let source = format!("@implementation Foo\n- (void)m {{\n    {body}\n}}\n@end\n");
@@ -9927,32 +10129,33 @@ f() {
 @end
 ";
         check_metrics::<ObjcParser>(source, "foo.m", |metric| {
-            // n1 = 14 unique operators:
+            // n1 = 15 unique operators:
             //   `&&`, `()`, `+`, `-`, `:`, `;`, `<`, `=`, `>`,
-            //   `[]` (message send), `if`, `int`, `return`, `{}`.
+            //   `[]` (message send), `if`, `int`, `return`, `{}`,
+            //   `@implementation` (#1552).
             //   The `@` of `@"hi"` is part of the literal's operand
             //   key, not an operator (see `objc_nsstring_literal_is_one_operand`).
             // n2 = 10 unique operands:
             //   `Foo`, `bar`, `log`, `self`, `x`, `y`, `0`, `1`, `10`,
             //   `@"hi"` (the ObjC string literal).
-            assert_eq!(metric.halstead.unique_operators(), 14);
+            assert_eq!(metric.halstead.unique_operators(), 15);
             assert_eq!(metric.halstead.unique_operands(), 10);
             insta::assert_json_snapshot!(metric.halstead, @r#"
             {
-              "unique_operators": 14,
-              "total_operators": 22,
+              "unique_operators": 15,
+              "total_operators": 23,
               "unique_operands": 10,
               "total_operands": 14,
-              "length": 36,
-              "estimated_program_length": 86.52224985768008,
-              "purity_ratio": 2.403395829380002,
-              "vocabulary": 24,
-              "volume": 165.0586500259616,
-              "difficulty": 9.8,
-              "level": 0.1020408163265306,
-              "effort": 1617.5747702544238,
-              "time": 89.86526501413465,
-              "bugs": 0.04593266617952463
+              "length": 37,
+              "estimated_program_length": 91.82263988300141,
+              "purity_ratio": 2.481692969810849,
+              "vocabulary": 25,
+              "volume": 171.8226790216648,
+              "difficulty": 10.5,
+              "level": 0.09523809523809523,
+              "effort": 1804.1381297274804,
+              "time": 100.22989609597113,
+              "bugs": 0.049399808887691035
             }
             "#);
         });
@@ -10226,15 +10429,15 @@ f() {
         // Operators, keyed by kind_id except the text-keyed primitives:
         // `{` x3 (class body, `m1`, `m2`), `int` x3, `;` x4 (the field,
         // the two returns, the struct terminator), `(` x2, `return` x2,
-        // `->` x2, and the one `*` of `S* p`. `struct` is in no arm, and
-        // #695 dropped every closing delimiter. n1 = 7, N1 = 17.
+        // `->` x2, the one `*` of `S* p`, and `struct` (#1552). #695
+        // dropped every closing delimiter. n1 = 8, N1 = 18.
         //
         // Operands, keyed by source text: `S` x2 (the name and the
         // parameter type), `x` x3, `m1`, `m2`, `p` x2, and — the fix —
         // `this` x1. n2 = 6, N2 = 10. Before #1361: n2 5, N2 9, with
         // every operator count identical, which is the whole claim.
         let counts = format!("{label}: this->x and p->x are the same shape");
-        assert_halstead_counts::<T>(CPP_THIS_RECEIVER_PARITY, file, [7, 17, 6, 10], &counts);
+        assert_halstead_counts::<T>(CPP_THIS_RECEIVER_PARITY, file, [8, 18, 6, 10], &counts);
         assert_ops_operands::<T>(
             CPP_THIS_RECEIVER_PARITY,
             file,
@@ -10259,20 +10462,21 @@ S s; int a = s[1]; auto t = co_await s;
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     #[track_caller]
     fn assert_cpp_operator_names<T: crate::MetricSuite>(label: &str) {
-        // Operators (n1 = 16, N1 = 39): `operator` 5 (four
+        // Operators (n1 = 17, N1 = 40): `operator` 5 (four
         // `operator_name`s and the `operator_cast`); the names `[]` 1,
         // `()` 1, `""` 1; `co_await` 2 (the name and the expression);
         // the `(` of a parameter list 5; `;` 9; `int` 3; `long` 3;
         // `bool` 2; `=` 2; `{` 1; `void` 1; `unsigned` 1; `::` 1; the
-        // subscript `[` 1. `struct`, `auto` and `const` are in no arm.
+        // subscript `[` 1; `struct` 1 (#1552). `auto` and `const` are in
+        // no arm.
         //
         // Operands (n2 = 6, N2 = 9): `s` 3, `S` 2 (the qualifier in
         // `S::operator bool` is a namespace identifier, which #1096
         // leaves unbilled), `_x`, `a`, `1`, `t`.
         //
-        // Before #1296: (11, 29, 6, 9), the five operator kinds billed
-        // nowhere.
-        assert_halstead_counts::<T>(CPP_OPERATOR_NAMES, "ops.cpp", [16, 39, 6, 9], label);
+        // Before #1296: (12, 30, 6, 9) with `struct`, the five operator
+        // kinds billed nowhere.
+        assert_halstead_counts::<T>(CPP_OPERATOR_NAMES, "ops.cpp", [17, 40, 6, 9], label);
 
         // `operator[]` / `operator()` are kinds of their own, so they sit
         // beside the subscript `[` and the parameter-list `(` as a second

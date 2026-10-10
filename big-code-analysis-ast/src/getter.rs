@@ -247,6 +247,12 @@ macro_rules! impl_js_family_get_op_type {
                 | CARET | CARETEQ | PIPEEQ | Yield | LBRACK | LBRACE | Await | QMARK
                 | QMARKQMARK | EQGT | DOTDOTDOT | New | Let | Var | Const | Function
                 | FunctionExpression | SEMI | Typeof | Instanceof | Void
+                // `Class2` is the `class` keyword leaf, billed beside
+                // `function` (#1552). The unsuffixed `Class` is the
+                // class *expression* node that wraps it
+                // (`const C = class {}`), so it stays unlisted and an
+                // expression bills one `class`, not two.
+                | Class2
                 // `get`/`set` accessor keywords are operators, matching the
                 // C# getter's `Get | Set | Init | Add | Remove` accessor arm.
                 // Before #695 the JS family classified them as operands, so

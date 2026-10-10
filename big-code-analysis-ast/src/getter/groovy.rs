@@ -83,11 +83,12 @@ impl Getter for GroovyCode {
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Groovy::*;
         // Mirrors `JavaCode`'s minimal classification — modifiers
-        // (`Public`, `Static`, …), declaration keywords (`Class`,
-        // `Interface`, …), and module keywords (`Package`, `Import`,
-        // …) are excluded because they live inside `Modifiers` /
-        // `*Declaration` wrappers and would over-count if treated as
-        // separate operators. The dekobon Groovy grammar (#246, #247)
+        // (`Public`, `Static`, …) and module keywords (`Package`,
+        // `Import`, …) are excluded. The type-declaration keywords
+        // (`class`, `interface`, `trait`, `enum`, `record`) are billed,
+        // as Java's are since #1552: no `*Declaration` wrapper is
+        // classified, so the keyword leaf is the only node that can
+        // bill one. The dekobon Groovy grammar (#246, #247)
         // emits a distinct named node for every Groovy-specific
         // operator (Elvis `?:`, safe-nav `?.`, identity `===`/`!==`,
         // regex `=~`/`==~`, spaceship `<=>`, exclusive ranges
@@ -156,12 +157,31 @@ impl Getter for GroovyCode {
             Super if ancestors.parent_has_kind(node, Wildcard as u16) => TokenRole::Operator,
             Super => TokenRole::Operand,
 
+            // `trait` and `record` are contextual keywords, so valid
+            // Groovy may use either as a name. Inside a class the grammar
+            // parses that name as an `identifier`, but at script level it
+            // fails `record = 3`, `String record` and `void record() {}`
+            // into an `ERROR` holding the keyword leaf. Billing the leaf
+            // there would make a variable an operator, so it bills only
+            // under the declaration it introduces (#1552).
+            Trait if ancestors.parent_has_kind(node, TraitDeclaration as u16) => {
+                TokenRole::Operator
+            }
+            Record if ancestors.parent_has_kind(node, RecordDeclaration as u16) => {
+                TokenRole::Operator
+            }
+
             // Control-flow + keyword operators (mirrors Java's set,
             // minus tokens that no longer exist in the dekobon grammar
             // — `This`, `VoidType`, `Throws2`).
             If | Else | Switch | Case | Try | Catch | Throw | Throws | For | While | Continue
             | Break | Do | Finally | New | Return | Default | Abstract | Assert | Instanceof
             | Extends | Final | Implements | Transient | Synchronized | Def | In | As
+            // Type-declaration keywords (#1552). Unlike Java's, `class`
+            // needs no class-literal guard: `String.class` parses as a
+            // `field_access` whose `class` is a plain `identifier`.
+            // `trait` and `record` are the gated arms above.
+            | Class | Interface | Enum
             // Separators / brackets.
             | SEMI | COMMA | COLONCOLON | DOT | DASHGT | LBRACE | LBRACK | LPAREN
             // Java-compatible operators (arithmetic, bitwise, comparison, assignment).

@@ -93,6 +93,16 @@ impl Getter for ObjcCode {
             AT if ancestors.parent_has_kind(node, StringLiteral as u16) => TokenRole::Unknown,
             // The C operator set, then the ObjC-specific structural
             // keywords / markers from `In` onwards.
+            //
+            // From `Struct` onwards come the type-declaration keywords
+            // (#1552): C's `struct` / `union` / `enum` (see `c.rs`), and
+            // ObjC's own class and protocol declarations. Each is the
+            // leaf of a `class_interface` / `class_implementation` /
+            // `protocol_declaration`, none of which is classified, so a
+            // declaration bills its keyword once. `@class Fwd;` needs no
+            // arm: it parses as an `@` token, already billed here, and a
+            // separate `class` leaf, so the directive already bills one
+            // operator.
             DOT | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return | Break
             | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do | EQ
             | AMPAMP | PIPEPIPE | DASH | DASHDASH | DASHGT | PLUS | PLUSPLUS | SLASH | PERCENT
@@ -100,9 +110,8 @@ impl Getter for ObjcCode {
             | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ | GTGTEQ | LTLTEQ | AMPEQ | CARET
             | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | PrimitiveType | TypeSpecifier
             | Sizeof | Signed | Unsigned | Long | Short | In | AT | ATtry | ATcatch | ATfinally
-            | ATthrow | ATsynchronized | ATautoreleasepool | ATselector | ATencode => {
-                TokenRole::Operator
-            }
+            | ATthrow | ATsynchronized | ATautoreleasepool | ATselector | ATencode | Struct
+            | Union | Enum | ATinterface | ATimplementation | ATprotocol => TokenRole::Operator,
             // `CharLiteral` — the full derivation lives on the same arm
             // in `src/getter/c.rs` (#1316): the wrapper is the only
             // classified node in a character literal, so it bills one

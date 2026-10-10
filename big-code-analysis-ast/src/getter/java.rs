@@ -84,12 +84,22 @@ impl Getter for JavaCode {
         // keywords, operators, literals: https://docs.oracle.com/javase/specs/jls/se18/html/jls-3.html#jls-3.12
         // https://www.geeksforgeeks.org/software-engineering-halsteads-software-metrics/?msclkid=5e181114abef11ecbb03527e95a34828
         match node.kind_id().into() {
+            // `class` declares a class (billed below, #1552) except as the
+            // tail of a class literal (`C.class`): that `class_literal` is
+            // already one operand keyed by its whole text, so billing its
+            // leaf too would pay the same bytes twice (grammar-dispatch
+            // section 5, the compound-leaf guard).
+            Class if ancestors.parent_has_kind(node, ClassLiteral as u16) => TokenRole::Unknown,
             // Operator: control flow
             | If | Else | Switch | Case | Try | Catch | Throw | Throws | Throws2 | For
             | While | Continue | Break | Do | Finally
             // Operator: keywords
             | New | Return | Default | Abstract | Assert | Instanceof | Extends | Final
             | Implements | Transient | Synchronized | VoidType
+            // Operator: type-declaration keywords, billed as C# bills
+            // its own (#1552). Only the leaves: no `*_declaration`
+            // wrapper is listed, so a declaration bills its keyword once.
+            | Class | Interface | Enum | Record | ATinterface
             // Operator: brackets and comma and terminators (separators)
             | SEMI | COMMA | COLONCOLON | DOT | DASHGT | LBRACE | LBRACK | LPAREN
             // Operator: operators

@@ -182,13 +182,14 @@ fn cpp_and_mozcpp_agree_on_this() {
     );
 
     let get = |key: &str| metric(&cpp, key);
-    // Operators: `{` x3, `int` x3, `;` x4, `(` x2, `return` x2, `->` x2,
-    // and the `*` of `S* p` -> N1 = 17. `this` must not appear here —
-    // classifying it as an operator (the Java / C# / Kotlin reading,
-    // #1380) would take this to 18 and the operand row to 9.
+    // Operators: `struct` (#1552), `{` x3, `int` x3, `;` x4, `(` x2,
+    // `return` x2, `->` x2, and the `*` of `S* p` -> N1 = 18. `this` must
+    // not appear here — classifying it as an operator (the Java / C# /
+    // Kotlin reading, #1380) would take this to 19 and the operand row
+    // to 9.
     assert_eq!(
         get("halstead.operators"),
-        17,
+        18,
         "`this` must not be billed as an operator: {cpp:?}"
     );
     // Operands: `S` x2, `x` x3, `m1`, `m2`, `p` x2, `this` -> N2 = 10.

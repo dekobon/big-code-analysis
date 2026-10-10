@@ -109,6 +109,25 @@ impl Getter for CppCode {
             {
                 TokenRole::Unknown
             }
+            // `class` in a template parameter list (`template <class T>`,
+            // `class U = int`, `class... Ts`) declares a type parameter,
+            // not a class: it is the exact synonym of `typename`, which
+            // is unbilled, so it stays unbilled too and the two
+            // spellings score alike. Everywhere else — a class
+            // specifier, `enum class`, a forward declaration — it bills
+            // as the declaration keyword it is (#1552).
+            Class
+                if matches!(
+                    ancestors.parent(node).map(|p| p.kind_id().into()),
+                    Some(
+                        TypeParameterDeclaration
+                            | OptionalTypeParameterDeclaration
+                            | VariadicTypeParameterDeclaration
+                    )
+                ) =>
+            {
+                TokenRole::Unknown
+            }
             DOT | DOTSTAR | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return
             | Break | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do
             | Delete | New | Try | Try2 | Catch | Throw | EQ | AMPAMP | PIPEPIPE | DASH
@@ -165,6 +184,15 @@ impl Getter for CppCode {
             // `co_return_statement` / `co_yield_statement`, which no arm
             // classifies, so nothing bills one twice.
             | CoReturn | CoYield
+            // The type-declaration keywords, billed as Rust bills
+            // `struct` and C# its `class` / `struct` / `enum` (#1552).
+            // Each is the keyword leaf of a `class_specifier` /
+            // `struct_specifier` / `union_specifier` / `enum_specifier`,
+            // none of which is classified, so a specifier bills its
+            // keyword once — and `enum class` bills both of its two.
+            // The same leaf heads an elaborated type (`struct S s;`),
+            // where it is billed too, as `int` is in `int s;`.
+            | Class | Struct | Union | Enum
                 => TokenRole::Operator,
             // `CharLiteral` — the full derivation lives on the same arm
             // in `src/getter/c.rs` (#1316): the wrapper is the only

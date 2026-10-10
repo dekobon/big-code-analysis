@@ -74,9 +74,13 @@ impl Getter for TsxCode {
     // delimiters. TSX is the only one of the two TypeScript grammars
     // with JSX, so the `.ts` invocation has no such variants to pass
     // (#1395), and the same holds for the `jsx:` text kinds (#1483).
+    //
+    // `Interface` / `Enum` are the TS-only type-declaration keyword
+    // leaves, billed as the shared `class` is (#1552) and as C# and
+    // Java bill theirs; their `*_declaration` wrappers stay unlisted.
     impl_js_family_get_op_type!(
         Tsx,
-        op_extras: [QMARKDOT, PredefinedType, LTSLASH, SLASHGT],
+        op_extras: [QMARKDOT, PredefinedType, Interface, Enum, LTSLASH, SLASHGT],
         operand_extras: [Identifier2, String2],
         predefined_void: PredefinedType,
         jsx: [JsxText, HtmlCharacterReference],

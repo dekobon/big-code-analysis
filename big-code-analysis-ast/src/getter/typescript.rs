@@ -75,9 +75,13 @@ impl Getter for TypescriptCode {
     //
     // No `jsx:` argument: the `.ts` grammar's enum carries `JsxText` in
     // its shared externals, but no production emits it (#1483).
+    //
+    // `Interface` / `Enum` are the TS-only type-declaration keyword
+    // leaves, billed as the shared `class` is (#1552) and as C# and
+    // Java bill theirs; their `*_declaration` wrappers stay unlisted.
     impl_js_family_get_op_type!(
         Typescript,
-        op_extras: [QMARKDOT, PredefinedType],
+        op_extras: [QMARKDOT, PredefinedType, Interface, Enum],
         operand_extras: [],
         predefined_void: PredefinedType,
     );
