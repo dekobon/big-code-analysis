@@ -4,6 +4,16 @@
 use super::*;
 use crate::c_declarator::declarator_name;
 
+// `GT2` is listed defensively, as in the Cpp getter.
+const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
+    lists: &[
+        Mozcpp::TemplateArgumentList as u16,
+        Mozcpp::TemplateParameterList as u16,
+    ],
+    openers: &[Mozcpp::LT as u16],
+    closers: &[Mozcpp::GT as u16, Mozcpp::GT2 as u16],
+};
+
 impl Getter for MozcppCode {
     fn get_func_space_name<'a, 'tree>(
         node: &Node<'tree>,
@@ -75,6 +85,10 @@ impl Getter for MozcppCode {
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Mozcpp::*;
+
+        if GENERIC_ANGLES.is_closer(node, ancestors) {
+            return TokenRole::Unknown;
+        }
 
         // `LPAREN2` is a defensive arm (collapsed to `LPAREN` before
         // `kind_id()`; #768, see the Cpp note).
@@ -152,6 +166,13 @@ impl Getter for MozcppCode {
             }
             _ => TokenRole::Unknown,
         }
+    }
+
+    fn get_operator_spelling<'a>(
+        node: &Node<'a>,
+        ancestors: Ancestors<'a, '_>,
+    ) -> Option<&'static str> {
+        GENERIC_ANGLES.opener_spelling(node, ancestors)
     }
 
     get_operator!(Mozcpp);

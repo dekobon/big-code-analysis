@@ -122,6 +122,14 @@ fn kotlin_string_has_interp(node: &Node, code: &[u8]) -> bool {
     })
 }
 
+// `super<A>` (a `super_expression`) names a supertype rather than
+// listing type arguments, so its brackets stay `<` and `>`.
+const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
+    lists: &[Kotlin::TypeArguments as u16, Kotlin::TypeParameters as u16],
+    openers: &[Kotlin::LT as u16],
+    closers: &[Kotlin::GT as u16],
+};
+
 impl Getter for KotlinCode {
     /// Names the space, synthesising one for constructs that carry no
     /// name token (#1184).
@@ -210,8 +218,12 @@ impl Getter for KotlinCode {
         }
     }
 
-    fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> TokenRole {
+    fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Kotlin::*;
+
+        if GENERIC_ANGLES.is_closer(node, ancestors) {
+            return TokenRole::Unknown;
+        }
 
         match node.kind_id().into() {
             // Operator: control flow keywords
@@ -339,6 +351,13 @@ impl Getter for KotlinCode {
         } else {
             &code[node.start_byte()..node.end_byte()]
         }
+    }
+
+    fn get_operator_spelling<'a>(
+        node: &Node<'a>,
+        ancestors: Ancestors<'a, '_>,
+    ) -> Option<&'static str> {
+        GENERIC_ANGLES.opener_spelling(node, ancestors)
     }
 
     get_operator!(Kotlin);

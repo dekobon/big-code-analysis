@@ -45,12 +45,14 @@ use super::support::{metrics_space, ops_space};
 ///
 /// The wildcard arm is deliberate, unlike the exhaustive `match` in
 /// [`super::ops_metrics_space_parity::fixture`]. Eighteen languages
-/// carry the ABC bracket gate — the generic and template brackets of
-/// C++, Rust, Go, Java, Groovy and the rest are the same shape — so an
-/// exhaustive table would need a row for each rather than a `None` arm
-/// asserting they have no such construct, which would be false. What
-/// this pins is the policy, and a policy flip lands in a shared getter
-/// macro or a shared ABC arm, which these seven rows already reach.
+/// carry the ABC bracket gate, so an exhaustive table would need a row
+/// for each rather than a `None` arm asserting they have no such
+/// construct, which would be false. What this pins is the policy, and a
+/// policy flip lands in a shared getter macro or a shared ABC arm,
+/// which these seven rows already reach. Generic and template brackets
+/// are the one family left out on purpose: Halstead bills them as a
+/// single `<>` pair since #1559, which the `*_generic_angles_*` tests in
+/// `src/ops.rs` pin per language.
 //
 // Two gates, one condition. The `mod` gate in `main.rs` names the seven
 // languages with a `Some` row and is the one that decides whether any of

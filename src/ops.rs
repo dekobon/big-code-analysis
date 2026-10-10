@@ -1465,4 +1465,189 @@ mod tests {
             ],
         );
     }
+
+    /// #1559: a generic list's angle brackets are one `<>` bracket pair,
+    /// billed on the opener as `()` / `[]` / `{}` are, with the closer
+    /// billing nothing. Every fixture also spells a comparison `<` and
+    /// `>`, which must stay their own vocabulary entries: the grammars
+    /// give the list brackets the comparison operators' kind ids, so the
+    /// vocabulary is what shows the two apart and `N1` is what shows the
+    /// closer is not billed.
+    #[cfg(any(
+        feature = "cpp",
+        feature = "csharp",
+        feature = "groovy",
+        feature = "java",
+        feature = "kotlin",
+        feature = "mozcpp",
+        feature = "rust",
+        feature = "typescript",
+    ))]
+    fn check_generic_pair(lang: LANG, file: &str, source: &str, operators: &[&str], n1: [u64; 2]) {
+        let source = Source::new(lang, source.as_bytes()).with_name(Some(file.to_owned()));
+        let ast = Ast::parse(source).expect("language feature enabled");
+        let ops = ast.ops().expect("ops walk must yield a top-level Ops");
+        let mut expected = operators.to_vec();
+        expected.sort_unstable();
+        assert_eq!(ops.operators, expected, "{lang:?} vocabulary");
+
+        let space = ast
+            .metrics(crate::MetricsOptions::default())
+            .expect("metrics walk");
+        let halstead = &space.metrics.halstead;
+        assert_eq!(
+            [halstead.unique_operators(), halstead.total_operators()],
+            n1,
+            "{lang:?} [n1, N1]"
+        );
+    }
+
+    // expected: `<>` three times (one parameter list, two nested
+    // argument lists), never `>`; `<` and `>` once each, the comparisons.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_generic_angles_are_one_pair_1559() {
+        check_generic_pair(
+            LANG::Rust,
+            "foo.rs",
+            "fn f<T>(v: Vec<Vec<T>>) -> bool { a < b && c > d }\n",
+            &["fn", "<>", "()", ":", "->", "bool", "{}", "<", "&&", ">"],
+            [10, 12],
+        );
+        // A turbofish and a higher-ranked `for<'a>` (`for_lifetimes`)
+        // are lists too, `<>` twice (`fn` is twice as well); the `>>` shift
+        // is its own operator.
+        check_generic_pair(
+            LANG::Rust,
+            "foo.rs",
+            "fn g(f: for<'a> fn(&'a u8)) { h::<u8>(x >> 1); }\n",
+            &[
+                "fn", "()", ":", "for", "<>", "&", "u8", "{}", "::", ">>", ";",
+            ],
+            [11, 16],
+        );
+        // A precise-capturing `use<T>` (`use_bounds`) is a list as well.
+        check_generic_pair(
+            LANG::Rust,
+            "foo.rs",
+            "fn u<T>(x: T) -> impl Sized + use<T> { x }\n",
+            &["fn", "<>", "()", ":", "->", "impl", "+", "use", "{}"],
+            [9, 10],
+        );
+    }
+
+    // expected: `<>` three times, `;` and `{}` twice each.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_generic_angles_are_one_pair_1559() {
+        check_generic_pair(
+            LANG::Java,
+            "foo.java",
+            "class A<T> { List<List<T>> v; boolean m() { return a < b && c > d; } }\n",
+            &[
+                "class",
+                "<>",
+                ";",
+                "{}",
+                "boolean_type",
+                "()",
+                "return",
+                "<",
+                "&&",
+                ">",
+            ],
+            [10, 14],
+        );
+    }
+
+    // expected: as Java, with `bool` for `boolean_type`.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_generic_angles_are_one_pair_1559() {
+        check_generic_pair(
+            LANG::Csharp,
+            "foo.cs",
+            "class A<T> { List<List<T>> v; bool M() { return a < b && c > d; } }\n",
+            &[
+                "class", "<>", ";", "{}", "bool", "()", "return", "<", "&&", ">",
+            ],
+            [10, 14],
+        );
+    }
+
+    // expected: `<>` three times, `:` twice. TSX shares the getter macro
+    // and the same arm, so it is checked on the same input.
+    #[cfg(feature = "typescript")]
+    #[test]
+    fn typescript_generic_angles_are_one_pair_1559() {
+        const SOURCE: &str =
+            "function f<T>(v: Array<Array<T>>): boolean { return a < b && c > d; }\n";
+        const OPERATORS: &[&str] = &[
+            "function", "<>", "()", ":", "boolean", "{}", "return", "<", "&&", ">", ";",
+        ];
+        check_generic_pair(LANG::Typescript, "foo.ts", SOURCE, OPERATORS, [11, 14]);
+        check_generic_pair(LANG::Tsx, "foo.tsx", SOURCE, OPERATORS, [11, 14]);
+    }
+
+    // expected: `<>` three times (the `template` parameter list and two
+    // nested argument lists), `::` twice. The closer of the outer list
+    // is spelled `>>` and still parses as two `>` tokens.
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_generic_angles_are_one_pair_1559() {
+        check_generic_pair(
+            LANG::Cpp,
+            "foo.cpp",
+            "template <class T> bool f(std::vector<std::vector<T>> v) { return a < b && c > d; }\n",
+            &[
+                "template", "<>", "class", "bool", "()", "::", "{}", "return", "<", "&&", ">", ";",
+            ],
+            [12, 15],
+        );
+    }
+
+    // expected: the Cpp row, through the Mozcpp grammar, which owns no
+    // file extension and so has no corpus coverage of its own.
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_generic_angles_are_one_pair_1559() {
+        check_generic_pair(
+            LANG::Mozcpp,
+            "foo.cpp",
+            "template <class T> bool f(std::vector<std::vector<T>> v) { return a < b && c > d; }\n",
+            &[
+                "template", "<>", "class", "bool", "()", "::", "{}", "return", "<", "&&", ">", ";",
+            ],
+            [12, 15],
+        );
+    }
+
+    // expected: `<>` three times, `:` twice.
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn kotlin_generic_angles_are_one_pair_1559() {
+        check_generic_pair(
+            LANG::Kotlin,
+            "foo.kt",
+            "fun <T> f(v: List<List<T>>): Boolean { return a < b && c > d }\n",
+            &["fun", "<>", "()", ":", "{}", "return", "<", "&&", ">"],
+            [9, 12],
+        );
+    }
+
+    // expected: `<>` four times — Groovy spells a method's parameter
+    // list as its own `method_type_parameters` node.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_generic_angles_are_one_pair_1559() {
+        check_generic_pair(
+            LANG::Groovy,
+            "foo.groovy",
+            "class A<T> { List<List<T>> v; def <U> boolean m() { return a < b && c > d } }\n",
+            &[
+                "class", "<>", ";", "{}", "def", "()", "return", "<", "&&", ">",
+            ],
+            [10, 14],
+        );
+    }
 }

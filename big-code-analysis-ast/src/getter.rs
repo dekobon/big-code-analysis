@@ -17,6 +17,7 @@ use crate::lang_helpers::tcl_family::{
 };
 use crate::space_kind::SpaceKind;
 use crate::traits::Search;
+use generic_angles::GenericAngleKinds;
 
 use crate::*;
 
@@ -175,10 +176,17 @@ macro_rules! impl_js_family_get_op_type {
         op_extras: [$($op_extra:ident),* $(,)?],
         operand_extras: [$($operand_extra:ident),* $(,)?]
         $(, predefined_void: $predefined_type:ident)?
+        $(, generic_angles: $generic_angles:ident)?
         $(, jsx: [$jsx_text:ident, $jsx_entity:ident])? $(,)?
     ) => {
         fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
             use $lang::*;
+
+            $(
+                if $generic_angles.is_closer(node, ancestors) {
+                    return TokenRole::Unknown;
+                }
+            )?
 
             // TS/TSX only: a `void` return / parameter type is parsed as a
             // `predefined_type` wrapper around an inner `void` token. Both
@@ -314,6 +322,15 @@ macro_rules! impl_js_family_get_op_type {
                 _ => TokenRole::Unknown,
             }
         }
+
+        $(
+            fn get_operator_spelling<'a>(
+                node: &Node<'a>,
+                ancestors: Ancestors<'a, '_>,
+            ) -> Option<&'static str> {
+                $generic_angles.opener_spelling(node, ancestors)
+            }
+        )?
 
         $(
             fn get_op_type_with_code<'a>(
@@ -551,7 +568,10 @@ pub trait Getter {
     /// a script-taking command.
     ///
     /// A bracket delimiting *syntax* fits neither shape: no literal
-    /// would absorb its contribution, so it stays an operator.
+    /// would absorb its contribution, so it stays an operator. A
+    /// generic list's `<` / `>` is billed like the other bracket pairs,
+    /// once as `<>` on the opener ([`Self::get_operator_spelling`], #1559),
+    /// which leaves the comparison `<` and `>` their own entries.
     ///
     /// `ancestors` is the chain the walker descended through. Most
     /// impls read a parent from it to disambiguate a token whose role
@@ -589,6 +609,21 @@ pub trait Getter {
         ancestors: Ancestors<'a, '_>,
     ) -> TokenRole {
         Self::get_op_type(node, ancestors)
+    }
+
+    /// The fixed spelling an operator `node` is keyed under in place of
+    /// its kind id, for a token whose kind the grammar shares with a
+    /// different operator; `None` keys it by kind. A generic list's `<`
+    /// is the case (#1559): it has the comparison's kind but is keyed as
+    /// the `"<>"` pair, as `()`, `[]` and `{}` are. Consulted only for a
+    /// node [`get_op_type`](Self::get_op_type) calls an operator.
+    #[inline]
+    #[must_use]
+    fn get_operator_spelling<'a>(
+        _node: &Node<'a>,
+        _ancestors: Ancestors<'a, '_>,
+    ) -> Option<&'static str> {
+        None
     }
 
     /// Returns the source-byte slice used to key a Halstead *operand*.
@@ -1202,6 +1237,7 @@ mod ccomment;
 mod cpp;
 mod csharp;
 mod elixir;
+mod generic_angles;
 mod go;
 mod groovy;
 mod irules;

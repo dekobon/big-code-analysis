@@ -3,6 +3,12 @@
 
 use super::*;
 
+const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
+    lists: &[Tsx::TypeArguments as u16, Tsx::TypeParameters as u16],
+    openers: &[Tsx::LT as u16],
+    closers: &[Tsx::GT as u16],
+};
+
 impl Getter for TsxCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
         use Tsx::*;
@@ -84,6 +90,10 @@ impl Getter for TsxCode {
     //
     // `Satisfies` / `Keyof` / `Infer` / `Is` / `Asserts2`, the type-level
     // operator keywords: see the TS invocation (#1561).
+    //
+    // `generic_angles`: see the TS invocation (#1559). A JSX tag's `<` /
+    // `>` hang from the JSX element nodes, not from a generic list, so
+    // they stay `<` and `>`.
     impl_js_family_get_op_type!(
         Tsx,
         op_extras: [
@@ -92,6 +102,7 @@ impl Getter for TsxCode {
         ],
         operand_extras: [Identifier2, String2, TypeIdentifier],
         predefined_void: PredefinedType,
+        generic_angles: GENERIC_ANGLES,
         jsx: [JsxText, HtmlCharacterReference],
     );
 

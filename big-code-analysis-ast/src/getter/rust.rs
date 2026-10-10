@@ -3,6 +3,22 @@
 
 use super::*;
 
+// `for_lifetimes` (`for<'a> fn(&'a u8)`) and `use_bounds`
+// (`impl Tr + use<'a, T>`) are generic-parameter lists under other
+// names. `LT2` is the `token(prec(1, '<'))` spelling `type_arguments`
+// and `use_bounds` open with; the parser reports it as `LT`, so it is
+// listed defensively.
+const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
+    lists: &[
+        Rust::TypeArguments as u16,
+        Rust::TypeParameters as u16,
+        Rust::ForLifetimes as u16,
+        Rust::UseBounds as u16,
+    ],
+    openers: &[Rust::LT as u16, Rust::LT2 as u16],
+    closers: &[Rust::GT as u16],
+};
+
 impl Getter for RustCode {
     fn get_func_space_name<'a, 'tree>(
         node: &Node<'tree>,
@@ -36,6 +52,9 @@ impl Getter for RustCode {
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Rust::*;
 
+        if GENERIC_ANGLES.is_closer(node, ancestors) {
+            return TokenRole::Unknown;
+        }
         match node.kind_id().into() {
             // `||` is treated as an operator only if it's part of a binary expression.
             // This prevents misclassification inside macros where closures without arguments (e.g., `let closure = || { /* ... */ };`)
@@ -91,6 +110,13 @@ impl Getter for RustCode {
             }
             _ => TokenRole::Unknown,
         }
+    }
+
+    fn get_operator_spelling<'a>(
+        node: &Node<'a>,
+        ancestors: Ancestors<'a, '_>,
+    ) -> Option<&'static str> {
+        GENERIC_ANGLES.opener_spelling(node, ancestors)
     }
 
     get_operator!(Rust);

@@ -75,7 +75,10 @@ pub struct HalsteadMaps<'a> {
     pub(crate) operators: IntKeyHashMap<u16, u64>,
     /// Primitive-type operators stored by text so each distinct primitive
     /// (e.g. `int` vs `double`) counts as a separate distinct operator,
-    /// even when the grammar maps them all to a single kind_id.
+    /// even when the grammar maps them all to a single kind_id. Also
+    /// holds the operators a getter keys by a fixed spelling
+    /// ([`Getter::get_operator_spelling`]), such as the generic `<>`
+    /// pair (#1559).
     ///
     /// Text-keyed, so it keeps SipHash — see the module doc on
     /// [`crate::int_hash`] for why analysed source text does not qualify
@@ -396,7 +399,12 @@ fn compute_halstead<'a, T: Getter + Checker>(
     }
     match T::get_op_type_with_code(node, code, ancestors) {
         TokenRole::Operator => {
-            if T::is_primitive(node) {
+            if let Some(spelling) = T::get_operator_spelling(node, ancestors) {
+                *halstead_maps
+                    .primitive_operators
+                    .entry(spelling.as_bytes())
+                    .or_insert(0) += 1;
+            } else if T::is_primitive(node) {
                 // Store primitive-type operators by text so distinct
                 // primitives (e.g. `int` vs `double`) that share a
                 // single kind_id are counted separately in n1/N1.
@@ -1278,9 +1286,11 @@ mod tests {
                 // operators (one occurrence each). #1486 adds the
                 // annotation `:` — one entry, 23 occurrences: `C`, the
                 // two fields, `p`, the four params of `f`, and the
-                // fifteen `let` bindings.
-                assert_eq!(metric.halstead.unique_operators(), 34);
-                assert_eq!(metric.halstead.total_operators(), 144);
+                // fifteen `let` bindings. #1559 bills `Option<u32>`'s
+                // brackets as one `<>` pair: one entry and one
+                // occurrence fewer.
+                assert_eq!(metric.halstead.unique_operators(), 33);
+                assert_eq!(metric.halstead.total_operators(), 143);
                 // u_operands / operands grew (was 31/50 before #390): the
                 // fix now classifies TypeIdentifier (`T`, `S`, `Option`)
                 // and FieldIdentifier (struct fields `x`, `y`) as operands
@@ -1358,7 +1368,9 @@ mod tests {
         // Also covers issue #394: `::` is now an operator. The snippet
         // has two `::` tokens (`Vec::new`, `HashMap::new`), so n1 grew
         // from 10 → 11 and N1 from 17 → 19. #1486 then billed the two
-        // annotation `:` tokens as their own entry: 12 and 21.
+        // annotation `:` tokens as their own entry: 12 and 21. #1559
+        // billed each generic's brackets as one `<>` pair, replacing the
+        // `<` and `>` entries and their four occurrences: 11 and 19.
         check_metrics::<RustParser>(
             "fn main() {
               let v: Vec<i32> = Vec::new();
@@ -1374,26 +1386,26 @@ mod tests {
                 // `::` appears twice (Vec::new, HashMap::new); without
                 // the #394 fix u_operators was 10 and operators 17.
                 // `:` appears twice and stays distinct from `::`.
-                assert_eq!(metric.halstead.unique_operators(), 12);
-                assert_eq!(metric.halstead.total_operators(), 21);
+                assert_eq!(metric.halstead.unique_operators(), 11);
+                assert_eq!(metric.halstead.total_operators(), 19);
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
                 {
-                  "unique_operators": 12,
-                  "total_operators": 21,
+                  "unique_operators": 11,
+                  "total_operators": 19,
                   "unique_operands": 8,
                   "total_operands": 11,
-                  "length": 32,
-                  "estimated_program_length": 67.01955000865388,
-                  "purity_ratio": 2.0943609377704338,
-                  "vocabulary": 20,
-                  "volume": 138.3016990363956,
-                  "difficulty": 8.25,
-                  "level": 0.12121212121212122,
-                  "effort": 1140.9890170502638,
-                  "time": 63.38827872501466,
-                  "bugs": 0.03639706698498207
+                  "length": 30,
+                  "estimated_program_length": 62.05374780501027,
+                  "purity_ratio": 2.068458260167009,
+                  "vocabulary": 19,
+                  "volume": 127.43782540330756,
+                  "difficulty": 7.5625,
+                  "level": 0.1322314049586777,
+                  "effort": 963.7485546125134,
+                  "time": 53.54158636736186,
+                  "bugs": 0.03252279825177962
                 }
                 "#
                 );
@@ -1417,10 +1429,10 @@ mod tests {
             ("field pattern", "fn f() { let S { a: b } = s; }\n", [7, 8]),
             // `fn`, `()`, `:`, `u8`, `{}`
             ("parameter", "fn f(x: u8) {}\n", [5, 5]),
-            // `fn`, `<`, `:`, `>`, `()`, `{}`
-            ("trait bound", "fn f<T: Clone>() {}\n", [6, 6]),
-            // `fn`, `<`, `>`, `()`, `where`, `:`, `{}`
-            ("where clause", "fn f<T>() where T: Clone {}\n", [7, 7]),
+            // `fn`, `<>`, `:`, `()`, `{}`
+            ("trait bound", "fn f<T: Clone>() {}\n", [5, 5]),
+            // `fn`, `<>`, `()`, `where`, `:`, `{}`
+            ("where clause", "fn f<T>() where T: Clone {}\n", [6, 6]),
             // `fn`, `()`, `{}` twice, `:`, `loop`, `break`, `;`
             ("loop label", "fn f() { 'a: loop { break 'a; } }\n", [7, 8]),
             // `fn`, `()`, `{}`, `let`, `=`, `|` twice, `:`, `u8`, `;`
@@ -1429,12 +1441,12 @@ mod tests {
                 "fn f() { let c = |q: u8| q; }\n",
                 [9, 10],
             ),
-            // `fn`, `()` twice, `{}`, `let`, `:`, `<`, `u8`, `>`, `=`,
-            // `::`, `;` — `:` and `::` are two entries
+            // `fn`, `()` twice, `{}`, `let`, `:`, `<>`, `u8`, `=`, `::`,
+            // `;` — `:` and `::` are two entries
             (
                 "beside a path",
                 "fn f() { let v: Vec<u8> = Vec::new(); }\n",
-                [11, 12],
+                [10, 11],
             ),
         ];
         assert_operator_rows::<RustParser>("foo.rs", ROWS);
@@ -3443,17 +3455,17 @@ mod tests {
             assert_eq!(metric.halstead.total_operands(), 2);
         });
 
-        // expected: operators `class`, `{`×2, `void`, `(`, `;`, `<`,
-        // `>`, `int` — 9 total, 8 unique (`int` is the text-keyed
-        // primitive operator, per #286). Operands `C`, `M`, `List`, `l`
+        // expected: operators `class`, `{`×2, `void`, `(`, `;`, `<>`,
+        // `int` — 8 total, 7 unique (`int` is the text-keyed primitive
+        // operator, per #286; `<>` is the type-argument pair, #1559). Operands `C`, `M`, `List`, `l`
         // — 4/4. Pre-fix the `generic_name` added `List<int>`, making
         // them 5/5.
         check_metrics::<CsharpParser>(
             "class C { void M() { List<int> l; } }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.halstead.unique_operators(), 8);
-                assert_eq!(metric.halstead.total_operators(), 9);
+                assert_eq!(metric.halstead.unique_operators(), 7);
+                assert_eq!(metric.halstead.total_operators(), 8);
                 assert_eq!(metric.halstead.unique_operands(), 4);
                 assert_eq!(metric.halstead.total_operands(), 4);
             },
@@ -6252,30 +6264,31 @@ end",
         ("enum class", "enum class F { B };\n", [4, 4]),
         // `struct`, `;` — an elaborated type bills its keyword
         ("elaborated type", "struct S s;\n", [2, 2]),
-        // `template`, `<`, `class`, `>`, `struct`, `{}`, `;`
+        // `template`, `<>`, `class`, `struct`, `{}`, `;` — the parameter
+        // list's brackets are one pair (#1559)
         (
             "class parameter",
             "template <class T> struct W {};\n",
-            [7, 7],
+            [6, 6],
         ),
         // as above, `typename` in place of `class`
         (
             "typename parameter",
             "template <typename T> struct W {};\n",
-            [7, 7],
+            [6, 6],
         ),
-        // `template`, `<`, `class`, `=`, `int`, `>`, `struct`, `{}`, `;`
+        // `template`, `<>`, `class`, `=`, `int`, `struct`, `{}`, `;`
         (
             "optional class parameter",
             "template <class T = int> struct W {};\n",
-            [9, 9],
+            [8, 8],
         ),
-        // `template`, `<`, `class`, `>`, `struct`, `{}`, `;` — `...` is
-        // an operand
+        // `template`, `<>`, `class`, `struct`, `{}`, `;` — `...` is an
+        // operand
         (
             "variadic class parameter",
             "template <class... T> struct W {};\n",
-            [7, 7],
+            [6, 6],
         ),
     ];
 
@@ -6410,12 +6423,12 @@ end",
                  vararg c: Int) {}\n",
                 [10, 16],
             ),
-            // `inline`, `reified`, `in`, `out`, `fun`, `class`, `<` x2,
-            // `>` x2, `,`, `()`, `{}`
+            // `inline`, `reified`, `in`, `out`, `fun`, `class`, `<>` x2,
+            // `,`, `()`, `{}`
             (
                 "type parameter",
                 "inline fun <reified T> f() {}\nclass Box<in A, out B>\n",
-                [11, 13],
+                [10, 11],
             ),
             // `expect`, `actual`, `fun` x2, `()` x2, `{}`
             ("platform", "expect fun f()\nactual fun g() {}\n", [5, 7]),
@@ -6467,19 +6480,19 @@ end",
         ("alias declaration", "using U = int;\n", [4, 4]),
         // `using`, `namespace`, `;`
         ("using directive", "using namespace std;\n", [3, 3]),
-        // `template`, `<`, `typename`, `>`, `;` and the `struct` of `S`
+        // `template`, `<>`, `typename`, `;` and the `struct` of `S`
         (
             "template declaration",
             "template <typename T> struct S;\n",
-            [6, 6],
+            [5, 5],
         ),
         // `typename`, `::`, `;`
         ("dependent type", "typename T::type x;\n", [3, 3]),
-        // `void`, `()` twice, `{}`, `.`, `template`, `<`, `int`, `>`, `;`
+        // `void`, `()` twice, `{}`, `.`, `template`, `<>`, `int`, `;`
         (
             "template disambiguator",
             "void g() { x.template f<int>(); }\n",
-            [9, 10],
+            [8, 9],
         ),
     ];
 
@@ -6590,11 +6603,11 @@ end",
             ("satisfies", "let s = w satisfies Sat;\n", [4, 4]),
             // `type`, `=`, `keyof`, `;`
             ("keyof", "type K = keyof T;\n", [4, 4]),
-            // `type`, `<` x2, `>` x2, `=`, `extends`, `infer`, `?`, `:`, `;`
+            // `type`, `<>` x2, `=`, `extends`, `infer`, `?`, `:`, `;`
             (
                 "infer",
                 "type I<X> = X extends Array<infer E> ? E : X;\n",
-                [9, 11],
+                [8, 9],
             ),
             // `function`, `()`, `:` x2, `unknown`, `is`, `{}`, `return`, `;`
             (

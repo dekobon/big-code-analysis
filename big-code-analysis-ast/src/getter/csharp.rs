@@ -3,6 +3,15 @@
 
 use super::*;
 
+const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
+    lists: &[
+        Csharp::TypeArgumentList as u16,
+        Csharp::TypeParameterList as u16,
+    ],
+    openers: &[Csharp::LT as u16],
+    closers: &[Csharp::GT as u16],
+};
+
 impl Getter for CsharpCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
         use Csharp::*;
@@ -47,6 +56,10 @@ impl Getter for CsharpCode {
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Csharp::*;
+
+        if GENERIC_ANGLES.is_closer(node, ancestors) {
+            return TokenRole::Unknown;
+        }
 
         match node.kind_id().into() {
             // Control-flow keywords
@@ -225,6 +238,13 @@ impl Getter for CsharpCode {
             // happened to be last.
             _ => TokenRole::Unknown,
         }
+    }
+
+    fn get_operator_spelling<'a>(
+        node: &Node<'a>,
+        ancestors: Ancestors<'a, '_>,
+    ) -> Option<&'static str> {
+        GENERIC_ANGLES.opener_spelling(node, ancestors)
     }
 
     get_operator!(Csharp);

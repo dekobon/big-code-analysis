@@ -3,6 +3,12 @@
 
 use super::*;
 
+const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
+    lists: &[Java::TypeArguments as u16, Java::TypeParameters as u16],
+    openers: &[Java::LT as u16],
+    closers: &[Java::GT as u16],
+};
+
 impl Getter for JavaCode {
     /// Names the space, synthesising one for constructs that carry no
     /// name token (#1184).
@@ -80,6 +86,10 @@ impl Getter for JavaCode {
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Java::*;
+
+        if GENERIC_ANGLES.is_closer(node, ancestors) {
+            return TokenRole::Unknown;
+        }
         // Some guides that informed grammar choice for Halstead
         // keywords, operators, literals: https://docs.oracle.com/javase/specs/jls/se18/html/jls-3.html#jls-3.12
         // https://www.geeksforgeeks.org/software-engineering-halsteads-software-metrics/?msclkid=5e181114abef11ecbb03527e95a34828
@@ -187,6 +197,13 @@ impl Getter for JavaCode {
             return TokenRole::Unknown;
         }
         Self::get_op_type(node, ancestors)
+    }
+
+    fn get_operator_spelling<'a>(
+        node: &Node<'a>,
+        ancestors: Ancestors<'a, '_>,
+    ) -> Option<&'static str> {
+        GENERIC_ANGLES.opener_spelling(node, ancestors)
     }
 
     fn get_operator_id_as_str(id: u16) -> &'static str {

@@ -3,6 +3,15 @@
 
 use super::*;
 
+const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
+    lists: &[
+        Typescript::TypeArguments as u16,
+        Typescript::TypeParameters as u16,
+    ],
+    openers: &[Typescript::LT as u16],
+    closers: &[Typescript::GT as u16],
+};
+
 impl Getter for TypescriptCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
         use Typescript::*;
@@ -113,6 +122,12 @@ impl Getter for TypescriptCode {
     // wrong is `let satisfies = 1`: it reads `let` as an identifier and
     // recovers a `satisfies_expression` around an ERROR, so that
     // statement is mis-scored whatever this list holds.
+    //
+    // `generic_angles`: a type-argument or type-parameter list's `<`
+    // bills as the `<>` pair and its `>` as nothing (#1559). A `<T>x`
+    // type assertion wraps a `type_arguments` node, so it is a pair too;
+    // a comparison's `<` / `>` sit under `binary_expression` and stay
+    // their own operators.
     impl_js_family_get_op_type!(
         Typescript,
         op_extras: [
@@ -121,6 +136,7 @@ impl Getter for TypescriptCode {
         ],
         operand_extras: [TypeIdentifier],
         predefined_void: PredefinedType,
+        generic_angles: GENERIC_ANGLES,
     );
 
     get_operator!(Typescript);

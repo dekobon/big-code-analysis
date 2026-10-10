@@ -3,6 +3,20 @@
 
 use super::*;
 
+// `method_type_parameters` is the method-level spelling of
+// `type_parameters` (`<T> T id(T x)`). `LT2` is the `token.immediate`
+// `<` that `type_parameters` and `type_arguments` open with; the parser
+// reports it as `LT`, so it is listed defensively.
+const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
+    lists: &[
+        Groovy::TypeArguments as u16,
+        Groovy::TypeParameters as u16,
+        Groovy::MethodTypeParameters as u16,
+    ],
+    openers: &[Groovy::LT as u16, Groovy::LT2 as u16],
+    closers: &[Groovy::GT as u16],
+};
+
 impl Getter for GroovyCode {
     /// Names the space, synthesising one for constructs that carry no
     /// name token (#1184).
@@ -82,6 +96,10 @@ impl Getter for GroovyCode {
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Groovy::*;
+
+        if GENERIC_ANGLES.is_closer(node, ancestors) {
+            return TokenRole::Unknown;
+        }
         // Mirrors `JavaCode`'s minimal classification — modifiers
         // (`Public`, `Static`, …) and module keywords (`Package`,
         // `Import`, …) are excluded. The type-declaration keywords
@@ -246,6 +264,13 @@ impl Getter for GroovyCode {
 
             _ => TokenRole::Unknown,
         }
+    }
+
+    fn get_operator_spelling<'a>(
+        node: &Node<'a>,
+        ancestors: Ancestors<'a, '_>,
+    ) -> Option<&'static str> {
+        GENERIC_ANGLES.opener_spelling(node, ancestors)
     }
 
     fn get_operator_id_as_str(id: u16) -> &'static str {

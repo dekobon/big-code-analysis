@@ -4,6 +4,18 @@
 use super::*;
 use crate::c_declarator::declarator_name;
 
+// `GT2` is the template closer's own symbol, which the parser folds
+// onto `GT` (`cpp_template_closer_alias_never_reaches_kind_id`); it is
+// listed defensively.
+const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
+    lists: &[
+        Cpp::TemplateArgumentList as u16,
+        Cpp::TemplateParameterList as u16,
+    ],
+    openers: &[Cpp::LT as u16],
+    closers: &[Cpp::GT as u16, Cpp::GT2 as u16],
+};
+
 impl Getter for CppCode {
     fn get_func_space_name<'a, 'tree>(
         node: &Node<'tree>,
@@ -75,6 +87,10 @@ impl Getter for CppCode {
 
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Cpp::*;
+
+        if GENERIC_ANGLES.is_closer(node, ancestors) {
+            return TokenRole::Unknown;
+        }
 
         // `LPAREN2` here (and the `LBRACK2`/`LBRACK3` aliases in the
         // Elixir/Ruby impls) is a defensive arm, not an active one: every
@@ -260,6 +276,13 @@ impl Getter for CppCode {
             }
             _ => TokenRole::Unknown,
         }
+    }
+
+    fn get_operator_spelling<'a>(
+        node: &Node<'a>,
+        ancestors: Ancestors<'a, '_>,
+    ) -> Option<&'static str> {
+        GENERIC_ANGLES.opener_spelling(node, ancestors)
     }
 
     get_operator!(Cpp);
