@@ -223,12 +223,6 @@ value = 5.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter.rs"
-qualified = "<file>"
-metric = "loc.sloc"
-value = 1264.0
-
-[[entry]]
-path = "big-code-analysis-ast/src/getter.rs"
 qualified = "Getter::is_braced_literal_slot"
 metric = "halstead.effort"
 value = 48009.70056636167

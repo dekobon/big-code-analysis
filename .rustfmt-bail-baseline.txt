@@ -122,7 +122,6 @@
 # not checking it, and it does drift: before #1136 `src/getter/java.rs`
 # carried a 252-character match arm.
 
-big-code-analysis-ast/src/getter.rs 3
 big-code-analysis-ast/src/getter/bash.rs 3
 big-code-analysis-ast/src/getter/c.rs 3
 big-code-analysis-ast/src/getter/cpp.rs 4
@@ -132,6 +131,7 @@ big-code-analysis-ast/src/getter/go.rs 1
 big-code-analysis-ast/src/getter/groovy.rs 9
 big-code-analysis-ast/src/getter/irules.rs 6
 big-code-analysis-ast/src/getter/java.rs 6
+big-code-analysis-ast/src/getter/js_family.rs 3
 big-code-analysis-ast/src/getter/kotlin.rs 4
 big-code-analysis-ast/src/getter/lua.rs 3
 big-code-analysis-ast/src/getter/mozcpp.rs 4
