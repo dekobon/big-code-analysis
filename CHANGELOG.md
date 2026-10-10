@@ -24,6 +24,13 @@ for historical reference.
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-10-10
+
+For the `big-code-analysis` crate this release changes metric values
+only: ABC, cyclomatic, cognitive and
+Halstead move for valid input in the languages each entry names.
+Nothing here is a source-level break.
+
 Most entries under **Fixed** change ABC values for valid input, mostly
 `conditions` (one Elixir case changes `assignments`). Some also or only
 move other metrics, and say so: the C++ alternative-token entry (#1522)
@@ -10419,7 +10426,8 @@ Halstead scores, and MI stay `f64`. No value changes — only the type.
 [Unreleased] link to `vX.Y.Z...HEAD` and add a `[X.Y.Z]:` line
 pointing at `<prev-tag>...vX.Y.Z`. -->
 
-[Unreleased]: https://github.com/dekobon/big-code-analysis/compare/v2.3.0...HEAD
+[Unreleased]: https://github.com/dekobon/big-code-analysis/compare/v2.3.1...HEAD
+[2.3.1]: https://github.com/dekobon/big-code-analysis/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/dekobon/big-code-analysis/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/dekobon/big-code-analysis/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/dekobon/big-code-analysis/compare/v2.0.0...v2.1.0
