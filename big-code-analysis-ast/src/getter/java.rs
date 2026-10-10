@@ -116,12 +116,35 @@ impl Getter for JavaCode {
             {
                 TokenRole::Unknown
             }
+            // `static` is a modifier (below, #1565) except in an import
+            // or module directive (`import static`, `requires static`),
+            // whose own keyword — `import`, `requires` — bills nothing
+            // here, so neither does the word it qualifies.
+            Static
+                if ancestors.parent(node).is_some_and(|p| {
+                    matches!(p.kind_id().into(), ImportDeclaration | RequiresModifier)
+                }) =>
+            {
+                TokenRole::Unknown
+            }
             // Operator: control flow
             | If | Else | Switch | Case | Try | Catch | Throw | Throws | Throws2 | For
             | While | Continue | Break | Do | Finally
             // Operator: keywords
             | New | Return | Default | Abstract | Assert | Instanceof | Extends | Final
             | Implements | Transient | Synchronized | VoidType
+            // Operator: the rest of the modifiers, billed as C# and Kotlin
+            // bill theirs (#1565). Each is its keyword leaf, one kind
+            // apiece; the `modifiers` wrapper stays unlisted, so a
+            // modifier bills once and an annotation inside it adds only
+            // its own tokens. `default` above is one kind for a `switch`
+            // label and an interface method's modifier. `sealed` and
+            // `permits` (`Permits2`; `Permits` is the clause) are
+            // contextual, and the grammar parses each used as a name
+            // (`var sealed = 1`, `int permits`) as an `identifier`, so
+            // they need no guard; `non-sealed` cannot be a name.
+            | Public | Private | Protected | Static | Native | Strictfp | Volatile | Sealed
+            | NonDASHsealed | Permits2
             // Operator: type-declaration keywords, billed as C# bills
             // its own (#1552). Only the leaves: no `*_declaration`
             // wrapper is listed, so a declaration bills its keyword once.

@@ -717,8 +717,7 @@ tokens involved the same way they spell real operators:
   `interface`, `record`, `trait`, `@interface`, `@implementation` and
   `@protocol`. Java's `C.class` is not billed: it stays one operand.
   Kotlin's `interface` followed in #1556, and since #1558 Kotlin bills
-  every modifier, as C# does (Java and Groovy bill `abstract` and
-  `final` but no visibility keyword or `static`, #1565): the `enum` of
+  every modifier, as C# does: the `enum` of
   `enum class`, `data`, `sealed`, the visibility keywords, `open`,
   `override`, `suspend`, `reified`, `out` and the rest each count once,
   as the keyword and never as its `modifiers` wrapper. The same words
@@ -750,7 +749,14 @@ tokens involved the same way they spell real operators:
   `set`, `init` and `where`. The `@get:` and `@set:` annotation targets
   bill nothing, like `@field:`. The backing `field` in an accessor is an
   operand, and the words used as names (`val by = 1`, `x.get(i)`) stay
-  operands.
+  operands. #1565 made Java and Groovy bill every modifier, where they
+  had billed only `abstract`, `final`, `transient` and `synchronized`:
+  the visibility keywords, `static`, `native`, `strictfp`, `volatile`,
+  `sealed` and `non-sealed`, plus the `permits` clause keyword beside
+  `extends` and `implements`. Java's are the keywords, never their
+  `modifiers` wrapper. The `static` of `import static` and `requires
+  static` bills nothing, as `import` does not, and the words used as
+  names (`var sealed = 1`) stay operands.
 - **A generic list's angle brackets are one bracket pair.** The `<`
   and `>` around type arguments and type parameters count as one `<>`
   operator, billed at the `<` as `()` is at the `(`, and the `>` counts

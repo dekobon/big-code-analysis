@@ -20,6 +20,34 @@ const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
     is_misparse: never_misparsed,
 };
 
+/// Whether a contextual keyword leaf (`trait`, `record`, `sealed`,
+/// `permits`) sits directly under the construct it introduces.
+///
+/// Valid Groovy may use any of the four as a name. Inside a class the
+/// grammar parses that name as an `identifier`, but a script-level
+/// statement that opens with one (`record = 3`, `String record`,
+/// `void record() {}`, `sealed.call()`) fails into an `ERROR` holding
+/// the keyword leaf. Billing the leaf there would make a variable an
+/// operator (#1552, #1565). The pinned grammar also misreads a *nested*
+/// `sealed class` as a field typed `sealed`, so that `sealed` bills as
+/// a type-name operand.
+fn contextual_keyword_owns<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+    use Groovy::*;
+
+    ancestors.parent(node).is_some_and(|parent| {
+        matches!(
+            (node.kind_id().into(), parent.kind_id().into()),
+            (Trait, TraitDeclaration)
+                | (Record, RecordDeclaration)
+                | (Permits, PermitsClause)
+                | (
+                    Sealed,
+                    ClassDeclaration | InterfaceDeclaration | TraitDeclaration
+                )
+        )
+    })
+}
+
 impl Getter for GroovyCode {
     /// Names the space, synthesising one for constructs that carry no
     /// name token (#1184).
@@ -103,9 +131,11 @@ impl Getter for GroovyCode {
         if GENERIC_ANGLES.is_closer(node, ancestors) {
             return TokenRole::Unknown;
         }
-        // Mirrors `JavaCode`'s minimal classification — modifiers
-        // (`Public`, `Static`, …) and module keywords (`Package`,
-        // `Import`, …) are excluded. The type-declaration keywords
+        // Mirrors `JavaCode`'s classification: modifiers are billed
+        // (#1565) and module keywords (`Package`, `Import`, …) are
+        // excluded. The grammar has no `modifiers` wrapper — each
+        // modifier leaf sits directly under its declaration — so each
+        // bills once. The type-declaration keywords
         // (`class`, `interface`, `trait`, `enum`, `record`) are billed,
         // as Java's are since #1552: no `*Declaration` wrapper is
         // classified, so the keyword leaf is the only node that can
@@ -178,18 +208,17 @@ impl Getter for GroovyCode {
             Super if ancestors.parent_has_kind(node, Wildcard as u16) => TokenRole::Operator,
             Super => TokenRole::Operand,
 
-            // `trait` and `record` are contextual keywords, so valid
-            // Groovy may use either as a name. Inside a class the grammar
-            // parses that name as an `identifier`, but at script level it
-            // fails `record = 3`, `String record` and `void record() {}`
-            // into an `ERROR` holding the keyword leaf. Billing the leaf
-            // there would make a variable an operator, so it bills only
-            // under the declaration it introduces (#1552).
-            Trait if ancestors.parent_has_kind(node, TraitDeclaration as u16) => {
+            // `trait`, `record`, `sealed` and `permits` are contextual
+            // keywords, so each bills only under the construct it
+            // introduces (`contextual_keyword_owns`); elsewhere it falls
+            // through to `Unknown`.
+            Trait | Record | Sealed | Permits if contextual_keyword_owns(node, ancestors) => {
                 TokenRole::Operator
             }
-            Record if ancestors.parent_has_kind(node, RecordDeclaration as u16) => {
-                TokenRole::Operator
+            // `import static`'s `static` bills nothing, as `import` does
+            // not; Java makes the same call.
+            Static if ancestors.parent_has_kind(node, ImportDeclaration as u16) => {
+                TokenRole::Unknown
             }
 
             // Control-flow + keyword operators (mirrors Java's set,
@@ -198,6 +227,11 @@ impl Getter for GroovyCode {
             If | Else | Switch | Case | Try | Catch | Throw | Throws | For | While | Continue
             | Break | Do | Finally | New | Return | Default | Abstract | Assert | Instanceof
             | Extends | Final | Implements | Transient | Synchronized | Def | In | As
+            // The rest of the modifiers (#1565). `non-sealed` cannot be
+            // spelled as a name; `non-sealed` as a subtraction parses as
+            // `non`, `-` and an identifier `sealed`.
+            | Public | Private | Protected | Static | Native | Strictfp | Volatile
+            | NonDASHsealed
             // Type-declaration keywords (#1552). Unlike Java's, `class`
             // needs no class-literal guard: `String.class` parses as a
             // `field_access` whose `class` is a plain `identifier`.

@@ -902,8 +902,10 @@ mod tests {
                     }
                 }",
             "foo.java",
+            // `public` and `static` are billed since #1565
             &mut [
-                "class", "{}", "void", "()", "[]", ",", ".", ";", "int", "=", "+", "/",
+                "public", "static", "class", "{}", "void", "()", "[]", ",", ".", ";", "int", "=",
+                "+", "/",
             ],
             &mut [
                 "Main",
@@ -942,8 +944,10 @@ mod tests {
             }",
             "foo.java",
             // All 8 primitive-type keywords must appear as distinct operators.
-            // true/false appear as operands; `class` is billed since #1552.
+            // true/false appear as operands; `class` is billed since #1552
+            // and `public` since #1565.
             &mut [
+                "public",
                 "class",
                 "{}",
                 ";",

@@ -2684,27 +2684,30 @@ mod tests {
             }",
             "foo.java",
             |metric| {
-                // Operators (n1=12): class {} void () [] , . ; int = + /
+                // Operators (n1=14): public static class {} void () [] , . ; int = + /
+                // (`public` x2 and `static` since #1565)
                 // Operands (n2=13): Main main string args a b c avg 5 3 MessageFormat format "{0}"
                 // (`string` is the parameter's type name, an operand since #1560)
+                assert_eq!(metric.halstead.unique_operators(), 14);
+                assert_eq!(metric.halstead.total_operators(), 30);
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
                 {
-                  "unique_operators": 12,
-                  "total_operators": 27,
+                  "unique_operators": 14,
+                  "total_operators": 30,
                   "unique_operands": 13,
                   "total_operands": 23,
-                  "length": 50,
-                  "estimated_program_length": 91.12526634448807,
-                  "purity_ratio": 1.8225053268897613,
-                  "vocabulary": 25,
-                  "volume": 232.19280948873623,
-                  "difficulty": 10.615384615384615,
-                  "level": 0.09420289855072464,
-                  "effort": 2464.8159776496614,
-                  "time": 136.93422098053674,
-                  "bugs": 0.06082308053869885
+                  "length": 53,
+                  "estimated_program_length": 101.40868524464065,
+                  "purity_ratio": 1.913371419710201,
+                  "vocabulary": 27,
+                  "volume": 252.0090376146638,
+                  "difficulty": 12.384615384615385,
+                  "level": 0.08074534161490683,
+                  "effort": 3121.035004304683,
+                  "time": 173.3908335724824,
+                  "bugs": 0.07118871793971378
                 }
                 "#
                 );
@@ -2731,26 +2734,27 @@ mod tests {
             |metric| {
                 // Verifies all 8 Java primitive-type keywords (byte, short, int, long,
                 // char, float, double, boolean) are counted as distinct operators, and
-                // that true/false are counted as operands. The other four operators
-                // are `class` (#1552), `{}`, `=` and `;`.
+                // that true/false are counted as operands. The other five operators
+                // are `public` (#1565), `class` (#1552), `{}`, `=` and `;`.
+                assert_eq!(metric.halstead.unique_operators(), 13);
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
                 {
-                  "unique_operators": 12,
-                  "total_operators": 29,
+                  "unique_operators": 13,
+                  "total_operators": 30,
                   "unique_operands": 19,
                   "total_operands": 19,
-                  "length": 48,
-                  "estimated_program_length": 123.730172764082,
-                  "purity_ratio": 2.5777119325850415,
-                  "vocabulary": 31,
-                  "volume": 237.80142289857,
-                  "difficulty": 6.0,
-                  "level": 0.16666666666666666,
-                  "effort": 1426.80853739142,
-                  "time": 79.26714096619,
-                  "bugs": 0.04224635182363915
+                  "length": 49,
+                  "estimated_program_length": 128.8163390912623,
+                  "purity_ratio": 2.6289048794135166,
+                  "vocabulary": 32,
+                  "volume": 245.0,
+                  "difficulty": 6.5,
+                  "level": 0.15384615384615385,
+                  "effort": 1592.5,
+                  "time": 88.47222222222223,
+                  "bugs": 0.04545674902336332
                 }
                 "#
                 );
@@ -2952,8 +2956,9 @@ mod tests {
                 // not already counted as operands, since `String`
                 // was already an identifier in the prior grammar's
                 // counting).
-                // `class` is the ninth unique operator since #1552.
-                assert_eq!(metric.halstead.unique_operators(), 9);
+                // `class` is the ninth unique operator since #1552, and
+                // `static` the tenth since #1565.
+                assert_eq!(metric.halstead.unique_operators(), 10);
                 assert_eq!(metric.halstead.unique_operands(), 13);
                 // `bugs` is `effort.powf(2/3) / 3000`, and the platform libm's
                 // `powf` differs in the last ulp: macOS rendered this value
@@ -2964,20 +2969,20 @@ mod tests {
                     { ".bugs" => insta::rounded_redaction(12) },
                     @r#"
                 {
-                  "unique_operators": 9,
-                  "total_operators": 23,
+                  "unique_operators": 10,
+                  "total_operators": 24,
                   "unique_operands": 13,
                   "total_operands": 23,
-                  "length": 46,
-                  "estimated_program_length": 76.63504134881501,
-                  "purity_ratio": 1.665979159756848,
-                  "vocabulary": 22,
-                  "volume": 205.13385445731566,
-                  "difficulty": 7.961538461538462,
-                  "level": 0.12560386473429952,
-                  "effort": 1633.1810720255517,
-                  "time": 90.73228177919731,
-                  "bugs": 0.046227630923
+                  "length": 47,
+                  "estimated_program_length": 81.32499728470782,
+                  "purity_ratio": 1.730319091163996,
+                  "vocabulary": 23,
+                  "volume": 212.60741193467962,
+                  "difficulty": 8.846153846153847,
+                  "level": 0.11304347826086956,
+                  "effort": 1880.7578748067813,
+                  "time": 104.48654860037674,
+                  "bugs": 0.050788728209
                 }
                 "#
                 );
@@ -6312,6 +6317,235 @@ end",
             ("contextual names", "record = 3\ntrait = 4\n", [1, 2]),
         ];
         assert_operator_rows::<GroovyParser>("foo.groovy", ROWS);
+    }
+
+    /// #1565: Java bills every modifier, as C# and Kotlin do, each as
+    /// its keyword leaf and never as the `modifiers` wrapper. Before the
+    /// fix only `abstract`, `final`, `transient`, `synchronized` and
+    /// `default` billed. The rows from "import static" on are controls:
+    /// a directive's `static` and the contextual words used as names add
+    /// no operator.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_modifiers_are_operators_1565() {
+        const ROWS: &[(&str, &str, [u64; 2])] = &[
+            // `class`, `{}`, `public`, `private`, `protected`, `int` x3,
+            // `;` x3
+            (
+                "visibility",
+                "class C { public int a; private int b; protected int c; }\n",
+                [7, 11],
+            ),
+            // `class`, `{}`, `static`, `final`, `int` x2, `=`, `;` x2,
+            // `transient`, `volatile`
+            (
+                "field modifiers",
+                "class C { static final int a = 1; transient volatile int b; }\n",
+                [9, 11],
+            ),
+            // `class`, `{}` x3, `native`, `synchronized`, `strictfp`,
+            // `void` x3, `()` x3, `;`
+            (
+                "method modifiers",
+                "class C { native void n(); synchronized void s() {} strictfp void f() {} }\n",
+                [8, 14],
+            ),
+            // `sealed`, `class` x2, `permits`, `{}` x2, `non-sealed`,
+            // `extends`
+            (
+                "sealed hierarchy",
+                "sealed class S permits T {}\nnon-sealed class T extends S {}\n",
+                [6, 8],
+            ),
+            // `class`, `{}` x2, `static`: the initializer's `static`
+            ("static initializer", "class C { static {} }\n", [3, 4]),
+            // `class`, `{}` x2, `public`, `()`, `return`, `;`: the
+            // annotation beside the modifier bills nothing of its own
+            (
+                "annotation in modifiers",
+                "class C { @Override public String toString() { return s; } }\n",
+                [6, 7],
+            ),
+            // `.` x3, `;`, `class`, `{}`: no `static`
+            (
+                "import static",
+                "import static java.lang.Math.max;\nclass C {}\n",
+                [4, 6],
+            ),
+            // `{}`, `;`: no `static`, and `transitive` stays unbilled
+            // with the rest of the module directive
+            (
+                "requires static",
+                "module m { requires static transitive a; }\n",
+                [2, 2],
+            ),
+            // `class`, `{}` x2, `void`, `()`, `=` x3, `;` x3, `int`
+            (
+                "names",
+                "class C { void m() { var sealed = 1; int permits = 2; sealed = permits; } }\n",
+                [7, 12],
+            ),
+            // `class`, `{}`, `int` x2, `,`, `;` x2, `=`, `-`
+            (
+                "non-sealed as a subtraction",
+                "class C { int non, sealed; int z = non-sealed; }\n",
+                [7, 9],
+            ),
+        ];
+        assert_operator_rows::<JavaParser>("Foo.java", ROWS);
+    }
+
+    /// #1565: the issue's fixture, by vocabulary. Each modifier is
+    /// listed by its own word, never by `modifiers`, and the contextual
+    /// words used as names are operands only. No getter edit makes that
+    /// second half fail, since Java's arms carry no guard on those
+    /// words: it pins the grammar emitting an `identifier` for a name,
+    /// so a bump that routes one to the keyword kind trips it.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_modifier_vocabulary_1565() {
+        let ops = ops_of::<JavaParser>(
+            "public abstract class C { private static final int a = 1; \
+             protected transient int b; public synchronized void m() {} }\n",
+            "Foo.java",
+        );
+        assert_eq!(
+            ops.operators,
+            [
+                "()",
+                ";",
+                "=",
+                "abstract",
+                "class",
+                "final",
+                "int",
+                "private",
+                "protected",
+                "public",
+                "static",
+                "synchronized",
+                "transient",
+                "void",
+                "{}",
+            ]
+        );
+        assert_eq!(ops.operands, ["1", "C", "a", "b", "m"]);
+
+        assert_keywords_are_operands_only::<JavaParser>(
+            "class C { int sealed() { return permits; } void m() { sealed(); } }\n",
+            "Foo.java",
+            &["sealed", "permits"],
+        );
+    }
+
+    /// #1565: Groovy bills every modifier, as Java now does. Its grammar
+    /// has no `modifiers` wrapper, so each leaf sits directly under its
+    /// declaration. `void` and `int` are type names and bill as
+    /// operands, so they are absent from these operator counts. The last
+    /// two rows are controls.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_modifiers_are_operators_1565() {
+        const ROWS: &[(&str, &str, [u64; 2])] = &[
+            // `class`, `{}`, `public`, `private`, `protected`, `def` x3
+            (
+                "visibility",
+                "class C {\n  public def a\n  private def b\n  protected def c\n}\n",
+                [6, 8],
+            ),
+            // `class`, `{}`, `static`, `final`, `def` x2, `=`,
+            // `transient`, `volatile`
+            (
+                "field modifiers",
+                "class C {\n  static final def a = 1\n  transient volatile def b\n}\n",
+                [8, 9],
+            ),
+            // `class`, `{}` x3, `native`, `synchronized`, `strictfp`,
+            // `()` x3
+            (
+                "method modifiers",
+                "class C {\n  native void n()\n  synchronized void s() {}\n  \
+                 strictfp void f() {}\n}\n",
+                [6, 10],
+            ),
+            // `sealed`, `class` x2, `permits`, `{}` x2, `non-sealed`,
+            // `extends`
+            (
+                "sealed hierarchy",
+                "sealed class S permits T {}\nnon-sealed class T extends S {}\n",
+                [6, 8],
+            ),
+            // `sealed` x2, `interface`, `trait`, `permits` x2, `{}` x2
+            (
+                "sealed interface and trait",
+                "sealed interface I permits A {}\nsealed trait T permits A {}\n",
+                [5, 8],
+            ),
+            // `class`, `{}` x3, `static` x2, `()`: an initializer and a
+            // script-level method
+            (
+                "static initializer and method",
+                "class C {\n  static {}\n}\nstatic void top() {}\n",
+                [4, 7],
+            ),
+            // `.` x3: no `static`, as `import` bills nothing
+            (
+                "import static",
+                "import static java.lang.Math.max\n",
+                [1, 3],
+            ),
+            // `=` x2, `.`, `()` x2, `def`: a statement opening with
+            // `sealed` as a name fails into an `ERROR` holding the
+            // keyword leaf, which bills nothing
+            (
+                "contextual names",
+                "sealed = 1\nsealed.call()\ndef permits = 2\nfoo(permits)\n",
+                [4, 6],
+            ),
+        ];
+        assert_operator_rows::<GroovyParser>("foo.groovy", ROWS);
+    }
+
+    /// #1565: the issue's Groovy fixture, by vocabulary, plus the
+    /// modifier words in positions the grammar parses as a name. Unlike
+    /// Java, Groovy accepts even its hard keywords as a map key, a named
+    /// argument and a member name. No getter edit makes that half fail:
+    /// it pins the grammar emitting an `identifier` there, so a bump
+    /// that routes one to the keyword kind trips it.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_modifier_vocabulary_1565() {
+        let ops = ops_of::<GroovyParser>(
+            "public abstract class C { private static final def a = 1; protected def m() {} }\n",
+            "foo.groovy",
+        );
+        assert_eq!(
+            ops.operators,
+            [
+                "()",
+                ";",
+                "=",
+                "abstract",
+                "class",
+                "def",
+                "final",
+                "private",
+                "protected",
+                "public",
+                "static",
+                "{}",
+            ]
+        );
+        assert_eq!(ops.operands, ["1", "C", "a", "m"]);
+
+        assert_keywords_are_operands_only::<GroovyParser>(
+            "x = sealed\nfoo(permits)\ndef m = [static: 1, public: 2]\n\
+             foo(native: 1, volatile: 2)\ny = obj.private\n",
+            "foo.groovy",
+            &[
+                "sealed", "permits", "static", "public", "native", "volatile", "private",
+            ],
+        );
     }
 
     /// #1552 rows shared by the two C++ clones. The template-parameter
