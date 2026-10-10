@@ -79,7 +79,7 @@ mk_langs!(
         tree_sitter_mozjs,
         [jsm],
         [],
-        "2.3.1"
+        "2.3.2"
     ),
     (
         "java",
@@ -151,7 +151,7 @@ mk_langs!(
         tree_sitter_tcl,
         [tcl, tk, tm],
         ["tcl"],
-        "2.3.1"
+        "2.3.2"
     ),
     (
         "irules",
@@ -213,7 +213,7 @@ mk_langs!(
         tree_sitter_mozcpp,
         [],
         [],
-        "2.3.1"
+        "2.3.2"
     ),
     (
         "objc",
@@ -314,7 +314,7 @@ mk_langs!(
         tree_sitter_ccomment,
         [],
         [],
-        "2.3.1"
+        "2.3.2"
     ),
     (
         "c-family-helpers",
@@ -326,7 +326,7 @@ mk_langs!(
         tree_sitter_preproc,
         [],
         [],
-        "2.3.1"
+        "2.3.2"
     ),
     (
         "perl",
