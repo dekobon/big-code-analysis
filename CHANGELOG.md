@@ -34,6 +34,77 @@ cognitive; the word-operator entry (#1530) moves cognitive only; and the
 Elixir clause entry (#1531) moves cyclomatic for a typespec function
 type and a keyword-form `cond` catch-all.
 
+**Halstead drift.** The entries under **Changed** apply #1395's rule that
+punctuation and declaration keywords are vocabulary to the languages
+that still left them out, so Halstead and the Maintainability Index
+move for most Python, Rust, C, C++, Java, JavaScript, TypeScript,
+Kotlin, Groovy and C# code. Python and Rust rise most, from #1486. The
+generic `<>` pair (#1559) lowers effort for most code that uses
+generics. Several **Fixed** entries also move only Halstead and are
+marked as such.
+
+### Added
+
+- **`Getter::get_operator_spelling`** (#1559), a defaulted trait method
+  that lets a getter bill an operator under a fixed text key when its
+  grammar gives two operators the same kind id. It is additive: existing
+  implementations compile unchanged.
+
+### Changed
+
+- **Python and Rust bill their punctuation as Halstead operators**
+  (#1486). Python bills `()`, `[]` and `{}` once per pair, plus `;` and
+  every syntactic `:`. Rust bills `:` as an entry separate from `::`. An
+  f-string's `{` and format-spec `:` stay unbilled. Every Python and Rust
+  Halstead score rises and every MI score falls; on DeepSpeech's Python,
+  N1 rises by about 47%.
+- **Type-declaration keywords are Halstead operators** in Java (`class`,
+  `interface`, `enum`, `record`, `@interface`), JavaScript and TypeScript
+  (`class`; TypeScript also `interface`, `enum`), Groovy (`class`,
+  `interface`, `enum`, `trait`, `record`), C and C++ (`struct`, `union`,
+  `enum`, C++ `class`), Objective-C (`@interface`, `@implementation`,
+  `@protocol`) and Python (`class`) (#1550, #1552). These languages now
+  match C#, Kotlin, PHP, Ruby and Rust. A `class` that declares nothing
+  (Java `C.class`) is not billed.
+- **C++ and TypeScript declaration keywords and TypeScript type names**
+  (#1557). C++ bills `namespace`, `template`, `typename`, `typedef` and
+  `using`; C and Objective-C bill `typedef`. TypeScript bills `type`,
+  `namespace`, `module`, `declare` and `global`. Every TypeScript
+  `type_identifier`, including alias and interface names, annotations
+  and generic arguments, is now an operand. `template <class T>` and
+  `template <typename T>` bill alike.
+- **Java type names are Halstead operands** (#1560), as in C#, Rust and
+  TypeScript. A class literal's interior and the inferred `var` stay
+  unbilled.
+- **Kotlin bills its declaration modifiers and `interface`** (#1556,
+  #1558): `enum`, `data`, `sealed`, the visibility keywords, `open`,
+  `override`, `suspend`, `reified`, variance `out` and the rest. Before
+  this, only `class` and `object` were billed.
+- **TypeScript bills `satisfies`, `keyof`, `infer`, `is` and
+  `asserts`** (#1561).
+- **Generic angle brackets bill as one `<>` pair** (#1559) in Rust (type
+  arguments and parameters, turbofish, `for<'a>`, `use<T>`), Java,
+  Groovy, C#, TypeScript, TSX, Kotlin and C++ templates. The opening `<`
+  bills `<>` and the closing `>` bills nothing, the same convention as
+  `()`, `[]` and `{}`. Comparisons and shifts are unchanged. N1 falls
+  for code that uses generics, and effort fell in about 87% of the moved
+  C++ and Rust corpus files.
+- **Perl and PHP `xor` scores as a value, not a decision** (#1536), like
+  `^` and the eager `xor` of Java, C++ and Kotlin. It adds no
+  cyclomatic or cognitive increment, and the boolean slot holding it
+  pays one ABC condition. PHP `xor` moves in all three metrics.
+- **Rust `let`-`else` is a decision** (#1542, #1548). It adds one
+  cyclomatic decision (standard and modified), and cognitive scores it
+  +1 plus nesting, the same as its `if let` twin. Before, cyclomatic
+  ignored it and cognitive gave a flat +1 through the `else` token.
+- **Elixir `with` clauses are decisions** (#1535). Each `pattern <- expr`
+  adds one cyclomatic decision and one ABC condition, like Rust's `if
+  let`, and a `when` guard on the pattern counts as a guard. Modified
+  cyclomatic no longer charges `with` a flat +1; its `else` adds one only
+  when it holds a clause other than `_`. A `for … reduce:` accumulator
+  clause follows the multi-clause `fn` rule, so a single clause is no
+  longer a decision.
+
 ### Fixed
 
 - **A C++ or Mozcpp comparison-operator overload no longer scores a
@@ -199,6 +270,73 @@ type and a keyword-form `cond` catch-all.
   `and` now keys to `&&` and `or` to `||`, as C++ does since #1522.
   Perl's low-precedence `and`, which cognitive never counted because the
   grammar parses it as a `unary_expression`, now scores like `&&`.
+- **A negated C# call argument scores a condition** (#1537). `G(!a)`,
+  `G(name: !a)`, `new B(!a)`, `: base(!a)` and primary-constructor base
+  calls scored 0, where Java's `g(!a)` scores 1, because the `argument`
+  wrapper was never peeled.
+- **Perl comparisons no longer over-count a condition when the grammar
+  mis-binds precedence** (#1273). tree-sitter-perl 1.1.2 parses
+  `$a > $b ? 1 : 2` as `$a > ($b ? 1 : 2)`, and `$a > $b && $c` the same
+  way. Each misparsed chaining comparison (`< > <= >= lt gt le ge == !=
+  eq ne`) added one ABC condition. They now score like their
+  parenthesised and JavaScript twins. This is a local workaround for an
+  upstream grammar defect.
+- **Perl auto-quoted hash keys no longer score as operators** (#1539,
+  #1541, #1545). tree-sitter-perl 1.1.2 misparses bareword keys:
+  - `and` (`$h{and}`, `(and => 1)`) scored a decision in cyclomatic,
+    cognitive and ABC.
+  - `not` was billed as a Halstead operator and peeled by ABC as a
+    negation.
+  - A `-bareword` key (`$h{-foo}`, `(-text => 1)`) was read as a file
+    test, which billed a fragment of the word (`oo`) and an ABC branch.
+  Each key now scores like its quoted or `or` twin, and real operators
+  and file tests are unchanged.
+- **Perl `$x =~ s///` and `tr///` no longer score a condition by use**
+  (#1540), matching bare `s///`. A substitution is an edit, not a test.
+  Inside a boolean slot it still counts once, and pattern matches are
+  unchanged.
+- **Perl Halstead no longer bills comment text** (#1549). The `#` of
+  every comment was billed as an operator, and so were the `#`, `[`, `]`
+  and `\` inside a bare `/…/` pattern, which now scores as `m//` and
+  `qr//` do. Halstead only.
+- **Bash `-a` / `-o` and `=` score like their `&&` / `==` twins**
+  (#1536). `[ X -a Y ]`, `[ X ] && [ Y ]` and `[[ X && Y ]]` now agree
+  in cyclomatic, ABC and cognitive. `-a` / `-o` are logical connectives,
+  not ABC comparisons, and `=` inside a test is an ABC comparison. It
+  stays an assignment in `(( … ))`.
+- **An Elixir named operator is billed once** (#1534). `&==/2`,
+  `&and/2` and `Kernel.||(a, b)` billed both an operand and an operator,
+  and a named `&&` / `||` / `and` / `or` added a cyclomatic decision.
+- **C# lambda modifiers and implicit parameters are billed** (#1482,
+  #1544). A lambda's or anonymous method's `static` / `async` is an
+  operator, keyed as the declaration spelling is. The bare parameter of
+  `x => x` is an operand, as in `(x) => x`. Halstead only.
+- **Overloaded operator names are Halstead operators** (#1296). This
+  covers C# `operator true` / `operator false` (previously operands),
+  and C++ / Mozcpp `operator[]`, `operator()`, `operator""_x`,
+  `operator co_await` and the `operator` keyword (previously billed
+  nowhere). `co_await`, `co_return` and `co_yield` in an expression are
+  operators too, and NExits counts `co_return` and `co_yield` as exits
+  (#1547).
+- **JSX element text is a Halstead operand** (#1483), keyed on its
+  trimmed text, in JavaScript, Mozjs and TSX. Whitespace-only text is
+  ignored, and a character reference such as `&amp;` in element content
+  is its own operand.
+- **A JavaScript function expression bills `function` once** (#1554),
+  not twice. This applies to JavaScript, Mozjs, TypeScript and TSX.
+- **Python f-string `=` is not an assignment** (#1551). The
+  self-documenting `=` of `f"{x=}"` is no longer billed. Halstead only.
+- **Halstead skips zero-width nodes from error recovery** (#1546). An
+  inserted identifier billed an operand spelled `""` in every language,
+  and an inserted `;` / `)` billed a second operator.
+- **A bodiless C++ specifier opens no space** (#1555). Forward
+  declarations, elaborated type specifiers (`struct S *p;`, parameter
+  types, casts) and explicit template instantiations opened phantom
+  struct/class spaces. In DeepSpeech, 4,452 such spaces disappear. This
+  lowers `cyclomatic.sum` by one base per removed space.
+- **`make check-test-lang-gates` catches a helper gated out of a build
+  its caller compiles in** (#1562), when the caller names its parsers
+  only inside an inner `#[cfg]` block.
 
 ## [2.3.0] - 2026-10-07
 
