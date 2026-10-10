@@ -68,6 +68,7 @@ scan with no cargo invocation, so it is cheap enough for the local gate.
 from __future__ import annotations
 
 import argparse
+import bisect
 import os
 import shutil
 import pathlib
@@ -1287,37 +1288,32 @@ def scan_source(
         # helper then had no derived gate at all, and one missing a
         # caller's language passed while failing to compile (E0425).
         #
-        # Each call is attributed to its *innermost* gate only. An outer
-        # `#[cfg(any(…))]` block's languages include every nested arm's,
-        # so pairing a call with the outer extent too would hand `a` in
-        # `{ #[cfg(js)] a(); #[cfg(ts)] b(); }` the `ts` its own gate
-        # rightly lacks, and report it stranded on that leg.
+        # What a guarded call hands its callee is the set of builds its
+        # guards admit, read off the predicates rather than off the
+        # parsers named near it. Reading the names made a call in an
+        # `any(python, rust)` block that names only `PythonParser` hand
+        # over `python` alone, so `--fix` gated the helper out of the
+        # `rust` build the call is also made in, and printed OK over the
+        # `E0425` it caused (#1562 review). The guards are every extent
+        # around the line, so `a` in `#[cfg(any(js, ts))] { #[cfg(js)]
+        # a(); }` takes `js` alone, not the outer block's `ts` as well.
         #
-        # The innermost extent's lines still include any arm nested
-        # inside it, so its set is then filtered to the languages whose
-        # own build compiles the call: `a` in `#[cfg(js)] { a();
-        # #[cfg(ts)] b(); }` keeps `js` and loses `ts`, while a call made
-        # directly in an `any(js, ts)` block keeps both. An `all(…)` guard
-        # compiles in no single-language build, so it keeps the whole set.
-        #
-        # A guarded line with nothing to hand its callee stays an
-        # unconditional use, as before #1562: dropping it from both sets
-        # left the callee gated on its other callers alone, so a
-        # `#[cfg(feature = "vcs-git")]` or parser-less `python` guard read
-        # a `rust`-only helper as correct (`E0425` on that leg). A `not(…)`
-        # gate is false in the all-on build `skipped` reads it against, so
-        # its languages say nothing about when the call runs.
+        # A guard that holds in the build with no language at all
+        # (`vcs-git`, `not(python)`) admits the call wherever the caller
+        # is, so the line stays an unconditional use: dropping it from
+        # both sets left the callee gated on its other callers alone, and
+        # `E0425` on that leg. An `all(…)` of languages admits no
+        # single-language build, so it hands over what its block names,
+        # as before; with nothing named it too stays unconditional.
         #
         # A `const` table passed to a guarded call is live exactly where
         # that call is, so the line's references are attributed the same
         # way as its calls.
         #
-        # Every line of one innermost extent gets the same answer, so it is
-        # computed once per extent; per line, rescanning every extent made
-        # the gate quadratic in a test module's gated items.
-        guarded_calls: list[tuple[str, frozenset[str]]] = []
-        guarded_references: list[tuple[str, frozenset[str]]] = []
-        unattributed: set[int] = set()
+        # Every line of one innermost extent is under the same guards, so
+        # the answer is computed once per extent; per line, rescanning
+        # every extent made the gate quadratic in a test module's gated
+        # items.
         # Smallest first, so `setdefault` keeps each line's innermost
         # extent; a stable sort settles a tie as `min` would, by order.
         innermost: dict[int, tuple[int, int]] = {}
@@ -1327,37 +1323,49 @@ def scan_source(
         attribution: dict[tuple[int, int], frozenset[str] | None] = {}
         for n in guarded:
             span = innermost[n]
-            if span not in attribution:
-                first, last = span
-                languages = frozenset().union(
-                    *(skipped.get(k, ()) for k in range(first, last + 1))
-                )
+            if span in attribution:
+                continue
 
-                def compiles_alone(feature: str, gates: list[str] = guarded[n]) -> bool:
-                    disabled = KNOWN_FEATURES - enabled_closure(feature)
-                    return all(evaluate_predicate(g, disabled) for g in gates)
+            def admits(disabled: frozenset[str], gates: list[str] = guarded[n]) -> bool:
+                return all(evaluate_predicate(g, disabled) for g in gates)
 
-                kept = frozenset(filter(compiles_alone, languages))
-                if kept or any(map(compiles_alone, KNOWN_FEATURES)):
-                    languages = kept
-                negated = any(
-                    re.search(r"\bnot\s*\(", p) for f, l, p in extents if (f, l) == span
-                )
-                attribution[span] = languages if languages and not negated else None
-            languages = attribution[span]
-            if languages is not None:
-                guarded_calls.extend(
-                    (call.group(1), languages) for call in CALL_RE.finditer(lines[n])
-                )
-                guarded_references.extend(
-                    (ref.group(1), languages) for ref in REFERENCE_RE.finditer(lines[n])
-                )
-            else:
-                unattributed.add(n)
-        unguarded_body = "\n".join(
-            "" if n in guarded and n not in unattributed else lines[n]
-            for n in range(index, body_end + 1)
-        )
+            first, last = span
+            # A nested item's own `#[cfg]` is its gate, not a guard on a
+            # call this item makes: the nested item derives its own
+            # needs from its own calls. Read as a guard, a `rust`-gated
+            # test that names no parser handed `rust` through its `mod`
+            # to every helper it calls.
+            if ITEM_RE.match(lines[first]) or admits(KNOWN_FEATURES):
+                attribution[span] = None
+                continue
+            live = frozenset(
+                f for f in KNOWN_FEATURES if admits(KNOWN_FEATURES - enabled_closure(f))
+            )
+            named = frozenset().union(
+                *(skipped.get(k, ()) for k in range(first, last + 1))
+            )
+            attribution[span] = live or named or None
+        # Calls are matched over the whole body and placed by where they
+        # start: matched per line, a call spread over several lines
+        # (`shared::<\n    PythonParser,\n>()`) was in neither set.
+        line_starts = [0]
+        for n in range(index, body_end):
+            line_starts.append(line_starts[-1] + len(lines[n]) + 1)
+        unguarded_calls: set[str] = set()
+        unguarded_references: set[str] = set()
+        guarded_calls: list[tuple[str, frozenset[str]]] = []
+        guarded_references: list[tuple[str, frozenset[str]]] = []
+        for pattern, unguarded_set, guarded_list in (
+            (CALL_RE, unguarded_calls, guarded_calls),
+            (REFERENCE_RE, unguarded_references, guarded_references),
+        ):
+            for hit in pattern.finditer(body):
+                n = index + bisect.bisect_right(line_starts, hit.start()) - 1
+                languages = attribution[innermost[n]] if n in guarded else None
+                if languages is None:
+                    unguarded_set.add(hit.group(1))
+                else:
+                    guarded_list.append((hit.group(1), languages))
 
         item = Item(
             path=path,
@@ -1382,14 +1390,10 @@ def scan_source(
             hardcoded=frozenset(hardcoded),
             hand_written=_hand_written_features(raw, attr_line),
             calls=frozenset(m.group(1) for m in CALL_RE.finditer(body)),
-            unguarded_calls=frozenset(
-                m.group(1) for m in CALL_RE.finditer(unguarded_body)
-            ),
+            unguarded_calls=frozenset(unguarded_calls),
             guarded_calls=tuple(guarded_calls),
             references=frozenset(m.group(1) for m in REFERENCE_RE.finditer(body)),
-            unguarded_references=frozenset(
-                m.group(1) for m in REFERENCE_RE.finditer(unguarded_body)
-            ),
+            unguarded_references=frozenset(unguarded_references),
             guarded_references=tuple(guarded_references),
             parent_index=parent_index,
             index=len(items),

@@ -922,6 +922,135 @@ mod tests {
         self.assertEqual(needs[_named(items, "ts_only").index], {"typescript"})
         self.assertEqual(gate.offenders(items, needs), [])
 
+    GUARD_WIDER_THAN_ITS_NAMES = """
+pub struct PythonParser;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[cfg(%s)]
+    fn shared<T>() {}
+    #[test]
+    fn guarded_case() {
+        #[cfg(any(feature = "python", feature = "rust"))]
+        {
+            #[cfg(feature = "python")]
+            let _ = PythonParser;
+            shared::<u8>();
+        }
+    }
+}
+"""
+
+    def test_a_guarded_call_is_live_wherever_its_guard_holds(self) -> None:
+        """#1562 review: the block names only `PythonParser`; its guard admits `rust`.
+
+        `shared::<u8>()` runs in both builds, so a `python`-only helper is
+        an `E0425` on the `rust` leg. Read off the parsers in the block,
+        the gate handed `shared` `python` alone: `--fix` wrote that gate,
+        exited 0, and the correct `any(python, rust)` was rejected.
+        """
+        self.assertEqual(
+            _offending(self.GUARD_WIDER_THAN_ITS_NAMES % 'feature = "python"'),
+            [("shared", ["rust"])],
+        )
+        self.assertEqual(
+            _offending(
+                self.GUARD_WIDER_THAN_ITS_NAMES
+                % 'any(feature = "python", feature = "rust")'
+            ),
+            [],
+        )
+
+    def test_a_multiline_generic_call_is_attributed_to_its_guard(self) -> None:
+        """#1562 review: a turbofish spread over lines is still a call.
+
+        Matched one line at a time, `shared::<⏎ PythonParser,⏎ >()` was
+        in neither the guarded nor the unguarded set, so a `rust`-only
+        `shared` passed over an `E0425` on the `python` leg.
+        """
+        source = """
+#[cfg(test)]
+mod tests {
+    #[cfg(%s)]
+    fn shared<T>() {}
+    #[test]
+    fn guarded_case() {
+        #[cfg(feature = "python")]
+        {
+            shared::<
+                PythonParser,
+            >();
+        }
+    }
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_case() { shared::<RustParser>(); }
+}
+"""
+        self.assertEqual(
+            _offending(source % 'feature = "rust"'), [("shared", ["python"])]
+        )
+        self.assertEqual(
+            _offending(source % 'any(feature = "python", feature = "rust")'), []
+        )
+
+    def test_an_all_guard_hands_over_the_parsers_its_block_names(self) -> None:
+        """No single-language build admits `all(python, rust)`.
+
+        The call is made only where both are on, so the predicate names
+        no build to hand over; the parser in the block still says what
+        the helper needs. Read as unconditional instead, `shared` lost
+        its needs and the ungated helper passed.
+        """
+        source = """
+#[cfg(test)]
+mod tests {
+    fn shared<T>() {}
+    #[test]
+    fn guarded_case() {
+        #[cfg(all(feature = "python", feature = "rust"))]
+        {
+            shared::<PythonParser>();
+        }
+    }
+}
+"""
+        self.assertEqual(_offending(source), [("shared", ["python"])])
+
+    def test_a_nested_items_own_gate_is_not_a_guard_on_its_container(
+        self,
+    ) -> None:
+        """A `rust`-gated test inside `mod tests` hands `rust` to nothing.
+
+        The test names no parser, so it needs nothing of `fixtures`; it
+        is the test's own `#[cfg]`, not a guard on a call the `mod`
+        makes. Read as a guard, the `mod` handed `fixtures` `rust`,
+        `fixtures` passed it on to `PYTHON`, and a correctly `python`-gated
+        table read as stranded on the `rust` leg -- the shape of
+        `src/spaces_tests.rs`.
+        """
+        source = """
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "python")]
+    const PYTHON: &str = "";
+
+    fn fixtures() -> Vec<(LANG, &'static str)> {
+        vec![
+            #[cfg(feature = "python")]
+            (LANG::Python, PYTHON),
+        ]
+    }
+
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_case() {
+        let _ = fixtures();
+    }
+}
+"""
+        self.assertEqual(_offending(source), [])
+
     NESTED_ARM = """
 #[cfg(test)]
 mod tests {
@@ -990,22 +1119,20 @@ mod tests {
 }
 """
 
-    def test_a_guard_whose_extent_names_no_language_keeps_the_call(
+    def test_a_guard_holding_with_no_language_keeps_the_call(
         self,
     ) -> None:
-        """No languages to hand over, so the call stays unconditional.
+        """A guard true in the no-language build admits the call everywhere.
 
         `plain` is in every build and calls `shared` wherever its guard
-        holds, so a `rust`-only `shared` is gated out from under it on
-        the guard's own leg (`E0425`) -- the gate must refuse that and
-        accept the ungated helper, as it did before #1562.
+        holds, and these hold with every grammar off, so the call stays
+        unconditional: a `rust`-only `shared` is gated out from under it
+        (`E0425`) -- the gate must refuse that and accept the ungated
+        helper, as it did before #1562.
         """
         for guard in (
-            '#[cfg(feature = "python")]',
             '#[cfg(feature = "vcs-git")]',
             '#[cfg(not(feature = "python"))]',
-            '#[cfg(any(feature = "python", feature = "typescript"))]',
-            '#[cfg(all(feature = "python", feature = "vcs-git"))]',
         ):
             items = _scan(self.GUARD_NAMING_NO_PARSER % ("", guard))
             needs = gate.resolve_needs(items)
@@ -1021,6 +1148,43 @@ mod tests {
                 ],
                 [("shared", ["rust"])],
                 guard,
+            )
+
+    def test_a_language_guard_hands_its_builds_without_naming_a_parser(
+        self,
+    ) -> None:
+        """#1562 review: the guard says where the call is made, not the names.
+
+        `plain` names no parser, but its call runs only in the builds its
+        guard admits, so `shared` needs those beside `rust_case`'s `rust`.
+        Read off the names, an empty set left the call unconditional and
+        the helper ungated, dead code on every leg nothing calls it from.
+        The `any(…)` of exactly those builds is the gate that compiles.
+        """
+        for guard, builds in (
+            ('#[cfg(feature = "python")]', ["python"]),
+            (
+                '#[cfg(any(feature = "python", feature = "typescript"))]',
+                ["python", "typescript"],
+            ),
+            ('#[cfg(all(feature = "python", feature = "vcs-git"))]', ["python"]),
+        ):
+            items = _scan(self.GUARD_NAMING_NO_PARSER % ("", guard))
+            needs = gate.resolve_needs(items)
+            self.assertEqual(
+                sorted(needs[_named(items, "shared").index]), sorted(builds + ["rust"])
+            )
+            narrow = '#[cfg(feature = "rust")]'
+            self.assertEqual(
+                _offending(self.GUARD_NAMING_NO_PARSER % (narrow, guard)),
+                [("shared", builds)],
+                guard,
+            )
+            exact = "#[cfg(any(%s))]" % ", ".join(
+                f'feature = "{b}"' for b in sorted(builds + ["rust"])
+            )
+            self.assertEqual(
+                _offending(self.GUARD_NAMING_NO_PARSER % (exact, guard)), [], guard
             )
 
     GUARDED_REFERENCES = """
