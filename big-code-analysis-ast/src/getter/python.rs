@@ -3,8 +3,8 @@
 
 use super::*;
 
-/// The role of a `{` or `:`, which Python spells both as syntax and
-/// inside an f-string's replacement field.
+/// The role of a `{`, `:` or `=`, which Python spells both as syntax
+/// and inside an f-string's replacement field.
 ///
 /// As syntax each is an operator (#1486). The interpolation opener
 /// (`f"{x}"`, and a nested `{w}` inside a format spec) is spelling, not
@@ -12,12 +12,15 @@ use super::*;
 /// and Python follows them. The `:` that opens a format spec
 /// (`f"{x:>10}"`) introduces the format mini-language, whose text is
 /// string content and counts as nothing, so its delimiter does not
-/// count either.
-fn brace_or_colon_role(kind: Python, parent: Option<Python>) -> TokenRole {
+/// count either. The self-documenting `=` (`f"{x=}"`) is a directive of
+/// the same field: it asks for the expression's text to be printed and
+/// assigns nothing, like the `!r` conversion beside it, which was
+/// already unbilled (#1551).
+fn replacement_field_role(kind: Python, parent: Option<Python>) -> TokenRole {
     use Python::*;
 
     match (kind, parent) {
-        (LBRACE, Some(Interpolation | FormatExpression)) | (COLON, Some(FormatSpecifier)) => {
+        (LBRACE | EQ, Some(Interpolation | FormatExpression)) | (COLON, Some(FormatSpecifier)) => {
             TokenRole::Unknown
         }
         _ => TokenRole::Operator,
@@ -38,13 +41,14 @@ impl Getter for PythonCode {
         use Python::*;
 
         let kind: Python = node.kind_id().into();
-        // Bracket openers, `;` and `:` are vocabulary like every other
-        // getter's (#1395, #1486); only the f-string replacement-field
-        // spellings are withdrawn. An early return rather than an arm,
-        // because the match below is one rustfmt declines to format.
-        if matches!(kind, LBRACE | COLON) {
+        // Bracket openers, `;`, `:` and `=` are vocabulary like every
+        // other getter's (#1395, #1486); only the f-string
+        // replacement-field spellings are withdrawn. An early return
+        // rather than an arm, because the match below is one rustfmt
+        // declines to format.
+        if matches!(kind, LBRACE | COLON | EQ) {
             let parent = ancestors.parent(node).map(|p| p.kind_id().into());
-            return brace_or_colon_role(kind, parent);
+            return replacement_field_role(kind, parent);
         }
 
         match kind {
@@ -61,7 +65,7 @@ impl Getter for PythonCode {
             },
             Import | DOT | From | COMMA | As | STAR | GTGT | Assert | COLONEQ | Return | Def
             | Del | Raise | Pass | Break | Continue | If | Elif | Else | Async | For
-            | While | Try | Except | Finally | With | DASHGT | EQ | Global | Nonlocal | Exec
+            | While | Try | Except | Finally | With | DASHGT | Global | Nonlocal | Exec
             | AT | And | Or | PLUS | DASH | SLASH | PERCENT | SLASHSLASH | STARSTAR | PIPE
             | AMP | CARET | LTLT | TILDE | LT | LTEQ | EQEQ | BANGEQ | GTEQ | GT | LTGT
             | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | ATEQ | SLASHSLASHEQ | PERCENTEQ | STARSTAREQ

@@ -5959,8 +5959,10 @@ end",
     /// #1486: an f-string replacement field's `{` and format-spec `:` are
     /// spelling, not operations, like every other language's
     /// interpolation opener (#1314) — the f-string rows bill nothing.
-    /// The guard reads the token's *parent*, so a dict written inside a
-    /// replacement field keeps its own `{}` and `:`.
+    /// #1551 adds the self-documenting `=` (`f"{z=}"`), a directive of
+    /// the same field. The guard reads the token's *parent*, so a dict,
+    /// a keyword argument or a walrus written inside a replacement field
+    /// keeps its own operators.
     #[cfg(feature = "python")]
     #[test]
     fn python_f_string_delimiters_are_not_operators_1486() {
@@ -5971,6 +5973,15 @@ end",
             // `{}`, `:`, `[]` of the dict and its subscript, nothing of
             // the replacement field around them
             ("dict inside a field", "f\"{ {k: v}[k] }\"\n", [3, 3]),
+            ("self-documenting =", "f\"{z=}\"\n", [0, 0]),
+            // the `=` keeps its spaces in the output; `!r` and `:` follow it
+            ("spaced = with conversion", "f\"{z = !r:>10}\"\n", [0, 0]),
+            // a `=` in a nested format expression (Python 3.12+)
+            ("nested self-documenting =", "f\"{a:{w=}}\"\n", [0, 0]),
+            // `()`, `=` — a keyword argument's `=` is a real operator
+            ("keyword argument inside a field", "f\"{g(a=1)}\"\n", [2, 2]),
+            // `()`, `:=`
+            ("walrus inside a field", "f\"{(y := 1)}\"\n", [2, 2]),
         ];
         assert_operator_rows::<PythonParser>("foo.py", ROWS);
     }

@@ -691,7 +691,9 @@ tokens involved the same way they spell real operators:
   `$"{x}"` in C# and `f"{x}"` in Python all count the interpolated
   expression's own operators and nothing for the opener itself. The
   `:` that opens a Python format spec (`f"{x:>10}"`) counts nothing
-  either, because the spec after it is string content (#1486).
+  either, because the spec after it is string content (#1486). Nor
+  does the self-documenting `=` of `f"{x=}"`, which prints the
+  expression's text and assigns nothing (#1551).
 - **A delimiter around *syntax* is an operator, whatever it delimits.**
   The rule above is about a literal's own punctuation, and it stops
   there. Halstead counts the vocabulary a program is written in and has
