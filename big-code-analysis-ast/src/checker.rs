@@ -3398,6 +3398,7 @@ mod tests {
     /// Also asserts the two spellings agree off a known chain and off a
     /// `Node::parent` climb: the walk now threads a chain, and the
     /// answer must not depend on which it gets.
+    #[cfg(any(feature = "irules", feature = "tcl"))]
     fn braced_word_string_verdicts<L: crate::traits::LanguageInfo + Checker>(
         label: &str,
         code: &[u8],

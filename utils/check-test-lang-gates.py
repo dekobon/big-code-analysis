@@ -31,7 +31,9 @@ The derivation, for every item inside a ``cfg(test)`` scope:
    concrete ``*Parser`` aliases and ``LANG::<Variant>`` literals in its
    body, ignoring anything already behind a nested
    ``#[cfg(feature = …)]``, plus transitively the needed set of
-   same-module helper ``fn``s it calls.
+   same-module helper ``fn``s it calls. A call *inside* such a nested
+   gate hands the languages named under it to the callee instead, so a
+   test whose every parser is guarded still gates its helpers (#1562).
 2. **Declared gate** -- the item's own ``cfg`` conjoined with every
    enclosing ``mod``'s.
 3. **Verdict** -- for each needed feature, evaluate the declared gate
@@ -815,6 +817,13 @@ class Item:
     hand_written: frozenset[str]
     #: Call-shaped references in the body, for resolving `fn`s.
     calls: frozenset[str]
+    #: The subset of `calls` made outside every inner `#[cfg(feature = …)]`,
+    #: so in each build the item itself is compiled into.
+    unguarded_calls: frozenset[str]
+    #: `(callee, languages)` for each call made inside an inner
+    #: `#[cfg(feature = …)]`, with the languages named under that same
+    #: gate. The callee is live wherever the guarded call is (#1562).
+    guarded_calls: tuple[tuple[str, frozenset[str]], ...]
     #: Every identifier in the body, for resolving `const` / `type`.
     references: frozenset[str]
     parent_index: int | None
@@ -1061,6 +1070,9 @@ def scan_source(
                         macro_end
                     ].count("}")
                 macro_body = "\n".join(lines[index : macro_end + 1])
+                macro_calls = frozenset(
+                    m.group(1) for m in CALL_RE.finditer(macro_body)
+                )
                 items.append(
                     Item(
                         path=path,
@@ -1090,9 +1102,9 @@ def scan_source(
                         direct=frozenset(),
                         hardcoded=frozenset(),
                         hand_written=_hand_written_features(raw, attr_line),
-                        calls=frozenset(
-                            m.group(1) for m in CALL_RE.finditer(macro_body)
-                        ),
+                        calls=macro_calls,
+                        unguarded_calls=macro_calls,
+                        guarded_calls=(),
                         references=frozenset(
                             m.group(1) for m in REFERENCE_RE.finditer(macro_body)
                         ),
@@ -1195,9 +1207,12 @@ def scan_source(
         # the test got no gate and panicked without the grammar — the
         # unsafe direction.
         guarded: dict[int, list[str]] = {}
-        for first, last, predicate in _inner_cfg_extents(lines, raw, index, body_end):
+        extents = _inner_cfg_extents(lines, raw, index, body_end)
+        for first, last, predicate in extents:
             for guarded_line in range(first, last + 1):
                 guarded.setdefault(guarded_line, []).append(predicate)
+        # The languages each guarded line names, for `guarded_calls`.
+        skipped: dict[int, set[str]] = {}
         # A helper that maps one of its arguments onto a `LANG` is a
         # dispatcher, and its arms are options rather than requirements.
         # `tests/api/suppression_test.rs`'s `analyze_lang` picks the
@@ -1247,11 +1262,43 @@ def scan_source(
                     continue
                 feature = table[hit.group(0)]
                 if any(not gate_admits(g, feature) for g in inner_gates):
+                    skipped.setdefault(line_number, set()).add(feature)
                     continue
                 direct.add(feature)
                 if not hit.group(0).startswith("LANG::"):
                     hardcoded.add(feature)
             body_offset += len(lines[line_number]) + 1
+        # A call under `#[cfg(feature = "javascript")]` is made only in a
+        # build with that grammar, so it is not an unconditional use of
+        # its callee. It is still a use: before #1562 the languages it
+        # named were dropped as "already conditional" and nothing handed
+        # them to the callee, so a test whose every parser sat behind an
+        # inner gate read as naming nothing, was taken for always
+        # compiled, and cleared the needs of the helper it called. That
+        # helper then had no derived gate at all, and one missing a
+        # caller's language passed while failing to compile (E0425).
+        #
+        # Each call is attributed to its *innermost* gate only. An outer
+        # `#[cfg(any(…))]` block's languages include every nested arm's,
+        # so pairing a call with the outer extent too would hand `a` in
+        # `{ #[cfg(js)] a(); #[cfg(ts)] b(); }` the `ts` its own gate
+        # rightly lacks, and report it stranded on that leg.
+        guarded_calls: list[tuple[str, frozenset[str]]] = []
+        for n in guarded:
+            first, last = min(
+                ((f, l) for f, l, _ in extents if f <= n <= l),
+                key=lambda span: span[1] - span[0],
+            )
+            languages = frozenset().union(
+                *(skipped.get(k, ()) for k in range(first, last + 1))
+            )
+            if languages:
+                guarded_calls.extend(
+                    (call.group(1), languages) for call in CALL_RE.finditer(lines[n])
+                )
+        unguarded_body = "\n".join(
+            "" if n in guarded else lines[n] for n in range(index, body_end + 1)
+        )
 
         item = Item(
             path=path,
@@ -1276,6 +1323,10 @@ def scan_source(
             hardcoded=frozenset(hardcoded),
             hand_written=_hand_written_features(raw, attr_line),
             calls=frozenset(m.group(1) for m in CALL_RE.finditer(body)),
+            unguarded_calls=frozenset(
+                m.group(1) for m in CALL_RE.finditer(unguarded_body)
+            ),
+            guarded_calls=tuple(guarded_calls),
             references=frozenset(m.group(1) for m in REFERENCE_RE.finditer(body)),
             parent_index=parent_index,
             index=len(items),
@@ -1584,6 +1635,20 @@ def resolve_needs(items: list[Item]) -> dict[int, frozenset[str]]:
             if not gate_excludes(predicate, feature)
         }
 
+    # A call behind an inner `#[cfg]` hands its callee the languages named
+    # under that gate, and nothing to the caller's own `all(...)`: the
+    # caller is compiled without them, the call is not (#1562). Seeded
+    # here so the fixpoint below carries it on to the callee's callees.
+    for item in items:
+        predicate = effective_predicate(items, item)
+        for name, languages in item.guarded_calls:
+            callee_index = _resolve_call(items, scopes, item, name)
+            if callee_index is None or items[callee_index].is_test_fn:
+                continue
+            needs[callee_index] |= {
+                f for f in languages if not gate_excludes(predicate, f)
+            }
+
     # A referent with even one unconditional caller must stay
     # unconditional itself, whatever its other callers need. Without
     # this the reverse propagation below gates a helper on the union of
@@ -1641,6 +1706,10 @@ def resolve_needs(items: list[Item]) -> dict[int, frozenset[str]]:
                 if index is None or index in unconditional:
                     continue
                 if not _uses(item, items[index], strict=True):
+                    continue
+                # A call behind an inner `#[cfg]` is made only where that
+                # gate holds, so it makes nothing always-compiled (#1562).
+                if items[index].kind == "fn" and name not in item.unguarded_calls:
                     continue
                 unconditional.add(index)
                 needs[index] = set()

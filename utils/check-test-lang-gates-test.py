@@ -831,6 +831,97 @@ mod tests {
 """
         self.assertEqual(_offending(source), [("shared", ["python"])])
 
+    GUARDED_CALLS = """
+#[cfg(test)]
+mod tests {
+    #[cfg(%s)]
+    fn shared<T: crate::MetricSuite>() {}
+
+    #[cfg(any(feature = "python", feature = "typescript"))]
+    #[test]
+    fn guarded_case() {
+        #[cfg(feature = "python")]
+        shared::<PythonParser>();
+        #[cfg(feature = "typescript")]
+        shared::<TsxParser>();
+    }
+
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_case() {
+        shared::<RustParser>();
+    }
+}
+"""
+
+    def test_a_caller_whose_every_call_is_guarded_still_feeds_the_helper(
+        self,
+    ) -> None:
+        """#1562, the #1556 shape: `assert_operator_rows` lacked `kotlin`.
+
+        `guarded_case` names every parser behind an inner `#[cfg]`, so its
+        own needs are empty. Before #1562 that read as an always-compiled
+        caller, which cleared `shared`'s needs, so its gate was checked
+        against nothing and the first row printed OK over an `E0425` on
+        the `rust` leg. The second row is the guarded languages reaching
+        `shared` at all; the third, that the caller's own gate is not
+        widened by them.
+        """
+        self.assertEqual(
+            _offending(
+                self.GUARDED_CALLS % 'any(feature = "python", feature = "typescript")'
+            ),
+            [("shared", ["rust"])],
+        )
+        self.assertEqual(
+            _offending(self.GUARDED_CALLS % 'feature = "rust"'),
+            [("shared", ["python", "typescript"])],
+        )
+        self.assertEqual(
+            _offending(
+                self.GUARDED_CALLS
+                % 'any(feature = "python", feature = "rust", feature = "typescript")'
+            ),
+            [],
+        )
+
+    def test_a_guarded_call_takes_only_its_innermost_gates_languages(
+        self,
+    ) -> None:
+        """The outer block names both parsers; each call is under one.
+
+        `py_only` is correctly gated on `python`. Attributing its call to
+        the outer `any(…)` block as well would hand it `typescript` and
+        report it stranded on the `typescript` leg, where nothing calls it.
+        """
+        source = """
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "python")]
+    fn py_only<T: crate::MetricSuite>() {}
+
+    #[cfg(feature = "typescript")]
+    fn ts_only<T: crate::MetricSuite>() {}
+
+    #[cfg(any(feature = "python", feature = "typescript"))]
+    #[test]
+    fn nested_case() {
+        #[cfg(any(feature = "python", feature = "typescript"))]
+        {
+            #[cfg(feature = "python")]
+            py_only::<PythonParser>();
+            #[cfg(feature = "typescript")]
+            ts_only::<TsxParser>();
+        }
+    }
+}
+"""
+        items = _scan(source)
+        needs = gate.resolve_needs(items)
+        self.assertEqual(needs[_named(items, "py_only").index], {"python"})
+        self.assertEqual(needs[_named(items, "ts_only").index], {"typescript"})
+        self.assertEqual(gate.offenders(items, needs), [])
+
     def test_a_cycle_terminates_and_reports_each_narrow_link(self) -> None:
         """Each half of the cycle is reached from the other's test.
 
