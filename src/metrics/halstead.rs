@@ -6029,6 +6029,54 @@ end",
         assert_operator_rows::<MozjsParser>("foo.js", JS_FAMILY_CLASS_ROWS);
     }
 
+    /// #1554: a function *expression* bills its `function` keyword once,
+    /// as a declaration does — the `function_expression` wrapper bills
+    /// nothing of its own. Before #1554 the plain and `async` rows billed
+    /// one extra unique and total operator, and the nested row one extra
+    /// unique and two extra totals. The declaration and generator rows
+    /// are controls: neither node was ever in the operator arm.
+    #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+    const JS_FAMILY_FUNCTION_ROWS: &[(&str, &str, [u64; 2])] = &[
+        // `function`, `()`, `{}`
+        ("declaration", "function h() {}\n", [3, 3]),
+        // `const`, `=`, `function`, `()`, `{}`, `;`
+        ("expression", "const f = function () {};\n", [6, 6]),
+        // `const`, `=`, `async`, `function`, `()`, `{}`, `;`
+        (
+            "async expression",
+            "const f = async function () {};\n",
+            [7, 7],
+        ),
+        // `const`, `=`, `function`, `*`, `()`, `{}`, `;` — a generator
+        // expression is its own `generator_function` node, never billed
+        (
+            "generator expression",
+            "const f = function* () {};\n",
+            [7, 7],
+        ),
+        // `const`, `=`, `return`, `;` x2, and `function`, `()`, `{}`
+        // twice each
+        (
+            "nested expressions",
+            "const f = function () { return function () {}; };\n",
+            [7, 11],
+        ),
+    ];
+
+    #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+    #[test]
+    fn js_family_function_expression_bills_function_once_1554() {
+        #[cfg(feature = "javascript")]
+        assert_operator_rows::<JavascriptParser>("foo.js", JS_FAMILY_FUNCTION_ROWS);
+        #[cfg(feature = "mozjs")]
+        assert_operator_rows::<MozjsParser>("foo.js", JS_FAMILY_FUNCTION_ROWS);
+        #[cfg(feature = "typescript")]
+        {
+            assert_operator_rows::<TypescriptParser>("foo.ts", JS_FAMILY_FUNCTION_ROWS);
+            assert_operator_rows::<TsxParser>("foo.tsx", JS_FAMILY_FUNCTION_ROWS);
+        }
+    }
+
     /// #1552 for the two TypeScript grammars: the shared `class` rows,
     /// plus their own `interface` and `enum` declaration keywords.
     #[cfg(feature = "typescript")]

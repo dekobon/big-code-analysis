@@ -246,12 +246,15 @@ macro_rules! impl_js_family_get_op_type {
                 | STAREQ | SLASHEQ | PERCENTEQ | STARSTAREQ | GTGTEQ | GTGTGTEQ | LTLTEQ | AMPEQ
                 | CARET | CARETEQ | PIPEEQ | Yield | LBRACK | LBRACE | Await | QMARK
                 | QMARKQMARK | EQGT | DOTDOTDOT | New | Let | Var | Const | Function
-                | FunctionExpression | SEMI | Typeof | Instanceof | Void
-                // `Class2` is the `class` keyword leaf, billed beside
-                // `function` (#1552). The unsuffixed `Class` is the
-                // class *expression* node that wraps it
-                // (`const C = class {}`), so it stays unlisted and an
-                // expression bills one `class`, not two.
+                | SEMI | Typeof | Instanceof | Void
+                // `Function` and `Class2` are the `function` / `class`
+                // keyword leaves (#1552). Their expression wrappers —
+                // `FunctionExpression` and the unsuffixed `Class` —
+                // stay unlisted, so `const f = function () {}` bills
+                // one `function`, not two (#1554). The leaf is the
+                // keeper because it exists in every spelling: the
+                // `async` and generator forms, and an ERROR-recovery
+                // parse that drops the wrapper.
                 | Class2
                 // `get`/`set` accessor keywords are operators, matching the
                 // C# getter's `Get | Set | Init | Add | Remove` accessor arm.
