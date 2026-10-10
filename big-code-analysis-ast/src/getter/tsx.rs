@@ -81,11 +81,14 @@ impl Getter for TsxCode {
     //
     // `Type` / `Namespace` / `Module2` / `Declare` / `Global` and the
     // `TypeIdentifier` operand: see the TS invocation (#1557).
+    //
+    // `Satisfies` / `Keyof` / `Infer` / `Is` / `Asserts2`, the type-level
+    // operator keywords: see the TS invocation (#1561).
     impl_js_family_get_op_type!(
         Tsx,
         op_extras: [
             QMARKDOT, PredefinedType, Interface, Enum, Type, Namespace, Module2, Declare, Global,
-            LTSLASH, SLASHGT,
+            Satisfies, Keyof, Infer, Is, Asserts2, LTSLASH, SLASHGT,
         ],
         operand_extras: [Identifier2, String2, TypeIdentifier],
         predefined_void: PredefinedType,

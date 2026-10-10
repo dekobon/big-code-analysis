@@ -6576,6 +6576,56 @@ end",
         assert_operand_rows::<TsxParser>("foo.tsx", TS_TYPE_NAME_OPERAND_ROWS);
     }
 
+    /// #1561: TypeScript's type-level operator keywords bill as their
+    /// value-level siblings `as`, `typeof` and `extends` do, each as its
+    /// keyword leaf under an unbilled wrapper. The `asserts a is Baz` row
+    /// pins that the `asserts` node and its keyword token bill once
+    /// between them, and the last row that the same words used as names
+    /// are operands. Both TypeScript grammars carry the change.
+    #[cfg(feature = "typescript")]
+    #[test]
+    fn typescript_type_operator_keywords_1561() {
+        const ROWS: &[(&str, &str, [u64; 2])] = &[
+            // `let`, `=`, `satisfies`, `;`
+            ("satisfies", "let s = w satisfies Sat;\n", [4, 4]),
+            // `type`, `=`, `keyof`, `;`
+            ("keyof", "type K = keyof T;\n", [4, 4]),
+            // `type`, `<` x2, `>` x2, `=`, `extends`, `infer`, `?`, `:`, `;`
+            (
+                "infer",
+                "type I<X> = X extends Array<infer E> ? E : X;\n",
+                [9, 11],
+            ),
+            // `function`, `()`, `:` x2, `unknown`, `is`, `{}`, `return`, `;`
+            (
+                "type predicate",
+                "function g(a: unknown): a is Baz { return true; }\n",
+                [8, 9],
+            ),
+            // `function`, `()`, `:` x2, `unknown`, `asserts`, `is`, `{}`
+            (
+                "asserts predicate",
+                "function h(a: unknown): asserts a is Baz {}\n",
+                [7, 8],
+            ),
+            // `function`, `()`, `:` x2, `unknown`, `asserts`, `{}`
+            (
+                "bare asserts",
+                "function k(a: unknown): asserts a {}\n",
+                [6, 7],
+            ),
+            // `const`, `=` and `;` five times each: the words are names
+            (
+                "names",
+                "const keyof = 1;\nconst infer = 2;\nconst is = 3;\nconst asserts = 4;\n\
+                 const satisfies = 5;\n",
+                [3, 15],
+            ),
+        ];
+        assert_operator_rows::<TypescriptParser>("foo.ts", ROWS);
+        assert_operator_rows::<TsxParser>("foo.tsx", ROWS);
+    }
+
     #[cfg(feature = "bash")]
     #[test]
     fn bash_operators_and_operands() {

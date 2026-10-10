@@ -96,10 +96,28 @@ impl Getter for TypescriptCode {
     // every one while C#, Rust and the C family bill theirs. No
     // classified node wraps it (`generic_type` and
     // `nested_type_identifier` are unlisted), so it bills once.
+    //
+    // #1561 adds the type-level operator keywords, the siblings of the
+    // `as` / `typeof` / `extends` the macro already bills: `satisfies`,
+    // `keyof`, `infer`, the type-predicate `is` and `asserts`. Each is
+    // its keyword leaf; the `satisfies_expression`, `index_type_query`,
+    // `infer_type`, `type_predicate` and `asserts` wrappers stay
+    // unlisted, so one keyword bills once. `Asserts2` is the keyword
+    // token and the unsuffixed `Asserts` the node wrapping it, so
+    // `asserts a is T` bills `asserts` and `is` once each. Which of the
+    // two bills is unobservable — every node holds exactly one token and
+    // both render `asserts` — so the leaf is kept, as everywhere else
+    // here; listing both is what the tests catch. Used as names
+    // (`const keyof = 1`, `o.is`, a `satisfies` parameter) the words
+    // parse as identifiers. One valid spelling the pinned grammar gets
+    // wrong is `let satisfies = 1`: it reads `let` as an identifier and
+    // recovers a `satisfies_expression` around an ERROR, so that
+    // statement is mis-scored whatever this list holds.
     impl_js_family_get_op_type!(
         Typescript,
         op_extras: [
             QMARKDOT, PredefinedType, Interface, Enum, Type, Namespace, Module2, Declare, Global,
+            Satisfies, Keyof, Infer, Is, Asserts2,
         ],
         operand_extras: [TypeIdentifier],
         predefined_void: PredefinedType,

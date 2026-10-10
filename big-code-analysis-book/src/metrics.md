@@ -733,7 +733,10 @@ tokens involved the same way they spell real operators:
   `java.util.List` bill their names as operands. A type inside a class
   literal (`Foo.class`) does not, since the literal is already one
   operand, and neither does the inferred type `var`, which C# bills
-  nothing for either.
+  nothing for either. #1561 made TypeScript's type-level operator
+  keywords operators, as their value-level siblings `as`, `typeof`
+  and `extends` already were: `satisfies`, `keyof`, `infer`, and the
+  `is` and `asserts` of a type predicate.
 - **An alternative spelling is an operator of its own.** C++ spells
   `&&` equally as `and`, `!=` as `not_eq` and so on through all eleven
   [alternative tokens](https://en.cppreference.com/w/cpp/language/operator_alternative).
