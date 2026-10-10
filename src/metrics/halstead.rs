@@ -6235,6 +6235,36 @@ end",
         assert_operator_rows::<ObjcParser>("foo.m", ROWS);
     }
 
+    /// #1556: Kotlin's `interface` bills as its `class` and `object`
+    /// do. The modifier rows pin the other half of the decision: `enum`
+    /// in `enum class` is a `class_modifier` like `data`, and neither
+    /// bills, so the three modifier rows score exactly as `class` does.
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn kotlin_declaration_keywords_are_operators_1556() {
+        const ROWS: &[(&str, &str, [u64; 2])] = &[
+            // `class`, `{}`
+            ("class", "class C {}\n", [2, 2]),
+            // `interface`, `{}`
+            ("interface", "interface I {}\n", [2, 2]),
+            // `object`, `{}`
+            ("object", "object O {}\n", [2, 2]),
+            // `class`, `{}` — no `enum`
+            ("enum class", "enum class E { A }\n", [2, 2]),
+            // `class`, `{}` — no `data`
+            ("data class", "data class D {}\n", [2, 2]),
+            // `interface`, `{}` — no `sealed`
+            ("sealed interface", "sealed interface S {}\n", [2, 2]),
+            // `interface`, `class`, `:`, `{}` twice
+            (
+                "implementing class",
+                "interface J {}\nclass K : J {}\n",
+                [4, 5],
+            ),
+        ];
+        assert_operator_rows::<KotlinParser>("foo.kt", ROWS);
+    }
+
     #[cfg(feature = "bash")]
     #[test]
     fn bash_operators_and_operands() {

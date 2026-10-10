@@ -717,7 +717,9 @@ tokens involved the same way they spell real operators:
   `interface`, `record`, `trait`, `@interface`, `@implementation` and
   `@protocol`. A `class` that declares no class is not billed: Java's
   `C.class` stays one operand, and C++'s `template <class T>` scores
-  like `template <typename T>`.
+  like `template <typename T>`. Kotlin's `interface` followed in #1556;
+  the `enum` of `enum class` is a modifier there, like `data` and
+  `sealed`, and Kotlin bills no modifier.
 - **An alternative spelling is an operator of its own.** C++ spells
   `&&` equally as `and`, `!=` as `not_eq` and so on through all eleven
   [alternative tokens](https://en.cppreference.com/w/cpp/language/operator_alternative).

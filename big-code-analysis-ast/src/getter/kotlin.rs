@@ -217,9 +217,14 @@ impl Getter for KotlinCode {
             // Operator: control flow keywords
             If | Else | When | For | While | Do | Try | Catch | Finally | Throw | Return
             | ReturnAT
-            // Operator: other keywords
-            | Class | Fun | Object | Val | Var | In | Is | As | AsQMARK | BANGis | BANGin
-            | Constructor
+            // Operator: other keywords. `interface` is the declaration
+            // keyword leaf beside `class` and `object` (#1556); its
+            // `class_declaration` wrapper stays unlisted. `enum` in
+            // `enum class` is not here: the grammar makes it a
+            // `class_modifier`, the same node as `data`, `sealed` and
+            // `annotation`, and Kotlin bills no modifier.
+            | Class | Interface | Fun | Object | Val | Var | In | Is | As | AsQMARK | BANGis
+            | BANGin | Constructor
             // Operator: brackets, separators, terminators
             | SEMI | COMMA | COLONCOLON | DOT | LBRACE | LBRACK | LPAREN
             // Operator: assignment and arithmetic
