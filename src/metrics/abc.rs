@@ -6194,9 +6194,9 @@ function f(int $a, int $b): int {
     fn php_low_precedence_keyword_logical_ops_trigger_walker() {
         // Regression: pre-fix, `$a or $b` reported 0 conditions
         // because the dispatcher only handled `AMPAMP|PIPEPIPE`,
-        // skipping the PHP-specific `and` / `or` / `xor` keyword
-        // forms even though they parse under the same
-        // `binary_expression` shape.
+        // skipping the PHP-specific `and` / `or` keyword forms even
+        // though they parse under the same `binary_expression` shape.
+        // (`xor` is no chain: it is a value since #1536.)
         check_metrics::<PhpParser>(
             "<?php\n\
              function f($a, $b) {\n\

@@ -84,7 +84,8 @@ marked as such.
   `asserts`** (#1561).
 - **Generic angle brackets bill as one `<>` pair** (#1559) in Rust (type
   arguments and parameters, turbofish, `for<'a>`, `use<T>`), Java,
-  Groovy, C#, TypeScript, TSX, Kotlin and C++ templates. The opening `<`
+  Groovy, C#, TypeScript, TSX, Kotlin, C++ templates and Objective-C
+  (lightweight generics, protocol lists and `id<P>`). The opening `<`
   bills `<>` and the closing `>` bills nothing, the same convention as
   `()`, `[]` and `{}`. Comparisons and shifts are unchanged. N1 falls
   for code that uses generics, and effort fell in about 87% of the moved

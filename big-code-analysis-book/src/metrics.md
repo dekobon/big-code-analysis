@@ -744,7 +744,10 @@ tokens involved the same way they spell real operators:
   `h::<u8>()`, `for<'a>` and `use<T>` in Rust; C++'s
   `template <class T>` and `std::vector<int>`; and the type-argument
   and type-parameter lists of Java, Groovy, C#, Kotlin, TypeScript and
-  TSX. A comparison's `<` and `>` and a shift's `<<` and `>>` stay
+  TSX. Objective-C has four generic lists: `NSArray<NSString *>`,
+  `id<NSCopying>`, the protocol list in
+  `@interface A : NSObject <NSCopying>`, and a type passed as a call
+  argument, `f(NSArray<NSString *>)`. A comparison's `<` and `>` and a shift's `<<` and `>>` stay
   separate operators, and a C++ `>>` that closes two template lists
   parses as two `>`, so it bills nothing. Go's generics use square
   brackets and already billed `[]`. Angle brackets around anything

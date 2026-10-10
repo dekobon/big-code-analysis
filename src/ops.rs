@@ -1480,6 +1480,7 @@ mod tests {
         feature = "java",
         feature = "kotlin",
         feature = "mozcpp",
+        feature = "objc",
         feature = "rust",
         feature = "typescript",
     ))]
@@ -1648,6 +1649,38 @@ mod tests {
                 "class", "<>", ";", "{}", "def", "()", "return", "<", "&&", ">",
             ],
             [10, 14],
+        );
+    }
+
+    // expected: `<>` five times, once per list — `parameterized_arguments`
+    // (`: NSObject <NSCopying>`), `protocol_reference_list`
+    // (`id<NSCopying>`), two nested `generic_specifier`s, and the
+    // `argument_list` type form `g(NSArray<NSString *>)` — and never `>`.
+    // `*` four times, `()` and `||` twice; `@end` and `id` bill nothing.
+    // Without the pair, `<` and `>` would each bill six times: [10, 25].
+    #[cfg(feature = "objc")]
+    #[test]
+    fn objc_generic_angles_are_one_pair_1559() {
+        check_generic_pair(
+            LANG::Objc,
+            "foo.m",
+            "@interface A : NSObject <NSCopying>\n@end\n\
+             id<NSCopying> f(NSArray<NSArray<NSString *> *> *v) \
+             { return g(NSArray<NSString *>) || a < b || c > d; }\n",
+            &[
+                "@interface",
+                ":",
+                "<>",
+                "()",
+                "*",
+                "{}",
+                "return",
+                "||",
+                "<",
+                ">",
+                ";",
+            ],
+            [11, 20],
         );
     }
 }

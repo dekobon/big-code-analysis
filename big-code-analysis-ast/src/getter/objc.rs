@@ -4,6 +4,29 @@
 use super::*;
 use crate::c_declarator::declarator_name;
 
+// ObjC has no templates, but four nodes delimit a generic list with a
+// bare `<` / `>`: `generic_specifier` (`NSArray<NSString *>`),
+// `protocol_reference_list` (`id<NSCopying>`), `parameterized_arguments`
+// (`@interface A : NSObject <NSCopying>`), and `argument_list`, whose
+// `Type<…>` alternative (`f(NSArray<NSString *>)`) holds the brackets as
+// direct children. A comparison's `<` / `>` is always the child of a
+// `binary_expression` or `preproc_binary_expression`, so none of the
+// four can claim one. `LT2` is the
+// `token.immediate` `<` that `argument_list`'s form opens with; the
+// parser reports it as `LT`, so it is listed defensively. The call's
+// `argument_list` is `ArgumentList2`; `ArgumentList` is
+// `preproc_call_expression`'s alias, which holds no angle brackets.
+const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
+    lists: &[
+        Objc::GenericSpecifier as u16,
+        Objc::ProtocolReferenceList as u16,
+        Objc::ParameterizedArguments as u16,
+        Objc::ArgumentList2 as u16,
+    ],
+    openers: &[Objc::LT as u16, Objc::LT2 as u16],
+    closers: &[Objc::GT as u16],
+};
+
 impl Getter for ObjcCode {
     fn get_func_space_name<'a, 'tree>(
         node: &Node<'tree>,
@@ -70,6 +93,10 @@ impl Getter for ObjcCode {
     fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> TokenRole {
         use Objc::*;
 
+        if GENERIC_ANGLES.is_closer(node, ancestors) {
+            return TokenRole::Unknown;
+        }
+
         // ObjC is C plus message sends, blocks, and the `@`-directives.
         // The operator alphabet is therefore the C set (`src/getter.rs`
         // `impl Getter for CCode`) extended with the ObjC structural
@@ -124,6 +151,13 @@ impl Getter for ObjcCode {
             | NumberLiteral | True | False | Null | DOTDOTDOT => TokenRole::Operand,
             _ => TokenRole::Unknown,
         }
+    }
+
+    fn get_operator_spelling<'a>(
+        node: &Node<'a>,
+        ancestors: Ancestors<'a, '_>,
+    ) -> Option<&'static str> {
+        GENERIC_ANGLES.opener_spelling(node, ancestors)
     }
 
     get_operator!(Objc);

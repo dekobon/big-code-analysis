@@ -211,7 +211,8 @@ fn compute_booleans_with<F: Fn(u16) -> bool>(node: &Node, stats: &mut Stats, is_
 /// changes which operator nests under which, and the parse already
 /// carries that, so `a || b and c` is `(a || b) and c` and still
 /// switches operation. Operators that are a different operation
-/// (`xor`, `??`, `//`) keep keys of their own (#1530).
+/// (`??`, `//`) keep keys of their own (#1530); `xor`, like `^`, is no
+/// sequence operator at all (#1536).
 fn compute_booleans_keyed<F: Fn(u16) -> Option<u16>>(
     node: &Node,
     stats: &mut Stats,
@@ -8059,11 +8060,12 @@ end",
 
     // Companions to `php_null_coalescing_cognitive_230`: the PHP
     // cognitive operator set extends past `&&` / `||` / `??` to include
-    // the word-form `and` / `or` / `xor`, mirroring PHP cyclomatic. A
-    // chain of identical word-form operators collapses to a single
+    // the word-form `and` / `or`, mirroring PHP cyclomatic. A chain of
+    // identical word-form operators collapses to a single
     // boolean-sequence increment under Sonar B1, the same way `&&` /
     // `||` chains do. Each word-form gets its own test so a regression
-    // that drops a single variant (e.g. only `Or`) is still caught.
+    // that drops a single variant (e.g. only `Or`) is still caught;
+    // `xor` is a value, not a sequence (#1536), and its test pins that.
 
     #[cfg(feature = "php")]
     #[test]
