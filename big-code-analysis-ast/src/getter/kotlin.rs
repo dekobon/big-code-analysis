@@ -219,12 +219,26 @@ impl Getter for KotlinCode {
             | ReturnAT
             // Operator: other keywords. `interface` is the declaration
             // keyword leaf beside `class` and `object` (#1556); its
-            // `class_declaration` wrapper stays unlisted. `enum` in
-            // `enum class` is not here: the grammar makes it a
-            // `class_modifier`, the same node as `data`, `sealed` and
-            // `annotation`, and Kotlin bills no modifier.
+            // `class_declaration` wrapper stays unlisted.
             | Class | Interface | Fun | Object | Val | Var | In | Is | As | AsQMARK | BANGis
             | BANGin | Constructor
+            // Operator: modifier keywords, as Java, Groovy and C# bill
+            // theirs (#1558). Each is the keyword leaf; its
+            // `*_modifier` / `modifiers` wrappers stay unlisted, so one
+            // modifier bills once (grammar-dispatch section 5). Every
+            // keyword has exactly one kind, so `kind_id` keys it without
+            // splitting it across the two `n1` maps. `Annotation2` is the
+            // `annotation` of `annotation class`; `Annotation` is an `@N`
+            // use, which is no keyword. `in` already bills as a variance
+            // modifier through `In` above, so `out` joins it. `reified`
+            // has only the `ReificationModifier` kind, which
+            // `KotlinCode::is_primitive` keys by its text.
+            | Enum | Sealed | Annotation2 | Data | Inner | Value | Companion
+            | Public | Private | Protected | Internal
+            | Abstract | Final | Open | Override | Lateinit | Const
+            | Tailrec | Kotlin::Operator | Infix | Inline | External | Suspend
+            | Vararg | Noinline | Crossinline | ReificationModifier | Out
+            | Expect | Actual
             // Operator: brackets, separators, terminators
             | SEMI | COMMA | COLONCOLON | DOT | LBRACE | LBRACK | LPAREN
             // Operator: assignment and arithmetic

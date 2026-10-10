@@ -716,9 +716,12 @@ tokens involved the same way they spell real operators:
   their type-declaration keywords: `class`, `struct`, `union`, `enum`,
   `interface`, `record`, `trait`, `@interface`, `@implementation` and
   `@protocol`. Java's `C.class` is not billed: it stays one operand.
-  Kotlin's `interface` followed in #1556; the `enum` of `enum class` is
-  a modifier there, like `data` and `sealed`, and Kotlin bills no
-  modifier. #1557 added C++'s `namespace`, `template`, `typename`,
+  Kotlin's `interface` followed in #1556, and since #1558 Kotlin bills
+  its modifiers as Java, Groovy and C# bill theirs: the `enum` of
+  `enum class`, `data`, `sealed`, the visibility keywords, `open`,
+  `override`, `suspend`, `reified`, `out` and the rest each count once,
+  as the keyword and never as its `modifiers` wrapper. The same words
+  used as names (`val open = 1`) stay operands. #1557 added C++'s `namespace`, `template`, `typename`,
   `typedef` and `using` (C and Objective-C bill `typedef` too), so
   `template <class T>` and `template <typename T>` each bill their
   keyword and score alike. It also added TypeScript's `type`,

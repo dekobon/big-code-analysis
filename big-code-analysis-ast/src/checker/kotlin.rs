@@ -75,4 +75,15 @@ impl Checker for KotlinCode {
     // followed by an `if_expression` (not an `if_statement`, and no
     // wrapping clause node).
     impl_is_else_if_prev_sibling!(Kotlin, IfExpression, Else);
+
+    // `reified` is the one modifier the grammar spells as an aliased
+    // named kind, `reification_modifier`, rather than a keyword token.
+    // Keying it by `kind_id` would make `bca ops` list an operator
+    // named `reification_modifier`, which appears nowhere in the
+    // source; keying it by text lists `reified` (#1558). It has no
+    // other kind, so nothing splits across the two `n1` maps.
+    #[inline]
+    fn is_primitive(node: &Node) -> bool {
+        node.kind_id() == Kotlin::ReificationModifier
+    }
 }

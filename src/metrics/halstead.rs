@@ -6261,9 +6261,9 @@ end",
     }
 
     /// #1556: Kotlin's `interface` bills as its `class` and `object`
-    /// do. The modifier rows pin the other half of the decision: `enum`
-    /// in `enum class` is a `class_modifier` like `data`, and neither
-    /// bills, so the three modifier rows score exactly as `class` does.
+    /// do. The modifier rows score one above the bare keyword since
+    /// #1558: `enum` in `enum class` is a `class_modifier` like `data`
+    /// and `sealed`, and Kotlin bills its modifiers as Java does.
     #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_declaration_keywords_are_operators_1556() {
@@ -6274,12 +6274,12 @@ end",
             ("interface", "interface I {}\n", [2, 2]),
             // `object`, `{}`
             ("object", "object O {}\n", [2, 2]),
-            // `class`, `{}` — no `enum`
-            ("enum class", "enum class E { A }\n", [2, 2]),
-            // `class`, `{}` — no `data`
-            ("data class", "data class D {}\n", [2, 2]),
-            // `interface`, `{}` — no `sealed`
-            ("sealed interface", "sealed interface S {}\n", [2, 2]),
+            // `enum`, `class`, `{}`
+            ("enum class", "enum class E { A }\n", [3, 3]),
+            // `data`, `class`, `{}`
+            ("data class", "data class D {}\n", [3, 3]),
+            // `sealed`, `interface`, `{}`
+            ("sealed interface", "sealed interface S {}\n", [3, 3]),
             // `interface`, `class`, `:`, `{}` twice
             (
                 "implementing class",
@@ -6288,6 +6288,103 @@ end",
             ),
         ];
         assert_operator_rows::<KotlinParser>("foo.kt", ROWS);
+    }
+
+    /// #1558: Kotlin bills its modifier keywords as Java, Groovy and C#
+    /// bill theirs, one family per row, each keyword the leaf and never
+    /// its `*_modifier` wrapper. The last row is the control: the same
+    /// words used as names are operands, and add no operator.
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn kotlin_modifiers_are_operators_1558() {
+        const ROWS: &[(&str, &str, [u64; 2])] = &[
+            // `public`, `private`, `protected`, `internal`, `val` x4,
+            // `=` x4, `class`, `{}`
+            (
+                "visibility",
+                "class C {\n    public val a = 1\n    private val b = 1\n    \
+                 protected val c = 1\n    internal val d = 1\n}\n",
+                [8, 14],
+            ),
+            // `abstract` x2, `open`, `final`, `override`, `class`, `{}` x2,
+            // `fun` x3, `()` x3, `=`
+            (
+                "inheritance and member",
+                "abstract class A {\n    abstract fun f()\n    open fun g() {}\n    \
+                 final override fun toString() = \"\"\n}\n",
+                [9, 15],
+            ),
+            // `inner`, `value`, `annotation`, `class` x3, `()`, `val`, `:`
+            (
+                "class",
+                "inner class I\nvalue class V(val x: Int)\nannotation class N\n",
+                [7, 9],
+            ),
+            // `lateinit`, `companion`, `const`, `class`, `object`, `var`,
+            // `val`, `:`, `=`, `{}` x2
+            (
+                "property and companion",
+                "class C {\n    lateinit var a: String\n    companion object {\n        \
+                 const val b = 1\n    }\n}\n",
+                [10, 11],
+            ),
+            // six modifiers, `fun` x6, `()` x6, `{}` x5
+            (
+                "function",
+                "tailrec fun a() {}\noperator fun b() {}\ninfix fun c() {}\n\
+                 inline fun d() {}\nexternal fun e()\nsuspend fun f() {}\n",
+                [9, 23],
+            ),
+            // `inline`, `noinline`, `crossinline`, `vararg`, `fun`,
+            // `()` x3, `:` x3, `->` x2, `,` x2, `{}`
+            (
+                "parameter",
+                "inline fun f(noinline a: () -> Unit, crossinline b: () -> Unit, \
+                 vararg c: Int) {}\n",
+                [10, 16],
+            ),
+            // `inline`, `reified`, `in`, `out`, `fun`, `class`, `<` x2,
+            // `>` x2, `,`, `()`, `{}`
+            (
+                "type parameter",
+                "inline fun <reified T> f() {}\nclass Box<in A, out B>\n",
+                [11, 13],
+            ),
+            // `expect`, `actual`, `fun` x2, `()` x2, `{}`
+            ("platform", "expect fun f()\nactual fun g() {}\n", [5, 7]),
+            // `fun`, `()`, `{}`: an `@N` use is the `annotation` node, not
+            // the keyword, so it bills no `annotation` operator
+            ("annotation use", "@N fun k() {}\n", [3, 3]),
+            // `val` x3, `=` x3: `open`, `out` and `value` are names here
+            (
+                "names",
+                "val open = 1\nval out = 2\nval value = 3\n",
+                [2, 6],
+            ),
+        ];
+        assert_operator_rows::<KotlinParser>("foo.kt", ROWS);
+    }
+
+    /// #1558: `reified` is the one Kotlin modifier spelled as an aliased
+    /// named kind. `KotlinCode::is_primitive` keys it by its text, so
+    /// `bca ops` lists the word written, not the grammar's
+    /// `reification_modifier`. `n1` cannot see the difference — the kind
+    /// has one spelling either way — so the vocabulary is the only place
+    /// this is observable.
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn kotlin_reified_is_listed_by_its_text_1558() {
+        let ops = ops_of::<KotlinParser>("fun <reified T> f() {}\n", "foo.kt");
+        assert!(
+            ops.operators.iter().any(|op| op == "reified"),
+            "{:?}",
+            ops.operators
+        );
+        assert!(
+            !ops.operators.iter().any(|op| op == "reification_modifier"),
+            "{:?}",
+            ops.operators
+        );
     }
 
     /// #1557 rows shared by the two C++ clones: the declaration keywords

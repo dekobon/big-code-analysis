@@ -146,17 +146,20 @@ fn fixture(lang: LANG) -> Option<(&'static str, &'static str, &'static [&'static
             22,
         ),
         // A qualified super call disambiguates its supertype with the
-        // same two bare tokens. `override` is in no arm of the Kotlin
-        // getter, which is why it is absent below.
+        // same two bare tokens. `override` bills as Kotlin's other
+        // modifiers do since #1558.
         //
-        // expected N1 = 13: the header's `class`, `:`, `()` and `{}`,
-        // then `fun`, the parameter `()`, the return-type `:`, the body
-        // `{}`, `return`, `<`, `>`, `.` and the call's `()`.
+        // expected N1 = 14: the header's `class`, `:`, `()` and `{}`,
+        // then `override`, `fun`, the parameter `()`, the return-type
+        // `:`, the body `{}`, `return`, `<`, `>`, `.` and the call's `()`.
         LANG::Kotlin => (
             "class B : A() {\n    override fun g(): Int { return super<A>.g() }\n}\n",
             "kt",
-            ["()", ".", ":", "<", ">", "class", "fun", "return", "{}"].as_slice(),
-            13,
+            [
+                "()", ".", ":", "<", ">", "class", "fun", "override", "return", "{}",
+            ]
+            .as_slice(),
+            14,
         ),
         // A filehandle readline. `<STDIN>` is deliberately not the
         // fixture: the grammar lexes it as one `standard_input` token,
