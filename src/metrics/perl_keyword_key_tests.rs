@@ -557,6 +557,54 @@ fn perl_spaced_dash_key_keeps_its_sign() {
     }
 }
 
+/// Perl quotes a file-test `-X` before `=>` only across spaces and tabs.
+/// Across a newline, or a comment, which runs to one, `-f` stays the
+/// file test on `$_`: executed, `(-f # c⏎ => 7)` and `(-f⏎ => 7)` both
+/// yield `(undef, 7)`, where `(-f \t => 7)` yields `("-f", 7)`. The
+/// grammar recovers the same `ERROR` around the `=>` in every spelling,
+/// and #1545 billed each as the key `-f`. Each row's twin is the program
+/// Perl runs: the comma list for a file test, the quoted key otherwise.
+/// A `-foo` key is quoted either way — `-foo` is the string `"-foo"`
+/// whether or not the `=>` quotes it — so its commented and
+/// line-broken spellings keep their key reading.
+#[cfg(feature = "perl")]
+#[test]
+fn perl_file_test_key_stops_at_a_line_break() {
+    let comma = ([2, 0, 0, 0], [8, 9, 3, 4]);
+    let quoted = ([2, 0, 0, 0], [8, 9, 4, 5]);
+    let word = ([2, 1, 0, 0], [5, 5, 3, 4]);
+    for (twin, want, key) in [
+        (
+            "my @p = (-f, 7); return @p;",
+            comma,
+            "my @p = (-f # c\n=> 7); return @p;",
+        ),
+        (
+            "my @p = (-f, 7); return @p;",
+            comma,
+            "my @p = (-f\n=> 7); return @p;",
+        ),
+        (
+            "my @p = ('-f' => 7); return @p;",
+            quoted,
+            "my @p = (-f \t => 7); return @p;",
+        ),
+        ("f('-foo' => 1);", word, "f(-foo # c\n=> 1);"),
+        ("f('-foo' => 1);", word, "f(-foo\n=> 1);"),
+    ] {
+        assert_eq!(
+            measure_with_branches(twin),
+            want,
+            "`{twin}` moved; re-derive the row"
+        );
+        assert_eq!(
+            measure_with_branches(key),
+            want,
+            "`{key}` must score like `{twin}`"
+        );
+    }
+}
+
 /// A `-X` that is not a key keeps the reading it had before #1545: a
 /// real file test, alone, in a condition, on the `_` stat cache,
 /// stacked, and as a subscript's whole expression, where only a word

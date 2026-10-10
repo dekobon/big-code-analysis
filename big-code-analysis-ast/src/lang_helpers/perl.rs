@@ -102,7 +102,14 @@ pub fn perl_not_is_key<'a>(not: &Node<'a>, parent: &Node<'a>) -> bool {
 ///   call or a string, and stays as the grammar reads it.
 /// - a key that *is* a file test (`(-x => 1)`) swallows the `=>` and
 ///   the value, wrapping the `=>` in an `ERROR`. A real file test
-///   cannot take a `=>` as its operand, so the `ERROR` decides.
+///   cannot take a `=>` as its operand, so the `ERROR` decides — when
+///   the `=>` is on the test's own line. Perl quotes `-x` only when
+///   nothing but spaces and tabs separate it from the `=>`: across a
+///   newline or a comment (`(-f # c⏎ => 7)`) it stays the file test on
+///   `$_`, the list `(-f, 7)`, and the grammar recovers the same
+///   `ERROR` regardless. A comment runs to the end of its line, so the
+///   row alone tells the two apart. The `-and` / `-not` and `-foo`
+///   keys are quoted across either, as Perl does.
 ///
 /// The subscript form of the second shape (`$h{-x}`) recovers into an
 /// `ERROR` that drops the `-x` token altogether, so nothing is left to
@@ -121,7 +128,7 @@ pub(crate) fn perl_file_test_is_dash_key<'a>(
         .find(|child| child.is_error() || !child.as_tree_sitter().is_extra())
         .is_some_and(|operand| {
             if operand.is_error() {
-                operand.is_child(Perl::FatComma as u16)
+                operand.is_child(Perl::FatComma as u16) && operand.start_row() == test.start_row()
             } else {
                 is_glued_word(&operand, test) && is_key_position(test, ancestors)
             }
