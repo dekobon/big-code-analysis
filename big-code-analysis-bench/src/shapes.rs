@@ -503,6 +503,17 @@ pub fn perl_dash_keys(width: usize) -> String {
     )
 }
 
+/// Perl: `my @r = (/a/, /a/, …);` — one list of `width` bare matches.
+///
+/// The width shape for the Perl ABC pattern-role check, which asks of
+/// every pattern whether a `( … )` around it holds it as its value. Its
+/// first form read the list's last operand to answer, scanning the whole
+/// list per pattern: 7.7 s for 8 000 patterns in a release build.
+#[must_use]
+pub fn perl_pattern_list(width: usize) -> String {
+    format!("my @r = ({});\n", vec!["/a/"; width].join(", "))
+}
+
 /// Kotlin: `inline fun f(noinline p0: () -> Unit, …) {}` — one function
 /// with `width` modified parameters.
 ///
@@ -1343,6 +1354,27 @@ pub const PROBES: &[Probe] = &[
                     0.02 s and 0.03 s once the sibling is found by index. \
                     ABC asks through the same helper. The reading is the \
                     operand count, which grows with the width.",
+    },
+    Probe {
+        name: "abc/perl-pattern-list",
+        lang: LANG::Perl,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Abc],
+            reading: |m| m.abc.conditions_sum(),
+        },
+        render: perl_pattern_list,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "Perl ABC reads a pattern's bound or delimiter role on \
+                    the outermost `( … )` holding it as its value. \
+                    Deciding that from the list's last operand scanned \
+                    the list once per pattern: 1.9 s at 4 000 patterns \
+                    and 7.7 s at 8 000 in a release build, against \
+                    0.015 s and 0.032 s once it looks forward from the \
+                    pattern. The reading is one condition per bare \
+                    match, so it grows with the width.",
     },
     Probe {
         name: "halstead/kotlin-noinline-params",

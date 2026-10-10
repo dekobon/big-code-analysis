@@ -156,6 +156,7 @@ Read it as follows.
 | `loc/wide-cfg-test-mod` | Rust | width | the `exclude_tests` prune arm's row bookkeeping (#1417) | linear |
 | `halstead/perl-dash-keys` | Perl | width | the dash-key workaround's `=>` lookup per key (#1545) | linear |
 | `halstead/kotlin-noinline-params` | Kotlin | width | the modifier recovery guard's next-token lookup (#1558) | linear |
+| `abc/perl-pattern-list` | Perl | width | ABC's pattern-role climb through `( … )` (#1467) | linear |
 | `cyclomatic/cpp-plus-chain` | C++ | depth | shape control for the three rows below | linear |
 | `cyclomatic/cpp-and-chain` | C++ | depth | the `&&` / `||` applied-operator gate (#1533) | linear |
 | `cognitive/cpp-and-chain` | C++ | depth | the boolean-sequence arm on the same chain (#1533) | linear |

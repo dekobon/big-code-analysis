@@ -10,8 +10,8 @@
 )]
 
 use super::{
-    Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, is_operand,
-    last_operand, peel, wrapped_operand,
+    Abc, Stats, count_boolean_slot, count_each_operand, count_negated_operand, is_operand, peel,
+    wrapped_operand,
 };
 use crate::lang_helpers::perl::{
     perl_and_is_operator, perl_dash_signs_keyword_key, perl_is_dash_key_word, perl_not_is_key,
@@ -51,6 +51,37 @@ use crate::*;
 //   Perl; issue #395). `xor` is no chain: it evaluates both operands,
 //   so like Java's `^` it is a value, and the slot holding it pays
 //   one condition (#1536).
+
+// Whether `child` can occupy a Perl operand slot. tree-sitter-perl
+// names its separators — `normal_comma` (`,`) and `fat_comma` (`=>`) —
+// where every other grammar leaves them anonymous, so the shared
+// `is_operand` took a trailing one for the list's last element:
+// `if ($a > 1,)` and `if ($a > 1 =>)` scored the comma as an unproven
+// slot occupant on top of the `>`, where `perl -MO=Deparse` reduces both
+// to `if ($a > 1)`.
+fn perl_is_operand(child: &Node) -> bool {
+    is_operand(child) && !matches!(child.kind_id().into(), Perl::NormalComma | Perl::FatComma)
+}
+
+// The last operand of `node`, separators aside: the value a Perl list
+// evaluates to in scalar context.
+fn perl_last_operand<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+    node.children().filter(perl_is_operand).last()
+}
+
+// `node` with every `( … )` around it taken off. A parenthesised operand
+// is the value inside it, so `$x =~ (s/a/b/)` binds the substitution
+// as `$x =~ s/a/b/` does.
+fn perl_unparenthesized(node: Node<'_>) -> Node<'_> {
+    let mut node = node;
+    while node.kind_id() == Perl::Array as u16
+        && let Some(inner) = perl_last_operand(&node)
+    {
+        node = inner;
+    }
+    node
+}
+
 // One step of the value peel (see `PeelStep`).
 //
 // `Array` is tree-sitter-perl's name for the `(...)` shape used BOTH as
@@ -90,17 +121,19 @@ fn perl_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
     use Perl as P;
 
     match node.kind_id().into() {
-        P::Array | P::Arguments => last_operand(node).map(|o| (o, false)),
+        P::Array | P::Arguments => perl_last_operand(node).map(|o| (o, false)),
         P::ParenthesizedArgument => wrapped_operand(node).map(|o| (o, false)),
         P::BinaryExpression if node.is_child(P::EQ as u16) => {
-            last_operand(node).map(|o| (o, false))
+            perl_last_operand(node).map(|o| (o, false))
         }
         P::UnaryExpression => {
             node.child_by_field_name("operator")
                 .and_then(|op| match op.kind_id().into() {
-                    P::Not if perl_not_is_key(&op, node) => last_operand(node).map(|o| (o, false)),
+                    P::Not if perl_not_is_key(&op, node) => {
+                        perl_last_operand(node).map(|o| (o, false))
+                    }
                     P::And if !perl_and_is_operator(&op, node) => {
-                        last_operand(node).map(|o| (o, false))
+                        perl_last_operand(node).map(|o| (o, false))
                     }
                     P::DASH if perl_dash_signs_keyword_key(&op, node) => {
                         wrapped_operand(node).map(|o| (o, false))
@@ -162,7 +195,8 @@ fn perl_condition_scores_itself(expr: &Node) -> bool {
 // still pays for a rewrite binding through `perl_count_condition`,
 // because this predicate also keeps `perl_condition_scores_itself` from
 // claiming it. The grammar names no `left` / `right` field on a
-// `binary_expression`, so the right operand is read as its last.
+// `binary_expression`, so the right operand is read as its last, with
+// any parentheses taken off: `$x =~ (s/a/b/)` is the same edit.
 //
 // `$x !~ s///r` and `$x !~ tr///r` parse the same way but are Perl
 // compile errors ("Using !~ with s///r doesn't make sense"); valid input
@@ -173,9 +207,9 @@ fn perl_condition_scores_itself(expr: &Node) -> bool {
 // no right operand, and reading it per token was quadratic.
 fn perl_binding_rewrites(binding: &Node) -> bool {
     binding.kind_id() == Perl::BinaryExpression as u16
-        && last_operand(binding).is_some_and(|rhs| {
+        && perl_last_operand(binding).is_some_and(|rhs| {
             matches!(
-                rhs.kind_id().into(),
+                perl_unparenthesized(rhs).kind_id().into(),
                 Perl::SubstitutionPatternS | Perl::TransliterationTrOrY
             )
         })
@@ -357,7 +391,7 @@ fn perl_count_chain_operands(chain: &Node, leading_absorbed: bool, conditions: &
     if perl_is_logical_chain(chain) {
         for operand in chain
             .children()
-            .filter(is_operand)
+            .filter(perl_is_operand)
             .skip(usize::from(leading_absorbed))
         {
             perl_count_condition(&operand, conditions);
@@ -371,52 +405,87 @@ fn perl_count_chain_operands(chain: &Node, leading_absorbed: bool, conditions: &
 // - **Bound**: the pattern is the right operand of `$x =~ /re/` or
 //   `$x !~ /re/`, whose operator token is already a condition. Read
 //   through the grammar's `operator` field, so `$x ~~ /re/` — a
-//   smartmatch, which no arm counts — still scores the match once.
+//   smartmatch, which no arm counts — still scores the match once. Only
+//   the *right* operand is bound: `/re/ =~ $x` first matches `$_` and
+//   then binds that result (`perl -MO=Deparse` prints `/re/ =~ /$x/`),
+//   so it scores the match and the `=~` as its explicit twin
+//   `my $m = /re/; $m =~ $x` does.
 // - **`split`'s delimiter**: `split /,/, $s` and `split(/,/, $s)` hand
 //   the pattern to `split` as a separator; nothing is matched against
 //   `$_`, so it is no condition. Only the *first* argument is a
 //   delimiter: a pattern elsewhere in the list is an ordinary match
-//   whose result `split` receives. The callee is identified by its
-//   `function_name` bytes (grammar-dispatch §10) — the package
-//   qualifier is ignored so `CORE::split` is covered too.
+//   whose result `split` receives.
+//
+// Either role is read on the pattern's outermost `( … )`, which is the
+// value inside it: `$x =~ ((/re/))` binds and `split((/,/), $s)`
+// delimits as their bare twins do. A call's own argument list is an
+// `Array` too, but it is the call's, not a wrapper around the pattern,
+// so the climb stops below one. Whether the pattern is a list's last
+// operand is read forward from the pattern, which stops at the next
+// operand: read off the list's last operand instead, every pattern of a
+// wide `(/a/, /b/, …)` scanned the whole list.
 fn perl_pattern_is_bound_or_delimiter(pattern: &Node, code: &[u8], ancestors: Ancestors) -> bool {
     use Perl as P;
 
-    let mut climb = ancestors.iter(pattern).map(|(ancestor, _)| ancestor);
-    climb
-        .next()
-        .is_some_and(|parent| match parent.kind_id().into() {
-            P::BinaryExpression => parent
+    let mut up = ancestors.iter(pattern).map(|(ancestor, _)| ancestor);
+    let mut slot = *pattern;
+    let mut owner = up.next();
+    let mut above = up.next();
+    while let Some(paren) = owner
+        && paren.kind_id() == P::Array as u16
+        && !paren
+            .children_after(&slot)
+            .any(|next| perl_is_operand(&next))
+        && !above.is_some_and(perl_is_call_argument_parent)
+    {
+        slot = paren;
+        owner = above;
+        above = up.next();
+    }
+    owner.is_some_and(|owner| match owner.kind_id().into() {
+        P::BinaryExpression => {
+            owner
                 .child_by_field_name("operator")
-                .is_some_and(|op| matches!(op.kind_id().into(), P::EQTILDE | P::BANGTILDE)),
-            P::Arguments | P::Array => {
-                // The first operand, not the first named child: a
-                // comment is named, so `split( # sep⏎ /,/, $s)` read it
-                // as the first argument (#1455).
-                parent
-                    .children()
-                    .find(is_operand)
-                    .is_some_and(|first| first.id() == pattern.id())
-                    && climb
-                        .next()
-                        .is_some_and(|call| perl_call_is_split(&call, code))
-            }
-            _ => false,
-        })
+                .is_some_and(|op| matches!(op.kind_id().into(), P::EQTILDE | P::BANGTILDE))
+                && perl_last_operand(&owner).is_some_and(|rhs| rhs.id() == slot.id())
+        }
+        // The first operand, not the first named child: a comment is
+        // named, so `split( # sep⏎ /,/, $s)` read it as the first
+        // argument (#1455).
+        P::Arguments | P::Array => {
+            owner
+                .children()
+                .find(perl_is_operand)
+                .is_some_and(|first| first.id() == slot.id())
+                && above.is_some_and(|call| perl_call_is_split(&call, code))
+        }
+        _ => false,
+    })
 }
 
-// Whether `call` is a `split` call. Every named child of the two call
-// wrappers that take an argument list is the callee or an `args`
-// field, so a list whose grandparent is one of them is its arguments.
+// Whether `call` is a call of the builtin `split`, spelled bare or as
+// `CORE::split`. Every named child of the two call wrappers that take an
+// argument list is the callee or an `args` field, so a list whose
+// grandparent is one of them is its arguments. The callee's package is
+// read as well as its name: `My::split` is a user sub, and the pattern
+// it is handed is an ordinary match (grammar-dispatch §10).
 fn perl_call_is_split(call: &Node, code: &[u8]) -> bool {
+    let text = |node: &Node| code.get(node.start_byte()..node.end_byte());
     matches!(
         call.kind_id().into(),
         Perl::CallExpressionWithSpacedArgs | Perl::CallExpressionWithArgsWithBrackets
     ) && call
         .children()
         .find(|child| child.kind_id() == Perl::CallExpressionWithBareword as u16)
-        .and_then(|callee| callee.child_by_field_name("function_name"))
-        .is_some_and(|name| code.get(name.start_byte()..name.end_byte()) == Some(b"split"))
+        .is_some_and(|callee| {
+            callee
+                .child_by_field_name("function_name")
+                .is_some_and(|name| text(&name) == Some(b"split"))
+                && callee
+                    .children()
+                    .find(|child| child.kind_id() == Perl::PackageName as u16)
+                    .is_none_or(|package| text(&package) == Some(b"CORE"))
+        })
 }
 
 fn perl_is_call_argument_parent(parent: Node) -> bool {

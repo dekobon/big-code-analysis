@@ -14790,6 +14790,110 @@ end
         });
     }
 
+    // tree-sitter-perl names its separators, so a trailing `,` or `=>`
+    // was read as the last element of a condition list and paid a slot
+    // of its own: `if ($a > 1,)` scored 2. `perl -MO=Deparse` reduces
+    // every `*_sep` row to its `*_twin`, which is where the expected
+    // values come from; the chain rows put the list inside a `&&`
+    // operand, which reaches the same peel through
+    // `perl_count_chain_operands`.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_trailing_separator_scores_like_its_bare_twin() {
+        check_func_space::<PerlParser, _>(
+            "sub cmp_twin { my ($a) = @_; if ($a > 1) { g(); } }\n\
+             sub cmp_comma { my ($a) = @_; if ($a > 1,) { g(); } }\n\
+             sub cmp_fat { my ($a) = @_; if ($a > 1 =>) { g(); } }\n\
+             sub var_twin { my ($a) = @_; if ($a) { g(); } }\n\
+             sub var_comma { my ($a) = @_; if ($a,) { g(); } }\n\
+             sub chain_twin { my ($a, $b) = @_; if (($a > 1) && $b) { g(); } }\n\
+             sub chain_comma { my ($a, $b) = @_; if (($a > 1,) && $b) { g(); } }\n",
+            "foo.pl",
+            |space| {
+                assert_members_score(
+                    &space,
+                    &[
+                        ("cmp_twin", 1, 2),
+                        ("cmp_comma", 1, 2),
+                        ("cmp_fat", 1, 2),
+                        ("var_twin", 1, 2),
+                        ("var_comma", 1, 2),
+                        ("chain_twin", 2, 3),
+                        ("chain_comma", 2, 3),
+                    ],
+                );
+            },
+        );
+    }
+
+    // A pattern's role is read on the outermost `( … )` around it, which
+    // is the value inside it, so each `*_paren` row scores as its bare
+    // `*_twin` (#1467, #1540); `perl -MO=Deparse` prints each pair
+    // identically. The reversed binding is the other direction: in
+    // `/foo/ =~ $x` the pattern is the *left* operand, so it first
+    // matches `$_` and that result is bound (Deparse: `/foo/ =~ /$x/`) —
+    // the match and the `=~` both pay, as in the explicit `rev_twin`.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_pattern_role_reads_through_parentheses() {
+        check_func_space::<PerlParser, _>(
+            "sub bind_twin { my ($x) = @_; return $x =~ /foo/; }\n\
+             sub bind_paren { my ($x) = @_; return $x =~ (/foo/); }\n\
+             sub bind_parens_m { my ($x) = @_; return $x =~ (((m{foo}))); }\n\
+             sub bind_list { my ($x, $y) = @_; return $x =~ (/foo/, $y); }\n\
+             sub bind_list_twin { my ($x, $y) = @_; /foo/; return $x =~ $y; }\n\
+             sub split_twin { my ($x) = @_; my @p = split(/foo/, $x); return @p; }\n\
+             sub split_paren { my ($x) = @_; my @p = split((/foo/), $x); return @p; }\n\
+             sub split_sole { my @p = split(/foo/); return @p; }\n\
+             sub subst_twin { my ($x) = @_; $x =~ s/a/b/; return $x; }\n\
+             sub subst_paren { my ($x) = @_; $x =~ (s/a/b/); return $x; }\n\
+             sub rev { my ($x) = @_; return /foo/ =~ $x; }\n\
+             sub rev_twin { my ($x) = @_; my $m = /foo/; return $m =~ $x; }\n",
+            "foo.pl",
+            |space| {
+                assert_members_score(
+                    &space,
+                    &[
+                        ("bind_twin", 1, 1),
+                        ("bind_paren", 1, 1),
+                        ("bind_parens_m", 1, 1),
+                        // A comma operator: `/foo/` matches `$_` and `$y`
+                        // is what binds, so the match pays as in the twin.
+                        ("bind_list", 2, 1),
+                        ("bind_list_twin", 2, 1),
+                        ("split_twin", 0, 1),
+                        ("split_paren", 0, 1),
+                        // The pattern is the whole argument list, which is
+                        // the call's own and no wrapper to climb through.
+                        ("split_sole", 0, 1),
+                        ("subst_twin", 0, 1),
+                        ("subst_paren", 0, 1),
+                        ("rev", 2, 1),
+                        ("rev_twin", 2, 1),
+                    ],
+                );
+            },
+        );
+    }
+
+    // Only the builtin `split` takes its first pattern as a delimiter:
+    // `My::split` is a user sub, so the pattern it is handed is an
+    // ordinary match, as it is for `My::other` (#1467). `CORE::split`
+    // is the builtin by its full name.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_split_exemption_is_the_builtin_only() {
+        check_func_space::<PerlParser, _>(
+            "sub mine { my ($x) = @_; my @p = My::split(/foo/, $x); return @p; }\n\
+             sub other { my ($x) = @_; my @p = My::other(/foo/, $x); return @p; }\n\
+             sub core { my ($x) = @_; my @p = CORE::split(/foo/, $x); return @p; }\n",
+            "foo.pl",
+            |space| {
+                assert_members_score(&space, &[("mine", 1, 1), ("other", 1, 1), ("core", 0, 1)]);
+            },
+        );
+    }
+
     // ---------- Lua ABC tests ----------
 
     #[cfg(feature = "lua")]
