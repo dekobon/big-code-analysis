@@ -78,10 +78,16 @@ impl Getter for TsxCode {
     // `Interface` / `Enum` are the TS-only type-declaration keyword
     // leaves, billed as the shared `class` is (#1552) and as C# and
     // Java bill theirs; their `*_declaration` wrappers stay unlisted.
+    //
+    // `Type` / `Namespace` / `Module2` / `Declare` / `Global` and the
+    // `TypeIdentifier` operand: see the TS invocation (#1557).
     impl_js_family_get_op_type!(
         Tsx,
-        op_extras: [QMARKDOT, PredefinedType, Interface, Enum, LTSLASH, SLASHGT],
-        operand_extras: [Identifier2, String2],
+        op_extras: [
+            QMARKDOT, PredefinedType, Interface, Enum, Type, Namespace, Module2, Declare, Global,
+            LTSLASH, SLASHGT,
+        ],
+        operand_extras: [Identifier2, String2, TypeIdentifier],
         predefined_void: PredefinedType,
         jsx: [JsxText, HtmlCharacterReference],
     );

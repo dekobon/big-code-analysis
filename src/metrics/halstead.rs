@@ -2300,32 +2300,25 @@ mod tests {
     //   `;`×2, `(`, `return`, `.` — 9 total, 7 unique. (`class` joined
     //   the JS-family operator arm in #1552.)
     // * Operands: `C`, `#x`, `1`, `m`, `this`, `#x` — 6 total, 5
-    //   unique under JS/MozJS. Under TS/TSX the class *name* `C`
-    //   parses as `type_identifier`, which those getters do not
-    //   classify, so both counts drop by one to 5/4 — a pre-existing
-    //   divergence this fixture records rather than fixes.
+    //   unique in all four grammars. Under TS/TSX the class *name* `C`
+    //   is a `type_identifier`, which those getters did not classify
+    //   until #1557, so they read 5/4 before it.
     #[cfg(all(feature = "javascript", feature = "mozjs", feature = "typescript"))]
     #[test]
     fn js_family_private_field_leaf_is_the_operand_1263() {
         #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
         const SRC: &str = "class C { #x = 1; m() { return this.#x; } }";
-        let check_js = |m: crate::CodeMetrics| {
+        let check = |m: crate::CodeMetrics| {
             assert_eq!(m.halstead.unique_operators(), 7);
             assert_eq!(m.halstead.total_operators(), 9);
             assert_eq!(m.halstead.unique_operands(), 5);
             assert_eq!(m.halstead.total_operands(), 6);
         };
-        let check_ts = |m: crate::CodeMetrics| {
-            assert_eq!(m.halstead.unique_operators(), 7);
-            assert_eq!(m.halstead.total_operators(), 9);
-            assert_eq!(m.halstead.unique_operands(), 4);
-            assert_eq!(m.halstead.total_operands(), 5);
-        };
 
-        check_metrics::<JavascriptParser>(SRC, "foo.js", check_js);
-        check_metrics::<MozjsParser>(SRC, "foo.js", check_js);
-        check_metrics::<TypescriptParser>(SRC, "foo.ts", check_ts);
-        check_metrics::<TsxParser>(SRC, "foo.tsx", check_ts);
+        check_metrics::<JavascriptParser>(SRC, "foo.js", check);
+        check_metrics::<MozjsParser>(SRC, "foo.js", check);
+        check_metrics::<TypescriptParser>(SRC, "foo.ts", check);
+        check_metrics::<TsxParser>(SRC, "foo.tsx", check);
     }
 
     // Issue #1263, the other section 6 half: `meta_property` is the one
@@ -2362,8 +2355,8 @@ mod tests {
     //
     // expected, for `namespace N.M { }`:
     //
-    // * Operators: `.`, `{` — 2 total, 2 unique. (`namespace` is not in
-    //   the JS-family operator arm.)
+    // * Operators: `namespace`, `.`, `{` — 3 total, 3 unique.
+    //   (`namespace` joined the TS operator extras in #1557.)
     // * Operands: `N`, `M` — 2 total, 2 unique. Before the fix the
     //   `nested_identifier` added `N.M`, making both 3.
     #[cfg(feature = "typescript")]
@@ -2371,8 +2364,8 @@ mod tests {
     fn ts_nested_identifier_counts_leaves_not_the_composite_1263() {
         const SRC: &str = "namespace N.M { }";
         let check = |m: crate::CodeMetrics| {
-            assert_eq!(m.halstead.unique_operators(), 2);
-            assert_eq!(m.halstead.total_operators(), 2);
+            assert_eq!(m.halstead.unique_operators(), 3);
+            assert_eq!(m.halstead.total_operators(), 3);
             assert_eq!(m.halstead.unique_operands(), 2);
             assert_eq!(m.halstead.total_operands(), 2);
         };
@@ -5878,14 +5871,51 @@ end",
         );
     }
 
-    /// Asserts `[n1, N1]` for each `(label, source, expected)` row, one
-    /// parse per row so a row's counts are its own.
+    /// Asserts `count(halstead)` for each `(label, source, expected)`
+    /// row, one parse per row so a row's counts are its own.
     #[cfg(any(
         feature = "c",
         feature = "cpp",
         feature = "groovy",
         feature = "java",
         feature = "javascript",
+        feature = "kotlin",
+        feature = "mozcpp",
+        feature = "mozjs",
+        feature = "objc",
+        feature = "python",
+        feature = "rust",
+        feature = "typescript"
+    ))]
+    fn assert_halstead_rows<T: crate::MetricSuite>(
+        file: &str,
+        rows: &[(&str, &str, [u64; 2])],
+        count: fn(&Stats) -> [u64; 2],
+    ) {
+        for (label, source, expected) in rows {
+            crate::test_support::check_func_space_only::<T, _>(
+                source,
+                file,
+                &[crate::Metric::Halstead],
+                |space| {
+                    assert_eq!(
+                        count(&space.metrics.halstead),
+                        *expected,
+                        "{label}: {source:?}"
+                    );
+                },
+            );
+        }
+    }
+
+    /// Asserts `[n1, N1]` for each row.
+    #[cfg(any(
+        feature = "c",
+        feature = "cpp",
+        feature = "groovy",
+        feature = "java",
+        feature = "javascript",
+        feature = "kotlin",
         feature = "mozcpp",
         feature = "mozjs",
         feature = "objc",
@@ -5894,21 +5924,13 @@ end",
         feature = "typescript"
     ))]
     fn assert_operator_rows<T: crate::MetricSuite>(file: &str, rows: &[(&str, &str, [u64; 2])]) {
-        for (label, source, expected) in rows {
-            crate::test_support::check_func_space_only::<T, _>(
-                source,
-                file,
-                &[crate::Metric::Halstead],
-                |space| {
-                    let halstead = &space.metrics.halstead;
-                    assert_eq!(
-                        [halstead.unique_operators(), halstead.total_operators()],
-                        *expected,
-                        "{label}: {source:?}"
-                    );
-                },
-            );
-        }
+        assert_halstead_rows::<T>(file, rows, |h| [h.unique_operators(), h.total_operators()]);
+    }
+
+    /// Asserts `[n2, N2]` for each row.
+    #[cfg(feature = "typescript")]
+    fn assert_operand_rows<T: crate::MetricSuite>(file: &str, rows: &[(&str, &str, [u64; 2])]) {
+        assert_halstead_rows::<T>(file, rows, |h| [h.unique_operands(), h.total_operands()]);
     }
 
     /// #1486: Python's bracket openers, `;` and `:` are vocabulary, as
@@ -6146,8 +6168,9 @@ end",
     }
 
     /// #1552 rows shared by the two C++ clones. The template-parameter
-    /// rows pin the guard: `class T` is `typename T`'s synonym, and the
-    /// two spellings score alike.
+    /// rows pin the synonym: `class T` is `typename T`, and the two
+    /// spellings score alike. Both were unbilled until #1557 billed
+    /// `typename`, and the parameter `class` with it.
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const CPP_DECLARATION_KEYWORD_ROWS: &[(&str, &str, [u64; 2])] = &[
         // `class`, `{}`, `;`
@@ -6162,28 +6185,30 @@ end",
         ("enum class", "enum class F { B };\n", [4, 4]),
         // `struct`, `;` — an elaborated type bills its keyword
         ("elaborated type", "struct S s;\n", [2, 2]),
-        // `<`, `>`, `struct`, `{}`, `;` — no `class`
+        // `template`, `<`, `class`, `>`, `struct`, `{}`, `;`
         (
             "class parameter",
             "template <class T> struct W {};\n",
-            [5, 5],
+            [7, 7],
         ),
+        // as above, `typename` in place of `class`
         (
             "typename parameter",
             "template <typename T> struct W {};\n",
-            [5, 5],
+            [7, 7],
         ),
-        // `<`, `=`, `int`, `>`, `struct`, `{}`, `;`
+        // `template`, `<`, `class`, `=`, `int`, `>`, `struct`, `{}`, `;`
         (
             "optional class parameter",
             "template <class T = int> struct W {};\n",
-            [7, 7],
+            [9, 9],
         ),
-        // `<`, `>`, `struct`, `{}`, `;` — `...` is an operand
+        // `template`, `<`, `class`, `>`, `struct`, `{}`, `;` — `...` is
+        // an operand
         (
             "variadic class parameter",
             "template <class... T> struct W {};\n",
-            [5, 5],
+            [7, 7],
         ),
     ];
 
@@ -6263,6 +6288,128 @@ end",
             ),
         ];
         assert_operator_rows::<KotlinParser>("foo.kt", ROWS);
+    }
+
+    /// #1557 rows shared by the two C++ clones: the declaration keywords
+    /// #1552 left out, one per row, plus the two disambiguator positions
+    /// (`typename T::x`, `x.template f`) that bill the same leaf.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const CPP_MORE_DECLARATION_KEYWORD_ROWS: &[(&str, &str, [u64; 2])] = &[
+        // `namespace`, `{}`
+        ("namespace", "namespace N {}\n", [2, 2]),
+        // `typedef`, `int`, `;`
+        ("typedef", "typedef int T;\n", [3, 3]),
+        // `using`, `=`, `int`, `;`
+        ("alias declaration", "using U = int;\n", [4, 4]),
+        // `using`, `namespace`, `;`
+        ("using directive", "using namespace std;\n", [3, 3]),
+        // `template`, `<`, `typename`, `>`, `;` and the `struct` of `S`
+        (
+            "template declaration",
+            "template <typename T> struct S;\n",
+            [6, 6],
+        ),
+        // `typename`, `::`, `;`
+        ("dependent type", "typename T::type x;\n", [3, 3]),
+        // `void`, `()` twice, `{}`, `.`, `template`, `<`, `int`, `>`, `;`
+        (
+            "template disambiguator",
+            "void g() { x.template f<int>(); }\n",
+            [9, 10],
+        ),
+    ];
+
+    /// One call per clone, as for the #1552 rows.
+    #[cfg(all(feature = "cpp", feature = "mozcpp"))]
+    #[test]
+    fn cpp_more_declaration_keywords_are_operators_1557() {
+        assert_operator_rows::<CppParser>("foo.cpp", CPP_MORE_DECLARATION_KEYWORD_ROWS);
+        assert_operator_rows::<MozcppParser>("foo.cpp", CPP_MORE_DECLARATION_KEYWORD_ROWS);
+    }
+
+    /// #1557: `typedef` is a C keyword, so C and ObjC bill it as C++
+    /// does — a header scores alike whichever grammar parses it.
+    #[cfg(any(feature = "c", feature = "objc"))]
+    const C_TYPEDEF_ROWS: &[(&str, &str, [u64; 2])] = &[
+        // `typedef`, `int`, `;`
+        ("typedef", "typedef int T;\n", [3, 3]),
+        // `typedef`, `struct`, `{}`, `int`, `;` twice
+        ("typedef struct", "typedef struct S { int a; } S;\n", [5, 6]),
+    ];
+
+    #[cfg(any(feature = "c", feature = "objc"))]
+    #[test]
+    fn c_family_typedef_is_an_operator_1557() {
+        #[cfg(feature = "c")]
+        assert_operator_rows::<CParser>("foo.c", C_TYPEDEF_ROWS);
+        #[cfg(feature = "objc")]
+        assert_operator_rows::<ObjcParser>("foo.m", C_TYPEDEF_ROWS);
+    }
+
+    /// #1557: the TypeScript declaration keywords #1552 left out. The
+    /// last row pins that each word, used as a *name*, stays an operand:
+    /// the grammar emits an `identifier` there, never the keyword leaf.
+    #[cfg(feature = "typescript")]
+    const TS_DECLARATION_KEYWORD_ROWS: &[(&str, &str, [u64; 2])] = &[
+        // `type`, `=`, `number`, `;`
+        ("type alias", "type T = number;\n", [4, 4]),
+        // `namespace`, `{}`
+        ("namespace", "namespace N {}\n", [2, 2]),
+        // `module`, `{}`. Billing the `module` declaration node instead
+        // of its keyword leaf would score this row the same: every
+        // spelling probed (bodiless, quoted, dotted, exported, ERROR
+        // recovery) emits the two together, so only the getter's
+        // choice of the leaf, not this row, keeps them from both billing.
+        ("module", "module M {}\n", [2, 2]),
+        // `declare`, `module`, `{}`
+        ("ambient module", "declare module \"m\" {}\n", [3, 3]),
+        // `declare`, `global`, `{}`
+        ("global augmentation", "declare global {}\n", [3, 3]),
+        // `import`, `type`, `{}`, `from`, `;`
+        (
+            "type-only import",
+            "import type { A } from \"a\";\n",
+            [5, 5],
+        ),
+        // `let`, `=` twice, `;` twice, `.` — no keyword
+        (
+            "keywords as names",
+            "let type = 1;\nmodule.exports = declare;\n",
+            [4, 6],
+        ),
+    ];
+
+    /// #1557: a TypeScript type name is an operand, as C#, Rust and the
+    /// C family bill theirs. Each row's names are `type_identifier`
+    /// leaves except where noted, and before #1557 none of them billed.
+    #[cfg(feature = "typescript")]
+    const TS_TYPE_NAME_OPERAND_ROWS: &[(&str, &str, [u64; 2])] = &[
+        // `T`
+        ("alias name", "type T = number;\n", [1, 1]),
+        // `I`
+        ("interface name", "interface I {}\n", [1, 1]),
+        // `C`
+        ("class name", "class C {}\n", [1, 1]),
+        // `x` (an identifier), `Foo`
+        ("annotation", "let x: Foo;\n", [2, 2]),
+        // `m`, `Map`, `K` twice
+        ("generic", "let m: Map<K, K>;\n", [3, 4]),
+        // `f`, `a` (identifiers), `U` twice
+        ("type parameter", "function f<U>(a: U) {}\n", [3, 4]),
+        // `q`, `ns` (identifiers), `T` — the `nested_type_identifier`
+        // wrapper is unlisted, so its text is not a fourth operand
+        ("qualified type", "let q: ns.T;\n", [3, 3]),
+        // `C`, `I`
+        ("implements", "class C implements I {}\n", [2, 2]),
+    ];
+
+    #[cfg(feature = "typescript")]
+    #[test]
+    fn typescript_declaration_keywords_and_type_names_1557() {
+        assert_operator_rows::<TypescriptParser>("foo.ts", TS_DECLARATION_KEYWORD_ROWS);
+        assert_operator_rows::<TsxParser>("foo.tsx", TS_DECLARATION_KEYWORD_ROWS);
+        assert_operand_rows::<TypescriptParser>("foo.ts", TS_TYPE_NAME_OPERAND_ROWS);
+        assert_operand_rows::<TsxParser>("foo.tsx", TS_TYPE_NAME_OPERAND_ROWS);
     }
 
     #[cfg(feature = "bash")]
@@ -10754,13 +10901,13 @@ S s; int a = s[1]; auto t = co_await s;
 
         // `kenlm/lm/search_trie.cc:286`: a `typename` functional cast
         // used as a statement. Recovery inserts a MISSING `)` after
-        // `quant_` and a MISSING `;` after `order`. Operators (n1 = 8,
-        // N1 = 10): `void`, `()` 3, `{}`, `::`, `,`, `-`, `.`, the one
-        // written `;`. Operands (n2 = 7, N2 = 7): `f`, `MiddlePointer`,
-        // `quant_`, `order`, `2`, `Write`, `w`. Before #1546 the MISSING
-        // `;` was a second `;`: (8, 11, 7, 7).
+        // `quant_` and a MISSING `;` after `order`. Operators (n1 = 9,
+        // N1 = 11): `void`, `()` 3, `{}`, `::`, `,`, `-`, `.`, the one
+        // written `;`, and `typename` (#1557). Operands (n2 = 7, N2 = 7):
+        // `f`, `MiddlePointer`, `quant_`, `order`, `2`, `Write`, `w`.
+        // Before #1546 the MISSING `;` was a second `;`.
         let cast = "void f() {\n  typename Quant::MiddlePointer(quant_, order - 2).Write(w);\n}\n";
-        assert_halstead_counts::<T>(cast, "foo.cpp", [8, 10, 7, 7], label);
+        assert_halstead_counts::<T>(cast, "foo.cpp", [9, 11, 7, 7], label);
     }
 
     /// Regression for #1546 on the two C++ clones. Mozcpp owns no file

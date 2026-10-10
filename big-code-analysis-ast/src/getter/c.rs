@@ -81,11 +81,12 @@ impl Getter for CCode {
             // `operators` store) keeps them distinct in n1 while `long long`'s
             // two `long` tokens correctly fold to one n1 entry but two N1 hits.
             | Signed | Unsigned | Long | Short
-            // `struct` / `union` / `enum`, which C++ bills since #1552.
-            // They are C keywords, not C++-only forms, so leaving them
-            // out here would score a header differently by the grammar
-            // that parsed it. The derivation is on the Cpp arm.
-            | Struct | Union | Enum => TokenRole::Operator,
+            // `struct` / `union` / `enum`, which C++ bills since #1552,
+            // and `typedef` since #1557. They are C keywords, not
+            // C++-only forms, so leaving them out here would score a
+            // header differently by the grammar that parsed it. The
+            // derivation is on the Cpp arm.
+            | Struct | Union | Enum | Typedef => TokenRole::Operator,
             // `CharLiteral` joins the operand list here for the whole
             // C family — `cpp.rs`, `mozcpp.rs` and `objc.rs` carry the
             // same arm and point back at this note (#1316). Before it a

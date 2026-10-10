@@ -52,15 +52,15 @@ impl Getter for TypescriptCode {
         bound_name.map_or(Some("<anonymous>"), |name| node_text(code, &name))
     }
 
-    // TypeScript's operand extras are empty. `NestedIdentifier` and
-    // `MemberExpression4` — the TS-only member-expression productions —
-    // were listed until #1263 and are now deliberately absent, matching
-    // the `MemberExpression*` drop in the macro body: `namespace N.M`
-    // contributes the operands `N` and `M` plus the `.` operator, and
-    // `a.b` contributes `a` and `b`, never the composite text as well.
-    // The composite was billed on top of leaves the walker already
-    // reached, which is grammar-dispatch section 5's container/leaf
-    // double-count.
+    // TypeScript's only operand extra is `TypeIdentifier` (#1557,
+    // below). `NestedIdentifier` and `MemberExpression4` — the TS-only
+    // member-expression productions — were listed until #1263 and are
+    // now deliberately absent, matching the `MemberExpression*` drop in
+    // the macro body: `namespace N.M` contributes the operands `N` and
+    // `M` plus the `.` operator, and `a.b` contributes `a` and `b`,
+    // never the composite text as well. The composite was billed on top
+    // of leaves the walker already reached, which is grammar-dispatch
+    // section 5's container/leaf double-count.
     //
     // TS's anonymous `"string"` alias `String2` (kind_id 135, the
     // `: string` type keyword, emitted only as the child of a
@@ -79,10 +79,29 @@ impl Getter for TypescriptCode {
     // `Interface` / `Enum` are the TS-only type-declaration keyword
     // leaves, billed as the shared `class` is (#1552) and as C# and
     // Java bill theirs; their `*_declaration` wrappers stay unlisted.
+    //
+    // #1557 adds the rest: `type`, `namespace`, `module`, `declare` and
+    // `global`. `Module2` is the `module` keyword leaf; the unsuffixed
+    // `Module` is the `module` declaration node that wraps it, so it
+    // stays unlisted. Each word is contextual, but used as a name
+    // (`let type = 1`, `module.exports`) the grammar emits an
+    // `identifier`, never the keyword leaf, so no parent gate is
+    // needed. `type` also bills in `import type` / `export type`,
+    // where it is the same leaf.
+    //
+    // `TypeIdentifier` is the operand extra: every type *name* — a
+    // class, interface or alias name, a type parameter, an annotation
+    // (`x: Foo`), a generic (`Map<K, V>`), the tail of `ns.T` — is this
+    // one leaf kind, and it was in neither arm before #1557, so TS lost
+    // every one while C#, Rust and the C family bill theirs. No
+    // classified node wraps it (`generic_type` and
+    // `nested_type_identifier` are unlisted), so it bills once.
     impl_js_family_get_op_type!(
         Typescript,
-        op_extras: [QMARKDOT, PredefinedType, Interface, Enum],
-        operand_extras: [],
+        op_extras: [
+            QMARKDOT, PredefinedType, Interface, Enum, Type, Namespace, Module2, Declare, Global,
+        ],
+        operand_extras: [TypeIdentifier],
         predefined_void: PredefinedType,
     );
 

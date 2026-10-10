@@ -111,25 +111,6 @@ impl Getter for CppCode {
             {
                 TokenRole::Unknown
             }
-            // `class` in a template parameter list (`template <class T>`,
-            // `class U = int`, `class... Ts`) declares a type parameter,
-            // not a class: it is the exact synonym of `typename`, which
-            // is unbilled, so it stays unbilled too and the two
-            // spellings score alike. Everywhere else — a class
-            // specifier, `enum class`, a forward declaration — it bills
-            // as the declaration keyword it is (#1552).
-            Class
-                if matches!(
-                    ancestors.parent(node).map(|p| p.kind_id().into()),
-                    Some(
-                        TypeParameterDeclaration
-                            | OptionalTypeParameterDeclaration
-                            | VariadicTypeParameterDeclaration
-                    )
-                ) =>
-            {
-                TokenRole::Unknown
-            }
             DOT | DOTSTAR | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return
             | Break | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do
             | Delete | New | Try | Try2 | Catch | Throw | EQ | AMPAMP | PIPEPIPE | DASH
@@ -194,7 +175,17 @@ impl Getter for CppCode {
             // keyword once — and `enum class` bills both of its two.
             // The same leaf heads an elaborated type (`struct S s;`),
             // where it is billed too, as `int` is in `int s;`.
-            | Class | Struct | Union | Enum
+            //
+            // #1557 adds the remaining declaration keywords: `namespace`,
+            // `template`, `typename`, `typedef` and `using`, each the
+            // leaf of an unclassified wrapper (`namespace_definition`,
+            // `template_declaration`, `type_parameter_declaration`,
+            // `type_definition`, `alias_declaration` /
+            // `using_declaration`). A template-parameter `class` bills
+            // with them: it is the synonym of `typename`, so the two
+            // spellings of `template <class T>` still score alike, now
+            // both billed.
+            | Class | Struct | Union | Enum | Namespace | Template | Typename | Typedef | Using
                 => TokenRole::Operator,
             // `CharLiteral` — the full derivation lives on the same arm
             // in `src/getter/c.rs` (#1316): the wrapper is the only

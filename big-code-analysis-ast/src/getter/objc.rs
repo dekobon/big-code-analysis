@@ -95,9 +95,10 @@ impl Getter for ObjcCode {
             // keywords / markers from `In` onwards.
             //
             // From `Struct` onwards come the type-declaration keywords
-            // (#1552): C's `struct` / `union` / `enum` (see `c.rs`), and
-            // ObjC's own class and protocol declarations. Each is the
-            // leaf of a `class_interface` / `class_implementation` /
+            // (#1552): C's `struct` / `union` / `enum` and, since #1557,
+            // `typedef` (see `c.rs`), and ObjC's own class and protocol
+            // declarations. Each is the leaf of a `type_definition` /
+            // `class_interface` / `class_implementation` /
             // `protocol_declaration`, none of which is classified, so a
             // declaration bills its keyword once. `@class Fwd;` needs no
             // arm: it parses as an `@` token, already billed here, and a
@@ -111,7 +112,9 @@ impl Getter for ObjcCode {
             | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | PrimitiveType | TypeSpecifier
             | Sizeof | Signed | Unsigned | Long | Short | In | AT | ATtry | ATcatch | ATfinally
             | ATthrow | ATsynchronized | ATautoreleasepool | ATselector | ATencode | Struct
-            | Union | Enum | ATinterface | ATimplementation | ATprotocol => TokenRole::Operator,
+            | Union | Enum | Typedef | ATinterface | ATimplementation | ATprotocol => {
+                TokenRole::Operator
+            }
             // `CharLiteral` — the full derivation lives on the same arm
             // in `src/getter/c.rs` (#1316): the wrapper is the only
             // classified node in a character literal, so it bills one

@@ -715,11 +715,16 @@ tokens involved the same way they spell real operators:
   the JavaScript family, C, C++ and Objective-C followed in #1552 with
   their type-declaration keywords: `class`, `struct`, `union`, `enum`,
   `interface`, `record`, `trait`, `@interface`, `@implementation` and
-  `@protocol`. A `class` that declares no class is not billed: Java's
-  `C.class` stays one operand, and C++'s `template <class T>` scores
-  like `template <typename T>`. Kotlin's `interface` followed in #1556;
-  the `enum` of `enum class` is a modifier there, like `data` and
-  `sealed`, and Kotlin bills no modifier.
+  `@protocol`. Java's `C.class` is not billed: it stays one operand.
+  Kotlin's `interface` followed in #1556; the `enum` of `enum class` is
+  a modifier there, like `data` and `sealed`, and Kotlin bills no
+  modifier. #1557 added C++'s `namespace`, `template`, `typename`,
+  `typedef` and `using` (C and Objective-C bill `typedef` too), so
+  `template <class T>` and `template <typename T>` each bill their
+  keyword and score alike. It also added TypeScript's `type`,
+  `namespace`, `module`, `declare` and `global`, and made every
+  TypeScript type name an operand (`x: Foo`, `interface I`,
+  `Map<K, V>`), as C#, Rust and the C family already did.
 - **An alternative spelling is an operator of its own.** C++ spells
   `&&` equally as `and`, `!=` as `not_eq` and so on through all eleven
   [alternative tokens](https://en.cppreference.com/w/cpp/language/operator_alternative).

@@ -90,21 +90,6 @@ impl Getter for MozcppCode {
             {
                 TokenRole::Unknown
             }
-            // `class` in a template parameter list is `typename`'s
-            // synonym and stays unbilled — the derivation is on the Cpp
-            // twin (#1552).
-            Class
-                if matches!(
-                    ancestors.parent(node).map(|p| p.kind_id().into()),
-                    Some(
-                        TypeParameterDeclaration
-                            | OptionalTypeParameterDeclaration
-                            | VariadicTypeParameterDeclaration
-                    )
-                ) =>
-            {
-                TokenRole::Unknown
-            }
             DOT | DOTSTAR | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return
             | Break | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do
             | Delete | New | Try | Try2 | Catch | Throw | EQ | AMPAMP | PIPEPIPE | DASH
@@ -134,8 +119,8 @@ impl Getter for MozcppCode {
             // derivation is on the Cpp twin (#1547).
             | CoReturn | CoYield
             // The type-declaration keywords — the derivation is on the
-            // Cpp twin (#1552).
-            | Class | Struct | Union | Enum
+            // Cpp twin (#1552, #1557).
+            | Class | Struct | Union | Enum | Namespace | Template | Typename | Typedef | Using
                 => TokenRole::Operator,
             // `CharLiteral` — the full derivation lives on the same arm
             // in `src/getter/c.rs` (#1316): the wrapper is the only
