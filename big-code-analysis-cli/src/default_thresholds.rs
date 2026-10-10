@@ -15,6 +15,9 @@
 //! and checked against a measured corpus: 43 real-world repositories
 //! across 20 languages (tests, vendored trees, and generated code
 //! excluded), 254k function spaces, 40k container spaces, 27k files.
+//! `halstead.effort` alone was re-measured after the #1486-#1573
+//! vocabulary changes, on a rebuilt 41-repository corpus recorded in
+//! `docs/development/threshold_corpus.md` (#1569).
 //! The design rule is that a default should flag genuine outliers —
 //! roughly 1-3% of in-scope spaces in the median language — because a
 //! gate that fires on a tenth of a codebase is a style rule, not a
@@ -102,9 +105,10 @@ pub(crate) const DEFAULT_THRESHOLDS: &[DefaultThreshold] = &[
         limit: 50_000,
         rationale: &[
             "No published threshold exists for effort, so this one is purely",
-            "percentile-derived. It is also the most language-dependent limit",
-            "in the table — median-language p90 effort ranges from 2k (Java)",
-            "to 56k (C) — so it is the first one worth overriding per language.",
+            "percentile-derived: it fires on ~2% of functions in the median",
+            "language. It is also the most language-dependent limit in the",
+            "table — per-language p90 effort ranges from 3k (Ruby) to 60k",
+            "(C) — so it is the first one worth overriding per language.",
         ],
     },
     DefaultThreshold {

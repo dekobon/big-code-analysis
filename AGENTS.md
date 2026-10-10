@@ -681,7 +681,9 @@ stranded `.snap.new` drift that blocks CI on every subsequent change.
 The limits `bca init` scaffolds are defined once, in
 `big-code-analysis-cli/src/default_thresholds.rs`. They are derived
 from published thresholds plus a 20-language corpus measurement (#1140),
-and each carries its rationale inline. Change them there, not in a
+and each carries its rationale inline. `halstead.effort` was re-measured
+in #1569 on a rebuilt corpus recorded in
+[`docs/development/threshold_corpus.md`](docs/development/threshold_corpus.md). Change them there, not in a
 copy: the scaffolded `bca.toml` renders its `[thresholds]` block from
 that table, so there is no second copy of the numbers to drift.
 

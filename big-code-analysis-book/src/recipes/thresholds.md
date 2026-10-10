@@ -93,30 +93,44 @@ tighten, not evidence that you should.
 
 | Language | `cognitive` | `cyclomatic` | `abc` | `halstead.effort` | `loc.ploc` |
 | --- | --- | --- | --- | --- | --- |
-| Bash | 35 | 25 | 60 | 95000 | (thin sample) |
-| C | 50 | 30 | 60 | 200000 | 3500 |
+| Bash | 35 | 25 | 60 | 44000 | (thin sample) |
+| C | 50 | 30 | 60 | 180000 | 3500 |
 | C++ | 14 | 10 | 25 | 50000 | (thin sample) |
-| C# | 4 | 4 | 13 | 9500 | 700 |
+| C# | 4 | 4 | 13 | 44000 | 700 |
 | Elixir | 5 | 7 | 20 | 15000 | 1500 |
-| Go | 25 | 17 | 45 | 120000 | 1500 |
-| Groovy | 16 | 13 | 25 | 30000 | 450 |
-| Java | 7 | 5 | 16 | 15000 | 800 |
-| JavaScript | 20 | 15 | 35 | 55000 | (thin sample) |
-| Kotlin | 10 | 8 | 20 | 20000 | 300 |
-| Lua | 35 | 20 | 40 | 85000 | 800 |
-| Objective-C | 18 | 12 | 35 | 60000 | (thin sample) |
-| Perl | 35 | 25 | 45 | 140000 | 1500 |
-| PHP | 10 | 9 | 25 | 50000 | 900 |
-| Python | 20 | 13 | 25 | 25000 | 700 |
-| Ruby | 7 | 6 | 19 | 10000 | 400 |
-| Rust | 8 | 8 | 20 | 35000 | 900 |
-| Tcl | 45 | 25 | 85 | 90000 | (thin sample) |
-| TypeScript | 20 | 13 | 25 | 55000 | 450 |
-| TSX | 14 | 10 | 65 | 95000 | 400 |
+| Go | 25 | 17 | 45 | 89000 | 1500 |
+| Groovy | 16 | 13 | 25 | 25000 | 450 |
+| Java | 7 | 5 | 16 | 20000 | 800 |
+| JavaScript | 20 | 15 | 35 | 170000 | (thin sample) |
+| Kotlin | 10 | 8 | 20 | 18000 | 300 |
+| Lua | 35 | 20 | 40 | 82000 | 800 |
+| Objective-C | 18 | 12 | 35 | 73000 | (thin sample) |
+| Perl | 35 | 25 | 45 | 41000 | 1500 |
+| PHP | 10 | 9 | 25 | 26000 | 900 |
+| Python | 20 | 13 | 25 | 42000 | 700 |
+| Ruby | 7 | 6 | 19 | 5000 | 400 |
+| Rust | 8 | 8 | 20 | 34000 | 900 |
+| Tcl | 45 | 25 | 85 | 46000 | (thin sample) |
+| TypeScript | 20 | 13 | 25 | 60000 | 450 |
+| TSX | 14 | 10 | 65 | 130000 | 400 |
 
 "Thin sample" marks a language whose file count in the corpus is too small to derive a file-size
 figure from. The per-function figures for Bash, Tcl, JavaScript, and Objective-C rest on the
 smallest samples in the table and are the ones most worth re-deriving against your own code.
+
+The `halstead.effort` column comes from a different measurement than the rest of the table. It was
+re-measured on 2026-10-10, after the Halstead vocabulary changes in
+[#1486](https://github.com/dekobon/big-code-analysis/issues/1486) through
+[#1573](https://github.com/dekobon/big-code-analysis/issues/1573), on a rebuilt corpus of 41
+repositories that is comparable to the original but not identical to it. The repository list and
+commits are recorded in
+[`docs/development/threshold_corpus.md`](https://github.com/dekobon/big-code-analysis/blob/main/docs/development/threshold_corpus.md).
+Several rows moved by a factor of two to five, and almost all of that movement came from the change
+of repositories, not from the metric: the same 41 repositories measured with the pre-change release
+differ by at most half (Python) and mostly not at all. Treat any single row as a property of the
+repositories that represent the language, which is one more reason to re-derive against your own.
+In this column the thinnest samples are Objective-C, Perl, Bash, and C++, each under 2,500
+functions.
 
 ### What to change, and why {#per-language-changes}
 
@@ -126,7 +140,8 @@ Most languages need no override. The cases that do fall into three groups.
 to three times the defaults. These languages lack exceptions or discourage them, so error handling
 is inline branching, and they favour long `switch`-style dispatch over polymorphism. The default
 `cognitive` limit flags 5% to 15% of their functions, against 3% in the median language. Raise
-`cognitive` and `halstead.effort` first; those two carry most of the excess.
+`cognitive` first. `halstead.effort` carries the rest of the excess for C, Go, and Lua; Tcl, Bash,
+and Perl measure close to the default on it.
 
 In a single-language repository this is the whole `[thresholds]` table; in a mixed one it belongs
 under the language it describes, or it drags every other language up with it.
@@ -160,7 +175,8 @@ wmc = 40
 ```
 
 **Compact, heavily-abstracted languages.** Java, Ruby, Kotlin, C#, and Elixir sit far under the
-defaults on every per-function metric. Their 97.5th percentile `cyclomatic` is 4 to 8. Gating them
+defaults on every per-function metric except C#'s `halstead.effort`. Their 97.5th percentile
+`cyclomatic` is 4 to 8. Gating them
 at 15 means the gate will effectively never fire, so tighten if you want it to do work.
 
 Read the C# row with care. Its distribution is dominated by property accessors, which `bca` counts
