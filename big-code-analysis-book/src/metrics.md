@@ -745,7 +745,12 @@ tokens involved the same way they spell real operators:
   `accessor` and `static`, each the keyword and never its
   `accessibility_modifier` or `override_modifier` wrapper. JavaScript
   bills `static` too. The same words used as names (`let readonly = 1`,
-  `obj.static`) stay operands.
+  `obj.static`) stay operands. #1564 made Kotlin's `typealias`, `init`,
+  `where`, `by`, `get` and `set` operators, as C# bills its `get`,
+  `set`, `init` and `where`. The `@get:` and `@set:` annotation targets
+  bill nothing, like `@field:`. The backing `field` in an accessor is an
+  operand, and the words used as names (`val by = 1`, `x.get(i)`) stay
+  operands.
 - **A generic list's angle brackets are one bracket pair.** The `<`
   and `>` around type arguments and type parameters count as one `<>`
   operator, billed at the `<` as `()` is at the `(`, and the `>` counts

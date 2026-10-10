@@ -340,6 +340,31 @@ impl Getter for KotlinCode {
             };
         }
 
+        // The accessor keywords, billed as C# bills its `get` / `set`
+        // (#1564), but only directly under their `getter` / `setter`,
+        // which stay unlisted. The same leaves are the `@get:` / `@set:`
+        // use-site targets, which bill nothing, like `@field:` and
+        // `@property:`; and where kotlin-ng misreads a call `get(1)` after
+        // a local `val f = 6`, an `ERROR` holds the leaf. Used as a name
+        // otherwise (`val get = 1`, `x.set(v)`, `fun get()`) the word
+        // parses as an identifier. The grammar also reads a local
+        // `val f = 6` followed by `set = 2` as a setter, which bills
+        // `set`. `field` in an accessor body is an identifier, so it is an
+        // operand like any other variable. An early return for the same
+        // reason as the modifiers'.
+        let accessor = match kind {
+            Get => Some(Kotlin::Getter),
+            Set => Some(Setter),
+            _ => None,
+        };
+        if let Some(accessor) = accessor {
+            return if ancestors.parent_has_kind(node, accessor as u16) {
+                TokenRole::Operator
+            } else {
+                TokenRole::Unknown
+            };
+        }
+
         match kind {
             // Operator: control flow keywords
             If | Else | When | For | While | Do | Try | Catch | Finally | Throw | Return
@@ -348,8 +373,15 @@ impl Getter for KotlinCode {
             // keyword leaf beside `class` and `object` (#1556); its
             // `class_declaration` wrapper stays unlisted. `companion` is
             // the one modifier billed here; see the early return above.
+            // `typealias`, `init`, `where` and `by` bill as C# bills
+            // `where` and TypeScript `type` (#1564), each the leaf of its
+            // `type_alias` / `anonymous_initializer` / `type_constraints`
+            // / `property_delegate` or `explicit_delegation` wrapper.
+            // `typealias` is a hard keyword; the other three, used as
+            // names (`val by = 1`, `where(x)`, `init.f()`), parse as
+            // identifiers, so the leaf exists only in its construct.
             | Class | Interface | Fun | Object | Val | Var | In | Is | As | AsQMARK | BANGis
-            | BANGin | Constructor | Companion
+            | BANGin | Constructor | Companion | Typealias | Init | Where | By
             // Operator: brackets, separators, terminators
             | SEMI | COMMA | COLONCOLON | DOT | LBRACE | LBRACK | LPAREN
             // Operator: assignment and arithmetic

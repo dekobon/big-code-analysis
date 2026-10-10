@@ -6588,6 +6588,104 @@ end",
         );
     }
 
+    /// #1564: `typealias`, `init`, `where`, `by`, `get` and `set` bill
+    /// as Kotlin's other declaration keywords do, and as C# bills its
+    /// `get` / `set` / `init` / `where`. Each is the keyword leaf, never
+    /// its wrapper. The rows after "accessors" are controls: the
+    /// `@get:` / `@set:` use-site targets and the words used as names
+    /// add no operator.
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn kotlin_declaration_keywords_are_operators_1564() {
+        const ROWS: &[(&str, &str, [u64; 2])] = &[
+            // `typealias`, `=`
+            ("typealias", "typealias A = Int\n", [2, 2]),
+            // `class`, `init`, `{}` x2
+            ("init", "class C {\n    init {}\n}\n", [3, 4]),
+            // `class`, `<>`, `where`, `:`
+            ("class where", "class C<T> where T : Any\n", [4, 4]),
+            // `fun`, `<>`, `()`, `where`, `:`, `{}`
+            ("function where", "fun <T> f() where T : Any {}\n", [6, 6]),
+            // `val`, `by`, `{}`
+            ("property delegate", "val d by lazy { 1 }\n", [3, 3]),
+            // `class`, `()`, `:` x2, `by`
+            ("class delegation", "class D(d: I) : I by d\n", [4, 5]),
+            // `var`, `:`, `=` x3, `get`, `()` x2, `set`, `{}`
+            (
+                "accessors",
+                "var p: Int = 0\n    get() = field\n    set(v) { field = v }\n",
+                [7, 10],
+            ),
+            // `var`, `=`, `:` x2: the use-site targets bill nothing, as
+            // `@field:` does
+            ("use-site targets", "@get:A @set:B var q = 0\n", [3, 4]),
+            // `val`, `=`
+            (
+                "names",
+                "val get = 1\nval set = 2\nval by = 3\nval where = 4\nval init = 5\n",
+                [2, 10],
+            ),
+            // `fun`, `()` x4, `:`, `{}`, `.` x2
+            (
+                "calls",
+                "fun g(x: X) {\n    x.get(by)\n    x.set(where)\n    init(x)\n}\n",
+                [5, 9],
+            ),
+            // `fun`, `()` x2, `{}`, `val`, `=`: valid Kotlin that kotlin-ng
+            // misreads, leaving the call's `get` leaf in an `ERROR`
+            (
+                "call after a local val",
+                "fun g() {\n    val f = 6\n    get(1)\n}\n",
+                [5, 6],
+            ),
+        ];
+        assert_operator_rows::<KotlinParser>("foo.kt", ROWS);
+    }
+
+    /// #1564: the six words are listed by their own spelling, and the
+    /// accessor body's `field` stays an operand like any variable.
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn kotlin_declaration_keyword_vocabulary_1564() {
+        let ops = ops_of::<KotlinParser>(
+            "typealias A = Int\nclass C<T> where T : Any {\n    init {}\n    \
+             val d by lazy { 1 }\n    var p: Int = 0\n        get() = field\n        \
+             set(v) { field = v }\n}\n",
+            "foo.kt",
+        );
+        for word in ["typealias", "init", "where", "by", "get", "set"] {
+            assert!(
+                ops.operators.iter().any(|op| op == word),
+                "{word}: {:?}",
+                ops.operators
+            );
+        }
+        assert!(
+            ops.operands.iter().any(|op| op == "field"),
+            "{:?}",
+            ops.operands
+        );
+
+        // The words used as names are operands, not merely non-operators:
+        // the operator rows above cannot see a name that bills nothing.
+        let names = ops_of::<KotlinParser>(
+            "fun get(x: X) {\n    val set = 1\n    val by = 2\n    x.init(where(set, by))\n}\n",
+            "foo.kt",
+        );
+        for word in ["init", "where", "by", "get", "set"] {
+            assert!(
+                names.operands.iter().any(|op| op == word),
+                "{word}: {:?}",
+                names.operands
+            );
+            assert!(
+                !names.operators.iter().any(|op| op == word),
+                "{word}: {:?}",
+                names.operators
+            );
+        }
+    }
+
     /// #1557 rows shared by the two C++ clones: the declaration keywords
     /// #1552 left out, one per row, plus the two disambiguator positions
     /// (`typename T::x`, `x.template f`) that bill the same leaf.
