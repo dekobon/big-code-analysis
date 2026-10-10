@@ -487,6 +487,42 @@ pub fn cpp_and_chain(depth: usize) -> String {
     format!("bool f(bool a){{ return {}a; }}\n", "a && ".repeat(depth))
 }
 
+/// Perl: `sub f { return g(-foo => 1, -foo => 1, …); }` — one call
+/// whose argument list holds `width` dash-prefixed keys.
+///
+/// The width shape for the #1545 dash-key workaround. tree-sitter-perl
+/// reads each `-foo` as a file test, and the workaround asks whether a
+/// `=>` follows it. Its first form found that `=>` by scanning the list
+/// from its start, `O(width)` per key and so `O(width²)` per list: 7.5 s
+/// for 4 000 keys in a release build.
+#[must_use]
+pub fn perl_dash_keys(width: usize) -> String {
+    format!(
+        "sub f {{ return g({}); }}\n",
+        vec!["-foo => 1"; width].join(", ")
+    )
+}
+
+/// Kotlin: `inline fun f(noinline p0: () -> Unit, …) {}` — one function
+/// with `width` modified parameters.
+///
+/// The width shape for #1558's recovery guard, which asks of every
+/// parameter modifier whether the next token is an inserted name. Its
+/// first form found that token by scanning the parameter list from its
+/// start, quadratic in the parameter count.
+#[must_use]
+pub fn kotlin_noinline_params(width: usize) -> String {
+    let mut source = String::from("inline fun f(");
+    for i in 0..width {
+        if i > 0 {
+            source.push_str(", ");
+        }
+        let _ = write!(source, "noinline p{i:06}: () -> Unit");
+    }
+    source.push_str(") {}\n");
+    source
+}
+
 /// C++: `int f(int a){ return a + a + … + a; }`.
 ///
 /// The shape control for [`cpp_and_chain`]: the same left-nested
@@ -1286,6 +1322,49 @@ pub const PROBES: &[Probe] = &[
                     The reading is the `let` initializer count, which \
                     grows with the width, so a walk that stopped \
                     counting them is visible in the value column too.",
+    },
+    Probe {
+        name: "halstead/perl-dash-keys",
+        lang: LANG::Perl,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Halstead],
+            reading: |m| m.halstead.total_operands(),
+        },
+        render: perl_dash_keys,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1545's dash-key workaround asks of every `-foo` \
+                    whether a `=>` follows it. Finding that `=>` by \
+                    scanning the argument list from its start made the \
+                    walk quadratic in the key count: 1.85 s at 2 000 \
+                    keys and 7.45 s at 4 000 in a release build, against \
+                    0.02 s and 0.03 s once the sibling is found by index. \
+                    ABC asks through the same helper. The reading is the \
+                    operand count, which grows with the width.",
+    },
+    Probe {
+        name: "halstead/kotlin-noinline-params",
+        lang: LANG::Kotlin,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Halstead],
+            reading: |m| m.halstead.total_operators(),
+        },
+        render: kotlin_noinline_params,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1558's recovery guard asks of every parameter \
+                    modifier whether the next token is an inserted name, \
+                    climbing to the parameter list. Scanning that list \
+                    from its start made the walk quadratic in the \
+                    parameter count: 0.73 s at 4 000 parameters and \
+                    2.81 s at 8 000 in a release build, against 0.03 s \
+                    and 0.05 s once the sibling is found by index. The \
+                    reading is the operator count, which grows with the \
+                    width.",
     },
     Probe {
         name: "halstead/wide-distinct-fn",

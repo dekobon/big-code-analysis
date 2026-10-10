@@ -70,15 +70,13 @@ pub fn perl_is_and_key_misparse(expr: &Node) -> bool {
 /// positions. Remove this, and every call site, once the pin carries the
 /// upstream fix.
 #[must_use]
-pub fn perl_not_is_key(not: &Node, parent: &Node) -> bool {
+pub fn perl_not_is_key<'a>(not: &Node<'a>, parent: &Node<'a>) -> bool {
     parent.is_error()
         || parent
-            .children()
+            .children_after(not)
             // The parser marks the `ERROR` it wraps a skipped `=>` in
             // as an extra, so only comments are passed over here.
-            .filter(|child| child.is_error() || !child.as_tree_sitter().is_extra())
-            .skip_while(|child| child.id() != not.id())
-            .nth(1)
+            .find(|child| child.is_error() || !child.as_tree_sitter().is_extra())
             .is_some_and(|next| {
                 (next.is_error() && next.is_child(Perl::FatComma as u16))
                     || next.start_byte() == next.end_byte()
@@ -149,7 +147,7 @@ pub fn perl_is_dash_key_word<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) 
 /// whether the keyword is a key, and a key's sign is part of the string
 /// whether or not a space separates the two.
 #[must_use]
-pub fn perl_dash_signs_keyword_key(dash: &Node, parent: &Node) -> bool {
+pub fn perl_dash_signs_keyword_key<'a>(dash: &Node<'a>, parent: &Node<'a>) -> bool {
     // A sign is a prefix `-`, whose parent is the subscript's `ERROR` or
     // a `unary_expression`. An infix `-` is a real subtraction even
     // before an auto-quoted key (`(1 - and => 2)` subtracts the string),
@@ -175,20 +173,17 @@ pub fn perl_dash_signs_keyword_key(dash: &Node, parent: &Node) -> bool {
 #[must_use]
 pub fn perl_key_is_signed<'a>(key: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     let mut up = ancestors.iter(key).map(|(ancestor, _)| ancestor);
-    let Some(parent) = up.next() else {
-        return false;
-    };
-    let beside = parent
-        .children()
-        .filter(|sibling| !sibling.as_tree_sitter().is_extra())
-        .take_while(|sibling| sibling.id() != key.id())
-        .last();
-    if let Some(dash) = beside.filter(|node| node.kind_id() == Perl::DASH as u16) {
-        return perl_dash_signs_keyword_key(&dash, &parent);
-    }
-    up.next().is_some_and(|outer| {
-        outer.child_by_field_name("operator").is_some_and(|dash| {
-            dash.kind_id() == Perl::DASH as u16 && perl_dash_signs_keyword_key(&dash, &outer)
+    up.next().is_some_and(|parent| {
+        let beside = parent
+            .children_before(key)
+            .find(|sibling| !sibling.as_tree_sitter().is_extra());
+        if let Some(dash) = beside.filter(|node| node.kind_id() == Perl::DASH as u16) {
+            return perl_dash_signs_keyword_key(&dash, &parent);
+        }
+        up.next().is_some_and(|outer| {
+            outer.child_by_field_name("operator").is_some_and(|dash| {
+                dash.kind_id() == Perl::DASH as u16 && perl_dash_signs_keyword_key(&dash, &outer)
+            })
         })
     })
 }
@@ -241,13 +236,13 @@ fn non_extra_count(node: &Node) -> usize {
         .count()
 }
 
-// The sibling after `child` in `parent`, comments aside.
-fn next_non_extra<'a>(parent: &Node<'a>, child: &Node) -> Option<Node<'a>> {
+// The sibling after `child` in `parent`, comments aside. Every key of
+// a wide `(-a => 1, -b => 2, …)` list asks, so it is found without a
+// scan from the list's start (#1545).
+fn next_non_extra<'a>(parent: &Node<'a>, child: &Node<'a>) -> Option<Node<'a>> {
     parent
-        .children()
-        .filter(|sibling| !sibling.as_tree_sitter().is_extra())
-        .skip_while(|sibling| sibling.id() != child.id())
-        .nth(1)
+        .children_after(child)
+        .find(|sibling| !sibling.as_tree_sitter().is_extra())
 }
 
 fn first_non_extra<'a>(node: &Node<'a>) -> Option<Node<'a>> {

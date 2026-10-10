@@ -245,9 +245,12 @@ fn perl_count_slot(slot: Option<Node>, conditions: &mut f64) {
 // a chaining operator, so a block, list or file the climb stops at is
 // not scanned child by child. Without them every spine node climbed to
 // the top and every chain scanned its statement list, both quadratic.
+// The `ERROR` is the one wide parent left, holding every chain of an
+// unclosed list, so the operator before `child` is found by index rather
+// than by a scan from the `ERROR`'s start.
 fn perl_misparse_absorbs_leading_operand<'a>(
     node: &Node<'a>,
-    ancestors: impl Iterator<Item = Node<'a>>,
+    mut ancestors: impl Iterator<Item = Node<'a>>,
 ) -> bool {
     use Perl as P;
 
@@ -257,38 +260,36 @@ fn perl_misparse_absorbs_leading_operand<'a>(
         return false;
     }
     let mut child = *node;
-    for parent in ancestors {
-        if perl_leading_slot(&parent).is_some_and(|lead| lead.id() == child.id()) {
-            child = parent;
-            continue;
+    let spine_parent = ancestors.find(|parent| {
+        let on_spine = perl_leading_slot(parent).is_some_and(|lead| lead.id() == child.id());
+        if on_spine {
+            child = *parent;
         }
-        if parent.kind_id() != P::BinaryExpression as u16 && !parent.is_error() {
-            return false;
-        }
-        return parent
-            .children()
-            .take_while(|sibling| sibling.id() != child.id())
-            .filter(|sibling| !sibling.as_tree_sitter().is_extra())
-            .last()
-            .is_some_and(|operator| {
-                matches!(
-                    operator.kind_id().into(),
-                    P::LT
-                        | P::GT
-                        | P::LTEQ
-                        | P::GTEQ
-                        | P::Lt
-                        | P::Gt
-                        | P::Le
-                        | P::Ge
-                        | P::EQEQ
-                        | P::BANGEQ
-                        | P::Eq
-                        | P::Ne
-                )
-            });
-    }
-    false
+        !on_spine
+    });
+    spine_parent.is_some_and(|parent| {
+        (parent.kind_id() == P::BinaryExpression as u16 || parent.is_error())
+            && parent
+                .children_before(&child)
+                .find(|sibling| !sibling.as_tree_sitter().is_extra())
+                .is_some_and(|operator| {
+                    matches!(
+                        operator.kind_id().into(),
+                        P::LT
+                            | P::GT
+                            | P::LTEQ
+                            | P::GTEQ
+                            | P::Lt
+                            | P::Gt
+                            | P::Le
+                            | P::Ge
+                            | P::EQEQ
+                            | P::BANGEQ
+                            | P::Eq
+                            | P::Ne
+                    )
+                })
+    })
 }
 
 // The leading boolean slot of a spine node — a ternary's condition or a

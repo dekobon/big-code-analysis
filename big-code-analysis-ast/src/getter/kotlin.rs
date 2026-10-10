@@ -148,14 +148,14 @@ fn kotlin_modifier_was_written_as_one<'a>(node: &Node<'a>, ancestors: Ancestors<
 
 // Whether the first token after `node` is zero-width: one error recovery
 // inserted where the source has none.
+//
+// Every parameter's modifier asks, and the climb reaches
+// `function_value_parameters`, so the sibling is found without a scan
+// from the list's start: that made a long parameter list quadratic.
 fn kotlin_next_token_is_inserted<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     let mut current = *node;
     for (parent, _) in ancestors.iter(node) {
-        if let Some(mut next) = parent
-            .children()
-            .skip_while(|child| child.id() != current.id())
-            .nth(1)
-        {
+        if let Some(mut next) = parent.children_after(&current).next() {
             while let Some(first) = next.child(0) {
                 next = first;
             }

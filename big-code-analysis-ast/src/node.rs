@@ -506,6 +506,57 @@ impl<'a> Node<'a> {
         ChildrenWith { cursor, scan }
     }
 
+    /// The children after `child`, nearest first: what
+    /// `children().skip_while(|c| c.id() != child.id()).skip(1)` yields,
+    /// and nothing when `child` is not one of this node's children.
+    ///
+    /// That scan costs `child`'s index, so a walk that asks it of every
+    /// child of a wide list is quadratic in the list (#1545). This finds
+    /// `child` in `O(log n)` instead; see [`Node::children_before`].
+    pub fn children_after(&self, child: &Node<'a>) -> impl Iterator<Item = Node<'a>> + use<'a> {
+        let mut cursor = self.cursor();
+        let mut more =
+            self.seat_on_child(child, &mut cursor).is_some() && cursor.goto_next_sibling();
+        std::iter::from_fn(move || {
+            let next = more.then(|| cursor.node())?;
+            more = cursor.goto_next_sibling();
+            Some(next)
+        })
+    }
+
+    /// The children before `child`, nearest first, and nothing when
+    /// `child` is not one of this node's children.
+    ///
+    /// `child`'s index comes from [`Cursor::goto_first_child_for_byte`]
+    /// and each sibling from [`Node::child`], both `O(log n)` in the
+    /// child count, for the reason the first gives: a `repeat()` list is
+    /// stored as a balanced tree of hidden nodes.
+    pub fn children_before(&self, child: &Node<'a>) -> impl Iterator<Item = Node<'a>> + use<'a> {
+        let node = *self;
+        let index = self.seat_on_child(child, &mut self.cursor()).unwrap_or(0);
+        (0..index).rev().filter_map(move |i| node.child(i))
+    }
+
+    // Seats `cursor`, which sits on this node, on `child` and returns its
+    // index, or `None` when `child` is not one of this node's children.
+    fn seat_on_child(&self, child: &Node<'a>, cursor: &mut Cursor<'a>) -> Option<usize> {
+        if let Some(index) = cursor.goto_first_child_for_byte(child.start_byte())
+            && cursor.node().id() == child.id()
+        {
+            return Some(index);
+        }
+        // The lookup passes over a zero-width child, which ends at the
+        // byte it starts at; only error recovery inserts one.
+        cursor.reset(self);
+        let mut index = 0;
+        let mut found = cursor.goto_first_child();
+        while found && cursor.node().id() != child.id() {
+            found = cursor.goto_next_sibling();
+            index += 1;
+        }
+        found.then_some(index)
+    }
+
     /// A fresh cursor positioned on this node, for the traversals that
     /// reuse one cursor across many child scans
     /// ([`children_with`](Self::children_with)).
@@ -1760,6 +1811,69 @@ mod tests {
         // over nothing but one-child wrappers.
         assert!(leaves > 0, "fixture must contain childless nodes");
         assert!(widest > 2, "fixture must contain a multi-child node");
+    }
+
+    /// `children_after` and `children_before` must yield, for every child
+    /// of every node, the raw `child(i)` walk on either side of it — and
+    /// nothing for a node that is not a child.
+    ///
+    /// The Kotlin fixture's recovery inserts a zero-width parameter name
+    /// (`vararg: Int`), which `goto_first_child_for_byte` passes over, so
+    /// it is the only input that reaches the scan fallback in
+    /// `seat_on_child`; the count of such children pins that it does.
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn children_after_and_before_match_the_child_walk() {
+        let code = b"fun f(vararg: Int, /* c */ b: Int) { g(1, 2, 3) }";
+        let tree = Tree::new::<crate::langs::KotlinCode>(code);
+        let root = tree.get_root();
+
+        // Each row is (parent kind, child index, after ids, before ids), and
+        // a non-child row is (kind, after count, before count) against the
+        // root, so a failing diff names the node without a message argument.
+        let mut zero_width = 0;
+        let (mut observed, mut expected) = (Vec::new(), Vec::new());
+        let (mut stray_observed, mut stray_expected) = (Vec::new(), Vec::new());
+        for node in root.preorder() {
+            let raw = node.as_tree_sitter();
+            let ids: Vec<_> = (0..raw.child_count() as u32)
+                .filter_map(|i| raw.child(i))
+                .map(|c| c.id())
+                .collect();
+            for (index, child) in node.children().enumerate() {
+                zero_width += usize::from(child.start_byte() == child.end_byte());
+                observed.push((
+                    node.kind(),
+                    index,
+                    node.children_after(&child)
+                        .map(|c| c.id())
+                        .collect::<Vec<_>>(),
+                    node.children_before(&child)
+                        .map(|c| c.id())
+                        .collect::<Vec<_>>(),
+                ));
+                expected.push((
+                    node.kind(),
+                    index,
+                    ids[index + 1..].to_vec(),
+                    ids[..index].iter().rev().copied().collect(),
+                ));
+            }
+            if node.id() != root.id() {
+                stray_observed.push((
+                    node.kind(),
+                    root.children_after(&node).count(),
+                    root.children_before(&node).count(),
+                ));
+                stray_expected.push((node.kind(), 0, 0));
+            }
+        }
+        assert_eq!(observed, expected);
+        assert_eq!(stray_observed, stray_expected);
+        assert!(
+            zero_width > 0,
+            "fixture must hold an inserted zero-width child"
+        );
     }
 
     /// The `O(1)` guard [`Ancestors::checked`] keeps on by default must
