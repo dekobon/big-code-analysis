@@ -246,12 +246,6 @@ metric = "halstead.effort"
 value = 51477.285144213616
 
 [[entry]]
-path = "big-code-analysis-ast/src/getter/java.rs"
-qualified = "JavaCode::get_op_type"
-metric = "halstead.effort"
-value = 50584.467250345944
-
-[[entry]]
 path = "big-code-analysis-ast/src/getter/perl.rs"
 qualified = "PerlCode::get_op_type"
 metric = "halstead.effort"
@@ -1071,7 +1065,7 @@ value = 6.0
 path = "src/ops.rs"
 qualified = "ops_inner"
 metric = "halstead.effort"
-value = 70903.25755192844
+value = 84452.11438842113
 
 [[entry]]
 path = "src/output/checkstyle.rs"
@@ -1197,7 +1191,7 @@ value = 7.0
 path = "src/spaces/compute.rs"
 qualified = "metrics_inner"
 metric = "halstead.effort"
-value = 121169.85621346734
+value = 141885.98828207294
 
 [[entry]]
 path = "src/spaces/compute.rs"

@@ -196,9 +196,9 @@ pub fn perl_bareword_is_key<'a>(word: &Node<'a>, ancestors: Ancestors<'a, '_>) -
 #[must_use]
 pub(crate) fn perl_dash_signs_key<'a>(dash: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     ancestors.iter(dash).next().is_some_and(|(parent, above)| {
-        perl_dash_signs_keyword_key(dash, &parent)
+        perl_dash_signs_keyword_key(dash, ancestors)
             || (parent.kind_id() == Perl::UnaryExpression as u16
-                && next_non_extra(&parent, dash).is_some_and(|word| is_plain_bareword(&word))
+                && next_non_extra(dash, ancestors).is_some_and(|word| is_plain_bareword(&word))
                 && is_key_position(&parent, above))
     })
 }
@@ -225,25 +225,28 @@ pub(crate) fn perl_bareword_key_sign<'a>(
     perl_dash_signs_key(&dash, word_ancestors).then_some(dash)
 }
 
-/// Whether `dash`, a Perl `-` token whose parent is `parent`, is the
-/// sign of an auto-quoted `-and` or `-not` key (`$h{-not}`,
-/// `(-and => 1)`), which the grammar splits into the `-` and the keyword
-/// token. [`perl_and_is_operator`] and [`perl_not_is_key`] decide
-/// whether the keyword is a key, and a key's sign is part of the string
-/// whether or not a space separates the two.
+/// Whether `dash`, a Perl `-` token whose ancestor chain is
+/// `ancestors`, is the sign of an auto-quoted `-and` or `-not` key
+/// (`$h{-not}`, `(-and => 1)`), which the grammar splits into the `-`
+/// and the keyword token. [`perl_and_is_operator`] and
+/// [`perl_not_is_key`] decide whether the keyword is a key, and a key's
+/// sign is part of the string whether or not a space separates the two.
 #[must_use]
-pub fn perl_dash_signs_keyword_key<'a>(dash: &Node<'a>, parent: &Node<'a>) -> bool {
+pub fn perl_dash_signs_keyword_key<'a>(dash: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     // A sign is a prefix `-`, whose parent is the subscript's `ERROR` or
     // a `unary_expression`. An infix `-` is a real subtraction even
     // before an auto-quoted key (`(1 - and => 2)` subtracts the string),
     // and is by far the commonest `-`, so it is answered first.
-    if parent.kind_id() == Perl::BinaryExpression as u16 {
+    let Some(parent) = ancestors
+        .parent(dash)
+        .filter(|parent| parent.kind_id() != Perl::BinaryExpression as u16)
+    else {
         return false;
-    }
+    };
     // `$h{-not}` keeps the keyword beside the `-`; `(-not => 1)` nests
     // it as the first child of the `-`'s operand.
-    next_non_extra(parent, dash).is_some_and(|next| {
-        keyword_is_key(&next, parent)
+    next_non_extra(dash, ancestors).is_some_and(|next| {
+        keyword_is_key(&next, &parent)
             || first_non_extra(&next).is_some_and(|keyword| keyword_is_key(&keyword, &next))
     })
 }
@@ -257,17 +260,20 @@ pub fn perl_dash_signs_keyword_key<'a>(dash: &Node<'a>, parent: &Node<'a>) -> bo
 /// sign and its key.
 #[must_use]
 pub fn perl_key_is_signed<'a>(key: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-    let mut up = ancestors.iter(key).map(|(ancestor, _)| ancestor);
-    up.next().is_some_and(|parent| {
-        let beside = parent
-            .children_before(key)
+    let mut up = ancestors.iter(key);
+    up.next().is_some_and(|(_, parent_ancestors)| {
+        let beside = ancestors
+            .siblings_before(key)
             .find(|sibling| !sibling.as_tree_sitter().is_extra());
+        // A `-` beside the key shares its chain; the `operator` of the
+        // expression the key leads is a sibling of that expression.
         if let Some(dash) = beside.filter(|node| node.kind_id() == Perl::DASH as u16) {
-            return perl_dash_signs_keyword_key(&dash, &parent);
+            return perl_dash_signs_keyword_key(&dash, ancestors);
         }
-        up.next().is_some_and(|outer| {
+        up.next().is_some_and(|(outer, _)| {
             outer.child_by_field_name("operator").is_some_and(|dash| {
-                dash.kind_id() == Perl::DASH as u16 && perl_dash_signs_keyword_key(&dash, &outer)
+                dash.kind_id() == Perl::DASH as u16
+                    && perl_dash_signs_keyword_key(&dash, parent_ancestors)
             })
         })
     })
@@ -307,9 +313,9 @@ fn is_glued_word(word: &Node, test: &Node) -> bool {
 // token after the word. A key that stopped being the whole of its node
 // on the way up is no subscript key (`$h{1 - name}` is not quoted).
 fn is_key_position<'a>(key: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-    let mut node = *key;
+    let (mut node, mut node_ancestors) = (*key, ancestors);
     let mut whole = true;
-    for (parent, _) in ancestors.iter(key) {
+    for (parent, above) in ancestors.iter(key) {
         if whole
             && matches!(
                 parent.kind_id().into(),
@@ -322,14 +328,14 @@ fn is_key_position<'a>(key: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
         // grammar wraps a stray `,` (`(name, => 1)`) in an `ERROR` it
         // marks as an extra, and that `,`, not the word, is then the
         // token the `=>` quotes, which is nothing.
-        if let Some(next) = parent
-            .children_after(&node)
+        if let Some(next) = node_ancestors
+            .siblings_after(&node)
             .find(|sibling| sibling.is_error() || !sibling.as_tree_sitter().is_extra())
         {
             return next.kind_id() == Perl::FatComma as u16;
         }
         whole &= parent.kind_id() == Perl::BinaryExpression as u16 && non_extra_count(&parent) == 1;
-        node = parent;
+        (node, node_ancestors) = (parent, above);
     }
     false
 }
@@ -361,12 +367,13 @@ fn non_extra_count(node: &Node) -> usize {
         .count()
 }
 
-// The sibling after `child` in `parent`, comments aside. Every key of
-// a wide `(-a => 1, -b => 2, …)` list asks, so it is found without a
-// scan from the list's start (#1545).
-fn next_non_extra<'a>(parent: &Node<'a>, child: &Node<'a>) -> Option<Node<'a>> {
-    parent
-        .children_after(child)
+// The sibling after `node`, whose ancestor chain is `ancestors`,
+// comments aside. Every key of a wide `(-a => 1, -b => 2, …)` list or
+// a flat `ERROR` asks, so it is found without a scan from the parent's
+// start (#1545, #1584).
+fn next_non_extra<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> Option<Node<'a>> {
+    ancestors
+        .siblings_after(node)
         .find(|sibling| !sibling.as_tree_sitter().is_extra())
 }
 

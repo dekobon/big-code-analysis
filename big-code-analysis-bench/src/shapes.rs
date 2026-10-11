@@ -537,6 +537,18 @@ pub fn perl_pattern_list(width: usize) -> String {
     format!("my @r = ({});\n", vec!["/a/"; width].join(", "))
 }
 
+/// Kotlin: `val s = "$a $a …"` — one string holding `width` short
+/// `$name` interpolations.
+///
+/// The width shape for Kotlin Halstead's short-interpolation test, which
+/// reads the token before every name. It found that token by scanning
+/// the string's children from its start, quadratic in the name count on
+/// valid input: 11.5 s for 8 000 names in a release build (#1584).
+#[must_use]
+pub fn kotlin_short_interpolations(width: usize) -> String {
+    format!("val s = \"{}\"\n", "$a ".repeat(width))
+}
+
 /// Kotlin: `inline fun f(noinline p0: () -> Unit, …) {}` — one function
 /// with `width` modified parameters.
 ///
@@ -597,25 +609,35 @@ pub fn perl_and_statements(width: usize) -> String {
     format!("sub f {{ {}}}\n", "$a && $b; ".repeat(width))
 }
 
-/// Perl: `my @r = (` followed by `width` copies of `$d $c =~ /x/;⏎{⏎`,
-/// never closed.
+/// Perl: `my @r = (` followed by `width` copies of
+/// `last if $c =~ /x/;⏎{⏎$a && $b,⏎`, never closed.
 ///
 /// The width shape for a file whose tail fails to parse, as
 /// `perl5db.pl`'s does: tree-sitter-perl gives up on the unclosed list,
-/// the root becomes an `ERROR`, and every `=~` in the tail is its direct
-/// child. Perl ABC asks each `=~` whether it binds a rewrite, which
-/// reads its parent's last operand; read off the `ERROR`, that is a
-/// scan of the whole tail per `=~`. The body is the smallest found that
-/// keeps the `=~` flat: without the stray `$d` and `{` it folds back
-/// into a narrow `binary_expression`.
-///
-/// FIXME(#1584): a bareword or a `&&` chain in this body makes the probe
-/// quadratic on today's tree, because a flat `ERROR` defeats the
-/// `O(log n)` child seek `Node::children_after` / `children_before`
-/// rely on. Add `last if` and `$a && $b,` to the body with that fix.
+/// the root becomes an `ERROR`, and the tail's tokens are its direct
+/// children, one flat array. Perl ABC asks of each `=~` whether it binds
+/// a rewrite, of each bareword (`last`) whether a `=>` follows it, and
+/// of each `&&` chain which operator precedes it. Each question reads a
+/// neighbour in the `ERROR`, and a seek by byte over a flat array scans
+/// it from its start, so each was `O(width)` until the walk recorded the
+/// `ERROR`'s children (#1584).
 #[must_use]
 pub fn perl_error_tail(width: usize) -> String {
-    format!("my @r = ({}", "$d $c =~ /x/;\n{\n".repeat(width))
+    format!(
+        "my @r = ({}",
+        "last if $c =~ /x/;\n{\n$a && $b,\n".repeat(width)
+    )
+}
+
+/// Perl: `my @r = (` followed by `width` copies of
+/// `{⏎- and,⏎not,⏎-a => 1,⏎`, never closed.
+///
+/// [`perl_error_tail`]'s flat `ERROR`, holding the key shapes Halstead
+/// asks about: whether a `=>` follows each `-a`, and whether a `-` signs
+/// each `and` / `not` key.
+#[must_use]
+pub fn perl_error_tail_keys(width: usize) -> String {
+    format!("my @r = ({}", "{\n- and,\nnot,\n-a => 1,\n".repeat(width))
 }
 
 /// Bash: `if [ "$a" = 0 -o "$a" = 0 -a … ]; then :; fi`, the
@@ -1613,16 +1635,56 @@ pub const PROBES: &[Probe] = &[
         render: perl_error_tail,
         sizes: LINEAR_WIDTHS,
         max_exponent: LINEAR_BOUND,
-        rationale: "`perl_binding_rewrites` asks each `=~` whether it \
-                    binds an `s///` / `tr///` by reading its parent's last \
-                    operand. In a file whose tail fails to parse, the \
-                    parent is an `ERROR` holding the whole tail, as in \
-                    `perl5db.pl`. Dropping the check that only a \
-                    `binary_expression` binds takes this probe from 1.19 \
-                    to 2.05 (2.9 ms to 492 ms at width 2 000). The only \
-                    probe whose shape does not parse (`RECOVERY_PROBES`). \
-                    The reading is two conditions per `=~` line, the \
-                    match and its pattern.",
+        rationale: "In a file whose tail fails to parse, as in \
+                    `perl5db.pl`, every `=~`, bareword and `&&` chain of \
+                    the tail is a child of one flat `ERROR`. \
+                    `perl_binding_rewrites` reads each `=~`'s parent's \
+                    last operand, the bareword-key test the token after \
+                    each `last`, and the misparse check the token before \
+                    each chain. Reading those off the `ERROR` from its \
+                    start made this probe fit 2.09 (#1540, #1584). A \
+                    shape that does not parse (`RECOVERY_PROBES`). The \
+                    reading is four conditions per copy of the body.",
+    },
+    Probe {
+        name: "halstead/perl-error-tail-keys",
+        lang: LANG::Perl,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Halstead],
+            reading: |m| m.halstead.total_operands(),
+        },
+        render: perl_error_tail_keys,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "`abc/perl-error-tail`'s flat `ERROR`, holding the \
+                    `-and`, `not` and `-a` keys Halstead bills: the key \
+                    test asks for the token after each, and the sign \
+                    test for the token beside it. Read off the `ERROR` \
+                    from its start, as before #1584, both were \
+                    quadratic in the tail. The reading is three operands \
+                    per copy of the body.",
+    },
+    Probe {
+        name: "halstead/kotlin-short-interpolations",
+        lang: LANG::Kotlin,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Halstead],
+            reading: |m| m.halstead.total_operands(),
+        },
+        render: kotlin_short_interpolations,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "Kotlin Halstead asks of every `$name` whether a `$` \
+                    token precedes it. `Ancestors::previous_sibling` \
+                    answered by scanning the string's children from its \
+                    start, quadratic in the name count on valid input, \
+                    until it read the children the walk recorded \
+                    (#1584). The reading is one operand per name plus \
+                    `s`.",
     },
     Probe {
         name: "halstead/kotlin-noinline-params",
@@ -1823,7 +1885,7 @@ mod tests {
 
     /// Probes whose shape deliberately fails to parse; see
     /// [`shapes_parse_without_error`].
-    const RECOVERY_PROBES: &[&str] = &["abc/perl-error-tail"];
+    const RECOVERY_PROBES: &[&str] = &["abc/perl-error-tail", "halstead/perl-error-tail-keys"];
 
     /// Deepest `tree_sitter` node depth reachable from the root.
     ///

@@ -135,7 +135,13 @@ fn perl_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
                     P::And if !perl_and_is_operator(&op, node) => {
                         perl_last_operand(node).map(|o| (o, false))
                     }
-                    P::DASH if perl_dash_signs_keyword_key(&op, node) => {
+                    // The `-`'s parent is all the chain the test reads.
+                    P::DASH
+                        if perl_dash_signs_keyword_key(
+                            &op,
+                            Ancestors::known(std::slice::from_ref(node)),
+                        ) =>
+                    {
                         wrapped_operand(node).map(|o| (o, false))
                     }
                     P::BANG | P::Not => wrapped_operand(node).map(|o| (o, true)),
@@ -280,11 +286,12 @@ fn perl_count_slot(slot: Option<Node>, conditions: &mut f64) {
 // not scanned child by child. Without them every spine node climbed to
 // the top and every chain scanned its statement list, both quadratic.
 // The `ERROR` is the one wide parent left, holding every chain of an
-// unclosed list, so the operator before `child` is found by index rather
-// than by a scan from the `ERROR`'s start.
+// unclosed list. Recovery builds it as one flat array, which a seek by
+// byte scans from its start, so the operator before `child` is read off
+// the children the walk recorded (#1584).
 fn perl_misparse_absorbs_leading_operand<'a>(
     node: &Node<'a>,
-    mut ancestors: impl Iterator<Item = Node<'a>>,
+    ancestors: Ancestors<'a, '_>,
 ) -> bool {
     use Perl as P;
 
@@ -293,18 +300,18 @@ fn perl_misparse_absorbs_leading_operand<'a>(
     {
         return false;
     }
-    let mut child = *node;
-    let spine_parent = ancestors.find(|parent| {
+    let (mut child, mut child_ancestors) = (*node, ancestors);
+    let spine_parent = ancestors.iter(node).find(|(parent, above)| {
         let on_spine = perl_leading_slot(parent).is_some_and(|lead| lead.id() == child.id());
         if on_spine {
-            child = *parent;
+            (child, child_ancestors) = (*parent, *above);
         }
         !on_spine
     });
-    spine_parent.is_some_and(|parent| {
+    spine_parent.is_some_and(|(parent, _)| {
         (parent.kind_id() == P::BinaryExpression as u16 || parent.is_error())
-            && parent
-                .children_before(&child)
+            && child_ancestors
+                .siblings_before(&child)
                 .find(|sibling| !sibling.as_tree_sitter().is_extra())
                 .is_some_and(|operator| {
                     matches!(
@@ -654,8 +661,7 @@ impl Abc for PerlCode {
             // condition (issue #403). Covers `&&`, `||`, `//`,
             // `and`, `or` — not `xor`, which is a value (#1536).
             P::AMPAMP | P::PIPEPIPE | P::SLASHSLASH | P::And | P::Or => {
-                let mut above = ancestors.iter(node).map(|(ancestor, _)| ancestor);
-                if let Some(chain) = above.next() {
+                if let Some((chain, above)) = ancestors.iter(node).next() {
                     let absorbed = perl_misparse_absorbs_leading_operand(&chain, above);
                     perl_count_chain_operands(&chain, absorbed, &mut stats.conditions);
                 }
@@ -696,8 +702,7 @@ impl Abc for PerlCode {
             // and adds the three operand slots (issue #1102).
             P::TernaryExpression => {
                 stats.conditions += 1.;
-                let above = ancestors.iter(node).map(|(ancestor, _)| ancestor);
-                let absorbed = perl_misparse_absorbs_leading_operand(node, above);
+                let absorbed = perl_misparse_absorbs_leading_operand(node, ancestors);
                 perl_walk_ternary(node, absorbed, &mut stats.conditions);
             }
             // Phase-2B (issue #403): condition slots, each read by the

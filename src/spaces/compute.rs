@@ -755,6 +755,9 @@ pub(crate) fn metrics_inner<T: MetricSuite>(
     // index instead of through `Node::parent`, which `tree_sitter`
     // resolves by descending from the root (#1084).
     let mut chain: Vec<Node<'_>> = Vec::new();
+    // The children of each wide node on `chain`, so a predicate asking
+    // for a sibling in a flat `ERROR` does not scan it (#1584).
+    let mut siblings = SiblingCache::default();
     let mut state_stack: Vec<State> = Vec::new();
     let mut last_level = 0;
     // Per-node cognitive nesting, inherited down the walk. Deliberately
@@ -827,7 +830,7 @@ pub(crate) fn metrics_inner<T: MetricSuite>(
         // and `chain` is already correct here — the truncate above is
         // the only thing that touches it between the pop and this
         // point (#1100).
-        let ancestors = Ancestors::checked(&chain, &node);
+        let ancestors = Ancestors::checked(&chain, &node).with_siblings(&siblings);
 
         // Prune test-only subtrees before any per-metric work runs.
         // The hook is gated on `exclude_tests` so the default
@@ -916,6 +919,7 @@ pub(crate) fn metrics_inner<T: MetricSuite>(
             },
             &mut stack,
         );
+        siblings.record(&node, depth, pushed.iter().rev().map(|(child, _)| *child));
 
         if selected.contains(Metric::Cognitive) {
             propagate_nesting_to_children(&node, pushed, &mut nesting_map);

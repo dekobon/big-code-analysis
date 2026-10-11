@@ -156,6 +156,7 @@ Read it as follows.
 | `loc/wide-cfg-test-mod` | Rust | width | the `exclude_tests` prune arm's row bookkeeping (#1417) | linear |
 | `halstead/perl-dash-keys` | Perl | width | the dash-key workaround's `=>` lookup per key (#1545) | linear |
 | `abc/perl-bareword-keys` | Perl | width | the bareword-key workaround's `=>` lookup per key (#1572) | linear |
+| `halstead/kotlin-short-interpolations` | Kotlin | width | the `$name` test's previous-token lookup in one string (#1584) | linear |
 | `halstead/kotlin-noinline-params` | Kotlin | width | the modifier recovery guard's next-token lookup (#1558) | linear |
 | `abc/perl-pattern-list` | Perl | width | ABC's pattern-role climb through `( … )` (#1467) | linear |
 | `cyclomatic/cpp-plus-chain` | C++ | depth | shape control for the three rows below | linear |
@@ -165,7 +166,8 @@ Read it as follows.
 | `abc/perl-or-chain` | Perl | depth | the misparse check's spine climb (#1273) | linear |
 | `abc/perl-misparsed-comparison` | Perl | depth | the same climb on a chain the misparse absorbed (#1273) | linear |
 | `abc/perl-and-statements` | Perl | width | the misparse check's operator lookup in a block (#1273) | linear |
-| `abc/perl-error-tail` | Perl | width | `perl_binding_rewrites` under a flat `ERROR` root (#1540) | linear |
+| `abc/perl-error-tail` | Perl | width | the binding, bareword-key and misparse lookups under a flat `ERROR` root (#1540, #1584) | linear |
+| `halstead/perl-error-tail-keys` | Perl | width | the key and sign lookups under the same `ERROR` (#1584) | linear |
 | `cognitive/bash-test-connective-run` | Bash | depth | the comparison-run end of a `[ … -o … ]` test (#1536) | linear |
 | `abc/bash-arith-assign-chain` | Bash | depth | ABC's `=` comparison test on `(( a = … ))` (#1536) | linear |
 | `abc/bash-eq-and-test` | Bash | depth | the same test on a `[[ … = … && … ]]` run (#1536) | linear |
@@ -395,13 +397,28 @@ Removing only the kind gate in front of the Perl lookup moved nothing:
 `abc/perl-and-statements` held at 1.19. On a block that gate is not
 what keeps the walk linear, because the lookup seeks the child by byte.
 That seek is `O(log n)` only where the grammar stores the children as
-a balanced repeat, though, and an `ERROR` that recovery built by
-skipping tokens is one flat array. So `abc/perl-error-tail` carries
-only `=~` in its body. With a bareword or a `&&` chain added it fits
-2.09 on today's tree ([#1584][flat-error]). It is also the one probe
-whose shape is meant not to parse: `RECOVERY_PROBES` in `shapes.rs`
-exempts it from the parse check and asserts that its root is still an
-`ERROR`.
+a balanced repeat. An `ERROR` that recovery built by skipping tokens is
+one flat array, which the seek scans from its start, and no tree-sitter
+call reaches a child of one in better than its index
+([#1584][flat-error]). So the metric walk and the `ops` walk record the
+children of every node wider than 64 as they push them, in a
+`SiblingCache` they lend through `Ancestors`, and
+`Ancestors::siblings_after` / `siblings_before` binary-search that
+array instead of seeking. `Ancestors::previous_sibling` reads it too:
+it scanned its parent from the start, which made a valid Kotlin string
+of `$name` interpolations quadratic (11.5 s for 8 000 names). With
+`Ancestors::lookup` patched to ignore the cache, these three probes go
+over bound and nothing else moves:
+
+| Walk put back | Probe that fails | Clean | Regressed | Top rung |
+|---|---|---|---|---|
+| sibling lookups seek in the flat `ERROR` | `abc/perl-error-tail` | 1.08 | 2.10 | 8.8 ms → 326 ms |
+| (same patch) | `halstead/perl-error-tail-keys` | 1.04 | 1.74 | 14.5 ms → 96.0 ms |
+| (same patch) | `halstead/kotlin-short-interpolations` | 0.96 | 2.02 | 1.1 ms → 589 ms |
+
+These two are the probes whose shape is meant not to parse:
+`RECOVERY_PROBES` in `shapes.rs` exempts them from the parse check and
+asserts that each root is still an `ERROR`.
 
 Treat the linear bounds above as covering the walk's ancestor *chain*
 threading, not every `O(depth)` lookup in the crate.

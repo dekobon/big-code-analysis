@@ -12,7 +12,10 @@
 
 //! Tree-sitter wrappers: `Tree`, [`Node`], [`Ancestors`], and the cursors.
 
+mod ancestors;
 mod parser_cache;
+
+pub use ancestors::{AncestorIter, Ancestors, SiblingCache};
 
 use tree_sitter::Node as OtherNode;
 use tree_sitter::Tree as OtherTree;
@@ -511,8 +514,12 @@ impl<'a> Node<'a> {
     /// and nothing when `child` is not one of this node's children.
     ///
     /// That scan costs `child`'s index, so a walk that asks it of every
-    /// child of a wide list is quadratic in the list (#1545). This finds
-    /// `child` in `O(log n)` instead; see [`Node::children_before`].
+    /// child of a wide list is quadratic in the list (#1545). This seeks
+    /// `child` by byte instead, which is `O(log n)` in a list the grammar
+    /// stores as a `repeat()` and still `O(index)` in a flat one, an
+    /// `ERROR` above all; see [`Cursor::goto_first_child_for_byte`]. A
+    /// walk that asks of every child of a node that may be flat goes
+    /// through [`Ancestors::siblings_after`] (#1584).
     pub fn children_after(&self, child: &Node<'a>) -> impl Iterator<Item = Node<'a>> + use<'a> {
         let mut cursor = self.cursor();
         let mut more =
@@ -529,8 +536,11 @@ impl<'a> Node<'a> {
     ///
     /// `child`'s index comes from [`Cursor::goto_first_child_for_byte`]
     /// and each sibling from [`Node::child`], both `O(log n)` in the
-    /// child count, for the reason the first gives: a `repeat()` list is
-    /// stored as a balanced tree of hidden nodes.
+    /// child count where the list is a `repeat()`, stored as a balanced
+    /// tree of hidden nodes, and both `O(index)` where it is flat, as an
+    /// `ERROR` built by skipping tokens is. A walk that asks of every
+    /// child of such a node goes through [`Ancestors::siblings_before`]
+    /// (#1584).
     pub fn children_before(&self, child: &Node<'a>) -> impl Iterator<Item = Node<'a>> + use<'a> {
         let node = *self;
         let index = self.seat_on_child(child, &mut self.cursor()).unwrap_or(0);
@@ -663,212 +673,6 @@ impl<'a> Node<'a> {
     }
 }
 
-/// The chain of a node's ancestors, root first, as recorded by a walker
-/// that descended to that node.
-///
-/// A predicate that asks a node for its parent pays [`Node::parent`]'s
-/// `O(depth)` once per node, so `O(depth²)` over a deeply nested file,
-/// however few parent steps it takes (#1084). A walker that visits
-/// parents before children already holds the chain, and handing it down
-/// turns each step into a slice index — the upward counterpart of the
-/// downward flag propagation #1052 and #1062 used.
-///
-/// Callers that reached a node some other way pass
-/// [`Ancestors::unknown`], which climbs with [`Node::parent`]: the same
-/// answers at the original cost.
-#[derive(Clone, Copy, Debug)]
-pub struct Ancestors<'tree, 'chain>(Option<&'chain [Node<'tree>]>);
-
-impl<'tree, 'chain> Ancestors<'tree, 'chain> {
-    /// No chain is available; every query climbs with [`Node::parent`].
-    #[inline]
-    #[must_use]
-    pub const fn unknown() -> Self {
-        Self(None)
-    }
-
-    /// `chain` lists every ancestor of the node about to be queried,
-    /// root first — so `chain.last()` is its parent and an empty chain
-    /// means the node is the root.
-    #[inline]
-    #[must_use]
-    pub const fn known(chain: &'chain [Node<'tree>]) -> Self {
-        Self(Some(chain))
-    }
-
-    /// [`Ancestors::known`], but first checks that `chain` really is
-    /// `node`'s ancestry.
-    ///
-    /// The parity test below proves the walker's truncate/push rule on a
-    /// *replica* walker, so it cannot see `metrics_inner` itself
-    /// desynchronising — a `chain.push` moved ahead of the per-node
-    /// computes, say, or a `continue` inserted above the truncate.
-    /// [`Ancestors::parent`] trusts `chain.last()` unvalidated, so such a
-    /// drift would feed every predicate a wrong ancestor silently rather
-    /// than fail. Walkers that maintain a chain should construct through
-    /// here; [`Ancestors::known`] stays unchecked for the callers that
-    /// deliberately pair a chain with a foreign node.
-    ///
-    /// # Two checks, because the exact one is not affordable by default
-    ///
-    /// The invariant is "`chain.last()` **is** `node.parent()`", and
-    /// asking that outright costs [`Node::parent`]'s `O(depth)` — the
-    /// very lookup #1084 exists to remove. Per node, on every walk that
-    /// constructs a checked chain, it made every debug-build walk
-    /// `O(nodes × depth)` while the shipped walk is `O(nodes)`: a tax on
-    /// every `cargo test`, worst on the deep-nesting regression tests
-    /// that exist to pin the shipped walk's linearity (#1122). It now
-    /// runs only under `--cfg chain_audit`, which `make chain-audit` and
-    /// the CI lane of the same name set — and there as a plain
-    /// `assert_eq!`, so the audit has teeth in a release profile too.
-    ///
-    /// What stays on in every debug build is an `O(1)` *consequence* of
-    /// that invariant: a parent's byte span contains its child's, and no
-    /// node is its own parent. Strictly weaker — a grandparent contains
-    /// the node as well — but it is shaped to the two ways a walker
-    /// desynchronises. A `push` moved ahead of the per-node computes
-    /// leaves `chain.last() == node`; a dropped `truncate` leaves the
-    /// previous subtree's path, whose last entry is disjoint from the
-    /// node that follows it. Both trip here, on the first node that
-    /// shows them, at four integer comparisons.
-    #[must_use]
-    pub fn checked(chain: &'chain [Node<'tree>], node: &Node<'tree>) -> Self {
-        // Opt-in only: `Node::parent` restarts at the root, so this is
-        // the `O(nodes × depth)` walk described above.
-        #[cfg(chain_audit)]
-        assert_eq!(
-            chain.last().map(Node::id),
-            node.parent().map(|parent| parent.id()),
-            "ancestor chain desynchronised on a {} node",
-            node.kind()
-        );
-        debug_assert!(
-            chain.last().is_none_or(|parent| {
-                parent.id() != node.id()
-                    && parent.start_byte() <= node.start_byte()
-                    && node.end_byte() <= parent.end_byte()
-            }),
-            "ancestor chain desynchronised on a {} node: chain.last() neither \
-             contains it nor differs from it",
-            node.kind()
-        );
-        Self::known(chain)
-    }
-
-    /// How far the node this chain describes sits from the root, or
-    /// `None` when no chain is known — deriving it then would cost the
-    /// [`Node::parent`] climb the chain exists to remove.
-    #[inline]
-    pub fn depth(self) -> Option<usize> {
-        self.0.map(<[Node<'tree>]>::len)
-    }
-
-    /// `node`'s parent.
-    #[inline]
-    #[must_use]
-    pub fn parent(self, node: &Node<'tree>) -> Option<Node<'tree>> {
-        match self.0 {
-            Some(chain) => chain.last().copied(),
-            None => node.parent(),
-        }
-    }
-
-    /// Whether `node`'s parent has kind id `kind`.
-    ///
-    /// The compound-leaf guard of `.claude/rules/grammar-dispatch.md`
-    /// section 5 asks this and nothing else: a delimiter or keyword
-    /// token is suppressed *only* directly under the construct that
-    /// owns it, never under an arbitrary ancestor. Eleven dispatch
-    /// arms across `getter`, `checker` and the metric walkers spelled
-    /// it out as `.parent(node).is_some_and(|p| p.kind_id() == X as
-    /// u16)`, which wraps onto four rustfmt lines inside a match guard
-    /// and buries the question under the plumbing; #1314 added six more
-    /// and folded all seventeen onto this. Three sites spelling their
-    /// binding `|parent|` were left alone and would each fit:
-    /// `impl_is_else_if_parent_clause!` (`src/checker.rs`),
-    /// `is_stabby_lambda_body` (`src/checker/ruby.rs`) and
-    /// `is_useful_comment` (`src/checker/rust.rs`, a let-chain).
-    ///
-    /// A `false` when `node` has no parent is the answer every one of
-    /// those call sites wants: a root node's token is not inside the
-    /// construct, so it is not suppressed.
-    #[inline]
-    #[must_use]
-    pub fn parent_has_kind(self, node: &Node<'tree>, kind: u16) -> bool {
-        self.parent(node).is_some_and(|p| p.kind_id() == kind)
-    }
-
-    /// The sibling immediately before `node`, or `None` when `node` is
-    /// its parent's first child or has no parent.
-    ///
-    /// `tree_sitter`'s own `prev_sibling` resolves the parent first
-    /// (`ts_node__prev_sibling` opens with `ts_node_parent`), so it
-    /// carries the same `O(depth)` cost [`Node::parent`] does. With a
-    /// known chain the parent is free and what remains is a cursor walk
-    /// over the siblings.
-    #[inline]
-    #[must_use]
-    pub fn previous_sibling(self, node: &Node<'tree>) -> Option<Node<'tree>> {
-        let Some(chain) = self.0 else {
-            return node.previous_sibling();
-        };
-        let parent = chain.last()?;
-        let mut previous = None;
-        for child in parent.children() {
-            if child.id() == node.id() {
-                return previous;
-            }
-            previous = Some(child);
-        }
-        // `node` is not among `parent.children()`, so this chain does
-        // not describe `node`. Answering `None` would claim "no
-        // previous sibling", which is a different (and wrong) answer;
-        // fall back to the authoritative lookup instead.
-        node.previous_sibling()
-    }
-
-    /// `node`'s ancestors, nearest first, each paired with *its* own
-    /// ancestry so a predicate applied to an ancestor stays as cheap as
-    /// one applied to `node`.
-    #[inline]
-    #[must_use]
-    pub fn iter(self, node: &Node<'tree>) -> AncestorIter<'tree, 'chain> {
-        match self.0 {
-            Some(chain) => AncestorIter::Chain(chain),
-            None => AncestorIter::Climb(node.parent()),
-        }
-    }
-}
-
-/// Ancestor iterator returned by [`Ancestors::iter`], nearest first.
-pub enum AncestorIter<'tree, 'chain> {
-    /// The not-yet-yielded prefix of a known chain. Its last element is
-    /// the next ancestor, and the prefix before it is that ancestor's
-    /// own chain — so splitting from the back hands out both at once.
-    Chain(&'chain [Node<'tree>]),
-    /// The next ancestor to yield, reached by climbing.
-    Climb(Option<Node<'tree>>),
-}
-
-impl<'tree, 'chain> Iterator for AncestorIter<'tree, 'chain> {
-    type Item = (Node<'tree>, Ancestors<'tree, 'chain>);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            Self::Chain(remaining) => {
-                let (&nearest, above) = remaining.split_last()?;
-                *remaining = above;
-                Some((nearest, Ancestors::known(above)))
-            }
-            Self::Climb(next) => {
-                let nearest = (*next)?;
-                *next = nearest.parent();
-                Some((nearest, Ancestors::unknown()))
-            }
-        }
-    }
-}
-
 /// Pre-order iterator over a node and its descendants, returned by
 /// [`Node::preorder`].
 ///
@@ -942,6 +746,11 @@ impl<'a> Cursor<'a> {
     /// is `O(log n)` in the sibling count where `children().position(..)`
     /// is `O(n)` — the difference between a linear and a quadratic walk
     /// when every child of a wide list asks for its own index.
+    ///
+    /// Only for such a list. The seek steps through the children in
+    /// order and can skip only a *hidden* subtree, so over a flat child
+    /// array — an `ERROR` that recovery built by skipping tokens has no
+    /// hidden levels — it is the same `O(index)` scan (#1584).
     #[inline]
     pub fn goto_first_child_for_byte(&mut self, byte: usize) -> Option<usize> {
         self.0.goto_first_child_for_byte(byte)

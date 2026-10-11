@@ -11,7 +11,7 @@ use std::borrow::Cow;
 use crate::checker::Checker;
 use crate::error::MetricsError;
 use crate::getter::Getter;
-use crate::node::{Ancestors, Node};
+use crate::node::{Ancestors, Node, SiblingCache};
 use crate::spaces::{SpaceKind, line_span, push_children};
 
 use crate::halstead::{Halstead, HalsteadMaps};
@@ -310,6 +310,8 @@ pub(crate) fn ops_inner<T: MetricSuite>(
     // maintained by the same truncate/push rule as
     // `spaces::compute::metrics_inner` (#1084).
     let mut chain: Vec<Node<'_>> = Vec::new();
+    // As in `metrics_inner`: the children of each wide node on `chain`.
+    let mut siblings = SiblingCache::default();
     let mut state_stack: Vec<State> = Vec::new();
     let mut last_level = 0;
 
@@ -330,7 +332,7 @@ pub(crate) fn ops_inner<T: MetricSuite>(
             last_level = level;
         }
 
-        let ancestors = Ancestors::checked(&chain, &node);
+        let ancestors = Ancestors::checked(&chain, &node).with_siblings(&siblings);
 
         // Same predicate `spaces::compute::metrics_inner` opens on, so
         // the two walks agree on which nodes become spaces. The
@@ -366,9 +368,7 @@ pub(crate) fn ops_inner<T: MetricSuite>(
         // mirrors (which differ by `State` payload) it is reused directly
         // rather than duplicated. The source-order-then-reverse ordering
         // it encapsulates is load-bearing for suppression attribution.
-        // The returned child slice is only useful to `metrics_inner`,
-        // which seeds their cognitive nesting; `ops` just walks them.
-        push_children(
+        let pushed = push_children(
             &mut cursor,
             &node,
             Walk {
@@ -377,6 +377,7 @@ pub(crate) fn ops_inner<T: MetricSuite>(
             },
             &mut stack,
         );
+        siblings.record(&node, depth, pushed.iter().rev().map(|(child, _)| *child));
     }
 
     finalize::<T>(&mut state_stack, usize::MAX);

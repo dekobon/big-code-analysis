@@ -888,3 +888,62 @@ fn perl_bareword_outside_a_key_keeps_its_call() {
         );
     }
 }
+
+/// A file whose tail fails to parse leaves every key, chain and sign in
+/// it a direct child of one flat `ERROR` root, and the key and misparse
+/// lookups ask for a sibling in that `ERROR` once per child. Both walks
+/// lend the `SiblingCache` that answers them from the children they
+/// recorded rather than by a scan from the `ERROR`'s start (#1584); a
+/// walk that stopped recording trips the debug assertion in the lookup
+/// here, since the answers themselves would not change. Every value is
+/// `main`'s, measured before #1584: twelve `last` calls, the `name`
+/// keys none, and `-a` / `-and` billed whole.
+#[cfg(feature = "perl")]
+#[test]
+fn perl_flat_error_reads_siblings_from_the_walk() {
+    // Past `WIDE_PARENT` in `big-code-analysis-ast/src/node/ancestors.rs`,
+    // the width from which a walk records a node's children.
+    const RECORDED_WIDTH: usize = 64;
+    let body = "{\nlast,\n$a && $b,\n- and,\n-a => 1,\nname => 1,\n$c > $d && $e,\n";
+    let source = format!("my @r = ({}", body.repeat(12));
+    let ast = Ast::parse(Source::new(LANG::Perl, source.as_bytes())).expect("perl is enabled");
+    let root = ast.as_tree_sitter().root_node();
+    assert!(
+        root.is_error() && root.child_count() > RECORDED_WIDTH,
+        "the fixture must parse to a wide flat ERROR root"
+    );
+
+    let space = ast
+        .metrics(MetricsOptions::default())
+        .expect("metrics yields a root space");
+    let (abc, halstead) = (&space.metrics.abc, &space.metrics.halstead);
+    assert_eq!(
+        (
+            abc.branches_sum(),
+            abc.conditions_sum(),
+            abc.assignments_sum()
+        ),
+        (12, 48, 1)
+    );
+    assert_eq!(
+        [
+            halstead.unique_operators(),
+            halstead.total_operators(),
+            halstead.unique_operands(),
+            halstead.total_operands(),
+        ],
+        [9, 207, 11, 133]
+    );
+
+    let ops = ast.ops().expect("ops yields a root space");
+    assert_eq!(
+        ops.operands,
+        [
+            "$a", "$b", "$c", "$d", "$e", "-a", "-and", "1", "@r", "last", "name"
+        ]
+    );
+    assert_eq!(
+        ops.operators,
+        ["$", "&&", "()", ",", "=", "=>", ">", "my", "{}"]
+    );
+}
