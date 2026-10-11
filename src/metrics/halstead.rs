@@ -608,6 +608,7 @@ mod tests {
         feature = "java",
         feature = "kotlin",
         feature = "mozcpp",
+        feature = "objc",
         feature = "typescript"
     ))]
     #[track_caller]
@@ -7110,7 +7111,7 @@ end",
     /// name, one fixture line apiece, so dropping any one kind from an
     /// arm fails its own entry. The row tests above pin the counts; this
     /// one pins the spellings they leave out.
-    #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp"))]
+    #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
     #[track_caller]
     fn assert_modifier_spellings_bill<T: crate::MetricSuite>(file: &str, rows: &[(&str, &str)]) {
         for (spelling, source) in rows {
@@ -7130,7 +7131,7 @@ end",
 
     /// The spellings C and C++ share, each in a declaration both
     /// grammars parse without error.
-    #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp"))]
+    #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
     const C_FAMILY_MODIFIER_SPELLINGS: &[(&str, &str)] = &[
         ("static", "static int a;\n"),
         ("extern", "extern int a;\n"),
@@ -7205,6 +7206,203 @@ end",
             ("forward class", "@class Fwd;\n", [2, 2]),
         ];
         assert_operator_rows::<ObjcParser>("foo.m", ROWS);
+    }
+
+    /// #1579: ObjC bills C's declaration modifiers as `c.rs` does
+    /// (#1578), and its own: ivar visibility labels, property attribute
+    /// words, ARC ownership and nullability qualifiers, protocol section
+    /// labels, method-type qualifiers and generic variance. Before the
+    /// fix none of them billed.
+    #[cfg(feature = "objc")]
+    #[test]
+    fn objc_modifiers_are_operators_1579() {
+        const ROWS: &[(&str, &str, [u64; 2])] = &[
+            // `static`, `const`, `int`, `=`, `;`: the issue's first line
+            ("C modifiers", "static const int a = 1;\n", [5, 5]),
+            // `@interface`, `{}`, `@public`, `@private`, `int` x2, `;` x2
+            (
+                "ivar visibility",
+                "@interface C { @public int x; @private int y; }\n@end\n",
+                [6, 8],
+            ),
+            // `@interface`, `()`, `nonatomic`, `,` x2, `strong`,
+            // `getter`, `=`, `;`: `isY` is an operand, `id` and
+            // `@property` bill nothing
+            (
+                "property attributes",
+                "@interface C\n@property (nonatomic, strong, getter=isY) id y;\n@end\n",
+                [8, 9],
+            ),
+            // `__weak`, `__strong`, `__block`, `int`, `;` x3
+            (
+                "ownership qualifiers",
+                "__weak id a;\n__strong id b;\n__block int c;\n",
+                [5, 7],
+            ),
+            // `*` x2, `_Nullable`, `nullable`, `;` x2
+            (
+                "nullability qualifiers",
+                "NSString * _Nullable f;\nNSString * nullable k;\n",
+                [4, 6],
+            ),
+            // `@protocol`, `@optional`, `@required`, `-` x2, `()` x3,
+            // `void` x2, `;` x2, `oneway`, `:`, `out`, `*`
+            (
+                "protocol sections and method qualifiers",
+                "@protocol P\n@optional\n- (void)m;\n@required\n\
+                 - (oneway void)n:(out id *)b;\n@end\n",
+                [11, 16],
+            ),
+            // `@interface`, `<>`, `__covariant`, `:`
+            (
+                "generic variance",
+                "@interface G<__covariant T> : NSObject\n@end\n",
+                [4, 4],
+            ),
+        ];
+        assert_operator_rows::<ObjcParser>("foo.m", ROWS);
+    }
+
+    /// #1579: the `nullable` qualifier and the `nullable` property
+    /// attribute are one operator. The attribute has no keyword kind, so
+    /// it is keyed by text, and keying the qualifier by kind would list
+    /// the one word twice in `n1`.
+    #[cfg(feature = "objc")]
+    #[test]
+    fn objc_nullable_is_one_operator_1579() {
+        const SOURCE: &str = "@interface C\n@property (nullable) id y;\n- (nullable id)m;\n@end\n";
+        // `@interface`, `()` x2, `nullable` x2, `-`, `;` x2
+        assert_operator_rows::<ObjcParser>("foo.m", &[("nullable", SOURCE, [5, 8])]);
+        let ops = ops_of::<ObjcParser>(SOURCE, "foo.m");
+        assert_eq!(ops.operators, ["()", "-", ";", "@interface", "nullable"]);
+        assert_eq!(ops.operands, ["C", "m", "y"]);
+    }
+
+    /// #1579's oracle: a `.m` is a C translation unit, so C's
+    /// modifier-heavy declarations score alike in both grammars,
+    /// vocabulary and multiplicities. Neither expectation is typed by
+    /// the fix: a modifier one getter drops shows as a disagreement.
+    #[cfg(all(feature = "c", feature = "objc"))]
+    #[test]
+    fn objc_c_modifiers_match_c_1579() {
+        let source = "static inline const volatile int a = 1;\nextern int b;\n\
+                      register int c;\nauto int d;\nint * restrict p;\n_Atomic int g;\n\
+                      __thread int t;\n_Noreturn void h(void);\n_Alignas(8) int m;\n";
+        let objc = ops_of::<ObjcParser>(source, "foo.m");
+        let c = ops_of::<CParser>(source, "foo.c");
+        assert_eq!(objc.operators, c.operators);
+        assert_eq!(objc.operands, c.operands);
+        // `static`, `inline`, `const`, `volatile`, `int` x8, `=`, `;` x9,
+        // `extern`, `register`, `auto`, `*`, `restrict`, `_Atomic`,
+        // `__thread`, `_Noreturn`, `void` x2, `()` x2, `_Alignas`
+        let rows = [("C modifiers", source, [18, 35])];
+        assert_operator_rows::<ObjcParser>("foo.m", &rows);
+        assert_operator_rows::<CParser>("foo.c", &rows);
+    }
+
+    /// #1579: every modifier word the ObjC arm lists bills under its own
+    /// name, one fixture apiece, so dropping any kind from the arm fails
+    /// its own entry. The spellings C shares with C++ run through the
+    /// #1578 table; `OBJC_ONLY` holds the rest, C's `auto` included, plus
+    /// a sample of the text-keyed property attributes.
+    #[cfg(feature = "objc")]
+    #[test]
+    fn objc_modifier_spellings_bill_1579() {
+        const OBJC_ONLY: &[(&str, &str)] = &[
+            ("auto", "auto int a;\n"),
+            ("__const", "__const int a;\n"),
+            ("_Complex", "double _Complex z;\n"),
+            ("__complex", "double __complex z;\n"),
+            ("nullable", "NSString * nullable p;\n"),
+            ("_Nullable", "NSString * _Nullable p;\n"),
+            ("__nullable", "NSString * __nullable p;\n"),
+            ("_Nullable_result", "NSString * _Nullable_result p;\n"),
+            ("_Null_unspecified", "NSString * _Null_unspecified p;\n"),
+            ("__nonnull", "NSString * __nonnull p;\n"),
+            ("__autoreleasing", "__autoreleasing id a;\n"),
+            ("__block", "__block int a;\n"),
+            ("__strong", "__strong id a;\n"),
+            ("__unsafe_unretained", "__unsafe_unretained id a;\n"),
+            ("__weak", "__weak id a;\n"),
+            ("__bridge", "void f(void) { id x = (__bridge id)p; }\n"),
+            (
+                "__bridge_retained",
+                "void f(void) { void *x = (__bridge_retained void *)p; }\n",
+            ),
+            (
+                "__bridge_transfer",
+                "void f(void) { id x = (__bridge_transfer id)p; }\n",
+            ),
+            ("__kindof", "__kindof NSView *v;\n"),
+            (
+                "__covariant",
+                "@interface G<__covariant T> : NSObject\n@end\n",
+            ),
+            (
+                "__contravariant",
+                "@interface G<__contravariant T> : NSObject\n@end\n",
+            ),
+            ("in", "@protocol P\n- (void)m:(in id)a;\n@end\n"),
+            ("out", "@protocol P\n- (void)m:(out id *)a;\n@end\n"),
+            ("inout", "@protocol P\n- (void)m:(inout id *)a;\n@end\n"),
+            ("bycopy", "@protocol P\n- (void)m:(bycopy id)a;\n@end\n"),
+            ("byref", "@protocol P\n- (void)m:(byref id)a;\n@end\n"),
+            ("oneway", "@protocol P\n- (oneway void)m;\n@end\n"),
+            ("@public", "@interface C { @public int x; }\n@end\n"),
+            ("@private", "@interface C { @private int x; }\n@end\n"),
+            ("@protected", "@interface C { @protected int x; }\n@end\n"),
+            ("@package", "@interface C { @package int x; }\n@end\n"),
+            ("@optional", "@protocol P\n@optional\n- (void)m;\n@end\n"),
+            ("@required", "@protocol P\n@required\n- (void)m;\n@end\n"),
+            ("copy", "@interface C\n@property (copy) id y;\n@end\n"),
+            (
+                "readonly",
+                "@interface C\n@property (readonly) id y;\n@end\n",
+            ),
+            ("class", "@interface C\n@property (class) id y;\n@end\n"),
+            (
+                "setter",
+                "@interface C\n@property (setter=sY:) id y;\n@end\n",
+            ),
+        ];
+        assert_modifier_spellings_bill::<ObjcParser>("foo.m", C_FAMILY_MODIFIER_SPELLINGS);
+        assert_modifier_spellings_bill::<ObjcParser>("foo.m", OBJC_ONLY);
+    }
+
+    /// #1579: the plain-word modifiers stay operands where they name a
+    /// variable, and a property attribute's `getter=` value is the
+    /// selector it names, not a modifier. The arms carry no guard on
+    /// these words, so this pins the grammar: it emits an `identifier`
+    /// for each name, and only the first word of a `property_attribute`
+    /// bills.
+    #[cfg(feature = "objc")]
+    #[test]
+    fn objc_modifier_words_as_names_stay_operands_1579() {
+        assert_keywords_are_operands_only::<ObjcParser>(
+            "int out = 1;\nint copy = 2;\nint oneway = 3;\nint strong = out + copy;\n",
+            "foo.m",
+            &["out", "copy", "oneway", "strong"],
+        );
+        assert_keywords_are_operands_only::<ObjcParser>(
+            "@interface C\n@property (getter=atomic, setter=weak:) id y;\n@end\n",
+            "foo.m",
+            &["atomic", "weak"],
+        );
+    }
+
+    /// #1579: the Apple SDK macros the grammar files as storage classes
+    /// and qualifiers bill nothing, as Mozcpp's `MOZ_*` macros do: each
+    /// annotates a declaration, and a `.c` parses the spelling as a name.
+    #[cfg(feature = "objc")]
+    #[test]
+    fn objc_sdk_macros_bill_nothing_1579() {
+        // `int` x4, `;` x4, `()`, `void`, `{}`, `return`: the macros add
+        // nothing, and the declared names and `1` are the operands
+        const SOURCE: &str = "NS_INLINE int f(void) { return 1; }\nFOUNDATION_EXPORT int g;\n\
+                              IBOutlet int h;\n__unused int u;\n";
+        let ops = ops_of::<ObjcParser>(SOURCE, "foo.m");
+        assert_eq!(ops.operators, ["()", ";", "int", "return", "void", "{}"]);
+        assert_eq!(ops.operands, ["1", "f", "g", "h", "u"]);
     }
 
     /// #1556: Kotlin's `interface` bills as its `class` and `object`

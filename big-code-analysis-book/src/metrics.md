@@ -791,7 +791,18 @@ tokens involved the same way they spell real operators:
   placeholder type and stays unbilled. `extern "C"` bills `extern` and
   keeps `"C"` an operand. Attributes, the MS calling conventions and
   the Gecko `MOZ_*` macros bill nothing, and `override` and `final`
-  used as names (`int override = 1;`) stay operands.
+  used as names (`int override = 1;`) stay operands. #1579 extended this
+  to Objective-C, which bills C's list as C does plus its own
+  modifiers: the `@public`, `@private`, `@protected` and `@package`
+  ivar labels, the `@optional` and `@required` protocol sections, the
+  ownership qualifiers (`__weak`, `__strong`, `__block`, …), the
+  nullability qualifiers (`nullable`, `_Nullable`, `__nullable`, …),
+  `__kindof`, the `__covariant` and `__contravariant` variance, and the
+  `in`, `out`, `inout`, `bycopy`, `byref` and `oneway` method-type
+  qualifiers. A property attribute (`nonatomic`, `copy`, `getter`) bills
+  as its word; a `getter=` or `setter=` value stays an operand. The
+  Apple SDK macros (`NS_INLINE`, `FOUNDATION_EXPORT`, `IBOutlet`) bill
+  nothing, as the `MOZ_*` macros do.
 - **Angle brackets that enclose types are one bracket pair.** The `<`
   and `>` around type arguments and type parameters count as one `<>`
   operator, billed at the `<` as `()` is at the `(`, and the `>` counts

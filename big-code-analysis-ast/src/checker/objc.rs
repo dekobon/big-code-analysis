@@ -113,8 +113,17 @@ impl Checker for ObjcCode {
 
     impl_is_else_if_parent_clause!(Objc, IfStatement, ElseClause);
 
+    // Besides the primitive types, an `identifier` the getter bills is a
+    // property attribute word (`nonatomic`, `copy`), whose kind is no
+    // keyword, so keying it by text lists each word. The `nullable`
+    // type qualifier is keyed by text too, so it and the `nullable`
+    // property attribute share one `n1` entry rather than one per map
+    // (#1579).
     #[inline]
     fn is_primitive(node: &Node) -> bool {
-        node.kind_id() == Objc::PrimitiveType
+        matches!(
+            node.kind_id().into(),
+            Objc::PrimitiveType | Objc::Identifier | Objc::Nullable
+        )
     }
 }
