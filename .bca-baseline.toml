@@ -279,7 +279,7 @@ value = 42.0
 path = "big-code-analysis-ast/src/parser.rs"
 qualified = "Parser<T>::filters"
 metric = "halstead.effort"
-value = 87390.78947368421
+value = 90363.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/preproc.rs"

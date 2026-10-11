@@ -912,12 +912,25 @@ impl<'a> Search<'a> for Node<'a> {
         let mut chain: Vec<Node<'a>> = std::iter::successors(self.parent(), Node::parent).collect();
         chain.reverse();
         let depth = chain.len();
+        // As in the metric walk: the children of each wide node on
+        // `chain`, so a sibling lookup in a flat `ERROR` is a binary
+        // search rather than a seek from its start (#1584). Perl's
+        // `call` filter reads the token after every bareword (#1580).
+        // The seeded ancestors are recorded too, since the walk never
+        // pushes them.
+        let mut siblings = SiblingCache::default();
+        for (at, ancestor) in chain.iter().enumerate() {
+            siblings.record(ancestor, at, ancestor.children());
+        }
 
         stack.push((*self, depth));
 
         while let Some((node, depth)) = stack.pop() {
             chain.truncate(depth);
-            action(&node, Ancestors::checked(&chain, &node));
+            action(
+                &node,
+                Ancestors::checked(&chain, &node).with_siblings(&siblings),
+            );
             chain.push(node);
             // Source order in, tail reversed in place, so the LIFO
             // `stack` yields the leftmost child first — pre-order with
@@ -926,6 +939,11 @@ impl<'a> Search<'a> for Node<'a> {
             stack.extend(
                 node.children_with(&mut cursor)
                     .map(|child| (child, depth + 1)),
+            );
+            siblings.record(
+                &node,
+                depth,
+                stack[first_child..].iter().map(|(child, _)| *child),
             );
             stack[first_child..].reverse();
         }
@@ -1858,6 +1876,31 @@ mod tests {
             visited += 1;
         });
         assert!(visited > 3, "subtree is too small to prove much");
+    }
+
+    /// A walk started below the root records its seeded ancestors'
+    /// children too, so a sibling lookup off a wide one is answered from
+    /// the cache. Without them the lookup's debug assertion fails: the
+    /// cache is lent, and the wide parent on the chain was never pushed
+    /// by this walk (#1580).
+    #[cfg(feature = "mozjs")]
+    #[test]
+    fn act_on_node_records_a_wide_seeded_ancestor() {
+        // Past `WIDE_PARENT` in `node/ancestors.rs`.
+        const RECORDED_WIDTH: usize = 64;
+        let code = "var a = 1;\n".repeat(RECORDED_WIDTH + 6);
+        let tree = Tree::new::<MozjsCode>(code.as_bytes());
+        let root = tree.get_root();
+        assert!(root.child_count() > RECORDED_WIDTH, "the root must be wide");
+        let subtree = root.child(3).expect("fixture has a fourth statement");
+
+        let mut after = None;
+        subtree.act_on_node(&mut |node, ancestors| {
+            if node.id() == subtree.id() {
+                after = Some(ancestors.siblings_after(node).count());
+            }
+        });
+        assert_eq!(after, Some(root.child_count() - 4));
     }
 
     /// `previous_sibling` must not answer "no previous sibling" when the

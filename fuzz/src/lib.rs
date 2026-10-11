@@ -53,16 +53,17 @@ pub mod nested;
 
 /// Node-kind filters handed to [`Ast::count`] and [`Ast::find`].
 ///
-/// `"function"` and `"string"` earn their places twice over: they are the
-/// two filters that reach a `Checker` predicate taking `code`, and both
-/// consult the ancestor chain `find` and `count` thread (#1381) — the
-/// Tcl-family `"string"` on every braced word — so they are the filters
-/// a deeply-nested or wide input exercises hardest.
+/// `"call"`, `"function"` and `"string"` earn their places twice over:
+/// they are the filters that reach a `Checker` predicate taking `code`,
+/// and each consults the ancestor chain `find` and `count` thread
+/// (#1381, #1580) — the Tcl-family `"string"` on every braced word, the
+/// Perl `"call"` on every bareword — so they are the filters a
+/// deeply-nested or wide input exercises hardest.
 ///
 /// **The order is load-bearing, and `"all"` must stay last.**
 /// `Filter::any` returns on its first matching predicate, and `"all"` is
 /// `|_| true`, so listing it first makes every other entry unreachable —
-/// `is_call`, `is_comment`, `is_error`, `is_string_with_code` and
+/// `is_call_with_code`, `is_comment`, `is_error`, `is_string_with_code` and
 /// `is_func_with_code` are then never called on any node, in any target.
 /// It was first here until a review caught it, which had quietly reduced
 /// `count` and `find` to a bare walk and left the `"function"` predicate

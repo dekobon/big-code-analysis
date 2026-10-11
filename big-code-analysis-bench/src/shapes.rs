@@ -640,6 +640,17 @@ pub fn perl_error_tail_keys(width: usize) -> String {
     format!("my @r = ({}", "{\n- and,\nnot,\n-a => 1,\n".repeat(width))
 }
 
+/// Perl: `my @r = (` followed by `width` copies of
+/// `{⏎last,⏎name => 1,⏎`, never closed.
+///
+/// [`perl_error_tail`]'s flat `ERROR`, holding a bareword call and a
+/// bareword key the grammar also reads as a call: the `call` filter
+/// asks of each whether a `=>` follows it.
+#[must_use]
+pub fn perl_error_tail_calls(width: usize) -> String {
+    format!("my @r = ({}", "{\nlast,\nname => 1,\n".repeat(width))
+}
+
 /// Bash: `if [ "$a" = 0 -o "$a" = 0 -a … ]; then :; fi`, the
 /// connectives alternating.
 ///
@@ -708,9 +719,10 @@ pub fn cpp_plus_chain(depth: usize) -> String {
 
 /// The walk a probe times.
 ///
-/// Two seams reach the AST walker — `Ast::metrics` and `Ast::ops` — and
-/// they share no options type, so the selection a metric probe needs
-/// lives on the variant that uses it rather than on every probe (#1110).
+/// Three seams reach an AST walk — `Ast::metrics`, `Ast::ops` and the
+/// `Ast::count` walk `bca find` shares — and they share no options type,
+/// so the selection a metric probe needs lives on the variant that uses
+/// it rather than on every probe (#1110).
 #[derive(Clone, Copy)]
 pub enum Workload {
     /// `Ast::metrics` under `selection`.
@@ -736,12 +748,18 @@ pub enum Workload {
         /// Headline value the walk produces on the probe's shape.
         reading: fn(&Ops) -> u64,
     },
+    /// `Ast::count` under one `--type` filter, the walk `bca count` and
+    /// `bca find` share. Its reading is the matching node count.
+    Count {
+        /// The filter, as `bca count --type` spells it.
+        filter: &'static str,
+    },
 }
 
 impl Workload {
     /// The options this workload walks under, resolved once so option
-    /// resolution stays outside the timed region. `Ast::ops` takes none,
-    /// so the default stands in and is ignored.
+    /// resolution stays outside the timed region. `Ast::ops` and
+    /// `Ast::count` take none, so the default stands in and is ignored.
     #[must_use]
     pub fn options(self) -> MetricsOptions {
         match self {
@@ -752,7 +770,7 @@ impl Workload {
             } => MetricsOptions::default()
                 .with_only(selection)
                 .with_exclude_tests(exclude_tests),
-            Self::Ops { .. } => MetricsOptions::default(),
+            Self::Ops { .. } | Self::Count { .. } => MetricsOptions::default(),
         }
     }
 
@@ -770,6 +788,10 @@ impl Workload {
         Ok(match self {
             Self::Metrics { reading, .. } => reading(&black_box(ast.metrics(options)?).metrics),
             Self::Ops { reading } => reading(&black_box(ast.ops()?)),
+            Self::Count { filter } => {
+                let (matching, _) = black_box(ast.count(&[filter.to_owned()]));
+                u64::try_from(matching).unwrap_or(u64::MAX)
+            }
         })
     }
 }
@@ -1667,6 +1689,23 @@ pub const PROBES: &[Probe] = &[
                     per copy of the body.",
     },
     Probe {
+        name: "count/perl-error-tail-calls",
+        lang: LANG::Perl,
+        axis: Axis::Width,
+        workload: Workload::Count { filter: "call" },
+        render: perl_error_tail_calls,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "`abc/perl-error-tail`'s flat `ERROR` under the walk \
+                    `bca count` and `bca find` share. The `call` filter \
+                    asks the bareword-key test of every bareword (#1580), \
+                    which reads the token after it; that walk lends no \
+                    `SiblingCache` unless `act_on_node` records one, and \
+                    a seek from the `ERROR`'s start is quadratic in the \
+                    tail. The reading is one call, `last`, per copy of \
+                    the body.",
+    },
+    Probe {
         name: "halstead/kotlin-short-interpolations",
         lang: LANG::Kotlin,
         axis: Axis::Width,
@@ -1885,7 +1924,11 @@ mod tests {
 
     /// Probes whose shape deliberately fails to parse; see
     /// [`shapes_parse_without_error`].
-    const RECOVERY_PROBES: &[&str] = &["abc/perl-error-tail", "halstead/perl-error-tail-keys"];
+    const RECOVERY_PROBES: &[&str] = &[
+        "abc/perl-error-tail",
+        "halstead/perl-error-tail-keys",
+        "count/perl-error-tail-calls",
+    ];
 
     /// Deepest `tree_sitter` node depth reachable from the root.
     ///

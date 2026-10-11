@@ -897,7 +897,8 @@ fn perl_bareword_outside_a_key_keeps_its_call() {
 /// walk that stopped recording trips the debug assertion in the lookup
 /// here, since the answers themselves would not change. Every value is
 /// `main`'s, measured before #1584: twelve `last` calls, the `name`
-/// keys none, and `-a` / `-and` billed whole.
+/// keys none, and `-a` / `-and` billed whole. `find` and `count` walk
+/// with `act_on_node`, which lends the same cache.
 #[cfg(feature = "perl")]
 #[test]
 fn perl_flat_error_reads_siblings_from_the_walk() {
@@ -946,4 +947,139 @@ fn perl_flat_error_reads_siblings_from_the_walk() {
         ops.operators,
         ["$", "&&", "()", ",", "=", "=>", ">", "my", "{}"]
     );
+
+    // The `call` filter of `find` and `count` asks the same key test of
+    // every bareword, through the walk `act_on_node` keeps (#1580): the
+    // twelve `last` calls, as ABC counts them, and no `name` key.
+    assert_eq!(ast.count(&["call".to_owned()]).0, 12);
+}
+
+/// What `bca find --type call` reports on `source`: each node's kind and
+/// text, in source order, and the root space's ABC branches. `is_call`
+/// and ABC's branch arm share `perl_bareword_is_call`, so the two must
+/// count the same calls (grammar-dispatch §7) — Perl has no other kind
+/// of ABC branch.
+#[cfg(feature = "perl")]
+fn perl_calls(source: &str) -> (Vec<(String, String)>, usize) {
+    let ast = Ast::parse(Source::new(LANG::Perl, source.as_bytes())).expect("perl is enabled");
+    let found = ast
+        .find(&["call".to_owned()])
+        .expect("find is infallible")
+        .iter()
+        .map(|node| {
+            (
+                node.kind().to_owned(),
+                source[node.start_byte()..node.end_byte()].to_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ast.count(&["call".to_owned()]).0,
+        found.len(),
+        "`count` and `find` disagree on `{source}`"
+    );
+    let branches = ast
+        .metrics(MetricsOptions::default())
+        .expect("metrics yields a root space")
+        .metrics
+        .abc
+        .branches_sum();
+    let branches = usize::try_from(branches).expect("a fixture's branch count fits a usize");
+    (found, branches)
+}
+
+/// #1580's fixture: three auto-quoted keys the grammar parses as
+/// bareword calls, and one call whose name it parses as a second. Before
+/// the fix `find` reported all five; `foo(1)` is the only call.
+#[cfg(feature = "perl")]
+#[test]
+fn perl_find_call_reports_one_node_per_call_1580() {
+    let source = "sub d { my %h = (name => 1, -size => 2); my $y = $h{-name}; return foo(1); }\n";
+    let (found, branches) = perl_calls(source);
+    assert_eq!(
+        found,
+        [(
+            "call_expression_with_args_with_brackets".to_owned(),
+            "foo(1)".to_owned()
+        )]
+    );
+    assert_eq!(branches, 1);
+}
+
+/// Each call spelling is one call, reported on the node present for
+/// that spelling: the wrapper where the grammar builds one around the
+/// name, else the bareword. `foo(1` is the error-recovery shape with no
+/// wrapper at all, so its bareword is the call; dropping bareword calls
+/// instead of gating them would lose it, and `foo;` and `&foo;` with it
+/// (grammar-dispatch §6).
+#[cfg(feature = "perl")]
+#[test]
+fn perl_each_call_spelling_is_one_call_1580() {
+    const BRACKETS: &str = "call_expression_with_args_with_brackets";
+    const SPACED: &str = "call_expression_with_spaced_args";
+    const BAREWORD: &str = "call_expression_with_bareword";
+    const METHOD: &str = "method_invocation";
+    let rows: [(&str, &[(&str, &str)]); 14] = [
+        ("foo(1);", &[(BRACKETS, "foo(1)")]),
+        ("foo();", &[(BRACKETS, "foo()")]),
+        ("&foo(1);", &[(BRACKETS, "&foo(1)")]),
+        ("Foo::bar(1);", &[(BRACKETS, "Foo::bar(1)")]),
+        ("foo 1;", &[(SPACED, "foo 1")]),
+        ("print \"x\";", &[(SPACED, "print \"x\"")]),
+        (
+            "sort { $a <=> $b } @x;",
+            &[(SPACED, "sort { $a <=> $b } @x")],
+        ),
+        ("$obj->m(1);", &[(METHOD, "$obj->m(1)")]),
+        (
+            "&$code(1);",
+            &[("call_expression_with_variable", "&$code(1)")],
+        ),
+        (
+            "__SUB__->(1);",
+            &[("call_expression_recursive", "__SUB__->(1)")],
+        ),
+        ("foo;", &[(BAREWORD, "foo")]),
+        ("&foo;", &[(BAREWORD, "&foo")]),
+        // A bareword argument is a call of its own, not the callee.
+        ("foo(bar);", &[(BRACKETS, "foo(bar)"), (BAREWORD, "bar")]),
+        ("foo(1", &[(BAREWORD, "foo")]),
+    ];
+    for (source, expected) in rows {
+        let (found, branches) = perl_calls(&format!("{source}\n"));
+        let expected = expected
+            .iter()
+            .map(|&(kind, text)| (kind.to_owned(), text.to_owned()))
+            .collect::<Vec<_>>();
+        assert_eq!(found, expected, "`{source}`");
+        assert_eq!(branches, found.len(), "`{source}`: ABC disagrees");
+    }
+}
+
+/// An auto-quoted key is a string, so it reports the calls its quoted
+/// twin does — none of its own. A word Perl does not quote keeps its
+/// call: a package-qualified word, one with arguments, and a value.
+/// Every count is checked against ABC's branches as well.
+#[cfg(feature = "perl")]
+#[test]
+fn perl_bareword_key_is_no_call_1580() {
+    let rows = [
+        ("my %h = (name => 1);", "my %h = ('name' => 1);", 0),
+        ("my %h = (-name => 1);", "my %h = ('-name' => 1);", 0),
+        ("my %h = (-size => 1);", "my %h = ('-size' => 1);", 0),
+        ("my $y = $h{-name};", "my $y = $h{'-name'};", 0),
+        ("my $y = $h{-size};", "my $y = $h{'-size'};", 0),
+        ("my %h = (1 - name => 2);", "my %h = (1 - 'name' => 2);", 0),
+        ("new(name => $x);", "new('name' => $x);", 1),
+        ("my %h = (Foo::Bar => 1);", "my %h = (Foo::Bar() => 1);", 1),
+        ("my %h = (name() => 1);", "my %h = (name(1) => 1);", 1),
+        ("my %h = (k => name);", "my %h = ('k' => name());", 1),
+    ];
+    for (key, twin, calls) in rows {
+        let (found, branches) = perl_calls(&format!("{key}\n"));
+        let (twin_found, _) = perl_calls(&format!("{twin}\n"));
+        assert_eq!(found.len(), calls, "`{key}` reported {found:?}");
+        assert_eq!(found.len(), twin_found.len(), "`{key}` against `{twin}`");
+        assert_eq!(branches, calls, "`{key}`: ABC disagrees");
+    }
 }

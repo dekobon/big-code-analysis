@@ -2,6 +2,7 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
+use crate::lang_helpers::perl::perl_bareword_is_call;
 
 impl Checker for PerlCode {
     fn is_comment(node: &Node) -> bool {
@@ -40,6 +41,12 @@ impl Checker for PerlCode {
                 | Perl::CallExpressionRecursive
                 | Perl::MethodInvocation
         )
+    }
+
+    fn is_call_with_code<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+        Self::is_call(node)
+            && (node.kind_id() != Perl::CallExpressionWithBareword as u16
+                || perl_bareword_is_call(node, ancestors))
     }
 
     // `NormalComma` (369) is the separator inside a subroutine signature;

@@ -133,7 +133,7 @@ impl<T: 'static + LanguageInfo + Alterator + Checker + Getter> ParserTrait for P
     }
 
     fn filters(&self, requested: &[String]) -> Filter<'_> {
-        // Borrowed by the `"function"` and `"string"` arms below, which
+        // Borrowed by the `"call"`, `"function"` and `"string"` arms below, which
         // is why `Filter` carries a lifetime.
         let code = self.code();
         let mut res: Vec<Box<FilterFn<'_>>> = Vec::new();
@@ -141,13 +141,15 @@ impl<T: 'static + LanguageInfo + Alterator + Checker + Getter> ParserTrait for P
             let f = f.as_str();
             match f {
                 "all" => res.push(Box::new(|_: &Node, _| -> bool { true })),
-                // `is_call` / `is_comment` / `is_error` take `&Node` and
-                // nothing else, so no language *can* make them
-                // text-dependent. The #1162 gap is confined by
-                // construction to the `Checker` predicates that accept
-                // `code`, and `"function"` and `"string"` are the two
-                // filters that reach one.
-                "call" => res.push(Box::new(|node: &Node, _| T::is_call(node))),
+                // `is_call_with_code`, not `is_call`: Perl parses a
+                // call's name and an auto-quoted hash key as bareword
+                // calls, and only the chain tells those from a call of
+                // their own (#1580). `is_comment` / `is_error` take
+                // `&Node` and nothing else, so no language *can* make
+                // them text-dependent.
+                "call" => res.push(Box::new(move |node: &Node, ancestors| {
+                    T::is_call_with_code(node, code, ancestors)
+                })),
                 "comment" => res.push(Box::new(|node: &Node, _| T::is_comment(node))),
                 "error" => res.push(Box::new(|node: &Node, _| T::is_error(node))),
                 // `is_string_with_code`, not `is_string`: a Tcl-family

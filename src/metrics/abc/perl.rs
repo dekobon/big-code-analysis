@@ -14,7 +14,7 @@ use super::{
     wrapped_operand,
 };
 use crate::lang_helpers::perl::{
-    perl_and_is_operator, perl_bareword_is_key, perl_dash_signs_keyword_key, perl_not_is_key,
+    perl_and_is_operator, perl_bareword_is_call, perl_dash_signs_keyword_key, perl_not_is_key,
 };
 use crate::*;
 
@@ -578,18 +578,7 @@ impl Abc for PerlCode {
             // `(name => 1)`, `(-name => 1)` and `$h{-name}` as calls of
             // `name`, and `$h{-foo}` as a file test on a bareword `oo`,
             // where Perl holds a string (#1545, #1572).
-            P::CallExpressionWithBareword
-                if !ancestors.parent(node).is_some_and(|p| {
-                    matches!(
-                        p.kind_id().into(),
-                        P::CallExpressionWithSpacedArgs
-                            | P::CallExpressionWithSub
-                            | P::CallExpressionWithArgsWithBrackets
-                            | P::CallExpressionWithVariable
-                            | P::CallExpressionRecursive
-                    )
-                }) && !perl_bareword_is_key(node, ancestors) =>
-            {
+            P::CallExpressionWithBareword if perl_bareword_is_call(node, ancestors) => {
                 stats.branches += 1.;
             }
             // Numeric, string, and pattern-match comparison operators

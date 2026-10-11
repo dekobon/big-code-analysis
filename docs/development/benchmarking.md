@@ -58,8 +58,9 @@ git submodule update --init --recursive
 ## The complexity-class gate {#complexity-gate}
 
 Each probe pairs a generated source shape with the workload that
-exercises one hot path — a metric selection through `Ast::metrics`, or
-the operator/operand walk behind `Ast::ops`. The shape is rendered at three doubling
+exercises one hot path — a metric selection through `Ast::metrics`,
+the operator/operand walk behind `Ast::ops`, or a `--type` filter
+through `Ast::count`. The shape is rendered at three doubling
 sizes, every (probe, size) cell is measured once per round with the
 visit order rotated between rounds, and the reported figure is the
 slope of `ln(time)` against `ln(size)`. A linear walk sits near 1.0;
@@ -168,6 +169,7 @@ Read it as follows.
 | `abc/perl-and-statements` | Perl | width | the misparse check's operator lookup in a block (#1273) | linear |
 | `abc/perl-error-tail` | Perl | width | the binding, bareword-key and misparse lookups under a flat `ERROR` root (#1540, #1584) | linear |
 | `halstead/perl-error-tail-keys` | Perl | width | the key and sign lookups under the same `ERROR` (#1584) | linear |
+| `count/perl-error-tail-calls` | Perl | width | the `call` filter's bareword-key lookup under the same `ERROR`, on the `find` / `count` walk (#1580) | linear |
 | `cognitive/bash-test-connective-run` | Bash | depth | the comparison-run end of a `[ … -o … ]` test (#1536) | linear |
 | `abc/bash-arith-assign-chain` | Bash | depth | ABC's `=` comparison test on `(( a = … ))` (#1536) | linear |
 | `abc/bash-eq-and-test` | Bash | depth | the same test on a `[[ … = … && … ]]` run (#1536) | linear |
@@ -416,7 +418,16 @@ over bound and nothing else moves:
 | (same patch) | `halstead/perl-error-tail-keys` | 1.04 | 1.74 | 14.5 ms → 96.0 ms |
 | (same patch) | `halstead/kotlin-short-interpolations` | 0.96 | 2.02 | 1.1 ms → 589 ms |
 
-These two are the probes whose shape is meant not to parse:
+The walk `bca find` and `bca count` share, `act_on_node`, keeps the same
+chain and lent no cache until Perl's `call` filter started asking the
+bareword-key test of every bareword ([#1580][find-call]). It records
+one now, and `count/perl-error-tail-calls` prices it:
+
+| Walk put back | Probe that fails | Clean | Regressed | Top rung |
+|---|---|---|---|---|
+| `act_on_node` lends no cache | `count/perl-error-tail-calls` | 0.88 | 1.89 | 2.8 ms → 84.5 ms |
+
+These three are the probes whose shape is meant not to parse:
 `RECOVERY_PROBES` in `shapes.rs` exempts them from the parse check and
 asserts that each root is still an `ERROR`.
 
@@ -518,6 +529,7 @@ a walk's chain bookkeeping, not just around a change to its cost. The
 [space-merge]: https://github.com/dekobon/big-code-analysis/issues/1106
 [perl-bash-probes]: https://github.com/dekobon/big-code-analysis/issues/1575
 [flat-error]: https://github.com/dekobon/big-code-analysis/issues/1584
+[find-call]: https://github.com/dekobon/big-code-analysis/issues/1580
 
 The eleven control probes are what make the other readings mean
 something.

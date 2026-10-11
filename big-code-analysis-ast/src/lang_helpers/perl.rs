@@ -188,6 +188,33 @@ pub fn perl_bareword_is_key<'a>(word: &Node<'a>, ancestors: Ancestors<'a, '_>) -
     }
 }
 
+/// Whether `word`, a Perl `call_expression_with_bareword` whose ancestor
+/// chain is `ancestors`, is a call site of its own.
+///
+/// The grammar nests the callee of every call that takes arguments as a
+/// bareword call: `foo(1)`, `foo 1` and `sort { … } @x` each wrap a
+/// `call_expression_with_bareword` spelling `foo` or `sort`, so the
+/// wrapper is the call and the word inside it is its name. The word is
+/// kept for the spellings with no wrapper — `foo;`, `&foo;`, and the
+/// `foo(1` that error recovery leaves without one — so the wrapper
+/// cannot be dropped instead. Nor is an auto-quoted key a call
+/// ([`perl_bareword_is_key`]). ABC's branches and
+/// `Checker::is_call_with_code` both ask this, so the two count the same
+/// calls.
+#[must_use]
+pub fn perl_bareword_is_call<'a>(word: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+    !ancestors.parent(word).is_some_and(|parent| {
+        matches!(
+            parent.kind_id().into(),
+            Perl::CallExpressionWithSpacedArgs
+                | Perl::CallExpressionWithSub
+                | Perl::CallExpressionWithArgsWithBrackets
+                | Perl::CallExpressionWithVariable
+                | Perl::CallExpressionRecursive
+        )
+    }) && !perl_bareword_is_key(word, ancestors)
+}
+
 /// Whether `dash`, a Perl `-` token whose ancestor chain is
 /// `ancestors`, is the sign of an auto-quoted key rather than a unary
 /// minus: a `-and` / `-not` key ([`perl_dash_signs_keyword_key`]) or a

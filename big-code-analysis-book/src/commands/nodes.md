@@ -60,6 +60,10 @@ with a literal `call` node cannot be matched by name — use its numeric
   in C#, Java, Groovy, Kotlin, C++, JavaScript, TypeScript, PHP, Ruby
   and Rust; see
   [Where a constructor call lands](../metrics.md#abc-constructor-attribution).
+  Each call matches once. In Perl, where the grammar parses a call's
+  name as a call of its own, `foo(1)` matches as the whole call only,
+  and an auto-quoted hash key (`(name => 1)`, `$h{-name}`), which it
+  parses as a call too, does not match at all.
 - `comment` — a comment of any of the language's forms.
 - `string` — a string *literal*. Type-annotation keywords that share the
   literal's node name (TypeScript's and PHP's `: string`) are excluded.

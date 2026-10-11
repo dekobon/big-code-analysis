@@ -475,7 +475,7 @@ pub trait Checker {
     /// TypeScript, TSX, PHP, Ruby (`super` / `yield` count as branches)
     /// and Rust (`?` does).
     ///
-    /// The relation is not a plain superset everywhere. Four languages
+    /// The relation is not a plain superset everywhere. Three languages
     /// depart from it, each in its own direction:
     ///
     /// * Tcl and iRules bill a mutator command (`incr`, `append`,
@@ -487,17 +487,15 @@ pub trait Checker {
     /// * Elixir excludes its definition and directive `Call`s (`def`,
     ///   `defmodule`, `alias`, `import`, …) from `branches` while
     ///   counting each `|>` pipeline step.
-    /// * Perl counts a bareword call only at the outermost dispatch
-    ///   site: in `print shift;` the wrapper
-    ///   `call_expression_with_spaced_args` is the branch and the
-    ///   `print` bareword it holds is skipped, so that bareword is an
-    ///   `is_call` match with no branch behind it. So is an auto-quoted
-    ///   hash key (`(name => 1)`, `$h{-name}`), which the grammar parses
-    ///   as a bareword call and ABC reads as the string it is.
     ///
-    /// The two sets coincide only in C, Objective-C, Go, Python, Lua
-    /// and Bash, which have neither a separate construction syntax nor
-    /// a gated branch arm.
+    /// The two sets coincide in C, Objective-C, Go, Python, Lua and
+    /// Bash, which have neither a separate construction syntax nor a
+    /// gated branch arm, and in Perl, whose one gated arm ABC shares
+    /// with [`is_call_with_code`](Self::is_call_with_code): a bareword
+    /// is no call of its own as a wrapper's callee (`print` in
+    /// `print shift;`) or as an auto-quoted key (`(name => 1)`). That
+    /// gate needs the ancestor chain, so for Perl this byte-less form is
+    /// only the kind table the override narrows.
     // `is_call` and each language's ABC branch arm classify the same
     // nodes through parallel `matches!()` tables, so they drift
     // silently; the divergence is pinned by
@@ -507,6 +505,19 @@ pub trait Checker {
     #[must_use]
     fn is_call(_: &Node) -> bool {
         false
+    }
+    /// [`is_call`](Self::is_call), given the source bytes and the
+    /// chain the caller descended through, which the `call` filter
+    /// hands it. The default forwards to [`is_call`](Self::is_call).
+    ///
+    /// Perl overrides it: the grammar nests a call's name inside the
+    /// call as a bareword call of its own, and parses an auto-quoted
+    /// hash key as one, so only the position says which words are
+    /// calls (#1580).
+    #[inline]
+    #[must_use]
+    fn is_call_with_code<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+        Self::is_call(node)
     }
     /// Whether `node`, met among a parameter list's children, is
     /// punctuation or a keyword rather than a parameter (`nargs` skips it).
