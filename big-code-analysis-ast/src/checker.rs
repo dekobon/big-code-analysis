@@ -491,7 +491,9 @@ pub trait Checker {
     ///   site: in `print shift;` the wrapper
     ///   `call_expression_with_spaced_args` is the branch and the
     ///   `print` bareword it holds is skipped, so that bareword is an
-    ///   `is_call` match with no branch behind it.
+    ///   `is_call` match with no branch behind it. So is an auto-quoted
+    ///   hash key (`(name => 1)`, `$h{-name}`), which the grammar parses
+    ///   as a bareword call and ABC reads as the string it is.
     ///
     /// The two sets coincide only in C, Objective-C, Go, Python, Lua
     /// and Bash, which have neither a separate construction syntax nor

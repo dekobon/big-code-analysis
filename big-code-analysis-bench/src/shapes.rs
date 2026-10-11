@@ -503,6 +503,29 @@ pub fn perl_dash_keys(width: usize) -> String {
     )
 }
 
+/// Perl: `sub f { return g(foo => 1, -foo => 1, …); }` — one call whose
+/// argument list holds `width` bareword keys, alternately plain and
+/// signed.
+///
+/// The width shape for the #1572 bareword-key workaround, which asks of
+/// every bareword call, and of every `-` before one, whether a `=>`
+/// follows it. Unlike [`perl_dash_keys`], whose `-foo` the grammar reads
+/// as a file test, neither key here has a letter that is a file test, so
+/// this reaches the `-` and bareword-call path instead.
+#[must_use]
+pub fn perl_bareword_keys(width: usize) -> String {
+    let keys: Vec<&str> = (0..width)
+        .map(|i| {
+            if i % 2 == 0 {
+                "name => 1"
+            } else {
+                "-name => 1"
+            }
+        })
+        .collect();
+    format!("sub f {{ return g({}); }}\n", keys.join(", "))
+}
+
 /// Perl: `my @r = (/a/, /a/, …);` — one list of `width` bare matches.
 ///
 /// The width shape for the Perl ABC pattern-role check, which asks of
@@ -1354,6 +1377,28 @@ pub const PROBES: &[Probe] = &[
                     0.02 s and 0.03 s once the sibling is found by index. \
                     ABC asks through the same helper. The reading is the \
                     operand count, which grows with the width.",
+    },
+    Probe {
+        name: "abc/perl-bareword-keys",
+        lang: LANG::Perl,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Abc, Metric::Halstead],
+            reading: |m| m.halstead.total_operands(),
+        },
+        render: perl_bareword_keys,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1572's bareword-key workaround asks of every bareword \
+                    call (ABC) and of every `-` before one (Halstead) \
+                    whether a `=>` follows it, the question \
+                    `halstead/perl-dash-keys` pins for file-test keys. \
+                    Finding that `=>` by scanning the list from its start \
+                    would be quadratic in the key count, as #1545's first \
+                    form was. The reading is the operand count, which \
+                    grows with the width; the branch count would not, \
+                    since the fix leaves only `g` scoring one.",
     },
     Probe {
         name: "abc/perl-pattern-list",

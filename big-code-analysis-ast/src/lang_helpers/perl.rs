@@ -1,5 +1,6 @@
-//! Perl: telling the `and` and `not` operators, and the file tests,
-//! from an auto-quoted key that the grammar lexes as one of them.
+//! Perl: telling the `and` and `not` operators, the file tests, the
+//! unary minus and bareword calls from an auto-quoted key that the
+//! grammar lexes as one of them.
 
 use crate::Perl;
 use crate::node::{Ancestors, Node};
@@ -114,10 +115,9 @@ pub fn perl_not_is_key<'a>(not: &Node<'a>, parent: &Node<'a>) -> bool {
 /// The subscript form of the second shape (`$h{-x}`) recovers into an
 /// `ERROR` that drops the `-x` token altogether, so nothing is left to
 /// bill. A key whose letter is no file-test letter (`-name`, `-height`)
-/// is a third shape, a `-` applied to the bareword, which this does not
-/// cover: it still bills the `-` and the word, and ABC counts the word
-/// as a call, as every bareword key does. Remove this, and every call
-/// site, once the pin carries the upstream fix.
+/// is a third shape, a `-` applied to the bareword, which
+/// [`perl_bareword_is_key`] covers. Remove this, and every call site,
+/// once the pin carries the upstream fix.
 #[must_use]
 pub(crate) fn perl_file_test_is_dash_key<'a>(
     test: &Node<'a>,
@@ -130,7 +130,11 @@ pub(crate) fn perl_file_test_is_dash_key<'a>(
             if operand.is_error() {
                 operand.is_child(Perl::FatComma as u16) && operand.start_row() == test.start_row()
             } else {
-                is_glued_word(&operand, test) && is_key_position(test, ancestors)
+                is_glued_word(&operand, test)
+                    && ancestors
+                        .iter(test)
+                        .next()
+                        .is_some_and(|(key, above)| is_key_position(&key, above))
             }
         })
 }
@@ -139,12 +143,86 @@ pub(crate) fn perl_file_test_is_dash_key<'a>(
 /// file test bills whole, so it bills nothing of its own. `ancestors`
 /// is `node`'s chain.
 #[must_use]
-pub fn perl_is_dash_key_word<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+pub(crate) fn perl_is_dash_key_word<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     ancestors.iter(node).next().is_some_and(|(test, above)| {
         test.kind_id() == Perl::FileHandleOperator as u16
             && is_glued_word(node, &test)
             && perl_file_test_is_dash_key(&test, above)
     })
+}
+
+/// Whether `word`, a Perl `call_expression_with_bareword` whose
+/// ancestor chain is `ancestors`, is an auto-quoted hash key rather than
+/// a call.
+///
+/// FIXME(#1571 upstream): tree-sitter-perl 1.1.2 parses every bareword
+/// key as a call. Perl quotes a word of letters, digits and underscores
+/// before `=>` (perlop, "Comma Operator") and alone in a hash subscript
+/// (perldata, "Scalar value constructors"), a leading `-` included, so
+/// `(name => 1)`, `(-name => 1)`, `$h{-name}` and `$h{-size}` hold the
+/// strings `"name"`, `"-name"`, `"-name"` and `"-size"`, and call
+/// nothing. Three shapes reach here:
+///
+/// - the bareword itself before a `=>` (`$h{name}` is an `identifier`
+///   with no call around it, so the subscript form never arises);
+/// - the operand of a `-` whose `unary_expression` is the key —
+///   before a `=>`, or alone in a subscript;
+/// - the word of a `-bareword` key the grammar reads as a file test
+///   (`-size`), which `perl_is_dash_key_word` decides.
+///
+/// A package-qualified word (`Foo::Bar => 1`) is not quoted by `=>`
+/// and stays a call, as does a word with arguments (`name() => 1`),
+/// which the grammar wraps in a call of its own. Remove this, and every
+/// call site, once the pin carries the upstream fix.
+#[must_use]
+pub fn perl_bareword_is_key<'a>(word: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+    if perl_is_dash_key_word(word, ancestors) {
+        return true;
+    }
+    if !is_plain_bareword(word) {
+        return false;
+    }
+    match ancestors.iter(word).next() {
+        Some((unary, above)) if is_dash_unary(&unary) => is_key_position(&unary, above),
+        _ => is_key_position(word, ancestors),
+    }
+}
+
+/// Whether `dash`, a Perl `-` token whose ancestor chain is
+/// `ancestors`, is the sign of an auto-quoted key rather than a unary
+/// minus: a `-and` / `-not` key ([`perl_dash_signs_keyword_key`]) or a
+/// `-bareword` key ([`perl_bareword_is_key`]). A key's sign is part of
+/// the string, so it is no operator.
+#[must_use]
+pub(crate) fn perl_dash_signs_key<'a>(dash: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors.iter(dash).next().is_some_and(|(parent, above)| {
+        perl_dash_signs_keyword_key(dash, &parent)
+            || (parent.kind_id() == Perl::UnaryExpression as u16
+                && next_non_extra(&parent, dash).is_some_and(|word| is_plain_bareword(&word))
+                && is_key_position(&parent, above))
+    })
+}
+
+/// The `-` that signs the `-bareword` key `identifier` spells, or
+/// `None` when `identifier`, a Perl `identifier` whose ancestor chain is
+/// `ancestors`, is no such key's word. The key bills as one operand
+/// spelled from the `-` to the word's end, so `(-name => 1)` bills
+/// `-name`, the spelling of its quoted twin's contents.
+#[must_use]
+pub(crate) fn perl_bareword_key_sign<'a>(
+    identifier: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+) -> Option<Node<'a>> {
+    let mut up = ancestors.iter(identifier);
+    let (_, word_ancestors) = up
+        .next()
+        .filter(|(word, _)| word.kind_id() == Perl::CallExpressionWithBareword as u16)?;
+    let (unary, _) = up.next()?;
+    let dash = unary
+        .child_by_field_name("operator")
+        .filter(|op| op.kind_id() == Perl::DASH as u16)?;
+    // `word` and `dash` are siblings, so they share an ancestry.
+    perl_dash_signs_key(&dash, word_ancestors).then_some(dash)
 }
 
 /// Whether `dash`, a Perl `-` token whose parent is `parent`, is the
@@ -215,26 +293,66 @@ fn is_glued_word(word: &Node, test: &Node) -> bool {
         && word.start_byte() == test.start_byte() + FILE_TEST_TOKEN_LEN
 }
 
-// Whether the `unary_expression` around `test` is the whole key of a
-// hash subscript, which the grammar wraps in a `binary_expression` with
-// no other child but comments, or is followed by a `=>`.
-fn is_key_position<'a>(test: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-    let mut up = ancestors.iter(test).map(|(ancestor, _)| ancestor);
-    let mut key = up.next();
-    let mut parent = up.next();
-    if parent
-        .is_some_and(|p| p.kind_id() == Perl::BinaryExpression as u16 && non_extra_count(&p) == 1)
-    {
-        key = parent;
-        parent = up.next();
+// Whether `key`, whose ancestor chain is `ancestors`, is a key where
+// Perl auto-quotes one: the whole of a hash subscript, which the grammar
+// may wrap in a `binary_expression` with no other child but comments,
+// or the last thing before a `=>`. Every auto-quoted key shape asks this
+// one question, of the node that spans its whole key.
+//
+// `=>` quotes the word immediately to its left whatever expression that
+// word closes (perlop, "Comma Operator"), so `(1 - name => 2)` subtracts
+// the string `"name"`. The grammar nests such a word as the last operand
+// of its expression, so the test climbs while the node is its parent's
+// last child: the sibling after the first ancestor that has one is the
+// token after the word. A key that stopped being the whole of its node
+// on the way up is no subscript key (`$h{1 - name}` is not quoted).
+fn is_key_position<'a>(key: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+    let mut node = *key;
+    let mut whole = true;
+    for (parent, _) in ancestors.iter(key) {
+        if whole
+            && matches!(
+                parent.kind_id().into(),
+                Perl::HashAccessVariableSimple | Perl::HashAccessVariable
+            )
+        {
+            return true;
+        }
+        // As in `perl_not_is_key`, only comments are passed over: the
+        // grammar wraps a stray `,` (`(name, => 1)`) in an `ERROR` it
+        // marks as an extra, and that `,`, not the word, is then the
+        // token the `=>` quotes, which is nothing.
+        if let Some(next) = parent
+            .children_after(&node)
+            .find(|sibling| sibling.is_error() || !sibling.as_tree_sitter().is_extra())
+        {
+            return next.kind_id() == Perl::FatComma as u16;
+        }
+        whole &= parent.kind_id() == Perl::BinaryExpression as u16 && non_extra_count(&parent) == 1;
+        node = parent;
     }
-    key.zip(parent).is_some_and(|(key, parent)| {
-        matches!(
-            parent.kind_id().into(),
-            Perl::HashAccessVariableSimple | Perl::HashAccessVariable
-        ) || next_non_extra(&parent, &key)
-            .is_some_and(|next| next.kind_id() == Perl::FatComma as u16)
-    })
+    false
+}
+
+// Whether `word` is a call of a bare word and nothing else: one
+// `identifier`, no package qualifier, no arguments. Only such a word is
+// auto-quoted.
+fn is_plain_bareword(word: &Node) -> bool {
+    word.kind_id() == Perl::CallExpressionWithBareword as u16
+        && word
+            .children()
+            .filter(|child| !child.as_tree_sitter().is_extra())
+            .map(|child| child.kind_id())
+            .eq([Perl::Identifier as u16])
+}
+
+// Whether `node` is a unary minus, the `unary_expression` a `-bareword`
+// key whose letter is no file-test letter parses as.
+fn is_dash_unary(node: &Node) -> bool {
+    node.kind_id() == Perl::UnaryExpression as u16
+        && node
+            .child_by_field_name("operator")
+            .is_some_and(|op| op.kind_id() == Perl::DASH as u16)
 }
 
 fn non_extra_count(node: &Node) -> usize {

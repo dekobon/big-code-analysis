@@ -14,7 +14,7 @@ use super::{
     wrapped_operand,
 };
 use crate::lang_helpers::perl::{
-    perl_and_is_operator, perl_dash_signs_keyword_key, perl_is_dash_key_word, perl_not_is_key,
+    perl_and_is_operator, perl_bareword_is_key, perl_dash_signs_keyword_key, perl_not_is_key,
 };
 use crate::*;
 
@@ -566,10 +566,11 @@ impl Abc for PerlCode {
             // when this node is the outermost dispatch site. When the
             // bareword sits inside one of the wrappers above, the
             // outer node has already been counted and this child
-            // would double the branch tally. Nor is the word of a
-            // `-bareword` key a call (FIXME(#1545 upstream)): the
-            // grammar splits `$h{-foo}` into a file test on a bareword
-            // `oo`, and the key is a string.
+            // would double the branch tally. Nor is an auto-quoted
+            // key a call (FIXME(#1571 upstream)): the grammar reads
+            // `(name => 1)`, `(-name => 1)` and `$h{-name}` as calls of
+            // `name`, and `$h{-foo}` as a file test on a bareword `oo`,
+            // where Perl holds a string (#1545, #1572).
             P::CallExpressionWithBareword
                 if !ancestors.parent(node).is_some_and(|p| {
                     matches!(
@@ -580,7 +581,7 @@ impl Abc for PerlCode {
                             | P::CallExpressionWithVariable
                             | P::CallExpressionRecursive
                     )
-                }) && !perl_is_dash_key_word(node, ancestors) =>
+                }) && !perl_bareword_is_key(node, ancestors) =>
             {
                 stats.branches += 1.;
             }

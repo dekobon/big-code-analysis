@@ -1,7 +1,8 @@
 //! An auto-quoted `and` or `not` key scores like any other key, and the
 //! `and` and `not` operators still score as operators (#1539, #1541).
 //! The same holds for a `-bareword` key and the file tests the grammar
-//! mistakes it for (#1545).
+//! mistakes it for (#1545), and for every other bareword key, which the
+//! grammar reads as a call (#1572).
 //!
 //! Perl quotes a bareword before `=>` and alone in a hash subscript, so
 //! `$h{and}` and `(not => 1)` hold a string key and no operator.
@@ -416,10 +417,11 @@ const DASH_KEY_ROWS: [(&str, &str, [u64; 4], Halstead); 20] = [
         [2, 1, 0, 0],
         [5, 5, 3, 4],
     ),
+    // The `ext` key scored a branch for "calling" it until #1572.
     (
-        "f('-text' => 1, ext => 2);",
+        "f('-text' => 1, 'ext' => 2);",
         "f(-text => 1, ext => 2);",
-        [2, 2, 0, 0],
+        [2, 1, 0, 0],
         [6, 7, 5, 6],
     ),
     (
@@ -499,9 +501,9 @@ const DASH_KEY_ROWS: [(&str, &str, [u64; 4], Halstead); 20] = [
 /// swallowing the `=>`, and `-not` as a `-` applied to the keyword.
 /// Before the fix each `-foo` billed the operand `oo` and an ABC branch
 /// for calling it, and each `-not` / `-and` billed a `-` operator. A key
-/// whose letter is no file-test letter (`-name`) is not among them: it
-/// parses as a `-` applied to a bareword, which still bills the `-` and
-/// an ABC branch for the word, as every bareword key does.
+/// whose letter is no file-test letter (`-name`) parses as a `-` applied
+/// to a bareword instead, and is pinned by
+/// `perl_bareword_key_scores_like_its_quoted_twin`.
 ///
 /// The rows pairing a key with a second key equal to the misparsed
 /// word (`ext`, `not`) or to itself (`-x` twice) pin the operand's
@@ -530,7 +532,9 @@ fn perl_dash_key_scores_like_its_quoted_twin() {
 /// A `-and` / `-not` key keeps its sign when whitespace separates the
 /// two: Perl keys `(- not => 1)` as `"-not"`, so it must not share a
 /// vocabulary entry with the plain `not` key beside it. The twins'
-/// values are `DASH_KEY_ROWS`' for the glued spelling.
+/// values are `DASH_KEY_ROWS`' for the glued spelling. A `- name` key
+/// keeps its sign too (#1572); it is spelled as written, space and all,
+/// which the counts cannot see, since only one signed key is present.
 #[cfg(feature = "perl")]
 #[test]
 fn perl_spaced_dash_key_keeps_its_sign() {
@@ -541,6 +545,10 @@ fn perl_spaced_dash_key_keeps_its_sign() {
         (
             "f('-not' => 1, not => 2);",
             "f(- # c\n not => 1, not => 2);",
+        ),
+        (
+            "f('-name' => 1, 'name' => 2);",
+            "f(- name => 1, name => 2);",
         ),
     ] {
         let want = measure_with_branches(twin);
@@ -633,6 +641,244 @@ fn perl_file_test_outside_a_key_keeps_its_reading() {
         ("f(-foo, 1);", [2, 2, 0, 0], [5, 5, 3, 4]),
         ("return -not $x;", [2, 0, 0, 0], [7, 7, 2, 2]),
         ("return $a - not $x;", [2, 0, 0, 0], [7, 8, 3, 3]),
+    ];
+    for (body, decisions, halstead) in rows {
+        assert_eq!(
+            measure_with_branches(body),
+            (decisions, halstead),
+            "`{body}` changed its reading"
+        );
+    }
+}
+
+/// `(quoted_twin, bareword_key, [cyclomatic, branches, conditions,
+/// cognitive], halstead)` rows for
+/// `perl_bareword_key_scores_like_its_quoted_twin`. Every value is the
+/// twin's, measured on `main` before #1572.
+#[cfg(feature = "perl")]
+const BAREWORD_KEY_ROWS: [(&str, &str, [u64; 4], Halstead); 23] = [
+    (
+        "my %h = ('name' => 1); return 1;",
+        "my %h = (name => 1); return 1;",
+        [2, 0, 0, 0],
+        [8, 9, 4, 5],
+    ),
+    (
+        "my %h = ('-name' => 1); return 1;",
+        "my %h = (-name => 1); return 1;",
+        [2, 0, 0, 0],
+        [8, 9, 4, 5],
+    ),
+    (
+        "my %h; return $h{'-name'};",
+        "my %h; return $h{-name};",
+        [2, 0, 0, 0],
+        [6, 8, 4, 4],
+    ),
+    (
+        "my %h; return $h{ '-name' };",
+        "my %h; return $h{ -name };",
+        [2, 0, 0, 0],
+        [6, 8, 4, 4],
+    ),
+    (
+        "my $r; return $r->{'-name'};",
+        "my $r; return $r->{-name};",
+        [2, 0, 0, 0],
+        [7, 10, 3, 4],
+    ),
+    (
+        "my %h; return @h{'-a'};",
+        "my %h; return @h{-a};",
+        [2, 0, 0, 0],
+        [5, 7, 4, 4],
+    ),
+    (
+        "my %h; if ($h{'-name'}) { return 1; } return 0;",
+        "my %h; if ($h{-name}) { return 1; } return 0;",
+        [3, 0, 1, 1],
+        [8, 13, 6, 6],
+    ),
+    (
+        "my $r = { 'a' => { 'b' => 1 } }; return $r;",
+        "my $r = { a => { b => 1 } }; return $r;",
+        [2, 0, 0, 0],
+        [8, 13, 5, 6],
+    ),
+    // A named-argument call scores its callee alone.
+    (
+        "new('name' => $x, 'size' => 3);",
+        "new(name => $x, size => 3);",
+        [2, 1, 0, 0],
+        [7, 8, 6, 6],
+    ),
+    (
+        "foo 'name' => 1;",
+        "foo name => 1;",
+        [2, 1, 0, 0],
+        [4, 4, 4, 4],
+    ),
+    (
+        "$o->m('-name' => 1);",
+        "$o->m(-name => 1);",
+        [2, 1, 0, 0],
+        [7, 7, 5, 5],
+    ),
+    // Perl quotes a word across a comment or line break before `=>`.
+    (
+        "my %h = ('name' # c\n => 1); return 1;",
+        "my %h = (name # c\n => 1); return 1;",
+        [2, 0, 0, 0],
+        [8, 9, 4, 5],
+    ),
+    // The spelling rows: a signed and a plain key are two operands, and
+    // two signed keys one, as their twins are. Billed as `name`, the
+    // first pair merges (n2 4) and the second still matches; billed as
+    // `-` + `name`, both also bill a `-` operator.
+    (
+        "f('-name' => 1, 'name' => 2);",
+        "f(-name => 1, name => 2);",
+        [2, 1, 0, 0],
+        [6, 7, 5, 6],
+    ),
+    (
+        "f('-name' => 1, '-name' => 2);",
+        "f(-name => 1, -name => 2);",
+        [2, 1, 0, 0],
+        [6, 7, 4, 6],
+    ),
+    // A builtin's name is quoted like any other word.
+    (
+        "my %h = ('shift' => 1, 'time' => 2); return 1;",
+        "my %h = (shift => 1, time => 2); return 1;",
+        [2, 0, 0, 0],
+        [9, 11, 6, 7],
+    ),
+    (
+        "my @a = ('a' => 'b' => 1); return @a;",
+        "my @a = (a => b => 1); return @a;",
+        [2, 0, 0, 0],
+        [8, 10, 5, 6],
+    ),
+    // A bareword *value* is no key, and still scores its call.
+    (
+        "my @a = ('a' => foo); return @a;",
+        "my @a = (a => foo); return @a;",
+        [2, 1, 0, 0],
+        [8, 9, 4, 5],
+    ),
+    // `=>` quotes the word right before it whatever expression the word
+    // closes, which the grammar nests as that expression's last operand.
+    // A subtraction's `-` stays an operator.
+    (
+        "my @a = (1 - 'name' => 2); return @a;",
+        "my @a = (1 - name => 2); return @a;",
+        [2, 0, 0, 0],
+        [9, 10, 5, 6],
+    ),
+    (
+        "my @a = ($x . 'name' => 2); return @a;",
+        "my @a = ($x . name => 2); return @a;",
+        [2, 0, 0, 0],
+        [10, 11, 5, 6],
+    ),
+    (
+        "my @a = (f(1), 'name' => 2); return @a;",
+        "my @a = (f(1), name => 2); return @a;",
+        [2, 1, 0, 0],
+        [9, 11, 5, 7],
+    ),
+    // After a keyword or file-test key, whose recovery leaves an
+    // `ERROR` in the same list.
+    (
+        "f(not => 1, 'name' => 2);",
+        "f(not => 1, name => 2);",
+        [2, 1, 0, 0],
+        [6, 7, 5, 6],
+    ),
+    (
+        "f(and => 1, '-name' => 2);",
+        "f(and => 1, -name => 2);",
+        [2, 1, 0, 0],
+        [6, 7, 5, 6],
+    ),
+    (
+        "f('-x' => 1, 'name' => 2);",
+        "f(-x => 1, name => 2);",
+        [2, 1, 0, 0],
+        [6, 7, 5, 6],
+    ),
+];
+
+/// Each bareword key below scores exactly as its quoted twin does, in
+/// all four metrics (#1572). tree-sitter-perl reads `name` before `=>`
+/// as a call of `name`, and `-name` there or alone in a subscript as a
+/// `-` applied to that call. Before the fix each key scored an ABC
+/// branch, and each `-name` billed a `-` operator and the unsigned
+/// operand `name`. Cyclomatic and cognitive were never affected, which
+/// the decision columns pin.
+#[cfg(feature = "perl")]
+#[test]
+fn perl_bareword_key_scores_like_its_quoted_twin() {
+    for (twin, key, decisions, halstead) in BAREWORD_KEY_ROWS {
+        assert_eq!(twin.replace('\'', ""), key, "`{key}` drifted from its twin");
+        let want = measure_with_branches(twin);
+        assert_eq!(
+            want,
+            (decisions, halstead),
+            "`{twin}` moved; re-derive the row"
+        );
+        assert_eq!(
+            measure_with_branches(key),
+            want,
+            "`{key}` must score like `{twin}`"
+        );
+    }
+}
+
+/// A bareword that is no auto-quoted key keeps the call, and a `-` that
+/// signs none keeps its operator: a word followed by anything but `=>`,
+/// a package-qualified word (`=>` quotes only letters, digits and
+/// underscores), a word with arguments, a call inside a subscript, a
+/// `-bareword` that is only part of one, a word a stray `,` separates
+/// from the `=>` (the grammar hides that `,` in an extra `ERROR`, and
+/// the `=>` then quotes the `,`, which is nothing), and a unary minus on
+/// a variable. Every value is `main`'s, measured before #1572.
+#[cfg(feature = "perl")]
+#[test]
+fn perl_bareword_outside_a_key_keeps_its_call() {
+    let rows: [(&str, [u64; 4], Halstead); 11] = [
+        ("foo(-name);", [2, 2, 0, 0], [5, 5, 3, 3]),
+        (
+            "my @a = (name, => 1); return @a;",
+            [2, 1, 0, 0],
+            [9, 10, 4, 5],
+        ),
+        (
+            "my @a = (-name, => 1); return @a;",
+            [2, 1, 0, 0],
+            [10, 11, 4, 5],
+        ),
+        ("return -name;", [2, 1, 0, 0], [5, 5, 2, 2]),
+        ("my @a = (name, 1); return @a;", [2, 1, 0, 0], [8, 9, 4, 5]),
+        (
+            "my @a = (Foo::Bar => 1); return @a;",
+            [2, 1, 0, 0],
+            [9, 10, 5, 6],
+        ),
+        (
+            "my @a = (name() => 1); return @a;",
+            [2, 1, 0, 0],
+            [8, 10, 4, 5],
+        ),
+        ("my %h; return $h{foo()};", [2, 1, 0, 0], [7, 9, 4, 4]),
+        (
+            "my %h; return $h{-name . 'x'};",
+            [2, 1, 0, 0],
+            [8, 10, 5, 5],
+        ),
+        ("my %h; return $h{1 - name};", [2, 1, 0, 0], [7, 9, 5, 5]),
+        ("my $y = -$x; return $y;", [2, 0, 0, 0], [8, 11, 3, 4]),
     ];
     for (body, decisions, halstead) in rows {
         assert_eq!(

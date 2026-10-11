@@ -155,6 +155,7 @@ Read it as follows.
 | `abc/wide-let-declarators` | JavaScript | width | ABC's structural `const` check per `let` declarator (#1277) | linear |
 | `loc/wide-cfg-test-mod` | Rust | width | the `exclude_tests` prune arm's row bookkeeping (#1417) | linear |
 | `halstead/perl-dash-keys` | Perl | width | the dash-key workaround's `=>` lookup per key (#1545) | linear |
+| `abc/perl-bareword-keys` | Perl | width | the bareword-key workaround's `=>` lookup per key (#1572) | linear |
 | `halstead/kotlin-noinline-params` | Kotlin | width | the modifier recovery guard's next-token lookup (#1558) | linear |
 | `abc/perl-pattern-list` | Perl | width | ABC's pattern-role climb through `( … )` (#1467) | linear |
 | `cyclomatic/cpp-plus-chain` | C++ | depth | shape control for the three rows below | linear |

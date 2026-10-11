@@ -509,6 +509,32 @@ mod tests {
         );
     }
 
+    /// A bareword key bills as the string it is (#1572): `-name` as one
+    /// operand with its sign, no `-` operator, and apart from the plain
+    /// `name` key. The expected vocabularies are the quoted twin's
+    /// (`'-name' => 1, 'name' => 2`, `$h{'-name'}`) with the quotes
+    /// dropped; before the fix `-name` billed `-` and folded into `name`.
+    /// The second fixture is the guard: a subtraction before a key and a
+    /// unary minus on a variable keep their `-`.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_bareword_keys_bill_as_written() {
+        check_ops(
+            LANG::Perl,
+            "my %h = (-name => 1, name => 2); my $v = $h{-name};",
+            "foo.pl",
+            &mut ["$", "()", ",", ";", "=", "=>", "my", "{}"],
+            &mut ["$h", "$v", "%h", "-name", "1", "2", "name"],
+        );
+        check_ops(
+            LANG::Perl,
+            "my @a = (1 - size => 3, -$x);",
+            "foo.pl",
+            &mut ["()", ",", "-", ";", "=", "=>", "my", "$"],
+            &mut ["$x", "1", "3", "@a", "size"],
+        );
+    }
+
     #[cfg(feature = "python")]
     #[test]
     fn python_function_ops() {

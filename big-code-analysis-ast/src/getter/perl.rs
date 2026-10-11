@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::lang_helpers::perl::{
-    perl_and_is_operator, perl_dash_signs_keyword_key, perl_file_test_is_dash_key,
+    perl_and_is_operator, perl_bareword_key_sign, perl_dash_signs_key, perl_file_test_is_dash_key,
     perl_is_dash_key_word, perl_key_is_signed, perl_not_is_key,
 };
 
@@ -258,6 +258,11 @@ impl Getter for PerlCode {
     /// keys `(- not => 1)` as `"-not"` too. The sign is read off the tree
     /// (`perl_key_is_signed`), not the byte before the key, which can
     /// equally be an infix `-` or the end of a comment.
+    ///
+    /// Any other `-bareword` key (`(-name => 1)`, `$h{-name}`) bills its
+    /// word spelled from the sign (#1572). That is a source slice, so a
+    /// sign spaced off its word (`(- name => 1)`, rare) keeps the space:
+    /// one operand, distinct from `name`, but not merged with `-name`.
     fn get_operand_id<'a>(
         node: &Node<'a>,
         code: &'a [u8],
@@ -274,6 +279,8 @@ impl Getter for PerlCode {
             }
             Perl::And if perl_key_is_signed(node, ancestors) => b"-and",
             Perl::Not if perl_key_is_signed(node, ancestors) => b"-not",
+            Perl::Identifier => perl_bareword_key_sign(node, ancestors)
+                .map_or(&code[start..end], |dash| &code[dash.start_byte()..end]),
             _ => &code[start..end],
         }
     }
@@ -342,8 +349,11 @@ fn auto_quoted_key_role<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> Op
         // one operand spelling the whole key, and the word inside
         // bills nothing. A `-and` / `-not` key splits instead into
         // a `-` and the keyword, which the arms above bill as the
-        // key; the `-` is part of it and bills nothing. See
-        // `perl_file_test_is_dash_key`.
+        // key, and any other `-bareword` key (`(-name => 1)`) into a
+        // `-` and a bareword call, whose `identifier` bills the key
+        // (#1572, the local workaround for upstream #1571); in both
+        // the `-` is part of the key and bills nothing. See
+        // `perl_file_test_is_dash_key` and `perl_bareword_is_key`.
         P::FileHandleOperator if perl_file_test_is_dash_key(node, ancestors) => TokenRole::Operand,
         P::Identifier
             if ancestors
@@ -353,13 +363,7 @@ fn auto_quoted_key_role<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> Op
         {
             TokenRole::Unknown
         }
-        P::DASH
-            if ancestors
-                .parent(node)
-                .is_some_and(|parent| perl_dash_signs_keyword_key(node, &parent)) =>
-        {
-            TokenRole::Unknown
-        }
+        P::DASH if perl_dash_signs_key(node, ancestors) => TokenRole::Unknown,
         _ => return None,
     };
     Some(role)
