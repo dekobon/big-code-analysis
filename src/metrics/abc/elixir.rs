@@ -9,11 +9,17 @@
     clippy::cast_sign_loss
 )]
 
-use super::{Abc, Stats, count_boolean_slot, count_field_operands, last_operand, wrapped_operand};
-use crate::lang_helpers::elixir::{elixir_applying_operator, elixir_call_keyword};
+use super::{
+    Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands, last_operand,
+    wrapped_operand,
+};
+use crate::lang_helpers::elixir::{
+    elixir_applying_operator, elixir_applying_remote_call, elixir_call_keyword,
+    elixir_kernel_operator_token,
+};
 use crate::metrics::elixir_decisions::{
-    elixir_arrow_is_with_clause, elixir_clause_is_decision, elixir_sole_unguarded_pattern,
-    elixir_when_alternative, elixir_when_is_guard,
+    elixir_arrow_is_with_clause, elixir_clause_is_decision, elixir_keyword_section,
+    elixir_sole_unguarded_pattern, elixir_when_alternative, elixir_when_is_guard,
 };
 use crate::*;
 
@@ -71,33 +77,37 @@ fn elixir_binary_operator_is(node: &Node, accept: impl Fn(Elixir) -> bool) -> bo
 // arms) and for an `&&` / `||` / `and` / `or` chain, whose walker scores
 // each operand through `elixir_count_condition` — so every operand
 // either pays there or is one of these, and a chain always carries at
-// least one condition of its own.
+// least one condition of its own. A short-circuit `Kernel` remote call
+// (`Kernel.||(a, b)`) is that chain spelled as a call, and its operands
+// pay through `elixir_count_remote_chain` in the same way (#1574).
 //
 // The operator list must agree with the token arms in `compute`: an
 // operator listed here and counted nowhere would leave its slot at zero,
 // and one counted there but missing here would pay twice.
-fn elixir_condition_scores_itself(expr: &Node) -> bool {
+fn elixir_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Elixir as E;
 
-    elixir_binary_operator_is(expr, |op| {
-        matches!(
-            op,
-            E::EQEQ
-                | E::EQEQEQ
-                | E::BANGEQ
-                | E::BANGEQEQ
-                | E::LTEQ
-                | E::GTEQ
-                | E::LT
-                | E::GT
-                | E::In
-                | E::Notin
-                | E::AMPAMP
-                | E::PIPEPIPE
-                | E::And
-                | E::Or
-        )
-    })
+    elixir_kernel_operator_token(expr, code)
+        .is_some_and(|op| matches!(op.kind_id().into(), E::AMPAMP | E::PIPEPIPE))
+        || elixir_binary_operator_is(expr, |op| {
+            matches!(
+                op,
+                E::EQEQ
+                    | E::EQEQEQ
+                    | E::BANGEQ
+                    | E::BANGEQEQ
+                    | E::LTEQ
+                    | E::GTEQ
+                    | E::LT
+                    | E::GT
+                    | E::In
+                    | E::Notin
+                    | E::AMPAMP
+                    | E::PIPEPIPE
+                    | E::And
+                    | E::Or
+            )
+        })
 }
 
 // Scores one boolean slot — an `if` / `unless` predicate, a `cond`
@@ -115,11 +125,11 @@ fn elixir_condition_scores_itself(expr: &Node) -> bool {
 // whether the decision is already paid for, rather than whether the
 // occupant is a known terminal, also scores what the list never held —
 // `a && x + 1`, `a && @flag`, `a && -x` each scored one below `a && b`.
-fn elixir_count_condition(condition: &Node, conditions: &mut f64) {
+fn elixir_count_condition(condition: &Node, code: &[u8], conditions: &mut f64) {
     count_boolean_slot(
         condition,
         elixir_wrapper_operand,
-        elixir_condition_scores_itself,
+        |expr| elixir_condition_scores_itself(expr, code),
         conditions,
     );
 }
@@ -139,9 +149,9 @@ fn elixir_count_condition(condition: &Node, conditions: &mut f64) {
 // `binary_operator` has no `right` child, which the grammar declares
 // required — so the `if let`'s else is unreachable at the pin rather
 // than untested.
-fn elixir_count_guard(when_operator: &Node, conditions: &mut f64) {
+fn elixir_count_guard(when_operator: &Node, code: &[u8], conditions: &mut f64) {
     if let Some(alternative) = elixir_when_alternative(when_operator) {
-        elixir_count_condition(&alternative, conditions);
+        elixir_count_condition(&alternative, code, conditions);
     }
 }
 
@@ -163,31 +173,56 @@ fn elixir_count_guard(when_operator: &Node, conditions: &mut f64) {
 // clause (`x when g ->`, `kind, reason ->`) pays one for its pattern
 // match, and a guard pays its own slot through the `when` arm, as the
 // two `Cyclomatic` decisions it carries.
-fn elixir_count_clause(clause: &Node, conditions: &mut f64) {
+fn elixir_count_clause(clause: &Node, code: &[u8], conditions: &mut f64) {
     match elixir_sole_unguarded_pattern(clause) {
-        Some(pattern) => elixir_count_condition(&pattern, conditions),
+        Some(pattern) => elixir_count_condition(&pattern, code, conditions),
         None => *conditions += 1.,
     }
 }
 
-// Whether an `if` / `unless` Call carries an `else` branch, in either
+// Whether an `if` / `unless` Call carries an `else` branch, in any
 // spelling: the block form's `else_block` inside the `do_block`
-// (`if b do … else … end`), or the keyword form's `else:` pair
-// (`if b, do: …, else: …`). The keyword token's text carries its colon
-// and the whitespace after it, so it is trimmed before comparing.
+// (`if b do … else … end`), or the keyword form's `else:` pair, bare
+// (`if b, do: …, else: …`) or bracketed (`if(b, [do: …, else: …])`).
 fn elixir_has_else(call: &Node, code: &[u8]) -> bool {
     use Elixir as E;
 
     call.children().any(|child| match child.kind_id().into() {
         E::DoBlock => child.children().any(|c| c.kind_id() == E::ElseBlock as u16),
-        _ if child.kind() == "arguments" => child
-            .children()
-            .filter(|c| c.kind_id() == E::Keywords as u16)
-            .flat_map(|keywords| keywords.children())
-            .filter_map(|pair| pair.child_by_field_name("key"))
-            .any(|key| key.utf8_text(code).is_some_and(|k| k.trim_end() == "else:")),
+        _ if child.kind() == "arguments" => elixir_keyword_section(&child, code, "else").is_some(),
         _ => false,
     })
+}
+
+// The operands of a short-circuit `Kernel` remote call
+// (`elixir_applying_remote_call`), each a boolean slot as the `left` and
+// `right` of `a || b` are, so `Kernel.||(a, b)` scores what `a || b`
+// does (#1574): the call's arguments, and under a pipe
+// (`a |> Kernel.||(b)`) the piped value, which the pipe passes as the
+// first argument. `up` yields the ancestors above the call.
+//
+// Which side of the pipe the call sits on is not checked: in
+// `Kernel.||(a, b) |> f()` the piped value is the call itself, which
+// `elixir_condition_scores_itself` already says pays nothing.
+fn elixir_count_remote_chain<'a>(
+    call: &Node<'a>,
+    code: &[u8],
+    mut up: impl Iterator<Item = Node<'a>>,
+    conditions: &mut f64,
+) {
+    let score = |operand: &Node, conditions: &mut f64| {
+        elixir_count_condition(operand, code, conditions);
+    };
+    if let Some(piped) = up
+        .next()
+        .filter(|pipe| elixir_binary_operator_is(pipe, |op| op == Elixir::PIPEGT))
+        .and_then(|pipe| pipe.child_by_field_name("left"))
+    {
+        score(&piped, conditions);
+    }
+    if let Some(arguments) = call.children().find(|child| child.kind() == "arguments") {
+        count_each_operand(&arguments, score, conditions);
+    }
 }
 
 // What an Elixir `Call` contributes. The classification is by keyword
@@ -226,7 +261,7 @@ fn elixir_count_call(node: &Node, code: &[u8], stats: &mut Stats) {
             .find(|c| c.kind() == "arguments")
             .and_then(|args| wrapped_operand(&args))
         {
-            elixir_count_condition(&predicate, &mut stats.conditions);
+            elixir_count_condition(&predicate, code, &mut stats.conditions);
         }
         // Fitzpatrick Rule 5 counts the `else`, as Ruby's, Java's,
         // Python's and Go's `if … else` each pay it (#1531). Only an
@@ -367,7 +402,7 @@ impl Abc for ElixirCode {
             // and `Cyclomatic` impls share.
             E::When if elixir_when_is_guard(node, code, ancestors) => {
                 if let Some(operator) = ancestors.parent(node) {
-                    elixir_count_guard(&operator, &mut stats.conditions);
+                    elixir_count_guard(&operator, code, &mut stats.conditions);
                 }
             }
             // `in` / `not in` are Elixir's membership and type tests
@@ -445,14 +480,27 @@ impl Abc for ElixirCode {
             // token's parent can be an `ERROR` node, which has no
             // operands to score. `a && b || c` is a left-nested chain of
             // `binary_operator`s, so an operand that is itself a chain is
-            // paid by its own operator's visit.
+            // paid by its own operator's visit. A short-circuit `Kernel`
+            // remote call applies the operator too, as `Cyclomatic`
+            // counts it through the same predicate (§7, #1574).
             E::AMPAMP | E::PIPEPIPE | E::And | E::Or => {
                 if let Some(chain) = elixir_applying_operator(node, ancestors) {
-                    count_field_operands(&chain, elixir_count_condition, &mut stats.conditions);
+                    count_field_operands(
+                        &chain,
+                        |operand, conditions| elixir_count_condition(operand, code, conditions),
+                        &mut stats.conditions,
+                    );
+                } else if let Some(call) = elixir_applying_remote_call(node, code, ancestors) {
+                    let above_call = ancestors
+                        .iter(node)
+                        .map(|(ancestor, _)| ancestor)
+                        .skip_while(|ancestor| ancestor.id() != call.id())
+                        .skip(1);
+                    elixir_count_remote_chain(&call, code, above_call, &mut stats.conditions);
                 }
             }
             E::StabClause if elixir_clause_is_decision(node, code, ancestors) => {
-                elixir_count_clause(node, &mut stats.conditions);
+                elixir_count_clause(node, code, &mut stats.conditions);
             }
             // A `with`'s `pattern <- expr` clause is a pattern-match
             // condition (Rule 9), the decision `Cyclomatic` counts

@@ -501,7 +501,7 @@ pub(super) fn peel<'a>(node: &Node<'a>, step: PeelStep<'a>) -> (Node<'a>, bool) 
 pub(super) fn count_boolean_slot<'a>(
     slot: &Node<'a>,
     step: PeelStep<'a>,
-    scores_itself: fn(&Node<'a>) -> bool,
+    scores_itself: impl Fn(&Node<'a>) -> bool,
     conditions: &mut f64,
 ) {
     if !scores_itself(&peel(slot, step).0) {
@@ -527,16 +527,18 @@ pub(super) fn count_negated_operand<'a>(
     }
 }
 
-// A language's scorer for one operand: its `count_boolean_slot` or
-// `count_negated_operand` wrapper.
-pub(super) type OperandScorer = fn(&Node, &mut f64);
-
 // Fitzpatrick Rule 9 for a chain whose grammar names its two operands
-// `left` and `right`: each is scored by `score`. Read by field rather
+// `left` and `right`: each is scored by `score`, the language's
+// `count_boolean_slot` or `count_negated_operand` wrapper — a closure
+// where it needs the source bytes (Elixir's, #1574). Read by field rather
 // than as every operand child, so a comment beside the operator — a
 // named child too — does not pay. The caller owns the gate deciding
 // that `chain` is a chain at all.
-pub(super) fn count_field_operands(chain: &Node, score: OperandScorer, conditions: &mut f64) {
+pub(super) fn count_field_operands(
+    chain: &Node,
+    score: impl Fn(&Node, &mut f64),
+    conditions: &mut f64,
+) {
     for field in ["left", "right"] {
         if let Some(operand) = chain.child_by_field_name(field) {
             score(&operand, conditions);
@@ -547,7 +549,11 @@ pub(super) fn count_field_operands(chain: &Node, score: OperandScorer, condition
 // Each operand child of `list` — an argument list, a `return` value
 // list, a chain whose grammar names no operand field — scored by
 // `score`. `is_operand` keeps punctuation and comments out.
-pub(super) fn count_each_operand(list: &Node, score: OperandScorer, conditions: &mut f64) {
+pub(super) fn count_each_operand(
+    list: &Node,
+    score: impl Fn(&Node, &mut f64),
+    conditions: &mut f64,
+) {
     for operand in list.children().filter(is_operand) {
         score(&operand, conditions);
     }

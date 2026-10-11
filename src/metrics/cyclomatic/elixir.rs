@@ -7,6 +7,7 @@
 )]
 
 use super::*;
+use crate::lang_helpers::elixir::{elixir_applying_operator, elixir_applying_remote_call};
 use crate::metrics::elixir_decisions::{
     elixir_arrow_is_with_clause, elixir_clause_is_decision, elixir_when_is_guard,
     elixir_with_else_dispatches,
@@ -121,14 +122,11 @@ impl Cyclomatic for ElixirCode {
             // on the same parent. A remote call naming it,
             // `Kernel.||(a, b)`, applies the macro and decides like
             // `a || b`; a user module's `Foo.||(a, b)` is an ordinary
-            // call and does not. ABC and cognitive still score the
-            // `Kernel` call 0, as they did before #1534.
+            // call and does not. ABC and cognitive score the `Kernel`
+            // call through the same predicate (#1574).
             E::AMPAMP | E::PIPEPIPE | E::And | E::Or
-                if crate::lang_helpers::elixir::elixir_applying_operator(node, ancestors)
-                    .is_some()
-                    || crate::lang_helpers::elixir::elixir_remote_call_applies(
-                        node, code, ancestors,
-                    ) =>
+                if elixir_applying_operator(node, ancestors).is_some()
+                    || elixir_applying_remote_call(node, code, ancestors).is_some() =>
             {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;

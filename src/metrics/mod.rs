@@ -78,6 +78,9 @@ mod cpp_alternative_tokens_tests;
 #[path = "elixir_named_operator_tests.rs"]
 mod elixir_named_operator_tests;
 #[cfg(test)]
+#[path = "elixir_spelling_parity_tests.rs"]
+mod elixir_spelling_parity_tests;
+#[cfg(test)]
 #[path = "perl_keyword_key_tests.rs"]
 mod perl_keyword_key_tests;
 

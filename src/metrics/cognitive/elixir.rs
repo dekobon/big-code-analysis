@@ -12,6 +12,45 @@
 )]
 
 use super::*;
+use crate::lang_helpers::elixir::elixir_applying_remote_call;
+use crate::metrics::elixir_decisions::elixir_keyword_pair_section;
+
+/// Whether a Call spelling `keyword` takes `try`'s sections — `else`,
+/// `rescue`, `catch` — in its keyword form: `try` itself, and the
+/// method-defining macros, whose body is an implicit `try`
+/// (`def f, do: g(), rescue: (e -> e)`).
+fn elixir_takes_try_sections(keyword: &str) -> bool {
+    keyword == "try" || elixir_is_method_macro(keyword)
+}
+
+/// The cost a keyword-form section carries, matching its block form.
+enum ElixirSection {
+    /// `else:`, which adds +1 as the `Else` token does.
+    Else,
+    /// `rescue:` / `catch:`, which add +nesting as `RescueBlock` /
+    /// `CatchBlock` do.
+    Handler,
+}
+
+/// The section `pair` spells, when its Call takes it (#1574). Only such
+/// a Call scores it, because `else:` is an ordinary option name to any
+/// other function; a `with`'s `else:` is that construct's clause
+/// dispatch, which its own +nesting already paid.
+fn elixir_section<'a>(
+    pair: &Node<'a>,
+    code: &'a [u8],
+    ancestors: Ancestors<'a, '_>,
+) -> Option<ElixirSection> {
+    let (key, call) = elixir_keyword_pair_section(pair, code, ancestors)?;
+    let keyword = elixir_call_keyword(&call, code)?;
+    match key {
+        "else" if matches!(keyword, "if" | "unless") || elixir_takes_try_sections(keyword) => {
+            Some(ElixirSection::Else)
+        }
+        "rescue" | "catch" if elixir_takes_try_sections(keyword) => Some(ElixirSection::Handler),
+        _ => None,
+    }
+}
 
 /// Folds an Elixir `BinaryOperator`'s short-circuit operator children
 /// into the boolean-sequence counter — Elixir has four (`&&`, `||`,
@@ -24,6 +63,24 @@ fn compute_elixir_booleans(node: &Node, stats: &mut Stats) {
         Elixir::PIPEPIPE | Elixir::Or => Some(Elixir::PIPEPIPE as u16),
         _ => None,
     });
+}
+
+/// [`compute_elixir_booleans`] for a short-circuit `Kernel` remote call
+/// (`Kernel.||(a, b)`), whose operator token sits in the call's name
+/// rather than among a `binary_operator`'s children. The sequence is
+/// keyed on the call's span, as a `binary_operator`'s is on its own.
+fn compute_elixir_remote_booleans<'a>(
+    op: &Node<'a>,
+    code: &'a [u8],
+    ancestors: Ancestors<'a, '_>,
+    stats: &mut Stats,
+) {
+    if let Some(call) = elixir_applying_remote_call(op, code, ancestors) {
+        stats.structural =
+            stats
+                .boolean_seq
+                .eval_based_on_prev(op.kind_id(), call.end_byte(), stats.structural);
+    }
 }
 
 impl Cognitive for ElixirCode {
@@ -51,7 +108,8 @@ impl Cognitive for ElixirCode {
     //   `FunctionDefinition` rule, but the function depth deliberately
     //   does NOT bump — see the arm comment below for why.
     // - `AnonymousFunction` (`fn x -> y end`): lambda nesting bumps.
-    // - `&&` / `||` / `and` / `or`: boolean sequence cost.
+    // - `&&` / `||` / `and` / `or`: boolean sequence cost, as is a
+    //   `Kernel.&&` / `Kernel.||` remote call.
     //
     // Limitations:
     // - `Enum.reduce` / `Enum.map` and friends are higher-order function
@@ -66,10 +124,11 @@ impl Cognitive for ElixirCode {
     fn compute<'a>(
         node: &Node<'a>,
         code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
+        // bca: suppress(cyclomatic, halstead) — kind dispatch table; each gated arm is one rule
         use Elixir as E;
 
         let mut nesting = get_nesting_from_map(node, nesting_map);
@@ -117,11 +176,36 @@ impl Cognitive for ElixirCode {
                 _ => {}
             },
             // `else` keyword inside an `else_block` (else arm of `if`
-            // / `unless` / `with` / `try`). Matches Java/Kotlin's
-            // `Else` rule: +1 without raising nesting.
-            E::Else => {
+            // / `unless` / `try`). Matches Java/Kotlin's `Else` rule: +1
+            // without raising nesting.
+            //
+            // Not a `with`'s: its `else` holds the clauses that dispatch
+            // over the value a `<-` failed to match, the arms of the
+            // `case` the construct is in all but spelling, and `case`'s
+            // arms add nothing past the +nesting its container paid.
+            // Ruby draws the same line for the `else` of `case/when`
+            // (#451); the `if` alternative and `try`'s no-exception
+            // branch, which no container paid for, keep their +1. The
+            // keyword form `with(…, do: …, else: (…))` scored 1 all
+            // along; this puts the block form level with it (#1574).
+            // The `else` token's parents are the `else_block`, then the
+            // `do_block`, then the Call.
+            E::Else
+                if ancestors
+                    .iter(node)
+                    .nth(2)
+                    .is_none_or(|(call, _)| elixir_call_keyword(&call, code) != Some("with")) =>
+            {
                 increment_by_one(stats);
             }
+            // The keyword spellings of the sections above:
+            // `if(c, do: 1, else: 2)`, `try(do: f(), rescue: (…))`, bare
+            // or in brackets.
+            E::Pair => match elixir_section(node, code, ancestors) {
+                Some(ElixirSection::Else) => increment_by_one(stats),
+                Some(ElixirSection::Handler) => increase_nesting(stats, &mut nesting),
+                None => {}
+            },
             // `rescue` / `catch` arms of a `try` Call each add +nesting,
             // matching Java's `CatchClause` treatment.
             E::RescueBlock | E::CatchBlock => {
@@ -142,6 +226,15 @@ impl Cognitive for ElixirCode {
             // twice per BinaryOperator.
             E::BinaryOperator | E::BinaryOperator2 | E::BinaryOperator3 => {
                 compute_elixir_booleans(node, stats);
+            }
+            // A short-circuit `Kernel` remote call applies the operator
+            // as `a || b` does, so it opens or continues a sequence the
+            // same way (#1574), keyed on the call's span as a
+            // `binary_operator`'s operator is keyed on the operator's.
+            // `Foo.||(a, b)` is an ordinary call and is not matched; the
+            // token inside a `binary_operator` is the arm above's.
+            E::AMPAMP | E::PIPEPIPE => {
+                compute_elixir_remote_booleans(node, code, ancestors, stats);
             }
             _ => {}
         }
