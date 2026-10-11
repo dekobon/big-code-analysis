@@ -162,6 +162,13 @@ Read it as follows.
 | `cyclomatic/cpp-and-chain` | C++ | depth | the `&&` / `||` applied-operator gate (#1533) | linear |
 | `cognitive/cpp-and-chain` | C++ | depth | the boolean-sequence arm on the same chain (#1533) | linear |
 | `abc/cpp-and-chain` | C++ | depth | ABC's chain arm on the same chain (#1533) | linear |
+| `abc/perl-or-chain` | Perl | depth | the misparse check's spine climb (#1273) | linear |
+| `abc/perl-misparsed-comparison` | Perl | depth | the same climb on a chain the misparse absorbed (#1273) | linear |
+| `abc/perl-and-statements` | Perl | width | the misparse check's operator lookup in a block (#1273) | linear |
+| `abc/perl-error-tail` | Perl | width | `perl_binding_rewrites` under a flat `ERROR` root (#1540) | linear |
+| `cognitive/bash-test-connective-run` | Bash | depth | the comparison-run end of a `[ … -o … ]` test (#1536) | linear |
+| `abc/bash-arith-assign-chain` | Bash | depth | ABC's `=` comparison test on `(( a = … ))` (#1536) | linear |
+| `abc/bash-eq-and-test` | Bash | depth | the same test on a `[[ … = … && … ]]` run (#1536) | linear |
 
 Four of these were quadratic when the harness landed, and they shared
 one cause: `tree_sitter` stores no parent pointer, so `Node::parent`
@@ -365,6 +372,37 @@ depth 4 000 — while `cyclomatic/cpp-plus-chain`, the same chain through
 metric has its own probe because each reaches the chain through its own
 arm, and a climb added to one of them would leave the other two flat.
 
+The seven Perl and Bash probes guard walks that went quadratic during
+the #1273, #1536 and #1540 work and were caught only by a hand-timed
+check in review ([#1575][perl-bash-probes]). Each was watched failing
+with its pre-fix code put back behind a local patch, one walk at a
+time:
+
+| Walk put back | Probe that fails | Clean | Regressed | Top rung |
+|---|---|---|---|---|
+| every Perl spine node climbs | `abc/perl-or-chain` | 1.00 | 2.00 | 8.8 ms → 2.33 s |
+| (same patch) | `abc/perl-misparsed-comparison` | 0.99 | 2.01 | 8.8 ms → 2.35 s |
+| the stop parent scanned from its start | `abc/perl-and-statements` | 1.08 | 2.01 | 3.7 ms → 306 ms |
+| any parent read as a binding | `abc/perl-error-tail` | 1.19 | 2.05 | 2.9 ms → 492 ms |
+| the Bash comparison run climbed per node | `cognitive/bash-test-connective-run` | 0.98 | 2.06 | 6.5 ms → 1.99 s |
+| every Bash `=` climbs to its test | `abc/bash-arith-assign-chain` | 1.00 | 1.97 | 0.8 ms → 72.5 ms |
+| (same patch) | `abc/bash-eq-and-test` | 1.02 | 1.91 | 2.9 ms → 75.2 ms |
+
+In each run only the named probes moved, and every other probe stayed
+inside its bound.
+
+Removing only the kind gate in front of the Perl lookup moved nothing:
+`abc/perl-and-statements` held at 1.19. On a block that gate is not
+what keeps the walk linear, because the lookup seeks the child by byte.
+That seek is `O(log n)` only where the grammar stores the children as
+a balanced repeat, though, and an `ERROR` that recovery built by
+skipping tokens is one flat array. So `abc/perl-error-tail` carries
+only `=~` in its body. With a bareword or a `&&` chain added it fits
+2.09 on today's tree ([#1584][flat-error]). It is also the one probe
+whose shape is meant not to parse: `RECOVERY_PROBES` in `shapes.rs`
+exempts it from the parse check and asserts that its root is still an
+`ERROR`.
+
 Treat the linear bounds above as covering the walk's ancestor *chain*
 threading, not every `O(depth)` lookup in the crate.
 
@@ -461,6 +499,8 @@ a walk's chain bookkeeping, not just around a change to its cost. The
 [cfg-predicate]: https://github.com/dekobon/big-code-analysis/issues/1105
 [attribute-row]: https://github.com/dekobon/big-code-analysis/issues/1431
 [space-merge]: https://github.com/dekobon/big-code-analysis/issues/1106
+[perl-bash-probes]: https://github.com/dekobon/big-code-analysis/issues/1575
+[flat-error]: https://github.com/dekobon/big-code-analysis/issues/1584
 
 The eleven control probes are what make the other readings mean
 something.
@@ -524,7 +564,8 @@ alone.
 Add a `Probe` to `PROBES` in `big-code-analysis-bench/src/shapes.rs`.
 The unit tests in that module enforce what a probe has to satisfy:
 bytes affine in the size parameter, no parse errors at the smallest
-declared size, a non-zero workload reading there, sizes that double,
+declared size (or, for a probe listed in `RECOVERY_PROBES`, an `ERROR`
+root), a non-zero workload reading there, sizes that double,
 and the invariant its `axis` selects — AST levels growing with the size
 on `Axis::Depth`, children growing while AST depth holds still on
 `Axis::Width`. Set `max_exponent` from a measurement on an idle host,

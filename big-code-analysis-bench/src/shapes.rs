@@ -557,6 +557,122 @@ pub fn kotlin_noinline_params(width: usize) -> String {
     source
 }
 
+/// Perl: `my $r = $v || $v || … || $v;`.
+///
+/// `||` is left-associative, so the chain is a left-nested spine one
+/// `binary_expression` deeper per operand. Perl ABC asks every chain
+/// node whether a misparsed comparison (#1273) absorbed its leading
+/// operand, by climbing the spine of leading slots to its root. Every
+/// node but the bottom one leads with a chain, which scores itself, so
+/// only the bottom one climbs; climbing from each was `O(depth)` per
+/// operator: ~15 s for 8 000 operands in a release build.
+#[must_use]
+pub fn perl_or_chain(depth: usize) -> String {
+    format!("my $r = {}$v;\n", "$v || ".repeat(depth))
+}
+
+/// Perl: `my $r = $x > $v && $v && … && $v;`.
+///
+/// [`perl_or_chain`] behind the #1273 misparse it exists to detect:
+/// tree-sitter-perl lets `>` swallow the chain to its right, so the
+/// whole spine is the comparison's right operand and the bottom node's
+/// climb ends on the `>`, answering "absorbed". The two shapes share
+/// the climb and differ in where it stops.
+#[must_use]
+pub fn perl_misparsed_comparison(depth: usize) -> String {
+    format!("my $r = $x > {}$v;\n", "$v && ".repeat(depth))
+}
+
+/// Perl: `sub f { $a && $b; $a && $b; … }` — one block of `width`
+/// two-operand chains.
+///
+/// The width shape for the same misparse check. Each chain's leading
+/// operand is a bare variable, so each climbs, and the climb stops one
+/// step up at the block to read the operator before the chain.
+/// Scanning the block's statements from its start for it was
+/// `O(width)` per chain: 16.3 s for 10 000 statements in a release
+/// build.
+#[must_use]
+pub fn perl_and_statements(width: usize) -> String {
+    format!("sub f {{ {}}}\n", "$a && $b; ".repeat(width))
+}
+
+/// Perl: `my @r = (` followed by `width` copies of `$d $c =~ /x/;⏎{⏎`,
+/// never closed.
+///
+/// The width shape for a file whose tail fails to parse, as
+/// `perl5db.pl`'s does: tree-sitter-perl gives up on the unclosed list,
+/// the root becomes an `ERROR`, and every `=~` in the tail is its direct
+/// child. Perl ABC asks each `=~` whether it binds a rewrite, which
+/// reads its parent's last operand; read off the `ERROR`, that is a
+/// scan of the whole tail per `=~`. The body is the smallest found that
+/// keeps the `=~` flat: without the stray `$d` and `{` it folds back
+/// into a narrow `binary_expression`.
+///
+/// FIXME(#1584): a bareword or a `&&` chain in this body makes the probe
+/// quadratic on today's tree, because a flat `ERROR` defeats the
+/// `O(log n)` child seek `Node::children_after` / `children_before`
+/// rely on. Add `last if` and `$a && $b,` to the body with that fix.
+#[must_use]
+pub fn perl_error_tail(width: usize) -> String {
+    format!("my @r = ({}", "$d $c =~ /x/;\n{\n".repeat(width))
+}
+
+/// Bash: `if [ "$a" = 0 -o "$a" = 0 -a … ]; then :; fi`, the
+/// connectives alternating.
+///
+/// tree-sitter-bash lets `=` swallow the connectives around it, so the
+/// test parses as one left-nested spine of comparisons, one level per
+/// term (#1536). Bash cognitive ends each connective's boolean
+/// sequence where the outermost comparison of its run does; finding
+/// that end by climbing the run from every `binary_expression` was
+/// `O(depth)` per node: 1.9 s for 4 000 terms in a release build. The
+/// connectives alternate so the reading — one sequence per switch, the
+/// textual-order scoring the mis-nested tree forces — grows with the
+/// depth.
+#[must_use]
+pub fn bash_test_connective_run(depth: usize) -> String {
+    let mut source = String::from("if [ ");
+    for i in 0..depth {
+        source.push_str(if i % 2 == 0 {
+            "\"$a\" = 0 -o "
+        } else {
+            "\"$a\" = 0 -a "
+        });
+    }
+    source.push_str("\"$a\" = 0 ]; then :; fi\n");
+    source
+}
+
+/// Bash: `(( a = a = … = 0 ))`.
+///
+/// A valid chained arithmetic assignment, one `binary_expression`
+/// deeper per `=`. The same `=` token is a string comparison inside
+/// `[ … ]` / `[[ … ]]`, and Bash ABC once told the two apart by
+/// climbing from every `=` through the expression nodes above it to
+/// see whether a test held them — `O(depth)` per `=` here: 3.4 s for
+/// 8 000 in a release build. Each test now counts its own comparisons
+/// from the top, so an arithmetic `=` asks nothing.
+#[must_use]
+pub fn bash_arith_assign_chain(depth: usize) -> String {
+    format!("(( {}0 ))\n", "a = ".repeat(depth))
+}
+
+/// Bash: `if [[ $a = 0 && $a = 0 && … ]]; then :; fi`.
+///
+/// The `[[ … ]]` form of the [`bash_test_connective_run`] misparse:
+/// `=` swallows the `&&` around it, so the test is one deep spine. It
+/// is the shape the comparison-counting change in Bash ABC has to stay
+/// linear on, since every `=` in it is a comparison: 1.2 s for 16 000
+/// terms in a release build while each `=` climbed to its test.
+#[must_use]
+pub fn bash_eq_and_test(depth: usize) -> String {
+    format!(
+        "if [[ {}$a = 0 ]]; then :; fi\n",
+        "$a = 0 && ".repeat(depth)
+    )
+}
+
 /// C++: `int f(int a){ return a + a + … + a; }`.
 ///
 /// The shape control for [`cpp_and_chain`]: the same left-nested
@@ -1422,6 +1538,93 @@ pub const PROBES: &[Probe] = &[
                     match, so it grows with the width.",
     },
     Probe {
+        name: "abc/perl-or-chain",
+        lang: LANG::Perl,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Abc],
+            reading: |m| m.abc.conditions_sum(),
+        },
+        render: perl_or_chain,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1273's misparse check climbs a chain's spine of \
+                    leading slots to ask whether a comparison absorbed \
+                    its first operand. A node whose leading slot scores \
+                    itself answers at once, so only the bottom of a \
+                    left-nested `||` spine climbs. Removing that early \
+                    answer, as before the fix, takes this probe from 1.00 \
+                    to 2.00 (8.8 ms to 2.33 s at depth 4 000) and \
+                    `abc/perl-misparsed-comparison` to 2.01, while every \
+                    other probe holds. The reading is one condition per \
+                    operand.",
+    },
+    Probe {
+        name: "abc/perl-misparsed-comparison",
+        lang: LANG::Perl,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Abc],
+            reading: |m| m.abc.conditions_sum(),
+        },
+        render: perl_misparsed_comparison,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "The same climb as `abc/perl-or-chain`, on a chain \
+                    the #1273 misparse really absorbed, so the bottom \
+                    node's climb ends on the `>` and answers yes. The two \
+                    probes fail together when the climb runs from every \
+                    node. The reading is one condition per operand.",
+    },
+    Probe {
+        name: "abc/perl-and-statements",
+        lang: LANG::Perl,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Abc],
+            reading: |m| m.abc.conditions_sum(),
+        },
+        render: perl_and_statements,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "The misparse check's climb from a two-operand \
+                    chain stops one step up, at the block, and asks for \
+                    the operator just before the chain. Scanning the \
+                    block from its start for it, as before the fix, takes \
+                    this probe from 1.08 to 2.01 (3.7 ms to 306 ms at \
+                    2 000 statements). The kind gate that now skips a \
+                    block is not what this probe sees: with the gate alone \
+                    removed the lookup seeks the child by byte through \
+                    the block's balanced repeat and the probe holds at \
+                    1.19. The reading is two conditions per statement.",
+    },
+    Probe {
+        name: "abc/perl-error-tail",
+        lang: LANG::Perl,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Abc],
+            reading: |m| m.abc.conditions_sum(),
+        },
+        render: perl_error_tail,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "`perl_binding_rewrites` asks each `=~` whether it \
+                    binds an `s///` / `tr///` by reading its parent's last \
+                    operand. In a file whose tail fails to parse, the \
+                    parent is an `ERROR` holding the whole tail, as in \
+                    `perl5db.pl`. Dropping the check that only a \
+                    `binary_expression` binds takes this probe from 1.19 \
+                    to 2.05 (2.9 ms to 492 ms at width 2 000). The only \
+                    probe whose shape does not parse (`RECOVERY_PROBES`). \
+                    The reading is two conditions per `=~` line, the \
+                    match and its pattern.",
+    },
+    Probe {
         name: "halstead/kotlin-noinline-params",
         lang: LANG::Kotlin,
         axis: Axis::Width,
@@ -1548,6 +1751,68 @@ pub const PROBES: &[Probe] = &[
                     inherits any climb added there. The reading is the \
                     chain's operand count.",
     },
+    Probe {
+        name: "cognitive/bash-test-connective-run",
+        lang: LANG::Bash,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Cognitive],
+            reading: |m| m.cognitive.cognitive_sum(),
+        },
+        render: bash_test_connective_run,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1536: each `binary_expression` of a mis-nested \
+                    `[ … -o … ]` run asks where its boolean sequence ends, \
+                    which is the end of the outermost comparison of the \
+                    run. Climbing the run from every node for it, as \
+                    before the fix, takes this probe from 0.98 to 2.06 \
+                    (6.5 ms to 1.99 s at depth 4 000); the run is now \
+                    tracked top-down. The reading is one sequence per \
+                    switch between `-o` and `-a`.",
+    },
+    Probe {
+        name: "abc/bash-arith-assign-chain",
+        lang: LANG::Bash,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Abc, Metric::Halstead],
+            reading: |m| m.halstead.total_operators(),
+        },
+        render: bash_arith_assign_chain,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1536: Bash ABC once climbed from every `=` to see \
+                    whether a test holds it, which on a valid chained \
+                    arithmetic assignment is the whole spine per `=`. \
+                    Restoring that climb takes this probe from 1.00 to \
+                    1.97 (0.79 ms to 72.5 ms at depth 4 000) and \
+                    `abc/bash-eq-and-test` to 1.91. ABC counts no \
+                    assignment for an arithmetic `=`, so the reading is \
+                    the Halstead operator count, which grows with the \
+                    depth.",
+    },
+    Probe {
+        name: "abc/bash-eq-and-test",
+        lang: LANG::Bash,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Abc],
+            reading: |m| m.abc.conditions_sum(),
+        },
+        render: bash_eq_and_test,
+        sizes: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1536: the `[[ … = … && … ]]` misparse, where every \
+                    `=` is a comparison ABC counts. Each test now counts \
+                    its own from the top; the per-`=` climb it replaced \
+                    takes this probe from 1.02 to 1.91 (2.9 ms to 75.2 ms \
+                    at depth 4 000). The reading is one condition per \
+                    `=` plus the `if`.",
+    },
 ];
 
 #[cfg(test)]
@@ -1555,6 +1820,10 @@ mod tests {
     use big_code_analysis::{Ast, Source};
 
     use super::{Axis, PROBES, Probe, Workload};
+
+    /// Probes whose shape deliberately fails to parse; see
+    /// [`shapes_parse_without_error`].
+    const RECOVERY_PROBES: &[&str] = &["abc/perl-error-tail"];
 
     /// Deepest `tree_sitter` node depth reachable from the root.
     ///
@@ -1641,16 +1910,34 @@ mod tests {
     /// parser limit — a recursion cap, a token-count ceiling — is
     /// reached at scale and not on a toy input, so a small fixed size
     /// answers a different question than the gate asks.
+    ///
+    /// The probes in [`RECOVERY_PROBES`] are the inverse: their shape
+    /// *is* error recovery, and the cost they price is reading the
+    /// `ERROR` root's children. A grammar that learned to parse one
+    /// would leave it timing an ordinary narrow tree, so each must still
+    /// recover into an `ERROR` root.
     #[test]
     fn shapes_parse_without_error() {
         for probe in PROBES {
             let size = probe.sizes[0];
             let ast = parse(probe, size);
+            let root = ast.as_tree_sitter().root_node();
+            let (parses_as_declared, declared) = if RECOVERY_PROBES.contains(&probe.name) {
+                (root.is_error(), "into an ERROR root")
+            } else {
+                (!root.has_error(), "without an ERROR node")
+            };
+            let name = probe.name;
+            let head: String = (probe.render)(size).chars().take(200).collect();
             assert!(
-                !ast.as_tree_sitter().root_node().has_error(),
-                "{}: shape must parse without an ERROR node at size {size}:\n{}…",
-                probe.name,
-                (probe.render)(size).chars().take(200).collect::<String>(),
+                parses_as_declared,
+                "{name}: shape must parse {declared} at size {size}:\n{head}…"
+            );
+        }
+        for name in RECOVERY_PROBES {
+            assert!(
+                PROBES.iter().any(|probe| probe.name == *name),
+                "RECOVERY_PROBES names {name}, which is not in PROBES",
             );
         }
     }
