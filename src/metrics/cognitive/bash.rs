@@ -39,10 +39,9 @@ const RUN_COMPARISONS: [u16; 4] = [
 ];
 
 /// The comparison runs the walk is inside, innermost last. A run member
-/// is a `BinaryExpression3` whose operator is one of
-/// [`RUN_COMPARISONS`]; each records its span and the end of the
-/// outermost member of its run, inherited when its parent is a member
-/// too.
+/// is a comparison or an intervening unary test; each records its span
+/// and the end of the outermost member of its run, inherited when its
+/// parent is a member too.
 ///
 /// The walk is pre-order, so a member is visited before everything under
 /// it, and one whose span does not hold the node being visited is
@@ -65,7 +64,7 @@ struct RunMember {
 }
 
 impl ComparisonRuns {
-    /// The byte a boolean sequence under `node`, a `BinaryExpression3`
+    /// The byte a boolean sequence under a binary expression or unary test
     /// whose parent is `parent`, extends to: the end of the run `parent`
     /// is a member of, else `node`'s own end. Records `node` when it is a
     /// member itself.
@@ -82,7 +81,7 @@ impl ComparisonRuns {
             (Some(parent), Some(member)) if member.id == parent.id() => member.run_end,
             _ => end,
         };
-        if node.wraps_any(&RUN_COMPARISONS) {
+        if node.kind() == "unary_expression" || node.wraps_any(&RUN_COMPARISONS) {
             self.0.push(RunMember {
                 id: node.id(),
                 start,
@@ -139,6 +138,9 @@ impl Cognitive for BashCode {
             // three spellings score alike (#1536).
             List => {
                 compute_booleans(node, stats, AMPAMP, PIPEPIPE);
+            }
+            UnaryExpression | UnaryExpression2 | UnaryExpression3 => {
+                stats.bash_runs.sequence_end(node, ancestors.parent(node));
             }
             BinaryExpression3 => {
                 let end = stats.bash_runs.sequence_end(node, ancestors.parent(node));

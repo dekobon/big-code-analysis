@@ -220,3 +220,22 @@ fn bash_comparison_runs_score_like_their_twins_1536() {
         );
     }
 }
+
+#[cfg(feature = "bash")]
+#[test]
+fn bash_unary_test_preserves_the_comparison_sequence() {
+    for (operator, connective) in [("-a", "&&"), ("-o", "||")] {
+        for unary in [r#"-n "$b""#, r#"! -z "$b""#, r#"-f "$b""#] {
+            for comparison in ["=", "==", "!="] {
+                let single = format!(
+                    r#"if [ {unary} {operator} "$a" {comparison} 1 {operator} "$c" {comparison} 2 ]; then :; fi"#
+                );
+                let twin = format!(
+                    r#"if [ {unary} ] {connective} [ "$a" {comparison} 1 ] {connective} [ "$c" {comparison} 2 ]; then :; fi"#
+                );
+                assert_eq!(measure(&twin), [5, 4, 2], "{twin}");
+                assert_eq!(measure(&single), [5, 4, 2], "{single}");
+            }
+        }
+    }
+}
