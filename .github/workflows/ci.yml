@@ -320,21 +320,29 @@ jobs:
         with:
           fetch-depth: 1
           submodules: recursive
-      # llvm-tools-preview supplies llvm-profdata/llvm-cov for source-based
-      # coverage instrumentation.
+      # Pin the measurement toolchain independently of the stable build jobs:
+      # compiler changes can move coverage regions without changing test coverage.
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # stable tip
         with:
-          toolchain: stable
+          toolchain: "1.99.1"
           components: llvm-tools-preview
       # Coverage builds carry -C instrument-coverage, so their artifacts are
       # incompatible with the regular build cache; a distinct key keeps the
       # two from thrashing each other.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: coverage
+          key: coverage-1.99.1-llvm-cov-0.9.1
       - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
         with:
-          tool: cargo-nextest,cargo-llvm-cov
+          tool: cargo-nextest@0.9.146,cargo-llvm-cov@0.9.1
+      - name: Record coverage provenance
+        run: |
+          {
+            git rev-parse HEAD
+            rustc --version --verbose
+            cargo llvm-cov --version
+            cargo nextest --version
+          } > coverage-provenance.txt
       # nextest is the same runner the `test` job uses, so instrumenting it
       # keeps the coverage numbers aligned with what CI actually exercises.
       # --no-report defers reporting so the same profile data can be emitted
@@ -344,6 +352,8 @@ jobs:
       # nightly, and pairing nightly with the workflow-wide `-D warnings`
       # would red-X CI on unrelated new nightly lints. The `test` job still
       # runs doctests for correctness — only their coverage is omitted.
+      - name: Clean coverage data
+        run: cargo llvm-cov clean --workspace
       - name: Run tests with coverage instrumentation
         run: cargo llvm-cov --no-report nextest --all-features --workspace --locked
       # Codecov's native format preserves region coverage (lcov would drop to
@@ -358,6 +368,19 @@ jobs:
       # 103 files that are in fact ~98% covered. Keep the two in step.
       - name: Generate Codecov report
         run: cargo llvm-cov report --workspace --codecov --output-path codecov.json
+      - name: Generate raw LLVM coverage report
+        run: cargo llvm-cov report --workspace --json --output-path coverage-llvm.json
+      - name: Archive coverage reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-${{ github.sha }}
+          path: |
+            codecov.json
+            coverage-llvm.json
+            coverage-provenance.txt
+          if-no-files-found: error
+          retention-days: 30
       # Per-file coverage table in the run's Summary tab, so reviewers can
       # read coverage without leaving GitHub or waiting on the Codecov PR
       # comment.
