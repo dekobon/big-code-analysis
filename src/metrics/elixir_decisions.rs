@@ -333,6 +333,15 @@ fn elixir_is_first_clause<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> 
 /// `fn`'s first, except the construct's free default clause
 /// ([`elixir_is_default_clause`]).
 ///
+/// A `receive`'s `after` clause is free too, in every spelling: it is
+/// the timeout, the path taken when no message clause matched in time,
+/// which makes it `receive`'s default arm — the role a bare `_ ->` plays
+/// in a `case` (#1581). It is never a dispatch of its own: the compiler
+/// accepts exactly one `after` clause, and its head is a timeout value,
+/// not a pattern that can fail. No other construct puts a clause there,
+/// since `try`'s `after` takes a plain body, so the section is simply
+/// not among those whose clauses count.
+///
 /// An anonymous fn's head clause is the closure's definition, not a
 /// dispatch: the closure opens its own function space whose base path
 /// already covers it, so counting it too would score a trivial
@@ -365,15 +374,10 @@ pub(super) fn elixir_clause_is_decision<'a>(
     let in_section = up.next().is_some_and(|parent| {
         matches!(
             parent.kind_id().into(),
-            E::DoBlock
-                | E::ElseBlock
-                | E::AfterBlock
-                | E::RescueBlock
-                | E::CatchBlock
-                | E::AnonymousFunction
+            E::DoBlock | E::ElseBlock | E::RescueBlock | E::CatchBlock | E::AnonymousFunction
         ) || (parent.kind_id() == E::Block as u16
             && up.next().is_some_and(|pair| {
-                elixir_pair_key(&pair, code).is_some_and(|key| SECTION_KEYS.contains(&key))
+                elixir_pair_key(&pair, code).is_some_and(|key| DECISION_SECTION_KEYS.contains(&key))
             }))
     });
     if !in_section {
@@ -405,30 +409,71 @@ pub(super) fn elixir_clause_is_decision<'a>(
 /// under a `fn` or `reduce:`, so [`elixir_clause_is_decision`] agrees
 /// clause by clause with the test below.
 pub(super) fn elixir_with_else_dispatches(call: &Node, code: &[u8]) -> bool {
+    elixir_section_has_clause(call, code, Section::Else, |clause| {
+        !elixir_sole_unguarded_pattern(clause)
+            .is_some_and(|pattern| elixir_is_bare_wildcard(&pattern, code))
+    })
+}
+
+/// Whether a `receive` Call dispatches over the mailbox: whether its
+/// `do` section holds a message clause, in any spelling. One holding
+/// only an `after` timeout (`receive do after 100 -> :ok end`, the
+/// idiomatic sleep) is a timed wait that picks between nothing, so it
+/// pays neither modified cyclomatic's container decision nor cognitive's
+/// +nesting — as a `with` whose `else` picks nothing pays no modified
+/// decision ([`elixir_with_else_dispatches`]). Any clause counts, a bare
+/// `_ ->` included, because `case x do _ -> 0 end` pays its container
+/// too (#1581).
+pub(super) fn elixir_receive_dispatches(call: &Node, code: &[u8]) -> bool {
+    elixir_section_has_clause(call, code, Section::Do, |_| true)
+}
+
+/// A clause section [`elixir_section_has_clause`] reads.
+#[derive(Clone, Copy)]
+enum Section {
+    Do,
+    Else,
+}
+
+/// Whether `call`'s `section` holds a `stab_clause` that `accept`s: the
+/// block form's `do_block`, or the `else_block` inside it, or the
+/// keyword form's `do:` / `else:` value, bare or bracketed
+/// ([`elixir_trailing_keywords`]). The block form's `else_block` is the
+/// `do_block`'s child, never the Call's.
+fn elixir_section_has_clause(
+    call: &Node,
+    code: &[u8],
+    section: Section,
+    accept: impl Fn(&Node) -> bool,
+) -> bool {
     use Elixir as E;
 
+    let key = match section {
+        Section::Do => "do",
+        Section::Else => "else",
+    };
     call.children().any(|child| {
-        let section = match child.kind_id().into() {
-            E::DoBlock => child
+        let holder = match (child.kind_id().into(), section) {
+            (E::DoBlock, Section::Do) => Some(child),
+            (E::DoBlock, Section::Else) => child
                 .children()
                 .find(|c| c.kind_id() == E::ElseBlock as u16),
-            _ if child.kind() == ARGUMENTS => elixir_keyword_section(&child, code, "else"),
+            _ if child.kind() == ARGUMENTS => elixir_keyword_section(&child, code, key),
             _ => None,
         };
-        section.is_some_and(|section| {
-            section.children().any(|clause| {
-                clause.kind_id() == E::StabClause as u16
-                    && !elixir_sole_unguarded_pattern(&clause)
-                        .is_some_and(|pattern| elixir_is_bare_wildcard(&pattern, code))
-            })
+        holder.is_some_and(|holder| {
+            holder
+                .children()
+                .any(|clause| clause.kind_id() == E::StabClause as u16 && accept(&clause))
         })
     })
 }
 
-/// The keyword spellings of the clause sections a `do … end` block
-/// spells as `do_block` / `else_block` / `after_block` / `rescue_block`
-/// / `catch_block`.
-const SECTION_KEYS: &[&str] = &["do", "else", "after", "rescue", "catch"];
+/// The keyword spellings of the clause sections whose clauses are
+/// decisions, which a `do … end` block spells as `do_block` /
+/// `else_block` / `rescue_block` / `catch_block`. Not `after`: see
+/// [`elixir_clause_is_decision`].
+const DECISION_SECTION_KEYS: &[&str] = &["do", "else", "rescue", "catch"];
 
 /// The key a keyword-list `pair` spells, without its colon: `do` for
 /// both `do: x` and the quoted `"do": x`, which Elixir reads as the same

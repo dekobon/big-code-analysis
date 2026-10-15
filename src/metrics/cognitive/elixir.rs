@@ -13,7 +13,7 @@
 
 use super::*;
 use crate::lang_helpers::elixir::elixir_applying_remote_call;
-use crate::metrics::elixir_decisions::elixir_keyword_pair_section;
+use crate::metrics::elixir_decisions::{elixir_keyword_pair_section, elixir_receive_dispatches};
 
 /// Whether a Call spelling `keyword` takes `try`'s sections — `else`,
 /// `rescue`, `catch` — in its keyword form: `try` itself, and the
@@ -85,7 +85,7 @@ fn compute_elixir_remote_booleans<'a>(
 
 impl Cognitive for ElixirCode {
     // Elixir control flow is macro-shaped: `if`, `unless`, `case`,
-    // `cond`, `with`, `for`, `while`, and `try` each surface as a
+    // `cond`, `with`, `receive`, `for`, `while`, and `try` each surface as a
     // `Call` node whose `target` Identifier text spells the keyword.
     // We classify the Call once on entry (raising nesting), then let
     // the structural `Else` token and `Rescue` / `Catch` blocks inside
@@ -96,9 +96,10 @@ impl Cognitive for ElixirCode {
     // - `if` / `unless` / `for` / `while`: single-branch control flow,
     //   `+nesting`. Their `else` (token `Elixir::Else` inside an
     //   `ElseBlock`) adds `+1` without nesting, matching Java.
-    // - `case` / `cond` / `with`: switch-/multi-arm, `+nesting` once on
-    //   the container. Individual `stab_clause` arms do NOT add extra
-    //   cost (matches Java `SwitchBlock` / `case:` rule).
+    // - `case` / `cond` / `with` / `receive`: switch-/multi-arm,
+    //   `+nesting` once on the container. Individual `stab_clause` arms
+    //   do NOT add extra cost (matches Java `SwitchBlock` / `case:`
+    //   rule).
     // - `try`: `+0` on the container itself — it is a wrapper, and its
     //   `rescue` / `catch` arms surface as `RescueBlock` / `CatchBlock`
     //   and each one adds `+nesting`, matching Java's `CatchClause`
@@ -136,6 +137,14 @@ impl Cognitive for ElixirCode {
         match node.kind_id().into() {
             E::Call => match elixir_call_keyword(node, code) {
                 Some("if" | "unless" | "for" | "while" | "case" | "cond" | "with") => {
+                    increase_nesting(stats, &mut nesting);
+                }
+                // A `case` over the mailbox, paying as one (#1581) when
+                // it has message clauses; one holding only an `after`
+                // timeout is a timed wait, the idiomatic sleep, and
+                // branches on nothing. The `after` adds nothing either
+                // way: it is the default arm, which `case` does not pay.
+                Some("receive") if elixir_receive_dispatches(node, code) => {
                     increase_nesting(stats, &mut nesting);
                 }
                 // `try` is intentionally absent: it is a wrapper for

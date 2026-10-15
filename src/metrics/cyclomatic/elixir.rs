@@ -9,8 +9,8 @@
 use super::*;
 use crate::lang_helpers::elixir::{elixir_applying_operator, elixir_applying_remote_call};
 use crate::metrics::elixir_decisions::{
-    elixir_arrow_is_with_clause, elixir_clause_is_decision, elixir_when_is_guard,
-    elixir_with_else_dispatches,
+    elixir_arrow_is_with_clause, elixir_clause_is_decision, elixir_receive_dispatches,
+    elixir_when_is_guard, elixir_with_else_dispatches,
 };
 
 impl Cyclomatic for ElixirCode {
@@ -24,7 +24,7 @@ impl Cyclomatic for ElixirCode {
     // The split between standard and modified CCN mirrors the C-family
     // case/switch treatment: per-arm `stab_clause` nodes contribute
     // standard, while the multi-arm container Calls (`case`/`cond`/
-    // `try`) contribute modified. Single-branch keyword Calls
+    // `try`/`receive`) contribute modified. Single-branch keyword Calls
     // (`if`/`unless`/`for`/`while`) contribute to both, as do a `with`'s
     // `<-` clauses and short-circuit booleans (`&&`, `||`, `and`, `or`).
     fn compute<'a>(
@@ -38,9 +38,9 @@ impl Cyclomatic for ElixirCode {
 
         match node.kind_id().into() {
             // Per-arm decisions: each `stab_clause` is one arm of a
-            // `case`/`cond`/`with`/anonymous-fn body or a `rescue`/
-            // `catch` handler. Standard-only: modified counts a
-            // `case`/`cond`/`try` container Call once, a `with` once
+            // `case`/`cond`/`with`/`receive`/anonymous-fn body or a
+            // `rescue`/`catch` handler. Standard-only: modified counts a
+            // `case`/`cond`/`try`/`receive` container Call once, a `with` once
             // only when its `else` dispatches (the `"with"` arm below),
             // and gives a multi-clause `fn` or `reduce` nothing.
             //
@@ -150,6 +150,15 @@ impl Cyclomatic for ElixirCode {
                         // Per-arm `stab_clause`s already contribute to
                         // standard above.
                         "case" | "cond" | "try" => {
+                            stats.cyclomatic_modified += 1.;
+                        }
+                        // A `receive` is a `case` over the mailbox and
+                        // pays as one (#1581), when it has message
+                        // clauses to pick between: one holding only an
+                        // `after` timeout is a timed wait. The timeout
+                        // clause is the default arm and free in standard
+                        // (`elixir_clause_is_decision`).
+                        "receive" if elixir_receive_dispatches(node, code) => {
                             stats.cyclomatic_modified += 1.;
                         }
                         // A `with`'s decisions are its `<-` clauses,

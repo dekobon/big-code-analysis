@@ -11716,7 +11716,9 @@ end
     // clause's flat one beside its `>`, `rescue_in` a sole pattern that
     // scores itself (the `in` arm), `rescue_alias` a sole pattern the
     // clause slot pays for, `catch_two` a multi-pattern clause, `recv` a
-    // `receive`'s `after` timeout clause, and `with_else` the `else` of
+    // `receive`'s `after` timeout clause — free since #1581, as the
+    // default arm, so `recv` scores what `case2` does — and `with_else`
+    // the `else` of
     // a `with`, whose clauses pay rather than a Rule 5 `else`. Its `<-`
     // clause pays one more since #1535, in both metrics.
     #[cfg(feature = "elixir")]
@@ -11791,7 +11793,7 @@ end
                         ("case_default", 2, 3),
                         ("case_guard", 2, 3),
                         ("with_else", 2, 3),
-                        ("recv", 3, 4),
+                        ("recv", 2, 3),
                         ("rescue_in", 1, 2),
                         ("rescue_alias", 1, 2),
                         ("catch_two", 1, 2),

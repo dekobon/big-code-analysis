@@ -325,20 +325,49 @@ fn elixir_for_reduce_head_is_free_in_every_spelling() {
     );
 }
 
-/// `receive` agrees across spellings, but its modified and cognitive
-/// scores are wrong in all of them, so the group asserts only agreement.
-/// That agreement predates #1574 — its clauses score through the
-/// owner-blind section gate (#1583), not the trailing-list lookup — so
-/// this guards the spellings drifting apart, not that fix.
-// FIXME(#1581): pin the values once `receive` pays like `case`.
+/// A `receive` is a `case` over the mailbox and scores as one in every
+/// spelling (#1581): before, modified cyclomatic and cognitive did not
+/// know the construct, so it sat at the base of both, and its `after`
+/// timeout counted as one more clause. The timeout is the path taken
+/// when no clause matched in time — `receive`'s default arm, which
+/// `case`'s `_ ->` twin shows is free — so with it the `receive` still
+/// scores what the two-clause `case` does.
 #[cfg(feature = "elixir")]
 #[test]
-fn elixir_receive_scores_alike_in_every_spelling() {
-    let block = measure("receive do {:a, x} -> x; :b -> 0 after 10 -> :t end");
-    for spelling in [
-        "receive(do: ({:a, x} -> x; :b -> 0), after: (10 -> :t))",
-        "receive([do: ({:a, x} -> x; :b -> 0), after: (10 -> :t)])",
-    ] {
-        assert_eq!(measure(spelling), block, "`{spelling}`");
-    }
+fn elixir_receive_scores_like_case() {
+    assert_group(
+        "case x do {:a, y} -> y; :b -> 0 end",
+        [3, 2, 2, 1],
+        &[
+            "receive do {:a, y} -> y; :b -> 0 end",
+            "receive do {:a, y} -> y; :b -> 0 after 10 -> :t end",
+            "receive(do: ({:a, y} -> y; :b -> 0), after: (10 -> :t))",
+            "receive([do: ({:a, y} -> y; :b -> 0), after: (10 -> :t)])",
+        ],
+    );
+    // The container raises nesting for what its clauses hold.
+    assert_group(
+        "case x do {:a, y} -> (if y do 1 end) end",
+        [3, 3, 2, 3],
+        &[
+            "receive do {:a, y} -> (if y do 1 end) after 10 -> :t end",
+            "receive(do: ({:a, y} -> if(y, do: 1)), after: (10 -> :t))",
+        ],
+    );
+    // A lone catch-all is free in standard and still pays the container.
+    assert_group(
+        "case x do _ -> 0 end",
+        [1, 2, 0, 1],
+        &["receive do _ -> 0 end", "receive(do: (_ -> 0))"],
+    );
+    // With no message clause it is a timed wait, the sleep it spells.
+    assert_group(
+        "Process.sleep(10)",
+        [1, 1, 0, 0],
+        &[
+            "receive do after 10 -> :t end",
+            "receive(after: (10 -> :t))",
+            "receive([after: (10 -> :t)])",
+        ],
+    );
 }
