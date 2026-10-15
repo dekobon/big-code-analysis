@@ -24,6 +24,17 @@ for historical reference.
 
 ## [Unreleased]
 
+### Added
+
+- **Seven Perl and Bash scaling probes in the complexity-class gate**
+  (`make bench-scaling`, #1575): the Perl ABC misparse climb, Perl
+  ABC's `=~` binding check under an `ERROR` root, and the Bash
+  cognitive / ABC comparison-run walks (`abc/perl-or-chain`,
+  `abc/perl-misparsed-comparison`, `abc/perl-and-statements`,
+  `abc/perl-error-tail`, `cognitive/bash-test-connective-run`,
+  `abc/bash-arith-assign-chain`, `abc/bash-eq-and-test`). Each was
+  watched tripping with its pre-fix walk restored.
+
 ### Changed
 
 - **Halstead bills angle brackets that enclose types as one `<>`
@@ -90,6 +101,101 @@ for historical reference.
   format-spec `:`. The alignment value still counts: `8` is an operand,
   and `{x,-w}` counts `-` and `w`. A `,` or `:` inside the hole — a call
   argument list, ternary or named argument — still counts.
+- **C, C++ and Mozcpp bill every storage class, function specifier and
+  type qualifier as a Halstead operator** (#1578): `static`, `extern`,
+  `register`, `inline`, `thread_local`, `const`, `volatile`, `restrict`,
+  `_Atomic`, `constexpr`, `_Noreturn`, `alignas`, their vendor spellings
+  (`__inline`, `__forceinline`, `__restrict__`, `__thread`,
+  `__extension__`, …) and C's storage class `auto`. C++ and Mozcpp also
+  bill `virtual`, `mutable`, `constinit`, `consteval`, `explicit`,
+  `friend`, the access labels, `override`, `final` and the `noexcept`
+  of an exception specification. Each counts once as its keyword, never
+  as the `storage_class_specifier` / `type_qualifier` /
+  `virtual_specifier` / `access_specifier` wrapper. `override` and
+  `final` used as names stay operands, `extern "C"` keeps `"C"` an
+  operand, and C++'s placeholder `auto`, attributes, MS calling
+  conventions and the Gecko `MOZ_*` macros are unchanged. Halstead and
+  MI scores of C-family code rise.
+- **Objective-C bills declaration modifiers as Halstead operators**
+  (#1579). C's storage classes, function specifiers and type qualifiers
+  bill as in C, so a `.m` scores a C declaration the same as a `.c` or
+  `.mm`. ObjC's own modifiers also bill: the `@public` / `@private` /
+  `@protected` / `@package` ivar labels, `@optional` / `@required`, the
+  ARC ownership qualifiers and `__bridge` casts, the nullability
+  qualifiers, `__kindof`, `__covariant` / `__contravariant`, `_Complex`,
+  the `in` / `out` / `inout` / `bycopy` / `byref` / `oneway` method-type
+  qualifiers, and property attribute words (`nonatomic`, `copy`,
+  `getter`, …). A `getter=` / `setter=` value stays an operand. Apple
+  SDK macros (`NS_INLINE`, `FOUNDATION_EXPORT`, `IBOutlet`, `__unused`)
+  bill nothing.
+- **Perl bareword hash keys no longer score as calls** (#1572).
+  tree-sitter-perl 1.1.2 parses an auto-quoted bareword key as a call,
+  so `(name => 1)`, every named argument (`new(name => $x, size => 3)`)
+  and `{ a => { b => 1 } }` scored one ABC branch per key, and
+  `(-name => 1)` / `$h{-name}` also billed a Halstead `-` operator and
+  the unsigned operand `name`. Each key now scores like its quoted twin
+  and is billed as written (`name`, `-name`), including a word that
+  ends a longer expression before `=>` (`(1 - name => 2)`), since `=>`
+  quotes the word right before it. Package-qualified words
+  (`Foo::Bar => 1`), words with arguments (`name() => 1`), bareword
+  values (`(a => foo)`) and `$h{+shift}` keep their call. Cyclomatic and
+  cognitive are unchanged. This is a local workaround for upstream
+  #1571.
+- **Perl `bca find --type call` and `bca count --type call` report each
+  call once and skip auto-quoted keys** (#1580). tree-sitter-perl parses
+  a call's name (`foo` in `foo(1)`, `print` in `print "x"`) as a bareword
+  call nested inside the call, and parses `(name => 1)`, `(-size => 2)`
+  and `$h{-name}` as calls too; the issue's fixture went from five
+  matches to one. The filter now applies the gate ABC already used, so a
+  Perl file's `call` count equals its `abc.branches`. A bareword with no
+  wrapper still counts: `foo;`, `&foo;`, and the wrapper-less `foo(1`
+  that error recovery leaves. New
+  `Checker::is_call_with_code(node, code, ancestors)` in
+  `big-code-analysis-ast`, forwarding to `is_call` by default.
+- **Perl `nexits` no longer counts an auto-quoted `die` or `exit` hash
+  key as an exit point** (#1585): `(exit => 1, die => 2)` now scores as
+  its quoted twin does. A real `die` / `exit` call, including
+  `$h{die()}`, `die() => 1`, `(x => die)` and `CORE::die => 1`, still
+  counts. The crate-private `Exit::compute` now takes the ancestor
+  chain; no public API changes.
+- **Elixir scores every spelling of a construct alike** (#1574). A
+  trailing bracketed keyword list (`if(c, [do: 1, else: 2])`,
+  `for(x <- xs, [reduce: 0, do: …])`) and a quoted key (`"else": 2`) now
+  score exactly as the bare keyword form and the `do … end` block do.
+  Before, the bracketed `with` lost its modified-cyclomatic `else` tier,
+  the bracketed `for … reduce:` scored its accumulator head as a
+  decision, the bracketed `cond` lost its free `true ->`, and the
+  bracketed `if` / `unless` lost ABC's `else` condition.
+  `Kernel.&&(a, b)` / `Kernel.||(a, b)`, including the piped
+  `a |> Kernel.||(b)`, now score ABC conditions and a cognitive boolean
+  sequence as `a && b` / `a || b` do; cyclomatic already counted them,
+  and a user module's `Foo.||(a, b)` still scores nothing. Cognitive now
+  scores the keyword forms' `else:` (+1) and `rescue:` / `catch:`
+  (+nesting) for `if`, `unless`, `try` and the `def` family, as their
+  blocks do; the keyword `try` scored 0 before. A `with`'s `else` adds
+  no cognitive cost in either spelling: its clauses are the arms of a
+  `case`, already paid by the container (the block form scored 2
+  against the keyword form's 1).
+- **Elixir `receive` scores like `case`** (#1581): modified cyclomatic
+  counts the construct once and cognitive complexity adds +nesting, in
+  the block and keyword forms. Its `after` timeout clause is the
+  construct's default arm and no longer scores in standard cyclomatic or
+  ABC, and a `receive` holding only an `after` scores nothing.
+- **Elixir `Kernel.and(a, b)` and `Kernel.or(a, b)` count as
+  short-circuit decisions** in cyclomatic, ABC conditions and cognitive
+  complexity (#1582), matching `a and b` / `a or b` and the `Kernel.&&`
+  / `Kernel.||` calls.
+
+### Performance
+
+- **Perl ABC and Halstead no longer go quadratic on a file whose tail
+  fails to parse into a flat `ERROR` node** (#1584). The bareword-key,
+  dash-key, key-sign and misparse-operator lookups now read the children
+  the walk recorded (a `SiblingCache` lent through `Ancestors`) instead
+  of seeking from the `ERROR`'s start: 16 000 copies of `{ last,` take
+  0.03 s, down from 2.2 s. The same change makes Kotlin Halstead linear
+  on a string of many short `$name` interpolations, which was quadratic
+  on valid input (8 000 names: 11.5 s → 0.01 s).
 
 ## [2.3.1] - 2026-10-10
 
