@@ -12,7 +12,9 @@
 )]
 
 use super::*;
-use crate::lang_helpers::elixir::elixir_applying_remote_call;
+use crate::lang_helpers::elixir::{
+    elixir_applying_remote_call, elixir_short_circuit_kind, elixir_short_circuit_name,
+};
 use crate::metrics::elixir_decisions::{elixir_keyword_pair_section, elixir_receive_dispatches};
 
 /// Whether a Call spelling `keyword` takes `try`'s sections — `else`,
@@ -55,31 +57,31 @@ fn elixir_section<'a>(
 /// Folds an Elixir `BinaryOperator`'s short-circuit operator children
 /// into the boolean-sequence counter — Elixir has four (`&&`, `||`,
 /// `and`, `or`). Each word form is keyed to its symbol (see
-/// [`compute_booleans_keyed`]): `and` / `or` demand a boolean left
-/// operand, but they are the same conjunction / disjunction to read.
+/// [`compute_booleans_keyed`] and [`elixir_short_circuit_kind`]).
 fn compute_elixir_booleans(node: &Node, stats: &mut Stats) {
-    compute_booleans_keyed(node, stats, |id| match id.into() {
-        Elixir::AMPAMP | Elixir::And => Some(Elixir::AMPAMP as u16),
-        Elixir::PIPEPIPE | Elixir::Or => Some(Elixir::PIPEPIPE as u16),
-        _ => None,
+    compute_booleans_keyed(node, stats, |id| {
+        elixir_short_circuit_kind(id).map(|key| key as u16)
     });
 }
 
 /// [`compute_elixir_booleans`] for a short-circuit `Kernel` remote call
-/// (`Kernel.||(a, b)`), whose operator token sits in the call's name
-/// rather than among a `binary_operator`'s children. The sequence is
-/// keyed on the call's span, as a `binary_operator`'s is on its own.
+/// (`Kernel.||(a, b)`, `Kernel.or(a, b)`), whose operator sits in the
+/// call's name rather than among a `binary_operator`'s children. The
+/// sequence is keyed on the call's span, as a `binary_operator`'s is on
+/// its own, and on the same symbol, so `a or Kernel.||(b, c)` is one run.
 fn compute_elixir_remote_booleans<'a>(
     op: &Node<'a>,
     code: &'a [u8],
     ancestors: Ancestors<'a, '_>,
     stats: &mut Stats,
 ) {
-    if let Some(call) = elixir_applying_remote_call(op, code, ancestors) {
+    if let Some(call) = elixir_applying_remote_call(op, code, ancestors)
+        && let Some(key) = elixir_short_circuit_name(op, code)
+    {
         stats.structural =
             stats
                 .boolean_seq
-                .eval_based_on_prev(op.kind_id(), call.end_byte(), stats.structural);
+                .eval_based_on_prev(key as u16, call.end_byte(), stats.structural);
     }
 }
 
@@ -110,7 +112,8 @@ impl Cognitive for ElixirCode {
     //   does NOT bump — see the arm comment below for why.
     // - `AnonymousFunction` (`fn x -> y end`): lambda nesting bumps.
     // - `&&` / `||` / `and` / `or`: boolean sequence cost, as is a
-    //   `Kernel.&&` / `Kernel.||` remote call.
+    //   `Kernel.&&` / `Kernel.||` / `Kernel.and` / `Kernel.or` remote
+    //   call.
     //
     // Limitations:
     // - `Enum.reduce` / `Enum.map` and friends are higher-order function
@@ -242,7 +245,9 @@ impl Cognitive for ElixirCode {
             // `binary_operator`'s operator is keyed on the operator's.
             // `Foo.||(a, b)` is an ordinary call and is not matched; the
             // token inside a `binary_operator` is the arm above's.
-            E::AMPAMP | E::PIPEPIPE => {
+            // `Kernel.and` / `Kernel.or` name the operator with an
+            // `identifier` instead of a token (#1582).
+            E::AMPAMP | E::PIPEPIPE | E::Identifier => {
                 compute_elixir_remote_booleans(node, code, ancestors, stats);
             }
             _ => {}

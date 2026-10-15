@@ -106,6 +106,65 @@ fn elixir_kernel_remote_call_scores_like_the_operator() {
     );
 }
 
+/// `Kernel.and` / `Kernel.or` expand the same short-circuit macros as
+/// `a and b` / `a or b`, but the grammar names them with a plain
+/// `identifier` rather than an operator token, so before #1582 they
+/// scored nothing in any metric. Each word form keys the cognitive
+/// sequence its symbol does, so a mixed run of `or` and `||` is one
+/// sequence and a change of operation opens a second.
+#[cfg(feature = "elixir")]
+#[test]
+fn elixir_kernel_word_operator_scores_like_the_operator() {
+    assert_group(
+        "a and b",
+        [2, 2, 2, 1],
+        &[
+            "Kernel.and(a, b)",
+            "Elixir.Kernel.and(a, b)",
+            "a |> Kernel.and(b)",
+        ],
+    );
+    assert_group("a or b", [2, 2, 2, 1], &["Kernel.or(a, b)"]);
+    assert_group(
+        "a or (b or c)",
+        [3, 3, 3, 1],
+        &["Kernel.or(a, Kernel.or(b, c))", "a or Kernel.||(b, c)"],
+    );
+    assert_group(
+        "a and (b or c)",
+        [3, 3, 3, 2],
+        &["Kernel.and(a, Kernel.or(b, c))"],
+    );
+    assert_group(
+        "if a and b, do: 1",
+        [3, 3, 2, 2],
+        &["if Kernel.and(a, b), do: 1"],
+    );
+}
+
+/// A negation decides nothing in any spelling, applied or called on
+/// `Kernel`; a user module's `and/2` is an ordinary function; and a
+/// capture or a bare reference only names `Kernel`'s.
+#[cfg(feature = "elixir")]
+#[test]
+fn elixir_kernel_negation_and_foreign_word_operator_decide_nothing() {
+    assert_group(
+        "not x",
+        [1, 1, 0, 0],
+        &["!x", "Kernel.not(x)", "Kernel.!(x)"],
+    );
+    assert_group(
+        "Foo.foo(a, b)",
+        [1, 1, 0, 0],
+        &[
+            "Foo.and(a, b)",
+            "Foo.or(a, b)",
+            "&Kernel.and/2",
+            "Kernel.and",
+        ],
+    );
+}
+
 /// A user module's `||/2` is an ordinary function, and a capture only
 /// names `Kernel`'s: neither decides anything in any metric.
 #[cfg(feature = "elixir")]

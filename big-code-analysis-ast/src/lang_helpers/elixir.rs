@@ -127,9 +127,13 @@ pub fn elixir_applying_operator<'a>(
 /// may define `||/2` as an ordinary function, and `Foo.||(a, b)` neither
 /// short-circuits nor decides.
 ///
-/// Only an operator the grammar lexes as a token inside the call's
-/// `operator_identifier` is found. `Kernel.and(a, b)` spells its name as
-/// a plain `identifier`, so it is not; nor is the childless `..`.
+/// The grammar lexes a symbolic name as a token inside the call's
+/// `operator_identifier`, which is what is returned. `Kernel.and(a, b)`
+/// and `Kernel.or(a, b)` spell their names as a plain `identifier`, with
+/// no `And` / `Or` token to find, so that identifier is returned instead
+/// (#1582); every other word name (`Kernel.not`, `Kernel.in`) is a
+/// function or decides nothing, and is not found. Nor is the childless
+/// `..`.
 ///
 /// Matched by rule name: `call`, `dot` and `arguments` are aliased to
 /// several ids each (grammar-dispatch §1).
@@ -147,23 +151,72 @@ pub fn elixir_kernel_operator_token<'a>(call: &Node<'a>, code: &[u8]) -> Option<
                 )
             })
     })?;
-    dot.child_by_field_name("right")
-        .filter(|name| name.kind() == "operator_identifier")?
-        .child(0)
+    let name = dot.child_by_field_name("right")?;
+    if name.kind() == "operator_identifier" {
+        return name.child(0);
+    }
+    (name.kind_id() == Elixir::Identifier as u16
+        && matches!(
+            code.get(name.start_byte()..name.end_byte()),
+            Some(b"and" | b"or")
+        ))
+    .then_some(name)
 }
 
-/// The `Kernel` remote call that applies `op`, an operator token — the
+/// The short-circuit operation an operator token kind applies, keyed by
+/// its symbol: `&&` for `&&` and `and`, `||` for `||` and `or`. A word
+/// form demands a boolean left operand, but it is the same conjunction or
+/// disjunction to read, so one sequence key serves both spellings.
+/// `None` for any other kind.
+#[must_use]
+pub fn elixir_short_circuit_kind(kind_id: u16) -> Option<Elixir> {
+    match kind_id.into() {
+        Elixir::AMPAMP | Elixir::And => Some(Elixir::AMPAMP),
+        Elixir::PIPEPIPE | Elixir::Or => Some(Elixir::PIPEPIPE),
+        _ => None,
+    }
+}
+
+/// [`elixir_short_circuit_kind`] for an operator's name as
+/// [`elixir_kernel_operator_token`] returns it: a token, or the
+/// `identifier` spelling `Kernel.and` / `Kernel.or` (#1582), whose
+/// bytes decide. Ask it only of such a name — an identifier is an `and`
+/// operator nowhere else.
+#[must_use]
+pub fn elixir_short_circuit_name(name: &Node, code: &[u8]) -> Option<Elixir> {
+    if name.kind_id() != Elixir::Identifier as u16 {
+        return elixir_short_circuit_kind(name.kind_id());
+    }
+    match code.get(name.start_byte()..name.end_byte())? {
+        b"and" => Some(Elixir::AMPAMP),
+        b"or" => Some(Elixir::PIPEPIPE),
+        _ => None,
+    }
+}
+
+/// The `Kernel` remote call that applies `op`, an operator's name — the
 /// call [`elixir_kernel_operator_token`] answers `op` for — or `None`
-/// when `op` sits anywhere else. The token's parents are the
-/// `operator_identifier`, then the `dot`, then the call.
+/// when `op` sits anywhere else. A token's parents are the
+/// `operator_identifier`, then the `dot`, then the call; the
+/// `identifier` naming `Kernel.and` sits on the `dot` directly. Any
+/// other node fails on the first one or two parents' kinds, so the
+/// check is cheap enough to ask of every identifier a walk meets.
 #[must_use]
 pub fn elixir_applying_remote_call<'a>(
     op: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
 ) -> Option<Node<'a>> {
-    let (call, _) = ancestors.iter(op).nth(2)?;
+    let mut up = ancestors.iter(op).map(|(ancestor, _)| ancestor);
+    let mut dot = up.next()?;
+    if dot.kind() == "operator_identifier" {
+        dot = up.next()?;
+    }
+    if dot.kind() != "dot" {
+        return None;
+    }
+    let call = up.next()?;
     elixir_kernel_operator_token(&call, code)
-        .is_some_and(|token| token.id() == op.id())
+        .is_some_and(|name| name.id() == op.id())
         .then_some(call)
 }

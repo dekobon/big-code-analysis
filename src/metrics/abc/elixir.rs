@@ -15,7 +15,7 @@ use super::{
 };
 use crate::lang_helpers::elixir::{
     elixir_applying_operator, elixir_applying_remote_call, elixir_call_keyword,
-    elixir_kernel_operator_token,
+    elixir_kernel_operator_token, elixir_short_circuit_name,
 };
 use crate::metrics::elixir_decisions::{
     elixir_arrow_is_with_clause, elixir_clause_is_decision, elixir_keyword_section,
@@ -78,8 +78,9 @@ fn elixir_binary_operator_is(node: &Node, accept: impl Fn(Elixir) -> bool) -> bo
 // each operand through `elixir_count_condition` — so every operand
 // either pays there or is one of these, and a chain always carries at
 // least one condition of its own. A short-circuit `Kernel` remote call
-// (`Kernel.||(a, b)`) is that chain spelled as a call, and its operands
-// pay through `elixir_count_remote_chain` in the same way (#1574).
+// (`Kernel.||(a, b)`, `Kernel.or(a, b)`) is that chain spelled as a
+// call, and its operands pay through `elixir_count_remote_chain` in the
+// same way (#1574, #1582).
 //
 // The operator list must agree with the token arms in `compute`: an
 // operator listed here and counted nowhere would leave its slot at zero,
@@ -88,7 +89,8 @@ fn elixir_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Elixir as E;
 
     elixir_kernel_operator_token(expr, code)
-        .is_some_and(|op| matches!(op.kind_id().into(), E::AMPAMP | E::PIPEPIPE))
+        .and_then(|name| elixir_short_circuit_name(&name, code))
+        .is_some()
         || elixir_binary_operator_is(expr, |op| {
             matches!(
                 op,
@@ -204,12 +206,23 @@ fn elixir_has_else(call: &Node, code: &[u8]) -> bool {
 // Which side of the pipe the call sits on is not checked: in
 // `Kernel.||(a, b) |> f()` the piped value is the call itself, which
 // `elixir_condition_scores_itself` already says pays nothing.
+//
+// `op` is the operator's name, a token or the `identifier` of
+// `Kernel.and` / `Kernel.or` (#1582); any other node scores nothing.
 fn elixir_count_remote_chain<'a>(
-    call: &Node<'a>,
-    code: &[u8],
-    mut up: impl Iterator<Item = Node<'a>>,
+    op: &Node<'a>,
+    code: &'a [u8],
+    ancestors: Ancestors<'a, '_>,
     conditions: &mut f64,
 ) {
+    let Some(call) = elixir_applying_remote_call(op, code, ancestors) else {
+        return;
+    };
+    let mut up = ancestors
+        .iter(op)
+        .map(|(ancestor, _)| ancestor)
+        .skip_while(|ancestor| ancestor.id() != call.id())
+        .skip(1);
     let score = |operand: &Node, conditions: &mut f64| {
         elixir_count_condition(operand, code, conditions);
     };
@@ -490,14 +503,15 @@ impl Abc for ElixirCode {
                         |operand, conditions| elixir_count_condition(operand, code, conditions),
                         &mut stats.conditions,
                     );
-                } else if let Some(call) = elixir_applying_remote_call(node, code, ancestors) {
-                    let above_call = ancestors
-                        .iter(node)
-                        .map(|(ancestor, _)| ancestor)
-                        .skip_while(|ancestor| ancestor.id() != call.id())
-                        .skip(1);
-                    elixir_count_remote_chain(&call, code, above_call, &mut stats.conditions);
+                } else {
+                    elixir_count_remote_chain(node, code, ancestors, &mut stats.conditions);
                 }
+            }
+            // `Kernel.and(a, b)` / `Kernel.or(a, b)` name the operator
+            // with an `identifier`, so the token arm above never sees
+            // them; they are the same chain spelled as a call (#1582).
+            E::Identifier => {
+                elixir_count_remote_chain(node, code, ancestors, &mut stats.conditions);
             }
             E::StabClause if elixir_clause_is_decision(node, code, ancestors) => {
                 elixir_count_clause(node, code, &mut stats.conditions);

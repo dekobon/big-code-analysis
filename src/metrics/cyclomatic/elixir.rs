@@ -131,6 +131,15 @@ impl Cyclomatic for ElixirCode {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }
+            // `Kernel.and(a, b)` / `Kernel.or(a, b)` name the operator
+            // with an `identifier` rather than a token, so the arm above
+            // never sees them; they expand the same short-circuit macro
+            // and decide as `a and b` does (#1582). Only those two names
+            // are found, so no other identifier passes the guard.
+            E::Identifier if elixir_applying_remote_call(node, code, ancestors).is_some() => {
+                stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
+            }
             E::Call => {
                 if let Some(target) = node.child_by_field_name("target")
                     && target.kind_id() == E::Identifier
