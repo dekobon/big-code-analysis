@@ -139,6 +139,8 @@ number and the higher number stays as a redirect.
 | [93](#93-a-gate-that-reads-a-typed-accessor-is-invisible-to-the-front-ends-that-read-the-wire) | A gate that reads a typed accessor is invisible to the front-ends that read the wire |
 | [94](#94-a-sweep-that-finds-nothing-only-rules-out-what-its-predicate-can-express) | A sweep that finds nothing only rules out what its predicate can express |
 | [95](#95-error-recovery-inserts-tokens-that-is_missing-does-not-flag) | Skip invented tokens by width, not `is_missing()` — valid code triggers it too |
+| [96](#96-a-tree-sitter-child-seek-is-olog-n-only-through-a-grammar-repetition) | A tree-sitter child seek is O(log n) only through a grammar repetition — the walk is the O(1) source of siblings |
+| [97](#97-a-beforeafter-on-a-rebuilt-corpus-measures-the-corpus) | A before/after on a rebuilt corpus measures the corpus — run the old binary on it too |
 
 ---
 
@@ -2112,7 +2114,11 @@ slot from positional to field addressing, dump the AST for *each*
 spelling of the construct before choosing the fixture: two spellings
 that look interchangeable can put the `;` at different indices, and an
 empty-slot regression test written against the wrong one passes
-vacuously under the old code.
+vacuously under the old code. The same rule holds upward: a fixed-depth
+parent climb (`up.nth(2)`) is positional addressing of an ancestor.
+Climb by role, stepping over an optional wrapper, and verify the
+identity top-down — that the node reached is the one the construct's
+own accessor returns.
 
 Each language's grammar makes a different choice about which slots are
 optional, so the bug is per-language and per-statement-kind, not
@@ -2147,6 +2153,17 @@ other grammar the fix touched exposes a `condition` field. One level
 deeper, every `*_inspect_container` but Tcl's and iRules' still unwraps
 with `node.child(1)`, so `if ((/* n */ a))` scores zero there — #1181's
 defect inside the wrapper, left open.
+
+**Elixir's section lookup climbed exactly two parents** (#1574). A
+trailing bracketed keyword list `[do: …, else: …]` inserts a `list`
+between `keywords` and `arguments`, so the climb from a pair landed on
+`arguments` instead of the Call and answered "no owner" plausibly:
+`with` lost its modified-cyclomatic `else` tier, `for … reduce:` scored
+its accumulator head as a decision, `cond` lost its free `true ->`, and
+keyword-form `if` / `unless` lost ABC's `else` condition. The fix climbs
+by role over the optional `list` and accepts the node only when
+`elixir_trailing_keywords` returns the same pair from the top — which is
+also what rejects a non-trailing or nested list.
 
 ---
 
@@ -2258,7 +2275,10 @@ access"). A shape-only proxy passes every test whose fixtures happen to
 use the expected identity and silently mis-handles every other receiver;
 if you must approximate, document it as an under-approximation and prove
 the boundary with a fixture using a *foreign* receiver. Do not reach for
-`to_string_lossy()` here (lesson 43).
+`to_string_lossy()` here (lesson 43). When a grammar folds a reserved
+word into the name kind, gate by text in every position the word can
+occupy and exclude only the positions the language specification allows
+it as a name — not the one kind the issue happens to name.
 
 "An `Attribute` whose first child is an `Identifier`" *looks* like
 `self.x`, but it is equally `db.x` and `logger.x`. The shape answers "is
@@ -2276,6 +2296,17 @@ inflated NPA directly. The fix matches receiver bytes against
 `PYTHON_SELF_RECEIVERS`, borrowing from `code` so the slice doubles as
 the dedup key, and separates `self.f.g = 1` (an attribute on `self.f`)
 from `self.g = 1` — a distinction the structural proxy could never make.
+
+**Groovy billed its primitive types as operands** (#1568). The grammar
+has no primitive node: `int` is a `type_identifier` in a declaration but
+a plain `identifier` in `int.class` and in an uninitialised `int t`, so
+the issue's proposed `type_identifier`-only gate would have left half
+the shapes diverging from Java. The fix classifies the nine spellings by
+text wherever they appear and excludes the name positions the Groovy
+spec permits — after a member-access operator (`x.int`, `x?.int`,
+`x*.int`, `x::int`) and as a map or named-argument label (`[int: 1]`,
+`f(int: 1)`) — pinned by a Java-twin test on shared declarations and by
+the class-literal rows in one shared expectation table.
 
 ---
 
@@ -2538,7 +2569,10 @@ increment — so its default really is redundant — before suppressing, and
 confirm the shared node kind is not also serving a chain construct where
 the arm is a legitimate +1. See
 [`grammar-dispatch.md` §8](../../.claude/rules/grammar-dispatch.md) and
-lesson 11 for the cross-metric agreement rule.
+lesson 11 for the cross-metric agreement rule. A construct can offer two
+candidate defaults; exactly one is free. Decide by counting reachable
+paths, and write the fixture that carries both arms — one that carries
+either is satisfied by the wrong rule.
 
 **Ruby `case`-else is +0 but `begin`/`rescue`-else is +1** (#451,
 `30a435ae`). The shared `R::Else` node appears under three constructs. A
@@ -2550,6 +2584,16 @@ of Python `try` / `except` / `else`, which is +1. **The issue's own fix
 plan proposed suppressing rescue-else too**; doing so would have
 introduced a *fresh* divergence from Python. The fix gates only on
 `parent ∈ {Case, CaseMatch}`.
+
+**Elixir `receive` with both `_ ->` and `after` had two free arms**
+(#1581, caught by the whole-branch review). #1581 made the `after`
+timeout clause free as "receive's default arm, the role `_ ->` plays in
+a `case`" — but `_ ->` stayed free under `receive` too. `receive do
+{:a, y} -> y; _ -> 0 after 10 -> :t end` has three reachable paths and
+scored one decision, the same as a two-path `case`. The per-issue
+review and `audit-tests` both passed, because every fixture had one arm
+or the other and never both. The rule is now one free arm: the catch-all
+if the `do` section has one, otherwise `after`.
 
 ---
 
@@ -3188,7 +3232,12 @@ wrong answers rather than a failure, and a parity test written against a
 step `O(1)`, not the climb: a predicate that walks "until the first
 ancestor that is not X" is still `O(depth)` per node wherever X can
 nest without bound, so propagate the *answer* instead, and add a
-`bench-scaling` probe of that shape before trusting the gate.
+`bench-scaling` probe of that shape before trusting the gate. And
+before deriving a chain for a predicate that lacks one, check whether
+its caller's walk already carries it: the `find` / `count` `call`
+filter had `ancestors` in hand all along, so a `_with_code` spelling
+that forwards by default was cheaper, and linear, where a new
+`Node::parent` climb would have been neither (#1580).
 
 `tree_sitter` stores no parent pointer — `Node::parent` restarts at the
 root and descends — so any predicate asking a node for an ancestor is
@@ -3898,7 +3947,12 @@ what the author wrote must key on **width** (`start_byte() ==
 end_byte()`), not on `Node::is_missing()`. Prove it with one malformed
 fixture per grammar the guard covers. Do not assume the trap needs
 invalid input: grammars cannot parse every valid program, and they
-recover from the gap the same way.
+recover from the gap the same way. The inverse trap is a *real* token
+that recovery wraps in an `ERROR` it marks as an extra: a sibling helper
+written to step over comments steps over the token too. Skip
+`is_extra() && !is_error()` only, and prove it with a fixture whose
+recovery puts an `ERROR` between the subject and the token the helper
+looks for.
 
 When tree-sitter recovers from a parse error, it can insert a token the
 source lacks, such as a `;`, a `)` or an identifier. The inserted token
@@ -3925,5 +3979,85 @@ contain one.
 - Width answers "was a token written", not "is the input malformed":
   valid trees contain zero-width nodes too, such as an empty Bash heredoc
   body.
+
+**A stray `,` before `=>` hid a real token inside an extra** (#1572).
+`(name, => 1)` is valid Perl — consecutive commas are legal, and `=>`
+quotes only the word immediately to its left, so `name` is a call — but
+the grammar recovers by wrapping the `,` in an `ERROR` flagged
+`is_extra()`. The key-position predicate's `next_non_extra`, written to
+look past comments, skipped it and quoted `name` as a hash key. The
+fix's review caught it; the helper now passes over comments only, as
+the rule `perl_not_is_key` beside it already did.
+
+---
+
+## 96. A tree-sitter child seek is O(log n) only through a grammar repetition
+
+**Lesson:** Answer "which sibling sits next to this child" from the walk
+that pushed the children, never from a tree-sitter seek on the parent.
+`goto_first_child_for_byte`, `Node::child(i)`, `next_sibling` and
+`goto_previous_sibling` are O(log n) only when the parent's children are
+stored as a grammar `repeat()`'s balanced hidden subtree. Over a flat
+child array — every `ERROR` that recovery builds by skipping tokens —
+each is O(index), and a per-child sibling question is quadratic. Record a
+wide node's children when the walk pushes them, lend the record through
+the ancestor chain, and gate the shape with a `bench-scaling` probe whose
+body really flattens: plain repetition folds into nested
+`binary_expression`s and keeps its repeat structure, so a probe needs a
+stray `{` or `$d` per unit before it measures the flat case.
+
+The cost is invisible on the inputs anyone tests. Valid code and an
+unclosed list both keep the repetition's hidden levels, so a seek that
+is documented O(log n) is O(log n) there, and a timing probe written
+from the same shapes fits linear. Only an `ERROR` holding its children
+as one flat array exposes the scan — and real files produce one: a
+Perl debugger script whose tail fails to parse has 30,798 direct
+children under its root.
+
+**Perl ABC and Halstead were quadratic under a flat `ERROR`** (#1584,
+found while writing #1575's probes). `children_after` /
+`children_before` from #1545 and #1558 carried an O(log n) claim that
+held for the unclosed-list probe written beside them, because that list
+kept its repeat structure. With a `{` per body the root became a flat
+`ERROR` and the bareword-key and misparse lookups ran 4.07× per
+doubling, 8.99 s at 32,000 keys. Halstead and `ops` hit the same scan
+through the dash-key and `not`-key helpers, and
+`Ancestors::previous_sibling` made Kotlin Halstead quadratic on a
+*valid* string of 8,000 `$a` interpolations (11.47 s). The fix records
+each node with more than `WIDE_PARENT` children into a per-depth
+`SiblingCache` as the metric, `ops` and `find`/`count` walks push them,
+and every lookup falls back to the old seek on a miss; five probes trip
+at 1.7–2.1 with the cache ignored and fit 0.9–1.1 with it.
+
+---
+
+## 97. A before/after on a rebuilt corpus measures the corpus
+
+**Lesson:** When re-deriving a calibrated default after a metric
+definition changes, measure the rebuilt corpus with the previous release
+binary as well as the new one, and attribute each row's movement to the
+metric or to the sample before touching a limit or a published table.
+Record the corpus — repositories, commit SHAs, exclusion globs — in the
+repository, so the next re-derivation has an identical sample to run
+both binaries against instead of a comparable one.
+
+A percentile of a sampled corpus moves with the sample. A metric change
+and a sample change present identically — the per-language rows moved —
+and the issue that asks for the re-derivation presupposes the first
+cause, because the metric change is what prompted it. Without the
+old-binary run on the same files there is nothing to separate the two,
+and the stale-looking rows read as drift to correct.
+
+**The `halstead.effort` default survived a re-derivation that looked
+like a 5× drift** (#1569). #1140's 43-repository corpus had never been
+recorded, so a comparable 41-repository one was rebuilt. Against the
+book's rows it moved 2–5× (C# 4.6×), and the issue's own evidence called
+Java's rationale "off by about 5×". Run with the v2.3.0 binary on the
+identical rebuilt files, the vocabulary changes moved p97.5 by at most
+47% (Python) and the median-language flag rate from 2.23% to 2.20%:
+almost all of the movement was the change of repositories. The default
+stayed at 50,000, the book's column was regenerated from the new
+corpus, and the corpus is recorded in
+`docs/development/threshold_corpus.md`.
 
 ---
